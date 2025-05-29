@@ -1079,7 +1079,7 @@ pub fn updateFunc(
     var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
     defer code_buffer.deinit(gpa);
 
-    codegen.generateFunction(
+    try codegen.generateFunction(
         &coff.base,
         pt,
         zcu.navSrcLoc(nav_index),
@@ -1088,20 +1088,7 @@ pub fn updateFunc(
         liveness,
         &code_buffer,
         .none,
-    ) catch |err| switch (err) {
-        error.CodegenFail => return error.CodegenFail,
-        error.OutOfMemory => return error.OutOfMemory,
-        error.Overflow, error.RelocationNotByteAligned => |e| {
-            try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
-                gpa,
-                zcu.navSrcLoc(nav_index),
-                "unable to codegen: {s}",
-                .{@errorName(e)},
-            ));
-            try zcu.retryable_failures.append(zcu.gpa, AnalUnit.wrap(.{ .func = func_index }));
-            return error.CodegenFail;
-        },
-    };
+    );
 
     try coff.updateNavCode(pt, nav_index, code_buffer.items, .FUNCTION);
 

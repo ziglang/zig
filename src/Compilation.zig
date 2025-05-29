@@ -43,7 +43,6 @@ const Air = @import("Air.zig");
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
-const ThreadSafeQueue = @import("ThreadSafeQueue.zig").ThreadSafeQueue;
 
 pub const Config = @import("Compilation/Config.zig");
 
@@ -113,17 +112,7 @@ win32_resource_table: if (dev.env.supports(.win32_resource)) std.AutoArrayHashMa
 } = .{},
 
 link_diags: link.Diags,
-link_task_queue: ThreadSafeQueue(link.Task) = .empty,
-/// Ensure only 1 simultaneous call to `flushTaskQueue`.
-link_task_queue_safety: std.debug.SafetyLock = .{},
-/// If any tasks are queued up that depend on prelink being finished, they are moved
-/// here until prelink finishes.
-link_task_queue_postponed: std.ArrayListUnmanaged(link.Task) = .empty,
-/// Initialized with how many link input tasks are expected. After this reaches zero
-/// the linker will begin the prelink phase.
-/// Initialized in the Compilation main thread before the pipeline; modified only in
-/// the linker task thread.
-remaining_prelink_tasks: u32,
+link_task_queue: link.Queue = .empty,
 
 /// Set of work that can be represented by only flags to determine whether the
 /// work is queued or not.
@@ -846,15 +835,24 @@ pub const RcIncludes = enum {
 };
 
 const Job = union(enum) {
-    /// Corresponds to the task in `link.Task`.
-    /// Only needed for backends that haven't yet been updated to not race against Sema.
+    /// Given the generated AIR for a function, put it onto the code generation queue.
+    /// This `Job` exists (instead of the `link.ZcuTask` being directly queued) to ensure that
+    /// all types are resolved before the linker task is queued.
+    /// If the backend does not support `Zcu.Feature.separate_thread`, codegen and linking happen immediately.
+    codegen_func: struct {
+        func: InternPool.Index,
+        /// The AIR emitted from analyzing `func`; owned by this `Job` in `gpa`.
+        air: Air,
+    },
+    /// Queue a `link.ZcuTask` to emit this non-function `Nav` into the output binary.
+    /// This `Job` exists (instead of the `link.ZcuTask` being directly queued) to ensure that
+    /// all types are resolved before the linker task is queued.
+    /// If the backend does not support `Zcu.Feature.separate_thread`, the task is run immediately.
     link_nav: InternPool.Nav.Index,
-    /// Corresponds to the task in `link.Task`.
-    /// TODO: this is currently also responsible for performing codegen.
-    /// Only needed for backends that haven't yet been updated to not race against Sema.
-    link_func: link.Task.CodegenFunc,
-    /// Corresponds to the task in `link.Task`.
-    /// Only needed for backends that haven't yet been updated to not race against Sema.
+    /// Queue a `link.ZcuTask` to emit debug information for this container type.
+    /// This `Job` exists (instead of the `link.ZcuTask` being directly queued) to ensure that
+    /// all types are resolved before the linker task is queued.
+    /// If the backend does not support `Zcu.Feature.separate_thread`, the task is run immediately.
     link_type: InternPool.Index,
     update_line_number: InternPool.TrackedInst.Index,
     /// The `AnalUnit`, which is *not* a `func`, must be semantically analyzed.
@@ -880,13 +878,13 @@ const Job = union(enum) {
         return switch (tag) {
             // Prioritize functions so that codegen can get to work on them on a
             // separate thread, while Sema goes back to its own work.
-            .resolve_type_fully, .analyze_func, .link_func => 0,
+            .resolve_type_fully, .analyze_func, .codegen_func => 0,
             else => 1,
         };
     }
     comptime {
         // Job dependencies
-        assert(stage(.resolve_type_fully) <= stage(.link_func));
+        assert(stage(.resolve_type_fully) <= stage(.codegen_func));
     }
 };
 
@@ -2004,7 +2002,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .file_system_inputs = options.file_system_inputs,
             .parent_whole_cache = options.parent_whole_cache,
             .link_diags = .init(gpa),
-            .remaining_prelink_tasks = 0,
         };
 
         // Prevent some footguns by making the "any" fields of config reflect
@@ -2213,7 +2210,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         };
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
-    comp.remaining_prelink_tasks += @intCast(comp.c_object_table.count());
+    comp.link_task_queue.pending_prelink_tasks += @intCast(comp.c_object_table.count());
 
     // Add a `Win32Resource` for each `rc_source_files` and one for `manifest_file`.
     const win32_resource_count =
@@ -2224,7 +2221,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // Add this after adding logic to updateWin32Resource to pass the
         // result into link.loadInput. loadInput integration is not implemented
         // for Windows linking logic yet.
-        //comp.remaining_prelink_tasks += @intCast(win32_resource_count);
+        //comp.link_task_queue.pending_prelink_tasks += @intCast(win32_resource_count);
         for (options.rc_source_files) |rc_source_file| {
             const win32_resource = try gpa.create(Win32Resource);
             errdefer gpa.destroy(win32_resource);
@@ -2275,78 +2272,76 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     const paths = try lci.resolveCrtPaths(arena, basenames, target);
 
                     const fields = @typeInfo(@TypeOf(paths)).@"struct".fields;
-                    try comp.link_task_queue.shared.ensureUnusedCapacity(gpa, fields.len + 1);
+                    try comp.link_task_queue.queued_prelink.ensureUnusedCapacity(gpa, fields.len + 1);
                     inline for (fields) |field| {
                         if (@field(paths, field.name)) |path| {
-                            comp.link_task_queue.shared.appendAssumeCapacity(.{ .load_object = path });
-                            comp.remaining_prelink_tasks += 1;
+                            comp.link_task_queue.queued_prelink.appendAssumeCapacity(.{ .load_object = path });
                         }
                     }
                     // Loads the libraries provided by `target_util.libcFullLinkFlags(target)`.
-                    comp.link_task_queue.shared.appendAssumeCapacity(.load_host_libc);
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.queued_prelink.appendAssumeCapacity(.load_host_libc);
                 } else if (target.isMuslLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (musl.needsCrt0(comp.config.output_mode, comp.config.link_mode, comp.config.pie)) |f| {
                         comp.queued_jobs.musl_crt_file[@intFromEnum(f)] = true;
-                        comp.remaining_prelink_tasks += 1;
+                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
                     switch (comp.config.link_mode) {
                         .static => comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.libc_a)] = true,
                         .dynamic => comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.libc_so)] = true,
                     }
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (target.isGnuLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (glibc.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.glibc_crt_file[@intFromEnum(f)] = true;
-                        comp.remaining_prelink_tasks += 1;
+                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
                     comp.queued_jobs.glibc_shared_objects = true;
-                    comp.remaining_prelink_tasks += glibc.sharedObjectsCount(&target);
+                    comp.link_task_queue.pending_prelink_tasks += glibc.sharedObjectsCount(&target);
 
                     comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.libc_nonshared_a)] = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (target.isFreeBSDLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (freebsd.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.freebsd_crt_file[@intFromEnum(f)] = true;
-                        comp.remaining_prelink_tasks += 1;
+                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
 
                     comp.queued_jobs.freebsd_shared_objects = true;
-                    comp.remaining_prelink_tasks += freebsd.sharedObjectsCount();
+                    comp.link_task_queue.pending_prelink_tasks += freebsd.sharedObjectsCount();
                 } else if (target.isNetBSDLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (netbsd.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.netbsd_crt_file[@intFromEnum(f)] = true;
-                        comp.remaining_prelink_tasks += 1;
+                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
 
                     comp.queued_jobs.netbsd_shared_objects = true;
-                    comp.remaining_prelink_tasks += netbsd.sharedObjectsCount();
+                    comp.link_task_queue.pending_prelink_tasks += netbsd.sharedObjectsCount();
                 } else if (target.isWasiLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     for (comp.wasi_emulated_libs) |crt_file| {
                         comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(crt_file)] = true;
                     }
-                    comp.remaining_prelink_tasks += @intCast(comp.wasi_emulated_libs.len);
+                    comp.link_task_queue.pending_prelink_tasks += @intCast(comp.wasi_emulated_libs.len);
 
                     comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(wasi_libc.execModelCrtFile(comp.config.wasi_exec_model))] = true;
                     comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(wasi_libc.CrtFile.libc_a)] = true;
-                    comp.remaining_prelink_tasks += 2;
+                    comp.link_task_queue.pending_prelink_tasks += 2;
                 } else if (target.isMinGW()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     const main_crt_file: mingw.CrtFile = if (is_dyn_lib) .dllcrt2_o else .crt2_o;
                     comp.queued_jobs.mingw_crt_file[@intFromEnum(main_crt_file)] = true;
                     comp.queued_jobs.mingw_crt_file[@intFromEnum(mingw.CrtFile.libmingw32_lib)] = true;
-                    comp.remaining_prelink_tasks += 2;
+                    comp.link_task_queue.pending_prelink_tasks += 2;
 
                     // When linking mingw-w64 there are some import libs we always need.
                     try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
@@ -2360,7 +2355,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     target.isMinGW())
                 {
                     comp.queued_jobs.zigc_lib = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
             }
 
@@ -2377,59 +2372,63 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             }
             if (comp.wantBuildLibUnwindFromSource()) {
                 comp.queued_jobs.libunwind = true;
-                comp.remaining_prelink_tasks += 1;
+                comp.link_task_queue.pending_prelink_tasks += 1;
             }
             if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.link_libcpp) {
                 comp.queued_jobs.libcxx = true;
                 comp.queued_jobs.libcxxabi = true;
-                comp.remaining_prelink_tasks += 2;
+                comp.link_task_queue.pending_prelink_tasks += 2;
             }
             if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.any_sanitize_thread) {
                 comp.queued_jobs.libtsan = true;
-                comp.remaining_prelink_tasks += 1;
+                comp.link_task_queue.pending_prelink_tasks += 1;
             }
 
             if (can_build_compiler_rt) {
                 if (comp.compiler_rt_strat == .lib) {
                     log.debug("queuing a job to build compiler_rt_lib", .{});
                     comp.queued_jobs.compiler_rt_lib = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (comp.compiler_rt_strat == .obj) {
                     log.debug("queuing a job to build compiler_rt_obj", .{});
                     // In this case we are making a static library, so we ask
                     // for a compiler-rt object to put in it.
                     comp.queued_jobs.compiler_rt_obj = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
 
                 if (comp.ubsan_rt_strat == .lib) {
                     log.debug("queuing a job to build ubsan_rt_lib", .{});
                     comp.queued_jobs.ubsan_rt_lib = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (comp.ubsan_rt_strat == .obj) {
                     log.debug("queuing a job to build ubsan_rt_obj", .{});
                     comp.queued_jobs.ubsan_rt_obj = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
 
                 if (is_exe_or_dyn_lib and comp.config.any_fuzz) {
                     log.debug("queuing a job to build libfuzzer", .{});
                     comp.queued_jobs.fuzzer_lib = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
             }
         }
 
-        try comp.link_task_queue.shared.append(gpa, .load_explicitly_provided);
-        comp.remaining_prelink_tasks += 1;
+        try comp.link_task_queue.queued_prelink.append(gpa, .load_explicitly_provided);
     }
-    log.debug("total prelink tasks: {d}", .{comp.remaining_prelink_tasks});
+    log.debug("queued prelink tasks: {d}", .{comp.link_task_queue.queued_prelink.items.len});
+    log.debug("pending prelink tasks: {d}", .{comp.link_task_queue.pending_prelink_tasks});
 
     return comp;
 }
 
 pub fn destroy(comp: *Compilation) void {
     const gpa = comp.gpa;
+
+    // This needs to be destroyed first, because it might contain MIR which we only know
+    // how to interpret (which kind of MIR it is) from `comp.bin_file`.
+    comp.link_task_queue.deinit(comp);
 
     if (comp.bin_file) |lf| lf.destroy();
     if (comp.zcu) |zcu| zcu.deinit();
@@ -2512,8 +2511,6 @@ pub fn destroy(comp: *Compilation) void {
     comp.failed_win32_resources.deinit(gpa);
 
     comp.link_diags.deinit();
-    comp.link_task_queue.deinit(gpa);
-    comp.link_task_queue_postponed.deinit(gpa);
 
     comp.clearMiscFailures();
 
@@ -4180,9 +4177,7 @@ fn performAllTheWorkInner(
     comp.link_task_wait_group.reset();
     defer comp.link_task_wait_group.wait();
 
-    if (comp.link_task_queue.start()) {
-        comp.thread_pool.spawnWgId(&comp.link_task_wait_group, link.flushTaskQueue, .{comp});
-    }
+    comp.link_task_queue.start(comp);
 
     if (comp.docs_emit != null) {
         dev.check(.docs_emit);
@@ -4498,7 +4493,7 @@ fn performAllTheWorkInner(
         comp.link_task_wait_group.wait();
         comp.link_task_wait_group.reset();
         std.log.scoped(.link).debug("finished waiting for link_task_wait_group", .{});
-        if (comp.remaining_prelink_tasks > 0) {
+        if (comp.link_task_queue.pending_prelink_tasks > 0) {
             // Indicates an error occurred preventing prelink phase from completing.
             return;
         }
@@ -4543,6 +4538,45 @@ pub fn queueJobs(comp: *Compilation, jobs: []const Job) !void {
 
 fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
     switch (job) {
+        .codegen_func => |func| {
+            const zcu = comp.zcu.?;
+            const gpa = zcu.gpa;
+            var air = func.air;
+            errdefer air.deinit(gpa);
+            if (!air.typesFullyResolved(zcu)) {
+                // Type resolution failed in a way which affects this function. This is a transitive
+                // failure, but it doesn't need recording, because this function semantically depends
+                // on the failed type, so when it is changed the function is updated.
+                air.deinit(gpa);
+                return;
+            }
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
+            const shared_mir = try gpa.create(link.ZcuTask.LinkFunc.SharedMir);
+            shared_mir.* = .{
+                .status = .init(.pending),
+                .value = undefined,
+            };
+            if (comp.separateCodegenThreadOk()) {
+                // `workerZcuCodegen` takes ownership of `air`.
+                comp.thread_pool.spawnWgId(&comp.link_task_wait_group, workerZcuCodegen, .{ comp, func.func, air, shared_mir });
+                comp.dispatchZcuLinkTask(tid, .{ .link_func = .{
+                    .func = func.func,
+                    .mir = shared_mir,
+                    .air = undefined,
+                } });
+            } else {
+                const emit_needs_air = !zcu.backendSupportsFeature(.separate_thread);
+                pt.runCodegen(func.func, &air, shared_mir);
+                assert(shared_mir.status.load(.monotonic) != .pending);
+                comp.dispatchZcuLinkTask(tid, .{ .link_func = .{
+                    .func = func.func,
+                    .mir = shared_mir,
+                    .air = if (emit_needs_air) &air else undefined,
+                } });
+                air.deinit(gpa);
+            }
+        },
         .link_nav => |nav_index| {
             const zcu = comp.zcu.?;
             const nav = zcu.intern_pool.getNav(nav_index);
@@ -4559,17 +4593,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 // on the failed type, so when it is changed the `Nav` will be updated.
                 return;
             }
-            comp.dispatchLinkTask(tid, .{ .link_nav = nav_index });
-        },
-        .link_func => |func| {
-            const zcu = comp.zcu.?;
-            if (!func.air.typesFullyResolved(zcu)) {
-                // Type resolution failed in a way which affects this function. This is a transitive
-                // failure, but it doesn't need recording, because this function semantically depends
-                // on the failed type, so when it is changed the function is updated.
-                return;
-            }
-            comp.dispatchLinkTask(tid, .{ .link_func = func });
+            comp.dispatchZcuLinkTask(tid, .{ .link_nav = nav_index });
         },
         .link_type => |ty| {
             const zcu = comp.zcu.?;
@@ -4580,10 +4604,10 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 // on the failed type, so when that is changed, this type will be updated.
                 return;
             }
-            comp.dispatchLinkTask(tid, .{ .link_type = ty });
+            comp.dispatchZcuLinkTask(tid, .{ .link_type = ty });
         },
         .update_line_number => |ti| {
-            comp.dispatchLinkTask(tid, .{ .update_line_number = ti });
+            comp.dispatchZcuLinkTask(tid, .{ .update_line_number = ti });
         },
         .analyze_func => |func| {
             const named_frame = tracy.namedFrame("analyze_func");
@@ -4675,18 +4699,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
     }
 }
 
-/// The reason for the double-queue here is that the first queue ensures any
-/// resolve_type_fully tasks are complete before this dispatch function is called.
-fn dispatchLinkTask(comp: *Compilation, tid: usize, link_task: link.Task) void {
-    if (comp.separateCodegenThreadOk()) {
-        comp.queueLinkTasks(&.{link_task});
-    } else {
-        assert(comp.remaining_prelink_tasks == 0);
-        link.doTask(comp, tid, link_task);
-    }
-}
-
-fn separateCodegenThreadOk(comp: *const Compilation) bool {
+pub fn separateCodegenThreadOk(comp: *const Compilation) bool {
     if (InternPool.single_threaded) return false;
     const zcu = comp.zcu orelse return true;
     return zcu.backendSupportsFeature(.separate_thread);
@@ -5273,6 +5286,21 @@ pub const RtOptions = struct {
     allow_lto: bool = true,
 };
 
+fn workerZcuCodegen(
+    tid: usize,
+    comp: *Compilation,
+    func_index: InternPool.Index,
+    orig_air: Air,
+    out: *link.ZcuTask.LinkFunc.SharedMir,
+) void {
+    var air = orig_air;
+    // We own `air` now, so we are responsbile for freeing it.
+    defer air.deinit(comp.gpa);
+    const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+    defer pt.deactivate();
+    pt.runCodegen(func_index, &air, out);
+}
+
 fn buildRt(
     comp: *Compilation,
     root_source_name: []const u8,
@@ -5804,7 +5832,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         },
     };
 
-    comp.queueLinkTasks(&.{.{ .load_object = c_object.status.success.object_path }});
+    comp.queuePrelinkTasks(&.{.{ .load_object = c_object.status.success.object_path }});
 }
 
 fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32_resource_prog_node: std.Progress.Node) !void {
@@ -7237,7 +7265,7 @@ fn buildOutputFromZig(
     assert(out.* == null);
     out.* = crt_file;
 
-    comp.queueLinkTaskMode(crt_file.full_object_path, &config);
+    comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
 }
 
 pub const CrtFileOptions = struct {
@@ -7361,7 +7389,7 @@ pub fn build_crt_file(
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
     const crt_file = try sub_compilation.toCrtFile();
-    comp.queueLinkTaskMode(crt_file.full_object_path, &config);
+    comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
 
     {
         comp.mutex.lock();
@@ -7371,8 +7399,8 @@ pub fn build_crt_file(
     }
 }
 
-pub fn queueLinkTaskMode(comp: *Compilation, path: Cache.Path, config: *const Compilation.Config) void {
-    comp.queueLinkTasks(switch (config.output_mode) {
+pub fn queuePrelinkTaskMode(comp: *Compilation, path: Cache.Path, config: *const Compilation.Config) void {
+    comp.queuePrelinkTasks(switch (config.output_mode) {
         .Exe => unreachable,
         .Obj => &.{.{ .load_object = path }},
         .Lib => &.{switch (config.link_mode) {
@@ -7384,12 +7412,30 @@ pub fn queueLinkTaskMode(comp: *Compilation, path: Cache.Path, config: *const Co
 
 /// Only valid to call during `update`. Automatically handles queuing up a
 /// linker worker task if there is not already one.
-pub fn queueLinkTasks(comp: *Compilation, tasks: []const link.Task) void {
-    if (comp.link_task_queue.enqueue(comp.gpa, tasks) catch |err| switch (err) {
+pub fn queuePrelinkTasks(comp: *Compilation, tasks: []const link.PrelinkTask) void {
+    comp.link_task_queue.enqueuePrelink(comp, tasks) catch |err| switch (err) {
         error.OutOfMemory => return comp.setAllocFailure(),
-    }) {
-        comp.thread_pool.spawnWgId(&comp.link_task_wait_group, link.flushTaskQueue, .{comp});
+    };
+}
+
+/// The reason for the double-queue here is that the first queue ensures any
+/// resolve_type_fully tasks are complete before this dispatch function is called.
+fn dispatchZcuLinkTask(comp: *Compilation, tid: usize, task: link.ZcuTask) void {
+    if (!comp.separateCodegenThreadOk()) {
+        assert(tid == 0);
+        if (task == .link_func) {
+            assert(task.link_func.mir.status.load(.monotonic) != .pending);
+        }
+        link.doZcuTask(comp, tid, task);
+        task.deinit(comp.zcu.?);
+        return;
     }
+    comp.link_task_queue.enqueueZcu(comp, task) catch |err| switch (err) {
+        error.OutOfMemory => {
+            task.deinit(comp.zcu.?);
+            comp.setAllocFailure();
+        },
+    };
 }
 
 pub fn toCrtFile(comp: *Compilation) Allocator.Error!CrtFile {

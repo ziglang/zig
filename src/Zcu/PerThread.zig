@@ -27,6 +27,7 @@ const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Zcu = @import("../Zcu.zig");
 const Compilation = @import("../Compilation.zig");
+const codegen = @import("../codegen.zig");
 const Zir = std.zig.Zir;
 const Zoir = std.zig.Zoir;
 const ZonGen = std.zig.ZonGen;
@@ -1716,85 +1717,12 @@ fn analyzeFuncBody(
     }
 
     // This job depends on any resolve_type_fully jobs queued up before it.
-    try comp.queueJob(.{ .link_func = .{
+    try comp.queueJob(.{ .codegen_func = .{
         .func = func_index,
         .air = air,
     } });
 
     return .{ .ies_outdated = ies_outdated };
-}
-
-/// Takes ownership of `air`, even on error.
-/// If any types referenced by `air` are unresolved, marks the codegen as failed.
-pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) Allocator.Error!void {
-    const zcu = pt.zcu;
-    const gpa = zcu.gpa;
-    const ip = &zcu.intern_pool;
-    const comp = zcu.comp;
-
-    const func = zcu.funcInfo(func_index);
-    const nav_index = func.owner_nav;
-    const nav = ip.getNav(nav_index);
-
-    const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(ip), 0);
-    defer codegen_prog_node.end();
-
-    legalize: {
-        try air.legalize(pt, @import("../codegen.zig").legalizeFeatures(pt, nav_index) orelse break :legalize);
-    }
-
-    var liveness = try Air.Liveness.analyze(zcu, air.*, ip);
-    defer liveness.deinit(gpa);
-
-    if (build_options.enable_debug_extensions and comp.verbose_air) {
-        std.debug.print("# Begin Function AIR: {}:\n", .{nav.fqn.fmt(ip)});
-        air.dump(pt, liveness);
-        std.debug.print("# End Function AIR: {}\n\n", .{nav.fqn.fmt(ip)});
-    }
-
-    if (std.debug.runtime_safety) {
-        var verify: Air.Liveness.Verify = .{
-            .gpa = gpa,
-            .zcu = zcu,
-            .air = air.*,
-            .liveness = liveness,
-            .intern_pool = ip,
-        };
-        defer verify.deinit();
-
-        verify.verify() catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => {
-                try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
-                    gpa,
-                    zcu.navSrcLoc(nav_index),
-                    "invalid liveness: {s}",
-                    .{@errorName(err)},
-                ));
-                return;
-            },
-        };
-    }
-
-    if (zcu.llvm_object) |llvm_object| {
-        llvm_object.updateFunc(pt, func_index, air.*, liveness) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-        };
-    } else if (comp.bin_file) |lf| {
-        lf.updateFunc(pt, func_index, air, liveness) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
-            error.Overflow, error.RelocationNotByteAligned => {
-                try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
-                    gpa,
-                    zcu.navSrcLoc(nav_index),
-                    "unable to codegen: {s}",
-                    .{@errorName(err)},
-                ));
-                // Not a retryable failure.
-            },
-        };
-    }
 }
 
 pub fn semaMod(pt: Zcu.PerThread, mod: *Module) !void {
@@ -3449,7 +3377,7 @@ pub fn populateTestFunctions(
         }
 
         // The linker thread is not running, so we actually need to dispatch this task directly.
-        @import("../link.zig").doTask(zcu.comp, @intFromEnum(pt.tid), .{ .link_nav = nav_index });
+        @import("../link.zig").doZcuTask(zcu.comp, @intFromEnum(pt.tid), .{ .link_nav = nav_index });
     }
 }
 
@@ -4441,4 +4369,88 @@ pub fn addDependency(pt: Zcu.PerThread, unit: AnalUnit, dependee: InternPool.Dep
         const info = try zcu.incremental_debug_state.getUnitInfo(gpa, unit);
         try info.deps.append(gpa, dependee);
     }
+}
+
+/// Performs code generation, which comes after `Sema` but before `link` in the pipeline.
+/// This part of the pipeline is self-contained/"pure", so can be run in parallel with most
+/// other code. This function is currently run either on the main thread, or on a separate
+/// codegen thread, depending on whether the backend supports `Zcu.Feature.separate_thread`.
+pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, out: *@import("../link.zig").ZcuTask.LinkFunc.SharedMir) void {
+    if (runCodegenInner(pt, func_index, air)) |mir| {
+        out.value = mir;
+        out.status.store(.ready, .release);
+    } else |err| switch (err) {
+        error.OutOfMemory => {
+            pt.zcu.comp.setAllocFailure();
+            out.status.store(.failed, .monotonic);
+        },
+        error.CodegenFail => {
+            pt.zcu.assertCodegenFailed(pt.zcu.funcInfo(func_index).owner_nav);
+            out.status.store(.failed, .monotonic);
+        },
+        error.NoLinkFile => {
+            assert(pt.zcu.comp.bin_file == null);
+            out.status.store(.failed, .monotonic);
+        },
+    }
+    pt.zcu.comp.link_task_queue.mirReady(pt.zcu.comp, out);
+}
+fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) error{ OutOfMemory, CodegenFail, NoLinkFile }!codegen.AnyMir {
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+    const comp = zcu.comp;
+
+    const nav = zcu.funcInfo(func_index).owner_nav;
+    const fqn = ip.getNav(nav).fqn;
+
+    const codegen_prog_node = zcu.codegen_prog_node.start(fqn.toSlice(ip), 0);
+    defer codegen_prog_node.end();
+
+    if (codegen.legalizeFeatures(pt, nav)) |features| {
+        try air.legalize(pt, features);
+    }
+
+    var liveness: Air.Liveness = try .analyze(zcu, air.*, ip);
+    defer liveness.deinit(gpa);
+
+    // TODO: surely writing to stderr from n threads simultaneously will work flawlessly
+    if (build_options.enable_debug_extensions and comp.verbose_air) {
+        std.debug.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)});
+        air.dump(pt, liveness);
+        std.debug.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)});
+    }
+
+    if (std.debug.runtime_safety) {
+        var verify: Air.Liveness.Verify = .{
+            .gpa = gpa,
+            .zcu = zcu,
+            .air = air.*,
+            .liveness = liveness,
+            .intern_pool = ip,
+        };
+        defer verify.deinit();
+
+        verify.verify() catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return zcu.codegenFail(nav, "invalid liveness: {s}", .{@errorName(err)}),
+        };
+    }
+
+    // The LLVM backend is special, because we only need to do codegen. There is no equivalent to the
+    // "emit" step because LLVM does not support incremental linking. Our linker (LLD or self-hosted)
+    // will just see the ZCU object file which LLVM ultimately emits.
+    if (zcu.llvm_object) |llvm_object| {
+        return llvm_object.updateFunc(pt, func_index, air, &liveness);
+    }
+
+    const lf = comp.bin_file orelse return error.NoLinkFile;
+    return codegen.generateFunction(lf, pt, zcu.navSrcLoc(nav), func_index, air, &liveness) catch |err| switch (err) {
+        error.OutOfMemory,
+        error.CodegenFail,
+        => |e| return e,
+        error.Overflow,
+        error.RelocationNotByteAligned,
+        => return zcu.codegenFail(nav, "unable to codegen: {s}", .{@errorName(err)}),
+    };
 }

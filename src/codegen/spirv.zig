@@ -230,8 +230,9 @@ pub const Object = struct {
         defer nav_gen.deinit();
 
         nav_gen.genNav(do_codegen) catch |err| switch (err) {
-            error.CodegenFail => {
-                try zcu.failed_codegen.put(gpa, nav_index, nav_gen.error_msg.?);
+            error.CodegenFail => switch (zcu.codegenFailMsg(nav_index, nav_gen.error_msg.?)) {
+                error.CodegenFail => {},
+                error.OutOfMemory => |e| return e,
             },
             else => |other| {
                 // There might be an error that happened *after* self.error_msg

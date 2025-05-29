@@ -1691,13 +1691,13 @@ pub fn updateFunc(
     self: *Elf,
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
+    mir: *const codegen.AnyMir,
+    maybe_undef_air: *const Air,
 ) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    return self.zigObjectPtr().?.updateFunc(self, pt, func_index, air, liveness);
+    return self.zigObjectPtr().?.updateFunc(self, pt, func_index, mir, maybe_undef_air);
 }
 
 pub fn updateNav(

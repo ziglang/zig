@@ -308,7 +308,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     assert(comp.libcxx_static_lib == null);
     const crt_file = try sub_compilation.toCrtFile();
     comp.libcxx_static_lib = crt_file;
-    comp.queueLinkTaskMode(crt_file.full_object_path, &config);
+    comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
 }
 
 pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
@@ -504,7 +504,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     assert(comp.libcxxabi_static_lib == null);
     const crt_file = try sub_compilation.toCrtFile();
     comp.libcxxabi_static_lib = crt_file;
-    comp.queueLinkTaskMode(crt_file.full_object_path, &config);
+    comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
 }
 
 pub fn addCxxArgs(

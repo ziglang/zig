@@ -85,16 +85,104 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
     }
 }
 
+/// Every code generation backend has a different MIR representation. However, we want to pass
+/// MIR from codegen to the linker *regardless* of which backend is in use. So, we use this: a
+/// union of all MIR types. The active tag is known from the backend in use; see `AnyMir.tag`.
+pub const AnyMir = union {
+    aarch64: @import("arch/aarch64/Mir.zig"),
+    arm: @import("arch/arm/Mir.zig"),
+    powerpc: noreturn, //@import("arch/powerpc/Mir.zig"),
+    riscv64: @import("arch/riscv64/Mir.zig"),
+    sparc64: @import("arch/sparc64/Mir.zig"),
+    x86_64: @import("arch/x86_64/Mir.zig"),
+    wasm: @import("arch/wasm/Mir.zig"),
+    c: @import("codegen/c.zig").Mir,
+
+    pub inline fn tag(comptime backend: std.builtin.CompilerBackend) []const u8 {
+        return switch (backend) {
+            .stage2_aarch64 => "aarch64",
+            .stage2_arm => "arm",
+            .stage2_powerpc => "powerpc",
+            .stage2_riscv64 => "riscv64",
+            .stage2_sparc64 => "sparc64",
+            .stage2_x86_64 => "x86_64",
+            .stage2_wasm => "wasm",
+            .stage2_c => "c",
+            else => unreachable,
+        };
+    }
+
+    pub fn deinit(mir: *AnyMir, zcu: *const Zcu) void {
+        const gpa = zcu.gpa;
+        const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
+        switch (backend) {
+            else => unreachable,
+            inline .stage2_aarch64,
+            .stage2_arm,
+            .stage2_powerpc,
+            .stage2_riscv64,
+            .stage2_sparc64,
+            .stage2_x86_64,
+            .stage2_c,
+            => |backend_ct| @field(mir, tag(backend_ct)).deinit(gpa),
+        }
+    }
+};
+
+/// Runs code generation for a function. This process converts the `Air` emitted by `Sema`,
+/// alongside annotated `Liveness` data, to machine code in the form of MIR (see `AnyMir`).
+///
+/// This is supposed to be a "pure" process, but some backends are currently buggy; see
+/// `Zcu.Feature.separate_thread` for details.
 pub fn generateFunction(
     lf: *link.File,
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
+    air: *const Air,
+    liveness: *const Air.Liveness,
+) CodeGenError!AnyMir {
+    const zcu = pt.zcu;
+    const func = zcu.funcInfo(func_index);
+    const target = zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
+    switch (target_util.zigBackend(target, false)) {
+        else => unreachable,
+        inline .stage2_aarch64,
+        .stage2_arm,
+        .stage2_powerpc,
+        .stage2_riscv64,
+        .stage2_sparc64,
+        .stage2_x86_64,
+        .stage2_c,
+        => |backend| {
+            dev.check(devFeatureForBackend(backend));
+            const CodeGen = importBackend(backend);
+            const mir = try CodeGen.generate(lf, pt, src_loc, func_index, air, liveness);
+            return @unionInit(AnyMir, AnyMir.tag(backend), mir);
+        },
+    }
+}
+
+/// Converts the MIR returned by `generateFunction` to finalized machine code to be placed in
+/// the output binary. This is called from linker implementations, and may query linker state.
+///
+/// This function is not called for the C backend, as `link.C` directly understands its MIR.
+///
+/// The `air` parameter is not supposed to exist, but some backends are currently buggy; see
+/// `Zcu.Feature.separate_thread` for details.
+pub fn emitFunction(
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    func_index: InternPool.Index,
+    any_mir: *const AnyMir,
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
-) CodeGenError!void {
+    /// TODO: this parameter needs to be removed. We should not still hold AIR this late
+    /// in the pipeline. Any information needed to call emit must be stored in MIR.
+    /// This is `undefined` if the backend supports the `separate_thread` feature.
+    air: *const Air,
+) Allocator.Error!void {
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
     const target = zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
@@ -108,7 +196,8 @@ pub fn generateFunction(
         .stage2_x86_64,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
-            return importBackend(backend).generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output);
+            const mir = &@field(any_mir, AnyMir.tag(backend));
+            return mir.emit(lf, pt, src_loc, func_index, code, debug_output, air);
         },
     }
 }

@@ -1004,7 +1004,7 @@ fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
         }
     }
 
-    comp.queueLinkTasks(task_buffer[0..task_buffer_i]);
+    comp.queuePrelinkTasks(task_buffer[0..task_buffer_i]);
 }
 
 fn buildSharedLib(

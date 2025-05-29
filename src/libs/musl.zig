@@ -278,7 +278,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             errdefer comp.gpa.free(basename);
 
             const crt_file = try sub_compilation.toCrtFile();
-            comp.queueLinkTaskMode(crt_file.full_object_path, &config);
+            comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
             {
                 comp.mutex.lock();
                 defer comp.mutex.unlock();

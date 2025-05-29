@@ -21,11 +21,11 @@ const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const Package = @import("Package.zig");
 const dev = @import("dev.zig");
-const ThreadSafeQueue = @import("ThreadSafeQueue.zig").ThreadSafeQueue;
 const target_util = @import("target.zig");
 const codegen = @import("codegen.zig");
 
 pub const LdScript = @import("link/LdScript.zig");
+pub const Queue = @import("link/Queue.zig");
 
 pub const Diags = struct {
     /// Stored here so that function definitions can distinguish between
@@ -741,21 +741,26 @@ pub const File = struct {
     }
 
     /// May be called before or after updateExports for any given Decl.
-    /// TODO: currently `pub` because `Zcu.PerThread` is calling this.
+    /// The active tag of `mir` is determined by the backend used for the module this function is in.
     /// Never called when LLVM is codegenning the ZCU.
-    pub fn updateFunc(
+    fn updateFunc(
         base: *File,
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
-        air: Air,
-        liveness: Air.Liveness,
+        /// This is owned by the caller, but the callee is permitted to mutate it provided
+        /// that `mir.deinit` remains legal for the caller. For instance, the callee can
+        /// take ownership of an embedded slice and replace it with `&.{}` in `mir`.
+        mir: *codegen.AnyMir,
+        /// This may be `undefined`; only pass it to `emitFunction`.
+        /// This parameter will eventually be removed.
+        maybe_undef_air: *const Air,
     ) UpdateNavError!void {
         assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             .lld => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateFunc(pt, func_index, air, liveness);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateFunc(pt, func_index, mir, maybe_undef_air);
             },
         }
     }
@@ -1213,40 +1218,7 @@ pub const File = struct {
     pub const Dwarf = @import("link/Dwarf.zig");
 };
 
-/// Does all the tasks in the queue. Runs in exactly one separate thread
-/// from the rest of compilation. All tasks performed here are
-/// single-threaded with respect to one another.
-pub fn flushTaskQueue(tid: usize, comp: *Compilation) void {
-    const diags = &comp.link_diags;
-    // As soon as check() is called, another `flushTaskQueue` call could occur,
-    // so the safety lock must go after the check.
-    while (comp.link_task_queue.check()) |tasks| {
-        comp.link_task_queue_safety.lock();
-        defer comp.link_task_queue_safety.unlock();
-
-        if (comp.remaining_prelink_tasks > 0) {
-            comp.link_task_queue_postponed.ensureUnusedCapacity(comp.gpa, tasks.len) catch |err| switch (err) {
-                error.OutOfMemory => return diags.setAllocFailure(),
-            };
-        }
-
-        for (tasks) |task| doTask(comp, tid, task);
-
-        if (comp.remaining_prelink_tasks == 0) {
-            if (comp.bin_file) |base| if (!base.post_prelink) {
-                base.prelink(comp.work_queue_progress_node) catch |err| switch (err) {
-                    error.OutOfMemory => diags.setAllocFailure(),
-                    error.LinkFailure => continue,
-                };
-                base.post_prelink = true;
-                for (comp.link_task_queue_postponed.items) |task| doTask(comp, tid, task);
-                comp.link_task_queue_postponed.clearRetainingCapacity();
-            };
-        }
-    }
-}
-
-pub const Task = union(enum) {
+pub const PrelinkTask = union(enum) {
     /// Loads the objects, shared objects, and archives that are already
     /// known from the command line.
     load_explicitly_provided,
@@ -1264,31 +1236,70 @@ pub const Task = union(enum) {
     /// Tells the linker to load an input which could be an object file,
     /// archive, or shared library.
     load_input: Input,
-
+};
+pub const ZcuTask = union(enum) {
     /// Write the constant value for a Decl to the output file.
     link_nav: InternPool.Nav.Index,
     /// Write the machine code for a function to the output file.
-    link_func: CodegenFunc,
+    link_func: LinkFunc,
     link_type: InternPool.Index,
-
     update_line_number: InternPool.TrackedInst.Index,
-
-    pub const CodegenFunc = struct {
+    pub fn deinit(task: ZcuTask, zcu: *const Zcu) void {
+        switch (task) {
+            .link_nav,
+            .link_type,
+            .update_line_number,
+            => {},
+            .link_func => |link_func| {
+                switch (link_func.mir.status.load(.monotonic)) {
+                    .pending => unreachable, // cannot deinit until MIR done
+                    .failed => {}, // MIR not populated so doesn't need freeing
+                    .ready => link_func.mir.value.deinit(zcu),
+                }
+                zcu.gpa.destroy(link_func.mir);
+            },
+        }
+    }
+    pub const LinkFunc = struct {
         /// This will either be a non-generic `func_decl` or a `func_instance`.
         func: InternPool.Index,
-        /// This `Air` is owned by the `Job` and allocated with `gpa`.
-        /// It must be deinited when the job is processed.
-        air: Air,
+        /// This pointer is allocated into `gpa` and must be freed when the `ZcuTask` is processed.
+        /// The pointer is shared with the codegen worker, which will populate the MIR inside once
+        /// it has been generated. It's important that the `link_func` is queued at the same time as
+        /// the codegen job to ensure that the linker receives functions in a deterministic order,
+        /// allowing reproducible builds.
+        mir: *SharedMir,
+        /// This field exists only due to deficiencies in some codegen implementations; it should
+        /// be removed when the corresponding parameter of `CodeGen.emitFunction` can be removed.
+        /// This is `undefined` if `Zcu.Feature.separate_thread` is supported.
+        /// If this is defined, its memory is owned externally; do not `deinit` this `air`.
+        air: *const Air,
+
+        pub const SharedMir = struct {
+            /// This is initially `.pending`. When `value` is populated, the codegen thread will set
+            /// this to `.ready`, and alert the queue if needed. It could also end up `.failed`.
+            /// The action of storing a value (other than `.pending`) to this atomic transfers
+            /// ownership of memory assoicated with `value` to this `ZcuTask`.
+            status: std.atomic.Value(enum(u8) {
+                /// We are waiting on codegen to generate MIR (or die trying).
+                pending,
+                /// `value` is not populated and will not be populated. Just drop the task from the queue and move on.
+                failed,
+                /// `value` is populated with the MIR from the backend in use, which is not LLVM.
+                ready,
+            }),
+            /// This is `undefined` until `ready` is set to `true`. Once populated, this MIR belongs
+            /// to the `ZcuTask`, and must be `deinit`ed when it is processed. Allocated into `gpa`.
+            value: codegen.AnyMir,
+        };
     };
 };
 
-pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
+pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
     const diags = &comp.link_diags;
+    const base = comp.bin_file orelse return;
     switch (task) {
         .load_explicitly_provided => {
-            comp.remaining_prelink_tasks -= 1;
-            const base = comp.bin_file orelse return;
-
             const prog_node = comp.work_queue_progress_node.start("Parse Linker Inputs", comp.link_inputs.len);
             defer prog_node.end();
             for (comp.link_inputs) |input| {
@@ -1306,9 +1317,6 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             }
         },
         .load_host_libc => {
-            comp.remaining_prelink_tasks -= 1;
-            const base = comp.bin_file orelse return;
-
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Host libc", 0);
             defer prog_node.end();
 
@@ -1368,8 +1376,6 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             }
         },
         .load_object => |path| {
-            comp.remaining_prelink_tasks -= 1;
-            const base = comp.bin_file orelse return;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Object", 0);
             defer prog_node.end();
             base.openLoadObject(path) catch |err| switch (err) {
@@ -1378,8 +1384,6 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             };
         },
         .load_archive => |path| {
-            comp.remaining_prelink_tasks -= 1;
-            const base = comp.bin_file orelse return;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Archive", 0);
             defer prog_node.end();
             base.openLoadArchive(path, null) catch |err| switch (err) {
@@ -1388,8 +1392,6 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             };
         },
         .load_dso => |path| {
-            comp.remaining_prelink_tasks -= 1;
-            const base = comp.bin_file orelse return;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Shared Library", 0);
             defer prog_node.end();
             base.openLoadDso(path, .{
@@ -1401,8 +1403,6 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             };
         },
         .load_input => |input| {
-            comp.remaining_prelink_tasks -= 1;
-            const base = comp.bin_file orelse return;
             const prog_node = comp.work_queue_progress_node.start("Linker Parse Input", 0);
             defer prog_node.end();
             base.loadInput(input) catch |err| switch (err) {
@@ -1416,11 +1416,12 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
                 },
             };
         },
+    }
+}
+pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
+    const diags = &comp.link_diags;
+    switch (task) {
         .link_nav => |nav_index| {
-            if (comp.remaining_prelink_tasks != 0) {
-                comp.link_task_queue_postponed.appendAssumeCapacity(task);
-                return;
-            }
             const zcu = comp.zcu.?;
             const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
             defer pt.deactivate();
@@ -1431,39 +1432,43 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             } else if (comp.bin_file) |lf| {
                 lf.updateNav(pt, nav_index) catch |err| switch (err) {
                     error.OutOfMemory => diags.setAllocFailure(),
-                    error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
+                    error.CodegenFail => zcu.assertCodegenFailed(nav_index),
                     error.Overflow, error.RelocationNotByteAligned => {
-                        zcu.failed_codegen.ensureUnusedCapacity(zcu.gpa, 1) catch return diags.setAllocFailure();
-                        const msg = Zcu.ErrorMsg.create(
-                            zcu.gpa,
-                            zcu.navSrcLoc(nav_index),
-                            "unable to codegen: {s}",
-                            .{@errorName(err)},
-                        ) catch return diags.setAllocFailure();
-                        zcu.failed_codegen.putAssumeCapacityNoClobber(nav_index, msg);
+                        switch (zcu.codegenFail(nav_index, "unable to codegen: {s}", .{@errorName(err)})) {
+                            error.CodegenFail => return,
+                            error.OutOfMemory => return diags.setAllocFailure(),
+                        }
                         // Not a retryable failure.
                     },
                 };
             }
         },
         .link_func => |func| {
-            if (comp.remaining_prelink_tasks != 0) {
-                comp.link_task_queue_postponed.appendAssumeCapacity(task);
-                return;
-            }
-            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            const zcu = comp.zcu.?;
+            const nav = zcu.funcInfo(func.func).owner_nav;
+            const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
             defer pt.deactivate();
-            var air = func.air;
-            defer air.deinit(comp.gpa);
-            pt.linkerUpdateFunc(func.func, &air) catch |err| switch (err) {
-                error.OutOfMemory => diags.setAllocFailure(),
-            };
+            assert(zcu.llvm_object == null); // LLVM codegen doesn't produce MIR
+            switch (func.mir.status.load(.monotonic)) {
+                .pending => unreachable,
+                .ready => {},
+                .failed => return,
+            }
+            const mir = &func.mir.value;
+            if (comp.bin_file) |lf| {
+                lf.updateFunc(pt, func.func, mir, func.air) catch |err| switch (err) {
+                    error.OutOfMemory => return diags.setAllocFailure(),
+                    error.CodegenFail => return zcu.assertCodegenFailed(nav),
+                    error.Overflow, error.RelocationNotByteAligned => {
+                        switch (zcu.codegenFail(nav, "unable to codegen: {s}", .{@errorName(err)})) {
+                            error.OutOfMemory => return diags.setAllocFailure(),
+                            error.CodegenFail => return,
+                        }
+                    },
+                };
+            }
         },
         .link_type => |ty| {
-            if (comp.remaining_prelink_tasks != 0) {
-                comp.link_task_queue_postponed.appendAssumeCapacity(task);
-                return;
-            }
             const zcu = comp.zcu.?;
             const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
             defer pt.deactivate();
@@ -1477,10 +1482,6 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             }
         },
         .update_line_number => |ti| {
-            if (comp.remaining_prelink_tasks != 0) {
-                comp.link_task_queue_postponed.appendAssumeCapacity(task);
-                return;
-            }
             const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
             defer pt.deactivate();
             if (pt.zcu.llvm_object == null) {

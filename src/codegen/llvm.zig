@@ -1121,8 +1121,8 @@ pub const Object = struct {
         o: *Object,
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
-        air: Air,
-        liveness: Air.Liveness,
+        air: *const Air,
+        liveness: *const Air.Liveness,
     ) !void {
         assert(std.meta.eql(pt, o.pt));
         const zcu = pt.zcu;
@@ -1479,8 +1479,8 @@ pub const Object = struct {
 
         var fg: FuncGen = .{
             .gpa = gpa,
-            .air = air,
-            .liveness = liveness,
+            .air = air.*,
+            .liveness = liveness.*,
             .ng = &ng,
             .wip = wip,
             .is_naked = fn_info.cc == .naked,
@@ -1506,10 +1506,9 @@ pub const Object = struct {
         deinit_wip = false;
 
         fg.genBody(air.getMainBody(), .poi) catch |err| switch (err) {
-            error.CodegenFail => {
-                try zcu.failed_codegen.put(gpa, func.owner_nav, ng.err_msg.?);
-                ng.err_msg = null;
-                return;
+            error.CodegenFail => switch (zcu.codegenFailMsg(func.owner_nav, ng.err_msg.?)) {
+                error.CodegenFail => return,
+                error.OutOfMemory => |e| return e,
             },
             else => |e| return e,
         };
@@ -1561,10 +1560,9 @@ pub const Object = struct {
             .err_msg = null,
         };
         ng.genDecl() catch |err| switch (err) {
-            error.CodegenFail => {
-                try pt.zcu.failed_codegen.put(pt.zcu.gpa, nav_index, ng.err_msg.?);
-                ng.err_msg = null;
-                return;
+            error.CodegenFail => switch (pt.zcu.codegenFailMsg(nav_index, ng.err_msg.?)) {
+                error.CodegenFail => return,
+                error.OutOfMemory => |e| return e,
             },
             else => |e| return e,
         };

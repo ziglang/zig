@@ -171,6 +171,8 @@ transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .emp
 /// This `Nav` succeeded analysis, but failed codegen.
 /// This may be a simple "value" `Nav`, or it may be a function.
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
+/// While multiple threads are active (most of the time!), this is guarded by `zcu.comp.mutex`, as
+/// codegen and linking run on a separate thread.
 failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .empty,
 failed_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, *ErrorMsg) = .empty,
 /// Keep track of `@compileLog`s per `AnalUnit`.
@@ -3817,7 +3819,36 @@ pub const Feature = enum {
     is_named_enum_value,
     error_set_has_value,
     field_reordering,
-    /// If the backend supports running from another thread.
+    /// In theory, backends are supposed to work like this:
+    ///
+    /// * The AIR emitted by `Sema` is converted into MIR by `codegen.generateFunction`. This pass
+    ///   is "pure", in that it does not depend on or modify any external mutable state.
+    ///
+    /// * That MIR is sent to the linker, which calls `codegen.emitFunction` to convert the MIR to
+    ///   finalized machine code. This process is permitted to query and modify linker state.
+    ///
+    /// * The linker stores the resulting machine code in the binary as needed.
+    ///
+    /// The first stage described above can run in parallel to the rest of the compiler, and even to
+    /// other code generation work; we can run as many codegen threads as we want in parallel because
+    /// of the fact that this pass is pure. Emit and link must be single-threaded, but are generally
+    /// very fast, so that isn't a problem.
+    ///
+    /// Unfortunately, some code generation implementations currently query and/or mutate linker state
+    /// or even (in the case of the LLVM backend) semantic analysis state. Such backends cannot be run
+    /// in parallel with each other, with linking, or (potentially) with semantic analysis.
+    ///
+    /// Additionally, some backends continue to need the AIR in the "emit" stage, despite this pass
+    /// operating on MIR. This complicates memory management under the threading model above.
+    ///
+    /// These are both **bugs** in backend implementations, left over from legacy code. However, they
+    /// are difficult to fix. So, this `Feature` currently guards correct threading of code generation:
+    ///
+    /// * With this feature enabled, the backend is threaded as described above. The "emit" stage does
+    ///   not have access to AIR (it will be `undefined`; see `codegen.emitFunction`).
+    ///
+    /// * With this feature disabled, semantic analysis, code generation, and linking all occur on the
+    ///   same thread, and the "emit" stage has access to AIR.
     separate_thread,
 };
 
@@ -4566,20 +4597,27 @@ pub fn codegenFail(
     comptime format: []const u8,
     args: anytype,
 ) CodegenFailError {
-    const gpa = zcu.gpa;
-    try zcu.failed_codegen.ensureUnusedCapacity(gpa, 1);
-    const msg = try Zcu.ErrorMsg.create(gpa, zcu.navSrcLoc(nav_index), format, args);
-    zcu.failed_codegen.putAssumeCapacityNoClobber(nav_index, msg);
-    return error.CodegenFail;
+    const msg = try Zcu.ErrorMsg.create(zcu.gpa, zcu.navSrcLoc(nav_index), format, args);
+    return zcu.codegenFailMsg(nav_index, msg);
 }
 
+/// Takes ownership of `msg`, even on OOM.
 pub fn codegenFailMsg(zcu: *Zcu, nav_index: InternPool.Nav.Index, msg: *ErrorMsg) CodegenFailError {
     const gpa = zcu.gpa;
     {
+        zcu.comp.mutex.lock();
+        defer zcu.comp.mutex.unlock();
         errdefer msg.deinit(gpa);
         try zcu.failed_codegen.putNoClobber(gpa, nav_index, msg);
     }
     return error.CodegenFail;
+}
+
+/// Asserts that `zcu.failed_codegen` contains the key `nav`, with the necessary lock held.
+pub fn assertCodegenFailed(zcu: *Zcu, nav: InternPool.Nav.Index) void {
+    zcu.comp.mutex.lock();
+    defer zcu.comp.mutex.unlock();
+    assert(zcu.failed_codegen.contains(nav));
 }
 
 pub fn codegenFailType(

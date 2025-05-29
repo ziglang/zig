@@ -850,7 +850,9 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
         },
         .separate_thread => switch (backend) {
             .stage2_llvm => false,
-            else => true,
+            // MLUGG TODO
+            .stage2_c => true,
+            else => false,
         },
     };
 }

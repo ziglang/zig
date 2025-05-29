@@ -25,6 +25,9 @@ pub const Env = enum {
     /// - `zig build-* -fno-emit-bin`
     sema,
 
+    /// - `zig build-* -ofmt=c`
+    cbe,
+
     /// - sema
     /// - `zig build-* -fincremental -fno-llvm -fno-lld -target x86_64-linux --listen=-`
     @"x86_64-linux",
@@ -143,6 +146,12 @@ pub const Env = enum {
                 .sema,
                 => true,
                 else => Env.ast_gen.supports(feature),
+            },
+            .cbe => switch (feature) {
+                .c_backend,
+                .c_linker,
+                => true,
+                else => Env.sema.supports(feature),
             },
             .@"x86_64-linux" => switch (feature) {
                 .build_command,
