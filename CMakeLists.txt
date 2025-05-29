@@ -201,11 +201,11 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/absvsi2.zig
     lib/compiler_rt/absvti2.zig
     lib/compiler_rt/adddf3.zig
-    lib/compiler_rt/addvsi3.zig
     lib/compiler_rt/addf3.zig
     lib/compiler_rt/addo.zig
     lib/compiler_rt/addsf3.zig
     lib/compiler_rt/addtf3.zig
+    lib/compiler_rt/addvsi3.zig
     lib/compiler_rt/addxf3.zig
     lib/compiler_rt/arm.zig
     lib/compiler_rt/atomics.zig
