@@ -480,8 +480,8 @@ fn appendBlockStart(p: *Parser, block_start: BlockStart) !void {
         // available in the BlockStart. We can immediately parse and append
         // these children now.
         const containing_table = p.pending_blocks.items[p.pending_blocks.items.len - 2];
-        const column_alignments = containing_table.data.table.column_alignments.slice();
-        for (block_start.data.table_row.cells.slice(), 0..) |cell_content, i| {
+        const column_alignments = containing_table.data.table.column_alignments.items();
+        for (block_start.data.table_row.cells.items(), 0..) |cell_content, i| {
             const cell_children = try p.parseInlines(cell_content);
             const alignment = if (i < column_alignments.len) column_alignments[i] else .unset;
             const cell = try p.addNode(.{
@@ -650,7 +650,7 @@ fn parseTableHeaderDelimiter(
     row_cells: std.BoundedArray([]const u8, max_table_columns),
 ) ?std.BoundedArray(Node.TableCellAlignment, max_table_columns) {
     var alignments: std.BoundedArray(Node.TableCellAlignment, max_table_columns) = .{};
-    for (row_cells.slice()) |content| {
+    for (row_cells.items()) |content| {
         const alignment = parseTableHeaderDelimiterCell(content) orelse return null;
         alignments.appendAssumeCapacity(alignment);
     }
