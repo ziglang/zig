@@ -345,19 +345,6 @@ fn readInner(
     }
 }
 
-fn readVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
-    _ = context;
-    _ = data;
-    @panic("TODO remove readVec primitive");
-}
-
-fn discard(context: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {
-    _ = context;
-    _ = limit;
-    // Problem here is we still need access to the output ring buffer.
-    @panic("TODO allow discard to be null");
-}
-
 /// Write match (back-reference to the same data slice) starting at `distance`
 /// back from current write position, and `length` of bytes.
 fn writeMatch(bw: *std.io.BufferedWriter, length: u16, distance: u16) !void {
@@ -370,11 +357,7 @@ fn writeMatch(bw: *std.io.BufferedWriter, length: u16, distance: u16) !void {
 pub fn reader(self: *Decompress) std.io.Reader {
     return .{
         .context = self,
-        .vtable = &.{
-            .read = read,
-            .readVec = readVec,
-            .discard = discard,
-        },
+        .vtable = &.{ .read = read },
     };
 }
 

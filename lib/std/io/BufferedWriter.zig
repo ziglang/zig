@@ -561,7 +561,10 @@ pub fn writeFileReading(
     limit: Limit,
 ) Writer.ReadingFileError!usize {
     const dest = limit.slice(try bw.writableSliceGreedy(1));
-    const n = try file_reader.read(dest);
+    const n = file_reader.read(dest) catch |err| switch (err) {
+        error.EndOfStream => 0,
+        error.ReadFailed => return error.ReadFailed,
+    };
     bw.advance(n);
     return n;
 }
@@ -663,7 +666,7 @@ pub fn writeFileAll(
     bw: *BufferedWriter,
     file_reader: *std.fs.File.Reader,
     options: WriteFileOptions,
-) Writer.FileError!void {
+) Writer.ReadingFileError!void {
     const headers_and_trailers = options.headers_and_trailers;
     const headers = headers_and_trailers[0..options.headers_len];
     var remaining = options.limit;
