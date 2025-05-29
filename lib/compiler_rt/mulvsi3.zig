@@ -11,7 +11,7 @@ comptime {
 pub fn __mulvsi3(a: i32, b: i32) callconv(.c) i32 {
     var overflow: c_int = 0;
     const sum = mulv.__mulosi4(a, b, &overflow);
-    if (overflow == 1) @panic("compiler-rt: integer overflow");
+    if (overflow != 0) @panic("compiler-rt: integer overflow");
     return sum;
 }
 

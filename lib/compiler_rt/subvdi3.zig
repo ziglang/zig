@@ -11,7 +11,7 @@ comptime {
 pub fn __subvdi3(a: i64, b: i64) callconv(.c) i64 {
     var overflow: c_int = 0;
     const sum = subv.__subodi4(a, b, &overflow);
-    if (overflow == 1) @panic("compiler-rt: integer overflow");
+    if (overflow != 0) @panic("compiler-rt: integer overflow");
     return sum;
 }
 
