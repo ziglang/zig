@@ -29,6 +29,7 @@ pub const FormatOptions = struct {
     width: ?usize = null,
     alignment: Alignment = default_alignment,
     fill: u21 = default_fill_char,
+    thousands_sep: ?u8 = null,
 };
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -62,6 +63,7 @@ pub const FormatOptions = struct {
 ///   - for slices of u8, print the entire slice as a string without zero-termination
 /// - `e`: output floating point value in scientific notation
 /// - `d`: output numeric value in decimal notation
+/// - `D`: output numeric value in decimal notation with thousands separator charactor defaulting to comma. Use D[seperator] to use custom separator, example: D_
 /// - `b`: output integer value in binary notation
 /// - `o`: output integer value in octal notation
 /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
@@ -749,6 +751,11 @@ pub fn formatIntValue(
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
         base = 10;
         case = .lower;
+    } else if (comptime fmt[0] == 'D') {
+        var o = options;
+        if (fmt.len > 2) @compileError("thousands seperator should be 1 character, got " ++ fmt[1..]);
+        o.thousands_sep = if (fmt.len == 2) fmt[1] else ',';
+        return formatInt(int_value, base, case, o, writer);
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
         if (@typeInfo(@TypeOf(int_value)).int.bits <= 8) {
             return formatAsciiChar(@as(u8, int_value), options, writer);
@@ -798,7 +805,12 @@ fn formatFloatValue(
         };
         return formatBuf(s, options, writer);
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision, .thousands_sep = options.thousands_sep }) catch |err| switch (err) {
+            error.BufferTooSmall => "(float)",
+        };
+        return formatBuf(s, options, writer);
+    } else if (comptime std.mem.eql(u8, fmt[0..1], "D")) {
+        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision, .thousands_sep = if (fmt.len > 1) fmt[2] else ',' }) catch |err| switch (err) {
             error.BufferTooSmall => "(float)",
         };
         return formatBuf(s, options, writer);
@@ -1206,7 +1218,7 @@ pub fn formatInt(
     var a: MinInt = abs_value;
     var index: usize = buf.len;
 
-    if (base == 10) {
+    if (base == 10 and options.thousands_sep == null) {
         while (a >= 100) : (a = @divTrunc(a, 100)) {
             index -= 2;
             buf[index..][0..2].* = digits2(@intCast(a % 100));
@@ -1223,6 +1235,10 @@ pub fn formatInt(
         while (true) {
             const digit = a % base;
             index -= 1;
+            if (options.thousands_sep != null and (buf.len - index) % 4 == 0) {
+                buf[index] = options.thousands_sep.?;
+                index -= 1;
+            }
             buf[index] = digitToChar(@intCast(digit), case);
             a /= base;
             if (a == 0) break;
@@ -3017,4 +3033,19 @@ test "parser specifier" {
         const result = try parser.specifier();
         try testing.expectEqual(char.none, result.none);
     }
+}
+
+test "thousands seperator" {
+    try expectFmt("1,234,567", "{D}", .{1234567});
+    try expectFmt("12,345,678", "{D}", .{12345678});
+    try expectFmt("123,456,789", "{D}", .{123456789});
+    try expectFmt("1,234,567,890", "{D}", .{1234567890});
+
+    try expectFmt(" 1,234,567", "{D:10}", .{1234567});
+    try expectFmt(" 1,234,567.9", "{D:12.1}", .{1234567.89});
+
+    try expectFmt("1_234_567", "{D_}", .{1234567});
+    try expectFmt("1.234.567", "{D.}", .{1234567});
+
+    try expectFmt(" 1_234_567", "{D_:10}", .{1234567});
 }

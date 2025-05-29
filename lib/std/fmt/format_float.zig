@@ -39,6 +39,7 @@ pub const Format = enum {
 pub const FormatOptions = struct {
     mode: Format = .scientific,
     precision: ?usize = null,
+    thousands_sep: ?u8 = null,
 };
 
 /// Format a floating-point value and write it to buffer. Returns a slice to the buffer containing
@@ -75,7 +76,7 @@ pub fn formatFloat(buf: []u8, v_: anytype, options: FormatOptions) FormatError![
 
     return switch (options.mode) {
         .scientific => formatScientific(DT, buf, d, options.precision),
-        .decimal => formatDecimal(DT, buf, d, options.precision),
+        .decimal => formatDecimal(DT, buf, d, options.precision, options.thousands_sep),
     };
 }
 
@@ -101,18 +102,23 @@ fn copySpecialStr(buf: []u8, f: anytype) []const u8 {
     return buf[0 .. 3 + offset];
 }
 
-fn writeDecimal(buf: []u8, value: anytype, count: usize) void {
+fn writeDecimal(buf: []u8, value: anytype, count_: usize, thousands_sep: ?u8) void {
+    const count = if (thousands_sep != null) (count_ - 1) / 3 + count_ else count_;
     var i: usize = 0;
 
-    while (i + 2 < count) : (i += 2) {
+    if (thousands_sep == null) while (i + 2 < count) : (i += 2) {
         const c: u8 = @intCast(value.* % 100);
         value.* /= 100;
         const d = std.fmt.digits2(c);
         buf[count - i - 1] = d[1];
         buf[count - i - 2] = d[0];
-    }
+    };
 
     while (i < count) : (i += 1) {
+        if (thousands_sep != null and i % 4 == 3) {
+            buf[count - i - 1] = ',';
+            i += 1;
+        }
         const c: u8 = @intCast(value.* % 10);
         value.* /= 10;
         buf[count - i - 1] = '0' + c;
@@ -223,7 +229,7 @@ pub fn formatScientific(comptime T: type, buf: []u8, f_: FloatDecimal(T), precis
     }
 
     // 1.12345
-    writeDecimal(buf[index + 2 ..], &output, olength - 1);
+    writeDecimal(buf[index + 2 ..], &output, olength - 1, null);
     buf[index] = '0' + @as(u8, @intCast(output % 10));
     buf[index + 1] = '.';
     index += 2;
@@ -252,7 +258,7 @@ pub fn formatScientific(comptime T: type, buf: []u8, f_: FloatDecimal(T), precis
     }
     var uexp: u32 = @intCast(exp);
     const elength = decimalLength(uexp);
-    writeDecimal(buf[index..], &uexp, elength);
+    writeDecimal(buf[index..], &uexp, elength, null);
     index += elength;
 
     return buf[0..index];
@@ -263,7 +269,7 @@ pub fn formatScientific(comptime T: type, buf: []u8, f_: FloatDecimal(T), precis
 /// The buffer provided must be greater than `min_buffer_size` bytes in length. If no precision is
 /// specified, this may still return an error. If precision is specified, `2 + precision` bytes will
 /// always be written.
-pub fn formatDecimal(comptime T: type, buf: []u8, f_: FloatDecimal(T), precision: ?usize) FormatError![]const u8 {
+pub fn formatDecimal(comptime T: type, buf: []u8, f_: FloatDecimal(T), precision: ?usize, thousands_sep: ?u8) FormatError![]const u8 {
     std.debug.assert(buf.len >= min_buffer_size);
     var f = f_;
 
@@ -305,7 +311,7 @@ pub fn formatDecimal(comptime T: type, buf: []u8, f_: FloatDecimal(T), precision
         const dp_poffset: u32 = @intCast(-dp_offset);
         @memset(buf[index..][0..dp_poffset], '0');
         index += dp_poffset;
-        writeDecimal(buf[index..], &output, olength);
+        writeDecimal(buf[index..], &output, olength, null);
         index += olength;
 
         if (precision) |prec| {
@@ -319,10 +325,16 @@ pub fn formatDecimal(comptime T: type, buf: []u8, f_: FloatDecimal(T), precision
         // 123456000
         const dp_uoffset: usize = @intCast(dp_offset);
         if (dp_uoffset >= olength) {
-            writeDecimal(buf[index..], &output, olength);
-            index += olength;
-            @memset(buf[index..][0 .. dp_uoffset - olength], '0');
-            index += dp_uoffset - olength;
+            if (thousands_sep != null) {
+                output *= std.math.pow(T, 10, dp_uoffset - olength);
+                writeDecimal(buf[index..], &output, dp_uoffset, thousands_sep);
+                index += (dp_uoffset - 1) / 3 + dp_uoffset;
+            } else {
+                writeDecimal(buf[index..], &output, olength, null);
+                index += olength;
+                @memset(buf[index..][0 .. dp_uoffset - olength], '0');
+                index += dp_uoffset - olength;
+            }
 
             if (precision) |prec| {
                 if (prec != 0) {
@@ -334,11 +346,12 @@ pub fn formatDecimal(comptime T: type, buf: []u8, f_: FloatDecimal(T), precision
             }
         } else {
             // 12345.6789
-            writeDecimal(buf[index + dp_uoffset + 1 ..], &output, olength - dp_uoffset);
-            buf[index + dp_uoffset] = '.';
-            const dp_index = index + dp_uoffset + 1;
-            writeDecimal(buf[index..], &output, dp_uoffset);
-            index += olength + 1;
+            const dp_o = if (thousands_sep != null) dp_uoffset + (dp_uoffset - 1) / 3 else dp_uoffset;
+            writeDecimal(buf[index + dp_o + 1 ..], &output, olength - dp_uoffset, null);
+            buf[index + dp_o] = '.';
+            const dp_index = index + dp_o + 1;
+            writeDecimal(buf[index..], &output, dp_uoffset, thousands_sep);
+            index += dp_o + (olength - dp_uoffset) + 1;
 
             if (precision) |prec| {
                 const dp_written = olength - dp_uoffset;
@@ -1692,4 +1705,28 @@ test "format float to decimal with zero precision" {
     try expectFmt("6", "{d:.0}", .{6});
     try expectFmt("7", "{d:.0}", .{7});
     try expectFmt("8", "{d:.0}", .{8});
+}
+
+fn checkThousandsSep(value: f64, expected: []const u8) !void {
+    var buf: [100]u8 = undefined;
+    const options: FormatOptions = .{
+        .thousands_sep = ',',
+        .mode = .decimal,
+    };
+    const str = try formatFloat(&buf, value, options);
+    try std.testing.expectEqualStrings(expected, str);
+}
+
+test "format float with thousands seperator" {
+    try checkThousandsSep(123456, "123,456");
+    try checkThousandsSep(1234567, "1,234,567");
+    try checkThousandsSep(12345678, "12,345,678");
+    try checkThousandsSep(123456789, "123,456,789");
+    try checkThousandsSep(123456789.123, "123,456,789.123");
+    try checkThousandsSep(12345678.9123, "12,345,678.9123");
+    try checkThousandsSep(1234567.89123, "1,234,567.89123");
+    try checkThousandsSep(123456.789123, "123,456.789123");
+    try checkThousandsSep(0.123456789, "0.123456789");
+    try checkThousandsSep(0.12345678, "0.12345678");
+    try checkThousandsSep(0.1234567, "0.1234567");
 }
