@@ -21,8 +21,8 @@ pub const VTable = struct {
     /// of stream via `error.WriteFailed`.
     writeSplat: *const fn (ctx: ?*anyopaque, data: []const []const u8, splat: usize) Error!usize,
 
-    /// Writes contents from an open file. `headers` are written first, then `len`
-    /// bytes of `file` starting from `offset`, then `trailers`.
+    /// Writes contents from an open file. `headers` are written first, then
+    /// `limit` bytes of `file` starting from `offset`, then `trailers`.
     ///
     /// Number of bytes actually written is returned, which may lie within
     /// headers, the file, trailers, or anywhere in between.
@@ -31,9 +31,8 @@ pub const VTable = struct {
     /// end-of-stream. A subsequent call may return nonzero, or may signal end
     /// of stream via `error.WriteFailed`.
     ///
-    /// If `error.Unimplemented` is returned, the caller should do its own
-    /// reads from the file. The callee indicates it cannot offer a more
-    /// efficient implementation.
+    /// `error.Unimplemented` indicates the callee cannot offer a more
+    /// efficient implementation than the caller performing its own reads.
     writeFile: *const fn (
         ctx: ?*anyopaque,
         file_reader: *File.Reader,
@@ -43,13 +42,20 @@ pub const VTable = struct {
         /// `headers_and_trailers` do not count towards this limit.
         limit: Limit,
         /// Headers and trailers must be passed together so that in case `len` is
-        /// zero, they can be forwarded directly to `VTable.writeVec`.
+        /// zero, they can be forwarded directly as one contiguous slice of memory.
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) FileError!usize,
 };
 
 pub const Error = error{
+    /// See the `Writer` implementation for detailed diagnostics.
+    WriteFailed,
+};
+
+pub const ReadingFileError = error{
+    /// Detailed diagnostics are found on the `File.Reader` struct.
+    ReadFailed,
     /// See the `Writer` implementation for detailed diagnostics.
     WriteFailed,
 };
