@@ -855,13 +855,7 @@ pub const BodyWriter = struct {
     http_protocol_output: *std.io.BufferedWriter,
     state: State,
     elide: bool,
-    err: Error!void = {},
 
-    pub const Error = error{
-        /// Attempted to write a file to the stream, an expensive operation
-        /// that should be avoided when `elide` is true.
-        UnableToElideBody,
-    };
     pub const WriteError = std.io.Writer.Error;
 
     /// How many zeroes to reserve for hex-encoded chunk length.
@@ -1043,69 +1037,83 @@ pub const BodyWriter = struct {
     }
 
     fn elideWriteFile(
-        w: *BodyWriter,
-        offset: std.io.Writer.Offset,
-        limit: std.io.Writer.Limit,
+        file_reader: *std.fs.File.Reader,
+        limit: std.io.Limit,
         headers_and_trailers: []const []const u8,
-    ) WriteError!usize {
-        if (offset != .none) {
-            if (countWriteFile(limit, headers_and_trailers)) |n| {
+        headers_len: usize,
+    ) error{ReadFailed}!usize {
+        var source = file_reader.readable(&.{});
+        var n = source.discard(limit) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => {
+                var n: usize = 0;
+                for (headers_and_trailers) |bytes| n += bytes.len;
+                return n;
+            },
+        };
+        if (file_reader.size) |size| {
+            if (size - file_reader.pos == 0) {
+                // End of file reached.
+                for (headers_and_trailers) |bytes| n += bytes.len;
                 return n;
             }
         }
-        w.err = error.UnableToElideBody;
-        return error.WriteFailed;
+        for (headers_and_trailers[0..headers_len]) |bytes| n += bytes.len;
+        return n;
     }
 
     /// Returns `null` if size cannot be computed without making any syscalls.
-    fn countWriteFile(limit: std.io.Writer.Limit, headers_and_trailers: []const []const u8) ?usize {
-        var total: usize = limit.toInt() orelse return null;
-        for (headers_and_trailers) |buf| total += buf.len;
-        return total;
+    fn countWriteFile(
+        file_reader: *std.fs.File.Reader,
+        limit: std.io.Limit,
+        headers_and_trailers: []const []const u8,
+    ) ?usize {
+        var total: u64 = @min(@intFromEnum(limit), file_reader.getSize() orelse return null);
+        for (headers_and_trailers) |bytes| total += bytes.len;
+        return std.math.lossyCast(usize, total);
     }
 
     fn noneWriteFile(
         context: ?*anyopaque,
-        file: std.fs.File,
-        offset: std.io.Writer.Offset,
-        limit: std.io.Writer.Limit,
+        file_reader: *std.fs.File.Reader,
+        limit: std.io.Limit,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) std.io.Writer.FileError!usize {
-        if (limit == .nothing) return noneWriteSplat(context, headers_and_trailers, 1);
         const w: *BodyWriter = @alignCast(@ptrCast(context));
-        if (w.elide) return elideWriteFile(w, offset, limit, headers_and_trailers);
-        return w.http_protocol_output.writeFile(file, offset, limit, headers_and_trailers, headers_len);
+        if (w.elide) return elideWriteFile(file_reader, limit, headers_and_trailers, headers_len);
+        return w.http_protocol_output.writeFile(file_reader, limit, headers_and_trailers, headers_len);
     }
 
     fn contentLengthWriteFile(
         context: ?*anyopaque,
-        file: std.fs.File,
-        offset: std.io.Writer.Offset,
-        limit: std.io.Writer.Limit,
+        file_reader: *std.fs.File.Reader,
+        limit: std.io.Limit,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) std.io.Writer.FileError!usize {
-        if (limit == .nothing) return contentLengthWriteSplat(context, headers_and_trailers, 1);
         const w: *BodyWriter = @alignCast(@ptrCast(context));
-        if (w.elide) return elideWriteFile(w, offset, limit, headers_and_trailers);
-        const n = try w.http_protocol_output.writeFile(file, offset, limit, headers_and_trailers, headers_len);
+        if (w.elide) return elideWriteFile(file_reader, limit, headers_and_trailers, headers_len);
+        const n = try w.http_protocol_output.writeFile(file_reader, limit, headers_and_trailers, headers_len);
         w.state.content_length -= n;
         return n;
     }
 
     fn chunkedWriteFile(
         context: ?*anyopaque,
-        file: std.fs.File,
-        offset: std.io.Writer.Offset,
-        limit: std.io.Writer.Limit,
+        file_reader: *std.fs.File.Reader,
+        limit: std.io.Limit,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) std.io.Writer.FileError!usize {
-        if (limit == .nothing) return chunkedWriteSplat(context, headers_and_trailers, 1);
         const w: *BodyWriter = @alignCast(@ptrCast(context));
-        if (w.elide) return elideWriteFile(w, offset, limit, headers_and_trailers);
-        const data_len = countWriteFile(limit, headers_and_trailers) orelse @panic("TODO");
+        if (w.elide) return elideWriteFile(file_reader, limit, headers_and_trailers, headers_len);
+        if (limit == .nothing) return chunkedWriteSplat(context, headers_and_trailers, 1);
+        const data_len = countWriteFile(file_reader, headers_and_trailers) orelse {
+            // If the file size is unknown, we cannot lower to a `writeFile` since we would
+            // have to flush the chunk header before knowing the chunk length.
+            return error.Unimplemented;
+        };
         const bw = w.http_protocol_output;
         const chunked = &w.state.chunked;
         state: switch (chunked.*) {
@@ -1114,7 +1122,7 @@ pub const BodyWriter = struct {
                 const buffered_len = bw.end - off - chunk_header_template.len;
                 const chunk_len = data_len + buffered_len;
                 writeHex(bw.buffer[off..][0..chunk_len_digits], chunk_len);
-                const n = try bw.writeFile(file, offset, limit, headers_and_trailers, headers_len);
+                const n = try bw.writeFile(file_reader, limit, headers_and_trailers, headers_len);
                 chunked.* = .{ .chunk_len = data_len + 2 - n };
                 return n;
             },
@@ -1138,7 +1146,7 @@ pub const BodyWriter = struct {
                 },
                 else => {
                     const new_limit = limit.min(.limited(chunk_len - 2));
-                    const n = try bw.writeFile(file, offset, new_limit, headers_and_trailers, headers_len);
+                    const n = try bw.writeFile(file_reader, new_limit, headers_and_trailers, headers_len);
                     chunked.chunk_len = chunk_len - n;
                     return n;
                 },

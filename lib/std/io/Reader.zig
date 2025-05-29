@@ -46,7 +46,7 @@ pub const VTable = struct {
     /// provided which is based on calling `read`, borrowing
     /// `BufferedReader.buffer` to construct a temporary `BufferedWriter` and
     /// ignoring the written data.
-    discard: *const fn (context: ?*anyopaque, limit: Limit) Error!usize = null,
+    discard: ?*const fn (context: ?*anyopaque, limit: Limit) Error!usize = null,
 };
 
 pub const StreamError = error{

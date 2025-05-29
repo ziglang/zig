@@ -915,19 +915,38 @@ pub const Reader = struct {
     pos: u64 = 0,
     size: ?u64 = null,
     size_err: ?GetEndPosError = null,
-    seek_err: ?SeekError = null,
+    seek_err: ?Reader.SeekError = null,
+
+    pub const SeekError = File.SeekError || error{
+        /// Seeking fell back to reading, and reached the end before the requested seek position.
+        /// `pos` remains at the end of the file.
+        EndOfStream,
+        /// Seeking fell back to reading, which failed.
+        ReadFailed,
+    };
 
     pub const Mode = enum {
         streaming,
         positional,
+        /// Avoid syscalls other than `read` and `readv`.
         streaming_reading,
+        /// Avoid syscalls other than `pread` and `preadv`.
         positional_reading,
+        /// Indicates reading cannot continue because of a seek failure.
         failure,
 
         pub fn toStreaming(m: @This()) @This() {
             return switch (m) {
                 .positional, .streaming => .streaming,
                 .positional_reading, .streaming_reading => .streaming_reading,
+                .failure => .failure,
+            };
+        }
+
+        pub fn toReading(m: @This()) @This() {
+            return switch (m) {
+                .positional, .positional_reading => .positional_reading,
+                .streaming, .streaming_reading => .streaming_reading,
                 .failure => .failure,
             };
         }
@@ -960,7 +979,7 @@ pub const Reader = struct {
         };
     }
 
-    pub fn seekBy(r: *Reader, offset: i64) SeekError!void {
+    pub fn seekBy(r: *Reader, offset: i64) Reader.SeekError!void {
         switch (r.mode) {
             .positional, .positional_reading => {
                 // TODO: make += operator allow any integer types
@@ -977,19 +996,21 @@ pub const Reader = struct {
                         break :e err;
                     }
                 };
-                if (offset < 0) return seek_err;
-                var remaining = offset;
+                var remaining = std.math.cast(u64, offset) orelse return seek_err;
                 while (remaining > 0) {
-                    const n = discard(r, .limited(remaining)) catch |err| switch (err) {};
+                    const n = discard(r, .limited(remaining)) catch |err| {
+                        r.seek_err = err;
+                        return err;
+                    };
                     r.pos += n;
                     remaining -= n;
                 }
             },
-            .failure => return error.Unseekable,
+            .failure => return r.seek_err.?,
         }
     }
 
-    pub fn seekTo(r: *Reader, offset: u64) SeekError!void {
+    pub fn seekTo(r: *Reader, offset: u64) Reader.SeekError!void {
         switch (r.mode) {
             .positional, .positional_reading => {
                 r.pos = offset;
@@ -1001,7 +1022,9 @@ pub const Reader = struct {
                     r.seek_err = err;
                     return err;
                 };
+                r.pos = offset;
             },
+            .failure => return r.seek_err.?,
         }
     }
 
@@ -1015,33 +1038,29 @@ pub const Reader = struct {
         limit: std.io.Limit,
     ) std.io.Reader.StreamError!usize {
         const r: *Reader = @ptrCast(@alignCast(context));
-        return bw.writeFile(r, limit, &.{}, 0) catch |write_file_error| switch (write_file_error) {
-            error.ReadFailed => return error.ReadFailed,
-            error.WriteFailed => return error.WriteFailed,
-            error.Unimplemented => switch (r.mode) {
-                .positional => {
-                    r.mode = .positional_reading;
+        switch (r.mode) {
+            .positional, .streaming => return bw.writeFile(r, limit, &.{}, 0) catch |write_err| switch (write_err) {
+                error.ReadFailed => return error.ReadFailed,
+                error.WriteFailed => return error.WriteFailed,
+                error.Unimplemented => {
+                    r.mode = r.mode.toReading();
                     return 0;
                 },
-                .streaming => {
-                    r.mode = .streaming_reading;
-                    return 0;
-                },
-                .positional_reading => {
-                    const dest = limit.slice(try bw.writableSliceGreedy(1));
-                    const n = try readPositional(r, dest);
-                    bw.advance(n);
-                    return n;
-                },
-                .streaming_reading => {
-                    const dest = limit.slice(try bw.writableSliceGreedy(1));
-                    const n = try readStreaming(r, dest);
-                    bw.advance(n);
-                    return n;
-                },
-                .failure => return error.ReadFailed,
             },
-        };
+            .positional_reading => {
+                const dest = limit.slice(try bw.writableSliceGreedy(1));
+                const n = try readPositional(r, dest);
+                bw.advance(n);
+                return n;
+            },
+            .streaming_reading => {
+                const dest = limit.slice(try bw.writableSliceGreedy(1));
+                const n = try readStreaming(r, dest);
+                bw.advance(n);
+                return n;
+            },
+            .failure => return error.ReadFailed,
+        }
     }
 
     fn discard(context: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {
@@ -1077,7 +1096,10 @@ pub const Reader = struct {
                             r.err = err;
                             return error.ReadFailed;
                         };
-                        if (n == 0) return error.EndOfStream;
+                        if (n == 0) {
+                            r.size = pos;
+                            return error.EndOfStream;
+                        }
                         r.pos = pos + n;
                         return n;
                     }
@@ -1093,7 +1115,10 @@ pub const Reader = struct {
                         r.err = err;
                         return error.ReadFailed;
                     };
-                    if (n == 0) return error.EndOfStream;
+                    if (n == 0) {
+                        r.size = pos;
+                        return error.EndOfStream;
+                    }
                     r.pos = pos + n;
                     return n;
                 }
@@ -1113,6 +1138,7 @@ pub const Reader = struct {
                 r.pos = pos + n;
                 return n;
             },
+            .failure => return error.ReadFailed,
         }
     }
 
@@ -1120,7 +1146,7 @@ pub const Reader = struct {
         const n = r.file.pread(dest, r.pos) catch |err| switch (err) {
             error.Unseekable => {
                 r.mode = r.mode.toStreaming();
-                if (r.pos != 0) r.seekBy(r.pos) catch {
+                if (r.pos != 0) r.seekBy(@intCast(r.pos)) catch {
                     r.mode = .failure;
                     return error.ReadFailed;
                 };
@@ -1131,7 +1157,10 @@ pub const Reader = struct {
                 return error.ReadFailed;
             },
         };
-        if (n == 0) return error.EndOfStream;
+        if (n == 0) {
+            r.size = r.pos;
+            return error.EndOfStream;
+        }
         r.pos += n;
         return n;
     }
@@ -1141,7 +1170,10 @@ pub const Reader = struct {
             r.err = err;
             return error.ReadFailed;
         };
-        if (n == 0) return error.EndOfStream;
+        if (n == 0) {
+            r.size = r.pos;
+            return error.EndOfStream;
+        }
         r.pos += n;
         return n;
     }
@@ -1167,6 +1199,10 @@ pub const Writer = struct {
 
     pub const SendfileError = error{
         UnsupportedOperation,
+        SystemResources,
+        InputOutput,
+        BrokenPipe,
+        WouldBlock,
         Unexpected,
     };
 

@@ -6,6 +6,7 @@ const Writer = std.io.Writer;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const Limit = std.io.Limit;
+const File = std.fs.File;
 
 /// Underlying stream to send bytes to.
 ///
@@ -543,36 +544,31 @@ pub fn writeSliceSwap(bw: *BufferedWriter, Elem: type, slice: []const Elem) Writ
 /// `error.Unimplemented` in the error set.
 pub fn writeFile(
     bw: *BufferedWriter,
-    file: std.fs.File,
-    offset: Writer.Offset,
+    file_reader: *File.Reader,
     limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) Writer.FileError!usize {
-    return passthruWriteFile(bw, file, offset, limit, headers_and_trailers, headers_len);
+    return passthruWriteFile(bw, file_reader, limit, headers_and_trailers, headers_len);
 }
-
-pub const WriteFileReadingError = std.fs.File.PReadError || Writer.Error;
 
 /// Returning zero bytes means end of stream.
 ///
 /// Asserts nonzero buffer capacity.
 pub fn writeFileReading(
     bw: *BufferedWriter,
-    file: std.fs.File,
-    offset: Writer.Offset,
+    file_reader: *File.Reader,
     limit: Limit,
-) WriteFileReadingError!usize {
+) Writer.ReadingFileError!usize {
     const dest = limit.slice(try bw.writableSliceGreedy(1));
-    const n = if (offset.toInt()) |pos| try file.pread(dest, pos) else try file.read(dest);
+    const n = try file_reader.read(dest);
     bw.advance(n);
     return n;
 }
 
 fn passthruWriteFile(
     context: ?*anyopaque,
-    file: std.fs.File,
-    offset: Writer.Offset,
+    file_reader: *File.Reader,
     limit: Limit,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
@@ -581,7 +577,7 @@ fn passthruWriteFile(
     const buffer = bw.buffer;
     if (buffer.len == 0) return track(
         &bw.count,
-        try bw.unbuffered_writer.writeFile(file, offset, limit, headers_and_trailers, headers_len),
+        try bw.unbuffered_writer.writeFile(file_reader, limit, headers_and_trailers, headers_len),
     );
     const start_end = bw.end;
     const headers = headers_and_trailers[0..headers_len];
@@ -608,7 +604,7 @@ fn passthruWriteFile(
             @memcpy(remaining_buffers_for_trailers[0..send_trailers_len], trailers[0..send_trailers_len]);
             const send_headers_len = 1 + buffers_len;
             const send_buffers = buffers[0 .. send_headers_len + send_trailers_len];
-            const n = try bw.unbuffered_writer.writeFile(file, offset, limit, send_buffers, send_headers_len);
+            const n = try bw.unbuffered_writer.writeFile(file_reader, limit, send_buffers, send_headers_len);
             if (n < end) {
                 @branchHint(.unlikely);
                 const remainder = buffer[n..end];
@@ -638,7 +634,7 @@ fn passthruWriteFile(
     @memcpy(remaining_buffers[0..send_trailers_len], trailers[0..send_trailers_len]);
     const send_headers_len = @intFromBool(end != 0);
     const send_buffers = buffers[1 - send_headers_len .. 1 + send_trailers_len];
-    const n = try bw.unbuffered_writer.writeFile(file, offset, limit, send_buffers, send_headers_len);
+    const n = try bw.unbuffered_writer.writeFile(file_reader, limit, send_buffers, send_headers_len);
     if (n < end) {
         @branchHint(.unlikely);
         const remainder = buffer[n..end];
@@ -651,9 +647,6 @@ fn passthruWriteFile(
 }
 
 pub const WriteFileOptions = struct {
-    offset: Writer.Offset = .none,
-    /// If the size of the source file is known, it is likely that passing the
-    /// size here will save one syscall.
     limit: Limit = .unlimited,
     /// Headers and trailers must be passed together so that in case `len` is
     /// zero, they can be forwarded directly to `Writer.VTable.writeSplat`.
@@ -666,77 +659,51 @@ pub const WriteFileOptions = struct {
     headers_len: usize = 0,
 };
 
-pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOptions) WriteFileReadingError!void {
+pub fn writeFileAll(
+    bw: *BufferedWriter,
+    file_reader: *std.fs.File.Reader,
+    options: WriteFileOptions,
+) Writer.FileError!void {
     const headers_and_trailers = options.headers_and_trailers;
     const headers = headers_and_trailers[0..options.headers_len];
-    switch (options.limit) {
-        .nothing => return bw.writeVecAll(headers_and_trailers),
-        .unlimited => {
-            // When reading the whole file, we cannot include the trailers in the
-            // call that reads from the file handle, because we have no way to
-            // determine whether a partial write is past the end of the file or
-            // not.
-            var i: usize = 0;
-            var offset = options.offset;
-            while (true) {
-                var n = bw.writeFile(file, offset, .unlimited, headers[i..], headers.len - i) catch |err| switch (err) {
-                    error.Unimplemented => {
-                        try bw.writeVecAll(headers[i..]);
-                        try bw.writeFileReadingAll(file, offset, .unlimited);
-                        try bw.writeVecAll(headers_and_trailers[headers.len..]);
-                        return;
-                    },
-                    else => |e| return e,
-                };
-                while (i < headers.len and n >= headers[i].len) {
-                    n -= headers[i].len;
-                    i += 1;
-                }
-                if (i < headers.len) {
-                    headers[i] = headers[i][n..];
-                    continue;
-                }
-                if (n == 0) break;
-                offset = offset.advance(n);
-            }
-        },
-        else => {
-            var len = options.limit.toInt().?;
-            var i: usize = 0;
-            var offset = options.offset;
-            while (true) {
-                var n = bw.writeFile(file, offset, .limited(len), headers_and_trailers[i..], headers.len - i) catch |err| switch (err) {
-                    error.Unimplemented => {
-                        try bw.writeVecAll(headers[i..]);
-                        try bw.writeFileReadingAll(file, offset, .limited(len));
-                        try bw.writeVecAll(headers_and_trailers[headers.len..]);
-                        return;
-                    },
-                    else => |e| return e,
-                };
-                while (i < headers.len and n >= headers[i].len) {
-                    n -= headers[i].len;
-                    i += 1;
-                }
-                if (i < headers.len) {
-                    headers[i] = headers[i][n..];
-                    continue;
-                }
-                if (n >= len) {
-                    n -= len;
-                    if (i >= headers_and_trailers.len) return;
-                    while (n >= headers_and_trailers[i].len) {
-                        n -= headers_and_trailers[i].len;
-                        i += 1;
-                        if (i >= headers_and_trailers.len) return;
-                    }
-                    headers_and_trailers[i] = headers_and_trailers[i][n..];
-                    return bw.writeVecAll(headers_and_trailers[i..]);
-                }
-                offset = offset.advance(n);
-                len -= n;
-            }
-        },
+    var remaining = options.limit;
+    var i: usize = 0;
+    while (true) {
+        const before_pos = file_reader.pos;
+        var n = bw.writeFile(file_reader, remaining, headers_and_trailers[i..], headers.len - i) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.WriteFailed => return error.WriteFailed,
+            error.Unimplemented => {
+                file_reader.mode = file_reader.mode.toReading();
+                try bw.writeVecAll(headers[i..]);
+                try bw.writeFileReadingAll(file_reader, remaining);
+                try bw.writeVecAll(headers_and_trailers[headers.len..]);
+                return;
+            },
+        };
+        while (i < headers.len and n >= headers[i].len) {
+            n -= headers[i].len;
+            i += 1;
+        }
+        if (i < headers.len) {
+            headers[i] = headers[i][n..];
+            continue;
+        }
+        const file_bytes_consumed = file_reader.pos - before_pos;
+        remaining = remaining.subtract(file_bytes_consumed).?;
+        const size = file_reader.size orelse continue; // End of file not yet reached.
+        if (file_reader.pos < size) continue; // End of file not yet reached.
+        n -= file_bytes_consumed; // Trailers reached.
+        while (i < headers_and_trailers.len and n >= headers_and_trailers[i].len) {
+            n -= headers_and_trailers[i].len;
+            i += 1;
+        }
+        if (i < headers_and_trailers.len) {
+            headers_and_trailers[i] = headers_and_trailers[i][n..];
+            try bw.writeVecAll(headers_and_trailers[i..]);
+            return;
+        }
+        return;
     }
 }
 
@@ -748,28 +715,13 @@ pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOp
 /// Asserts nonzero buffer capacity.
 pub fn writeFileReadingAll(
     bw: *BufferedWriter,
-    file: std.fs.File,
-    offset: Writer.Offset,
+    file_reader: *File.Reader,
     limit: Limit,
-) WriteFileReadingError!void {
-    if (offset.toInt()) |start_pos| {
-        var remaining = limit;
-        var pos = start_pos;
-        while (remaining.nonzero()) {
-            const dest = remaining.slice(try bw.writableSliceGreedy(1));
-            const n = try file.pread(dest, pos);
-            if (n == 0) return;
-            bw.advance(n);
-            pos += n;
-            remaining = remaining.subtract(n).?;
-        }
-    }
+) Writer.ReadingFileError!void {
     var remaining = limit;
     while (remaining.nonzero()) {
-        const dest = remaining.slice(try bw.writableSliceGreedy(1));
-        const n = try file.read(dest);
+        const n = try writeFileReading(bw, file_reader, remaining);
         if (n == 0) return;
-        bw.advance(n);
         remaining = remaining.subtract(n).?;
     }
 }
