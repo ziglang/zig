@@ -10,7 +10,6 @@ const Decl = Zcu.Decl;
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Air = @import("../Air.zig");
-const Liveness = @import("../Liveness.zig");
 const InternPool = @import("../InternPool.zig");
 
 const spec = @import("spirv/spec.zig");
@@ -195,7 +194,7 @@ pub const Object = struct {
         pt: Zcu.PerThread,
         nav_index: InternPool.Nav.Index,
         air: Air,
-        liveness: Liveness,
+        liveness: Air.Liveness,
         do_codegen: bool,
     ) !void {
         const zcu = pt.zcu;
@@ -242,7 +241,7 @@ pub const Object = struct {
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
         air: Air,
-        liveness: Liveness,
+        liveness: Air.Liveness,
     ) !void {
         const nav = pt.zcu.funcInfo(func_index).owner_nav;
         // TODO: Separate types for generating decls and functions?
@@ -303,7 +302,7 @@ const NavGen = struct {
 
     /// The liveness analysis of the intermediate code for the declaration we are currently generating.
     /// Note: If the declaration is not a function, this value will be undefined!
-    liveness: Liveness,
+    liveness: Air.Liveness,
 
     /// An array of function argument result-ids. Each index corresponds with the
     /// function argument of the same index.
@@ -4627,7 +4626,7 @@ const NavGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const result_ty = self.typeOfIndex(inst);
         const len: usize = @intCast(result_ty.arrayLen(zcu));
-        const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
+        const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[ty_pl.payload..][0..len]);
 
         switch (result_ty.zigTypeTag(zcu)) {
             .@"struct" => {
@@ -5474,7 +5473,7 @@ const NavGen = struct {
     fn airBlock(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
         const inst_datas = self.air.instructions.items(.data);
         const extra = self.air.extraData(Air.Block, inst_datas[@intFromEnum(inst)].ty_pl.payload);
-        return self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+        return self.lowerBlock(inst, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
     }
 
     fn lowerBlock(self: *NavGen, inst: Air.Inst.Index, body: []const Air.Inst.Index) !?IdRef {
@@ -5657,8 +5656,8 @@ const NavGen = struct {
     fn airCondBr(self: *NavGen, inst: Air.Inst.Index) !void {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const cond_br = self.air.extraData(Air.CondBr, pl_op.payload);
-        const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra[cond_br.end..][0..cond_br.data.then_body_len]);
-        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[cond_br.end + then_body.len ..][0..cond_br.data.else_body_len]);
+        const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[cond_br.end..][0..cond_br.data.then_body_len]);
+        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[cond_br.end + then_body.len ..][0..cond_br.data.else_body_len]);
         const condition_id = try self.resolve(pl_op.operand);
 
         const then_label = self.spv.allocId();
@@ -5717,7 +5716,7 @@ const NavGen = struct {
     fn airLoop(self: *NavGen, inst: Air.Inst.Index) !void {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[loop.end..][0..loop.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[loop.end..][0..loop.data.body_len]);
 
         const body_label = self.spv.allocId();
 
@@ -5837,7 +5836,7 @@ const NavGen = struct {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const err_union_id = try self.resolve(pl_op.operand);
         const extra = self.air.extraData(Air.Try, pl_op.payload);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
 
         const err_union_ty = self.typeOf(pl_op.operand);
         const payload_ty = self.typeOfIndex(inst);
@@ -6344,7 +6343,7 @@ const NavGen = struct {
         const old_base_line = self.base_line;
         defer self.base_line = old_base_line;
         self.base_line = zcu.navSrcLine(zcu.funcInfo(extra.data.func).owner_nav);
-        return self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+        return self.lowerBlock(inst, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
     }
 
     fn airDbgVar(self: *NavGen, inst: Air.Inst.Index) !void {
@@ -6365,9 +6364,9 @@ const NavGen = struct {
         if (!is_volatile and self.liveness.isUnused(inst)) return null;
 
         var extra_i: usize = extra.end;
-        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]);
+        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.outputs_len]);
         extra_i += outputs.len;
-        const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]);
+        const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
         if (outputs.len > 1) {
@@ -6386,15 +6385,15 @@ const NavGen = struct {
             if (output != .none) {
                 return self.todo("implement inline asm with non-returned output", .{});
             }
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
             // TODO: Record output and use it somewhere.
         }
 
         for (inputs) |input| {
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
             const constraint = std.mem.sliceTo(extra_bytes, 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
@@ -6461,13 +6460,13 @@ const NavGen = struct {
         {
             var clobber_i: u32 = 0;
             while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
                 extra_i += clobber.len / 4 + 1;
                 // TODO: Record clobber and use it somewhere.
             }
         }
 
-        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
+        const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
         as.assemble(asm_source) catch |err| switch (err) {
             error.AssembleFail => {
@@ -6501,8 +6500,8 @@ const NavGen = struct {
 
         for (outputs) |output| {
             _ = output;
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[output_extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[output_extra_i..]), 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[output_extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[output_extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             output_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
@@ -6531,7 +6530,7 @@ const NavGen = struct {
         const zcu = pt.zcu;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
-        const args: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]);
+        const args: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.args_len]);
         const callee_ty = self.typeOf(pl_op.operand);
         const zig_fn_ty = switch (callee_ty.zigTypeTag(zcu)) {
             .@"fn" => callee_ty,

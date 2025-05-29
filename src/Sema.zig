@@ -756,13 +756,7 @@ pub const Block = struct {
     fn addReduce(block: *Block, operand: Air.Inst.Ref, operation: std.builtin.ReduceOp) !Air.Inst.Ref {
         const sema = block.sema;
         const zcu = sema.pt.zcu;
-        const vector_ty = sema.typeOf(operand);
-        switch (vector_ty.vectorLen(zcu)) {
-            0 => unreachable,
-            1 => return block.addBinOp(.array_elem_val, operand, .zero_usize),
-            else => {},
-        }
-        const allow_optimized = switch (vector_ty.childType(zcu).zigTypeTag(zcu)) {
+        const allow_optimized = switch (sema.typeOf(operand).childType(zcu).zigTypeTag(zcu)) {
             .float => true,
             .bool, .int => false,
             else => unreachable,
@@ -36849,7 +36843,7 @@ fn typeOf(sema: *Sema, inst: Air.Inst.Ref) Type {
 pub fn getTmpAir(sema: Sema) Air {
     return .{
         .instructions = sema.air_instructions.slice(),
-        .extra = sema.air_extra.items,
+        .extra = sema.air_extra,
     };
 }
 
