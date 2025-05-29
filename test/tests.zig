@@ -98,6 +98,100 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
+        // FreeBSD Targets
+
+        .{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .freebsd,
+                // Remove this when we bump our baseline to 14.0.0.
+                .os_version_min = .{ .semver = .{
+                    .major = 14,
+                    .minor = 0,
+                    .patch = 0,
+                } },
+                .abi = .none,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .arm,
+                .os_tag = .freebsd,
+                // Remove this when we bump our baseline to 14.0.0.
+                .os_version_min = .{ .semver = .{
+                    .major = 14,
+                    .minor = 0,
+                    .patch = 0,
+                } },
+                .abi = .eabihf,
+            },
+            .link_libc = true,
+            // https://github.com/ziglang/zig/issues/23949
+            .skip_modules = &.{"std"},
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .powerpc64,
+                .os_tag = .freebsd,
+                // Remove this when we bump our baseline to 14.0.0.
+                .os_version_min = .{ .semver = .{
+                    .major = 14,
+                    .minor = 0,
+                    .patch = 0,
+                } },
+                .abi = .none,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .powerpc64le,
+                .os_tag = .freebsd,
+                // Remove this when we bump our baseline to 14.0.0.
+                .os_version_min = .{ .semver = .{
+                    .major = 14,
+                    .minor = 0,
+                    .patch = 0,
+                } },
+                .abi = .none,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .riscv64,
+                .os_tag = .freebsd,
+                // Remove this when we bump our baseline to 14.0.0.
+                .os_version_min = .{ .semver = .{
+                    .major = 14,
+                    .minor = 0,
+                    .patch = 0,
+                } },
+                .abi = .none,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .freebsd,
+                // Remove this when we bump our baseline to 14.0.0.
+                .os_version_min = .{ .semver = .{
+                    .major = 14,
+                    .minor = 0,
+                    .patch = 0,
+                } },
+                .abi = .none,
+            },
+            .link_libc = true,
+        },
+
         // Linux Targets
 
         .{
