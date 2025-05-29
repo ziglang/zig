@@ -4553,12 +4553,33 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 }
             }
             assert(nav.status == .fully_resolved);
+            if (!Air.valFullyResolved(zcu.navValue(nav_index), zcu)) {
+                // Type resolution failed in a way which affects this `Nav`. This is a transitive
+                // failure, but it doesn't need recording, because this `Nav` semantically depends
+                // on the failed type, so when it is changed the `Nav` will be updated.
+                return;
+            }
             comp.dispatchLinkTask(tid, .{ .link_nav = nav_index });
         },
         .link_func => |func| {
+            const zcu = comp.zcu.?;
+            if (!func.air.typesFullyResolved(zcu)) {
+                // Type resolution failed in a way which affects this function. This is a transitive
+                // failure, but it doesn't need recording, because this function semantically depends
+                // on the failed type, so when it is changed the function is updated.
+                return;
+            }
             comp.dispatchLinkTask(tid, .{ .link_func = func });
         },
         .link_type => |ty| {
+            const zcu = comp.zcu.?;
+            if (zcu.failed_types.fetchSwapRemove(ty)) |*entry| entry.value.deinit(zcu.gpa);
+            if (!Air.typeFullyResolved(.fromInterned(ty), zcu)) {
+                // Type resolution failed in a way which affects this type. This is a transitive
+                // failure, but it doesn't need recording, because this type semantically depends
+                // on the failed type, so when that is changed, this type will be updated.
+                return;
+            }
             comp.dispatchLinkTask(tid, .{ .link_type = ty });
         },
         .update_line_number => |ti| {

@@ -1739,14 +1739,6 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *A
     const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(ip), 0);
     defer codegen_prog_node.end();
 
-    if (!air.typesFullyResolved(zcu)) {
-        // A type we depend on failed to resolve. This is a transitive failure.
-        // Correcting this failure will involve changing a type this function
-        // depends on, hence triggering re-analysis of this function, so this
-        // interacts correctly with incremental compilation.
-        return;
-    }
-
     legalize: {
         try air.legalize(pt, @import("../codegen.zig").legalizeFeatures(pt, nav_index) orelse break :legalize);
     }

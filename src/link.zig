@@ -1424,12 +1424,6 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             const zcu = comp.zcu.?;
             const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
             defer pt.deactivate();
-            if (!Air.valFullyResolved(zcu.navValue(nav_index), zcu)) {
-                // Type resolution failed in a way which affects this `Nav`. This is a transitive
-                // failure, but it doesn't need recording, because this `Nav` semantically depends
-                // on the failed type, so when it is changed the `Nav` will be updated.
-                return;
-            }
             if (zcu.llvm_object) |llvm_object| {
                 llvm_object.updateNav(pt, nav_index) catch |err| switch (err) {
                     error.OutOfMemory => diags.setAllocFailure(),
@@ -1473,13 +1467,6 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             const zcu = comp.zcu.?;
             const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
             defer pt.deactivate();
-            if (zcu.failed_types.fetchSwapRemove(ty)) |*entry| entry.value.deinit(zcu.gpa);
-            if (!Air.typeFullyResolved(.fromInterned(ty), zcu)) {
-                // Type resolution failed in a way which affects this type. This is a transitive
-                // failure, but it doesn't need recording, because this type semantically depends
-                // on the failed type, so when that is changed, this type will be updated.
-                return;
-            }
             if (zcu.llvm_object == null) {
                 if (comp.bin_file) |lf| {
                     lf.updateContainerType(pt, ty) catch |err| switch (err) {
