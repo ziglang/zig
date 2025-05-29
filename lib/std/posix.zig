@@ -4412,6 +4412,18 @@ pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
     }
 }
 
+pub fn getpid() pid_t {
+    if (@hasDecl(system, "getpid"))
+        return system.getpid();
+    @compileError("getpid() not yet implemented for target system");
+}
+
+pub fn getppid() pid_t {
+    if (@hasDecl(system, "getppid"))
+        return system.getppid();
+    @compileError("getppid() not yet implemented for target system");
+}
+
 pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitPidResult {
     var status: if (builtin.link_libc) c_int else u32 = undefined;
     while (true) {

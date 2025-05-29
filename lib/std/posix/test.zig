@@ -1180,6 +1180,27 @@ test "POSIX file locking with fcntl" {
     }
 }
 
+test "posix getpid" {
+    if (!@hasDecl(posix.system, "getpid"))
+        return error.SkipZigTest;
+
+    try expect(posix.getpid() != 0);
+}
+
+test "posix getppid" {
+    if (!@hasDecl(posix.system, "getppid"))
+        return error.SkipZigTest;
+
+    const parent = posix.getpid();
+    const child = try posix.fork();
+    if (child == 0)
+        posix.exit(if (parent == posix.getppid()) 0 else 1);
+
+    const result = posix.waitpid(child, 0);
+    try expect(result.pid != 0);
+    try expect(result.status == 0);
+}
+
 test "rename smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
     if (native_os == .windows) return error.SkipZigTest;
