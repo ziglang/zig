@@ -883,7 +883,6 @@ const mingw32_generic_src = [_][]const u8{
     "libsrc" ++ path.sep_str ++ "sensorsapi.c",
     "libsrc" ++ path.sep_str ++ "portabledeviceguids.c",
     "libsrc" ++ path.sep_str ++ "taskschd.c",
-    "libsrc" ++ path.sep_str ++ "scrnsave.c",
     "libsrc" ++ path.sep_str ++ "strmiids.c",
     "libsrc" ++ path.sep_str ++ "gdiplus.c",
     "libsrc" ++ path.sep_str ++ "activeds-uuid.c",
