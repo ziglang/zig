@@ -4828,6 +4828,7 @@ inline fn ctz(comptime Type: type, rhs: Type) @TypeOf(@ctz(rhs)) {
 test ctz {
     const test_ctz = unary(ctz, .{});
     try test_ctz.testInts();
+    try test_ctz.testIntVectors();
 }
 
 inline fn popCount(comptime Type: type, rhs: Type) @TypeOf(@popCount(rhs)) {
@@ -4836,6 +4837,7 @@ inline fn popCount(comptime Type: type, rhs: Type) @TypeOf(@popCount(rhs)) {
 test popCount {
     const test_pop_count = unary(popCount, .{});
     try test_pop_count.testInts();
+    try test_pop_count.testIntVectors();
 }
 
 inline fn byteSwap(comptime Type: type, rhs: Type) RoundBitsUp(Type, 8) {
@@ -4844,6 +4846,7 @@ inline fn byteSwap(comptime Type: type, rhs: Type) RoundBitsUp(Type, 8) {
 test byteSwap {
     const test_byte_swap = unary(byteSwap, .{});
     try test_byte_swap.testInts();
+    try test_byte_swap.testIntVectors();
 }
 
 inline fn bitReverse(comptime Type: type, rhs: Type) @TypeOf(@bitReverse(rhs)) {
@@ -4852,6 +4855,7 @@ inline fn bitReverse(comptime Type: type, rhs: Type) @TypeOf(@bitReverse(rhs)) {
 test bitReverse {
     const test_bit_reverse = unary(bitReverse, .{});
     try test_bit_reverse.testInts();
+    try test_bit_reverse.testIntVectors();
 }
 
 inline fn sqrt(comptime Type: type, rhs: Type) @TypeOf(@sqrt(rhs)) {

@@ -1742,7 +1742,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *A
     }
 
     const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
-    try air.legalize(backend, zcu);
+    try air.legalize(backend, pt);
 
     var liveness = try Air.Liveness.analyze(gpa, air.*, ip);
     defer liveness.deinit(gpa);
