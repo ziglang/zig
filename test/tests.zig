@@ -1772,6 +1772,10 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (options.skip_libc and test_target.link_libc == true)
             continue;
 
+        // We can't provide MSVC libc when cross-compiling.
+        if (target.abi == .msvc and test_target.link_libc == true and builtin.os.tag != .windows)
+            continue;
+
         if (options.skip_single_threaded and test_target.single_threaded == true)
             continue;
 
