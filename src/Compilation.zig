@@ -6170,6 +6170,17 @@ pub fn addCCArgs(
 
     if (target_util.supports_fpic(target)) {
         try argv.append(if (mod.pic) "-fPIC" else "-fno-PIC");
+
+        if (target.cpu.arch.isMIPS64() and !(target.abi == .gnuabin32 or target.abi == .muslabin32)) {
+            // For N64, Clang enforces that this match the PIC flag exactly, which seems like a bit
+            // of a silly requirement to impose on the user instead of just inferring one flag from
+            // the other when only one is provided...
+            try argv.append(if (mod.pic) "-mabicalls" else "-mno-abicalls");
+        } else if (target.cpu.arch.isMIPS()) {
+            // We should eventually provide a way to specify `-m(no-)abicalls` for O32/N32. "CPU"
+            // feature flags are clearly not the right tool for the job. For now, let Clang use its
+            // default setting, i.e. `-mabicalls`.
+        }
     }
 
     if (comp.mingw_unicode_entry_point) {
@@ -6492,6 +6503,9 @@ pub fn addCCArgs(
                     if (std.mem.startsWith(u8, llvm_name, "soft-float") or
                         std.mem.startsWith(u8, llvm_name, "hard-float"))
                         continue;
+
+                    // We pass `-m(no-)abicalls` to Clang explicitly as necessary.
+                    if (target.cpu.arch.isMIPS() and feature.index == @intFromEnum(std.Target.mips.Feature.noabicalls)) continue;
 
                     // Ignore these until we figure out how to handle the concept of omitting features.
                     // See https://github.com/ziglang/zig/issues/23539
