@@ -356,7 +356,7 @@ test "readBoundedBytes correctly reads into a new bounded array" {
     const reader = fis.reader();
 
     var array = try reader.readBoundedBytes(10000);
-    try testing.expectEqualStrings(array.slice(), test_string);
+    try testing.expectEqualStrings(array.items(), test_string);
 }
 
 test "readIntoBoundedBytes correctly reads into a provided bounded array" {
@@ -368,5 +368,5 @@ test "readIntoBoundedBytes correctly reads into a provided bounded array" {
 
     // compile time error if the size is not the same at the provided `bounded.capacity()`
     try reader.readIntoBoundedBytes(10000, &bounded_array);
-    try testing.expectEqualStrings(bounded_array.slice(), test_string);
+    try testing.expectEqualStrings(bounded_array.items(), test_string);
 }

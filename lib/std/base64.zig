@@ -521,13 +521,13 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
         // stream encode
         var list = try std.BoundedArray(u8, 0x100).init(0);
         try codecs.Encoder.encodeWriter(list.writer(), expected_decoded);
-        try testing.expectEqualSlices(u8, expected_encoded, list.slice());
+        try testing.expectEqualSlices(u8, expected_encoded, list.items());
 
         // reader to writer encode
         var stream = std.io.fixedBufferStream(expected_decoded);
         list = try std.BoundedArray(u8, 0x100).init(0);
         try codecs.Encoder.encodeFromReaderToWriter(list.writer(), stream.reader());
-        try testing.expectEqualSlices(u8, expected_encoded, list.slice());
+        try testing.expectEqualSlices(u8, expected_encoded, list.items());
     }
 
     // Base64Decoder
