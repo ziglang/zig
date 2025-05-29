@@ -1181,15 +1181,16 @@ test "POSIX file locking with fcntl" {
 }
 
 test "posix getpid" {
-    if (!@hasDecl(posix.system, "getpid"))
-        return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     try expect(posix.getpid() != 0);
 }
 
 test "posix getppid" {
-    if (!@hasDecl(posix.system, "getppid"))
-        return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
+    if (native_os == .plan9 and !builtin.link_libc) return error.SkipZigTest;
 
     const parent = posix.getpid();
     const child = try posix.fork();
@@ -1197,7 +1198,7 @@ test "posix getppid" {
         posix.exit(if (parent == posix.getppid()) 0 else 1);
 
     const result = posix.waitpid(child, 0);
-    try expect(result.pid != 0);
+    try expect(result.pid == child);
     try expect(result.status == 0);
 }
 
