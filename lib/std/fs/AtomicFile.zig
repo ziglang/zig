@@ -1,4 +1,12 @@
-file: File,
+const AtomicFile = @This();
+const std = @import("../std.zig");
+const File = std.fs.File;
+const Dir = std.fs.Dir;
+const fs = std.fs;
+const assert = std.debug.assert;
+const posix = std.posix;
+
+file_writer: File.Writer,
 // TODO either replace this with rand_buf or use []u16 on Windows
 tmp_path_buf: [tmp_path_len:0]u8,
 dest_basename: []const u8,
@@ -35,8 +43,8 @@ pub fn init(
             else => |e| return e,
         };
 
-        return AtomicFile{
-            .file = file,
+        return .{
+            .file_writer = file.writer(),
             .tmp_path_buf = tmp_path_buf,
             .dest_basename = dest_basename,
             .file_open = true,
@@ -50,7 +58,7 @@ pub fn init(
 /// Always call deinit, even after a successful finish().
 pub fn deinit(self: *AtomicFile) void {
     if (self.file_open) {
-        self.file.close();
+        self.file_writer.file.close();
         self.file_open = false;
     }
     if (self.file_exists) {
@@ -72,17 +80,9 @@ pub const FinishError = posix.RenameError;
 pub fn finish(self: *AtomicFile) FinishError!void {
     assert(self.file_exists);
     if (self.file_open) {
-        self.file.close();
+        self.file_writer.file.close();
         self.file_open = false;
     }
     try posix.renameat(self.dir.fd, self.tmp_path_buf[0..], self.dir.fd, self.dest_basename);
     self.file_exists = false;
 }
-
-const AtomicFile = @This();
-const std = @import("../std.zig");
-const File = std.fs.File;
-const Dir = std.fs.Dir;
-const fs = std.fs;
-const assert = std.debug.assert;
-const posix = std.posix;

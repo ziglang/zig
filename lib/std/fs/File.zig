@@ -887,18 +887,6 @@ pub fn pwritev(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteError
     return posix.pwritev(self.handle, iovecs, offset);
 }
 
-pub const WriteFileError = PReadError || WriteError;
-
-pub fn writeFileAll(self: File, in_file: File, options: BufferedWriter.WriteFileOptions) WriteFileError!void {
-    var file_writer = self.writer();
-    var buffer: [2000]u8 = undefined;
-    var bw = file_writer.interface().buffered(&buffer);
-    bw.writeFileAll(in_file, options) catch |err| switch (err) {
-        error.WriteFailed => return file_writer.err.?,
-        else => |e| return e,
-    };
-}
-
 /// Memoizes key information about a file handle such as:
 /// * The size from calling stat, or the error that occurred therein.
 /// * The current seek position.
