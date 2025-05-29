@@ -439,9 +439,8 @@ pub const Reader = struct {
                 return .{
                     .context = reader,
                     .vtable = &.{
-                        .read = &chunkedRead,
-                        .readVec = &chunkedReadVec,
-                        .discard = &chunkedDiscard,
+                        .read = chunkedRead,
+                        .discard = chunkedDiscard,
                     },
                 };
             },
@@ -451,9 +450,8 @@ pub const Reader = struct {
                     return .{
                         .context = reader,
                         .vtable = &.{
-                            .read = &contentLengthRead,
-                            .readVec = &contentLengthReadVec,
-                            .discard = &contentLengthDiscard,
+                            .read = contentLengthRead,
+                            .discard = contentLengthDiscard,
                         },
                     };
                 } else {
@@ -517,19 +515,6 @@ pub const Reader = struct {
             return error.EndOfStream;
         }
         const n = try reader.in.read(bw, limit.min(.limited(remaining)));
-        remaining_content_length.* = remaining - n;
-        return n;
-    }
-
-    fn contentLengthReadVec(context: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
-        const reader: *Reader = @alignCast(@ptrCast(context));
-        const remaining_content_length = &reader.state.body_remaining_content_length;
-        const remaining = remaining_content_length.*;
-        if (remaining == 0) {
-            reader.state = .ready;
-            return error.EndOfStream;
-        }
-        const n = try reader.in.readVecLimit(data, .limited(remaining));
         remaining_content_length.* = remaining - n;
         return n;
     }
@@ -619,96 +604,6 @@ pub const Reader = struct {
                 return n;
             },
         }
-    }
-
-    fn chunkedReadVec(ctx: ?*anyopaque, data: []const []u8) std.io.Reader.Error!usize {
-        const reader: *Reader = @alignCast(@ptrCast(ctx));
-        const chunk_len_ptr = switch (reader.state) {
-            .ready => return error.EndOfStream,
-            .body_remaining_chunk_len => |*x| x,
-            else => unreachable,
-        };
-        return chunkedReadVecEndless(reader, data, chunk_len_ptr) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
-            error.EndOfStream => {
-                reader.body_err = error.HttpChunkTruncated;
-                return error.ReadFailed;
-            },
-            else => |e| {
-                reader.body_err = e;
-                return error.ReadFailed;
-            },
-        };
-    }
-
-    fn chunkedReadVecEndless(
-        reader: *Reader,
-        data: []const []u8,
-        chunk_len_ptr: *RemainingChunkLen,
-    ) (BodyError || std.io.Reader.Error)!usize {
-        const in = reader.in;
-        var already_requested_more = false;
-        var amt_read: usize = 0;
-        data: for (data) |d| {
-            var d_i: usize = 0;
-            len: switch (chunk_len_ptr.*) {
-                .head => {
-                    var cp: ChunkParser = .init;
-                    while (true) {
-                        const i = cp.feed(in.bufferContents());
-                        switch (cp.state) {
-                            .invalid => return error.HttpChunkInvalid,
-                            .data => {
-                                in.toss(i);
-                                break;
-                            },
-                            else => {
-                                in.toss(i);
-                                already_requested_more = true;
-                                try in.fillMore();
-                                continue;
-                            },
-                        }
-                    }
-                    if (cp.chunk_len == 0) return parseTrailers(reader, amt_read);
-                    continue :len .init(cp.chunk_len + 2);
-                },
-                .n => {
-                    if (in.bufferContents().len < 1) already_requested_more = true;
-                    if ((try in.takeByte()) != '\n') return error.HttpChunkInvalid;
-                    continue :len .head;
-                },
-                .rn => {
-                    if (in.bufferContents().len < 2) already_requested_more = true;
-                    const rn = try in.takeArray(2);
-                    if (rn[0] != '\r' or rn[1] != '\n') return error.HttpChunkInvalid;
-                    continue :len .head;
-                },
-                else => |remaining_chunk_len| {
-                    const available_buffer = in.bufferContents();
-                    const copy_len = @min(available_buffer.len, d.len - d_i, remaining_chunk_len.int() - 2);
-                    @memcpy(d[d_i..][0..copy_len], available_buffer[0..copy_len]);
-                    d_i += copy_len;
-                    amt_read += copy_len;
-                    in.toss(copy_len);
-                    const next_chunk_len: RemainingChunkLen = .init(remaining_chunk_len.int() - copy_len);
-                    if (d.len - d_i == 0) {
-                        chunk_len_ptr.* = next_chunk_len;
-                        continue :data;
-                    }
-                    if (available_buffer.len - copy_len == 0) {
-                        if (already_requested_more) {
-                            chunk_len_ptr.* = next_chunk_len;
-                            return amt_read;
-                        }
-                        already_requested_more = true;
-                        try in.fillMore();
-                    }
-                    continue :len next_chunk_len;
-                },
-            }
-        }
-        return amt_read;
     }
 
     fn chunkedDiscard(ctx: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {

@@ -2612,11 +2612,18 @@ pub fn updateFile(
     var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = actual_mode });
     defer atomic_file.deinit();
 
-    try atomic_file.file.writeFileAll(src_file, .{
-        .offset = .zero,
-        .limit = .limited(src_stat.size),
-    });
-    try atomic_file.file.updateTimes(src_stat.atime, src_stat.mtime);
+    var src_reader: File.Reader = .{
+        .file = src_file,
+        .size = src_stat.size,
+    };
+    var buffer: [2000]u8 = undefined;
+    var dest_writer = atomic_file.file_writer.writable(&buffer);
+
+    dest_writer.writeFileAll(&src_reader, .{}) catch |err| switch (err) {
+        error.ReadFailed => return src_reader.err.?,
+        error.WriteFailed => return atomic_file.file_writer.err.?,
+    };
+    try atomic_file.file_writer.file.updateTimes(src_stat.atime, src_stat.mtime);
     try atomic_file.finish();
     return .stale;
 }

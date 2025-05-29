@@ -153,7 +153,7 @@ pub fn discardingWriteFile(
         const seek_amt = limit.minInt(remaining);
         // Error is observable on `file_reader` instance, and is safe to ignore
         // depending on the caller's needs. Caller can make that decision.
-        file_reader.seekForward(seek_amt) catch {};
+        file_reader.seekBy(@intCast(seek_amt)) catch {};
         var n: usize = seek_amt;
         for (headers_and_trailers[0..headers_len]) |bytes| n += bytes.len;
         if (seek_amt == remaining) {
