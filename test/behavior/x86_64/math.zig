@@ -125,7 +125,7 @@ fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     @compileError("unsupported boolOr type: " ++ @typeName(@TypeOf(lhs)));
 }
 
-pub const Compare = enum { strict, relaxed, approx, approx_int };
+pub const Compare = enum { strict, relaxed, approx, approx_int, approx_or_overflow };
 // noinline for a more helpful stack trace
 pub noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected), comptime compare: Compare) !void {
     const Expected = @TypeOf(expected);
@@ -137,20 +137,32 @@ pub noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected), comp
                 break :unexpected switch (compare) {
                     .strict => boolOr(unequal, sign(expected) != sign(actual)),
                     .relaxed => unequal,
-                    .approx, .approx_int => comptime unreachable,
+                    .approx, .approx_int, .approx_or_overflow => comptime unreachable,
                 };
             },
-            .approx, .approx_int => {
+            .approx, .approx_int, .approx_or_overflow => {
                 const epsilon = math.floatEps(Scalar(Expected));
-                const tolerance = @sqrt(epsilon);
-                break :unexpected @abs(expected - actual) > @max(
+                const tolerance = switch (compare) {
+                    .strict, .relaxed => comptime unreachable,
+                    .approx, .approx_int => @sqrt(epsilon),
+                    .approx_or_overflow => @exp2(@log2(epsilon) * 0.4),
+                };
+                const approx_unequal = @abs(expected - actual) > @max(
                     @abs(expected) * splat(Expected, tolerance),
                     splat(Expected, switch (compare) {
                         .strict, .relaxed => comptime unreachable,
-                        .approx => tolerance,
+                        .approx, .approx_or_overflow => tolerance,
                         .approx_int => 1,
                     }),
                 );
+                break :unexpected switch (compare) {
+                    .strict, .relaxed => comptime unreachable,
+                    .approx, .approx_int => approx_unequal,
+                    .approx_or_overflow => boolAnd(approx_unequal, boolOr(boolAnd(
+                        @abs(expected) != splat(Expected, inf(Expected)),
+                        @abs(actual) != splat(Expected, inf(Expected)),
+                    ), sign(expected) != sign(actual))),
+                };
             },
         },
         .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
