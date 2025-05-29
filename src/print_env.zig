@@ -1,21 +1,43 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const build_options = @import("build_options");
-const introspect = @import("introspect.zig");
+const Compilation = @import("Compilation.zig");
 const Allocator = std.mem.Allocator;
+const EnvVar = std.zig.EnvVar;
 const fatal = std.process.fatal;
 
-pub fn cmdEnv(arena: Allocator, out: *std.Io.Writer) !void {
-    const cwd_path = try introspect.getResolvedCwd(arena);
-    const self_exe_path = try std.fs.selfExePathAlloc(arena);
+pub fn cmdEnv(
+    arena: Allocator,
+    out: *std.Io.Writer,
+    args: []const []const u8,
+    wasi_preopens: switch (builtin.target.os.tag) {
+        .wasi => std.fs.wasi.Preopens,
+        else => void,
+    },
+) !void {
+    const override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
+    const override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
 
-    var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, cwd_path, self_exe_path) catch |err| {
-        fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
+    const self_exe_path = switch (builtin.target.os.tag) {
+        .wasi => args[0],
+        else => std.fs.selfExePathAlloc(arena) catch |err| {
+            fatal("unable to find zig self exe path: {s}", .{@errorName(err)});
+        },
     };
-    defer zig_lib_directory.handle.close();
 
-    const zig_std_dir = try std.fs.path.join(arena, &[_][]const u8{ zig_lib_directory.path.?, "std" });
+    var dirs: Compilation.Directories = .init(
+        arena,
+        override_lib_dir,
+        override_global_cache_dir,
+        .global,
+        if (builtin.target.os.tag == .wasi) wasi_preopens,
+        if (builtin.target.os.tag != .wasi) self_exe_path,
+    );
+    defer dirs.deinit();
 
-    const global_cache_dir = try introspect.resolveGlobalCacheDir(arena);
+    const zig_lib_dir = dirs.zig_lib.path orelse "";
+    const zig_std_dir = try dirs.zig_lib.join(arena, &.{"std"});
+    const global_cache_dir = dirs.global_cache.path orelse "";
 
     const host = try std.zig.system.resolveTargetQuery(.{});
     const triple = try host.zigTriple(arena);
@@ -24,7 +46,7 @@ pub fn cmdEnv(arena: Allocator, out: *std.Io.Writer) !void {
     var root = try serializer.beginStruct(.{});
 
     try root.field("zig_exe", self_exe_path, .{});
-    try root.field("lib_dir", zig_lib_directory.path.?, .{});
+    try root.field("lib_dir", zig_lib_dir, .{});
     try root.field("std_dir", zig_std_dir, .{});
     try root.field("global_cache_dir", global_cache_dir, .{});
     try root.field("version", build_options.version, .{});

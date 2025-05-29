@@ -360,7 +360,12 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         dev.check(.env_command);
         verifyLibcxxCorrectlyLinked();
         var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
-        try @import("print_env.zig").cmdEnv(arena, &stdout_writer.interface);
+        try @import("print_env.zig").cmdEnv(
+            arena,
+            &stdout_writer.interface,
+            args,
+            if (native_os == .wasi) wasi_preopens,
+        );
         return stdout_writer.interface.flush();
     } else if (mem.eql(u8, cmd, "reduce")) {
         return jitCmd(gpa, arena, cmd_args, .{
