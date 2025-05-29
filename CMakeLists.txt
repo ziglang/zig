@@ -512,13 +512,15 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/llvm/bitcode_writer.zig
     lib/std/zig/llvm/ir.zig
     src/Air.zig
+    src/Air/Legalize.zig
+    src/Air/Liveness.zig
+    src/Air/Liveness/Verify.zig
+    src/Air/types_resolved.zig
     src/Builtin.zig
     src/Compilation.zig
     src/Compilation/Config.zig
     src/DarwinPosixSpawn.zig
     src/InternPool.zig
-    src/Liveness.zig
-    src/Liveness/Verify.zig
     src/Package.zig
     src/Package/Fetch.zig
     src/Package/Fetch/git.zig
