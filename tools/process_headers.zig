@@ -21,41 +21,42 @@ const Blake3 = std.crypto.hash.Blake3;
 const LibCTarget = struct {
     arch: Arch,
     abi: Abi,
+    dest: ?[]const u8 = null,
 };
 
 const glibc_targets = [_]LibCTarget{
     .{ .arch = .arc, .abi = .gnu },
-    .{ .arch = .arm, .abi = .gnueabi },
-    .{ .arch = .arm, .abi = .gnueabihf },
-    .{ .arch = .armeb, .abi = .gnueabi },
-    .{ .arch = .armeb, .abi = .gnueabihf },
-    .{ .arch = .aarch64, .abi = .gnu },
-    .{ .arch = .aarch64_be, .abi = .gnu },
-    .{ .arch = .csky, .abi = .gnueabi },
-    .{ .arch = .csky, .abi = .gnueabihf },
-    .{ .arch = .loongarch64, .abi = .gnu },
-    .{ .arch = .loongarch64, .abi = .gnusf },
+    .{ .arch = .arm, .abi = .gnueabi, .dest = "arm-linux-gnu" },
+    .{ .arch = .arm, .abi = .gnueabihf, .dest = "arm-linux-gnu" },
+    .{ .arch = .armeb, .abi = .gnueabi, .dest = "arm-linux-gnu" },
+    .{ .arch = .armeb, .abi = .gnueabihf, .dest = "arm-linux-gnu" },
+    .{ .arch = .aarch64, .abi = .gnu, .dest = "aarch64-linux-gnu" },
+    .{ .arch = .aarch64_be, .abi = .gnu, .dest = "aarch64-linux-gnu" },
+    .{ .arch = .csky, .abi = .gnueabi, .dest = "csky-linux-gnu" },
+    .{ .arch = .csky, .abi = .gnueabihf, .dest = "csky-linux-gnu" },
+    .{ .arch = .loongarch64, .abi = .gnu, .dest = "loongarch-linux-gnu" },
+    .{ .arch = .loongarch64, .abi = .gnusf, .dest = "loongarch-linux-gnu" },
     .{ .arch = .m68k, .abi = .gnu },
-    .{ .arch = .mips, .abi = .gnueabi },
-    .{ .arch = .mips, .abi = .gnueabihf },
-    .{ .arch = .mipsel, .abi = .gnueabi },
-    .{ .arch = .mipsel, .abi = .gnueabihf },
-    .{ .arch = .mips64, .abi = .gnuabi64 },
-    .{ .arch = .mips64, .abi = .gnuabin32 },
-    .{ .arch = .mips64el, .abi = .gnuabi64 },
-    .{ .arch = .mips64el, .abi = .gnuabin32 },
-    .{ .arch = .powerpc, .abi = .gnueabi },
-    .{ .arch = .powerpc, .abi = .gnueabihf },
-    .{ .arch = .powerpc64, .abi = .gnu },
-    .{ .arch = .powerpc64le, .abi = .gnu },
-    .{ .arch = .riscv32, .abi = .gnu },
-    .{ .arch = .riscv64, .abi = .gnu },
+    .{ .arch = .mips, .abi = .gnueabi, .dest = "mips-linux-gnu" },
+    .{ .arch = .mips, .abi = .gnueabihf, .dest = "mips-linux-gnu" },
+    .{ .arch = .mipsel, .abi = .gnueabi, .dest = "mips-linux-gnu" },
+    .{ .arch = .mipsel, .abi = .gnueabihf, .dest = "mips-linux-gnu" },
+    .{ .arch = .mips64, .abi = .gnuabi64, .dest = "mips-linux-gnu" },
+    .{ .arch = .mips64, .abi = .gnuabin32, .dest = "mips-linux-gnu" },
+    .{ .arch = .mips64el, .abi = .gnuabi64, .dest = "mips-linux-gnu" },
+    .{ .arch = .mips64el, .abi = .gnuabin32, .dest = "mips-linux-gnu" },
+    .{ .arch = .powerpc, .abi = .gnueabi, .dest = "powerpc-linux-gnu" },
+    .{ .arch = .powerpc, .abi = .gnueabihf, .dest = "powerpc-linux-gnu" },
+    .{ .arch = .powerpc64, .abi = .gnu, .dest = "powerpc-linux-gnu" },
+    .{ .arch = .powerpc64le, .abi = .gnu, .dest = "powerpc-linux-gnu" },
+    .{ .arch = .riscv32, .abi = .gnu, .dest = "riscv-linux-gnu" },
+    .{ .arch = .riscv64, .abi = .gnu, .dest = "riscv-linux-gnu" },
     .{ .arch = .s390x, .abi = .gnu },
-    .{ .arch = .sparc, .abi = .gnu },
-    .{ .arch = .sparc64, .abi = .gnu },
-    .{ .arch = .x86, .abi = .gnu },
-    .{ .arch = .x86_64, .abi = .gnu },
-    .{ .arch = .x86_64, .abi = .gnux32 },
+    .{ .arch = .sparc, .abi = .gnu, .dest = "sparc-linux-gnu" },
+    .{ .arch = .sparc64, .abi = .gnu, .dest = "sparc-linux-gnu" },
+    .{ .arch = .x86, .abi = .gnu, .dest = "x86-linux-gnu" },
+    .{ .arch = .x86_64, .abi = .gnu, .dest = "x86-linux-gnu" },
+    .{ .arch = .x86_64, .abi = .gnux32, .dest = "x86-linux-gnu" },
 };
 
 const musl_targets = [_]LibCTarget{
@@ -88,41 +89,18 @@ const freebsd_targets = [_]LibCTarget{
 };
 
 const netbsd_targets = [_]LibCTarget{
-    .{ .arch = .arm, .abi = .eabi },
-    .{ .arch = .arm, .abi = .eabihf },
+    .{ .arch = .arm, .abi = .eabi, .dest = "arm-netbsd-eabi" },
+    .{ .arch = .arm, .abi = .eabihf, .dest = "arm-netbsd-eabi" },
     .{ .arch = .aarch64, .abi = .none },
     .{ .arch = .m68k, .abi = .none },
-    .{ .arch = .mips, .abi = .eabi },
-    .{ .arch = .mips, .abi = .eabihf },
-    .{ .arch = .powerpc, .abi = .eabi },
-    .{ .arch = .powerpc, .abi = .eabihf },
+    .{ .arch = .mips, .abi = .eabi, .dest = "mips-netbsd-eabi" },
+    .{ .arch = .mips, .abi = .eabihf, .dest = "mips-netbsd-eabi" },
+    .{ .arch = .powerpc, .abi = .eabi, .dest = "powerpc-netbsd-eabi" },
+    .{ .arch = .powerpc, .abi = .eabihf, .dest = "powerpc-netbsd-eabi" },
     .{ .arch = .sparc, .abi = .none },
     .{ .arch = .sparc64, .abi = .none },
     .{ .arch = .x86, .abi = .none },
     .{ .arch = .x86_64, .abi = .none },
-};
-
-const DestTarget = struct {
-    arch: Arch,
-    os: OsTag,
-    abi: Abi,
-
-    const HashContext = struct {
-        pub fn hash(self: @This(), a: DestTarget) u32 {
-            _ = self;
-            return @intFromEnum(a.arch) +%
-                (@intFromEnum(a.os) *% @as(u32, 4202347608)) +%
-                (@intFromEnum(a.abi) *% @as(u32, 4082223418));
-        }
-
-        pub fn eql(self: @This(), a: DestTarget, b: DestTarget, b_index: usize) bool {
-            _ = self;
-            _ = b_index;
-            return a.arch == b.arch and
-                a.os == b.os and
-                a.abi == b.abi;
-        }
-    };
 };
 
 const Contents = struct {
@@ -138,7 +116,7 @@ const Contents = struct {
 };
 
 const HashToContents = std.StringHashMap(Contents);
-const TargetToHash = std.ArrayHashMap(DestTarget, []const u8, DestTarget.HashContext, true);
+const TargetToHash = std.StringArrayHashMap([]const u8);
 const PathTable = std.StringHashMap(*TargetToHash);
 
 const LibCVendor = enum {
@@ -236,15 +214,16 @@ pub fn main() !void {
                 else => unreachable,
             },
         };
-        const dest_target = DestTarget{
-            .arch = libc_target.arch,
-            .os = switch (vendor) {
-                .musl, .glibc => .linux,
-                .freebsd => .freebsd,
-                .netbsd => .netbsd,
+
+        const dest_target = if (libc_target.dest) |dest| dest else try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
+            @tagName(libc_target.arch),
+            switch (vendor) {
+                .musl, .glibc => "linux",
+                .freebsd => "freebsd",
+                .netbsd => "netbsd",
             },
-            .abi = libc_target.abi,
-        };
+            @tagName(libc_target.abi),
+        });
 
         search: for (search_paths.items) |search_path| {
             const sub_path = switch (vendor) {
@@ -307,7 +286,21 @@ pub fn main() !void {
                                 path_gop.value_ptr.* = ptr;
                                 break :blk ptr;
                             };
-                            try target_to_hash.putNoClobber(dest_target, hash);
+                            // When `dest` is set, there are a few rare cases where we expect to overwrite a header. For
+                            // example, `bits/long-double.h` differs very slightly between `powerpc64le-linux-gnu` and
+                            // other `powerpc*-linux-gnu` targets, and we unify those targets as `powerpc-linux-gnu`. In
+                            // such cases, we manually patch the affected header after processing, so it's fine that
+                            // only one header wins here.
+                            if (libc_target.dest != null) {
+                                const hash_gop = try target_to_hash.getOrPut(dest_target);
+                                if (hash_gop.found_existing) std.debug.print("overwrote: {s} {s} {s}\n", .{
+                                    libc_dir,
+                                    rel_path,
+                                    dest_target,
+                                }) else hash_gop.value_ptr.* = hash;
+                            } else {
+                                try target_to_hash.putNoClobber(dest_target, hash);
+                            }
                         },
                         else => std.debug.print("warning: weird file: {s}\n", .{full_path}),
                     }
@@ -363,12 +356,7 @@ pub fn main() !void {
             if (contents.is_generic) continue;
 
             const dest_target = hash_kv.key_ptr.*;
-            const out_subpath = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
-                @tagName(dest_target.arch),
-                @tagName(dest_target.os),
-                @tagName(dest_target.abi),
-            });
-            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, out_subpath, path_kv.key_ptr.* });
+            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ out_dir, dest_target, path_kv.key_ptr.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
             try std.fs.cwd().writeFile(.{ .sub_path = full_path, .data = contents.bytes });
         }
