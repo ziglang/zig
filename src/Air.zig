@@ -50,8 +50,6 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// The panic handler function must be populated before lowering AIR
         /// that contains this instruction.
-        /// This instruction will only be emitted if the backend has the
-        /// feature `safety_checked_instructions`.
         /// Uses the `bin_op` field.
         add_safe,
         /// Float addition. The instruction is allowed to have equal or more
@@ -79,8 +77,6 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// The panic handler function must be populated before lowering AIR
         /// that contains this instruction.
-        /// This instruction will only be emitted if the backend has the
-        /// feature `safety_checked_instructions`.
         /// Uses the `bin_op` field.
         sub_safe,
         /// Float subtraction. The instruction is allowed to have equal or more
@@ -108,8 +104,6 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// The panic handler function must be populated before lowering AIR
         /// that contains this instruction.
-        /// This instruction will only be emitted if the backend has the
-        /// feature `safety_checked_instructions`.
         /// Uses the `bin_op` field.
         mul_safe,
         /// Float multiplication. The instruction is allowed to have equal or more

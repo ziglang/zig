@@ -8912,21 +8912,10 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety()) {
-        if (zcu.backendSupportsFeature(.safety_checked_instructions)) {
+        if (zcu.backendSupportsFeature(.panic_fn)) {
             _ = try sema.preparePanicId(src, .invalid_enum_value);
-            return block.addTyOp(.intcast_safe, dest_ty, operand);
-        } else {
-            // Slightly silly fallback case...
-            const int_tag_ty = dest_ty.intTagType(zcu);
-            // Use `intCast`, since it'll set up the Sema-emitted safety checks for us!
-            const int_val = try sema.intCast(block, src, int_tag_ty, src, operand, src, true, true);
-            const result = try block.addBitCast(dest_ty, int_val);
-            if (!dest_ty.isNonexhaustiveEnum(zcu) and zcu.backendSupportsFeature(.is_named_enum_value)) {
-                const ok = try block.addUnOp(.is_named_enum_value, result);
-                try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
-            }
-            return result;
         }
+        return block.addTyOp(.intcast_safe, dest_ty, operand);
     }
     return block.addTyOp(.intcast, dest_ty, operand);
 }
@@ -10331,90 +10320,11 @@ fn intCast(
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (runtime_safety and block.wantSafety()) {
-        if (zcu.backendSupportsFeature(.safety_checked_instructions)) {
+        if (zcu.backendSupportsFeature(.panic_fn)) {
             _ = try sema.preparePanicId(src, .negative_to_unsigned);
             _ = try sema.preparePanicId(src, .cast_truncated_data);
-            return block.addTyOp(.intcast_safe, dest_ty, operand);
         }
-        const actual_info = operand_scalar_ty.intInfo(zcu);
-        const wanted_info = dest_scalar_ty.intInfo(zcu);
-        const actual_bits = actual_info.bits;
-        const wanted_bits = wanted_info.bits;
-        const actual_value_bits = actual_bits - @intFromBool(actual_info.signedness == .signed);
-        const wanted_value_bits = wanted_bits - @intFromBool(wanted_info.signedness == .signed);
-
-        // range shrinkage
-        // requirement: int value fits into target type
-        if (wanted_value_bits < actual_value_bits) {
-            const dest_max_val_scalar = try dest_scalar_ty.maxIntScalar(pt, operand_scalar_ty);
-            const dest_max_val = try sema.splat(operand_ty, dest_max_val_scalar);
-            const dest_max = Air.internedToRef(dest_max_val.toIntern());
-
-            if (actual_info.signedness == .signed) {
-                const diff = try block.addBinOp(.sub_wrap, dest_max, operand);
-
-                // Reinterpret the sign-bit as part of the value. This will make
-                // negative differences (`operand` > `dest_max`) appear too big.
-                const unsigned_scalar_operand_ty = try pt.intType(.unsigned, actual_bits);
-                const unsigned_operand_ty = if (is_vector) try pt.vectorType(.{
-                    .len = dest_ty.vectorLen(zcu),
-                    .child = unsigned_scalar_operand_ty.toIntern(),
-                }) else unsigned_scalar_operand_ty;
-                const diff_unsigned = try block.addBitCast(unsigned_operand_ty, diff);
-
-                // If the destination type is signed, then we need to double its
-                // range to account for negative values.
-                const dest_range_val = if (wanted_info.signedness == .signed) range_val: {
-                    const one_scalar = try pt.intValue(unsigned_scalar_operand_ty, 1);
-                    const one = if (is_vector) Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                        .ty = unsigned_operand_ty.toIntern(),
-                        .storage = .{ .repeated_elem = one_scalar.toIntern() },
-                    } })) else one_scalar;
-                    const range_minus_one = try dest_max_val.shl(one, unsigned_operand_ty, sema.arena, pt);
-                    const result = try arith.addWithOverflow(sema, unsigned_operand_ty, range_minus_one, one);
-                    assert(result.overflow_bit.compareAllWithZero(.eq, zcu));
-                    break :range_val result.wrapped_result;
-                } else try pt.getCoerced(dest_max_val, unsigned_operand_ty);
-                const dest_range = Air.internedToRef(dest_range_val.toIntern());
-
-                const ok = if (is_vector) ok: {
-                    const is_in_range = try block.addCmpVector(diff_unsigned, dest_range, .lte);
-                    const all_in_range = try block.addReduce(is_in_range, .And);
-                    break :ok all_in_range;
-                } else ok: {
-                    const is_in_range = try block.addBinOp(.cmp_lte, diff_unsigned, dest_range);
-                    break :ok is_in_range;
-                };
-                // TODO negative_to_unsigned?
-                try sema.addSafetyCheck(block, src, ok, if (safety_panics_are_enum) .invalid_enum_value else .cast_truncated_data);
-            } else {
-                const ok = if (is_vector) ok: {
-                    const is_in_range = try block.addCmpVector(operand, dest_max, .lte);
-                    const all_in_range = try block.addReduce(is_in_range, .And);
-                    break :ok all_in_range;
-                } else ok: {
-                    const is_in_range = try block.addBinOp(.cmp_lte, operand, dest_max);
-                    break :ok is_in_range;
-                };
-                try sema.addSafetyCheck(block, src, ok, if (safety_panics_are_enum) .invalid_enum_value else .cast_truncated_data);
-            }
-        } else if (actual_info.signedness == .signed and wanted_info.signedness == .unsigned) {
-            // no shrinkage, yes sign loss
-            // requirement: signed to unsigned >= 0
-            const ok = if (is_vector) ok: {
-                const scalar_zero = try pt.intValue(operand_scalar_ty, 0);
-                const zero_val = try sema.splat(operand_ty, scalar_zero);
-                const zero_inst = Air.internedToRef(zero_val.toIntern());
-                const is_in_range = try block.addCmpVector(operand, zero_inst, .gte);
-                const all_in_range = try block.addReduce(is_in_range, .And);
-                break :ok all_in_range;
-            } else ok: {
-                const zero_inst = Air.internedToRef((try pt.intValue(operand_ty, 0)).toIntern());
-                const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
-                break :ok is_in_range;
-            };
-            try sema.addSafetyCheck(block, src, ok, if (safety_panics_are_enum) .invalid_enum_value else .negative_to_unsigned);
-        }
+        return block.addTyOp(.intcast_safe, dest_ty, operand);
     }
     return block.addTyOp(.intcast, dest_ty, operand);
 }
@@ -14316,7 +14226,7 @@ fn zirShl(
         }
 
         if (air_tag == .shl_exact) {
-            const op_ov_tuple_ty = try sema.overflowArithmeticTupleType(lhs_ty);
+            const op_ov_tuple_ty = try pt.overflowArithmeticTupleType(lhs_ty);
             const op_ov = try block.addInst(.{
                 .tag = .shl_with_overflow,
                 .data = .{ .ty_pl = .{
@@ -16111,7 +16021,7 @@ fn zirOverflowArithmetic(
     const maybe_lhs_val = try sema.resolveValue(lhs);
     const maybe_rhs_val = try sema.resolveValue(rhs);
 
-    const tuple_ty = try sema.overflowArithmeticTupleType(dest_ty);
+    const tuple_ty = try pt.overflowArithmeticTupleType(dest_ty);
     const overflow_ty: Type = .fromInterned(ip.indexToKey(tuple_ty.toIntern()).tuple_type.types.get(ip)[1]);
 
     var result: struct {
@@ -16282,24 +16192,6 @@ fn splat(sema: *Sema, ty: Type, val: Value) !Value {
         .storage = .{ .repeated_elem = val.toIntern() },
     } });
     return Value.fromInterned(repeated);
-}
-
-fn overflowArithmeticTupleType(sema: *Sema, ty: Type) !Type {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    const ov_ty: Type = if (ty.zigTypeTag(zcu) == .vector) try pt.vectorType(.{
-        .len = ty.vectorLen(zcu),
-        .child = .u1_type,
-    }) else .u1;
-
-    const types = [2]InternPool.Index{ ty.toIntern(), ov_ty.toIntern() };
-    const values = [2]InternPool.Index{ .none, .none };
-    const tuple_ty = try ip.getTupleType(zcu.gpa, pt.tid, .{
-        .types = &types,
-        .values = &values,
-    });
-    return .fromInterned(tuple_ty);
 }
 
 fn analyzeArithmetic(
@@ -16477,41 +16369,10 @@ fn analyzeArithmetic(
     }
 
     if (block.wantSafety() and want_safety and scalar_tag == .int) {
-        if (zcu.backendSupportsFeature(.safety_checked_instructions)) {
-            if (air_tag != air_tag_safe) {
-                _ = try sema.preparePanicId(src, .integer_overflow);
-            }
-            return block.addBinOp(air_tag_safe, casted_lhs, casted_rhs);
-        } else {
-            const maybe_op_ov: ?Air.Inst.Tag = switch (air_tag) {
-                .add => .add_with_overflow,
-                .sub => .sub_with_overflow,
-                .mul => .mul_with_overflow,
-                else => null,
-            };
-            if (maybe_op_ov) |op_ov_tag| {
-                const op_ov_tuple_ty = try sema.overflowArithmeticTupleType(resolved_type);
-                const op_ov = try block.addInst(.{
-                    .tag = op_ov_tag,
-                    .data = .{ .ty_pl = .{
-                        .ty = Air.internedToRef(op_ov_tuple_ty.toIntern()),
-                        .payload = try sema.addExtra(Air.Bin{
-                            .lhs = casted_lhs,
-                            .rhs = casted_rhs,
-                        }),
-                    } },
-                });
-                const ov_bit = try sema.tupleFieldValByIndex(block, op_ov, 1, op_ov_tuple_ty);
-                const any_ov_bit = if (resolved_type.zigTypeTag(zcu) == .vector)
-                    try block.addReduce(ov_bit, .Or)
-                else
-                    ov_bit;
-                const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, .zero_u1);
-
-                try sema.addSafetyCheck(block, src, no_ov, .integer_overflow);
-                return sema.tupleFieldValByIndex(block, op_ov, 0, op_ov_tuple_ty);
-            }
+        if (air_tag != air_tag_safe and zcu.backendSupportsFeature(.panic_fn)) {
+            _ = try sema.preparePanicId(src, .integer_overflow);
         }
+        return block.addBinOp(air_tag_safe, casted_lhs, casted_rhs);
     }
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
 }

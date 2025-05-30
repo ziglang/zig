@@ -3844,6 +3844,21 @@ pub fn nullValue(pt: Zcu.PerThread, opt_ty: Type) Allocator.Error!Value {
     } }));
 }
 
+/// `ty` is an integer or a vector of integers.
+pub fn overflowArithmeticTupleType(pt: Zcu.PerThread, ty: Type) !Type {
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const ov_ty: Type = if (ty.zigTypeTag(zcu) == .vector) try pt.vectorType(.{
+        .len = ty.vectorLen(zcu),
+        .child = .u1_type,
+    }) else .u1;
+    const tuple_ty = try ip.getTupleType(zcu.gpa, pt.tid, .{
+        .types = &.{ ty.toIntern(), ov_ty.toIntern() },
+        .values = &.{ .none, .none },
+    });
+    return .fromInterned(tuple_ty);
+}
+
 pub fn smallestUnsignedInt(pt: Zcu.PerThread, max: u64) Allocator.Error!Type {
     return pt.intType(.unsigned, Type.smallestUnsignedBits(max));
 }
