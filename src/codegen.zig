@@ -32,8 +32,9 @@ fn devFeatureForBackend(comptime backend: std.builtin.CompilerBackend) dev.Featu
     return @field(dev.Feature, @tagName(backend)["stage2_".len..] ++ "_backend");
 }
 
-pub fn importBackend(comptime backend: std.builtin.CompilerBackend) ?type {
+fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
     return switch (backend) {
+        .other, .stage1 => unreachable,
         .stage2_aarch64 => @import("arch/aarch64/CodeGen.zig"),
         .stage2_arm => @import("arch/arm/CodeGen.zig"),
         .stage2_c => @import("codegen/c.zig"),
@@ -42,9 +43,33 @@ pub fn importBackend(comptime backend: std.builtin.CompilerBackend) ?type {
         .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
         .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
         .stage2_spirv64 => @import("codegen/spirv.zig"),
-        .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
-        else => null,
+        .stage2_wasm => @import("arch/wasm/CodeGen.zig"),
+        .stage2_x86, .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
+        _ => unreachable,
     };
+}
+
+pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) *const Air.Legalize.Features {
+    const zcu = pt.zcu;
+    const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
+    switch (target_util.zigBackend(target.*, zcu.comp.config.use_llvm)) {
+        else => unreachable,
+        inline .stage2_llvm,
+        .stage2_c,
+        .stage2_wasm,
+        .stage2_arm,
+        .stage2_x86_64,
+        .stage2_aarch64,
+        .stage2_x86,
+        .stage2_riscv64,
+        .stage2_sparc64,
+        .stage2_spirv64,
+        .stage2_powerpc,
+        => |backend| {
+            const Backend = importBackend(backend);
+            return if (@hasDecl(Backend, "legalizeFeatures")) Backend.legalizeFeatures(target) else &.initEmpty();
+        },
+    }
 }
 
 pub fn generateFunction(
@@ -60,7 +85,7 @@ pub fn generateFunction(
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
     const target = zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
-    switch (target_util.zigBackend(target, false)) {
+    switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
         inline .stage2_aarch64,
         .stage2_arm,
@@ -70,7 +95,7 @@ pub fn generateFunction(
         .stage2_x86_64,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
-            return importBackend(backend).?.generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output);
+            return importBackend(backend).generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output);
         },
     }
 }
@@ -88,14 +113,14 @@ pub fn generateLazyFunction(
         zcu.fileByIndex(inst_index.resolveFile(&zcu.intern_pool)).mod.?.resolved_target.result
     else
         zcu.getTarget();
-    switch (target_util.zigBackend(target, false)) {
+    switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
         inline .stage2_powerpc,
         .stage2_riscv64,
         .stage2_x86_64,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
-            return importBackend(backend).?.generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
+            return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
         },
     }
 }

@@ -1741,8 +1741,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *A
         return;
     }
 
-    const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
-    try air.legalize(backend, pt);
+    try air.legalize(pt, @import("../codegen.zig").legalizeFeatures(pt, nav_index));
 
     var liveness = try Air.Liveness.analyze(gpa, air.*, ip);
     defer liveness.deinit(gpa);
@@ -3022,7 +3021,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
         // is unused so it just has to be a no-op.
         sema.air_instructions.set(@intFromEnum(ptr_inst), .{
             .tag = .alloc,
-            .data = .{ .ty = Type.single_const_pointer_to_comptime_int },
+            .data = .{ .ty = .ptr_const_comptime_int },
         });
     }
 

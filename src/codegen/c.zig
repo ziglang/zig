@@ -1591,7 +1591,7 @@ pub const DeclGen = struct {
                         try writer.writeAll("((");
                         try dg.renderCType(writer, ctype);
                         return writer.print("){x})", .{
-                            try dg.fmtIntLiteral(try pt.undefValue(.usize), .Other),
+                            try dg.fmtIntLiteral(.undef_usize, .Other),
                         });
                     },
                     .slice => {
@@ -1605,7 +1605,7 @@ pub const DeclGen = struct {
                         const ptr_ty = ty.slicePtrFieldType(zcu);
                         try dg.renderType(writer, ptr_ty);
                         return writer.print("){x}, {0x}}}", .{
-                            try dg.fmtIntLiteral(try dg.pt.undefValue(.usize), .Other),
+                            try dg.fmtIntLiteral(.undef_usize, .Other),
                         });
                     },
                 },
@@ -6376,7 +6376,7 @@ fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
             if (operand_child_ctype.info(ctype_pool) == .array) {
                 try writer.writeByte('&');
                 try f.writeCValueDeref(writer, operand);
-                try writer.print("[{}]", .{try f.fmtIntLiteral(try pt.intValue(.usize, 0))});
+                try writer.print("[{}]", .{try f.fmtIntLiteral(.zero_usize)});
             } else try f.writeCValue(writer, operand, .Other);
         }
         try a.end(f, writer);
@@ -6907,7 +6907,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         try writer.writeAll("for (");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" = ");
-        try f.object.dg.renderValue(writer, try pt.intValue(.usize, 0), .Other);
+        try f.object.dg.renderValue(writer, .zero_usize, .Other);
         try writer.writeAll("; ");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" != ");
@@ -8311,11 +8311,11 @@ const Vectorize = struct {
 
             try writer.writeAll("for (");
             try f.writeCValue(writer, local, .Other);
-            try writer.print(" = {d}; ", .{try f.fmtIntLiteral(try pt.intValue(.usize, 0))});
+            try writer.print(" = {d}; ", .{try f.fmtIntLiteral(.zero_usize)});
             try f.writeCValue(writer, local, .Other);
             try writer.print(" < {d}; ", .{try f.fmtIntLiteral(try pt.intValue(.usize, ty.vectorLen(zcu)))});
             try f.writeCValue(writer, local, .Other);
-            try writer.print(" += {d}) {{\n", .{try f.fmtIntLiteral(try pt.intValue(.usize, 1))});
+            try writer.print(" += {d}) {{\n", .{try f.fmtIntLiteral(.one_usize)});
             f.object.indent_writer.pushIndent();
 
             break :index .{ .index = local };
