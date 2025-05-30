@@ -81,6 +81,19 @@ pub const Feature = enum {
     /// Legalize reduce of a one element vector to a bitcast
     reduce_one_elem_to_bitcast,
 
+    /// Replace `intcast_safe` with an explicit safety check which `call`s the panic function on failure.
+    /// Not compatible with `scalarize_intcast_safe`.
+    expand_intcast_safe,
+    /// Replace `add_safe` with an explicit safety check which `call`s the panic function on failure.
+    /// Not compatible with `scalarize_add_safe`.
+    expand_add_safe,
+    /// Replace `sub_safe` with an explicit safety check which `call`s the panic function on failure.
+    /// Not compatible with `scalarize_sub_safe`.
+    expand_sub_safe,
+    /// Replace `mul_safe` with an explicit safety check which `call`s the panic function on failure.
+    /// Not compatible with `scalarize_mul_safe`.
+    expand_mul_safe,
+
     fn scalarize(tag: Air.Inst.Tag) Feature {
         return switch (tag) {
             else => unreachable,
@@ -205,17 +218,14 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .arg,
             => {},
             inline .add,
-            .add_safe,
             .add_optimized,
             .add_wrap,
             .add_sat,
             .sub,
-            .sub_safe,
             .sub_optimized,
             .sub_wrap,
             .sub_sat,
             .mul,
-            .mul_safe,
             .mul_optimized,
             .mul_wrap,
             .mul_sat,
@@ -237,6 +247,27 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .bit_or,
             .xor,
             => |air_tag| if (l.features.contains(comptime .scalarize(air_tag))) {
+                const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
+                if (l.typeOf(bin_op.lhs).isVector(zcu)) continue :inst try l.scalarize(inst, .bin_op);
+            },
+            .add_safe => if (l.features.contains(.expand_add_safe)) {
+                assert(!l.features.contains(.scalarize_add_safe)); // it doesn't make sense to do both
+                continue :inst l.replaceInst(inst, .block, try l.safeArithmeticBlockPayload(inst, .add_with_overflow));
+            } else if (l.features.contains(.scalarize_add_safe)) {
+                const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
+                if (l.typeOf(bin_op.lhs).isVector(zcu)) continue :inst try l.scalarize(inst, .bin_op);
+            },
+            .sub_safe => if (l.features.contains(.expand_sub_safe)) {
+                assert(!l.features.contains(.scalarize_sub_safe)); // it doesn't make sense to do both
+                continue :inst l.replaceInst(inst, .block, try l.safeArithmeticBlockPayload(inst, .sub_with_overflow));
+            } else if (l.features.contains(.scalarize_sub_safe)) {
+                const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
+                if (l.typeOf(bin_op.lhs).isVector(zcu)) continue :inst try l.scalarize(inst, .bin_op);
+            },
+            .mul_safe => if (l.features.contains(.expand_mul_safe)) {
+                assert(!l.features.contains(.scalarize_mul_safe)); // it doesn't make sense to do both
+                continue :inst l.replaceInst(inst, .block, try l.safeArithmeticBlockPayload(inst, .mul_with_overflow));
+            } else if (l.features.contains(.scalarize_mul_safe)) {
                 const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
                 if (l.typeOf(bin_op.lhs).isVector(zcu)) continue :inst try l.scalarize(inst, .bin_op);
             },
@@ -295,7 +326,6 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .fptrunc,
             .fpext,
             .intcast,
-            .intcast_safe,
             .trunc,
             .int_from_float,
             .int_from_float_optimized,
@@ -311,6 +341,13 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 const from_ty = l.typeOf(ty_op.operand);
                 if (to_ty.isVector(zcu) and from_ty.isVector(zcu) and to_ty.vectorLen(zcu) == from_ty.vectorLen(zcu))
                     continue :inst try l.scalarize(inst, .ty_op);
+            },
+            .intcast_safe => if (l.features.contains(.expand_intcast_safe)) {
+                assert(!l.features.contains(.scalarize_intcast_safe)); // it doesn't make sense to do both
+                continue :inst l.replaceInst(inst, .block, try l.safeIntcastBlockPayload(inst));
+            } else if (l.features.contains(.scalarize_intcast_safe)) {
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
             },
             .block,
             .loop,
@@ -550,81 +587,83 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
     const expected_instructions_len = l.air_instructions.len + (6 + arity + 8);
     try l.air_instructions.ensureTotalCapacity(gpa, expected_instructions_len);
 
-    var res_block: Block(4) = .empty;
+    var res_block_buf: [4]Air.Inst.Index = undefined;
+    var res_block: Block = .init(&res_block_buf);
     {
-        const res_alloc_inst = res_block.add(l.addInstAssumeCapacity(.{
+        const res_alloc_inst = res_block.add(l, .{
             .tag = .alloc,
             .data = .{ .ty = try pt.singleMutPtrType(res_ty) },
-        }));
-        const index_alloc_inst = res_block.add(l.addInstAssumeCapacity(.{
+        });
+        const index_alloc_inst = res_block.add(l, .{
             .tag = .alloc,
             .data = .{ .ty = .ptr_usize },
-        }));
-        _ = res_block.add(l.addInstAssumeCapacity(.{
+        });
+        _ = res_block.add(l, .{
             .tag = .store,
             .data = .{ .bin_op = .{
                 .lhs = index_alloc_inst.toRef(),
                 .rhs = .zero_usize,
             } },
-        }));
+        });
 
         const loop_inst: Air.Inst.Index = @enumFromInt(l.air_instructions.len + (3 + arity + 7));
-        var loop_block: Block(3 + arity + 2) = .empty;
+        var loop_block_buf: [3 + arity + 2]Air.Inst.Index = undefined;
+        var loop_block: Block = .init(&loop_block_buf);
         {
-            const cur_index_inst = loop_block.add(l.addInstAssumeCapacity(.{
+            const cur_index_inst = loop_block.add(l, .{
                 .tag = .load,
                 .data = .{ .ty_op = .{
                     .ty = .usize_type,
                     .operand = index_alloc_inst.toRef(),
                 } },
-            }));
-            _ = loop_block.add(l.addInstAssumeCapacity(.{
+            });
+            _ = loop_block.add(l, .{
                 .tag = .vector_store_elem,
                 .data = .{ .vector_store_elem = .{
                     .vector_ptr = res_alloc_inst.toRef(),
                     .payload = try l.addExtra(Air.Bin, .{
                         .lhs = cur_index_inst.toRef(),
-                        .rhs = loop_block.add(l.addInstAssumeCapacity(res_elem: switch (data_tag) {
+                        .rhs = loop_block.add(l, res_elem: switch (data_tag) {
                             .un_op => .{
                                 .tag = orig.tag,
-                                .data = .{ .un_op = loop_block.add(l.addInstAssumeCapacity(.{
+                                .data = .{ .un_op = loop_block.add(l, .{
                                     .tag = .array_elem_val,
                                     .data = .{ .bin_op = .{
                                         .lhs = orig.data.un_op,
                                         .rhs = cur_index_inst.toRef(),
                                     } },
-                                })).toRef() },
+                                }).toRef() },
                             },
                             .ty_op => .{
                                 .tag = orig.tag,
                                 .data = .{ .ty_op = .{
                                     .ty = Air.internedToRef(orig.data.ty_op.ty.toType().scalarType(zcu).toIntern()),
-                                    .operand = loop_block.add(l.addInstAssumeCapacity(.{
+                                    .operand = loop_block.add(l, .{
                                         .tag = .array_elem_val,
                                         .data = .{ .bin_op = .{
                                             .lhs = orig.data.ty_op.operand,
                                             .rhs = cur_index_inst.toRef(),
                                         } },
-                                    })).toRef(),
+                                    }).toRef(),
                                 } },
                             },
                             .bin_op => .{
                                 .tag = orig.tag,
                                 .data = .{ .bin_op = .{
-                                    .lhs = loop_block.add(l.addInstAssumeCapacity(.{
+                                    .lhs = loop_block.add(l, .{
                                         .tag = .array_elem_val,
                                         .data = .{ .bin_op = .{
                                             .lhs = orig.data.bin_op.lhs,
                                             .rhs = cur_index_inst.toRef(),
                                         } },
-                                    })).toRef(),
-                                    .rhs = loop_block.add(l.addInstAssumeCapacity(.{
+                                    }).toRef(),
+                                    .rhs = loop_block.add(l, .{
                                         .tag = .array_elem_val,
                                         .data = .{ .bin_op = .{
                                             .lhs = orig.data.bin_op.rhs,
                                             .rhs = cur_index_inst.toRef(),
                                         } },
-                                    })).toRef(),
+                                    }).toRef(),
                                 } },
                             },
                             .ty_pl_vector_cmp => {
@@ -650,20 +689,20 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                                         },
                                     },
                                     .data = .{ .bin_op = .{
-                                        .lhs = loop_block.add(l.addInstAssumeCapacity(.{
+                                        .lhs = loop_block.add(l, .{
                                             .tag = .array_elem_val,
                                             .data = .{ .bin_op = .{
                                                 .lhs = extra.lhs,
                                                 .rhs = cur_index_inst.toRef(),
                                             } },
-                                        })).toRef(),
-                                        .rhs = loop_block.add(l.addInstAssumeCapacity(.{
+                                        }).toRef(),
+                                        .rhs = loop_block.add(l, .{
                                             .tag = .array_elem_val,
                                             .data = .{ .bin_op = .{
                                                 .lhs = extra.rhs,
                                                 .rhs = cur_index_inst.toRef(),
                                             } },
-                                        })).toRef(),
+                                        }).toRef(),
                                     } },
                                 };
                             },
@@ -673,94 +712,96 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                                     .tag = orig.tag,
                                     .data = .{ .pl_op = .{
                                         .payload = try l.addExtra(Air.Bin, .{
-                                            .lhs = loop_block.add(l.addInstAssumeCapacity(.{
+                                            .lhs = loop_block.add(l, .{
                                                 .tag = .array_elem_val,
                                                 .data = .{ .bin_op = .{
                                                     .lhs = extra.lhs,
                                                     .rhs = cur_index_inst.toRef(),
                                                 } },
-                                            })).toRef(),
-                                            .rhs = loop_block.add(l.addInstAssumeCapacity(.{
+                                            }).toRef(),
+                                            .rhs = loop_block.add(l, .{
                                                 .tag = .array_elem_val,
                                                 .data = .{ .bin_op = .{
                                                     .lhs = extra.rhs,
                                                     .rhs = cur_index_inst.toRef(),
                                                 } },
-                                            })).toRef(),
+                                            }).toRef(),
                                         }),
-                                        .operand = loop_block.add(l.addInstAssumeCapacity(.{
+                                        .operand = loop_block.add(l, .{
                                             .tag = .array_elem_val,
                                             .data = .{ .bin_op = .{
                                                 .lhs = orig.data.pl_op.operand,
                                                 .rhs = cur_index_inst.toRef(),
                                             } },
-                                        })).toRef(),
+                                        }).toRef(),
                                     } },
                                 };
                             },
-                        })).toRef(),
+                        }).toRef(),
                     }),
                 } },
-            }));
-            const not_done_inst = loop_block.add(l.addInstAssumeCapacity(.{
+            });
+            const not_done_inst = loop_block.add(l, .{
                 .tag = .cmp_lt,
                 .data = .{ .bin_op = .{
                     .lhs = cur_index_inst.toRef(),
                     .rhs = try pt.intRef(.usize, res_ty.vectorLen(zcu) - 1),
                 } },
-            }));
+            });
 
-            var not_done_block: Block(3) = .empty;
+            var not_done_block_buf: [3]Air.Inst.Index = undefined;
+            var not_done_block: Block = .init(&not_done_block_buf);
             {
-                _ = not_done_block.add(l.addInstAssumeCapacity(.{
+                _ = not_done_block.add(l, .{
                     .tag = .store,
                     .data = .{ .bin_op = .{
                         .lhs = index_alloc_inst.toRef(),
-                        .rhs = not_done_block.add(l.addInstAssumeCapacity(.{
+                        .rhs = not_done_block.add(l, .{
                             .tag = .add,
                             .data = .{ .bin_op = .{
                                 .lhs = cur_index_inst.toRef(),
                                 .rhs = .one_usize,
                             } },
-                        })).toRef(),
+                        }).toRef(),
                     } },
-                }));
-                _ = not_done_block.add(l.addInstAssumeCapacity(.{
+                });
+                _ = not_done_block.add(l, .{
                     .tag = .repeat,
                     .data = .{ .repeat = .{ .loop_inst = loop_inst } },
-                }));
+                });
             }
-            var done_block: Block(2) = .empty;
+            var done_block_buf: [2]Air.Inst.Index = undefined;
+            var done_block: Block = .init(&done_block_buf);
             {
-                _ = done_block.add(l.addInstAssumeCapacity(.{
+                _ = done_block.add(l, .{
                     .tag = .br,
                     .data = .{ .br = .{
                         .block_inst = orig_inst,
-                        .operand = done_block.add(l.addInstAssumeCapacity(.{
+                        .operand = done_block.add(l, .{
                             .tag = .load,
                             .data = .{ .ty_op = .{
                                 .ty = Air.internedToRef(res_ty.toIntern()),
                                 .operand = res_alloc_inst.toRef(),
                             } },
-                        })).toRef(),
+                        }).toRef(),
                     } },
-                }));
+                });
             }
-            _ = loop_block.add(l.addInstAssumeCapacity(.{
+            _ = loop_block.add(l, .{
                 .tag = .cond_br,
                 .data = .{ .pl_op = .{
                     .operand = not_done_inst.toRef(),
                     .payload = try l.addCondBrBodies(not_done_block.body(), done_block.body()),
                 } },
-            }));
+            });
         }
-        assert(loop_inst == res_block.add(l.addInstAssumeCapacity(.{
+        assert(loop_inst == res_block.add(l, .{
             .tag = .loop,
             .data = .{ .ty_pl = .{
                 .ty = .noreturn_type,
                 .payload = try l.addBlockBody(loop_block.body()),
             } },
-        })));
+        }));
     }
     assert(l.air_instructions.len == expected_instructions_len);
     return .{ .ty_pl = .{
@@ -768,29 +809,423 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
         .payload = try l.addBlockBody(res_block.body()),
     } };
 }
+fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ty_op = l.air_instructions.items(.data)[@intFromEnum(orig_inst)].ty_op;
 
-fn Block(comptime capacity: usize) type {
-    return struct {
-        instructions: [capacity]Air.Inst.Index,
-        len: usize,
+    const operand_ref = ty_op.operand;
+    const operand_ty = l.typeOf(operand_ref);
+    const dest_ty = ty_op.ty.toType();
 
-        const empty: @This() = .{
-            .instructions = undefined,
+    const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
+    const operand_scalar_ty = operand_ty.scalarType(zcu);
+    const dest_scalar_ty = dest_ty.scalarType(zcu);
+
+    assert(operand_scalar_ty.zigTypeTag(zcu) == .int);
+    const dest_is_enum = switch (dest_scalar_ty.zigTypeTag(zcu)) {
+        .int => false,
+        .@"enum" => true,
+        else => unreachable,
+    };
+
+    const operand_info = operand_scalar_ty.intInfo(zcu);
+    const dest_info = dest_scalar_ty.intInfo(zcu);
+
+    const have_min_check, const have_max_check = c: {
+        const dest_pos_bits = dest_info.bits - @intFromBool(dest_info.signedness == .signed);
+        const operand_pos_bits = operand_info.bits - @intFromBool(operand_info.signedness == .signed);
+        const dest_allows_neg = dest_info.signedness == .signed and dest_info.bits > 0;
+        const operand_allows_neg = operand_info.signedness == .signed and operand_info.bits > 0;
+        break :c .{
+            operand_allows_neg and (!dest_allows_neg or dest_info.bits < operand_info.bits),
+            dest_pos_bits < operand_pos_bits,
+        };
+    };
+
+    // The worst-case scenario in terms of total instructions and total condbrs is the case where
+    // the result type is an exhaustive enum whose tag type is smaller than the operand type:
+    //
+    // %x = block({
+    //   %1 = cmp_lt(%y, @min_allowed_int)
+    //   %2 = cmp_gt(%y, @max_allowed_int)
+    //   %3 = bool_or(%1, %2)
+    //   %4 = cond_br(%3, {
+    //     %5 = call(@panic.invalidEnumValue, [])
+    //     %6 = unreach()
+    //   }, {
+    //     %7 = intcast(@res_ty, %y)
+    //     %8 = is_named_enum_value(%7)
+    //     %9 = cond_br(%8, {
+    //       %10 = br(%x, %7)
+    //     }, {
+    //       %11 = call(@panic.invalidEnumValue, [])
+    //       %12 = unreach()
+    //     })
+    //   })
+    // })
+    //
+    // Note that vectors of enums don't exist -- the worst case for vectors is this:
+    //
+    // %x = block({
+    //   %1 = cmp_lt(%y, @min_allowed_int)
+    //   %2 = cmp_gt(%y, @max_allowed_int)
+    //   %3 = bool_or(%1, %2)
+    //   %4 = reduce(%3, .@"or")
+    //   %5 = cond_br(%4, {
+    //     %6 = call(@panic.invalidEnumValue, [])
+    //     %7 = unreach()
+    //   }, {
+    //     %8 = intcast(@res_ty, %y)
+    //     %9 = br(%x, %8)
+    //   })
+    // })
+
+    try l.air_instructions.ensureUnusedCapacity(gpa, 12);
+    var body_inst_buf: [12]Air.Inst.Index = undefined;
+    var condbr_buf: [2]CondBr = undefined;
+    var condbr_idx: usize = 0;
+
+    var main_block: Block = .init(&body_inst_buf);
+    var cur_block: *Block = &main_block;
+
+    const panic_id: Zcu.SimplePanicId = if (dest_is_enum) .invalid_enum_value else .cast_truncated_data;
+
+    if (have_min_check or have_max_check) {
+        const dest_int_ty = if (dest_is_enum) dest_ty.intTagType(zcu) else dest_ty;
+        const condbr = &condbr_buf[condbr_idx];
+        condbr_idx += 1;
+        const below_min_inst: Air.Inst.Index = if (have_min_check) inst: {
+            const min_val_ref = Air.internedToRef((try dest_int_ty.minInt(pt, operand_ty)).toIntern());
+            break :inst try cur_block.addCmp(l, is_vector, .lt, operand_ref, min_val_ref);
+        } else undefined;
+        const above_max_inst: Air.Inst.Index = if (have_max_check) inst: {
+            const max_val_ref = Air.internedToRef((try dest_int_ty.maxInt(pt, operand_ty)).toIntern());
+            break :inst try cur_block.addCmp(l, is_vector, .gt, operand_ref, max_val_ref);
+        } else undefined;
+        const out_of_range_inst: Air.Inst.Index = inst: {
+            if (have_min_check and have_max_check) break :inst cur_block.add(l, .{
+                .tag = .bool_or,
+                .data = .{ .bin_op = .{
+                    .lhs = below_min_inst.toRef(),
+                    .rhs = above_max_inst.toRef(),
+                } },
+            });
+            if (have_min_check) break :inst below_min_inst;
+            if (have_max_check) break :inst above_max_inst;
+            unreachable;
+        };
+        const scalar_out_of_range_inst: Air.Inst.Index = if (is_vector) cur_block.add(l, .{
+            .tag = .reduce,
+            .data = .{ .reduce = .{
+                .operand = out_of_range_inst.toRef(),
+                .operation = .Or,
+            } },
+        }) else out_of_range_inst;
+        condbr.* = .init(l, scalar_out_of_range_inst.toRef(), cur_block, .{
+            .true = .cold,
+            .false = .none,
+        });
+        condbr.then_block = .init(cur_block.stealRemainingCapacity());
+        try condbr.then_block.addPanic(l, panic_id);
+        condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+        cur_block = &condbr.else_block;
+    }
+
+    // Now we know we're in-range, we can intcast:
+    const cast_inst = cur_block.add(l, .{
+        .tag = .intcast,
+        .data = .{ .ty_op = .{
+            .ty = Air.internedToRef(dest_ty.toIntern()),
+            .operand = operand_ref,
+        } },
+    });
+    // For ints we're already done, but for exhaustive enums we must check this is a valid tag.
+    if (dest_is_enum and !dest_ty.isNonexhaustiveEnum(zcu) and zcu.backendSupportsFeature(.is_named_enum_value)) {
+        assert(!is_vector); // vectors of enums don't exist
+        // We are building this:
+        //   %1 = is_named_enum_value(%cast_inst)
+        //   %2 = cond_br(%1, {
+        //     <new cursor>
+        //   }, {
+        //     <panic>
+        //   })
+        const is_named_inst = cur_block.add(l, .{
+            .tag = .is_named_enum_value,
+            .data = .{ .un_op = cast_inst.toRef() },
+        });
+        const condbr = &condbr_buf[condbr_idx];
+        condbr_idx += 1;
+        condbr.* = .init(l, is_named_inst.toRef(), cur_block, .{
+            .true = .none,
+            .false = .cold,
+        });
+        condbr.else_block = .init(cur_block.stealRemainingCapacity());
+        try condbr.else_block.addPanic(l, panic_id);
+        condbr.then_block = .init(condbr.else_block.stealRemainingCapacity());
+        cur_block = &condbr.then_block;
+    }
+    // Finally, just `br` to our outer `block`.
+    _ = cur_block.add(l, .{
+        .tag = .br,
+        .data = .{ .br = .{
+            .block_inst = orig_inst,
+            .operand = cast_inst.toRef(),
+        } },
+    });
+    // We might not have used all of the instructions; that's intentional.
+    _ = cur_block.stealRemainingCapacity();
+
+    for (condbr_buf[0..condbr_idx]) |*condbr| try condbr.finish(l);
+    return .{ .ty_pl = .{
+        .ty = Air.internedToRef(dest_ty.toIntern()),
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
+fn safeArithmeticBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, overflow_op_tag: Air.Inst.Tag) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const bin_op = l.air_instructions.items(.data)[@intFromEnum(orig_inst)].bin_op;
+
+    const operand_ty = l.typeOf(bin_op.lhs);
+    assert(l.typeOf(bin_op.rhs).toIntern() == operand_ty.toIntern());
+    const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
+
+    const overflow_tuple_ty = try pt.overflowArithmeticTupleType(operand_ty);
+    const overflow_bits_ty = overflow_tuple_ty.fieldType(1, zcu);
+
+    // The worst-case scenario is a vector operand:
+    //
+    // %1 = add_with_overflow(%x, %y)
+    // %2 = struct_field_val(%1, .@"1")
+    // %3 = reduce(%2, .@"or")
+    // %4 = bitcast(%3, @bool_type)
+    // %5 = cond_br(%4, {
+    //   %6 = call(@panic.integerOverflow, [])
+    //   %7 = unreach()
+    // }, {
+    //   %8 = struct_field_val(%1, .@"0")
+    //   %9 = br(%z, %8)
+    // })
+    try l.air_instructions.ensureUnusedCapacity(gpa, 9);
+    var body_inst_buf: [9]Air.Inst.Index = undefined;
+
+    var main_block: Block = .init(&body_inst_buf);
+
+    const overflow_op_inst = main_block.add(l, .{
+        .tag = overflow_op_tag,
+        .data = .{ .ty_pl = .{
+            .ty = Air.internedToRef(overflow_tuple_ty.toIntern()),
+            .payload = try l.addExtra(Air.Bin, .{
+                .lhs = bin_op.lhs,
+                .rhs = bin_op.rhs,
+            }),
+        } },
+    });
+    const overflow_bits_inst = main_block.add(l, .{
+        .tag = .struct_field_val,
+        .data = .{ .ty_pl = .{
+            .ty = Air.internedToRef(overflow_bits_ty.toIntern()),
+            .payload = try l.addExtra(Air.StructField, .{
+                .struct_operand = overflow_op_inst.toRef(),
+                .field_index = 1,
+            }),
+        } },
+    });
+    const any_overflow_bit_inst = if (is_vector) main_block.add(l, .{
+        .tag = .reduce,
+        .data = .{ .reduce = .{
+            .operand = overflow_bits_inst.toRef(),
+            .operation = .Or,
+        } },
+    }) else overflow_bits_inst;
+    const any_overflow_inst = try main_block.addCmp(l, false, .eq, any_overflow_bit_inst.toRef(), .one_u1);
+
+    var condbr: CondBr = .init(l, any_overflow_inst.toRef(), &main_block, .{
+        .true = .cold,
+        .false = .none,
+    });
+    condbr.then_block = .init(main_block.stealRemainingCapacity());
+    try condbr.then_block.addPanic(l, .integer_overflow);
+    condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+
+    const result_inst = condbr.else_block.add(l, .{
+        .tag = .struct_field_val,
+        .data = .{ .ty_pl = .{
+            .ty = Air.internedToRef(operand_ty.toIntern()),
+            .payload = try l.addExtra(Air.StructField, .{
+                .struct_operand = overflow_op_inst.toRef(),
+                .field_index = 0,
+            }),
+        } },
+    });
+    _ = condbr.else_block.add(l, .{
+        .tag = .br,
+        .data = .{ .br = .{
+            .block_inst = orig_inst,
+            .operand = result_inst.toRef(),
+        } },
+    });
+    // We might not have used all of the instructions; that's intentional.
+    _ = condbr.else_block.stealRemainingCapacity();
+
+    try condbr.finish(l);
+    return .{ .ty_pl = .{
+        .ty = Air.internedToRef(operand_ty.toIntern()),
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
+
+const Block = struct {
+    instructions: []Air.Inst.Index,
+    len: usize,
+
+    /// There are two common usages of the API:
+    /// * `buf.len` is exactly the number of instructions which will be in this block
+    /// * `buf.len` is no smaller than necessary, and `b.stealRemainingCapacity` will be used
+    fn init(buf: []Air.Inst.Index) Block {
+        return .{
+            .instructions = buf,
             .len = 0,
         };
+    }
 
-        fn add(b: *@This(), inst: Air.Inst.Index) Air.Inst.Index {
-            b.instructions[b.len] = inst;
-            b.len += 1;
-            return inst;
-        }
+    /// Like `Legalize.addInstAssumeCapacity`, but also appends the instruction to `b`.
+    fn add(b: *Block, l: *Legalize, inst_data: Air.Inst) Air.Inst.Index {
+        const inst = l.addInstAssumeCapacity(inst_data);
+        b.instructions[b.len] = inst;
+        b.len += 1;
+        return inst;
+    }
 
-        fn body(b: *const @This()) []const Air.Inst.Index {
-            assert(b.len == b.instructions.len);
-            return &b.instructions;
+    /// Adds the code to call the panic handler `panic_id`. This is usually `.call` then `.unreach`,
+    /// but if `Zcu.Feature.panic_fn` is unsupported, we lower to `.trap` instead.
+    fn addPanic(b: *Block, l: *Legalize, panic_id: Zcu.SimplePanicId) Error!void {
+        const zcu = l.pt.zcu;
+        if (!zcu.backendSupportsFeature(.panic_fn)) {
+            _ = b.add(l, .{
+                .tag = .trap,
+                .data = .{ .no_op = {} },
+            });
+            return;
         }
+        const panic_fn_val = zcu.builtin_decl_values.get(panic_id.toBuiltin());
+        _ = b.add(l, .{
+            .tag = .call,
+            .data = .{ .pl_op = .{
+                .operand = Air.internedToRef(panic_fn_val),
+                .payload = try l.addExtra(Air.Call, .{ .args_len = 0 }),
+            } },
+        });
+        _ = b.add(l, .{
+            .tag = .unreach,
+            .data = .{ .no_op = {} },
+        });
+    }
+
+    /// Adds a `cmp_*` instruction (including maybe `cmp_vector`) to `b`. This is a fairly thin wrapper
+    /// around `add`, although it does compute the result type if `is_vector` (`@Vector(n, bool)`).
+    fn addCmp(
+        b: *Block,
+        l: *Legalize,
+        is_vector: bool,
+        op: std.math.CompareOperator,
+        lhs: Air.Inst.Ref,
+        rhs: Air.Inst.Ref,
+    ) Error!Air.Inst.Index {
+        const pt = l.pt;
+        if (is_vector) {
+            const bool_vec_ty = try pt.vectorType(.{
+                .child = .bool_type,
+                .len = l.typeOf(lhs).vectorLen(pt.zcu),
+            });
+            return b.add(l, .{
+                .tag = .cmp_vector,
+                .data = .{ .ty_pl = .{
+                    .ty = Air.internedToRef(bool_vec_ty.toIntern()),
+                    .payload = try l.addExtra(Air.VectorCmp, .{
+                        .lhs = lhs,
+                        .rhs = rhs,
+                        .op = Air.VectorCmp.encodeOp(op),
+                    }),
+                } },
+            });
+        }
+        return b.add(l, .{
+            .tag = switch (op) {
+                .lt => .cmp_lt,
+                .lte => .cmp_lte,
+                .eq => .cmp_eq,
+                .gte => .cmp_gte,
+                .gt => .cmp_gt,
+                .neq => .cmp_neq,
+            },
+            .data = .{ .bin_op = .{
+                .lhs = lhs,
+                .rhs = rhs,
+            } },
+        });
+    }
+
+    /// Returns the unused capacity of `b.instructions`, and shrinks `b.instructions` down to `b.len`.
+    /// This is useful when you've provided a buffer big enough for all your instructions, but you are
+    /// now starting a new block and some of them need to live there instead.
+    fn stealRemainingCapacity(b: *Block) []Air.Inst.Index {
+        const remaining = b.instructions[b.len..];
+        b.instructions = b.instructions[0..b.len];
+        return remaining;
+    }
+
+    fn body(b: *const Block) []const Air.Inst.Index {
+        assert(b.len == b.instructions.len);
+        return b.instructions;
+    }
+};
+
+const CondBr = struct {
+    inst: Air.Inst.Index,
+    hints: BranchHints,
+    then_block: Block,
+    else_block: Block,
+
+    const BranchHints = struct {
+        true: std.builtin.BranchHint,
+        false: std.builtin.BranchHint,
     };
-}
+
+    /// The return value has `then_block` and `else_block` initialized to `undefined`; it is the
+    /// caller's reponsibility to initialize them.
+    fn init(l: *Legalize, operand: Air.Inst.Ref, parent_block: *Block, hints: BranchHints) CondBr {
+        return .{
+            .inst = parent_block.add(l, .{
+                .tag = .cond_br,
+                .data = .{ .pl_op = .{
+                    .operand = operand,
+                    .payload = undefined,
+                } },
+            }),
+            .hints = hints,
+            .then_block = undefined,
+            .else_block = undefined,
+        };
+    }
+
+    fn finish(cond_br: CondBr, l: *Legalize) Error!void {
+        const data = &l.air_instructions.items(.data)[@intFromEnum(cond_br.inst)];
+        data.pl_op.payload = try l.addCondBrBodiesHints(
+            cond_br.then_block.body(),
+            cond_br.else_block.body(),
+            .{
+                .true = cond_br.hints.true,
+                .false = cond_br.hints.false,
+                .then_cov = .none,
+                .else_cov = .none,
+            },
+        );
+    }
+};
 
 fn addInstAssumeCapacity(l: *Legalize, inst: Air.Inst) Air.Inst.Index {
     defer l.air_instructions.appendAssumeCapacity(inst);
@@ -818,17 +1253,20 @@ fn addBlockBody(l: *Legalize, body: []const Air.Inst.Index) Error!u32 {
 }
 
 fn addCondBrBodies(l: *Legalize, then_body: []const Air.Inst.Index, else_body: []const Air.Inst.Index) Error!u32 {
+    return l.addCondBrBodiesHints(then_body, else_body, .{
+        .true = .none,
+        .false = .none,
+        .then_cov = .none,
+        .else_cov = .none,
+    });
+}
+fn addCondBrBodiesHints(l: *Legalize, then_body: []const Air.Inst.Index, else_body: []const Air.Inst.Index, hints: Air.CondBr.BranchHints) Error!u32 {
     try l.air_extra.ensureUnusedCapacity(l.pt.zcu.gpa, 3 + then_body.len + else_body.len);
     defer {
         l.air_extra.appendSliceAssumeCapacity(&.{
             @intCast(then_body.len),
             @intCast(else_body.len),
-            @bitCast(Air.CondBr.BranchHints{
-                .true = .none,
-                .false = .none,
-                .then_cov = .none,
-                .else_cov = .none,
-            }),
+            @bitCast(hints),
         });
         l.air_extra.appendSliceAssumeCapacity(@ptrCast(then_body));
         l.air_extra.appendSliceAssumeCapacity(@ptrCast(else_body));
