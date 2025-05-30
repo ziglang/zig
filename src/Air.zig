@@ -1241,10 +1241,10 @@ pub const CondBr = struct {
     else_body_len: u32,
     branch_hints: BranchHints,
     pub const BranchHints = packed struct(u32) {
-        true: std.builtin.BranchHint,
-        false: std.builtin.BranchHint,
-        then_cov: CoveragePoint,
-        else_cov: CoveragePoint,
+        true: std.builtin.BranchHint = .none,
+        false: std.builtin.BranchHint = .none,
+        then_cov: CoveragePoint = .none,
+        else_cov: CoveragePoint = .none,
         _: u24 = 0,
     };
 };

@@ -575,20 +575,20 @@ inline fn scalarize(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_tag: 
 fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_tag: ScalarizeDataTag) Error!Air.Inst.Data {
     const pt = l.pt;
     const zcu = pt.zcu;
-    const gpa = zcu.gpa;
 
     const orig = l.air_instructions.get(@intFromEnum(orig_inst));
     const res_ty = l.typeOfIndex(orig_inst);
-    const arity = switch (data_tag) {
-        .un_op, .ty_op => 1,
-        .bin_op, .ty_pl_vector_cmp => 2,
-        .pl_op_bin => 3,
-    };
-    const expected_instructions_len = l.air_instructions.len + (6 + arity + 8);
-    try l.air_instructions.ensureTotalCapacity(gpa, expected_instructions_len);
 
-    var res_block_buf: [4]Air.Inst.Index = undefined;
-    var res_block: Block = .init(&res_block_buf);
+    var inst_buf: [
+        5 + switch (data_tag) {
+            .un_op, .ty_op => 1,
+            .bin_op, .ty_pl_vector_cmp => 2,
+            .pl_op_bin => 3,
+        } + 9
+    ]Air.Inst.Index = undefined;
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
+
+    var res_block: Block = .init(&inst_buf);
     {
         const res_alloc_inst = res_block.add(l, .{
             .tag = .alloc,
@@ -606,39 +606,38 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
             } },
         });
 
-        const loop_inst: Air.Inst.Index = @enumFromInt(l.air_instructions.len + (3 + arity + 7));
-        var loop_block_buf: [3 + arity + 2]Air.Inst.Index = undefined;
-        var loop_block: Block = .init(&loop_block_buf);
+        var loop: Loop = .init(l, &res_block);
+        loop.block = .init(res_block.stealRemainingCapacity());
         {
-            const cur_index_inst = loop_block.add(l, .{
+            const cur_index_inst = loop.block.add(l, .{
                 .tag = .load,
                 .data = .{ .ty_op = .{
                     .ty = .usize_type,
                     .operand = index_alloc_inst.toRef(),
                 } },
             });
-            _ = loop_block.add(l, .{
+            _ = loop.block.add(l, .{
                 .tag = .vector_store_elem,
                 .data = .{ .vector_store_elem = .{
                     .vector_ptr = res_alloc_inst.toRef(),
                     .payload = try l.addExtra(Air.Bin, .{
                         .lhs = cur_index_inst.toRef(),
-                        .rhs = loop_block.add(l, res_elem: switch (data_tag) {
-                            .un_op => .{
+                        .rhs = res_elem: switch (data_tag) {
+                            .un_op => loop.block.add(l, .{
                                 .tag = orig.tag,
-                                .data = .{ .un_op = loop_block.add(l, .{
+                                .data = .{ .un_op = loop.block.add(l, .{
                                     .tag = .array_elem_val,
                                     .data = .{ .bin_op = .{
                                         .lhs = orig.data.un_op,
                                         .rhs = cur_index_inst.toRef(),
                                     } },
                                 }).toRef() },
-                            },
-                            .ty_op => .{
+                            }),
+                            .ty_op => loop.block.add(l, .{
                                 .tag = orig.tag,
                                 .data = .{ .ty_op = .{
                                     .ty = Air.internedToRef(orig.data.ty_op.ty.toType().scalarType(zcu).toIntern()),
-                                    .operand = loop_block.add(l, .{
+                                    .operand = loop.block.add(l, .{
                                         .tag = .array_elem_val,
                                         .data = .{ .bin_op = .{
                                             .lhs = orig.data.ty_op.operand,
@@ -646,18 +645,18 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                                         } },
                                     }).toRef(),
                                 } },
-                            },
-                            .bin_op => .{
+                            }),
+                            .bin_op => loop.block.add(l, .{
                                 .tag = orig.tag,
                                 .data = .{ .bin_op = .{
-                                    .lhs = loop_block.add(l, .{
+                                    .lhs = loop.block.add(l, .{
                                         .tag = .array_elem_val,
                                         .data = .{ .bin_op = .{
                                             .lhs = orig.data.bin_op.lhs,
                                             .rhs = cur_index_inst.toRef(),
                                         } },
                                     }).toRef(),
-                                    .rhs = loop_block.add(l, .{
+                                    .rhs = loop.block.add(l, .{
                                         .tag = .array_elem_val,
                                         .data = .{ .bin_op = .{
                                             .lhs = orig.data.bin_op.rhs,
@@ -665,61 +664,47 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                                         } },
                                     }).toRef(),
                                 } },
-                            },
+                            }),
                             .ty_pl_vector_cmp => {
                                 const extra = l.extraData(Air.VectorCmp, orig.data.ty_pl.payload).data;
-                                break :res_elem .{
-                                    .tag = switch (orig.tag) {
+                                break :res_elem try loop.block.addCmp(
+                                    l,
+                                    extra.compareOperator(),
+                                    loop.block.add(l, .{
+                                        .tag = .array_elem_val,
+                                        .data = .{ .bin_op = .{
+                                            .lhs = extra.lhs,
+                                            .rhs = cur_index_inst.toRef(),
+                                        } },
+                                    }).toRef(),
+                                    loop.block.add(l, .{
+                                        .tag = .array_elem_val,
+                                        .data = .{ .bin_op = .{
+                                            .lhs = extra.rhs,
+                                            .rhs = cur_index_inst.toRef(),
+                                        } },
+                                    }).toRef(),
+                                    .{ .optimized = switch (orig.tag) {
                                         else => unreachable,
-                                        .cmp_vector => switch (extra.compareOperator()) {
-                                            .lt => .cmp_lt,
-                                            .lte => .cmp_lte,
-                                            .eq => .cmp_eq,
-                                            .gte => .cmp_gte,
-                                            .gt => .cmp_gt,
-                                            .neq => .cmp_neq,
-                                        },
-                                        .cmp_vector_optimized => switch (extra.compareOperator()) {
-                                            .lt => .cmp_lt_optimized,
-                                            .lte => .cmp_lte_optimized,
-                                            .eq => .cmp_eq_optimized,
-                                            .gte => .cmp_gte_optimized,
-                                            .gt => .cmp_gt_optimized,
-                                            .neq => .cmp_neq_optimized,
-                                        },
-                                    },
-                                    .data = .{ .bin_op = .{
-                                        .lhs = loop_block.add(l, .{
-                                            .tag = .array_elem_val,
-                                            .data = .{ .bin_op = .{
-                                                .lhs = extra.lhs,
-                                                .rhs = cur_index_inst.toRef(),
-                                            } },
-                                        }).toRef(),
-                                        .rhs = loop_block.add(l, .{
-                                            .tag = .array_elem_val,
-                                            .data = .{ .bin_op = .{
-                                                .lhs = extra.rhs,
-                                                .rhs = cur_index_inst.toRef(),
-                                            } },
-                                        }).toRef(),
+                                        .cmp_vector => false,
+                                        .cmp_vector_optimized => true,
                                     } },
-                                };
+                                );
                             },
                             .pl_op_bin => {
                                 const extra = l.extraData(Air.Bin, orig.data.pl_op.payload).data;
-                                break :res_elem .{
+                                break :res_elem loop.block.add(l, .{
                                     .tag = orig.tag,
                                     .data = .{ .pl_op = .{
                                         .payload = try l.addExtra(Air.Bin, .{
-                                            .lhs = loop_block.add(l, .{
+                                            .lhs = loop.block.add(l, .{
                                                 .tag = .array_elem_val,
                                                 .data = .{ .bin_op = .{
                                                     .lhs = extra.lhs,
                                                     .rhs = cur_index_inst.toRef(),
                                                 } },
                                             }).toRef(),
-                                            .rhs = loop_block.add(l, .{
+                                            .rhs = loop.block.add(l, .{
                                                 .tag = .array_elem_val,
                                                 .data = .{ .bin_op = .{
                                                     .lhs = extra.rhs,
@@ -727,7 +712,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                                                 } },
                                             }).toRef(),
                                         }),
-                                        .operand = loop_block.add(l, .{
+                                        .operand = loop.block.add(l, .{
                                             .tag = .array_elem_val,
                                             .data = .{ .bin_op = .{
                                                 .lhs = orig.data.pl_op.operand,
@@ -735,28 +720,32 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                                             } },
                                         }).toRef(),
                                     } },
-                                };
+                                });
                             },
-                        }).toRef(),
+                        }.toRef(),
                     }),
                 } },
             });
-            const not_done_inst = loop_block.add(l, .{
-                .tag = .cmp_lt,
-                .data = .{ .bin_op = .{
-                    .lhs = cur_index_inst.toRef(),
-                    .rhs = try pt.intRef(.usize, res_ty.vectorLen(zcu) - 1),
-                } },
-            });
 
-            var not_done_block_buf: [3]Air.Inst.Index = undefined;
-            var not_done_block: Block = .init(&not_done_block_buf);
+            var loop_cond_br: CondBr = .init(
+                l,
+                (try loop.block.addCmp(
+                    l,
+                    .lt,
+                    cur_index_inst.toRef(),
+                    try pt.intRef(.usize, res_ty.vectorLen(zcu) - 1),
+                    .{},
+                )).toRef(),
+                &loop.block,
+                .{},
+            );
+            loop_cond_br.then_block = .init(loop.block.stealRemainingCapacity());
             {
-                _ = not_done_block.add(l, .{
+                _ = loop_cond_br.then_block.add(l, .{
                     .tag = .store,
                     .data = .{ .bin_op = .{
                         .lhs = index_alloc_inst.toRef(),
-                        .rhs = not_done_block.add(l, .{
+                        .rhs = loop_cond_br.then_block.add(l, .{
                             .tag = .add,
                             .data = .{ .bin_op = .{
                                 .lhs = cur_index_inst.toRef(),
@@ -765,19 +754,18 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                         }).toRef(),
                     } },
                 });
-                _ = not_done_block.add(l, .{
+                _ = loop_cond_br.then_block.add(l, .{
                     .tag = .repeat,
-                    .data = .{ .repeat = .{ .loop_inst = loop_inst } },
+                    .data = .{ .repeat = .{ .loop_inst = loop.inst } },
                 });
             }
-            var done_block_buf: [2]Air.Inst.Index = undefined;
-            var done_block: Block = .init(&done_block_buf);
+            loop_cond_br.else_block = .init(loop_cond_br.then_block.stealRemainingCapacity());
             {
-                _ = done_block.add(l, .{
+                _ = loop_cond_br.else_block.add(l, .{
                     .tag = .br,
                     .data = .{ .br = .{
                         .block_inst = orig_inst,
-                        .operand = done_block.add(l, .{
+                        .operand = loop_cond_br.else_block.add(l, .{
                             .tag = .load,
                             .data = .{ .ty_op = .{
                                 .ty = Air.internedToRef(res_ty.toIntern()),
@@ -787,32 +775,19 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                     } },
                 });
             }
-            _ = loop_block.add(l, .{
-                .tag = .cond_br,
-                .data = .{ .pl_op = .{
-                    .operand = not_done_inst.toRef(),
-                    .payload = try l.addCondBrBodies(not_done_block.body(), done_block.body()),
-                } },
-            });
+            try loop_cond_br.finish(l);
         }
-        assert(loop_inst == res_block.add(l, .{
-            .tag = .loop,
-            .data = .{ .ty_pl = .{
-                .ty = .noreturn_type,
-                .payload = try l.addBlockBody(loop_block.body()),
-            } },
-        }));
+        try loop.finish(l);
     }
-    assert(l.air_instructions.len == expected_instructions_len);
     return .{ .ty_pl = .{
         .ty = Air.internedToRef(res_ty.toIntern()),
         .payload = try l.addBlockBody(res_block.body()),
     } };
 }
+
 fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {
     const pt = l.pt;
     const zcu = pt.zcu;
-    const gpa = zcu.gpa;
     const ty_op = l.air_instructions.items(.data)[@intFromEnum(orig_inst)].ty_op;
 
     const operand_ref = ty_op.operand;
@@ -882,12 +857,12 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
     //   })
     // })
 
-    try l.air_instructions.ensureUnusedCapacity(gpa, 12);
-    var body_inst_buf: [12]Air.Inst.Index = undefined;
+    var inst_buf: [12]Air.Inst.Index = undefined;
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
     var condbr_buf: [2]CondBr = undefined;
     var condbr_idx: usize = 0;
 
-    var main_block: Block = .init(&body_inst_buf);
+    var main_block: Block = .init(&inst_buf);
     var cur_block: *Block = &main_block;
 
     const panic_id: Zcu.SimplePanicId = if (dest_is_enum) .invalid_enum_value else .cast_truncated_data;
@@ -898,11 +873,11 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
         condbr_idx += 1;
         const below_min_inst: Air.Inst.Index = if (have_min_check) inst: {
             const min_val_ref = Air.internedToRef((try dest_int_ty.minInt(pt, operand_ty)).toIntern());
-            break :inst try cur_block.addCmp(l, is_vector, .lt, operand_ref, min_val_ref);
+            break :inst try cur_block.addCmp(l, .lt, operand_ref, min_val_ref, .{ .vector = is_vector });
         } else undefined;
         const above_max_inst: Air.Inst.Index = if (have_max_check) inst: {
             const max_val_ref = Air.internedToRef((try dest_int_ty.maxInt(pt, operand_ty)).toIntern());
-            break :inst try cur_block.addCmp(l, is_vector, .gt, operand_ref, max_val_ref);
+            break :inst try cur_block.addCmp(l, .gt, operand_ref, max_val_ref, .{ .vector = is_vector });
         } else undefined;
         const out_of_range_inst: Air.Inst.Index = inst: {
             if (have_min_check and have_max_check) break :inst cur_block.add(l, .{
@@ -923,10 +898,7 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
                 .operation = .Or,
             } },
         }) else out_of_range_inst;
-        condbr.* = .init(l, scalar_out_of_range_inst.toRef(), cur_block, .{
-            .true = .cold,
-            .false = .none,
-        });
+        condbr.* = .init(l, scalar_out_of_range_inst.toRef(), cur_block, .{ .true = .cold });
         condbr.then_block = .init(cur_block.stealRemainingCapacity());
         try condbr.then_block.addPanic(l, panic_id);
         condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
@@ -957,10 +929,7 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
         });
         const condbr = &condbr_buf[condbr_idx];
         condbr_idx += 1;
-        condbr.* = .init(l, is_named_inst.toRef(), cur_block, .{
-            .true = .none,
-            .false = .cold,
-        });
+        condbr.* = .init(l, is_named_inst.toRef(), cur_block, .{ .false = .cold });
         condbr.else_block = .init(cur_block.stealRemainingCapacity());
         try condbr.else_block.addPanic(l, panic_id);
         condbr.then_block = .init(condbr.else_block.stealRemainingCapacity());
@@ -986,7 +955,6 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
 fn safeArithmeticBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, overflow_op_tag: Air.Inst.Tag) Error!Air.Inst.Data {
     const pt = l.pt;
     const zcu = pt.zcu;
-    const gpa = zcu.gpa;
     const bin_op = l.air_instructions.items(.data)[@intFromEnum(orig_inst)].bin_op;
 
     const operand_ty = l.typeOf(bin_op.lhs);
@@ -1009,10 +977,10 @@ fn safeArithmeticBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, overflow_
     //   %8 = struct_field_val(%1, .@"0")
     //   %9 = br(%z, %8)
     // })
-    try l.air_instructions.ensureUnusedCapacity(gpa, 9);
-    var body_inst_buf: [9]Air.Inst.Index = undefined;
+    var inst_buf: [9]Air.Inst.Index = undefined;
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
 
-    var main_block: Block = .init(&body_inst_buf);
+    var main_block: Block = .init(&inst_buf);
 
     const overflow_op_inst = main_block.add(l, .{
         .tag = overflow_op_tag,
@@ -1041,12 +1009,9 @@ fn safeArithmeticBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, overflow_
             .operation = .Or,
         } },
     }) else overflow_bits_inst;
-    const any_overflow_inst = try main_block.addCmp(l, false, .eq, any_overflow_bit_inst.toRef(), .one_u1);
+    const any_overflow_inst = try main_block.addCmp(l, .eq, any_overflow_bit_inst.toRef(), .one_u1, .{});
 
-    var condbr: CondBr = .init(l, any_overflow_inst.toRef(), &main_block, .{
-        .true = .cold,
-        .false = .none,
-    });
+    var condbr: CondBr = .init(l, any_overflow_inst.toRef(), &main_block, .{ .true = .cold });
     condbr.then_block = .init(main_block.stealRemainingCapacity());
     try condbr.then_block.addPanic(l, .integer_overflow);
     condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
@@ -1130,19 +1095,19 @@ const Block = struct {
     fn addCmp(
         b: *Block,
         l: *Legalize,
-        is_vector: bool,
         op: std.math.CompareOperator,
         lhs: Air.Inst.Ref,
         rhs: Air.Inst.Ref,
+        opts: struct { optimized: bool = false, vector: bool = false },
     ) Error!Air.Inst.Index {
         const pt = l.pt;
-        if (is_vector) {
+        if (opts.vector) {
             const bool_vec_ty = try pt.vectorType(.{
                 .child = .bool_type,
                 .len = l.typeOf(lhs).vectorLen(pt.zcu),
             });
             return b.add(l, .{
-                .tag = .cmp_vector,
+                .tag = if (opts.optimized) .cmp_vector_optimized else .cmp_vector,
                 .data = .{ .ty_pl = .{
                     .ty = Air.internedToRef(bool_vec_ty.toIntern()),
                     .payload = try l.addExtra(Air.VectorCmp, .{
@@ -1155,12 +1120,12 @@ const Block = struct {
         }
         return b.add(l, .{
             .tag = switch (op) {
-                .lt => .cmp_lt,
-                .lte => .cmp_lte,
-                .eq => .cmp_eq,
-                .gte => .cmp_gte,
-                .gt => .cmp_gt,
-                .neq => .cmp_neq,
+                .lt => if (opts.optimized) .cmp_lt_optimized else .cmp_lt,
+                .lte => if (opts.optimized) .cmp_lte_optimized else .cmp_lte,
+                .eq => if (opts.optimized) .cmp_eq_optimized else .cmp_eq,
+                .gte => if (opts.optimized) .cmp_gte_optimized else .cmp_gte,
+                .gt => if (opts.optimized) .cmp_gt_optimized else .cmp_gt,
+                .neq => if (opts.optimized) .cmp_neq_optimized else .cmp_neq,
             },
             .data = .{ .bin_op = .{
                 .lhs = lhs,
@@ -1184,20 +1149,40 @@ const Block = struct {
     }
 };
 
+const Loop = struct {
+    inst: Air.Inst.Index,
+    block: Block,
+
+    /// The return value has `block` initialized to `undefined`; it is the caller's reponsibility
+    /// to initialize it.
+    fn init(l: *Legalize, parent_block: *Block) Loop {
+        return .{
+            .inst = parent_block.add(l, .{
+                .tag = .loop,
+                .data = .{ .ty_pl = .{
+                    .ty = .noreturn_type,
+                    .payload = undefined,
+                } },
+            }),
+            .block = undefined,
+        };
+    }
+
+    fn finish(loop: Loop, l: *Legalize) Error!void {
+        const data = &l.air_instructions.items(.data)[@intFromEnum(loop.inst)];
+        data.ty_pl.payload = try l.addBlockBody(loop.block.body());
+    }
+};
+
 const CondBr = struct {
     inst: Air.Inst.Index,
-    hints: BranchHints,
+    hints: Air.CondBr.BranchHints,
     then_block: Block,
     else_block: Block,
 
-    const BranchHints = struct {
-        true: std.builtin.BranchHint,
-        false: std.builtin.BranchHint,
-    };
-
     /// The return value has `then_block` and `else_block` initialized to `undefined`; it is the
     /// caller's reponsibility to initialize them.
-    fn init(l: *Legalize, operand: Air.Inst.Ref, parent_block: *Block, hints: BranchHints) CondBr {
+    fn init(l: *Legalize, operand: Air.Inst.Ref, parent_block: *Block, hints: Air.CondBr.BranchHints) CondBr {
         return .{
             .inst = parent_block.add(l, .{
                 .tag = .cond_br,
@@ -1213,17 +1198,19 @@ const CondBr = struct {
     }
 
     fn finish(cond_br: CondBr, l: *Legalize) Error!void {
+        const then_body = cond_br.then_block.body();
+        const else_body = cond_br.else_block.body();
+        try l.air_extra.ensureUnusedCapacity(l.pt.zcu.gpa, 3 + then_body.len + else_body.len);
+
         const data = &l.air_instructions.items(.data)[@intFromEnum(cond_br.inst)];
-        data.pl_op.payload = try l.addCondBrBodiesHints(
-            cond_br.then_block.body(),
-            cond_br.else_block.body(),
-            .{
-                .true = cond_br.hints.true,
-                .false = cond_br.hints.false,
-                .then_cov = .none,
-                .else_cov = .none,
-            },
-        );
+        data.pl_op.payload = @intCast(l.air_extra.items.len);
+        l.air_extra.appendSliceAssumeCapacity(&.{
+            @intCast(then_body.len),
+            @intCast(else_body.len),
+            @bitCast(cond_br.hints),
+        });
+        l.air_extra.appendSliceAssumeCapacity(@ptrCast(then_body));
+        l.air_extra.appendSliceAssumeCapacity(@ptrCast(else_body));
     }
 };
 
@@ -1248,28 +1235,6 @@ fn addBlockBody(l: *Legalize, body: []const Air.Inst.Index) Error!u32 {
     defer {
         l.air_extra.appendAssumeCapacity(@intCast(body.len));
         l.air_extra.appendSliceAssumeCapacity(@ptrCast(body));
-    }
-    return @intCast(l.air_extra.items.len);
-}
-
-fn addCondBrBodies(l: *Legalize, then_body: []const Air.Inst.Index, else_body: []const Air.Inst.Index) Error!u32 {
-    return l.addCondBrBodiesHints(then_body, else_body, .{
-        .true = .none,
-        .false = .none,
-        .then_cov = .none,
-        .else_cov = .none,
-    });
-}
-fn addCondBrBodiesHints(l: *Legalize, then_body: []const Air.Inst.Index, else_body: []const Air.Inst.Index, hints: Air.CondBr.BranchHints) Error!u32 {
-    try l.air_extra.ensureUnusedCapacity(l.pt.zcu.gpa, 3 + then_body.len + else_body.len);
-    defer {
-        l.air_extra.appendSliceAssumeCapacity(&.{
-            @intCast(then_body.len),
-            @intCast(else_body.len),
-            @bitCast(hints),
-        });
-        l.air_extra.appendSliceAssumeCapacity(@ptrCast(then_body));
-        l.air_extra.appendSliceAssumeCapacity(@ptrCast(else_body));
     }
     return @intCast(l.air_extra.items.len);
 }
