@@ -25,7 +25,7 @@ pub fn main() !void {
         \\const builtin = @import("builtin");
         \\const std = @import("std");
         \\const common = @import("common.zig");
-        \\const always_has_lse = std.Target.aarch64.featureSetHas(builtin.cpu.features, .lse);
+        \\const always_has_lse = builtin.cpu.has(.aarch64, .lse);
         \\
         \\/// This default is overridden at runtime after inspecting CPU properties.
         \\/// It is intentionally not exported in order to make the machine code that

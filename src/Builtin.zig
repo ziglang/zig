@@ -47,7 +47,7 @@ pub fn generate(opts: @This(), allocator: Allocator) Allocator.Error![:0]u8 {
 
 pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
     const target = opts.target;
-    const generic_arch_name = target.cpu.arch.genericName();
+    const arch_family_name = @tagName(target.cpu.arch.family());
     const zig_backend = opts.zig_backend;
 
     @setEvalBranchQuota(4000);
@@ -80,9 +80,9 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         opts.single_threaded,
         std.zig.fmtId(@tagName(target.abi)),
         std.zig.fmtId(@tagName(target.cpu.arch)),
-        std.zig.fmtId(generic_arch_name),
+        std.zig.fmtId(arch_family_name),
         std.zig.fmtId(target.cpu.model.name),
-        std.zig.fmtId(generic_arch_name),
+        std.zig.fmtId(arch_family_name),
     });
 
     for (target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
