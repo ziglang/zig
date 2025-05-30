@@ -223,6 +223,11 @@ fn printTypeName(options: *Options, out: Writer, comptime T: type, indent: u8) !
                     try out.writeByteNTimes(' ', elem_indent);
                     if (field.is_comptime) try out.writeAll("comptime ");
                     try printTypeName(options, out, field.type, elem_indent);
+
+                    if (field.defaultValue()) |default_value| {
+                        try out.writeAll(" = ");
+                        try printValue(options, out, field.type, default_value, indent_width);
+                    }
                     try out.writeAll(",\n");
                 }
                 try out.writeByteNTimes(' ', indent);
