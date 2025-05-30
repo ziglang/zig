@@ -130,7 +130,7 @@ const SingleThreadedImpl = struct {
             unreachable; // deadlock detected
         };
 
-        std.time.sleep(timeout_ns);
+        std.Thread.sleep(timeout_ns);
         return error.Timeout;
     }
 
@@ -348,7 +348,7 @@ test "wait and signal" {
     }
 
     while (true) {
-        std.time.sleep(100 * std.time.ns_per_ms);
+        std.Thread.sleep(100 * std.time.ns_per_ms);
 
         multi_wait.mutex.lock();
         defer multi_wait.mutex.unlock();
@@ -405,7 +405,7 @@ test signal {
     }
 
     while (true) {
-        std.time.sleep(10 * std.time.ns_per_ms);
+        std.Thread.sleep(10 * std.time.ns_per_ms);
 
         signal_test.mutex.lock();
         defer signal_test.mutex.unlock();

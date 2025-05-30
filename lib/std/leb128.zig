@@ -33,9 +33,6 @@ pub fn readUleb128(comptime T: type, reader: anytype) !T {
     return @as(T, @truncate(value));
 }
 
-/// Deprecated: use `readUleb128`
-pub const readULEB128 = readUleb128;
-
 /// Write a single unsigned integer as unsigned LEB128 to the given writer.
 pub fn writeUleb128(writer: anytype, arg: anytype) !void {
     const Arg = @TypeOf(arg);
@@ -57,9 +54,6 @@ pub fn writeUleb128(writer: anytype, arg: anytype) !void {
         }
     }
 }
-
-/// Deprecated: use `writeUleb128`
-pub const writeULEB128 = writeUleb128;
 
 /// Read a single signed LEB128 value from the given reader as type T,
 /// or error.Overflow if the value cannot fit.
@@ -119,9 +113,6 @@ pub fn readIleb128(comptime T: type, reader: anytype) !T {
     return @as(T, @truncate(result));
 }
 
-/// Deprecated: use `readIleb128`
-pub const readILEB128 = readIleb128;
-
 /// Write a single signed integer as signed LEB128 to the given writer.
 pub fn writeIleb128(writer: anytype, arg: anytype) !void {
     const Arg = @TypeOf(arg);
@@ -175,9 +166,6 @@ pub fn writeUnsignedExtended(slice: []u8, arg: anytype) void {
     }
     slice[slice.len - 1] = @as(u7, @intCast(value));
 }
-
-/// Deprecated: use `writeIleb128`
-pub const writeILEB128 = writeIleb128;
 
 test writeUnsignedFixed {
     {
