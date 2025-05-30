@@ -2529,6 +2529,7 @@ pub fn destroy(comp: *Compilation) void {
 
 pub fn clearMiscFailures(comp: *Compilation) void {
     comp.alloc_failure_occurred = false;
+    comp.link_diags.flags = .{};
     for (comp.misc_failures.values()) |*value| {
         value.deinit(comp.gpa);
     }
@@ -2795,7 +2796,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
     if (anyErrors(comp)) {
         // Skip flushing and keep source files loaded for error reporting.
-        comp.link_diags.flags = .{};
         return;
     }
 
