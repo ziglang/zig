@@ -329,6 +329,12 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         // Append disabled features after enabled ones, so that their effects aren't overwritten.
         for (target.cpu.arch.allFeaturesList()) |feature| {
             if (feature.llvm_name) |llvm_name| {
+                // Until we add a proper way for the user to specify `-m(no-)abicalls`, we need to
+                // omit the "CPU" feature flag here. Unlike the Clang driver, LLVM's MIPS backend
+                // infers a sensible default value for this flag for N64, while matching Clang's
+                // default for O32/N32.
+                if (target.cpu.arch.isMIPS() and feature.index == @intFromEnum(std.Target.mips.Feature.noabicalls)) continue;
+
                 // Ignore these until we figure out how to handle the concept of omitting features.
                 // See https://github.com/ziglang/zig/issues/23539
                 if (target_util.isDynamicAMDGCNFeature(target, feature)) continue;
