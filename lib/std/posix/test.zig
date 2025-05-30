@@ -1202,6 +1202,7 @@ test "waitpid waits for the designated process" {
 test "wait waits for all terminated processes" {
     if (native_os == .wasi) return error.SkipZigTest;
     if (native_os == .windows) return error.SkipZigTest;
+    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `wait4` natively.
 
     const pid1 = try posix.fork();
     if (pid1 == 0) posix.exit(0);
