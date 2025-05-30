@@ -20,8 +20,8 @@ const Alignment = InternPool.Alignment;
 const BigIntLimb = std.math.big.Limb;
 const BigInt = std.math.big.int;
 
-pub inline fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
-    return comptime &.initEmpty();
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
 }
 
 pub const CType = @import("c/Type.zig");
@@ -210,7 +210,6 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "atomic_ushort", {} },
     .{ "atomic_wchar_t", {} },
     .{ "auto", {} },
-    .{ "bool", {} },
     .{ "break", {} },
     .{ "case", {} },
     .{ "char", {} },
@@ -269,6 +268,11 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "va_arg", {} },
     .{ "va_end", {} },
     .{ "va_copy", {} },
+
+    // stdbool.h
+    .{ "bool", {} },
+    .{ "false", {} },
+    .{ "true", {} },
 
     // stddef.h
     .{ "offsetof", {} },

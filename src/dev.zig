@@ -67,6 +67,7 @@ pub const Env = enum {
                 .incremental,
                 .ast_gen,
                 .sema,
+                .legalize,
                 .llvm_backend,
                 .c_backend,
                 .wasm_backend,
@@ -144,6 +145,7 @@ pub const Env = enum {
                 .build_command,
                 .stdio_listen,
                 .incremental,
+                .legalize,
                 .x86_64_backend,
                 .elf_linker,
                 => true,
@@ -222,6 +224,7 @@ pub const Feature = enum {
     incremental,
     ast_gen,
     sema,
+    legalize,
 
     llvm_backend,
     c_backend,

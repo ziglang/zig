@@ -164,13 +164,14 @@ pub const Features = std.enums.EnumSet(Feature);
 pub const Error = std.mem.Allocator.Error;
 
 pub fn legalize(air: *Air, pt: Zcu.PerThread, features: *const Features) Error!void {
+    dev.check(.legalize);
+    assert(!features.bits.eql(.initEmpty())); // backend asked to run legalize, but no features were enabled
     var l: Legalize = .{
         .pt = pt,
         .air_instructions = air.instructions.toMultiArrayList(),
         .air_extra = air.extra,
         .features = features,
     };
-    if (l.features.bits.eql(.initEmpty())) return;
     defer air.* = l.getTmpAir();
     const main_extra = l.extraData(Air.Block, l.air_extra.items[@intFromEnum(Air.ExtraIndex.main_block)]);
     try l.legalizeBody(main_extra.end, main_extra.data.body_len);
@@ -845,6 +846,7 @@ inline fn replaceInst(l: *Legalize, inst: Air.Inst.Index, tag: Air.Inst.Tag, dat
 
 const Air = @import("../Air.zig");
 const assert = std.debug.assert;
+const dev = @import("../dev.zig");
 const Legalize = @This();
 const std = @import("std");
 const Type = @import("../Type.zig");

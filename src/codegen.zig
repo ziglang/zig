@@ -27,9 +27,22 @@ pub const CodeGenError = GenerateSymbolError || error{
     CodegenFail,
 };
 
-fn devFeatureForBackend(comptime backend: std.builtin.CompilerBackend) dev.Feature {
-    comptime assert(mem.startsWith(u8, @tagName(backend), "stage2_"));
-    return @field(dev.Feature, @tagName(backend)["stage2_".len..] ++ "_backend");
+fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
+    return switch (backend) {
+        .other, .stage1 => unreachable,
+        .stage2_aarch64 => .aarch64_backend,
+        .stage2_arm => .arm_backend,
+        .stage2_c => .c_backend,
+        .stage2_llvm => .llvm_backend,
+        .stage2_powerpc => .powerpc_backend,
+        .stage2_riscv64 => .riscv64_backend,
+        .stage2_sparc64 => .sparc64_backend,
+        .stage2_spirv64 => .spirv64_backend,
+        .stage2_wasm => .wasm_backend,
+        .stage2_x86 => .x86_backend,
+        .stage2_x86_64 => .x86_64_backend,
+        _ => unreachable,
+    };
 }
 
 fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
@@ -49,10 +62,10 @@ fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
     };
 }
 
-pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) *const Air.Legalize.Features {
+pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*const Air.Legalize.Features {
     const zcu = pt.zcu;
     const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
-    return switch (target_util.zigBackend(target.*, zcu.comp.config.use_llvm)) {
+    switch (target_util.zigBackend(target.*, zcu.comp.config.use_llvm)) {
         else => unreachable,
         inline .stage2_llvm,
         .stage2_c,
@@ -65,8 +78,11 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) *con
         .stage2_sparc64,
         .stage2_spirv64,
         .stage2_powerpc,
-        => |backend| importBackend(backend).legalizeFeatures(target),
-    };
+        => |backend| {
+            dev.check(devFeatureForBackend(backend));
+            return importBackend(backend).legalizeFeatures(target);
+        },
+    }
 }
 
 pub fn generateFunction(

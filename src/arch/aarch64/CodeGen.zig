@@ -40,8 +40,8 @@ const gp = abi.RegisterClass.gp;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
 
-pub inline fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
-    return comptime &.initEmpty();
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
 }
 
 gpa: Allocator,

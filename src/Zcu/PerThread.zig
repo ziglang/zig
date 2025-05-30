@@ -1741,7 +1741,9 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *A
         return;
     }
 
-    try air.legalize(pt, @import("../codegen.zig").legalizeFeatures(pt, nav_index));
+    legalize: {
+        try air.legalize(pt, @import("../codegen.zig").legalizeFeatures(pt, nav_index) orelse break :legalize);
+    }
 
     var liveness = try Air.Liveness.analyze(gpa, air.*, ip);
     defer liveness.deinit(gpa);
