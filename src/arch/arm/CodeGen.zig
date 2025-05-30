@@ -41,6 +41,10 @@ const gp = abi.RegisterClass.gp;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
 
+pub inline fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initEmpty();
+}
+
 gpa: Allocator,
 pt: Zcu.PerThread,
 air: Air,
@@ -1857,7 +1861,10 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const overflow_bit_offset: u32 = @intCast(tuple_ty.structFieldOffset(1, zcu));
 
         switch (lhs_ty.zigTypeTag(zcu)) {
-            .vector => return self.fail("TODO implement shl_with_overflow for vectors", .{}),
+            .vector => if (!rhs_ty.isVector(zcu))
+                return self.fail("TODO implement vector shl_with_overflow with scalar rhs", .{})
+            else
+                return self.fail("TODO implement shl_with_overflow for vectors", .{}),
             .int => {
                 const int_info = lhs_ty.intInfo(zcu);
                 if (int_info.bits <= 32) {
@@ -1978,8 +1985,14 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
+    const zcu = self.pt.zcu;
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else if (self.typeOf(bin_op.lhs).isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+        return self.fail("TODO implement vector shl_sat with scalar rhs for {}", .{self.target.cpu.arch})
+    else
+        return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3788,7 +3801,10 @@ fn shiftExact(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+        .vector => if (!rhs_ty.isVector(zcu))
+            return self.fail("TODO ARM vector shift with scalar rhs", .{})
+        else
+            return self.fail("TODO ARM binary operations on vectors", .{}),
         .int => {
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 32) {
@@ -3828,7 +3844,10 @@ fn shiftNormal(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+        .vector => if (!rhs_ty.isVector(zcu))
+            return self.fail("TODO ARM vector shift with scalar rhs", .{})
+        else
+            return self.fail("TODO ARM binary operations on vectors", .{}),
         .int => {
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 32) {
