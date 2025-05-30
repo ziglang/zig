@@ -52,6 +52,11 @@ pub const want_aeabi = switch (builtin.abi) {
 // Temporarily used for thumb-uefi until https://github.com/ziglang/zig/issues/21630 is addressed.
 pub const want_windows_arm_abi = builtin.cpu.arch.isArm() and (builtin.os.tag == .windows or builtin.os.tag == .uefi) and (builtin.abi.isGnu() or !builtin.link_libc);
 
+pub const want_windows_msvc_or_itanium_abi = switch (builtin.abi) {
+    .none, .msvc, .itanium => builtin.os.tag == .windows,
+    else => false,
+};
+
 pub const want_ppc_abi = builtin.cpu.arch.isPowerPC();
 
 pub const want_float_exceptions = !builtin.cpu.arch.isWasm();

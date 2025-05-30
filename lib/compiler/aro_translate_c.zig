@@ -1206,7 +1206,7 @@ pub const PatternList = struct {
     /// Assumes that `ms` represents a tokenized function-like macro.
     fn buildArgsHash(allocator: mem.Allocator, ms: MacroSlicer, hash: *ArgsPositionMap) MacroProcessingError!void {
         assert(ms.tokens.len > 2);
-        assert(ms.tokens[0].id == .identifier or ms.tokens[0].id == .extended_identifier);
+        assert(ms.tokens[0].id.isMacroIdentifier());
         assert(ms.tokens[1].id == .l_paren);
 
         var i: usize = 2;
