@@ -132,12 +132,11 @@ fn printStructDefinition(options: *Options, out: Writer, comptime T: type) !void
     inline for (@"struct".fields) |field| {
         try out.writeAll(" " ** indent_width);
         if (field.is_comptime) try out.writeAll("comptime ");
-        try out.print("{p_}: ", .{std.zig.fmtId(field.name)});
+        if (!@"struct".is_tuple) try out.print("{p_}: ", .{std.zig.fmtId(field.name)});
         try printTypeName(options, out, field.type, indent_width);
-        if (@"struct".layout != .@"packed" and field.alignment != @alignOf(field.type)) {
+        if (!@"struct".is_tuple and @"struct".layout != .@"packed" and field.alignment != @alignOf(field.type)) {
             try out.print(" align({})", .{field.alignment});
         }
-
         if (field.defaultValue()) |default_value| {
             try out.writeAll(" = ");
             try printValue(options, out, field.type, default_value, indent_width);
@@ -217,21 +216,7 @@ fn printTypeName(options: *Options, out: Writer, comptime T: type, indent: u8) !
         .@"enum" => try out.print("{}", .{std.zig.fmtId(@typeName(T))}),
         .@"struct" => |@"struct"| {
             if (@"struct".is_tuple) {
-                try out.writeAll("struct {\n");
-                inline for (@"struct".fields) |field| {
-                    const elem_indent = indent +| indent_width;
-                    try out.writeByteNTimes(' ', elem_indent);
-                    if (field.is_comptime) try out.writeAll("comptime ");
-                    try printTypeName(options, out, field.type, elem_indent);
-
-                    if (field.defaultValue()) |default_value| {
-                        try out.writeAll(" = ");
-                        try printValue(options, out, field.type, default_value, indent_width);
-                    }
-                    try out.writeAll(",\n");
-                }
-                try out.writeByteNTimes(' ', indent);
-                try out.writeAll("}");
+                try printStructDefinition(options, out, T);
             } else {
                 try out.print("{}", .{std.zig.fmtId(@typeName(T))});
             }
@@ -247,27 +232,15 @@ fn printValue(options: *Options, out: Writer, comptime T: type, value: T, indent
     }
 
     switch (@typeInfo(T)) {
-        .array => |array| {
+        inline .array, .pointer => |type_info, tag| {
+            if (tag == .pointer) try out.writeAll("&");
             if (value.len == 0) return out.writeAll(".{}");
 
             try out.writeAll(".{\n");
             for (value) |item| {
                 const elem_indent = indent +| indent_width;
                 try out.writeByteNTimes(' ', elem_indent);
-                try printValue(options, out, array.child, item, elem_indent);
-                try out.writeAll(",\n");
-            }
-            try out.writeByteNTimes(' ', indent);
-            try out.writeAll("}");
-        },
-        .pointer => |pointer| {
-            if (value.len == 0) return out.writeAll("&.{}");
-
-            try out.writeAll("&.{\n");
-            for (value) |item| {
-                const elem_indent = indent +| indent_width;
-                try out.writeByteNTimes(' ', elem_indent);
-                try printValue(options, out, pointer.child, item, elem_indent);
+                try printValue(options, out, type_info.child, item, elem_indent);
                 try out.writeAll(",\n");
             }
             try out.writeByteNTimes(' ', indent);
@@ -286,7 +259,7 @@ fn printValue(options: *Options, out: Writer, comptime T: type, value: T, indent
         .float,
         .comptime_int,
         .comptime_float,
-        => try out.print("{any}", .{value}),
+        => try out.print("{}", .{value}),
         .@"enum" => |@"enum"| {
             if (@"enum".is_exhaustive) {
                 try out.print(".{p_}", .{std.zig.fmtId(@tagName(value))});
@@ -315,11 +288,11 @@ fn printValue(options: *Options, out: Writer, comptime T: type, value: T, indent
         .@"union" => |@"union"| {
             try out.writeAll(".{ ");
             switch (value) {
-                inline else => |val, tag| {
+                inline else => |payload, tag| {
                     const elem_indent = indent +| indent_width;
                     try printValue(options, out, @"union".tag_type.?, tag, elem_indent);
                     try out.writeAll(" = ");
-                    try printValue(options, out, @TypeOf(val), val, elem_indent);
+                    try printValue(options, out, @TypeOf(payload), payload, elem_indent);
                 },
             }
             try out.writeAll(" }");
