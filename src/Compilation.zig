@@ -3158,6 +3158,13 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addOptional(opts.allow_shlib_undefined);
     man.hash.add(opts.bind_global_refs_locally);
 
+    const EntryTag = @typeInfo(link.File.OpenOptions.Entry).@"union".tag_type.?;
+    man.hash.add(@as(EntryTag, opts.entry));
+    switch (opts.entry) {
+        .default, .disabled, .enabled => {},
+        .named => |name| man.hash.addBytes(name),
+    }
+
     // ELF specific stuff
     man.hash.add(opts.z_nodelete);
     man.hash.add(opts.z_notext);
@@ -3179,6 +3186,9 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addOptional(opts.max_memory);
     man.hash.addOptional(opts.global_base);
     man.hash.addListOfBytes(opts.export_symbol_names);
+    man.hash.add(opts.import_symbols);
+    man.hash.add(opts.import_table);
+    man.hash.add(opts.export_table);
 
     // Mach-O specific stuff
     try link.File.MachO.hashAddFrameworks(man, opts.frameworks);
@@ -3189,6 +3199,9 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.add(opts.dead_strip_dylibs);
     man.hash.add(opts.force_load_objc);
     man.hash.add(opts.discard_local_symbols);
+    man.hash.addOptional(opts.compatibility_version);
+    man.hash.addOptionalBytes(opts.install_name);
+    man.hash.addOptional(opts.darwin_sdk_layout);
 
     // COFF specific stuff
     man.hash.addOptional(opts.subsystem);
@@ -3197,6 +3210,8 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.add(opts.dynamicbase);
     man.hash.addOptional(opts.major_subsystem_version);
     man.hash.addOptional(opts.minor_subsystem_version);
+    man.hash.addOptionalBytes(opts.pdb_source_path);
+    man.hash.addOptionalBytes(opts.module_definition_file);
 }
 
 fn emitOthers(comp: *Compilation) void {
