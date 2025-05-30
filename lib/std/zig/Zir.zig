@@ -2126,6 +2126,12 @@ pub const Inst = struct {
         /// This instruction is always `noreturn`, however, it is not considered as such by ZIR-level queries. This allows AstGen to assume that
         /// any code may have gone here, avoiding false-positive "unreachable code" errors.
         astgen_error,
+        /// Implements the `@depositBits` builtin.
+        /// `operand` is payload index to `BinNode`.
+        deposit_bits,
+        /// Implements the `@extractBits` builtin.
+        /// `operand` is payload index to `BinNode`.
+        extract_bits,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -4402,6 +4408,8 @@ fn findTrackableInner(
                 .tuple_decl,
                 .dbg_empty_stmt,
                 .astgen_error,
+                .deposit_bits,
+                .extract_bits,
                 => return,
 
                 // `@TypeOf` has a body.

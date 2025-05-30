@@ -269,6 +269,8 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .memset_safe,
             .memcpy,
             .memmove,
+            .deposit_bits,
+            .extract_bits,
             => {
                 const bin_op = data[@intFromEnum(inst)].bin_op;
                 try self.verifyInstOperands(inst, .{ bin_op.lhs, bin_op.rhs, .none });
