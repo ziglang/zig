@@ -116,7 +116,7 @@ fn writeDecimal(buf: []u8, value: anytype, count_: usize, thousands_sep: ?u8) vo
 
     while (i < count) : (i += 1) {
         if (thousands_sep != null and i % 4 == 3) {
-            buf[count - i - 1] = ',';
+            buf[count - i - 1] = '_';
             i += 1;
         }
         const c: u8 = @intCast(value.* % 10);
@@ -1710,7 +1710,7 @@ test "format float to decimal with zero precision" {
 fn checkThousandsSep(value: f64, expected: []const u8) !void {
     var buf: [100]u8 = undefined;
     const options: FormatOptions = .{
-        .thousands_sep = ',',
+        .thousands_sep = '_',
         .mode = .decimal,
     };
     const str = try formatFloat(&buf, value, options);
@@ -1718,14 +1718,14 @@ fn checkThousandsSep(value: f64, expected: []const u8) !void {
 }
 
 test "format float with thousands seperator" {
-    try checkThousandsSep(123456, "123,456");
-    try checkThousandsSep(1234567, "1,234,567");
-    try checkThousandsSep(12345678, "12,345,678");
-    try checkThousandsSep(123456789, "123,456,789");
-    try checkThousandsSep(123456789.123, "123,456,789.123");
-    try checkThousandsSep(12345678.9123, "12,345,678.9123");
-    try checkThousandsSep(1234567.89123, "1,234,567.89123");
-    try checkThousandsSep(123456.789123, "123,456.789123");
+    try checkThousandsSep(123456, "123_456");
+    try checkThousandsSep(1234567, "1_234_567");
+    try checkThousandsSep(12345678, "12_345_678");
+    try checkThousandsSep(123456789, "123_456_789");
+    try checkThousandsSep(123456789.123, "123_456_789.123");
+    try checkThousandsSep(12345678.9123, "12_345_678.9123");
+    try checkThousandsSep(1234567.89123, "1_234_567.89123");
+    try checkThousandsSep(123456.789123, "123_456.789123");
     try checkThousandsSep(0.123456789, "0.123456789");
     try checkThousandsSep(0.12345678, "0.12345678");
     try checkThousandsSep(0.1234567, "0.1234567");

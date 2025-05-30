@@ -63,7 +63,7 @@ pub const FormatOptions = struct {
 ///   - for slices of u8, print the entire slice as a string without zero-termination
 /// - `e`: output floating point value in scientific notation
 /// - `d`: output numeric value in decimal notation
-/// - `D`: output numeric value in decimal notation with thousands separator defaulting to comma. Use D[seperator] to use custom separator, example: D_
+/// - `D`: output numeric value in decimal notation with thousands separator defaulting to underscore. Use D[seperator] to use custom separator, example: {D,}
 /// - `b`: output integer value in binary notation
 /// - `o`: output integer value in octal notation
 /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
@@ -754,7 +754,7 @@ pub fn formatIntValue(
     } else if (comptime fmt[0] == 'D') {
         var o = options;
         if (fmt.len > 2) @compileError("thousands seperator should be 1 character, got " ++ fmt[1..]);
-        o.thousands_sep = if (fmt.len == 2) fmt[1] else ',';
+        o.thousands_sep = if (fmt.len == 2) fmt[1] else '_';
         return formatInt(int_value, base, case, o, writer);
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
         if (@typeInfo(@TypeOf(int_value)).int.bits <= 8) {
@@ -810,7 +810,7 @@ fn formatFloatValue(
         };
         return formatBuf(s, options, writer);
     } else if (comptime std.mem.eql(u8, fmt[0..1], "D")) {
-        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision, .thousands_sep = if (fmt.len > 1) fmt[2] else ',' }) catch |err| switch (err) {
+        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision, .thousands_sep = if (fmt.len > 1) fmt[2] else '_' }) catch |err| switch (err) {
             error.BufferTooSmall => "(float)",
         };
         return formatBuf(s, options, writer);
@@ -3036,16 +3036,16 @@ test "parser specifier" {
 }
 
 test "thousands seperator" {
-    try expectFmt("1,234,567", "{D}", .{1234567});
-    try expectFmt("12,345,678", "{D}", .{12345678});
-    try expectFmt("123,456,789", "{D}", .{123456789});
-    try expectFmt("1,234,567,890", "{D}", .{1234567890});
+    try expectFmt("1_234_567", "{D}", .{1234567});
+    try expectFmt("12_345_678", "{D}", .{12345678});
+    try expectFmt("123_456_789", "{D}", .{123456789});
+    try expectFmt("1_234_567_890", "{D}", .{1234567890});
 
-    try expectFmt(" 1,234,567", "{D:10}", .{1234567});
-    try expectFmt(" 1,234,567.9", "{D:12.1}", .{1234567.89});
+    try expectFmt(" 1_234_567", "{D:10}", .{1234567});
+    try expectFmt(" 1_234_567.9", "{D:12.1}", .{1234567.89});
 
-    try expectFmt("1_234_567", "{D_}", .{1234567});
+    try expectFmt("1,234,567", "{D,}", .{1234567});
     try expectFmt("1.234.567", "{D.}", .{1234567});
 
-    try expectFmt(" 1_234_567", "{D_:10}", .{1234567});
+    try expectFmt(" 1,234,567", "{D,:10}", .{1234567});
 }
