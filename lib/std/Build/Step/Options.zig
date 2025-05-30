@@ -4,8 +4,10 @@ const fs = std.fs;
 const Step = std.Build.Step;
 const GeneratedFile = std.Build.GeneratedFile;
 const LazyPath = std.Build.LazyPath;
+const Writer = std.ArrayList(u8).Writer;
 
 const Options = @This();
+const indent_width = 4;
 
 pub const base_id: Step.Id = .options;
 
@@ -36,26 +38,20 @@ pub fn create(owner: *std.Build) *Options {
 }
 
 pub fn addOption(options: *Options, comptime T: type, name: []const u8, value: T) void {
-    return addOptionFallible(options, T, name, value) catch @panic("unhandled error");
+    return printDecl(options, T, name, value) catch @panic("unhandled error");
 }
 
-fn addOptionFallible(options: *Options, comptime T: type, name: []const u8, value: T) !void {
+fn printDecl(options: *Options, comptime T: type, name: []const u8, value: T) !void {
     const out = options.contents.writer();
     try printTypeDefinition(options, out, T);
-    try printDecl(options, out, T, name, value);
-}
-
-const indent_width = 4;
-
-fn printDecl(options: *Options, out: anytype, comptime T: type, name: []const u8, value: T) !void {
     try out.print("pub const {}: ", .{std.zig.fmtId(name)});
-    try printType(options, out, T, 0);
+    try printTypeName(options, out, T, 0);
     try out.writeAll(" = ");
     try printValue(options, out, T, value, 0);
     try out.writeAll(";\n\n");
 }
 
-fn printTypeDefinition(options: *Options, out: anytype, comptime T: type) !void {
+fn printTypeDefinition(options: *Options, out: Writer, comptime T: type) !void {
     if (T == std.SemanticVersion) return;
 
     const type_info = @typeInfo(T);
@@ -65,21 +61,45 @@ fn printTypeDefinition(options: *Options, out: anytype, comptime T: type) !void 
         else => return,
     }
 
-    if (options.printed_types.get(@typeName(T))) |_| return;
+    if ((try options.printed_types.getOrPut(@typeName(T))).found_existing) return;
+
     switch (type_info) {
-        .@"enum" => try printEnumDefinition(out, T),
-        .@"struct" => try printStructDefinition(options, out, T),
-        .@"union" => try printUnionDefinition(options, out, T),
-        else => unreachable,
+        .@"enum" => {
+            try out.print("pub const {} = ", .{std.zig.fmtId(@typeName(T))});
+            try printEnumDefinition(options, out, T);
+            try out.writeAll(";\n\n");
+        },
+        .@"struct" => |@"struct"| {
+            inline for (@"struct".fields) |field| {
+                try printTypeDefinition(options, out, field.type);
+            }
+
+            if (@"struct".is_tuple) return;
+
+            try out.print("pub const {} = ", .{std.zig.fmtId(@typeName(T))});
+            try printStructDefinition(options, out, T);
+            try out.writeAll(";\n\n");
+        },
+        .@"union" => |@"union"| {
+            inline for (@"union".fields) |field| {
+                try printTypeDefinition(options, out, field.type);
+            }
+
+            try out.print("pub const {} = ", .{std.zig.fmtId(@typeName(T))});
+            try printUnionDefinition(options, out, T);
+            try out.writeAll(";\n\n");
+        },
+        else => comptime unreachable,
     }
-    try options.printed_types.putNoClobber(@typeName(T), {});
 }
 
-fn printEnumDefinition(out: anytype, comptime T: type) !void {
+fn printEnumDefinition(options: *Options, out: Writer, comptime T: type) !void {
     const @"enum" = @typeInfo(T).@"enum";
 
-    try out.print("pub const {} = enum({s})", .{ std.zig.fmtId(@typeName(T)), @typeName(@"enum".tag_type) });
-    if (@"enum".fields.len == 0) return out.writeAll(" {};\n\n");
+    try out.writeAll("enum(");
+    try printTypeName(options, out, @"enum".tag_type, indent_width);
+    try out.writeAll(")");
+    if (@"enum".fields.len == 0) return out.writeAll(" {}");
     try out.writeAll(" {\n");
 
     inline for (@"enum".fields) |field| {
@@ -91,25 +111,18 @@ fn printEnumDefinition(out: anytype, comptime T: type) !void {
         try out.writeAll(" " ** indent_width ++ "_,\n");
     }
 
-    try out.writeAll("};\n\n");
+    try out.writeAll("}");
 }
 
-fn printStructDefinition(options: *Options, out: anytype, comptime T: type) !void {
+fn printStructDefinition(options: *Options, out: Writer, comptime T: type) !void {
     const @"struct" = @typeInfo(T).@"struct";
 
-    inline for (@"struct".fields) |field| {
-        try printTypeDefinition(options, out, field.type);
-    }
-
-    if (@"struct".is_tuple) return;
-
-    try out.print("pub const {} = ", .{std.zig.fmtId(@typeName(T))});
     switch (@"struct".layout) {
         .auto => try out.writeAll("struct"),
         .@"extern" => try out.writeAll("extern struct"),
         .@"packed" => {
             try out.writeAll("packed struct(");
-            try printType(options, out, @"struct".backing_integer.?, indent_width);
+            try printTypeName(options, out, @"struct".backing_integer.?, indent_width);
             try out.writeAll(")");
         },
     }
@@ -120,7 +133,7 @@ fn printStructDefinition(options: *Options, out: anytype, comptime T: type) !voi
         try out.writeAll(" " ** indent_width);
         if (field.is_comptime) try out.writeAll("comptime ");
         try out.print("{p_}: ", .{std.zig.fmtId(field.name)});
-        try printType(options, out, field.type, indent_width);
+        try printTypeName(options, out, field.type, indent_width);
         if (@"struct".layout != .@"packed" and field.alignment != @alignOf(field.type)) {
             try out.print(" align({})", .{field.alignment});
         }
@@ -132,22 +145,19 @@ fn printStructDefinition(options: *Options, out: anytype, comptime T: type) !voi
         try out.writeAll(",\n");
     }
 
-    try out.writeAll("};\n\n");
+    try out.writeAll("}");
 }
 
-fn printUnionDefinition(options: *Options, out: anytype, comptime T: type) !void {
+fn printUnionDefinition(options: *Options, out: Writer, comptime T: type) !void {
     const @"union" = @typeInfo(T).@"union";
+
     if (@"union".layout != .auto) {
-        @compileError(std.fmt.comptimePrint("{s} unions are not yet supported as build options", .{@tagName(@"union".layout)}));
+        unsupported(@tagName(@"union".layout) ++ " union");
     }
-    const tag_type = @"union".tag_type orelse @compileError("Untagged unions are not yet supported as build options");
+    const tag_type = @"union".tag_type orelse unsupported("untagged union");
 
-    inline for (@"union".fields) |field| {
-        try printTypeDefinition(options, out, field.type);
-    }
-
-    try out.print("pub const {} = union(", .{std.zig.fmtId(@typeName(T))});
-    try printType(options, out, tag_type, indent_width);
+    try out.writeAll("union(");
+    try printTypeName(options, out, tag_type, indent_width);
     try out.writeAll(")");
     if (@"union".fields.len == 0) return out.writeAll(" {};\n\n");
     try out.writeAll(" {\n");
@@ -155,17 +165,78 @@ fn printUnionDefinition(options: *Options, out: anytype, comptime T: type) !void
     inline for (@"union".fields) |field| {
         try out.writeAll(" " ** indent_width);
         try out.print("{p_}: ", .{std.zig.fmtId(field.name)});
-        try printType(options, out, field.type, indent_width);
+        try printTypeName(options, out, field.type, indent_width);
         if (field.alignment != @alignOf(field.type)) {
             try out.print(" align({})", .{field.alignment});
         }
         try out.writeAll(",\n");
     }
 
-    try out.writeAll("};\n\n");
+    try out.writeAll("}");
 }
 
-fn printValue(options: *Options, out: anytype, comptime T: type, value: T, indent: u8) !void {
+fn printTypeName(options: *Options, out: Writer, comptime T: type, indent: u8) !void {
+    if (T == std.SemanticVersion) {
+        return out.writeAll("@import(\"std\").SemanticVersion");
+    }
+
+    switch (@typeInfo(T)) {
+        .array => |array| {
+            try out.print("[{}", .{array.len});
+            if (array.sentinel()) |sentinel| {
+                try out.writeAll(":");
+                try printValue(options, out, array.child, sentinel, indent);
+            }
+            try out.writeAll("]");
+            try printTypeName(options, out, array.child, indent);
+        },
+        .pointer => |pointer| {
+            if (pointer.size != .slice) {
+                unsupported("non-slice pointer");
+            }
+
+            try out.writeAll("[");
+            if (pointer.sentinel()) |sentinel| {
+                try out.writeAll(":");
+                try printValue(options, out, pointer.child, sentinel, indent);
+            }
+            try out.writeAll("]const ");
+            try printTypeName(options, out, pointer.child, indent);
+        },
+        .optional => |optional| {
+            try out.writeAll("?");
+            try printTypeName(options, out, optional.child, indent);
+        },
+        .void,
+        .bool,
+        .int,
+        .float,
+        .comptime_int,
+        .comptime_float,
+        => try out.print("{s}", .{@typeName(T)}),
+        .@"enum" => try out.print("{}", .{std.zig.fmtId(@typeName(T))}),
+        .@"struct" => |@"struct"| {
+            if (@"struct".is_tuple) {
+                try out.writeAll("struct {\n");
+                inline for (@"struct".fields) |field| {
+                    const elem_indent = indent +| indent_width;
+                    try out.writeByteNTimes(' ', elem_indent);
+                    if (field.is_comptime) try out.writeAll("comptime ");
+                    try printTypeName(options, out, field.type, elem_indent);
+                    try out.writeAll(",\n");
+                }
+                try out.writeByteNTimes(' ', indent);
+                try out.writeAll("}");
+            } else {
+                try out.print("{}", .{std.zig.fmtId(@typeName(T))});
+            }
+        },
+        .@"union" => try out.print("{}", .{std.zig.fmtId(@typeName(T))}),
+        else => |tag| unsupported(@tagName(tag)),
+    }
+}
+
+fn printValue(options: *Options, out: Writer, comptime T: type, value: T, indent: u8) !void {
     if (T == []const u8 or T == [:0]const u8) {
         return out.print("\"{}\"", .{std.zig.fmtEscapes(value)});
     }
@@ -176,26 +247,22 @@ fn printValue(options: *Options, out: anytype, comptime T: type, value: T, inden
 
             try out.writeAll(".{\n");
             for (value) |item| {
-                const new_indent = indent +| indent_width;
-                try out.writeByteNTimes(' ', new_indent);
-                try printValue(options, out, array.child, item, new_indent);
+                const elem_indent = indent +| indent_width;
+                try out.writeByteNTimes(' ', elem_indent);
+                try printValue(options, out, array.child, item, elem_indent);
                 try out.writeAll(",\n");
             }
             try out.writeByteNTimes(' ', indent);
             try out.writeAll("}");
         },
         .pointer => |pointer| {
-            if (pointer.size != .slice) {
-                @compileError("Non-slice pointers are not yet supported in build options");
-            }
-
             if (value.len == 0) return out.writeAll("&.{}");
 
             try out.writeAll("&.{\n");
             for (value) |item| {
-                const new_indent = indent +| indent_width;
-                try out.writeByteNTimes(' ', new_indent);
-                try printValue(options, out, pointer.child, item, new_indent);
+                const elem_indent = indent +| indent_width;
+                try out.writeByteNTimes(' ', elem_indent);
+                try printValue(options, out, pointer.child, item, elem_indent);
                 try out.writeAll(",\n");
             }
             try out.writeByteNTimes(' ', indent);
@@ -211,9 +278,9 @@ fn printValue(options: *Options, out: anytype, comptime T: type, value: T, inden
         .void,
         .bool,
         .int,
-        .comptime_int,
         .float,
-        .null,
+        .comptime_int,
+        .comptime_float,
         => try out.print("{any}", .{value}),
         .@"enum" => |@"enum"| {
             if (@"enum".is_exhaustive) {
@@ -230,100 +297,34 @@ fn printValue(options: *Options, out: anytype, comptime T: type, value: T, inden
             if (@"struct".fields.len == 0) return out.writeAll(".{}");
 
             try out.writeAll(".{\n");
-            if (@"struct".is_tuple) {
-                const new_indent = indent +| indent_width;
-                inline for (@"struct".fields) |field| {
-                    try out.writeByteNTimes(' ', new_indent);
-                    try printValue(options, out, field.type, @field(value, field.name), new_indent);
-                    try out.writeAll(",\n");
-                }
-            } else {
-                const new_indent = indent +| indent_width;
-                inline for (@"struct".fields) |field| {
-                    try out.writeByteNTimes(' ', new_indent);
-                    try out.print(".{p_} = ", .{std.zig.fmtId(field.name)});
-                    try printValue(options, out, field.type, @field(value, field.name), new_indent);
-                    try out.writeAll(",\n");
-                }
+            inline for (@"struct".fields) |field| {
+                const elem_indent = indent +| indent_width;
+                try out.writeByteNTimes(' ', elem_indent);
+                if (!@"struct".is_tuple) try out.print(".{p_} = ", .{std.zig.fmtId(field.name)});
+                try printValue(options, out, field.type, @field(value, field.name), elem_indent);
+                try out.writeAll(",\n");
             }
             try out.writeByteNTimes(' ', indent);
             try out.writeAll("}");
         },
         .@"union" => |@"union"| {
-            const new_indent = indent +| indent_width;
             try out.writeAll(".{ ");
             switch (value) {
                 inline else => |val, tag| {
-                    try printValue(options, out, @"union".tag_type.?, tag, new_indent);
+                    const elem_indent = indent +| indent_width;
+                    try printValue(options, out, @"union".tag_type.?, tag, elem_indent);
                     try out.writeAll(" = ");
-                    try printValue(options, out, @TypeOf(val), val, new_indent);
+                    try printValue(options, out, @TypeOf(val), val, elem_indent);
                 },
             }
             try out.writeAll(" }");
         },
-        else => @compileError(std.fmt.comptimePrint("`{s}` are not yet supported as build options", .{@tagName(@typeInfo(T))})),
+        else => comptime unreachable,
     }
 }
 
-fn printType(options: *Options, out: anytype, comptime T: type, indent: u8) !void {
-    if (T == std.SemanticVersion) {
-        return out.writeAll("@import(\"std\").SemanticVersion");
-    }
-
-    switch (@typeInfo(T)) {
-        .array => |array| {
-            try out.print("[{}", .{array.len});
-            if (array.sentinel()) |sentinel| {
-                try out.writeAll(":");
-                try printValue(options, out, array.child, sentinel, indent);
-            }
-            try out.writeAll("]");
-            try printType(options, out, array.child, indent);
-        },
-        .pointer => |pointer| {
-            if (pointer.size != .slice) {
-                @compileError("Non-slice pointers are not yet supported in build options");
-            }
-
-            try out.writeAll("[");
-            if (pointer.sentinel()) |sentinel| {
-                try out.writeAll(":");
-                try printValue(options, out, pointer.child, sentinel, indent);
-            }
-            try out.writeAll("]const ");
-            try printType(options, out, pointer.child, indent);
-        },
-        .optional => |optional| {
-            try out.writeAll("?");
-            try printType(options, out, optional.child, indent);
-        },
-        .void,
-        .bool,
-        .int,
-        .comptime_int,
-        .float,
-        .null,
-        => try out.print("{s}", .{@typeName(T)}),
-        .@"enum" => try out.print("{}", .{std.zig.fmtId(@typeName(T))}),
-        .@"struct" => |@"struct"| {
-            if (@"struct".is_tuple) {
-                try out.writeAll("struct {\n");
-                inline for (@"struct".fields) |field| {
-                    const new_indent = indent +| indent_width;
-                    try out.writeByteNTimes(' ', new_indent);
-                    if (field.is_comptime) try out.writeAll("comptime ");
-                    try printType(options, out, field.type, new_indent);
-                    try out.writeAll(",\n");
-                }
-                try out.writeByteNTimes(' ', indent);
-                try out.writeAll("}");
-            } else {
-                try out.print("{}", .{std.zig.fmtId(@typeName(T))});
-            }
-        },
-        .@"union" => try out.print("{}", .{std.zig.fmtId(@typeName(T))}),
-        else => @compileError(std.fmt.comptimePrint("`{s}` are not yet supported as build options", .{@tagName(@typeInfo(T))})),
-    }
+inline fn unsupported(comptime str: []const u8) noreturn {
+    @compileError(std.fmt.comptimePrint("'{s}' is not supported within build options", .{str}));
 }
 
 /// The value is the path in the cache dir.
