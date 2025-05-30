@@ -297,10 +297,6 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "pthread"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "scrnsave"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "scrnsavw"))
-            return true;
         if (eqlIgnoreCase(ignore_case, name, "strmiids"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "uuid"))
