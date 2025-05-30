@@ -1190,7 +1190,8 @@ test "posix getpid" {
 test "posix getppid" {
     if (native_os == .wasi) return error.SkipZigTest;
     if (native_os == .windows) return error.SkipZigTest;
-    if (native_os == .plan9 and !builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .plan9 and !builtin.link_libc) return error.SkipZigTest; // No `getppid()`.
+    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `getppid()`.
 
     const parent = posix.getpid();
     const child = try posix.fork();
