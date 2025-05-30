@@ -1992,9 +1992,12 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
-            // Worst-case, we need an --as-needed argument for every lib, as well
-            // as one before and one after.
-            try argv.ensureUnusedCapacity(2 * self.base.comp.link_inputs.len + 2);
+            // Worst-case, we need:
+            // * an --as-needed/--no-as-needed argument for every lib
+            // * -L, lib directory, -l/-weak-l, library name for every lib
+            // * one --as-needed before and one --as-needed after
+            try argv.ensureUnusedCapacity(5 * self.base.comp.link_inputs.len + 2);
+
             argv.appendAssumeCapacity("--as-needed");
             var as_needed = true;
 
@@ -2016,10 +2019,17 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                     }
 
                     // By this time, we depend on these libs being dynamically linked
-                    // libraries and not static libraries (the check for that needs to be earlier),
-                    // but they could be full paths to .so files, in which case we
-                    // want to avoid prepending "-l".
-                    argv.appendAssumeCapacity(try dso.path.toString(arena));
+                    // libraries and not static libraries (the check for that needs to be earlier).
+                    if (dso.name) |name| {
+                        if (dso.lib_directory.path) |path| {
+                            argv.appendAssumeCapacity("-L");
+                            argv.appendAssumeCapacity(path);
+                        }
+                        argv.appendAssumeCapacity(if (dso.weak) "-weak-l" else "-l");
+                        argv.appendAssumeCapacity(name);
+                    } else {
+                        argv.appendAssumeCapacity(try dso.path.toString(arena));
+                    }
                 },
             };
 
