@@ -72,8 +72,6 @@ pub const Limit = enum(usize) {
 pub const Reader = @import("io/Reader.zig");
 pub const Writer = @import("io/Writer.zig");
 
-pub const BufferedReader = @import("io/BufferedReader.zig");
-pub const BufferedWriter = @import("io/BufferedWriter.zig");
 pub const AllocatingWriter = @import("io/AllocatingWriter.zig");
 
 pub const ChangeDetectionStream = @import("io/change_detection_stream.zig").ChangeDetectionStream;
@@ -131,7 +129,7 @@ pub fn Poller(comptime StreamEnum: type) type {
         const PollFd = if (is_windows) void else posix.pollfd;
 
         gpa: Allocator,
-        readers: [enum_fields.len]BufferedReader,
+        readers: [enum_fields.len]Reader,
         poll_fds: [enum_fields.len]PollFd,
         windows: if (is_windows) struct {
             first_read_done: bool,
@@ -163,7 +161,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                     _ = windows.kernel32.CancelIo(h);
                 }
             }
-            inline for (&self.readers) |*br| gpa.free(br.buffer);
+            inline for (&self.readers) |*r| gpa.free(r.buffer);
             self.* = undefined;
         }
 
@@ -183,7 +181,7 @@ pub fn Poller(comptime StreamEnum: type) type {
             }
         }
 
-        pub inline fn reader(self: *Self, comptime which: StreamEnum) *BufferedReader {
+        pub inline fn reader(self: *Self, comptime which: StreamEnum) *Reader {
             return &self.readers[@intFromEnum(which)];
         }
 
@@ -295,18 +293,18 @@ pub fn Poller(comptime StreamEnum: type) type {
             }
 
             var keep_polling = false;
-            inline for (&self.poll_fds, &self.readers) |*poll_fd, *br| {
+            inline for (&self.poll_fds, &self.readers) |*poll_fd, *r| {
                 // Try reading whatever is available before checking the error
                 // conditions.
                 // It's still possible to read after a POLL.HUP is received,
                 // always check if there's some data waiting to be read first.
                 if (poll_fd.revents & posix.POLL.IN != 0) {
-                    const buf = try br.writableSliceGreedyAlloc(gpa, bump_amt);
+                    const buf = try r.writableSliceGreedyAlloc(gpa, bump_amt);
                     const amt = posix.read(poll_fd.fd, buf) catch |err| switch (err) {
                         error.BrokenPipe => 0, // Handle the same as EOF.
                         else => |e| return e,
                     };
-                    br.advanceBufferEnd(amt);
+                    r.advanceBufferEnd(amt);
                     if (amt == 0) {
                         // Remove the fd when the EOF condition is met.
                         poll_fd.fd = -1;
@@ -337,14 +335,14 @@ var win_dummy_bytes_read: u32 = undefined;
 fn windowsAsyncReadToFifoAndQueueSmallRead(
     handle: windows.HANDLE,
     overlapped: *windows.OVERLAPPED,
-    br: *BufferedReader,
+    r: *Reader,
     small_buf: *[128]u8,
     bump_amt: usize,
 ) !enum { empty, populated, closed_populated, closed } {
     var read_any_data = false;
     while (true) {
         const fifo_read_pending = while (true) {
-            const buf = try br.writableWithSize(bump_amt);
+            const buf = try r.writableWithSize(bump_amt);
             const buf_len = math.cast(u32, buf.len) orelse math.maxInt(u32);
 
             if (0 == windows.kernel32.ReadFile(
@@ -366,7 +364,7 @@ fn windowsAsyncReadToFifoAndQueueSmallRead(
             };
 
             read_any_data = true;
-            br.update(num_bytes_read);
+            r.update(num_bytes_read);
 
             if (num_bytes_read == buf_len) {
                 // We filled the buffer, so there's probably more data available.
@@ -396,7 +394,7 @@ fn windowsAsyncReadToFifoAndQueueSmallRead(
                 .aborted => break :cancel_read,
             };
             read_any_data = true;
-            br.update(num_bytes_read);
+            r.update(num_bytes_read);
         }
 
         // Try to queue the 1-byte read.
@@ -421,7 +419,7 @@ fn windowsAsyncReadToFifoAndQueueSmallRead(
             .closed => return if (read_any_data) .closed_populated else .closed,
             .aborted => unreachable,
         };
-        try br.write(small_buf[0..num_bytes_read]);
+        try r.write(small_buf[0..num_bytes_read]);
         read_any_data = true;
     }
 }
@@ -488,8 +486,6 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 
 test {
     _ = AllocatingWriter;
-    _ = BufferedReader;
-    _ = BufferedWriter;
     _ = Reader;
     _ = Writer;
     _ = @import("io/test.zig");

@@ -4,10 +4,9 @@ const assert = std.debug.assert;
 const Reader = std.io.Reader;
 const Limit = std.io.Limit;
 const BufferedWriter = std.io.BufferedWriter;
-const BufferedReader = std.io.BufferedReader;
 const zstd = @import("../zstd.zig");
 
-input: *BufferedReader,
+input: *Reader,
 state: State,
 verify_checksum: bool,
 err: ?Error = null,
@@ -63,7 +62,7 @@ pub const Error = error{
     WindowSizeUnknown,
 };
 
-pub fn init(input: *BufferedReader, options: Options) Decompress {
+pub fn init(input: *Reader, options: Options) Decompress {
     return .{
         .input = input,
         .state = .new_frame,
@@ -305,7 +304,7 @@ pub const Frame = struct {
 
             pub const DecodeError = Reader.Error || error{ReservedBitSet};
 
-            pub fn decode(in: *BufferedReader) DecodeError!Header {
+            pub fn decode(in: *Reader) DecodeError!Header {
                 const descriptor: Descriptor = @bitCast(try in.takeByte());
 
                 if (descriptor.reserved) return error.ReservedBitSet;
@@ -446,7 +445,7 @@ pub const Frame = struct {
             /// FSE tables from `in`.
             pub fn prepare(
                 self: *Decode,
-                in: *BufferedReader,
+                in: *Reader,
                 remaining: *Limit,
                 literals: LiteralsSection,
                 sequences_header: SequencesSection.Header,
@@ -536,7 +535,7 @@ pub const Frame = struct {
             /// TODO: don't use `@field`
             fn updateFseTable(
                 self: *Decode,
-                in: *BufferedReader,
+                in: *Reader,
                 remaining: *Limit,
                 comptime choice: DataType,
                 mode: SequencesSection.Header.Mode,
@@ -858,7 +857,7 @@ pub const LiteralsSection = struct {
         compressed_size: ?u18,
 
         /// Decode a literals section header.
-        pub fn decode(in: *BufferedReader, remaining: *Limit) !Header {
+        pub fn decode(in: *Reader, remaining: *Limit) !Header {
             remaining.* = remaining.subtract(1) orelse return error.EndOfStream;
             const byte0 = try in.takeByte();
             const block_type: BlockType = @enumFromInt(byte0 & 0b11);
@@ -965,7 +964,7 @@ pub const LiteralsSection = struct {
             MissingStartBit,
         };
 
-        pub fn decode(in: *BufferedReader, remaining: *Limit) HuffmanTree.DecodeError!HuffmanTree {
+        pub fn decode(in: *Reader, remaining: *Limit) HuffmanTree.DecodeError!HuffmanTree {
             remaining.* = remaining.subtract(1) orelse return error.EndOfStream;
             const header = try in.takeByte();
             if (header < 128) {
@@ -976,7 +975,7 @@ pub const LiteralsSection = struct {
         }
 
         fn decodeDirect(
-            in: *BufferedReader,
+            in: *Reader,
             remaining: *Limit,
             encoded_symbol_count: usize,
         ) HuffmanTree.DecodeError!HuffmanTree {
@@ -993,7 +992,7 @@ pub const LiteralsSection = struct {
         }
 
         fn decodeFse(
-            in: *BufferedReader,
+            in: *Reader,
             remaining: *Limit,
             compressed_size: usize,
         ) HuffmanTree.DecodeError!HuffmanTree {
@@ -1162,7 +1161,7 @@ pub const LiteralsSection = struct {
         MissingStartBit,
     };
 
-    pub fn decode(in: *BufferedReader, remaining: *Limit, buffer: []u8) DecodeError!LiteralsSection {
+    pub fn decode(in: *Reader, remaining: *Limit, buffer: []u8) DecodeError!LiteralsSection {
         const header = try Header.decode(in, remaining);
         switch (header.block_type) {
             .raw => {
@@ -1233,7 +1232,7 @@ pub const SequencesSection = struct {
             ReadFailed,
         };
 
-        pub fn decode(in: *BufferedReader, remaining: *Limit) DecodeError!Header {
+        pub fn decode(in: *Reader, remaining: *Limit) DecodeError!Header {
             var sequence_count: u24 = undefined;
 
             remaining.* = remaining.subtract(1) orelse return error.EndOfStream;

@@ -346,8 +346,7 @@ test "run test cases" {
     var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
 
     for (cases) |case| {
-        var br: std.io.BufferedReader = undefined;
-        br.initFixed(case.data);
+        var br: std.io.Reader = .fixed(case.data);
         var iter = tar.iterator(&br, .{
             .file_name_buffer = &file_name_buffer,
             .link_name_buffer = &link_name_buffer,
@@ -391,8 +390,7 @@ test "pax/gnu long names with small buffer" {
     const long_name_cases = [_]Case{ cases[11], cases[25], cases[28] };
 
     for (long_name_cases) |case| {
-        var br: std.io.BufferedReader = undefined;
-        br.initFixed(case.data);
+        var br: std.io.Reader = .fixed(case.data);
         var iter = tar.iterator(&br, .{
             .file_name_buffer = &min_file_name_buffer,
             .link_name_buffer = &min_link_name_buffer,
@@ -413,8 +411,7 @@ test "insufficient buffer in Header name filed" {
     var min_file_name_buffer: [9]u8 = undefined;
     var min_link_name_buffer: [100]u8 = undefined;
 
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(cases[0].data);
+    var br: std.io.Reader = .fixed(cases[0].data);
     var iter = tar.iterator(&br, .{
         .file_name_buffer = &min_file_name_buffer,
         .link_name_buffer = &min_link_name_buffer,
@@ -469,22 +466,21 @@ test "should not overwrite existing file" {
     // This ensures that file is not overwritten.
     //
     const data = @embedFile("testdata/overwrite_file.tar");
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(data);
+    var r: std.io.Reader = .fixed(data);
 
     // Unpack with strip_components = 1 should fail
     var root = std.testing.tmpDir(.{});
     defer root.cleanup();
     try testing.expectError(
         error.PathAlreadyExists,
-        tar.pipeToFileSystem(root.dir, &br, .{ .mode_mode = .ignore, .strip_components = 1 }),
+        tar.pipeToFileSystem(root.dir, &r, .{ .mode_mode = .ignore, .strip_components = 1 }),
     );
 
     // Unpack with strip_components = 0 should pass
-    br.initFixed(data);
+    r = .fixed(data);
     var root2 = std.testing.tmpDir(.{});
     defer root2.cleanup();
-    try tar.pipeToFileSystem(root2.dir, &br, .{ .mode_mode = .ignore, .strip_components = 0 });
+    try tar.pipeToFileSystem(root2.dir, &r, .{ .mode_mode = .ignore, .strip_components = 0 });
 }
 
 test "case sensitivity" {
@@ -498,13 +494,12 @@ test "case sensitivity" {
     //     18089/alacritty/Darkermatrix.yml
     //
     const data = @embedFile("testdata/18089.tar");
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(data);
+    var r: std.io.Reader = .fixed(data);
 
     var root = std.testing.tmpDir(.{});
     defer root.cleanup();
 
-    tar.pipeToFileSystem(root.dir, &br, .{ .mode_mode = .ignore, .strip_components = 1 }) catch |err| {
+    tar.pipeToFileSystem(root.dir, &r, .{ .mode_mode = .ignore, .strip_components = 1 }) catch |err| {
         // on case insensitive fs we fail on overwrite existing file
         try testing.expectEqual(error.PathAlreadyExists, err);
         return;

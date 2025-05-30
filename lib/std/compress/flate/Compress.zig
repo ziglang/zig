@@ -59,7 +59,7 @@ const huffman = flate.huffman;
 lookup: Lookup = .{},
 tokens: Tokens = .{},
 /// Asserted to have a buffer capacity of at least `flate.max_window_len`.
-input: *std.io.BufferedReader,
+input: *std.io.Reader,
 block_writer: BlockWriter,
 level: LevelArgs,
 hasher: Container.Hasher,
@@ -69,7 +69,7 @@ hasher: Container.Hasher,
 prev_match: ?Token = null,
 prev_literal: ?u8 = null,
 
-pub fn readable(c: *Compress, buffer: []u8) std.io.BufferedReader {
+pub fn readable(c: *Compress, buffer: []u8) std.io.Reader {
     return .{
         .unbuffered_reader = .{
             .context = c,
@@ -126,7 +126,7 @@ const LevelArgs = struct {
     }
 };
 
-pub fn init(input: *std.io.BufferedReader, options: Options) Compress {
+pub fn init(input: *std.io.Reader, options: Options) Compress {
     return .{
         .input = input,
         .block_writer = undefined,
@@ -1147,7 +1147,7 @@ test "file tokenization" {
         const data = case.data;
 
         for (levels, 0..) |level, i| { // for each compression level
-            var original: std.io.BufferedReader = undefined;
+            var original: std.io.Reader = undefined;
             original.initFixed(data);
 
             // buffer for decompressed data
@@ -1222,7 +1222,7 @@ test "store simple compressor" {
         //0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x21,
     };
 
-    var fbs: std.io.BufferedReader = undefined;
+    var fbs: std.io.Reader = undefined;
     fbs.initFixed(data);
     var al = std.ArrayList(u8).init(testing.allocator);
     defer al.deinit();

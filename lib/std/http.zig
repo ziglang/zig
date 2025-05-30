@@ -325,7 +325,7 @@ pub const Header = struct {
 };
 
 pub const Reader = struct {
-    in: *std.io.BufferedReader,
+    in: *std.io.Reader,
     /// Keeps track of whether the stream is ready to accept a new request,
     /// making invalid API usage cause assertion failures rather than HTTP
     /// protocol violations.
@@ -703,7 +703,7 @@ pub const Reader = struct {
 
 pub const Decompressor = struct {
     compression: Compression,
-    buffered_reader: std.io.BufferedReader,
+    buffered_reader: std.io.Reader,
 
     pub const Compression = union(enum) {
         deflate: std.compress.flate.Decompressor,

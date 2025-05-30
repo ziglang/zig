@@ -24,7 +24,7 @@ const Token = @import("Token.zig");
 const testing = std.testing;
 const Decompress = @This();
 
-input: *std.io.BufferedReader,
+input: *std.io.Reader,
 // Hashes, produces checksum, of uncompressed data for gzip/zlib footer.
 hasher: Container.Hasher,
 
@@ -67,7 +67,7 @@ pub const Error = Container.Error || error{
     MissingEndOfBlockCode,
 };
 
-pub fn init(input: *std.io.BufferedReader, container: Container) Decompress {
+pub fn init(input: *std.io.Reader, container: Container) Decompress {
     return .{
         .input = input,
         .hasher = .init(container),
@@ -361,7 +361,7 @@ pub fn reader(self: *Decompress) std.io.Reader {
     };
 }
 
-pub fn readable(self: *Decompress, buffer: []u8) std.io.BufferedReader {
+pub fn readable(self: *Decompress, buffer: []u8) std.io.Reader {
     return reader(self).buffered(buffer);
 }
 
@@ -727,7 +727,7 @@ test "decompress" {
         },
     };
     for (cases) |c| {
-        var fb: std.io.BufferedReader = undefined;
+        var fb: std.io.Reader = undefined;
         fb.initFixed(@constCast(c.in));
         var aw: std.io.AllocatingWriter = undefined;
         aw.init(testing.allocator);
@@ -788,7 +788,7 @@ test "gzip decompress" {
         },
     };
     for (cases) |c| {
-        var fb: std.io.BufferedReader = undefined;
+        var fb: std.io.Reader = undefined;
         fb.initFixed(@constCast(c.in));
         var aw: std.io.AllocatingWriter = undefined;
         aw.init(testing.allocator);
@@ -818,7 +818,7 @@ test "zlib decompress" {
         },
     };
     for (cases) |c| {
-        var fb: std.io.BufferedReader = undefined;
+        var fb: std.io.Reader = undefined;
         fb.initFixed(@constCast(c.in));
         var aw: std.io.AllocatingWriter = undefined;
         aw.init(testing.allocator);
@@ -880,7 +880,7 @@ test "fuzzing tests" {
     };
 
     inline for (cases, 0..) |c, case_no| {
-        var in: std.io.BufferedReader = undefined;
+        var in: std.io.Reader = undefined;
         in.initFixed(@constCast(@embedFile("testdata/fuzz/" ++ c.input ++ ".input")));
         var aw: std.io.AllocatingWriter = undefined;
         aw.init(testing.allocator);
@@ -903,7 +903,7 @@ test "bug 18966" {
     const input = @embedFile("testdata/fuzz/bug_18966.input");
     const expect = @embedFile("testdata/fuzz/bug_18966.expect");
 
-    var in: std.io.BufferedReader = undefined;
+    var in: std.io.Reader = undefined;
     in.initFixed(@constCast(input));
     var aw: std.io.AllocatingWriter = undefined;
     aw.init(testing.allocator);
@@ -921,7 +921,7 @@ test "reading into empty buffer" {
         0b0000_0001, 0b0000_1100, 0x00, 0b1111_0011, 0xff, // deflate fixed buffer header len, nlen
         'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a, // non compressed data
     };
-    var in: std.io.BufferedReader = undefined;
+    var in: std.io.Reader = undefined;
     in.initFixed(@constCast(input));
     var decomp: Decompress = .init(&in, .raw);
     var decompress_br = decomp.readable(&.{});

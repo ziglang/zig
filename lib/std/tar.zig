@@ -302,7 +302,7 @@ pub const FileKind = enum {
 
 /// Iterator over entries in the tar file represented by reader.
 pub const Iterator = struct {
-    reader: *std.io.BufferedReader,
+    reader: *std.io.Reader,
     diagnostics: ?*Diagnostics = null,
 
     // buffers for heeader and file attributes
@@ -328,7 +328,7 @@ pub const Iterator = struct {
 
     /// Iterates over files in tar archive.
     /// `next` returns each file in tar archive.
-    pub fn init(reader: *std.io.BufferedReader, options: Options) Iterator {
+    pub fn init(reader: *std.io.Reader, options: Options) Iterator {
         return .{
             .reader = reader,
             .diagnostics = options.diagnostics,
@@ -345,7 +345,7 @@ pub const Iterator = struct {
         kind: FileKind = .file,
 
         unread_bytes: *u64,
-        parent_reader: *std.io.BufferedReader,
+        parent_reader: *std.io.Reader,
 
         pub fn reader(self: *File) std.io.Reader {
             return .{
@@ -537,14 +537,14 @@ const pax_max_size_attr_len = 64;
 
 pub const PaxIterator = struct {
     size: usize, // cumulative size of all pax attributes
-    reader: *std.io.BufferedReader,
+    reader: *std.io.Reader,
 
     const Self = @This();
 
     const Attribute = struct {
         kind: PaxAttributeKind,
         len: usize, // length of the attribute value
-        reader: *std.io.BufferedReader, // reader positioned at value start
+        reader: *std.io.Reader, // reader positioned at value start
 
         // Copies pax attribute value into destination buffer.
         // Must be called with destination buffer of size at least Attribute.len.
@@ -611,13 +611,13 @@ pub const PaxIterator = struct {
     }
 
     // Checks that each record ends with new line.
-    fn validateAttributeEnding(reader: *std.io.BufferedReader) !void {
+    fn validateAttributeEnding(reader: *std.io.Reader) !void {
         if (try reader.takeByte() != '\n') return error.PaxInvalidAttributeEnd;
     }
 };
 
 /// Saves tar file content to the file systems.
-pub fn pipeToFileSystem(dir: std.fs.Dir, reader: *std.io.BufferedReader, options: PipeOptions) !void {
+pub fn pipeToFileSystem(dir: std.fs.Dir, reader: *std.io.Reader, options: PipeOptions) !void {
     var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     var iter: Iterator = .init(reader, .{
@@ -818,7 +818,7 @@ test PaxIterator {
     var buffer: [1024]u8 = undefined;
 
     outer: for (cases) |case| {
-        var br: std.io.BufferedReader = undefined;
+        var br: std.io.Reader = undefined;
         br.initFixed(case.data);
         var iter: PaxIterator = .init(&br, case.data.len);
 
@@ -955,7 +955,7 @@ test Iterator {
     //    example/empty/
 
     const data = @embedFile("tar/testdata/example.tar");
-    var br: std.io.BufferedReader = undefined;
+    var br: std.io.Reader = undefined;
     br.initFixed(data);
 
     // User provided buffers to the iterator
@@ -1015,7 +1015,7 @@ test pipeToFileSystem {
     //    example/empty/
 
     const data = @embedFile("tar/testdata/example.tar");
-    var br: std.io.BufferedReader = undefined;
+    var br: std.io.Reader = undefined;
     br.initFixed(data);
 
     var tmp = testing.tmpDir(.{ .no_follow = true });
@@ -1047,7 +1047,7 @@ test pipeToFileSystem {
 
 test "pipeToFileSystem root_dir" {
     const data = @embedFile("tar/testdata/example.tar");
-    var br: std.io.BufferedReader = undefined;
+    var br: std.io.Reader = undefined;
     br.initFixed(data);
 
     // with strip_components = 1
@@ -1096,7 +1096,7 @@ test "pipeToFileSystem root_dir" {
 
 test "findRoot with single file archive" {
     const data = @embedFile("tar/testdata/22752.tar");
-    var br: std.io.BufferedReader = undefined;
+    var br: std.io.Reader = undefined;
     br.initFixed(data);
 
     var tmp = testing.tmpDir(.{});
@@ -1111,7 +1111,7 @@ test "findRoot with single file archive" {
 
 test "findRoot without explicit root dir" {
     const data = @embedFile("tar/testdata/19820.tar");
-    var br: std.io.BufferedReader = undefined;
+    var br: std.io.Reader = undefined;
     br.initFixed(data);
 
     var tmp = testing.tmpDir(.{});
@@ -1126,7 +1126,7 @@ test "findRoot without explicit root dir" {
 
 test "pipeToFileSystem strip_components" {
     const data = @embedFile("tar/testdata/example.tar");
-    var br: std.io.BufferedReader = undefined;
+    var br: std.io.Reader = undefined;
     br.initFixed(data);
 
     var tmp = testing.tmpDir(.{ .no_follow = true });
@@ -1188,7 +1188,7 @@ test "executable bit" {
     const data = @embedFile("tar/testdata/example.tar");
 
     for ([_]PipeOptions.ModeMode{ .ignore, .executable_bit_only }) |opt| {
-        var br: std.io.BufferedReader = undefined;
+        var br: std.io.Reader = undefined;
         br.initFixed(data);
 
         var tmp = testing.tmpDir(.{ .no_follow = true });

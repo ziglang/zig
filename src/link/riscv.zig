@@ -13,9 +13,8 @@ pub fn writeSetSubUleb(comptime op: enum { set, sub }, addend: i64, bw: *std.io.
     switch (op) {
         .set => try overwriteUleb(@intCast(addend), bw),
         .sub => {
-            var br: std.io.BufferedReader = undefined;
-            br.initFixed(try bw.writableArray(1));
-            const old_value = try br.takeLeb128(u64);
+            var r: std.io.Reader = .fixed(try bw.writableArray(1));
+            const old_value = try r.takeLeb128(u64);
             try overwriteUleb(old_value -% @as(u64, @intCast(addend)), bw);
         },
     }

@@ -79,7 +79,7 @@ pub const Oid = union(Format) {
         };
     }
 
-    pub fn readBytes(oid_format: Format, reader: *std.io.BufferedReader) std.io.Reader.Error!Oid {
+    pub fn readBytes(oid_format: Format, reader: *std.io.Reader) std.io.Reader.Error!Oid {
         return switch (oid_format) {
             .sha1 => {
                 var result: Oid = .{ .sha1 = undefined };
@@ -593,7 +593,7 @@ const Packet = union(enum) {
     const max_data_length = 65516;
 
     /// Reads a packet in pkt-line format.
-    fn read(reader: *std.io.BufferedReader, buf: *[max_data_length]u8) !Packet {
+    fn read(reader: *std.io.Reader, buf: *[max_data_length]u8) !Packet {
         const length = std.fmt.parseUnsigned(u16, &try reader.readBytesNoEof(4), 16) catch return error.InvalidPacket;
         switch (length) {
             0 => return .flush,
@@ -1107,7 +1107,7 @@ const PackHeader = struct {
     const signature = "PACK";
     const supported_version = 2;
 
-    fn read(reader: *std.io.BufferedReader) !PackHeader {
+    fn read(reader: *std.io.Reader) !PackHeader {
         const actual_signature = try reader.take(4);
         if (!mem.eql(u8, actual_signature, signature)) return error.InvalidHeader;
         const version = try reader.takeInt(u32, .big);
@@ -1161,7 +1161,7 @@ const EntryHeader = union(Type) {
         };
     }
 
-    fn read(format: Oid.Format, reader: *std.io.BufferedReader) !EntryHeader {
+    fn read(format: Oid.Format, reader: *std.io.Reader) !EntryHeader {
         const InitialByte = packed struct { len: u4, type: u3, has_next: bool };
         const initial: InitialByte = @bitCast(try reader.takeByte());
         const rest_len = if (initial.has_next) try readSizeVarInt(reader) else 0;
@@ -1187,7 +1187,7 @@ const EntryHeader = union(Type) {
     }
 };
 
-fn readSizeVarInt(r: *std.io.BufferedReader) !u64 {
+fn readSizeVarInt(r: *std.io.Reader) !u64 {
     const Byte = packed struct { value: u7, has_next: bool };
     var b: Byte = @bitCast(try r.takeByte());
     var value: u64 = b.value;
@@ -1200,7 +1200,7 @@ fn readSizeVarInt(r: *std.io.BufferedReader) !u64 {
     return value;
 }
 
-fn readOffsetVarInt(r: *std.io.BufferedReader) !u64 {
+fn readOffsetVarInt(r: *std.io.Reader) !u64 {
     const Byte = packed struct { value: u7, has_next: bool };
     var b: Byte = @bitCast(try r.takeByte());
     var value: u64 = b.value;
@@ -1219,7 +1219,7 @@ const IndexHeader = struct {
     const supported_version = 2;
     const size = 4 + 4 + @sizeOf([256]u32);
 
-    fn read(index_header: *IndexHeader, br: *std.io.BufferedReader) !void {
+    fn read(index_header: *IndexHeader, br: *std.io.Reader) !void {
         const sig = try br.take(4);
         if (!mem.eql(u8, sig, signature)) return error.InvalidHeader;
         const version = try br.takeInt(u32, .big);
@@ -1493,7 +1493,7 @@ fn resolveDeltaChain(
 }
 
 /// Reads the complete contents of an object from `reader`.
-fn readObjectRaw(gpa: Allocator, reader: *std.io.BufferedReader, size: u64) ![]u8 {
+fn readObjectRaw(gpa: Allocator, reader: *std.io.Reader, size: u64) ![]u8 {
     const alloc_size = std.math.cast(usize, size) orelse return error.ObjectTooLarge;
     var decompress: zlib.Decompressor = .init(reader);
     var buffer: std.ArrayListUnmanaged(u8) = .empty;
@@ -1505,7 +1505,7 @@ fn readObjectRaw(gpa: Allocator, reader: *std.io.BufferedReader, size: u64) ![]u
 
 /// The format of the delta data is documented in
 /// [pack-format](https://git-scm.com/docs/pack-format).
-fn expandDelta(base_object: []const u8, delta_reader: *std.io.BufferedReader, writer: *std.io.BufferedWriter) !void {
+fn expandDelta(base_object: []const u8, delta_reader: *std.io.Reader, writer: *std.io.BufferedWriter) !void {
     var base_offset: u32 = 0;
     while (true) {
         const inst: packed struct { value: u7, copy: bool } = @bitCast(delta_reader.takeByte() catch |e| switch (e) {
