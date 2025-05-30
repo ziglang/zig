@@ -2177,7 +2177,7 @@ pub fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
 
     // The roots of our file liveness analysis will be the analysis roots.
     try zcu.alive_files.ensureTotalCapacity(gpa, zcu.analysis_roots.len);
-    for (zcu.analysis_roots.slice()) |mod| {
+    for (zcu.analysis_roots.items()) |mod| {
         const file_index = zcu.module_roots.get(mod).?.unwrap() orelse continue;
         const file = zcu.fileByIndex(file_index);
 
