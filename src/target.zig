@@ -850,9 +850,5 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             .stage2_llvm => false,
             else => true,
         },
-        .all_vector_instructions => switch (backend) {
-            .stage2_x86_64 => true,
-            else => false,
-        },
     };
 }

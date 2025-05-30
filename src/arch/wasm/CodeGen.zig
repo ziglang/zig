@@ -31,6 +31,10 @@ const libcFloatSuffix = target_util.libcFloatSuffix;
 const compilerRtFloatAbbrev = target_util.compilerRtFloatAbbrev;
 const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 
+pub inline fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initEmpty();
+}
+
 /// Reference to the function declaration the code
 /// section belongs to
 owner_nav: InternPool.Nav.Index,
@@ -2638,6 +2642,10 @@ fn airBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     // For big integers we can ignore this as we will call into compiler-rt which handles this.
     const result = switch (op) {
         .shr, .shl => result: {
+            if (lhs_ty.isVector(zcu) and !rhs_ty.isVector(zcu)) {
+                return cg.fail("TODO: implement vector '{s}' with scalar rhs", .{@tagName(op)});
+            }
+
             const lhs_wasm_bits = toWasmBits(@intCast(lhs_ty.bitSize(zcu))) orelse {
                 return cg.fail("TODO: implement '{s}' for types larger than 128 bits", .{@tagName(op)});
             };
@@ -3055,8 +3063,12 @@ fn airWrapBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     const lhs_ty = cg.typeOf(bin_op.lhs);
     const rhs_ty = cg.typeOf(bin_op.rhs);
 
-    if (lhs_ty.zigTypeTag(zcu) == .vector or rhs_ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: Implement wrapping arithmetic for vectors", .{});
+    if (lhs_ty.isVector(zcu)) {
+        if ((op == .shr or op == .shl) and !rhs_ty.isVector(zcu)) {
+            return cg.fail("TODO: implement wrapping vector '{s}' with scalar rhs", .{@tagName(op)});
+        } else {
+            return cg.fail("TODO: implement wrapping '{s}' for vectors", .{@tagName(op)});
+        }
     }
 
     // For certain operations, such as shifting, the types are different.
@@ -6067,13 +6079,17 @@ fn airShlWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty = cg.typeOf(extra.lhs);
     const rhs_ty = cg.typeOf(extra.rhs);
 
-    if (ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: Implement overflow arithmetic for vectors", .{});
+    if (ty.isVector(zcu)) {
+        if (!rhs_ty.isVector(zcu)) {
+            return cg.fail("TODO: implement vector 'shl_with_overflow' with scalar rhs", .{});
+        } else {
+            return cg.fail("TODO: implement vector 'shl_with_overflow'", .{});
+        }
     }
 
     const int_info = ty.intInfo(zcu);
     const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: Implement shl_with_overflow for integer bitsize: {d}", .{int_info.bits});
+        return cg.fail("TODO: implement 'shl_with_overflow' for integer bitsize: {d}", .{int_info.bits});
     };
 
     // Ensure rhs is coerced to lhs as they must have the same WebAssembly types
@@ -6994,6 +7010,11 @@ fn airShlSat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const pt = cg.pt;
     const zcu = pt.zcu;
+
+    if (cg.typeOf(bin_op.lhs).isVector(zcu) and !cg.typeOf(bin_op.rhs).isVector(zcu)) {
+        return cg.fail("TODO: implement vector 'shl_sat' with scalar rhs", .{});
+    }
+
     const ty = cg.typeOfIndex(inst);
     const int_info = ty.intInfo(zcu);
     const is_signed = int_info.signedness == .signed;

@@ -20,6 +20,10 @@ const Alignment = InternPool.Alignment;
 const BigIntLimb = std.math.big.Limb;
 const BigInt = std.math.big.int;
 
+pub inline fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initEmpty();
+}
+
 pub const CType = @import("c/Type.zig");
 
 pub const CValue = union(enum) {
@@ -4179,7 +4183,7 @@ fn airOverflow(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: 
     try v.elem(f, w);
     try w.writeAll(", ");
     try f.writeCValue(w, rhs, .FunctionArgument);
-    try v.elem(f, w);
+    if (f.typeOf(bin_op.rhs).isVector(zcu)) try v.elem(f, w);
     try f.object.dg.renderBuiltinInfo(w, scalar_ty, info);
     try w.writeAll(");\n");
     try v.end(f, inst, w);
@@ -6536,7 +6540,7 @@ fn airBinBuiltinCall(
     try v.elem(f, writer);
     try writer.writeAll(", ");
     try f.writeCValue(writer, rhs, .FunctionArgument);
-    try v.elem(f, writer);
+    if (f.typeOf(bin_op.rhs).isVector(zcu)) try v.elem(f, writer);
     try f.object.dg.renderBuiltinInfo(writer, scalar_ty, info);
     try writer.writeAll(");\n");
     try v.end(f, inst, writer);

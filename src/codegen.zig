@@ -52,7 +52,7 @@ fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
 pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) *const Air.Legalize.Features {
     const zcu = pt.zcu;
     const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
-    switch (target_util.zigBackend(target.*, zcu.comp.config.use_llvm)) {
+    return switch (target_util.zigBackend(target.*, zcu.comp.config.use_llvm)) {
         else => unreachable,
         inline .stage2_llvm,
         .stage2_c,
@@ -65,11 +65,8 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) *con
         .stage2_sparc64,
         .stage2_spirv64,
         .stage2_powerpc,
-        => |backend| {
-            const Backend = importBackend(backend);
-            return if (@hasDecl(Backend, "legalizeFeatures")) Backend.legalizeFeatures(target) else comptime &.initEmpty();
-        },
-    }
+        => |backend| importBackend(backend).legalizeFeatures(target),
+    };
 }
 
 pub fn generateFunction(

@@ -51,6 +51,10 @@ const Instruction = encoding.Instruction;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
 
+pub inline fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initEmpty();
+}
+
 pt: Zcu.PerThread,
 air: Air,
 liveness: Air.Liveness,
@@ -2764,6 +2768,7 @@ fn genBinOp(
         .shl,
         .shl_exact,
         => {
+            if (lhs_ty.isVector(zcu) and !rhs_ty.isVector(zcu)) return func.fail("TODO: vector shift with scalar rhs", .{});
             if (bit_size > 64) return func.fail("TODO: genBinOp shift > 64 bits, {}", .{bit_size});
             try func.truncateRegister(rhs_ty, rhs_reg);
 
@@ -3248,8 +3253,14 @@ fn airMulWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airShlWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airShlWithOverflow", .{});
+    const result: MCValue = if (func.liveness.isUnused(inst))
+        .unreach
+    else if (func.typeOf(bin_op.lhs).isVector(zcu) and !func.typeOf(bin_op.rhs).isVector(zcu))
+        return func.fail("TODO implement vector airShlWithOverflow with scalar rhs", .{})
+    else
+        return func.fail("TODO implement airShlWithOverflow", .{});
     return func.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3266,8 +3277,14 @@ fn airMulSat(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airShlSat(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airShlSat", .{});
+    const result: MCValue = if (func.liveness.isUnused(inst))
+        .unreach
+    else if (func.typeOf(bin_op.lhs).isVector(zcu) and !func.typeOf(bin_op.rhs).isVector(zcu))
+        return func.fail("TODO implement vector airShlSat with scalar rhs", .{})
+    else
+        return func.fail("TODO implement airShlSat", .{});
     return func.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 

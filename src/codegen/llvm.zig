@@ -36,6 +36,10 @@ const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 
 const Error = error{ OutOfMemory, CodegenFail };
 
+pub inline fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initEmpty();
+}
+
 fn subArchName(features: std.Target.Cpu.Feature.Set, arch: anytype, mappings: anytype) ?[]const u8 {
     inline for (mappings) |mapping| {
         if (arch.featureSetHas(features, mapping[0])) return mapping[1];
@@ -8923,6 +8927,8 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(extra.rhs);
 
         const lhs_ty = self.typeOf(extra.lhs);
+        if (lhs_ty.isVector(zcu) and !self.typeOf(extra.rhs).isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
         const lhs_scalar_ty = lhs_ty.scalarType(zcu);
 
         const dest_ty = self.typeOfIndex(inst);
@@ -8992,6 +8998,8 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
 
         const lhs_ty = self.typeOf(bin_op.lhs);
+        if (lhs_ty.isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
         const lhs_scalar_ty = lhs_ty.scalarType(zcu);
 
         const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_ty), "");
@@ -9003,14 +9011,17 @@ pub const FuncGen = struct {
 
     fn airShl(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
+        const zcu = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
 
-        const lhs_type = self.typeOf(bin_op.lhs);
+        const lhs_ty = self.typeOf(bin_op.lhs);
+        if (lhs_ty.isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
 
-        const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_type), "");
+        const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_ty), "");
         return self.wip.bin(.shl, lhs, casted_rhs, "");
     }
 
@@ -9029,6 +9040,8 @@ pub const FuncGen = struct {
         const llvm_lhs_scalar_ty = llvm_lhs_ty.scalarType(&o.builder);
 
         const rhs_ty = self.typeOf(bin_op.rhs);
+        if (lhs_ty.isVector(zcu) and !rhs_ty.isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
         const rhs_info = rhs_ty.intInfo(zcu);
         assert(rhs_info.signedness == .unsigned);
         const llvm_rhs_ty = try o.lowerType(rhs_ty);
@@ -9101,6 +9114,8 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
 
         const lhs_ty = self.typeOf(bin_op.lhs);
+        if (lhs_ty.isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
         const lhs_scalar_ty = lhs_ty.scalarType(zcu);
 
         const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_ty), "");
@@ -9255,8 +9270,6 @@ pub const FuncGen = struct {
         const operand_ty = self.typeOf(ty_op.operand);
         const dest_ty = self.typeOfIndex(inst);
         const target = zcu.getTarget();
-        const dest_bits = dest_ty.floatBits(target);
-        const src_bits = operand_ty.floatBits(target);
 
         if (intrinsicsAllowed(dest_ty, target) and intrinsicsAllowed(operand_ty, target)) {
             return self.wip.cast(.fptrunc, operand, try o.lowerType(dest_ty), "");
@@ -9264,6 +9277,8 @@ pub const FuncGen = struct {
             const operand_llvm_ty = try o.lowerType(operand_ty);
             const dest_llvm_ty = try o.lowerType(dest_ty);
 
+            const dest_bits = dest_ty.floatBits(target);
+            const src_bits = operand_ty.floatBits(target);
             const fn_name = try o.builder.strtabStringFmt("__trunc{s}f{s}f2", .{
                 compilerRtFloatAbbrev(src_bits), compilerRtFloatAbbrev(dest_bits),
             });
@@ -9348,11 +9363,12 @@ pub const FuncGen = struct {
             return self.wip.conv(.unsigned, operand, llvm_dest_ty, "");
         }
 
-        if (operand_ty.zigTypeTag(zcu) == .int and inst_ty.isPtrAtRuntime(zcu)) {
+        const operand_scalar_ty = operand_ty.scalarType(zcu);
+        const inst_scalar_ty = inst_ty.scalarType(zcu);
+        if (operand_scalar_ty.zigTypeTag(zcu) == .int and inst_scalar_ty.isPtrAtRuntime(zcu)) {
             return self.wip.cast(.inttoptr, operand, llvm_dest_ty, "");
         }
-
-        if (operand_ty.isPtrAtRuntime(zcu) and inst_ty.zigTypeTag(zcu) == .int) {
+        if (operand_scalar_ty.isPtrAtRuntime(zcu) and inst_scalar_ty.zigTypeTag(zcu) == .int) {
             return self.wip.cast(.ptrtoint, operand, llvm_dest_ty, "");
         }
 

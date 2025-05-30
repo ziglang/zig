@@ -10165,16 +10165,7 @@ fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     try sema.requireRuntimeBlock(block, block.nodeOffset(inst_data.src_node), ptr_src);
     try sema.validateRuntimeValue(block, ptr_src, operand);
     try sema.checkLogicalPtrOperation(block, ptr_src, ptr_ty);
-    if (!is_vector or zcu.backendSupportsFeature(.all_vector_instructions)) {
-        return block.addBitCast(dest_ty, operand);
-    }
-    const new_elems = try sema.arena.alloc(Air.Inst.Ref, len);
-    for (new_elems, 0..) |*new_elem, i| {
-        const idx_ref = try pt.intRef(.usize, i);
-        const old_elem = try block.addBinOp(.array_elem_val, operand, idx_ref);
-        new_elem.* = try block.addBitCast(.usize, old_elem);
-    }
-    return block.addAggregateInit(dest_ty, new_elems);
+    return block.addBitCast(dest_ty, operand);
 }
 
 fn zirFieldVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -10640,17 +10631,7 @@ fn zirFloatCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     if (dst_bits >= src_bits) {
         return sema.coerce(block, dest_ty, operand, operand_src);
     }
-    if (!is_vector or zcu.backendSupportsFeature(.all_vector_instructions)) {
-        return block.addTyOp(.fptrunc, dest_ty, operand);
-    }
-    const vec_len = operand_ty.vectorLen(zcu);
-    const new_elems = try sema.arena.alloc(Air.Inst.Ref, vec_len);
-    for (new_elems, 0..) |*new_elem, i| {
-        const idx_ref = try pt.intRef(.usize, i);
-        const old_elem = try block.addBinOp(.array_elem_val, operand, idx_ref);
-        new_elem.* = try block.addTyOp(.fptrunc, dest_scalar_ty, old_elem);
-    }
-    return block.addAggregateInit(dest_ty, new_elems);
+    return block.addTyOp(.fptrunc, dest_ty, operand);
 }
 
 fn zirElemVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -20722,16 +20703,7 @@ fn zirIntFromBool(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             .storage = .{ .elems = new_elems },
         } }));
     }
-    if (!is_vector or zcu.backendSupportsFeature(.all_vector_instructions)) {
-        return block.addBitCast(dest_ty, operand);
-    }
-    const new_elems = try sema.arena.alloc(Air.Inst.Ref, len);
-    for (new_elems, 0..) |*new_elem, i| {
-        const idx_ref = try pt.intRef(.usize, i);
-        const old_elem = try block.addBinOp(.array_elem_val, operand, idx_ref);
-        new_elem.* = try block.addBitCast(.u1, old_elem);
-    }
-    return block.addAggregateInit(dest_ty, new_elems);
+    return block.addBitCast(dest_ty, operand);
 }
 
 fn zirErrorName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -22327,42 +22299,23 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
             .storage = .{ .repeated_elem = (try pt.intValue(dest_scalar_ty, 0)).toIntern() },
         } }));
     }
-    if (!is_vector or zcu.backendSupportsFeature(.all_vector_instructions)) {
-        const result = try block.addTyOp(if (block.float_mode == .optimized) .int_from_float_optimized else .int_from_float, dest_ty, operand);
-        if (block.wantSafety()) {
-            const back = try block.addTyOp(.float_from_int, operand_ty, result);
-            const diff = try block.addBinOp(if (block.float_mode == .optimized) .sub_optimized else .sub, operand, back);
-            const ok = if (is_vector) ok: {
-                const ok_pos = try block.addCmpVector(diff, Air.internedToRef((try sema.splat(operand_ty, try pt.floatValue(operand_scalar_ty, 1.0))).toIntern()), .lt);
-                const ok_neg = try block.addCmpVector(diff, Air.internedToRef((try sema.splat(operand_ty, try pt.floatValue(operand_scalar_ty, -1.0))).toIntern()), .gt);
-                const ok = try block.addBinOp(.bit_and, ok_pos, ok_neg);
-                break :ok try block.addReduce(ok, .And);
-            } else ok: {
-                const ok_pos = try block.addBinOp(if (block.float_mode == .optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try pt.floatValue(operand_ty, 1.0)).toIntern()));
-                const ok_neg = try block.addBinOp(if (block.float_mode == .optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try pt.floatValue(operand_ty, -1.0)).toIntern()));
-                break :ok try block.addBinOp(.bool_and, ok_pos, ok_neg);
-            };
-            try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
-        }
-        return result;
+    const result = try block.addTyOp(if (block.float_mode == .optimized) .int_from_float_optimized else .int_from_float, dest_ty, operand);
+    if (block.wantSafety()) {
+        const back = try block.addTyOp(.float_from_int, operand_ty, result);
+        const diff = try block.addBinOp(if (block.float_mode == .optimized) .sub_optimized else .sub, operand, back);
+        const ok = if (is_vector) ok: {
+            const ok_pos = try block.addCmpVector(diff, Air.internedToRef((try sema.splat(operand_ty, try pt.floatValue(operand_scalar_ty, 1.0))).toIntern()), .lt);
+            const ok_neg = try block.addCmpVector(diff, Air.internedToRef((try sema.splat(operand_ty, try pt.floatValue(operand_scalar_ty, -1.0))).toIntern()), .gt);
+            const ok = try block.addBinOp(.bit_and, ok_pos, ok_neg);
+            break :ok try block.addReduce(ok, .And);
+        } else ok: {
+            const ok_pos = try block.addBinOp(if (block.float_mode == .optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try pt.floatValue(operand_ty, 1.0)).toIntern()));
+            const ok_neg = try block.addBinOp(if (block.float_mode == .optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try pt.floatValue(operand_ty, -1.0)).toIntern()));
+            break :ok try block.addBinOp(.bool_and, ok_pos, ok_neg);
+        };
+        try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
     }
-    const len = dest_ty.vectorLen(zcu);
-    const new_elems = try sema.arena.alloc(Air.Inst.Ref, len);
-    for (new_elems, 0..) |*new_elem, i| {
-        const idx_ref = try pt.intRef(.usize, i);
-        const old_elem = try block.addBinOp(.array_elem_val, operand, idx_ref);
-        const result = try block.addTyOp(if (block.float_mode == .optimized) .int_from_float_optimized else .int_from_float, dest_scalar_ty, old_elem);
-        if (block.wantSafety()) {
-            const back = try block.addTyOp(.float_from_int, operand_scalar_ty, result);
-            const diff = try block.addBinOp(.sub, old_elem, back);
-            const ok_pos = try block.addBinOp(if (block.float_mode == .optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try pt.floatValue(operand_scalar_ty, 1.0)).toIntern()));
-            const ok_neg = try block.addBinOp(if (block.float_mode == .optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try pt.floatValue(operand_scalar_ty, -1.0)).toIntern()));
-            const ok = try block.addBinOp(.bool_and, ok_pos, ok_neg);
-            try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
-        }
-        new_elem.* = result;
-    }
-    return block.addAggregateInit(dest_ty, new_elems);
+    return result;
 }
 
 fn zirFloatFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -22377,7 +22330,6 @@ fn zirFloatFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     const operand_ty = sema.typeOf(operand);
 
     try sema.checkVectorizableBinaryOperands(block, operand_src, dest_ty, operand_ty, src, operand_src);
-    const is_vector = dest_ty.zigTypeTag(zcu) == .vector;
 
     const dest_scalar_ty = dest_ty.scalarType(zcu);
     const operand_scalar_ty = operand_ty.scalarType(zcu);
@@ -22393,17 +22345,7 @@ fn zirFloatFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    if (!is_vector or zcu.backendSupportsFeature(.all_vector_instructions)) {
-        return block.addTyOp(.float_from_int, dest_ty, operand);
-    }
-    const len = operand_ty.vectorLen(zcu);
-    const new_elems = try sema.arena.alloc(Air.Inst.Ref, len);
-    for (new_elems, 0..) |*new_elem, i| {
-        const idx_ref = try pt.intRef(.usize, i);
-        const old_elem = try block.addBinOp(.array_elem_val, operand, idx_ref);
-        new_elem.* = try block.addTyOp(.float_from_int, dest_scalar_ty, old_elem);
-    }
-    return block.addAggregateInit(dest_ty, new_elems);
+    return block.addTyOp(.float_from_int, dest_ty, operand);
 }
 
 fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -22473,69 +22415,34 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     }
     try sema.requireRuntimeBlock(block, src, operand_src);
     try sema.checkLogicalPtrOperation(block, src, ptr_ty);
-    if (!is_vector or zcu.backendSupportsFeature(.all_vector_instructions)) {
-        if (block.wantSafety() and (try elem_ty.hasRuntimeBitsSema(pt) or elem_ty.zigTypeTag(zcu) == .@"fn")) {
-            if (!ptr_ty.isAllowzeroPtr(zcu)) {
-                const is_non_zero = if (is_vector) all_non_zero: {
-                    const zero_usize = Air.internedToRef((try sema.splat(operand_ty, .zero_usize)).toIntern());
-                    const is_non_zero = try block.addCmpVector(operand_coerced, zero_usize, .neq);
-                    break :all_non_zero try block.addReduce(is_non_zero, .And);
-                } else try block.addBinOp(.cmp_neq, operand_coerced, .zero_usize);
-                try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
-            }
-            if (ptr_align.compare(.gt, .@"1")) {
-                const align_bytes_minus_1 = ptr_align.toByteUnits().? - 1;
-                const align_mask = Air.internedToRef((try sema.splat(operand_ty, try pt.intValue(
-                    .usize,
-                    if (elem_ty.fnPtrMaskOrNull(zcu)) |mask|
-                        align_bytes_minus_1 & mask
-                    else
-                        align_bytes_minus_1,
-                ))).toIntern());
-                const remainder = try block.addBinOp(.bit_and, operand_coerced, align_mask);
-                const is_aligned = if (is_vector) all_aligned: {
-                    const splat_zero_usize = Air.internedToRef((try sema.splat(operand_ty, .zero_usize)).toIntern());
-                    const is_aligned = try block.addCmpVector(remainder, splat_zero_usize, .eq);
-                    break :all_aligned try block.addReduce(is_aligned, .And);
-                } else try block.addBinOp(.cmp_eq, remainder, .zero_usize);
-                try sema.addSafetyCheck(block, src, is_aligned, .incorrect_alignment);
-            }
-        }
-        return block.addBitCast(dest_ty, operand_coerced);
-    }
-
-    const len = dest_ty.vectorLen(zcu);
     if (block.wantSafety() and (try elem_ty.hasRuntimeBitsSema(pt) or elem_ty.zigTypeTag(zcu) == .@"fn")) {
-        for (0..len) |i| {
-            const idx_ref = try pt.intRef(.usize, i);
-            const elem_coerced = try block.addBinOp(.array_elem_val, operand_coerced, idx_ref);
-            if (!ptr_ty.isAllowzeroPtr(zcu)) {
-                const is_non_zero = try block.addBinOp(.cmp_neq, elem_coerced, .zero_usize);
-                try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
-            }
-            if (ptr_align.compare(.gt, .@"1")) {
-                const align_bytes_minus_1 = ptr_align.toByteUnits().? - 1;
-                const align_mask = Air.internedToRef((try pt.intValue(
-                    .usize,
-                    if (elem_ty.fnPtrMaskOrNull(zcu)) |mask|
-                        align_bytes_minus_1 & mask
-                    else
-                        align_bytes_minus_1,
-                )).toIntern());
-                const remainder = try block.addBinOp(.bit_and, elem_coerced, align_mask);
-                const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
-                try sema.addSafetyCheck(block, src, is_aligned, .incorrect_alignment);
-            }
+        if (!ptr_ty.isAllowzeroPtr(zcu)) {
+            const is_non_zero = if (is_vector) all_non_zero: {
+                const zero_usize = Air.internedToRef((try sema.splat(operand_ty, .zero_usize)).toIntern());
+                const is_non_zero = try block.addCmpVector(operand_coerced, zero_usize, .neq);
+                break :all_non_zero try block.addReduce(is_non_zero, .And);
+            } else try block.addBinOp(.cmp_neq, operand_coerced, .zero_usize);
+            try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
+        }
+        if (ptr_align.compare(.gt, .@"1")) {
+            const align_bytes_minus_1 = ptr_align.toByteUnits().? - 1;
+            const align_mask = Air.internedToRef((try sema.splat(operand_ty, try pt.intValue(
+                .usize,
+                if (elem_ty.fnPtrMaskOrNull(zcu)) |mask|
+                    align_bytes_minus_1 & mask
+                else
+                    align_bytes_minus_1,
+            ))).toIntern());
+            const remainder = try block.addBinOp(.bit_and, operand_coerced, align_mask);
+            const is_aligned = if (is_vector) all_aligned: {
+                const splat_zero_usize = Air.internedToRef((try sema.splat(operand_ty, .zero_usize)).toIntern());
+                const is_aligned = try block.addCmpVector(remainder, splat_zero_usize, .eq);
+                break :all_aligned try block.addReduce(is_aligned, .And);
+            } else try block.addBinOp(.cmp_eq, remainder, .zero_usize);
+            try sema.addSafetyCheck(block, src, is_aligned, .incorrect_alignment);
         }
     }
-
-    const new_elems = try sema.arena.alloc(Air.Inst.Ref, len);
-    for (new_elems, 0..) |*new_elem, i| {
-        const idx_ref = try pt.intRef(.usize, i);
-        const old_elem = try block.addBinOp(.array_elem_val, operand_coerced, idx_ref);
-        new_elem.* = try block.addBitCast(ptr_ty, old_elem);
-    }
-    return block.addAggregateInit(dest_ty, new_elems);
+    return block.addBitCast(dest_ty, operand_coerced);
 }
 
 fn ptrFromIntVal(

@@ -42,6 +42,7 @@ pub const Feature = enum {
     scalarize_shl_sat,
     scalarize_xor,
     scalarize_not,
+    scalarize_bitcast,
     scalarize_clz,
     scalarize_ctz,
     scalarize_popcount,
@@ -76,7 +77,7 @@ pub const Feature = enum {
     scalarize_mul_add,
 
     /// Legalize (shift lhs, (splat rhs)) -> (shift lhs, rhs)
-    remove_shift_vector_rhs_splat,
+    unsplat_shift_rhs,
     /// Legalize reduce of a one element vector to a bitcast
     reduce_one_elem_to_bitcast,
 
@@ -121,6 +122,7 @@ pub const Feature = enum {
             .shl_sat => .scalarize_shl_sat,
             .xor => .scalarize_xor,
             .not => .scalarize_not,
+            .bitcast => .scalarize_bitcast,
             .clz => .scalarize_clz,
             .ctz => .scalarize_ctz,
             .popcount => .scalarize_popcount,
@@ -259,9 +261,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             => |air_tag| done: {
                 const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
                 if (!l.typeOf(bin_op.rhs).isVector(zcu)) break :done;
-                if (l.features.contains(comptime .scalarize(air_tag))) {
-                    continue :inst try l.scalarize(inst, .bin_op);
-                } else if (l.features.contains(.remove_shift_vector_rhs_splat)) {
+                if (l.features.contains(.unsplat_shift_rhs)) {
                     if (bin_op.rhs.toInterned()) |rhs_ip_index| switch (ip.indexToKey(rhs_ip_index)) {
                         else => {},
                         .aggregate => |aggregate| switch (aggregate.storage) {
@@ -282,6 +282,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                         }
                     }
                 }
+                if (l.features.contains(comptime .scalarize(air_tag))) continue :inst try l.scalarize(inst, .bin_op);
             },
             inline .not,
             .clz,
@@ -302,8 +303,14 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
                 if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
             },
-            .bitcast,
-            => {},
+            inline .bitcast,
+            => |air_tag| if (l.features.contains(comptime .scalarize(air_tag))) {
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                const to_ty = ty_op.ty.toType();
+                const from_ty = l.typeOf(ty_op.operand);
+                if (to_ty.isVector(zcu) and from_ty.isVector(zcu) and to_ty.vectorLen(zcu) == from_ty.vectorLen(zcu))
+                    continue :inst try l.scalarize(inst, .ty_op);
+            },
             .block,
             .loop,
             => {
