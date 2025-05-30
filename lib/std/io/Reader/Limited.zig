@@ -5,21 +5,27 @@ const Reader = std.io.Reader;
 const BufferedWriter = std.io.BufferedWriter;
 const Limit = std.io.Limit;
 
-unlimited_reader: Reader,
+unlimited: *Reader,
 remaining: Limit,
+interface: Reader,
 
-pub fn reader(l: *Limited) Reader {
+pub fn init(reader: *Reader, limit: Limit, buffer: []u8) Limited {
     return .{
-        .context = l,
-        .vtable = &.{
-            .read = passthruRead,
-            .readVec = passthruReadVec,
-            .discard = passthruDiscard,
+        .unlimited = reader,
+        .remaining = limit,
+        .interface = .{
+            .vtable = &.{
+                .stream = stream,
+                .discard = discard,
+            },
+            .buffer = buffer,
+            .seek = 0,
+            .end = 0,
         },
     };
 }
 
-fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) Reader.StreamError!usize {
+fn stream(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) Reader.StreamError!usize {
     const l: *Limited = @alignCast(@ptrCast(context));
     const combined_limit = limit.min(l.remaining);
     const n = try l.unlimited_reader.read(bw, combined_limit);
@@ -27,30 +33,10 @@ fn passthruRead(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) Reader.
     return n;
 }
 
-fn passthruDiscard(context: ?*anyopaque, limit: Limit) Reader.Error!usize {
+fn discard(context: ?*anyopaque, limit: Limit) Reader.Error!usize {
     const l: *Limited = @alignCast(@ptrCast(context));
     const combined_limit = limit.min(l.remaining);
     const n = try l.unlimited_reader.discard(combined_limit);
     l.remaining = l.remaining.subtract(n).?;
     return n;
-}
-
-fn passthruReadVec(context: ?*anyopaque, data: []const []u8) Reader.Error!usize {
-    const l: *Limited = @alignCast(@ptrCast(context));
-    if (data.len == 0) return 0;
-    if (data[0].len >= @intFromEnum(l.remaining)) {
-        const n = try l.unlimited_reader.readVec(&.{l.remaining.slice(data[0])});
-        l.remaining = l.remaining.subtract(n).?;
-        return n;
-    }
-    var total: usize = 0;
-    for (data, 0..) |buf, i| {
-        total += buf.len;
-        if (total > @intFromEnum(l.remaining)) {
-            const n = try l.unlimited_reader.readVec(data[0..i]);
-            l.remaining = l.remaining.subtract(n).?;
-            return n;
-        }
-    }
-    return 0;
 }

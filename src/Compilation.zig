@@ -1076,9 +1076,8 @@ pub const CObject = struct {
                 var buffer: [1024]u8 = undefined;
                 const file = try std.fs.cwd().openFile(path, .{});
                 defer file.close();
-                var br: std.io.BufferedReader = undefined;
-                br.init(file.reader(), &buffer);
-                var bc = std.zig.llvm.BitcodeReader.init(gpa, .{ .br = &br });
+                var file_reader = file.reader(&buffer);
+                var bc = std.zig.llvm.BitcodeReader.init(gpa, .{ .reader = &file_reader.interface });
                 defer bc.deinit();
 
                 var file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty;

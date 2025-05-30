@@ -348,15 +348,15 @@ pub const RunResult = struct {
     stderr: []u8,
 };
 
-fn writeBufferedReaderToArrayList(allocator: Allocator, list: *std.ArrayListUnmanaged(u8), br: *std.io.BufferedReader) !void {
-    assert(br.seek == 0);
+fn writeBufferedReaderToArrayList(allocator: Allocator, list: *std.ArrayListUnmanaged(u8), r: *std.io.Reader) !void {
+    assert(r.seek == 0);
     if (list.capacity == 0) {
         list.* = .{
-            .items = br.bufferContents(),
-            .capacity = br.buffer.len,
+            .items = r.bufferContents(),
+            .capacity = r.buffer.len,
         };
     } else {
-        try list.appendSlice(allocator, br.bufferContents());
+        try list.appendSlice(allocator, r.bufferContents());
     }
 }
 

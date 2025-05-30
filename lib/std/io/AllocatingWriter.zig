@@ -6,7 +6,7 @@
 //! `std.io.BufferedWriter` state such that it writes to the unused capacity of
 //! an array list, filling it up completely before making a call through the
 //! vtable, causing a resize. Consequently, the same, optimized, non-generic
-//! machine code that uses `std.io.BufferedReader`, such as formatted printing,
+//! machine code that uses `std.io.Reader`, such as formatted printing,
 //! takes the hot paths when using this API.
 
 const std = @import("../std.zig");

@@ -252,7 +252,7 @@ pub const ScratchSpace = struct {
 
 pub fn parse(
     wasm: *Wasm,
-    br: *std.io.BufferedReader,
+    br: *std.io.Reader,
     path: Path,
     archive_member_name: ?[]const u8,
     host_name: Wasm.OptionalString,
@@ -1402,7 +1402,7 @@ pub fn parse(
 /// Based on the "features" custom section, parses it into a list of
 /// features that tell the linker what features were enabled and may be mandatory
 /// to be able to link.
-fn parseFeatures(wasm: *Wasm, br: *std.io.BufferedReader, path: Path) error{ OutOfMemory, LinkFailure }!Wasm.Feature.Set {
+fn parseFeatures(wasm: *Wasm, br: *std.io.Reader, path: Path) error{ OutOfMemory, LinkFailure }!Wasm.Feature.Set {
     const gpa = wasm.base.comp.gpa;
     const diags = &wasm.base.comp.link_diags;
     const features_len = try br.takeLeb128(u32);
@@ -1430,7 +1430,7 @@ fn parseFeatures(wasm: *Wasm, br: *std.io.BufferedReader, path: Path) error{ Out
     return .fromString(try wasm.internString(@ptrCast(feature_buffer)));
 }
 
-fn readLimits(br: *std.io.BufferedReader) std.io.Reader.Error!std.wasm.Limits {
+fn readLimits(br: *std.io.Reader) std.io.Reader.Error!std.wasm.Limits {
     const flags: std.wasm.Limits.Flags = @bitCast(try br.takeByte());
     const min = try br.takeLeb128(u32);
     const max = if (flags.has_max) try br.takeLeb128(u32) else 0;
@@ -1441,13 +1441,13 @@ fn readLimits(br: *std.io.BufferedReader) std.io.Reader.Error!std.wasm.Limits {
     };
 }
 
-fn readInit(wasm: *Wasm, br: *std.io.BufferedReader) std.io.Reader.Error!Wasm.Expr {
+fn readInit(wasm: *Wasm, br: *std.io.Reader) std.io.Reader.Error!Wasm.Expr {
     const start = br.seek;
     try skipInit(br); // one after the end opcode
     return wasm.addExpr(br.storageBuffer()[start..br.seek]);
 }
 
-pub fn skipInit(br: *std.io.BufferedReader) std.io.Reader.Error!void {
+pub fn skipInit(br: *std.io.Reader) std.io.Reader.Error!void {
     switch (try br.takeEnum(std.wasm.Opcode, .little)) {
         .i32_const => _ = try br.takeLeb128(i32),
         .i64_const => _ = try br.takeLeb128(i64),

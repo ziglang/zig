@@ -11,7 +11,7 @@ pub const RangeDecoder = struct {
     range: u32,
     code: u32,
 
-    pub fn init(rd: *RangeDecoder, br: *std.io.BufferedReader) std.io.Reader.Error!usize {
+    pub fn init(rd: *RangeDecoder, br: *std.io.Reader) std.io.Reader.Error!usize {
         const reserved = try br.takeByte();
         if (reserved != 0) return error.CorruptInput;
         rd.* = .{
@@ -25,14 +25,14 @@ pub const RangeDecoder = struct {
         return self.code == 0;
     }
 
-    inline fn normalize(self: *RangeDecoder, br: *std.io.BufferedReader) !void {
+    inline fn normalize(self: *RangeDecoder, br: *std.io.Reader) !void {
         if (self.range < 0x0100_0000) {
             self.range <<= 8;
             self.code = (self.code << 8) ^ @as(u32, try br.takeByte());
         }
     }
 
-    inline fn getBit(self: *RangeDecoder, br: *std.io.BufferedReader) !bool {
+    inline fn getBit(self: *RangeDecoder, br: *std.io.Reader) !bool {
         self.range >>= 1;
 
         const bit = self.code >= self.range;
@@ -43,7 +43,7 @@ pub const RangeDecoder = struct {
         return bit;
     }
 
-    pub fn get(self: *RangeDecoder, br: *std.io.BufferedReader, count: usize) !u32 {
+    pub fn get(self: *RangeDecoder, br: *std.io.Reader, count: usize) !u32 {
         var result: u32 = 0;
         var i: usize = 0;
         while (i < count) : (i += 1)
@@ -51,7 +51,7 @@ pub const RangeDecoder = struct {
         return result;
     }
 
-    pub inline fn decodeBit(self: *RangeDecoder, br: *std.io.BufferedReader, prob: *u16, update: bool) !bool {
+    pub inline fn decodeBit(self: *RangeDecoder, br: *std.io.Reader, prob: *u16, update: bool) !bool {
         const bound = (self.range >> 11) * prob.*;
 
         if (self.code < bound) {
@@ -74,7 +74,7 @@ pub const RangeDecoder = struct {
 
     fn parseBitTree(
         self: *RangeDecoder,
-        br: *std.io.BufferedReader,
+        br: *std.io.Reader,
         num_bits: u5,
         probs: []u16,
         update: bool,
@@ -90,7 +90,7 @@ pub const RangeDecoder = struct {
 
     pub fn parseReverseBitTree(
         self: *RangeDecoder,
-        br: *std.io.BufferedReader,
+        br: *std.io.Reader,
         num_bits: u5,
         probs: []u16,
         offset: usize,
@@ -117,7 +117,7 @@ pub const LenDecoder = struct {
 
     pub fn decode(
         self: *LenDecoder,
-        br: *std.io.BufferedReader,
+        br: *std.io.Reader,
         decoder: *RangeDecoder,
         pos_state: usize,
         update: bool,
@@ -148,7 +148,7 @@ pub fn BitTree(comptime num_bits: usize) type {
 
         pub fn parse(
             self: *Self,
-            br: *std.io.BufferedReader,
+            br: *std.io.Reader,
             decoder: *RangeDecoder,
             update: bool,
         ) !u32 {
@@ -157,7 +157,7 @@ pub fn BitTree(comptime num_bits: usize) type {
 
         pub fn parseReverse(
             self: *Self,
-            br: *std.io.BufferedReader,
+            br: *std.io.Reader,
             decoder: *RangeDecoder,
             update: bool,
         ) !u32 {
@@ -222,7 +222,7 @@ pub const Decode = struct {
         dict_size: u32,
         unpacked_size: ?u64,
 
-        pub fn readHeader(br: *std.io.BufferedReader, options: Options) std.io.Reader.Error!Params {
+        pub fn readHeader(br: *std.io.Reader, options: Options) std.io.Reader.Error!Params {
             var props = try br.readByte();
             if (props >= 225) {
                 return error.CorruptInput;
@@ -319,7 +319,7 @@ pub const Decode = struct {
     fn processNextInner(
         self: *Decode,
         allocator: Allocator,
-        br: *std.io.BufferedReader,
+        br: *std.io.Reader,
         bw: *std.io.BufferedWriter,
         buffer: anytype,
         decoder: *RangeDecoder,
@@ -416,7 +416,7 @@ pub const Decode = struct {
     fn processNext(
         self: *Decode,
         allocator: Allocator,
-        br: *std.io.BufferedReader,
+        br: *std.io.Reader,
         bw: *std.io.BufferedWriter,
         buffer: anytype,
         decoder: *RangeDecoder,
@@ -428,7 +428,7 @@ pub const Decode = struct {
     pub fn process(
         self: *Decode,
         allocator: Allocator,
-        br: *std.io.BufferedReader,
+        br: *std.io.Reader,
         bw: *std.io.BufferedWriter,
         buffer: anytype,
         decoder: *RangeDecoder,
@@ -460,7 +460,7 @@ pub const Decode = struct {
 
     fn decodeLiteral(
         self: *Decode,
-        br: *std.io.BufferedReader,
+        br: *std.io.Reader,
         buffer: anytype,
         decoder: *RangeDecoder,
         update: bool,
@@ -502,7 +502,7 @@ pub const Decode = struct {
 
     fn decodeDistance(
         self: *Decode,
-        br: *std.io.BufferedReader,
+        br: *std.io.Reader,
         decoder: *RangeDecoder,
         length: usize,
         update: bool,
@@ -542,19 +542,19 @@ pub const Decompress = struct {
         error{ CorruptInput, EndOfStream, Overflow };
 
     allocator: Allocator,
-    in_reader: *std.io.BufferedReader,
+    in_reader: *std.io.Reader,
     to_read: std.ArrayListUnmanaged(u8),
 
     buffer: LzCircularBuffer,
     decoder: RangeDecoder,
     state: Decode,
 
-    pub fn initOptions(allocator: Allocator, br: *std.io.BufferedReader, options: Decode.Options) !Decompress {
+    pub fn initOptions(allocator: Allocator, br: *std.io.Reader, options: Decode.Options) !Decompress {
         const params = try Decode.Params.readHeader(br, options);
         return init(allocator, br, params, options.memlimit);
     }
 
-    pub fn init(allocator: Allocator, source: *std.io.BufferedReader, params: Decode.Params, memlimit: ?usize) !Decompress {
+    pub fn init(allocator: Allocator, source: *std.io.Reader, params: Decode.Params, memlimit: ?usize) !Decompress {
         return .{
             .allocator = allocator,
             .in_reader = source,
@@ -839,7 +839,7 @@ test "Vec2D get addition overflow" {
 
 fn testDecompress(compressed: []const u8) ![]u8 {
     const allocator = std.testing.allocator;
-    var br: std.io.BufferedReader = undefined;
+    var br: std.io.Reader = undefined;
     br.initFixed(compressed);
     var decompressor = try Decompress.initOptions(allocator, &br, .{});
     defer decompressor.deinit();
@@ -927,7 +927,7 @@ test "too small uncompressed size in header" {
 
 test "reading one byte" {
     const compressed = @embedFile("testdata/good-known_size-with_eopm.lzma");
-    var br: std.io.BufferedReader = undefined;
+    var br: std.io.Reader = undefined;
     br.initFixed(compressed);
     var decompressor = try Decompress.initOptions(std.testing.allocator, &br, .{});
     defer decompressor.deinit();

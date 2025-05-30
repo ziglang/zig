@@ -3,10 +3,9 @@ const testing = std.testing;
 const xz = std.compress.xz;
 
 fn decompress(data: []const u8) ![]u8 {
-    var in_stream: std.io.BufferedReader = undefined;
-    in_stream.initFixed(data);
+    var r: std.io.Reader = .fixed(data);
 
-    var xz_stream = try xz.decompress(testing.allocator, &in_stream);
+    var xz_stream = try xz.decompress(testing.allocator, &r);
     defer xz_stream.deinit();
 
     return xz_stream.reader().readAllAlloc(testing.allocator, std.math.maxInt(usize));

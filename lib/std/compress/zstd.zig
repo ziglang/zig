@@ -82,8 +82,7 @@ fn testDecompress(gpa: std.mem.Allocator, compressed: []const u8) ![]u8 {
     var out: std.ArrayListUnmanaged(u8) = .empty;
     defer out.deinit(gpa);
 
-    var in: std.io.BufferedReader = undefined;
-    in.initFixed(@constCast(compressed));
+    var in: std.io.Reader = .fixed(compressed);
     var zstd_stream: Decompress = .init(&in, .{});
     try zstd_stream.reader().readRemainingArrayList(gpa, null, &out, .unlimited, default_window_len);
 
@@ -103,8 +102,7 @@ fn testExpectDecompressError(err: anyerror, compressed: []const u8) !void {
     var out: std.ArrayListUnmanaged(u8) = .empty;
     defer out.deinit(gpa);
 
-    var in: std.io.BufferedReader = undefined;
-    in.initFixed(@constCast(compressed));
+    var in: std.io.Reader = .fixed(compressed);
     var zstd_stream: Decompress = .init(&in, .{});
     try std.testing.expectError(
         error.ReadFailed,

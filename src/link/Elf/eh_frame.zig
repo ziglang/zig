@@ -187,7 +187,7 @@ pub const Cie = struct {
 };
 
 pub const Iterator = struct {
-    br: std.io.BufferedReader,
+    reader: std.io.Reader,
 
     pub const Record = struct {
         tag: enum { fde, cie },
@@ -196,18 +196,18 @@ pub const Iterator = struct {
     };
 
     pub fn next(it: *Iterator) !?Record {
-        if (it.br.seek >= it.br.storageBuffer().len) return null;
+        if (it.reader.seek >= it.reader.storageBuffer().len) return null;
 
-        const size = try it.br.takeInt(u32, .little);
+        const size = try it.reader.takeInt(u32, .little);
         if (size == 0xFFFFFFFF) @panic("DWARF CFI is 32bit on macOS");
 
-        const id = try it.br.takeInt(u32, .little);
+        const id = try it.reader.takeInt(u32, .little);
         const record: Record = .{
             .tag = if (id == 0) .cie else .fde,
-            .offset = it.br.seek,
+            .offset = it.reader.seek,
             .size = size,
         };
-        try it.br.discard(size);
+        try it.reader.discard(size);
 
         return record;
     }

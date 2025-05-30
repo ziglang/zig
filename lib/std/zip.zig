@@ -161,14 +161,14 @@ pub const EndRecord = extern struct {
 
 pub const Decompress = union {
     inflate: std.compress.flate.Decompress,
-    store: *std.io.BufferedReader,
+    store: *std.io.Reader,
 
     fn readable(
         d: *Decompress,
-        reader: *std.io.BufferedReader,
+        reader: *std.io.Reader,
         method: CompressionMethod,
         buffer: []u8,
-    ) std.io.BufferedReader {
+    ) std.io.Reader {
         switch (method) {
             .store => {
                 d.* = .{ .store = reader };

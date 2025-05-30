@@ -1087,10 +1087,9 @@ pub const Coff = struct {
         const pe_pointer_offset = 0x3C;
         const pe_magic = "PE\x00\x00";
 
-        var reader: std.io.BufferedReader = undefined;
-        reader.initFixed(data[pe_pointer_offset..]);
+        var reader: std.io.Reader = .fixed(data[pe_pointer_offset..]);
         const coff_header_offset = try reader.readInt(u32, .little);
-        reader.initFixed(data[coff_header_offset..]);
+        reader = .fixed(data[coff_header_offset..]);
         const magic = try reader.peek(4);
         const is_image = mem.eql(u8, pe_magic, magic);
 
@@ -1121,16 +1120,15 @@ pub const Coff = struct {
         if (@intFromEnum(DirectoryEntry.DEBUG) >= data_dirs.len) return null;
 
         const debug_dir = data_dirs[@intFromEnum(DirectoryEntry.DEBUG)];
-        var reader: std.io.BufferedReader = undefined;
-        reader.initFixed(self.data);
+        var reader: std.io.Reader = .fixed(self.data);
 
         if (self.is_loaded) {
-            reader.initFixed(self.data[debug_dir.virtual_address..]);
+            reader = .fixed(self.data[debug_dir.virtual_address..]);
         } else {
             // Find what section the debug_dir is in, in order to convert the RVA to a file offset
             for (self.getSectionHeaders()) |*sect| {
                 if (debug_dir.virtual_address >= sect.virtual_address and debug_dir.virtual_address < sect.virtual_address + sect.virtual_size) {
-                    reader.initFixed(self.data[sect.pointer_to_raw_data + (debug_dir.virtual_address - sect.virtual_address) ..]);
+                    reader = .fixed(self.data[sect.pointer_to_raw_data + (debug_dir.virtual_address - sect.virtual_address) ..]);
                     break;
                 }
             } else return error.InvalidDebugDirectory;
@@ -1144,7 +1142,7 @@ pub const Coff = struct {
             const debug_dir_entry = try reader.takeStruct(DebugDirectoryEntry);
             if (debug_dir_entry.type == .CODEVIEW) {
                 const dir_offset = if (self.is_loaded) debug_dir_entry.address_of_raw_data else debug_dir_entry.pointer_to_raw_data;
-                reader.initFixed(self.data[dir_offset..]);
+                reader = .fixed(self.data[dir_offset..]);
                 break;
             }
         } else return null;

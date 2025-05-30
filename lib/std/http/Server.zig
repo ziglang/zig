@@ -20,7 +20,7 @@ reader: http.Reader,
 /// header, otherwise `receiveHead` returns `error.HttpHeadersOversize`.
 ///
 /// The returned `Server` is ready for `receiveHead` to be called.
-pub fn init(in: *std.io.BufferedReader, out: *std.io.BufferedWriter) Server {
+pub fn init(in: *std.io.Reader, out: *std.io.BufferedWriter) Server {
     return .{
         .reader = .{
             .in = in,
@@ -610,7 +610,7 @@ pub const Request = struct {
 /// See https://tools.ietf.org/html/rfc6455
 pub const WebSocket = struct {
     key: []const u8,
-    input: *std.io.BufferedReader,
+    input: *std.io.Reader,
     output: *std.io.BufferedWriter,
 
     pub const Header0 = packed struct(u8) {

@@ -1192,18 +1192,17 @@ pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index
     const atom_ptr = self.atom(atom_index).?;
     const shdr = atom_ptr.inputShdr(elf_file);
     const handle = elf_file.fileHandle(self.file_handle);
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(try self.preadShdrContentsAlloc(gpa, handle, atom_ptr.input_section_index));
-    defer if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) gpa.free(br.storageBuffer());
+    var r: std.io.Reader = .fixed(try self.preadShdrContentsAlloc(gpa, handle, atom_ptr.input_section_index));
+    defer if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) gpa.free(r.storageBuffer());
 
     if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) {
-        const chdr = (try br.takeStruct(elf.Elf64_Chdr)).*;
+        const chdr = (try r.takeStruct(elf.Elf64_Chdr)).*;
         switch (chdr.ch_type) {
             .ZLIB => {
                 var bw: std.io.BufferedWriter = undefined;
                 bw.initFixed(try gpa.alloc(u8, std.math.cast(usize, chdr.ch_size) orelse return error.Overflow));
                 errdefer gpa.free(bw.buffer);
-                try std.compress.zlib.decompress(&br, &bw);
+                try std.compress.zlib.decompress(&r, &bw);
                 if (bw.end != bw.buffer.len) return error.InputOutput;
                 return bw.buffer;
             },
@@ -1211,7 +1210,7 @@ pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index
         }
     }
 
-    return br.storageBuffer();
+    return r.storageBuffer();
 }
 
 fn locals(self: *Object) []Symbol {

@@ -904,6 +904,7 @@ pub const Reader = struct {
     size: ?u64 = null,
     size_err: ?GetEndPosError = null,
     seek_err: ?Reader.SeekError = null,
+    interface: std.io.Reader,
 
     pub const SeekError = File.SeekError || error{
         /// Seeking fell back to reading, and reached the end before the requested seek position.
@@ -940,18 +941,24 @@ pub const Reader = struct {
         }
     };
 
-    pub fn interface(r: *Reader) std.io.Reader {
+    pub fn initInterface(buffer: []u8) std.io.Reader {
         return .{
-            .context = r,
+            .context = undefined,
             .vtable = &.{
-                .read = Reader.stream,
+                .stream = Reader.stream,
                 .discard = Reader.discard,
             },
+            .buffer = buffer,
+            .seek = 0,
+            .end = 0,
         };
     }
 
-    pub fn readable(r: *Reader, buffer: []u8) std.io.BufferedReader {
-        return interface(r).buffered(buffer);
+    pub fn init(file: File, buffer: []u8) Reader {
+        return .{
+            .file = file,
+            .interface = initInterface(buffer),
+        };
     }
 
     pub fn getSize(r: *Reader) GetEndPosError!u64 {
@@ -1021,11 +1028,11 @@ pub const Reader = struct {
     const max_buffers_len = 16;
 
     fn stream(
-        context: ?*anyopaque,
+        io_reader: *std.io.Reader,
         bw: *BufferedWriter,
         limit: std.io.Limit,
     ) std.io.Reader.StreamError!usize {
-        const r: *Reader = @ptrCast(@alignCast(context));
+        const r: *Reader = @fieldParentPtr("interface", io_reader);
         switch (r.mode) {
             .positional, .streaming => return bw.writeFile(r, limit, &.{}, 0) catch |write_err| switch (write_err) {
                 error.ReadFailed => return error.ReadFailed,
@@ -1051,8 +1058,8 @@ pub const Reader = struct {
         }
     }
 
-    fn discard(context: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {
-        const r: *Reader = @ptrCast(@alignCast(context));
+    fn discard(io_reader: *std.io.Reader, limit: std.io.Limit) std.io.Reader.Error!usize {
+        const r: *Reader = @fieldParentPtr("interface", io_reader);
         const file = r.file;
         const pos = r.pos;
         switch (r.mode) {
@@ -1357,8 +1364,8 @@ pub const Writer = struct {
 ///
 /// Positional is more threadsafe, since the global seek position is not
 /// affected.
-pub fn reader(file: File) Reader {
-    return .{ .file = file };
+pub fn reader(file: File, buffer: []u8) Reader {
+    return .init(file, buffer);
 }
 
 /// Positional is more threadsafe, since the global seek position is not

@@ -229,8 +229,7 @@ test "compress/decompress" {
 
                 // compress original stream to compressed stream
                 {
-                    var original: std.io.BufferedReader = undefined;
-                    original.initFixed(@constCast(data));
+                    var original: std.io.Reader = .fixed(data);
                     var compressed: std.io.BufferedWriter = undefined;
                     compressed.initFixed(&cmp_buf);
                     var compress: Compress = .init(&original, .raw);
@@ -246,8 +245,7 @@ test "compress/decompress" {
                 }
                 // decompress compressed stream to decompressed stream
                 {
-                    var compressed: std.io.BufferedReader = undefined;
-                    compressed.initFixed(cmp_buf[0..compressed_size]);
+                    var compressed: std.io.Reader = .fixed(cmp_buf[0..compressed_size]);
                     var decompressed: std.io.BufferedWriter = undefined;
                     decompressed.initFixed(&dcm_buf);
                     try Decompress.pump(container, &compressed, &decompressed);
@@ -267,8 +265,7 @@ test "compress/decompress" {
                 }
                 // decompressor reader interface
                 {
-                    var compressed: std.io.BufferedReader = undefined;
-                    compressed.initFixed(cmp_buf[0..compressed_size]);
+                    var compressed: std.io.Reader = .fixed(cmp_buf[0..compressed_size]);
                     var dcm = Decompress.pump(container, &compressed);
                     var dcm_rdr = dcm.reader();
                     const n = try dcm_rdr.readAll(&dcm_buf);
@@ -287,8 +284,7 @@ test "compress/decompress" {
 
                 // compress original stream to compressed stream
                 {
-                    var original: std.io.BufferedReader = undefined;
-                    original.initFixed(data);
+                    var original: std.io.Reader = .fixed(data);
                     var compressed: std.io.BufferedWriter = undefined;
                     compressed.initFixed(&cmp_buf);
                     var cmp = try Compress.Huffman.init(container, &compressed);
@@ -303,8 +299,7 @@ test "compress/decompress" {
                 }
                 // decompress compressed stream to decompressed stream
                 {
-                    var compressed: std.io.BufferedReader = undefined;
-                    compressed.initFixed(cmp_buf[0..compressed_size]);
+                    var compressed: std.io.Reader = .fixed(cmp_buf[0..compressed_size]);
                     var decompressed: std.io.BufferedWriter = undefined;
                     decompressed.initFixed(&dcm_buf);
                     try Decompress.pump(container, &compressed, &decompressed);
@@ -323,8 +318,7 @@ test "compress/decompress" {
 
                 // compress original stream to compressed stream
                 {
-                    var original: std.io.BufferedReader = undefined;
-                    original.initFixed(data);
+                    var original: std.io.Reader = .fixed(data);
                     var compressed: std.io.BufferedWriter = undefined;
                     compressed.initFixed(&cmp_buf);
                     var cmp = try Compress.SimpleCompressor(.store, container).init(&compressed);
@@ -340,8 +334,7 @@ test "compress/decompress" {
                 }
                 // decompress compressed stream to decompressed stream
                 {
-                    var compressed: std.io.BufferedReader = undefined;
-                    compressed.initFixed(cmp_buf[0..compressed_size]);
+                    var compressed: std.io.Reader = .fixed(cmp_buf[0..compressed_size]);
                     var decompressed: std.io.BufferedWriter = undefined;
                     decompressed.initFixed(&dcm_buf);
                     try Decompress.pump(container, &compressed, &decompressed);
@@ -353,8 +346,7 @@ test "compress/decompress" {
 }
 
 fn testDecompress(comptime container: Container, compressed: []const u8, expected_plain: []const u8) !void {
-    var in: std.io.BufferedReader = undefined;
-    in.initFixed(compressed);
+    var in: std.io.Reader = .fixed(compressed);
     var out: std.io.AllocatingWriter = undefined;
     out.init(testing.allocator);
     defer out.deinit();
@@ -502,8 +494,7 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
         var plain: std.io.BufferedWriter = undefined;
         plain.initFixed(&buffer2);
 
-        var in: std.io.BufferedReader = undefined;
-        in.initFixed(gzip_data);
+        var in: std.io.Reader = .fixed(gzip_data);
         try pkg.decompress(&in, &plain);
         try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
     }
@@ -515,12 +506,10 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
         var compressed: std.io.BufferedWriter = undefined;
         compressed.initFixed(&buffer1);
 
-        var in: std.io.BufferedReader = undefined;
-        in.initFixed(plain_data);
+        var in: std.io.Reader = .fixed(plain_data);
         try pkg.compress(&in, &compressed, .{});
 
-        var compressed_br: std.io.BufferedReader = undefined;
-        compressed_br.initFixed(&buffer1);
+        var compressed_br: std.io.Reader = .fixed(&buffer1);
         try pkg.decompress(&compressed_br, &plain);
         try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
     }
@@ -532,14 +521,12 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
         var compressed: std.io.BufferedWriter = undefined;
         compressed.initFixed(&buffer1);
 
-        var in: std.io.BufferedReader = undefined;
-        in.initFixed(plain_data);
+        var in: std.io.Reader = .fixed(plain_data);
         var cmp = try pkg.compressor(&compressed, .{});
         try cmp.compress(&in);
         try cmp.finish();
 
-        var compressed_br: std.io.BufferedReader = undefined;
-        compressed_br.initFixed(&buffer1);
+        var compressed_br: std.io.Reader = .fixed(&buffer1);
         var dcp = pkg.decompressor(&compressed_br);
         try dcp.decompress(&plain);
         try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
@@ -554,12 +541,10 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
             var compressed: std.io.BufferedWriter = undefined;
             compressed.initFixed(&buffer1);
 
-            var in: std.io.BufferedReader = undefined;
-            in.initFixed(plain_data);
+            var in: std.io.Reader = .fixed(plain_data);
             try pkg.huffman.compress(&in, &compressed);
 
-            var compressed_br: std.io.BufferedReader = undefined;
-            compressed_br.initFixed(&buffer1);
+            var compressed_br: std.io.Reader = .fixed(&buffer1);
             try pkg.decompress(&compressed_br, &plain);
             try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
         }
@@ -571,14 +556,12 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
             var compressed: std.io.BufferedWriter = undefined;
             compressed.initFixed(&buffer1);
 
-            var in: std.io.BufferedReader = undefined;
-            in.initFixed(plain_data);
+            var in: std.io.Reader = .fixed(plain_data);
             var cmp = try pkg.huffman.compressor(&compressed);
             try cmp.compress(&in);
             try cmp.finish();
 
-            var compressed_br: std.io.BufferedReader = undefined;
-            compressed_br.initFixed(&buffer1);
+            var compressed_br: std.io.Reader = .fixed(&buffer1);
             try pkg.decompress(&compressed_br, &plain);
             try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
         }
@@ -593,12 +576,10 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
             var compressed: std.io.BufferedWriter = undefined;
             compressed.initFixed(&buffer1);
 
-            var in: std.io.BufferedReader = undefined;
-            in.initFixed(plain_data);
+            var in: std.io.Reader = .fixed(plain_data);
             try pkg.store.compress(&in, &compressed);
 
-            var compressed_br: std.io.BufferedReader = undefined;
-            compressed_br.initFixed(&buffer1);
+            var compressed_br: std.io.Reader = .fixed(&buffer1);
             try pkg.decompress(&compressed_br, &plain);
             try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
         }
@@ -610,14 +591,12 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
             var compressed: std.io.BufferedWriter = undefined;
             compressed.initFixed(&buffer1);
 
-            var in: std.io.BufferedReader = undefined;
-            in.initFixed(plain_data);
+            var in: std.io.Reader = .fixed(plain_data);
             var cmp = try pkg.store.compressor(&compressed);
             try cmp.compress(&in);
             try cmp.finish();
 
-            var compressed_br: std.io.BufferedReader = undefined;
-            compressed_br.initFixed(&buffer1);
+            var compressed_br: std.io.Reader = .fixed(&buffer1);
             try pkg.decompress(&compressed_br, &plain);
             try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
         }
@@ -650,8 +629,7 @@ test "zlib should not overshoot" {
         0x03, 0x00, 0x8b, 0x61, 0x0f, 0xa4, 0x52, 0x5a, 0x94, 0x12,
     };
 
-    var stream: std.io.BufferedReader = undefined;
-    stream.initFixed(&data);
+    var stream: std.io.Reader = .fixed(&data);
     const reader = stream.reader();
 
     var dcp = Decompress.init(reader);

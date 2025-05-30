@@ -1,6 +1,6 @@
 //! Optimized for performance in debug builds.
 
-// TODO I'm pretty sure this can be deleted thanks to the new std.io.BufferedReader semantics
+// TODO I'm pretty sure this can be deleted thanks to the new std.io.Reader semantics
 
 const std = @import("../std.zig");
 const MemoryAccessor = std.debug.MemoryAccessor;
@@ -52,7 +52,7 @@ pub fn readIntChecked(
 }
 
 pub fn readLeb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
-    var br: std.io.BufferedReader = undefined;
+    var br: std.io.Reader = undefined;
     br.initFixed(@constCast(fbr.buf));
     br.seek = fbr.pos;
     const result = br.takeLeb128(T);

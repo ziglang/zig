@@ -54,7 +54,7 @@ pub const Tz = struct {
         },
     };
 
-    pub fn parse(allocator: std.mem.Allocator, reader: *std.io.BufferedReader) !Tz {
+    pub fn parse(allocator: std.mem.Allocator, reader: *std.io.Reader) !Tz {
         var legacy_header = try reader.takeStruct(Header);
         if (!std.mem.eql(u8, &legacy_header.magic, "TZif")) return error.BadHeader;
         if (legacy_header.version != 0 and legacy_header.version != '2' and legacy_header.version != '3') return error.BadVersion;
@@ -215,7 +215,7 @@ pub const Tz = struct {
 
 test "slim" {
     const data = @embedFile("tz/asia_tokyo.tzif");
-    var in_stream: std.io.BufferedReader = undefined;
+    var in_stream: std.io.Reader = undefined;
     in_stream.initFixed(data);
 
     var tz = try std.Tz.parse(std.testing.allocator, &in_stream);
@@ -229,7 +229,7 @@ test "slim" {
 
 test "fat" {
     const data = @embedFile("tz/antarctica_davis.tzif");
-    var in_stream: std.io.BufferedReader = undefined;
+    var in_stream: std.io.Reader = undefined;
     in_stream.initFixed(data);
 
     var tz = try std.Tz.parse(std.testing.allocator, &in_stream);
@@ -243,7 +243,7 @@ test "fat" {
 test "legacy" {
     // Taken from Slackware 8.0, from 2001
     const data = @embedFile("tz/europe_vatican.tzif");
-    var in_stream: std.io.BufferedReader = undefined;
+    var in_stream: std.io.Reader = undefined;
     in_stream.initFixed(data);
 
     var tz = try std.Tz.parse(std.testing.allocator, &in_stream);

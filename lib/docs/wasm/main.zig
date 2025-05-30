@@ -778,8 +778,7 @@ export fn decl_type_html(decl_index: Decl.Index) String {
 const Oom = error{OutOfMemory};
 
 fn unpackInner(tar_bytes: []u8) !void {
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(tar_bytes);
+    var br: std.io.Reader = .fixed(tar_bytes);
     var file_name_buffer: [1024]u8 = undefined;
     var link_name_buffer: [1024]u8 = undefined;
     var it = std.tar.Iterator.init(&br, .{

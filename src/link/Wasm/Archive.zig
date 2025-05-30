@@ -167,10 +167,8 @@ pub fn parseObject(
     };
 
     const object_file_size = try header.parsedSize();
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(file_contents[object_offset + @sizeOf(Header) ..][0..object_file_size]);
-
-    return Object.parse(wasm, &br, path, object_name, host_name, scratch_space, must_link, gc_sections);
+    var r: std.io.Reader = .fixed(file_contents[object_offset + @sizeOf(Header) ..][0..object_file_size]);
+    return Object.parse(wasm, &r, path, object_name, host_name, scratch_space, must_link, gc_sections);
 }
 
 const Archive = @This();

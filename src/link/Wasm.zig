@@ -2087,10 +2087,9 @@ pub const Expr = enum(u32) {
     pub const end = @intFromEnum(std.wasm.Opcode.end);
 
     pub fn slice(index: Expr, wasm: *const Wasm) [:end]const u8 {
-        var br: std.io.BufferedReader = undefined;
-        br.initFixed(wasm.string_bytes.items[@intFromEnum(index)..]);
-        Object.skipInit(&br) catch unreachable;
-        return br.storageBuffer()[0 .. br.seek - 1 :end];
+        var r: std.io.Reader = .fixed(wasm.string_bytes.items[@intFromEnum(index)..]);
+        Object.skipInit(&r) catch unreachable;
+        return r.storageBuffer()[0 .. r.seek - 1 :end];
     }
 };
 
@@ -3038,7 +3037,7 @@ fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
     const stat = try obj.file.stat();
     const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
-    var br: std.io.BufferedReader = undefined;
+    var br: std.io.Reader = undefined;
     br.initFixed(try gpa.alloc(u8, size));
     defer gpa.free(br.storageBuffer());
 

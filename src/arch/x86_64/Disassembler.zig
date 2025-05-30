@@ -372,7 +372,7 @@ fn parseGpRegister(low_enc: u3, is_extended: bool, rex: Rex, bit_size: u64) Regi
 }
 
 fn parseImm(dis: *Disassembler, kind: Encoding.Op) !Immediate {
-    var br: std.io.BufferedReader = undefined;
+    var br: std.io.Reader = undefined;
     br.initFixed(dis.code[dis.pos..]);
     defer dis.pos += br.seek;
     return switch (kind) {
@@ -388,7 +388,7 @@ fn parseImm(dis: *Disassembler, kind: Encoding.Op) !Immediate {
 }
 
 fn parseOffset(dis: *Disassembler) !u64 {
-    var br: std.io.BufferedReader = undefined;
+    var br: std.io.Reader = undefined;
     br.initFixed(dis.code[dis.pos..]);
     defer dis.pos += br.seek;
     return br.takeInt(u64, .little);
@@ -464,8 +464,7 @@ fn parseSibByte(dis: *Disassembler) !Sib {
 }
 
 fn parseDisplacement(dis: *Disassembler, modrm: ModRm, sib: ?Sib) !i32 {
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(dis.code[dis.pos..]);
+    var br: std.io.Reader = .fixed(dis.code[dis.pos..]);
     defer dis.pos += br.seek;
     if (sib) |info| {
         if (info.base == 0b101 and modrm.mod == 0) {

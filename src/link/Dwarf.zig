@@ -142,8 +142,7 @@ const DebugInfo = struct {
             &abbrev_code_buf,
             debug_info.section.off(dwarf) + unit_ptr.off + unit_ptr.header_len + entry_ptr.off,
         ) != abbrev_code_buf.len) return error.InputOutput;
-        var abbrev_code_br: std.io.BufferedReader = undefined;
-        abbrev_code_br.initFixed(&abbrev_code_buf);
+        var abbrev_code_br: std.io.Reader = .fixed(&abbrev_code_buf);
         return @enumFromInt(abbrev_code_br.takeLeb128(@typeInfo(AbbrevCode).@"enum".tag_type) catch unreachable);
     }
 
@@ -2757,7 +2756,7 @@ fn finishWipNavFuncInner(
             try dibw.writeLeb128(@intFromEnum(AbbrevCode.null));
         } else {
             const abbrev_code_buf = wip_nav.debug_info.getWritten()[0..AbbrevCode.decl_bytes];
-            var abbrev_code_br: std.io.BufferedReader = undefined;
+            var abbrev_code_br: std.io.Reader = undefined;
             abbrev_code_br.initFixed(abbrev_code_buf);
             const abbrev_code: AbbrevCode = @enumFromInt(abbrev_code_br.takeLeb128(@typeInfo(AbbrevCode).@"enum".tag_type) catch unreachable);
             std.leb.writeUnsignedFixed(

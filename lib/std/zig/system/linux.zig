@@ -342,9 +342,8 @@ fn testParser(
     expected_model: *const Target.Cpu.Model,
     input: []const u8,
 ) !void {
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(@constCast(input));
-    const result = try parser.parse(arch, &br);
+    var r: std.io.Reader = .fixed(input);
+    const result = try parser.parse(arch, &r);
     try testing.expectEqual(expected_model, result.?.model);
     try testing.expect(expected_model.features.eql(result.?.features));
 }

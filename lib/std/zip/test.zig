@@ -51,7 +51,7 @@ const FileStore = struct {
     uncompressed_size: usize,
 };
 
-fn makeZip(file_writer: *std.fs.File.Writer, files: []const File, options: WriteZipOptions) !std.io.BufferedReader {
+fn makeZip(file_writer: *std.fs.File.Writer, files: []const File, options: WriteZipOptions) !std.io.Reader {
     const store = try std.testing.allocator.alloc(FileStore, files.len);
     defer std.testing.allocator.free(store);
     return makeZipWithStore(file_writer, files, options, store);
@@ -198,7 +198,7 @@ const Zipper = struct {
             },
             .deflate => {
                 const offset = writer.count;
-                var br: std.io.BufferedReader = undefined;
+                var br: std.io.Reader = undefined;
                 br.initFixed(@constCast(opt.content));
                 var compress: std.compress.flate.Compress = .init(&br, .{});
                 var compress_br = compress.readable(&.{});

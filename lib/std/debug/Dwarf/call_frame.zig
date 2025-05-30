@@ -136,7 +136,7 @@ pub const Instruction = union(Opcode) {
     },
 
     pub fn read(
-        reader: *std.io.BufferedReader,
+        reader: *std.io.Reader,
         addr_size_bytes: u8,
         endian: std.builtin.Endian,
     ) !Instruction {

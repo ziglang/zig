@@ -510,10 +510,10 @@ pub const Header = struct {
 
     pub const ReadError = std.io.Reader.Error || ParseError;
 
-    pub fn read(br: *std.io.BufferedReader) ReadError!Header {
-        const buf = try br.peek(@sizeOf(Elf64_Ehdr));
+    pub fn read(r: *std.io.Reader) ReadError!Header {
+        const buf = try r.peek(@sizeOf(Elf64_Ehdr));
         const result = try parse(@ptrCast(buf));
-        br.toss(if (result.is_64) @sizeOf(Elf64_Ehdr) else @sizeOf(Elf32_Ehdr));
+        r.toss(if (result.is_64) @sizeOf(Elf64_Ehdr) else @sizeOf(Elf32_Ehdr));
         return result;
     }
 
