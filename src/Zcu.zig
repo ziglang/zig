@@ -2828,7 +2828,7 @@ pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
     };
 }
 
-pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *std.io.BufferedReader) !Zir {
+pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *std.io.Reader) !Zir {
     var instructions: std.MultiArrayList(Zir.Inst) = .{};
     errdefer instructions.deinit(gpa);
 
@@ -2947,7 +2947,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
     };
 }
 
-pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_br: *std.io.BufferedReader) !Zoir {
+pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_br: *std.io.Reader) !Zoir {
     var zoir: Zoir = .{
         .nodes = .empty,
         .extra = &.{},

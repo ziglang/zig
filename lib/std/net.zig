@@ -1378,7 +1378,7 @@ fn parseHosts(
     name: []const u8,
     family: posix.sa_family_t,
     port: u16,
-    br: *std.io.BufferedReader,
+    br: *std.io.Reader,
 ) error{ OutOfMemory, ReadFailed }!void {
     while (true) {
         const line = br.takeDelimiterExclusive('\n') catch |err| switch (err) {
@@ -1592,7 +1592,7 @@ const ResolvConf = struct {
         };
     }
 
-    fn parse(rc: *ResolvConf, br: *std.io.BufferedReader) !void {
+    fn parse(rc: *ResolvConf, br: *std.io.Reader) !void {
         const gpa = rc.gpa;
         while (br.takeSentinel('\n')) |line_with_comment| {
             const line = line: {

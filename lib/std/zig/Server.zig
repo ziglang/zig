@@ -1,4 +1,4 @@
-in: *std.io.BufferedReader,
+in: *std.io.Reader,
 out: *std.io.BufferedWriter,
 
 pub const Message = struct {
@@ -93,7 +93,7 @@ pub const Message = struct {
 };
 
 pub const Options = struct {
-    in: *std.io.BufferedReader,
+    in: *std.io.Reader,
     out: *std.io.BufferedWriter,
     zig_version: []const u8,
 };

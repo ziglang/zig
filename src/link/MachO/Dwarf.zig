@@ -273,10 +273,9 @@ pub const InfoReader = struct {
     }
 
     pub fn readLeb128(p: *InfoReader, comptime Type: type) !Type {
-        var br: std.io.BufferedReader = undefined;
-        br.initFixed(p.bytes()[p.pos..]);
-        defer p.pos += br.seek;
-        return br.takeLeb128(Type);
+        var r: std.io.Reader = .fixed(p.bytes()[p.pos..]);
+        defer p.pos += r.seek;
+        return r.takeLeb128(Type);
     }
 
     pub fn seekTo(p: *InfoReader, off: u64) !void {
@@ -331,10 +330,9 @@ pub const AbbrevReader = struct {
     }
 
     pub fn readLeb128(p: *AbbrevReader, comptime Type: type) !Type {
-        var br: std.io.BufferedReader = undefined;
-        br.initFixed(p.bytes()[p.pos..]);
-        defer p.pos += br.seek;
-        return br.takeLeb128(Type);
+        var r: std.io.Reader = .fixed(p.bytes()[p.pos..]);
+        defer p.pos += r.seek;
+        return r.takeLeb128(Type);
     }
 
     pub fn seekTo(p: *AbbrevReader, off: u64) !void {

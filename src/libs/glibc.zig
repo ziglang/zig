@@ -793,8 +793,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         // twice, which causes a "duplicate symbol" assembler error.
         var versions_written = std.AutoArrayHashMap(Version, void).init(arena);
 
-        var inc_br: std.io.BufferedReader = undefined;
-        inc_br.initFixed(metadata.inclusions);
+        var inc_br: std.io.Reader = .fixed(metadata.inclusions);
 
         const fn_inclusions_len = try inc_br.takeInt(u16, .little);
 

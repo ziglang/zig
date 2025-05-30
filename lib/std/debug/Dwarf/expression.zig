@@ -774,8 +774,7 @@ pub fn StackMachine(comptime options: Options) type {
         }
 
         fn nextLeb128(expression: []const u8, i: *usize, comptime I: type) !I {
-            var br: std.io.BufferedReader = undefined;
-            br.initFixed(@constCast(expression));
+            var br: std.io.Reader = .fixed(expression);
             br.seek = i.*;
             assert(br.seek <= br.end);
             const result = br.takeLeb128(I) catch |err| switch (err) {

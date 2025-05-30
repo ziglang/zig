@@ -114,32 +114,27 @@ test writeSignedFixed {
 }
 
 fn test_read_stream_ileb128(comptime T: type, encoded: []const u8) !T {
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(encoded);
+    var br: std.io.Reader = .fixed(encoded);
     return br.takeIleb128(T);
 }
 
 fn test_read_stream_uleb128(comptime T: type, encoded: []const u8) !T {
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(encoded);
+    var br: std.io.Reader = .fixed(encoded);
     return br.takeUleb128(T);
 }
 
 fn test_read_ileb128(comptime T: type, encoded: []const u8) !T {
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(encoded);
+    var br: std.io.Reader = .fixed(encoded);
     return br.readIleb128(T);
 }
 
 fn test_read_uleb128(comptime T: type, encoded: []const u8) !T {
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(encoded);
+    var br: std.io.Reader = .fixed(encoded);
     return br.readUleb128(T);
 }
 
 fn test_read_ileb128_seq(comptime T: type, comptime N: usize, encoded: []const u8) !void {
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(encoded);
+    var br: std.io.Reader = .fixed(encoded);
     var i: usize = 0;
     while (i < N) : (i += 1) {
         _ = try br.readIleb128(T);
@@ -147,8 +142,7 @@ fn test_read_ileb128_seq(comptime T: type, comptime N: usize, encoded: []const u
 }
 
 fn test_read_uleb128_seq(comptime T: type, comptime N: usize, encoded: []const u8) !void {
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(encoded);
+    var br: std.io.Reader = .fixed(encoded);
     var i: usize = 0;
     while (i < N) : (i += 1) {
         _ = try br.readUleb128(T);
@@ -248,7 +242,7 @@ fn test_write_leb128(value: anytype) !void {
     const t_signed = signedness == .signed;
 
     const writeStream = if (t_signed) std.io.BufferedWriter.writeIleb128 else std.io.BufferedWriter.writeUleb128;
-    const readStream = if (t_signed) std.io.BufferedReader.readIleb128 else std.io.BufferedReader.readUleb128;
+    const readStream = if (t_signed) std.io.Reader.readIleb128 else std.io.Reader.readUleb128;
 
     // decode to a larger bit size too, to ensure sign extension
     // is working as expected
@@ -275,8 +269,7 @@ fn test_write_leb128(value: anytype) !void {
     try testing.expect(bw.buffer.items.len == bytes_needed);
 
     // stream read
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(&buf);
+    var br: std.io.Reader = .fixed(&buf);
     const sr = try readStream(&br, T);
     try testing.expect(br.seek == bytes_needed);
     try testing.expect(sr == value);

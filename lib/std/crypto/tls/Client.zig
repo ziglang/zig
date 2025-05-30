@@ -21,7 +21,7 @@ const array = tls.array;
 /// here via `reader`.
 ///
 /// The buffer is asserted to have capacity at least `min_buffer_len`.
-input: *std.io.BufferedReader,
+input: *std.io.Reader,
 
 /// The encrypted stream from the client to the server. Bytes are pushed here
 /// via `writer`.
@@ -85,7 +85,7 @@ pub const SslKeyLog = struct {
     }
 };
 
-/// The `std.io.BufferedReader` supplied to `init` requires a buffer capacity
+/// The `std.io.Reader` supplied to `init` requires a buffer capacity
 /// at least this amount.
 pub const min_buffer_len = tls.max_ciphertext_record_len;
 
@@ -175,7 +175,7 @@ const InitError = error{
 /// `input` is asserted to have buffer capacity at least `min_buffer_len`.
 pub fn init(
     client: *Client,
-    input: *std.io.BufferedReader,
+    input: *std.io.Reader,
     output: *std.io.BufferedWriter,
     options: Options,
 ) InitError!void {

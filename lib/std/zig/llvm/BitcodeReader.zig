@@ -1,6 +1,6 @@
 allocator: std.mem.Allocator,
 record_arena: std.heap.ArenaAllocator.State,
-br: *std.io.BufferedReader,
+reader: *std.io.Reader,
 keep_names: bool,
 bit_buffer: u32,
 bit_offset: u5,
@@ -93,14 +93,14 @@ pub const Record = struct {
 };
 
 pub const InitOptions = struct {
-    br: *std.io.BufferedReader,
+    reader: *std.io.Reader,
     keep_names: bool = false,
 };
 pub fn init(allocator: std.mem.Allocator, options: InitOptions) BitcodeReader {
     return .{
         .allocator = allocator,
         .record_arena = .{},
-        .br = options.br,
+        .reader = options.reader,
         .keep_names = options.keep_names,
         .bit_buffer = 0,
         .bit_offset = 0,
@@ -172,7 +172,7 @@ pub fn next(bc: *BitcodeReader) !?Item {
 
 pub fn skipBlock(bc: *BitcodeReader, block: Block) !void {
     assert(bc.bit_offset == 0);
-    try bc.br.discard(4 * @as(u34, block.len));
+    try bc.reader.discard(4 * @as(u34, block.len));
     try bc.endBlock();
 }
 
@@ -371,17 +371,17 @@ fn align32Bits(bc: *BitcodeReader) void {
 
 fn read32Bits(bc: *BitcodeReader) !u32 {
     assert(bc.bit_offset == 0);
-    return bc.br.takeInt(u32, .little);
+    return bc.reader.takeInt(u32, .little);
 }
 
 fn readBytes(bc: *BitcodeReader, bytes: []u8) !void {
     assert(bc.bit_offset == 0);
-    try bc.br.read(bytes);
+    try bc.reader.read(bytes);
 
     const trailing_bytes = bytes.len % 4;
     if (trailing_bytes > 0) {
         var bit_buffer: [4]u8 = @splat(0);
-        try bc.br.read(bit_buffer[trailing_bytes..]);
+        try bc.reader.read(bit_buffer[trailing_bytes..]);
         bc.bit_buffer = std.mem.readInt(u32, &bit_buffer, .little);
         bc.bit_offset = @intCast(8 * trailing_bytes);
     }

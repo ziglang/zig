@@ -390,7 +390,7 @@ fn receiveWasmMessage(
     gpa: Allocator,
     arena: Allocator,
     context: *Context,
-    br: *std.io.BufferedReader,
+    br: *std.io.Reader,
     result: *?Cache.Path,
     result_error_bundle: *std.zig.ErrorBundle,
 ) !void {

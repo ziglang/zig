@@ -167,7 +167,7 @@ pub fn addExport(self: *Dylib, allocator: Allocator, name: []const u8, flags: Ex
 
 fn parseTrieNode(
     self: *Dylib,
-    br: *std.io.BufferedReader,
+    br: *std.io.Reader,
     allocator: Allocator,
     arena: Allocator,
     prefix: []const u8,
@@ -216,9 +216,8 @@ fn parseTrie(self: *Dylib, data: []const u8, macho_file: *MachO) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
-    var br: std.io.BufferedReader = undefined;
-    br.initFixed(data);
-    try self.parseTrieNode(&br, gpa, arena.allocator(), "");
+    var r: std.io.Reader = .fixed(data);
+    try self.parseTrieNode(&r, gpa, arena.allocator(), "");
 }
 
 fn parseTbd(self: *Dylib, macho_file: *MachO) !void {
