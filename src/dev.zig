@@ -1,5 +1,8 @@
 pub const Env = enum {
     /// zig1 features
+    /// - `-ofmt=c` only
+    /// - `-OReleaseFast` or `-OReleaseSmall` only
+    /// - no `@setRuntimeSafety(true)`
     bootstrap,
 
     /// zig2 features
