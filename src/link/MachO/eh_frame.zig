@@ -12,34 +12,33 @@ pub const Cie = struct {
         const tracy = trace(@src());
         defer tracy.end();
 
-        var br: std.io.BufferedReader = undefined;
-        br.initFixed(cie.getData(macho_file));
+        var r: std.io.Reader = .fixed(cie.getData(macho_file));
 
-        try br.discard(9);
-        const aug = try br.takeSentinel(0);
+        try r.discard(9);
+        const aug = try r.takeSentinel(0);
         if (aug[0] != 'z') return; // TODO should we error out?
 
-        _ = try br.takeLeb128(u64); // code alignment factor
-        _ = try br.takeLeb128(u64); // data alignment factor
-        _ = try br.takeLeb128(u64); // return address register
-        _ = try br.takeLeb128(u64); // augmentation data length
+        _ = try r.takeLeb128(u64); // code alignment factor
+        _ = try r.takeLeb128(u64); // data alignment factor
+        _ = try r.takeLeb128(u64); // return address register
+        _ = try r.takeLeb128(u64); // augmentation data length
 
         for (aug[1..]) |ch| switch (ch) {
             'R' => {
-                const enc = try br.takeByte();
+                const enc = try r.takeByte();
                 if (enc != DW_EH_PE.pcrel | DW_EH_PE.absptr) {
                     @panic("unexpected pointer encoding"); // TODO error
                 }
             },
             'P' => {
-                const enc = try br.takeByte();
+                const enc = try r.takeByte();
                 if (enc != DW_EH_PE.pcrel | DW_EH_PE.indirect | DW_EH_PE.sdata4) {
                     @panic("unexpected personality pointer encoding"); // TODO error
                 }
-                _ = try br.takeInt(u32, .little); // personality pointer
+                _ = try r.takeInt(u32, .little); // personality pointer
             },
             'L' => {
-                const enc = try br.takeByte();
+                const enc = try r.takeByte();
                 switch (enc & DW_EH_PE.type_mask) {
                     DW_EH_PE.sdata4 => cie.lsda_size = .p32,
                     DW_EH_PE.absptr => cie.lsda_size = .p64,
@@ -143,7 +142,7 @@ pub const Fde = struct {
         const object = fde.getObject(macho_file);
         const sect = object.sections.items(.header)[object.eh_frame_sect_index.?];
 
-        var br: std.io.BufferedReader = undefined;
+        var br: std.io.Reader = undefined;
         br.initFixed(fde.getData(macho_file));
 
         try br.discard(4);
@@ -267,7 +266,7 @@ pub const Fde = struct {
 };
 
 pub const Iterator = struct {
-    br: std.io.BufferedReader,
+    br: std.io.Reader,
 
     pub const Record = struct {
         tag: enum { fde, cie },

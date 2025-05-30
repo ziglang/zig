@@ -233,7 +233,7 @@ pub const Connection = struct {
     writer: std.io.BufferedWriter,
     /// HTTP protocol from server to client.
     /// This either comes directly from `stream_reader`, or from a TLS client.
-    reader: std.io.BufferedReader,
+    reader: std.io.Reader,
     /// Entry in `ConnectionPool.used` or `ConnectionPool.free`.
     pool_node: std.DoublyLinkedList.Node,
     port: u16,
@@ -300,7 +300,7 @@ pub const Connection = struct {
         /// Data from `client` to `Connection.stream`.
         writer: std.io.BufferedWriter,
         /// Data from `Connection.stream` to `client`.
-        reader: std.io.BufferedReader,
+        reader: std.io.Reader,
         client: std.crypto.tls.Client,
         connection: Connection,
 

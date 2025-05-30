@@ -67,7 +67,7 @@ pub fn writeFileStream(
     w: *Writer,
     sub_path: []const u8,
     size: usize,
-    reader: *std.io.BufferedReader,
+    reader: *std.io.Reader,
     options: Options,
 ) std.io.Reader.StreamError!void {
     try w.writeHeader(.regular, sub_path, "", @intCast(size), options);
@@ -441,7 +441,7 @@ test "write files" {
         for (files) |file|
             try wrt.writeFileBytes(file.path, file.content, .{});
 
-        var input: std.io.BufferedReader = undefined;
+        var input: std.io.Reader = undefined;
         input.initFixed(output.getWritten());
         var iter = std.tar.iterator(&input, .{
             .file_name_buffer = &file_name_buffer,
@@ -476,12 +476,12 @@ test "write files" {
         var wrt: Writer = .{ .underlying_writer = &output.buffered_writer };
         defer output.deinit();
         for (files) |file| {
-            var content: std.io.BufferedReader = undefined;
+            var content: std.io.Reader = undefined;
             content.initFixed(file.content);
             try wrt.writeFileStream(file.path, file.content.len, &content, .{});
         }
 
-        var input: std.io.BufferedReader = undefined;
+        var input: std.io.Reader = undefined;
         input.initFixed(output.getWritten());
         var iter = std.tar.iterator(&input, .{
             .file_name_buffer = &file_name_buffer,

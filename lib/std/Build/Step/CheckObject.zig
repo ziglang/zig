@@ -1238,8 +1238,7 @@ const MachODumper = struct {
         }
 
         fn parseRebaseInfo(ctx: ObjectContext, data: []const u8, rebases: *std.ArrayList(u64)) !void {
-            var br: std.io.BufferedReader = undefined;
-            br.initFixed(@constCast(data));
+            var br: std.io.Reader = .fixed(data);
 
             var seg_id: ?u8 = null;
             var offset: u64 = 0;
@@ -1349,7 +1348,7 @@ const MachODumper = struct {
         }
 
         fn parseBindInfo(ctx: ObjectContext, data: []const u8, bindings: *std.ArrayList(Binding)) !void {
-            var br: std.io.BufferedReader = undefined;
+            var br: std.io.Reader = undefined;
             br.initFixed(@constCast(data));
 
             var seg_id: ?u8 = null;
@@ -1447,7 +1446,7 @@ const MachODumper = struct {
             defer arena.deinit();
 
             var exports: std.ArrayList(Export) = .init(arena.allocator());
-            var br: std.io.BufferedReader = undefined;
+            var br: std.io.Reader = undefined;
             br.initFixed(@constCast(data));
             try parseTrieNode(arena.allocator(), &br, "", &exports);
 
@@ -1517,7 +1516,7 @@ const MachODumper = struct {
 
         fn parseTrieNode(
             arena: Allocator,
-            br: *std.io.BufferedReader,
+            br: *std.io.Reader,
             prefix: []const u8,
             exports: *std.ArrayList(Export),
         ) !void {
@@ -1705,7 +1704,7 @@ const ElfDumper = struct {
 
     fn parseAndDumpArchive(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var br: std.io.BufferedReader = undefined;
+        var br: std.io.Reader = undefined;
         br.initFixed(@constCast(bytes));
 
         if (!mem.eql(u8, try br.takeArray(elf.ARMAG.len), elf.ARMAG)) return error.InvalidArchiveMagicNumber;
@@ -1780,7 +1779,7 @@ const ElfDumper = struct {
         }
 
         fn parseSymtab(ctx: *ArchiveContext, data: []const u8, ptr_width: enum { p32, p64 }) !void {
-            var br: std.io.BufferedReader = undefined;
+            var br: std.io.Reader = undefined;
             br.initFixed(@constCast(data));
             const num = switch (ptr_width) {
                 .p32 => try br.takeInt(u32, .big),
@@ -1851,7 +1850,7 @@ const ElfDumper = struct {
 
     fn parseAndDumpObject(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var br: std.io.BufferedReader = undefined;
+        var br: std.io.Reader = undefined;
         br.initFixed(@constCast(bytes));
 
         const hdr = try br.takeStruct(elf.Elf64_Ehdr);
@@ -2354,7 +2353,7 @@ const WasmDumper = struct {
 
     fn parseAndDump(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var br: std.io.BufferedReader = undefined;
+        var br: std.io.Reader = undefined;
         br.initFixed(@constCast(bytes));
 
         const buf = try br.takeArray(8);
@@ -2376,10 +2375,10 @@ const WasmDumper = struct {
     fn parseAndDumpInner(
         step: *Step,
         check: Check,
-        br: *std.io.BufferedReader,
+        br: *std.io.Reader,
         bw: *std.io.BufferedWriter,
     ) !void {
-        var section_br: std.io.BufferedReader = undefined;
+        var section_br: std.io.Reader = undefined;
         switch (check.kind) {
             .headers => while (br.takeEnum(std.wasm.Section, .little)) |section| {
                 section_br.initFixed(try br.take(try br.takeLeb128(u32)));
@@ -2396,7 +2395,7 @@ const WasmDumper = struct {
     fn parseAndDumpSection(
         step: *Step,
         section: std.wasm.Section,
-        br: *std.io.BufferedReader,
+        br: *std.io.Reader,
         bw: *std.io.BufferedWriter,
     ) !void {
         try bw.print(
@@ -2445,7 +2444,7 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseSection(step: *Step, section: std.wasm.Section, br: *std.io.BufferedReader, entries: u32, bw: *std.io.BufferedWriter) !void {
+    fn parseSection(step: *Step, section: std.wasm.Section, br: *std.io.Reader, entries: u32, bw: *std.io.BufferedWriter) !void {
         switch (section) {
             .type => {
                 var i: u32 = 0;
@@ -2576,7 +2575,7 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpType(step: *Step, comptime E: type, br: *std.io.BufferedReader, bw: *std.io.BufferedWriter) !E {
+    fn parseDumpType(step: *Step, comptime E: type, br: *std.io.Reader, bw: *std.io.BufferedWriter) !E {
         const tag = br.takeEnum(E, .little) catch |err| switch (err) {
             error.InvalidEnumTag => return step.fail("invalid wasm type value", .{}),
             else => |e| return e,
@@ -2585,7 +2584,7 @@ const WasmDumper = struct {
         return tag;
     }
 
-    fn parseDumpLimits(br: *std.io.BufferedReader, bw: *std.io.BufferedWriter) !void {
+    fn parseDumpLimits(br: *std.io.Reader, bw: *std.io.BufferedWriter) !void {
         const flags = try br.takeLeb128(u8);
         const min = try br.takeLeb128(u32);
 
@@ -2593,7 +2592,7 @@ const WasmDumper = struct {
         if (flags != 0) try bw.print("max {x}\n", .{try br.takeLeb128(u32)});
     }
 
-    fn parseDumpInit(step: *Step, br: *std.io.BufferedReader, bw: *std.io.BufferedWriter) !void {
+    fn parseDumpInit(step: *Step, br: *std.io.Reader, bw: *std.io.BufferedWriter) !void {
         const opcode = br.takeEnum(std.wasm.Opcode, .little) catch |err| switch (err) {
             error.InvalidEnumTag => return step.fail("invalid wasm opcode", .{}),
             else => |e| return e,
@@ -2613,8 +2612,8 @@ const WasmDumper = struct {
     }
 
     /// https://webassembly.github.io/spec/core/appendix/custom.html
-    fn parseDumpNames(step: *Step, br: *std.io.BufferedReader, bw: *std.io.BufferedWriter) !void {
-        var subsection_br: std.io.BufferedReader = undefined;
+    fn parseDumpNames(step: *Step, br: *std.io.Reader, bw: *std.io.BufferedWriter) !void {
+        var subsection_br: std.io.Reader = undefined;
         while (br.seek < br.buffer.len) {
             switch (try parseDumpType(step, std.wasm.NameSubsection, br, bw)) {
                 // The module name subsection ... consists of a single name
@@ -2662,7 +2661,7 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpProducers(br: *std.io.BufferedReader, bw: *std.io.BufferedWriter) !void {
+    fn parseDumpProducers(br: *std.io.Reader, bw: *std.io.BufferedWriter) !void {
         const field_count = try br.takeLeb128(u32);
         try bw.print(
             \\fields {d}
@@ -2690,7 +2689,7 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpFeatures(br: *std.io.BufferedReader, bw: *std.io.BufferedWriter) !void {
+    fn parseDumpFeatures(br: *std.io.Reader, bw: *std.io.BufferedWriter) !void {
         const feature_count = try br.takeLeb128(u32);
         try bw.print(
             \\features {d}

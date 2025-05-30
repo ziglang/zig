@@ -2235,8 +2235,7 @@ pub const ElfModule = struct {
 
             const section_bytes = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             sections[section_index.?] = if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) blk: {
-                var section_reader: std.io.BufferedReader = undefined;
-                section_reader.initFixed(@constCast(section_bytes));
+                var section_reader: std.io.Reader = .fixed(section_bytes);
                 const chdr = section_reader.takeStruct(elf.Chdr) catch continue;
                 if (chdr.ch_type != .ZLIB) continue;
                 const ch_size = chdr.ch_size;

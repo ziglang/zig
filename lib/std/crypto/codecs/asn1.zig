@@ -154,8 +154,7 @@ pub const Tag = struct {
 
 test Tag {
     const buf = [_]u8{0xa3};
-    var stream: std.io.BufferedReader = undefined;
-    stream.initFixed(&buf);
+    var stream: std.io.Reader = .fixed(&buf);
     const t = Tag.decode(stream.reader());
     try std.testing.expectEqual(Tag.init(@enumFromInt(3), true, .context_specific), t);
 }
@@ -185,8 +184,7 @@ pub const Element = struct {
     /// - Ensures length is within `bytes`
     /// - Ensures length is less than `std.math.maxInt(Index)`
     pub fn decode(bytes: []const u8, index: Index) DecodeError!Element {
-        var reader: std.io.BufferedReader = undefined;
-        reader.initFixed(bytes[index..]);
+        var reader: std.io.Reader = .fixed(bytes[index..]);
 
         const tag = try Tag.decode(reader);
         const size_or_len_size = try reader.readByte();
