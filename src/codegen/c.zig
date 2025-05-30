@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const log = std.log.scoped(.c);
 
+const dev = @import("../dev.zig");
 const link = @import("../link.zig");
 const Zcu = @import("../Zcu.zig");
 const Module = @import("../Package/Module.zig");
@@ -21,7 +22,12 @@ const BigIntLimb = std.math.big.Limb;
 const BigInt = std.math.big.int;
 
 pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
-    return null;
+    return if (dev.env.supports(.legalize)) comptime &.initMany(&.{
+        .expand_intcast_safe,
+        .expand_add_safe,
+        .expand_sub_safe,
+        .expand_mul_safe,
+    }) else null; // we don't currently ask zig1 to use safe optimization modes
 }
 
 pub const CType = @import("c/Type.zig");
