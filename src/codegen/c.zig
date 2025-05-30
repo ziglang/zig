@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const log = std.log.scoped(.c);
 
+const dev = @import("../dev.zig");
 const link = @import("../link.zig");
 const Zcu = @import("../Zcu.zig");
 const Module = @import("../Package/Module.zig");
@@ -19,6 +20,15 @@ const Alignment = InternPool.Alignment;
 
 const BigIntLimb = std.math.big.Limb;
 const BigInt = std.math.big.int;
+
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return if (dev.env.supports(.legalize)) comptime &.initMany(&.{
+        .expand_intcast_safe,
+        .expand_add_safe,
+        .expand_sub_safe,
+        .expand_mul_safe,
+    }) else null; // we don't currently ask zig1 to use safe optimization modes
+}
 
 pub const CType = @import("c/Type.zig");
 
@@ -206,7 +216,6 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "atomic_ushort", {} },
     .{ "atomic_wchar_t", {} },
     .{ "auto", {} },
-    .{ "bool", {} },
     .{ "break", {} },
     .{ "case", {} },
     .{ "char", {} },
@@ -265,6 +274,11 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "va_arg", {} },
     .{ "va_end", {} },
     .{ "va_copy", {} },
+
+    // stdbool.h
+    .{ "bool", {} },
+    .{ "false", {} },
+    .{ "true", {} },
 
     // stddef.h
     .{ "offsetof", {} },
@@ -1591,7 +1605,7 @@ pub const DeclGen = struct {
                         try writer.writeAll("((");
                         try dg.renderCType(writer, ctype);
                         return writer.print("){x})", .{
-                            try dg.fmtIntLiteral(try pt.undefValue(.usize), .Other),
+                            try dg.fmtIntLiteral(.undef_usize, .Other),
                         });
                     },
                     .slice => {
@@ -1605,7 +1619,7 @@ pub const DeclGen = struct {
                         const ptr_ty = ty.slicePtrFieldType(zcu);
                         try dg.renderType(writer, ptr_ty);
                         return writer.print("){x}, {0x}}}", .{
-                            try dg.fmtIntLiteral(try dg.pt.undefValue(.usize), .Other),
+                            try dg.fmtIntLiteral(.undef_usize, .Other),
                         });
                     },
                 },
@@ -4179,7 +4193,7 @@ fn airOverflow(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: 
     try v.elem(f, w);
     try w.writeAll(", ");
     try f.writeCValue(w, rhs, .FunctionArgument);
-    try v.elem(f, w);
+    if (f.typeOf(bin_op.rhs).isVector(zcu)) try v.elem(f, w);
     try f.object.dg.renderBuiltinInfo(w, scalar_ty, info);
     try w.writeAll(");\n");
     try v.end(f, inst, w);
@@ -6376,7 +6390,7 @@ fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
             if (operand_child_ctype.info(ctype_pool) == .array) {
                 try writer.writeByte('&');
                 try f.writeCValueDeref(writer, operand);
-                try writer.print("[{}]", .{try f.fmtIntLiteral(try pt.intValue(.usize, 0))});
+                try writer.print("[{}]", .{try f.fmtIntLiteral(.zero_usize)});
             } else try f.writeCValue(writer, operand, .Other);
         }
         try a.end(f, writer);
@@ -6536,7 +6550,7 @@ fn airBinBuiltinCall(
     try v.elem(f, writer);
     try writer.writeAll(", ");
     try f.writeCValue(writer, rhs, .FunctionArgument);
-    try v.elem(f, writer);
+    if (f.typeOf(bin_op.rhs).isVector(zcu)) try v.elem(f, writer);
     try f.object.dg.renderBuiltinInfo(writer, scalar_ty, info);
     try writer.writeAll(");\n");
     try v.end(f, inst, writer);
@@ -6907,7 +6921,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         try writer.writeAll("for (");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" = ");
-        try f.object.dg.renderValue(writer, try pt.intValue(.usize, 0), .Other);
+        try f.object.dg.renderValue(writer, .zero_usize, .Other);
         try writer.writeAll("; ");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" != ");
@@ -8311,11 +8325,11 @@ const Vectorize = struct {
 
             try writer.writeAll("for (");
             try f.writeCValue(writer, local, .Other);
-            try writer.print(" = {d}; ", .{try f.fmtIntLiteral(try pt.intValue(.usize, 0))});
+            try writer.print(" = {d}; ", .{try f.fmtIntLiteral(.zero_usize)});
             try f.writeCValue(writer, local, .Other);
             try writer.print(" < {d}; ", .{try f.fmtIntLiteral(try pt.intValue(.usize, ty.vectorLen(zcu)))});
             try f.writeCValue(writer, local, .Other);
-            try writer.print(" += {d}) {{\n", .{try f.fmtIntLiteral(try pt.intValue(.usize, 1))});
+            try writer.print(" += {d}) {{\n", .{try f.fmtIntLiteral(.one_usize)});
             f.object.indent_writer.pushIndent();
 
             break :index .{ .index = local };

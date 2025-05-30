@@ -1,5 +1,7 @@
 const AddOneBit = math.AddOneBit;
+const AsSignedness = math.AsSignedness;
 const cast = math.cast;
+const ChangeScalar = math.ChangeScalar;
 const checkExpected = math.checkExpected;
 const Compare = math.Compare;
 const DoubleBits = math.DoubleBits;
@@ -13,6 +15,7 @@ const math = @import("math.zig");
 const nan = math.nan;
 const Scalar = math.Scalar;
 const sign = math.sign;
+const splat = math.splat;
 const Sse = math.Sse;
 const tmin = math.tmin;
 
@@ -5141,6 +5144,7 @@ inline fn mulSat(comptime Type: type, lhs: Type, rhs: Type) Type {
 test mulSat {
     const test_mul_sat = binary(mulSat, .{});
     try test_mul_sat.testInts();
+    try test_mul_sat.testIntVectors();
 }
 
 inline fn multiply(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs * rhs) {
@@ -5265,9 +5269,9 @@ test mulWithOverflow {
 }
 
 inline fn shlWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: AsSignedness(Type, .unsigned) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
-    return @shlWithOverflow(lhs, if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs);
+    return @shlWithOverflow(lhs, if (comptime cast(Log2Int(Scalar(Type)), @bitSizeOf(Scalar(Type)))) |bits| truncate_rhs % splat(Log2Int(Type), bits) else truncate_rhs);
 }
 test shlWithOverflow {
     const test_shl_with_overflow = binary(shlWithOverflow, .{});
@@ -5280,7 +5284,9 @@ inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
 test equal {
     const test_equal = binary(equal, .{});
     try test_equal.testInts();
+    try test_equal.testIntVectors();
     try test_equal.testFloats();
+    try test_equal.testFloatVectors();
 }
 
 inline fn notEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs != rhs) {
@@ -5289,7 +5295,9 @@ inline fn notEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs != rhs
 test notEqual {
     const test_not_equal = binary(notEqual, .{});
     try test_not_equal.testInts();
+    try test_not_equal.testIntVectors();
     try test_not_equal.testFloats();
+    try test_not_equal.testFloatVectors();
 }
 
 inline fn lessThan(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs < rhs) {
@@ -5298,7 +5306,9 @@ inline fn lessThan(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs < rhs)
 test lessThan {
     const test_less_than = binary(lessThan, .{});
     try test_less_than.testInts();
+    try test_less_than.testIntVectors();
     try test_less_than.testFloats();
+    try test_less_than.testFloatVectors();
 }
 
 inline fn lessThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs <= rhs) {
@@ -5307,7 +5317,9 @@ inline fn lessThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs
 test lessThanOrEqual {
     const test_less_than_or_equal = binary(lessThanOrEqual, .{});
     try test_less_than_or_equal.testInts();
+    try test_less_than_or_equal.testIntVectors();
     try test_less_than_or_equal.testFloats();
+    try test_less_than_or_equal.testFloatVectors();
 }
 
 inline fn greaterThan(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs > rhs) {
@@ -5316,7 +5328,9 @@ inline fn greaterThan(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs > r
 test greaterThan {
     const test_greater_than = binary(greaterThan, .{});
     try test_greater_than.testInts();
+    try test_greater_than.testIntVectors();
     try test_greater_than.testFloats();
+    try test_greater_than.testFloatVectors();
 }
 
 inline fn greaterThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs >= rhs) {
@@ -5325,7 +5339,9 @@ inline fn greaterThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(
 test greaterThanOrEqual {
     const test_greater_than_or_equal = binary(greaterThanOrEqual, .{});
     try test_greater_than_or_equal.testInts();
+    try test_greater_than_or_equal.testIntVectors();
     try test_greater_than_or_equal.testFloats();
+    try test_greater_than_or_equal.testFloatVectors();
 }
 
 inline fn bitAnd(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs & rhs) {
@@ -5347,54 +5363,57 @@ test bitOr {
 }
 
 inline fn shr(comptime Type: type, lhs: Type, rhs: Type) Type {
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: AsSignedness(Type, .unsigned) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
-    return lhs >> if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
+    return lhs >> if (comptime cast(Log2Int(Scalar(Type)), @bitSizeOf(Scalar(Type)))) |bits| truncate_rhs % splat(Log2Int(Type), bits) else truncate_rhs;
 }
 test shr {
     const test_shr = binary(shr, .{});
     try test_shr.testInts();
+    try test_shr.testIntVectors();
 }
 
 inline fn shrExact(comptime Type: type, lhs: Type, rhs: Type) Type {
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: AsSignedness(Type, .unsigned) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
-    const final_rhs = if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
+    const final_rhs = if (comptime cast(Log2Int(Scalar(Type)), @bitSizeOf(Scalar(Type)))) |bits| truncate_rhs % splat(Log2Int(Type), bits) else truncate_rhs;
     return @shrExact(lhs >> final_rhs << final_rhs, final_rhs);
 }
 test shrExact {
     const test_shr_exact = binary(shrExact, .{});
     try test_shr_exact.testInts();
+    try test_shr_exact.testIntVectors();
 }
 
 inline fn shl(comptime Type: type, lhs: Type, rhs: Type) Type {
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: AsSignedness(Type, .unsigned) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
-    return lhs << if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
+    return lhs << if (comptime cast(Log2Int(Scalar(Type)), @bitSizeOf(Scalar(Type)))) |bits| truncate_rhs % splat(Log2Int(Type), bits) else truncate_rhs;
 }
 test shl {
     const test_shl = binary(shl, .{});
     try test_shl.testInts();
+    try test_shl.testIntVectors();
 }
 
 inline fn shlExactUnsafe(comptime Type: type, lhs: Type, rhs: Type) Type {
     @setRuntimeSafety(false);
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: AsSignedness(Type, .unsigned) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
-    const final_rhs = if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
+    const final_rhs = if (comptime cast(Log2Int(Scalar(Type)), @bitSizeOf(Scalar(Type)))) |bits| truncate_rhs % splat(Log2Int(Type), bits) else truncate_rhs;
     return @shlExact(lhs << final_rhs >> final_rhs, final_rhs);
 }
 test shlExactUnsafe {
     const test_shl_exact_unsafe = binary(shlExactUnsafe, .{});
     try test_shl_exact_unsafe.testInts();
+    try test_shl_exact_unsafe.testIntVectors();
 }
 
 inline fn shlSat(comptime Type: type, lhs: Type, rhs: Type) Type {
     // workaround https://github.com/ziglang/zig/issues/23034
     if (@inComptime()) {
         // workaround https://github.com/ziglang/zig/issues/23139
-        //return lhs <<| @min(@abs(rhs), imax(u64));
-        return lhs <<| @min(@abs(rhs), @as(u64, imax(u64)));
+        return lhs <<| @min(@abs(rhs), splat(ChangeScalar(Type, u64), imax(u64)));
     }
     // workaround https://github.com/ziglang/zig/issues/23033
     @setRuntimeSafety(false);
@@ -5403,6 +5422,7 @@ inline fn shlSat(comptime Type: type, lhs: Type, rhs: Type) Type {
 test shlSat {
     const test_shl_sat = binary(shlSat, .{});
     try test_shl_sat.testInts();
+    try test_shl_sat.testIntVectors();
 }
 
 inline fn bitXor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs ^ rhs) {

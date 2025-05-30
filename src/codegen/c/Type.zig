@@ -1408,6 +1408,15 @@ pub const Pool = struct {
                 .bits = pt.zcu.errorSetBits(),
             }, mod, kind),
 
+            .ptr_usize_type,
+            => return pool.getPointer(allocator, .{
+                .elem_ctype = .usize,
+            }),
+            .ptr_const_comptime_int_type,
+            => return pool.getPointer(allocator, .{
+                .elem_ctype = .void,
+                .@"const" = true,
+            }),
             .manyptr_u8_type,
             => return pool.getPointer(allocator, .{
                 .elem_ctype = .u8,
@@ -1416,11 +1425,6 @@ pub const Pool = struct {
             .manyptr_const_u8_sentinel_0_type,
             => return pool.getPointer(allocator, .{
                 .elem_ctype = .u8,
-                .@"const" = true,
-            }),
-            .single_const_pointer_to_comptime_int_type,
-            => return pool.getPointer(allocator, .{
-                .elem_ctype = .void,
                 .@"const" = true,
             }),
             .slice_const_u8_type,
@@ -2157,11 +2161,16 @@ pub const Pool = struct {
             },
 
             .undef,
+            .undef_bool,
+            .undef_usize,
+            .undef_u1,
             .zero,
             .zero_usize,
+            .zero_u1,
             .zero_u8,
             .one,
             .one_usize,
+            .one_u1,
             .one_u8,
             .four_u8,
             .negative_one,
@@ -2172,7 +2181,7 @@ pub const Pool = struct {
             .bool_false,
             .empty_tuple,
             .none,
-            => unreachable,
+            => unreachable, // values, not types
 
             _ => |ip_index| switch (ip.indexToKey(ip_index)) {
                 .int_type => |int_info| return pool.fromIntInfo(allocator, int_info, mod, kind),

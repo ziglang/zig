@@ -368,9 +368,6 @@ pub fn countElementsWithValue(vec: anytype, value: std.meta.Child(@TypeOf(vec)))
 }
 
 test "vector searching" {
-    if (builtin.zig_backend == .stage2_x86_64 and
-        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .ssse3)) return error.SkipZigTest;
-
     const base = @Vector(8, u32){ 6, 4, 7, 4, 4, 2, 3, 7 };
 
     try std.testing.expectEqual(@as(?u3, 1), firstIndexOfValue(base, 4));

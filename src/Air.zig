@@ -50,8 +50,6 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// The panic handler function must be populated before lowering AIR
         /// that contains this instruction.
-        /// This instruction will only be emitted if the backend has the
-        /// feature `safety_checked_instructions`.
         /// Uses the `bin_op` field.
         add_safe,
         /// Float addition. The instruction is allowed to have equal or more
@@ -79,8 +77,6 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// The panic handler function must be populated before lowering AIR
         /// that contains this instruction.
-        /// This instruction will only be emitted if the backend has the
-        /// feature `safety_checked_instructions`.
         /// Uses the `bin_op` field.
         sub_safe,
         /// Float subtraction. The instruction is allowed to have equal or more
@@ -108,8 +104,6 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// The panic handler function must be populated before lowering AIR
         /// that contains this instruction.
-        /// This instruction will only be emitted if the backend has the
-        /// feature `safety_checked_instructions`.
         /// Uses the `bin_op` field.
         mul_safe,
         /// Float multiplication. The instruction is allowed to have equal or more
@@ -1011,10 +1005,11 @@ pub const Inst = struct {
         null_type = @intFromEnum(InternPool.Index.null_type),
         undefined_type = @intFromEnum(InternPool.Index.undefined_type),
         enum_literal_type = @intFromEnum(InternPool.Index.enum_literal_type),
+        ptr_usize_type = @intFromEnum(InternPool.Index.ptr_usize_type),
+        ptr_const_comptime_int_type = @intFromEnum(InternPool.Index.ptr_const_comptime_int_type),
         manyptr_u8_type = @intFromEnum(InternPool.Index.manyptr_u8_type),
         manyptr_const_u8_type = @intFromEnum(InternPool.Index.manyptr_const_u8_type),
         manyptr_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.manyptr_const_u8_sentinel_0_type),
-        single_const_pointer_to_comptime_int_type = @intFromEnum(InternPool.Index.single_const_pointer_to_comptime_int_type),
         slice_const_u8_type = @intFromEnum(InternPool.Index.slice_const_u8_type),
         slice_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.slice_const_u8_sentinel_0_type),
         vector_8_i8_type = @intFromEnum(InternPool.Index.vector_8_i8_type),
@@ -1070,11 +1065,16 @@ pub const Inst = struct {
         generic_poison_type = @intFromEnum(InternPool.Index.generic_poison_type),
         empty_tuple_type = @intFromEnum(InternPool.Index.empty_tuple_type),
         undef = @intFromEnum(InternPool.Index.undef),
+        undef_bool = @intFromEnum(InternPool.Index.undef_bool),
+        undef_usize = @intFromEnum(InternPool.Index.undef_usize),
+        undef_u1 = @intFromEnum(InternPool.Index.undef_u1),
         zero = @intFromEnum(InternPool.Index.zero),
         zero_usize = @intFromEnum(InternPool.Index.zero_usize),
+        zero_u1 = @intFromEnum(InternPool.Index.zero_u1),
         zero_u8 = @intFromEnum(InternPool.Index.zero_u8),
         one = @intFromEnum(InternPool.Index.one),
         one_usize = @intFromEnum(InternPool.Index.one_usize),
+        one_u1 = @intFromEnum(InternPool.Index.one_u1),
         one_u8 = @intFromEnum(InternPool.Index.one_u8),
         four_u8 = @intFromEnum(InternPool.Index.four_u8),
         negative_one = @intFromEnum(InternPool.Index.negative_one),
@@ -1121,7 +1121,7 @@ pub const Inst = struct {
         }
 
         pub fn toType(ref: Ref) Type {
-            return Type.fromInterned(ref.toInterned().?);
+            return .fromInterned(ref.toInterned().?);
         }
     };
 
@@ -1241,10 +1241,10 @@ pub const CondBr = struct {
     else_body_len: u32,
     branch_hints: BranchHints,
     pub const BranchHints = packed struct(u32) {
-        true: std.builtin.BranchHint,
-        false: std.builtin.BranchHint,
-        then_cov: CoveragePoint,
-        else_cov: CoveragePoint,
+        true: std.builtin.BranchHint = .none,
+        false: std.builtin.BranchHint = .none,
+        then_cov: CoveragePoint = .none,
+        else_cov: CoveragePoint = .none,
         _: u24 = 0,
     };
 };
@@ -1393,7 +1393,7 @@ pub fn getMainBody(air: Air) []const Air.Inst.Index {
 
 pub fn typeOf(air: *const Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
     if (inst.toInterned()) |ip_index| {
-        return Type.fromInterned(ip.typeOf(ip_index));
+        return .fromInterned(ip.typeOf(ip_index));
     } else {
         return air.typeOfIndex(inst.toIndex().?, ip);
     }
@@ -1483,7 +1483,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .is_non_err_ptr,
         .is_named_enum_value,
         .error_set_has_value,
-        => return Type.bool,
+        => return .bool,
 
         .alloc,
         .ret_ptr,
@@ -1574,7 +1574,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .ret_load,
         .unreach,
         .trap,
-        => return Type.noreturn,
+        => return .noreturn,
 
         .breakpoint,
         .dbg_stmt,
@@ -1597,22 +1597,22 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .set_err_return_trace,
         .vector_store_elem,
         .c_va_end,
-        => return Type.void,
+        => return .void,
 
         .slice_len,
         .ret_addr,
         .frame_addr,
         .save_err_return_trace_index,
-        => return Type.usize,
+        => return .usize,
 
-        .wasm_memory_grow => return Type.isize,
-        .wasm_memory_size => return Type.usize,
+        .wasm_memory_grow => return .isize,
+        .wasm_memory_size => return .usize,
 
-        .tag_name, .error_name => return Type.slice_const_u8_sentinel_0,
+        .tag_name, .error_name => return .slice_const_u8_sentinel_0,
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const callee_ty = air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip);
-            return Type.fromInterned(ip.funcTypeReturnType(callee_ty.toIntern()));
+            return .fromInterned(ip.funcTypeReturnType(callee_ty.toIntern()));
         },
 
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {
@@ -1630,7 +1630,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .reduce, .reduce_optimized => {
             const operand_ty = air.typeOf(datas[@intFromEnum(inst)].reduce.operand, ip);
-            return Type.fromInterned(ip.indexToKey(operand_ty.ip_index).vector_type.child);
+            return .fromInterned(ip.indexToKey(operand_ty.ip_index).vector_type.child);
         },
 
         .mul_add => return air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip),
@@ -1641,7 +1641,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .@"try", .try_cold => {
             const err_union_ty = air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip);
-            return Type.fromInterned(ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type);
+            return .fromInterned(ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type);
         },
 
         .tlv_dllimport_ptr => return .fromInterned(datas[@intFromEnum(inst)].ty_nav.ty),
@@ -1649,7 +1649,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .work_item_id,
         .work_group_size,
         .work_group_id,
-        => return Type.u32,
+        => return .u32,
 
         .inferred_alloc => unreachable,
         .inferred_alloc_comptime => unreachable,
@@ -1696,7 +1696,7 @@ pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
 /// Returns `null` if runtime-known.
 pub fn value(air: Air, inst: Inst.Ref, pt: Zcu.PerThread) !?Value {
     if (inst.toInterned()) |ip_index| {
-        return Value.fromInterned(ip_index);
+        return .fromInterned(ip_index);
     }
     const index = inst.toIndex().?;
     return air.typeOfIndex(index, &pt.zcu.intern_pool).onePossibleValue(pt);

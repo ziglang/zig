@@ -28,6 +28,15 @@ const SpvAssembler = @import("spirv/Assembler.zig");
 
 const InstMap = std.AutoHashMapUnmanaged(Air.Inst.Index, IdRef);
 
+pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initMany(&.{
+        .expand_intcast_safe,
+        .expand_add_safe,
+        .expand_sub_safe,
+        .expand_mul_safe,
+    });
+}
+
 pub const zig_call_abi_ver = 3;
 pub const big_int_bits = 32;
 
@@ -3380,6 +3389,10 @@ const NavGen = struct {
         const zcu = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
+        if (self.typeOf(bin_op.lhs).isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu)) {
+            return self.fail("vector shift with scalar rhs", .{});
+        }
+
         const base = try self.temporary(bin_op.lhs);
         const shift = try self.temporary(bin_op.rhs);
 
@@ -3865,6 +3878,10 @@ const NavGen = struct {
 
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+
+        if (self.typeOf(extra.lhs).isVector(zcu) and !self.typeOf(extra.rhs).isVector(zcu)) {
+            return self.fail("vector shift with scalar rhs", .{});
+        }
 
         const base = try self.temporary(extra.lhs);
         const shift = try self.temporary(extra.rhs);

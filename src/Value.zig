@@ -2895,19 +2895,25 @@ pub fn intValueBounds(val: Value, pt: Zcu.PerThread) !?[2]Value {
 
 pub const BigIntSpace = InternPool.Key.Int.Storage.BigIntSpace;
 
-pub const zero_usize: Value = .{ .ip_index = .zero_usize };
-pub const zero_u8: Value = .{ .ip_index = .zero_u8 };
-pub const zero_comptime_int: Value = .{ .ip_index = .zero };
-pub const one_comptime_int: Value = .{ .ip_index = .one };
-pub const negative_one_comptime_int: Value = .{ .ip_index = .negative_one };
 pub const undef: Value = .{ .ip_index = .undef };
+pub const undef_bool: Value = .{ .ip_index = .undef_bool };
+pub const undef_usize: Value = .{ .ip_index = .undef_usize };
+pub const undef_u1: Value = .{ .ip_index = .undef_u1 };
+pub const zero_comptime_int: Value = .{ .ip_index = .zero };
+pub const zero_usize: Value = .{ .ip_index = .zero_usize };
+pub const zero_u1: Value = .{ .ip_index = .zero_u1 };
+pub const zero_u8: Value = .{ .ip_index = .zero_u8 };
+pub const one_comptime_int: Value = .{ .ip_index = .one };
+pub const one_usize: Value = .{ .ip_index = .one_usize };
+pub const one_u1: Value = .{ .ip_index = .one_u1 };
+pub const one_u8: Value = .{ .ip_index = .one_u8 };
+pub const four_u8: Value = .{ .ip_index = .four_u8 };
+pub const negative_one_comptime_int: Value = .{ .ip_index = .negative_one };
 pub const @"void": Value = .{ .ip_index = .void_value };
-pub const @"null": Value = .{ .ip_index = .null_value };
-pub const @"false": Value = .{ .ip_index = .bool_false };
-pub const @"true": Value = .{ .ip_index = .bool_true };
 pub const @"unreachable": Value = .{ .ip_index = .unreachable_value };
-
-pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type };
+pub const @"null": Value = .{ .ip_index = .null_value };
+pub const @"true": Value = .{ .ip_index = .bool_true };
+pub const @"false": Value = .{ .ip_index = .bool_false };
 pub const empty_tuple: Value = .{ .ip_index = .empty_tuple };
 
 pub fn makeBool(x: bool) Value {
