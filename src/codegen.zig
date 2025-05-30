@@ -67,7 +67,7 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) *con
         .stage2_powerpc,
         => |backend| {
             const Backend = importBackend(backend);
-            return if (@hasDecl(Backend, "legalizeFeatures")) Backend.legalizeFeatures(target) else &.initEmpty();
+            return if (@hasDecl(Backend, "legalizeFeatures")) Backend.legalizeFeatures(target) else comptime &.initEmpty();
         },
     }
 }
