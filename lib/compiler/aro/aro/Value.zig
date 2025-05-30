@@ -695,7 +695,7 @@ pub fn div(res: *Value, lhs: Value, rhs: Value, ty: Type, comp: *Compilation) !b
         );
         defer comp.gpa.free(limbs_buffer);
 
-        result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
+        result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
 
         res.* = try intern(comp, .{ .int = .{ .big_int = result_q.toConst() } });
         return !result_q.toConst().fitsInTwosComp(ty.signedness(comp), bits);
@@ -748,7 +748,7 @@ pub fn rem(lhs: Value, rhs: Value, ty: Type, comp: *Compilation) !Value {
     );
     defer comp.gpa.free(limbs_buffer);
 
-    result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
+    result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
     return intern(comp, .{ .int = .{ .big_int = result_r.toConst() } });
 }
 
