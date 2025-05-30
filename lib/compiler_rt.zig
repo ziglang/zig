@@ -27,6 +27,11 @@ comptime {
     _ = @import("compiler_rt/absvti2.zig");
     _ = @import("compiler_rt/negv.zig");
 
+    _ = @import("compiler_rt/addvsi3.zig");
+    _ = @import("compiler_rt/subvsi3.zig");
+    _ = @import("compiler_rt/subvdi3.zig");
+    _ = @import("compiler_rt/mulvsi3.zig");
+
     _ = @import("compiler_rt/addo.zig");
     _ = @import("compiler_rt/subo.zig");
     _ = @import("compiler_rt/mulo.zig");
