@@ -28,8 +28,8 @@ const SpvAssembler = @import("spirv/Assembler.zig");
 
 const InstMap = std.AutoHashMapUnmanaged(Air.Inst.Index, IdRef);
 
-pub inline fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
-    return comptime &.initEmpty();
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
 }
 
 pub const zig_call_abi_ver = 3;

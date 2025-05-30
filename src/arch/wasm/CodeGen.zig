@@ -31,8 +31,8 @@ const libcFloatSuffix = target_util.libcFloatSuffix;
 const compilerRtFloatAbbrev = target_util.compilerRtFloatAbbrev;
 const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 
-pub inline fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
-    return comptime &.initEmpty();
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
 }
 
 /// Reference to the function declaration the code

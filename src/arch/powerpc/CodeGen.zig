@@ -10,8 +10,8 @@ const Zcu = @import("../../Zcu.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.codegen);
 
-pub inline fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
-    return comptime &.initEmpty();
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
 }
 
 pub fn generate(

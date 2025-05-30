@@ -36,8 +36,8 @@ const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 
 const Error = error{ OutOfMemory, CodegenFail };
 
-pub inline fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
-    return comptime &.initEmpty();
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
 }
 
 fn subArchName(features: std.Target.Cpu.Feature.Set, arch: anytype, mappings: anytype) ?[]const u8 {
