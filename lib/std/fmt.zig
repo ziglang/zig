@@ -63,7 +63,7 @@ pub const FormatOptions = struct {
 ///   - for slices of u8, print the entire slice as a string without zero-termination
 /// - `e`: output floating point value in scientific notation
 /// - `d`: output numeric value in decimal notation
-/// - `D`: output numeric value in decimal notation with thousands separator defaulting to underscore. Use D[seperator] to use custom separator, example: {D,}
+/// - `D`: output numeric value in decimal notation with thousands separator defaulting to underscore. Use D[seperator] for custom separator, example: {D,}
 /// - `b`: output integer value in binary notation
 /// - `o`: output integer value in octal notation
 /// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
