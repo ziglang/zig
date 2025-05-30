@@ -908,6 +908,7 @@ const FileType = enum {
         if (ascii.endsWithIgnoreCase(file_path, ".tzst")) return .@"tar.zst";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.zst")) return .@"tar.zst";
         if (ascii.endsWithIgnoreCase(file_path, ".zip")) return .zip;
+        if (ascii.endsWithIgnoreCase(file_path, ".jar")) return .zip;
         return null;
     }
 
@@ -1128,6 +1129,9 @@ fn unpackResource(
                 break :ft .@"tar.zst";
 
             if (ascii.eqlIgnoreCase(mime_type, "application/zip"))
+                break :ft .zip;
+
+            if (ascii.eqlIgnoreCase(mime_type, "application/java-archive"))
                 break :ft .zip;
 
             if (!ascii.eqlIgnoreCase(mime_type, "application/octet-stream") and
