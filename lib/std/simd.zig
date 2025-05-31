@@ -231,8 +231,6 @@ pub fn extract(
 }
 
 test "vector patterns" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const base = @Vector(4, u32){ 10, 20, 30, 40 };
     const other_base = @Vector(4, u32){ 55, 66, 77, 88 };
 
@@ -302,8 +300,6 @@ pub fn reverseOrder(vec: anytype) @TypeOf(vec) {
 }
 
 test "vector shifting" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const base = @Vector(4, u32){ 10, 20, 30, 40 };
 
     try std.testing.expectEqual([4]u32{ 30, 40, 999, 999 }, shiftElementsLeft(base, 2, 999));

@@ -704,7 +704,7 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field, where the payload index points to:
         /// 1. mask_elem: ShuffleOneMask  // for each `mask_len`, which comes from `ty_pl.ty`
         /// 2. operand: Ref               // guaranteed not to be an interned value
-        /// See `unwrapShufleOne`.
+        /// See `unwrapShuffleOne`.
         shuffle_one,
         /// Constructs a vector by selecting elements from two vectors based on a mask. Each mask
         /// element is either an index into one of the vectors, or "undef".
@@ -712,7 +712,7 @@ pub const Inst = struct {
         /// 1. mask_elem: ShuffleOneMask  // for each `mask_len`, which comes from `ty_pl.ty`
         /// 2. operand_a: Ref             // guaranteed not to be an interned value
         /// 3. operand_b: Ref             // guaranteed not to be an interned value
-        /// See `unwrapShufleTwo`.
+        /// See `unwrapShuffleTwo`.
         shuffle_two,
         /// Constructs a vector element-wise from `a` or `b` based on `pred`.
         /// Uses the `pl_op` field with `pred` as operand, and payload `Bin`.

@@ -5195,6 +5195,8 @@ fn airShuffleOne(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     // TODO: this is incorrect if either operand or the result is *not* by-ref, which is possible.
     // I tried to fix it, but I couldn't make much sense of how this backend handles memory.
+    if (!isByRef(result_ty, zcu, cg.target) or
+        !isByRef(cg.typeOf(unwrapped.operand), zcu, cg.target)) return cg.fail("TODO: handle mixed by-ref shuffle", .{});
 
     const dest_alloc = try cg.allocStack(result_ty);
     for (mask, 0..) |mask_elem, out_idx| {
@@ -5232,7 +5234,7 @@ fn airShuffleTwo(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         elem_ty.bitSize(zcu) % 8 == 0)
     {
         var lane_map: [16]u8 align(4) = undefined;
-        const lanes_per_elem = elem_ty.bitSize(zcu) / 8;
+        const lanes_per_elem: usize = @intCast(elem_ty.bitSize(zcu) / 8);
         for (mask, 0..) |mask_elem, out_idx| {
             const out_first_lane = out_idx * lanes_per_elem;
             const in_first_lane = switch (mask_elem.unwrap()) {
@@ -5260,6 +5262,9 @@ fn airShuffleTwo(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     // TODO: this is incorrect if either operand or the result is *not* by-ref, which is possible.
     // I tried to fix it, but I couldn't make much sense of how this backend handles memory.
+    if (!isByRef(result_ty, zcu, cg.target) or
+        !isByRef(a_ty, zcu, cg.target) or
+        !isByRef(b_ty, zcu, cg.target)) return cg.fail("TODO: handle mixed by-ref shuffle", .{});
 
     const dest_alloc = try cg.allocStack(result_ty);
     for (mask, 0..) |mask_elem, out_idx| {

@@ -74,6 +74,8 @@ pub const Feature = enum {
     scalarize_int_from_float,
     scalarize_int_from_float_optimized,
     scalarize_float_from_int,
+    scalarize_shuffle_one,
+    scalarize_shuffle_two,
     scalarize_select,
     scalarize_mul_add,
 
@@ -168,7 +170,9 @@ pub const Feature = enum {
             .int_from_float => .scalarize_int_from_float,
             .int_from_float_optimized => .scalarize_int_from_float_optimized,
             .float_from_int => .scalarize_float_from_int,
-            .select => .scalarize_select,
+            .shuffle_one => .scalarize_shuffle_one,
+            .shuffle_two => .scalarize_shuffle_two,
+            .select => .scalarize_selects,
             .mul_add => .scalarize_mul_add,
         };
     }
@@ -521,11 +525,10 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 }
             },
             .splat,
-            .shuffle_one,
-            .shuffle_two,
             => {},
-            .select,
-            => if (l.features.contains(.scalarize_select)) continue :inst try l.scalarize(inst, .select_pl_op_bin),
+            .shuffle_one => if (l.features.contains(.scalarize_shuffle_one)) continue :inst try l.scalarize(inst, .shuffle_one),
+            .shuffle_two => if (l.features.contains(.scalarize_shuffle_two)) continue :inst try l.scalarize(inst, .shuffle_two),
+            .select => if (l.features.contains(.scalarize_select)) continue :inst try l.scalarize(inst, .select),
             .memset,
             .memset_safe,
             .memcpy,
@@ -573,25 +576,26 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
     }
 }
 
-const ScalarizeDataTag = enum { un_op, ty_op, bin_op, ty_pl_vector_cmp, pl_op_bin, select_pl_op_bin };
-inline fn scalarize(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_tag: ScalarizeDataTag) Error!Air.Inst.Tag {
-    return l.replaceInst(orig_inst, .block, try l.scalarizeBlockPayload(orig_inst, data_tag));
+const ScalarizeForm = enum { un_op, ty_op, bin_op, ty_pl_vector_cmp, pl_op_bin, shuffle_one, shuffle_two, select };
+inline fn scalarize(l: *Legalize, orig_inst: Air.Inst.Index, comptime form: ScalarizeForm) Error!Air.Inst.Tag {
+    return l.replaceInst(orig_inst, .block, try l.scalarizeBlockPayload(orig_inst, form));
 }
-fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_tag: ScalarizeDataTag) Error!Air.Inst.Data {
+fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime form: ScalarizeForm) Error!Air.Inst.Data {
     const pt = l.pt;
     const zcu = pt.zcu;
 
     const orig = l.air_instructions.get(@intFromEnum(orig_inst));
     const res_ty = l.typeOfIndex(orig_inst);
+    const res_len = res_ty.vectorLen(zcu);
 
-    var inst_buf: [
-        5 + switch (data_tag) {
-            .un_op, .ty_op => 1,
-            .bin_op, .ty_pl_vector_cmp => 2,
-            .pl_op_bin => 3,
-            .select_pl_op_bin => 6,
-        } + 9
-    ]Air.Inst.Index = undefined;
+    const extra_insts = switch (form) {
+        .un_op, .ty_op => 1,
+        .bin_op, .ty_pl_vector_cmp => 2,
+        .pl_op_bin => 3,
+        .shuffle_one, .shuffle_two => 13,
+        .select => 6,
+    };
+    var inst_buf: [5 + extra_insts + 9]Air.Inst.Index = undefined;
     try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
 
     var res_block: Block = .init(&inst_buf);
@@ -628,7 +632,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                     .vector_ptr = res_alloc_inst.toRef(),
                     .payload = try l.addExtra(Air.Bin, .{
                         .lhs = cur_index_inst.toRef(),
-                        .rhs = res_elem: switch (data_tag) {
+                        .rhs = res_elem: switch (form) {
                             .un_op => loop.block.add(l, .{
                                 .tag = orig.tag,
                                 .data = .{ .un_op = loop.block.add(l, .{
@@ -638,7 +642,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                                         .rhs = cur_index_inst.toRef(),
                                     } },
                                 }).toRef() },
-                            }),
+                            }).toRef(),
                             .ty_op => loop.block.add(l, .{
                                 .tag = orig.tag,
                                 .data = .{ .ty_op = .{
@@ -651,7 +655,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                                         } },
                                     }).toRef(),
                                 } },
-                            }),
+                            }).toRef(),
                             .bin_op => loop.block.add(l, .{
                                 .tag = orig.tag,
                                 .data = .{ .bin_op = .{
@@ -670,10 +674,10 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                                         } },
                                     }).toRef(),
                                 } },
-                            }),
+                            }).toRef(),
                             .ty_pl_vector_cmp => {
                                 const extra = l.extraData(Air.VectorCmp, orig.data.ty_pl.payload).data;
-                                break :res_elem try loop.block.addCmp(
+                                break :res_elem (try loop.block.addCmp(
                                     l,
                                     extra.compareOperator(),
                                     loop.block.add(l, .{
@@ -695,7 +699,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                                         .cmp_vector => false,
                                         .cmp_vector_optimized => true,
                                     } },
-                                );
+                                )).toRef();
                             },
                             .pl_op_bin => {
                                 const extra = l.extraData(Air.Bin, orig.data.pl_op.payload).data;
@@ -726,12 +730,223 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                                             } },
                                         }).toRef(),
                                     } },
-                                });
+                                }).toRef();
                             },
-                            .select_pl_op_bin => {
+                            .shuffle_one, .shuffle_two => {
+                                const ip = &zcu.intern_pool;
+                                const unwrapped = switch (form) {
+                                    else => comptime unreachable,
+                                    .shuffle_one => l.getTmpAir().unwrapShuffleOne(zcu, orig_inst),
+                                    .shuffle_two => l.getTmpAir().unwrapShuffleTwo(zcu, orig_inst),
+                                };
+                                const operand_a = switch (form) {
+                                    else => comptime unreachable,
+                                    .shuffle_one => unwrapped.operand,
+                                    .shuffle_two => unwrapped.operand_a,
+                                };
+                                const operand_a_len = l.typeOf(operand_a).vectorLen(zcu);
+                                const elem_ty = unwrapped.result_ty.scalarType(zcu);
+                                var res_elem: Result = .init(l, elem_ty, &loop.block);
+                                res_elem.block = .init(loop.block.stealCapacity(extra_insts));
+                                {
+                                    const ExpectedContents = extern struct {
+                                        mask_elems: [128]InternPool.Index,
+                                        ct_elems: switch (form) {
+                                            else => unreachable,
+                                            .shuffle_one => extern struct {
+                                                keys: [152]InternPool.Index,
+                                                header: u8 align(@alignOf(u32)),
+                                                index: [256][2]u8,
+                                            },
+                                            .shuffle_two => void,
+                                        },
+                                    };
+                                    var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
+                                        std.heap.stackFallback(@sizeOf(ExpectedContents), zcu.gpa);
+                                    const gpa = stack.get();
+
+                                    const mask_elems = try gpa.alloc(InternPool.Index, res_len);
+                                    defer gpa.free(mask_elems);
+
+                                    var ct_elems: switch (form) {
+                                        else => unreachable,
+                                        .shuffle_one => std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
+                                        .shuffle_two => struct {
+                                            const empty: @This() = .{};
+                                            inline fn deinit(_: @This(), _: std.mem.Allocator) void {}
+                                            inline fn ensureTotalCapacity(_: @This(), _: std.mem.Allocator, _: usize) error{}!void {}
+                                        },
+                                    } = .empty;
+                                    defer ct_elems.deinit(gpa);
+                                    try ct_elems.ensureTotalCapacity(gpa, res_len);
+
+                                    const mask_elem_ty = try pt.intType(.signed, 1 + Type.smallestUnsignedBits(@max(operand_a_len, switch (form) {
+                                        else => comptime unreachable,
+                                        .shuffle_one => res_len,
+                                        .shuffle_two => l.typeOf(unwrapped.operand_b).vectorLen(zcu),
+                                    })));
+                                    for (mask_elems, unwrapped.mask) |*mask_elem_val, mask_elem| mask_elem_val.* = (try pt.intValue(mask_elem_ty, switch (form) {
+                                        else => comptime unreachable,
+                                        .shuffle_one => switch (mask_elem.unwrap()) {
+                                            .elem => |index| index,
+                                            .value => |elem_val| if (ip.isUndef(elem_val))
+                                                operand_a_len
+                                            else
+                                                ~@as(i33, @intCast((ct_elems.getOrPutAssumeCapacity(elem_val)).index)),
+                                        },
+                                        .shuffle_two => switch (mask_elem.unwrap()) {
+                                            .a_elem => |a_index| a_index,
+                                            .b_elem => |b_index| ~@as(i33, b_index),
+                                            .undef => operand_a_len,
+                                        },
+                                    })).toIntern();
+                                    const mask_ty = try pt.arrayType(.{
+                                        .len = res_len,
+                                        .child = mask_elem_ty.toIntern(),
+                                    });
+                                    const mask_elem_inst = res_elem.block.add(l, .{
+                                        .tag = .ptr_elem_val,
+                                        .data = .{ .bin_op = .{
+                                            .lhs = Air.internedToRef(try pt.intern(.{ .ptr = .{
+                                                .ty = (try pt.manyConstPtrType(mask_elem_ty)).toIntern(),
+                                                .base_addr = .{ .uav = .{
+                                                    .val = try pt.intern(.{ .aggregate = .{
+                                                        .ty = mask_ty.toIntern(),
+                                                        .storage = .{ .elems = mask_elems },
+                                                    } }),
+                                                    .orig_ty = (try pt.singleConstPtrType(mask_ty)).toIntern(),
+                                                } },
+                                                .byte_offset = 0,
+                                            } })),
+                                            .rhs = cur_index_inst.toRef(),
+                                        } },
+                                    });
+                                    var def_cond_br: CondBr = .init(l, (try res_elem.block.addCmp(
+                                        l,
+                                        .lt,
+                                        mask_elem_inst.toRef(),
+                                        try pt.intRef(mask_elem_ty, operand_a_len),
+                                        .{},
+                                    )).toRef(), &res_elem.block, .{});
+                                    def_cond_br.then_block = .init(res_elem.block.stealRemainingCapacity());
+                                    {
+                                        const operand_b_used = switch (form) {
+                                            else => comptime unreachable,
+                                            .shuffle_one => ct_elems.count() > 0,
+                                            .shuffle_two => true,
+                                        };
+                                        var operand_cond_br: CondBr = undefined;
+                                        operand_cond_br.then_block = if (operand_b_used) then_block: {
+                                            operand_cond_br = .init(l, (try def_cond_br.then_block.addCmp(
+                                                l,
+                                                .gte,
+                                                mask_elem_inst.toRef(),
+                                                try pt.intRef(mask_elem_ty, 0),
+                                                .{},
+                                            )).toRef(), &def_cond_br.then_block, .{});
+                                            break :then_block .init(def_cond_br.then_block.stealRemainingCapacity());
+                                        } else def_cond_br.then_block;
+                                        _ = operand_cond_br.then_block.add(l, .{
+                                            .tag = .br,
+                                            .data = .{ .br = .{
+                                                .block_inst = res_elem.inst,
+                                                .operand = operand_cond_br.then_block.add(l, .{
+                                                    .tag = .array_elem_val,
+                                                    .data = .{ .bin_op = .{
+                                                        .lhs = operand_a,
+                                                        .rhs = operand_cond_br.then_block.add(l, .{
+                                                            .tag = .intcast,
+                                                            .data = .{ .ty_op = .{
+                                                                .ty = .usize_type,
+                                                                .operand = mask_elem_inst.toRef(),
+                                                            } },
+                                                        }).toRef(),
+                                                    } },
+                                                }).toRef(),
+                                            } },
+                                        });
+                                        if (operand_b_used) {
+                                            operand_cond_br.else_block = .init(operand_cond_br.then_block.stealRemainingCapacity());
+                                            _ = operand_cond_br.else_block.add(l, .{
+                                                .tag = .br,
+                                                .data = .{ .br = .{
+                                                    .block_inst = res_elem.inst,
+                                                    .operand = if (switch (form) {
+                                                        else => comptime unreachable,
+                                                        .shuffle_one => ct_elems.count() > 1,
+                                                        .shuffle_two => true,
+                                                    }) operand_cond_br.else_block.add(l, .{
+                                                        .tag = switch (form) {
+                                                            else => comptime unreachable,
+                                                            .shuffle_one => .ptr_elem_val,
+                                                            .shuffle_two => .array_elem_val,
+                                                        },
+                                                        .data = .{ .bin_op = .{
+                                                            .lhs = operand_b: switch (form) {
+                                                                else => comptime unreachable,
+                                                                .shuffle_one => {
+                                                                    const ct_elems_ty = try pt.arrayType(.{
+                                                                        .len = ct_elems.count(),
+                                                                        .child = elem_ty.toIntern(),
+                                                                    });
+                                                                    break :operand_b Air.internedToRef(try pt.intern(.{ .ptr = .{
+                                                                        .ty = (try pt.manyConstPtrType(elem_ty)).toIntern(),
+                                                                        .base_addr = .{ .uav = .{
+                                                                            .val = try pt.intern(.{ .aggregate = .{
+                                                                                .ty = ct_elems_ty.toIntern(),
+                                                                                .storage = .{ .elems = ct_elems.keys() },
+                                                                            } }),
+                                                                            .orig_ty = (try pt.singleConstPtrType(ct_elems_ty)).toIntern(),
+                                                                        } },
+                                                                        .byte_offset = 0,
+                                                                    } }));
+                                                                },
+                                                                .shuffle_two => unwrapped.operand_b,
+                                                            },
+                                                            .rhs = operand_cond_br.else_block.add(l, .{
+                                                                .tag = .intcast,
+                                                                .data = .{ .ty_op = .{
+                                                                    .ty = .usize_type,
+                                                                    .operand = operand_cond_br.else_block.add(l, .{
+                                                                        .tag = .not,
+                                                                        .data = .{ .ty_op = .{
+                                                                            .ty = Air.internedToRef(mask_elem_ty.toIntern()),
+                                                                            .operand = mask_elem_inst.toRef(),
+                                                                        } },
+                                                                    }).toRef(),
+                                                                } },
+                                                            }).toRef(),
+                                                        } },
+                                                    }).toRef() else res_elem_br: {
+                                                        _ = operand_cond_br.else_block.stealCapacity(3);
+                                                        break :res_elem_br Air.internedToRef(ct_elems.keys()[0]);
+                                                    },
+                                                } },
+                                            });
+                                            def_cond_br.else_block = .init(operand_cond_br.else_block.stealRemainingCapacity());
+                                            try operand_cond_br.finish(l);
+                                        } else {
+                                            def_cond_br.then_block = operand_cond_br.then_block;
+                                            _ = def_cond_br.then_block.stealCapacity(6);
+                                            def_cond_br.else_block = .init(def_cond_br.then_block.stealRemainingCapacity());
+                                        }
+                                    }
+                                    _ = def_cond_br.else_block.add(l, .{
+                                        .tag = .br,
+                                        .data = .{ .br = .{
+                                            .block_inst = res_elem.inst,
+                                            .operand = try pt.undefRef(elem_ty),
+                                        } },
+                                    });
+                                    try def_cond_br.finish(l);
+                                }
+                                try res_elem.finish(l);
+                                break :res_elem res_elem.inst.toRef();
+                            },
+                            .select => {
                                 const extra = l.extraData(Air.Bin, orig.data.pl_op.payload).data;
                                 var res_elem: Result = .init(l, l.typeOf(extra.lhs).scalarType(zcu), &loop.block);
-                                res_elem.block = .init(loop.block.stealCapacity(6));
+                                res_elem.block = .init(loop.block.stealCapacity(extra_insts));
                                 {
                                     var select_cond_br: CondBr = .init(l, res_elem.block.add(l, .{
                                         .tag = .array_elem_val,
@@ -741,43 +956,39 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                                         } },
                                     }).toRef(), &res_elem.block, .{});
                                     select_cond_br.then_block = .init(res_elem.block.stealRemainingCapacity());
-                                    {
-                                        _ = select_cond_br.then_block.add(l, .{
-                                            .tag = .br,
-                                            .data = .{ .br = .{
-                                                .block_inst = res_elem.inst,
-                                                .operand = select_cond_br.then_block.add(l, .{
-                                                    .tag = .array_elem_val,
-                                                    .data = .{ .bin_op = .{
-                                                        .lhs = extra.lhs,
-                                                        .rhs = cur_index_inst.toRef(),
-                                                    } },
-                                                }).toRef(),
-                                            } },
-                                        });
-                                    }
+                                    _ = select_cond_br.then_block.add(l, .{
+                                        .tag = .br,
+                                        .data = .{ .br = .{
+                                            .block_inst = res_elem.inst,
+                                            .operand = select_cond_br.then_block.add(l, .{
+                                                .tag = .array_elem_val,
+                                                .data = .{ .bin_op = .{
+                                                    .lhs = extra.lhs,
+                                                    .rhs = cur_index_inst.toRef(),
+                                                } },
+                                            }).toRef(),
+                                        } },
+                                    });
                                     select_cond_br.else_block = .init(select_cond_br.then_block.stealRemainingCapacity());
-                                    {
-                                        _ = select_cond_br.else_block.add(l, .{
-                                            .tag = .br,
-                                            .data = .{ .br = .{
-                                                .block_inst = res_elem.inst,
-                                                .operand = select_cond_br.else_block.add(l, .{
-                                                    .tag = .array_elem_val,
-                                                    .data = .{ .bin_op = .{
-                                                        .lhs = extra.rhs,
-                                                        .rhs = cur_index_inst.toRef(),
-                                                    } },
-                                                }).toRef(),
-                                            } },
-                                        });
-                                    }
+                                    _ = select_cond_br.else_block.add(l, .{
+                                        .tag = .br,
+                                        .data = .{ .br = .{
+                                            .block_inst = res_elem.inst,
+                                            .operand = select_cond_br.else_block.add(l, .{
+                                                .tag = .array_elem_val,
+                                                .data = .{ .bin_op = .{
+                                                    .lhs = extra.rhs,
+                                                    .rhs = cur_index_inst.toRef(),
+                                                } },
+                                            }).toRef(),
+                                        } },
+                                    });
                                     try select_cond_br.finish(l);
                                 }
                                 try res_elem.finish(l);
-                                break :res_elem res_elem.inst;
+                                break :res_elem res_elem.inst.toRef();
                             },
-                        }.toRef(),
+                        },
                     }),
                 } },
             });
@@ -786,7 +997,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                 l,
                 .lt,
                 cur_index_inst.toRef(),
-                try pt.intRef(.usize, res_ty.vectorLen(zcu) - 1),
+                try pt.intRef(.usize, res_len - 1),
                 .{},
             )).toRef(), &loop.block, .{});
             loop_cond_br.then_block = .init(loop.block.stealRemainingCapacity());
@@ -810,21 +1021,19 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime data_
                 });
             }
             loop_cond_br.else_block = .init(loop_cond_br.then_block.stealRemainingCapacity());
-            {
-                _ = loop_cond_br.else_block.add(l, .{
-                    .tag = .br,
-                    .data = .{ .br = .{
-                        .block_inst = orig_inst,
-                        .operand = loop_cond_br.else_block.add(l, .{
-                            .tag = .load,
-                            .data = .{ .ty_op = .{
-                                .ty = Air.internedToRef(res_ty.toIntern()),
-                                .operand = res_alloc_inst.toRef(),
-                            } },
-                        }).toRef(),
-                    } },
-                });
-            }
+            _ = loop_cond_br.else_block.add(l, .{
+                .tag = .br,
+                .data = .{ .br = .{
+                    .block_inst = orig_inst,
+                    .operand = loop_cond_br.else_block.add(l, .{
+                        .tag = .load,
+                        .data = .{ .ty_op = .{
+                            .ty = Air.internedToRef(res_ty.toIntern()),
+                            .operand = res_alloc_inst.toRef(),
+                        } },
+                    }).toRef(),
+                } },
+            });
             try loop_cond_br.finish(l);
         }
         try loop.finish(l);
@@ -1337,6 +1546,7 @@ inline fn replaceInst(l: *Legalize, inst: Air.Inst.Index, tag: Air.Inst.Tag, dat
 const Air = @import("../Air.zig");
 const assert = std.debug.assert;
 const dev = @import("../dev.zig");
+const InternPool = @import("../InternPool.zig");
 const Legalize = @This();
 const std = @import("std");
 const Type = @import("../Type.zig");
