@@ -37,6 +37,7 @@ const dev = @import("dev.zig");
 
 test {
     _ = Package;
+    _ = @import("arch/x86_64/Mir.zig");
 }
 
 const thread_stack_size = 50 << 20;

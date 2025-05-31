@@ -680,7 +680,7 @@ test "Register id - different classes" {
     try expect(Register.xmm0.id() != Register.mm0.id());
     try expect(Register.mm0.id() != Register.st0.id());
 
-    try expect(Register.es.id() == 0b110000);
+    try expect(Register.es.id() == 0b1000000);
 }
 
 test "Register enc - different classes" {
