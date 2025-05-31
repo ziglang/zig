@@ -29,8 +29,11 @@
 #ifndef _LANGINFO_H_
 #define	_LANGINFO_H_
 
+#include <_bounds.h>
 #include <_types.h>
 #include <_types/_nl_item.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #define	CODESET		0	/* codeset name */
 #define	D_T_FMT		1	/* string for formatting date and time */
@@ -110,7 +113,7 @@
 #endif
 
 __BEGIN_DECLS
-char	*nl_langinfo(nl_item);
+char	*_LIBC_CSTR   nl_langinfo(nl_item);
 __END_DECLS
 
 #endif /* !_LANGINFO_H_ */

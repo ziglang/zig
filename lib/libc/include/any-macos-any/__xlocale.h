@@ -25,10 +25,11 @@
 #define __XLOCALE_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <_mb_cur_max.h>
+#include <_types/_locale_t.h>
 
-struct _xlocale; /* forward reference */
-typedef struct _xlocale *		locale_t;
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
 int		___mb_cur_max_l(locale_t);

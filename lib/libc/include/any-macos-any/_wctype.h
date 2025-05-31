@@ -32,6 +32,7 @@
 #define	_WCTYPE_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <_types.h>
 #include <_types/_wctrans_t.h>
 
@@ -39,6 +40,8 @@
 
 #include <__wctype.h>
 #include <ctype.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 /*
  * Use inline functions if we are allowed to and the compiler supports them.
