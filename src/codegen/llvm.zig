@@ -18,7 +18,6 @@ const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
 const Package = @import("../Package.zig");
 const Air = @import("../Air.zig");
-const Liveness = @import("../Liveness.zig");
 const Value = @import("../Value.zig");
 const Type = @import("../Type.zig");
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
@@ -587,13 +586,8 @@ pub const Object = struct {
                 // into the garbage can by converting into absolute paths. What
                 // a terrible tragedy.
                 const compile_unit_dir = blk: {
-                    if (comp.zcu) |zcu| m: {
-                        const d = try zcu.main_mod.root.joinString(arena, "");
-                        if (d.len == 0) break :m;
-                        if (std.fs.path.isAbsolute(d)) break :blk d;
-                        break :blk std.fs.realpathAlloc(arena, d) catch break :blk d;
-                    }
-                    break :blk try std.process.getCwdAlloc(arena);
+                    const zcu = comp.zcu orelse break :blk comp.dirs.cwd;
+                    break :blk try zcu.main_mod.root.toAbsolute(comp.dirs, arena);
                 };
 
                 const debug_file = try builder.debugFile(
@@ -1126,7 +1120,7 @@ pub const Object = struct {
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
         air: Air,
-        liveness: Liveness,
+        liveness: Air.Liveness,
     ) !void {
         assert(std.meta.eql(pt, o.pt));
         const zcu = pt.zcu;
@@ -1135,7 +1129,7 @@ pub const Object = struct {
         const func = zcu.funcInfo(func_index);
         const nav = ip.getNav(func.owner_nav);
         const file_scope = zcu.navFileScopeIndex(func.owner_nav);
-        const owner_mod = zcu.fileByIndex(file_scope).mod;
+        const owner_mod = zcu.fileByIndex(file_scope).mod.?;
         const fn_ty = Type.fromInterned(func.ty);
         const fn_info = zcu.typeToFunc(fn_ty).?;
         const target = owner_mod.resolved_target.result;
@@ -1735,20 +1729,14 @@ pub const Object = struct {
         const gop = try o.debug_file_map.getOrPut(gpa, file_index);
         errdefer assert(o.debug_file_map.remove(file_index));
         if (gop.found_existing) return gop.value_ptr.*;
-        const file = o.pt.zcu.fileByIndex(file_index);
+        const zcu = o.pt.zcu;
+        const path = zcu.fileByIndex(file_index).path;
+        const abs_path = try path.toAbsolute(zcu.comp.dirs, gpa);
+        defer gpa.free(abs_path);
+
         gop.value_ptr.* = try o.builder.debugFile(
-            try o.builder.metadataString(std.fs.path.basename(file.sub_file_path)),
-            dir_path: {
-                const sub_path = std.fs.path.dirname(file.sub_file_path) orelse "";
-                const dir_path = try file.mod.root.joinString(gpa, sub_path);
-                defer gpa.free(dir_path);
-                if (std.fs.path.isAbsolute(dir_path))
-                    break :dir_path try o.builder.metadataString(dir_path);
-                var abs_buffer: [std.fs.max_path_bytes]u8 = undefined;
-                const abs_path = std.fs.realpath(dir_path, &abs_buffer) catch
-                    break :dir_path try o.builder.metadataString(dir_path);
-                break :dir_path try o.builder.metadataString(abs_path);
-            },
+            try o.builder.metadataString(std.fs.path.basename(abs_path)),
+            try o.builder.metadataString(std.fs.path.dirname(abs_path) orelse ""),
         );
         return gop.value_ptr.*;
     }
@@ -2646,11 +2634,9 @@ pub const Object = struct {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
 
-        const std_mod = zcu.std_mod;
-        const std_file_imported = pt.importPkg(std_mod) catch unreachable;
-
+        const std_file_index = zcu.module_roots.get(zcu.std_mod).?.unwrap().?;
         const builtin_str = try ip.getOrPutString(zcu.gpa, pt.tid, "builtin", .no_embedded_nulls);
-        const std_file_root_type = Type.fromInterned(zcu.fileRootType(std_file_imported.file_index));
+        const std_file_root_type = Type.fromInterned(zcu.fileRootType(std_file_index));
         const std_namespace = ip.namespacePtr(std_file_root_type.getNamespaceIndex(zcu));
         const builtin_nav = std_namespace.pub_decls.getKeyAdapted(builtin_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }).?;
 
@@ -2683,7 +2669,7 @@ pub const Object = struct {
         const ip = &zcu.intern_pool;
         const gpa = o.gpa;
         const nav = ip.getNav(nav_index);
-        const owner_mod = zcu.navFileScope(nav_index).mod;
+        const owner_mod = zcu.navFileScope(nav_index).mod.?;
         const ty: Type = .fromInterned(nav.typeOf(ip));
         const gop = try o.nav_map.getOrPut(gpa, nav_index);
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.function;
@@ -3013,7 +2999,7 @@ pub const Object = struct {
         if (is_extern) {
             variable_index.setLinkage(.external, &o.builder);
             variable_index.setUnnamedAddr(.default, &o.builder);
-            if (is_threadlocal and !zcu.navFileScope(nav_index).mod.single_threaded)
+            if (is_threadlocal and !zcu.navFileScope(nav_index).mod.?.single_threaded)
                 variable_index.setThreadLocal(.generaldynamic, &o.builder);
             if (is_weak_linkage) variable_index.setLinkage(.extern_weak, &o.builder);
             if (is_dll_import) variable_index.setDllStorageClass(.dllimport, &o.builder);
@@ -4514,7 +4500,7 @@ pub const NavGen = struct {
     err_msg: ?*Zcu.ErrorMsg,
 
     fn ownerModule(ng: NavGen) *Package.Module {
-        return ng.object.pt.zcu.navFileScope(ng.nav_index).mod;
+        return ng.object.pt.zcu.navFileScope(ng.nav_index).mod.?;
     }
 
     fn todo(ng: *NavGen, comptime format: []const u8, args: anytype) Error {
@@ -4557,7 +4543,7 @@ pub const NavGen = struct {
             }, &o.builder);
 
             const file_scope = zcu.navFileScopeIndex(nav_index);
-            const mod = zcu.fileByIndex(file_scope).mod;
+            const mod = zcu.fileByIndex(file_scope).mod.?;
             if (is_threadlocal and !mod.single_threaded)
                 variable_index.setThreadLocal(.generaldynamic, &o.builder);
 
@@ -4629,7 +4615,7 @@ pub const FuncGen = struct {
     gpa: Allocator,
     ng: *NavGen,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
     wip: Builder.WipFunction,
     is_naked: bool,
     fuzz: ?Fuzz,
@@ -5028,6 +5014,8 @@ pub const FuncGen = struct {
 
                 .vector_store_elem => try self.airVectorStoreElem(inst),
 
+                .tlv_dllimport_ptr => try self.airTlvDllimportPtr(inst),
+
                 .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
                 .dbg_stmt => try self.airDbgStmt(inst),
@@ -5121,7 +5109,7 @@ pub const FuncGen = struct {
             const func = zcu.funcInfo(inline_func);
             const nav = ip.getNav(func.owner_nav);
             const file_scope = zcu.navFileScopeIndex(func.owner_nav);
-            const mod = zcu.fileByIndex(file_scope).mod;
+            const mod = zcu.fileByIndex(file_scope).mod.?;
 
             self.file = try o.getDebugFile(file_scope);
 
@@ -5194,7 +5182,7 @@ pub const FuncGen = struct {
     fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !Builder.Value {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
-        const args: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]);
+        const args: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.args_len]);
         const o = self.ng.object;
         const pt = o.pt;
         const zcu = pt.zcu;
@@ -5867,7 +5855,7 @@ pub const FuncGen = struct {
     fn airBlock(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Block, ty_pl.payload);
-        return self.lowerBlock(inst, null, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+        return self.lowerBlock(inst, null, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
     }
 
     fn lowerBlock(
@@ -6151,8 +6139,8 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const cond = try self.resolveInst(pl_op.operand);
         const extra = self.air.extraData(Air.CondBr, pl_op.payload);
-        const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.then_body_len]);
-        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+        const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.then_body_len]);
+        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
 
         const Hint = enum {
             none,
@@ -6216,7 +6204,7 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const err_union = try self.resolveInst(pl_op.operand);
         const extra = self.air.extraData(Air.Try, pl_op.payload);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
         const err_union_ty = self.typeOf(pl_op.operand);
         const payload_ty = self.typeOfIndex(inst);
         const can_elide_load = if (isByRef(payload_ty, zcu)) self.canElideLoad(body_tail) else false;
@@ -6230,7 +6218,7 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.TryPtr, ty_pl.payload);
         const err_union_ptr = try self.resolveInst(extra.data.ptr);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
         const err_union_ty = self.typeOf(extra.data.ptr).childType(zcu);
         const is_unused = self.liveness.isUnused(inst);
 
@@ -6561,7 +6549,7 @@ pub const FuncGen = struct {
     fn airLoop(self: *FuncGen, inst: Air.Inst.Index) !void {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[loop.end..][0..loop.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[loop.end..][0..loop.data.body_len]);
         const loop_block = try self.wip.block(1, "Loop"); // `airRepeat` will increment incoming each time
         _ = try self.wip.br(loop_block);
 
@@ -7087,7 +7075,7 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
         self.arg_inline_index = 0;
-        return self.lowerBlock(inst, extra.data.func, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+        return self.lowerBlock(inst, extra.data.func, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
     }
 
     fn airDbgVarPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -7212,9 +7200,9 @@ pub const FuncGen = struct {
         const clobbers_len: u31 = @truncate(extra.data.flags);
         var extra_i: usize = extra.end;
 
-        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]);
+        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.outputs_len]);
         extra_i += outputs.len;
-        const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]);
+        const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
         var llvm_constraints: std.ArrayListUnmanaged(u8) = .empty;
@@ -7250,8 +7238,8 @@ pub const FuncGen = struct {
 
         var rw_extra_i = extra_i;
         for (outputs, llvm_ret_indirect, llvm_rw_vals) |output, *is_indirect, *llvm_rw_val| {
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
@@ -7331,7 +7319,7 @@ pub const FuncGen = struct {
         }
 
         for (inputs) |input| {
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
             const constraint = std.mem.sliceTo(extra_bytes, 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
@@ -7396,8 +7384,8 @@ pub const FuncGen = struct {
         }
 
         for (outputs, llvm_ret_indirect, llvm_rw_vals, 0..) |output, is_indirect, llvm_rw_val, output_index| {
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[rw_extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[rw_extra_i..]), 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[rw_extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[rw_extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
@@ -7436,7 +7424,7 @@ pub const FuncGen = struct {
         {
             var clobber_i: u32 = 0;
             while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
                 // This equation accounts for the fact that even if we have exactly 4 bytes
                 // for the string, we still use the next u32 for the null terminator.
                 extra_i += clobber.len / 4 + 1;
@@ -7476,7 +7464,7 @@ pub const FuncGen = struct {
             else => {},
         }
 
-        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
+        const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
         // hackety hacks until stage2 has proper inline asm in the frontend.
         var rendered_template = std.ArrayList(u8).init(self.gpa);
@@ -8123,6 +8111,13 @@ pub const FuncGen = struct {
         const new_vector = try self.wip.insertElement(loaded, operand, index, "");
         _ = try self.store(vector_ptr, vector_ptr_ty, new_vector, .none);
         return .none;
+    }
+
+    fn airTlvDllimportPtr(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = fg.ng.object;
+        const ty_nav = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
+        const llvm_ptr_const = try o.lowerNavRefValue(ty_nav.nav);
+        return llvm_ptr_const.toValue();
     }
 
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9023,19 +9018,25 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
 
         const lhs_ty = self.typeOf(bin_op.lhs);
-        const lhs_scalar_ty = lhs_ty.scalarType(zcu);
-        const lhs_bits = lhs_scalar_ty.bitSize(zcu);
-
-        const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_ty), "");
-
+        const lhs_info = lhs_ty.intInfo(zcu);
         const llvm_lhs_ty = try o.lowerType(lhs_ty);
         const llvm_lhs_scalar_ty = llvm_lhs_ty.scalarType(&o.builder);
+
+        const rhs_ty = self.typeOf(bin_op.rhs);
+        const rhs_info = rhs_ty.intInfo(zcu);
+        assert(rhs_info.signedness == .unsigned);
+        const llvm_rhs_ty = try o.lowerType(rhs_ty);
+        const llvm_rhs_scalar_ty = llvm_rhs_ty.scalarType(&o.builder);
+
         const result = try self.wip.callIntrinsic(
             .normal,
             .none,
-            if (lhs_scalar_ty.isSignedInt(zcu)) .@"sshl.sat" else .@"ushl.sat",
+            switch (lhs_info.signedness) {
+                .signed => .@"sshl.sat",
+                .unsigned => .@"ushl.sat",
+            },
             &.{llvm_lhs_ty},
-            &.{ lhs, casted_rhs },
+            &.{ lhs, try self.wip.conv(.unsigned, rhs, llvm_lhs_ty, "") },
             "",
         );
 
@@ -9044,16 +9045,45 @@ pub const FuncGen = struct {
         // poison value."
         // However Zig semantics says that saturating shift left can never produce
         // undefined; instead it saturates.
+        if (rhs_info.bits <= math.log2_int(u16, lhs_info.bits)) return result;
         const bits = try o.builder.splatValue(
-            llvm_lhs_ty,
-            try o.builder.intConst(llvm_lhs_scalar_ty, lhs_bits),
+            llvm_rhs_ty,
+            try o.builder.intConst(llvm_rhs_scalar_ty, lhs_info.bits),
         );
-        const lhs_max = try o.builder.splatValue(
-            llvm_lhs_ty,
-            try o.builder.intConst(llvm_lhs_scalar_ty, -1),
-        );
-        const in_range = try self.wip.icmp(.ult, casted_rhs, bits, "");
-        return self.wip.select(.normal, in_range, result, lhs_max, "");
+        const in_range = try self.wip.icmp(.ult, rhs, bits, "");
+        const lhs_sat = lhs_sat: switch (lhs_info.signedness) {
+            .signed => {
+                const zero = try o.builder.splatValue(
+                    llvm_lhs_ty,
+                    try o.builder.intConst(llvm_lhs_scalar_ty, 0),
+                );
+                const smin = try o.builder.splatValue(
+                    llvm_lhs_ty,
+                    try minIntConst(&o.builder, lhs_ty, llvm_lhs_ty, zcu),
+                );
+                const smax = try o.builder.splatValue(
+                    llvm_lhs_ty,
+                    try maxIntConst(&o.builder, lhs_ty, llvm_lhs_ty, zcu),
+                );
+                const lhs_lt_zero = try self.wip.icmp(.slt, lhs, zero, "");
+                const slimit = try self.wip.select(.normal, lhs_lt_zero, smin, smax, "");
+                const lhs_eq_zero = try self.wip.icmp(.eq, lhs, zero, "");
+                break :lhs_sat try self.wip.select(.normal, lhs_eq_zero, zero, slimit, "");
+            },
+            .unsigned => {
+                const zero = try o.builder.splatValue(
+                    llvm_lhs_ty,
+                    try o.builder.intConst(llvm_lhs_scalar_ty, 0),
+                );
+                const umax = try o.builder.splatValue(
+                    llvm_lhs_ty,
+                    try o.builder.intConst(llvm_lhs_scalar_ty, -1),
+                );
+                const lhs_eq_zero = try self.wip.icmp(.eq, lhs, zero, "");
+                break :lhs_sat try self.wip.select(.normal, lhs_eq_zero, zero, umax, "");
+            },
+        };
+        return self.wip.select(.normal, in_range, result, lhs_sat, "");
     }
 
     fn airShr(self: *FuncGen, inst: Air.Inst.Index, is_exact: bool) !Builder.Value {
@@ -10597,7 +10627,7 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const result_ty = self.typeOfIndex(inst);
         const len: usize = @intCast(result_ty.arrayLen(zcu));
-        const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
+        const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[ty_pl.payload..][0..len]);
         const llvm_result_ty = try o.lowerType(result_ty);
 
         switch (result_ty.zigTypeTag(zcu)) {

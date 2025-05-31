@@ -36,7 +36,6 @@ const codegen = @import("../codegen/spirv.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
-const Liveness = @import("../Liveness.zig");
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 
@@ -118,7 +117,7 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
 ) link.File.UpdateNavError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
@@ -162,7 +161,7 @@ pub fn updateExports(
     if (ip.isFunctionType(nav_ty)) {
         const spv_decl_index = try self.object.resolveNav(zcu, nav_index);
         const cc = Type.fromInterned(nav_ty).fnCallingConvention(zcu);
-        const execution_model: spec.ExecutionModel = switch (target.os.tag) {
+        const exec_model: spec.ExecutionModel = switch (target.os.tag) {
             .vulkan, .opengl => switch (cc) {
                 .spirv_vertex => .Vertex,
                 .spirv_fragment => .Fragment,
@@ -185,7 +184,8 @@ pub fn updateExports(
             try self.object.spv.declareEntryPoint(
                 spv_decl_index,
                 exp.opts.name.toSlice(ip),
-                execution_model,
+                exec_model,
+                null,
             );
         }
     }

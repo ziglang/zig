@@ -7,4 +7,4 @@ fn foo() void {
 // backend=stage2
 // target=native
 //
-// :2:28: error: '.*' cannot be followed by '*'. Are you missing a space?
+// :2:28: error: '.*' cannot be followed by '*'; are you missing a space?

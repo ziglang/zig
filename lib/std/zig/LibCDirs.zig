@@ -168,10 +168,12 @@ pub fn detectFromBuilding(
 
     const generic_name = libCGenericName(target);
     // Some architecture families are handled by the same set of headers.
-    const arch_name = if (target.isMuslLibC())
+    const arch_name = if (target.isMuslLibC() or target.isWasiLibC())
         std.zig.target.muslArchNameHeaders(target.cpu.arch)
     else if (target.isFreeBSDLibC())
         std.zig.target.freebsdArchNameHeaders(target.cpu.arch)
+    else if (target.isNetBSDLibC())
+        std.zig.target.netbsdArchNameHeaders(target.cpu.arch)
     else
         @tagName(target.cpu.arch);
     const os_name = @tagName(target.os.tag);
@@ -221,6 +223,7 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
         .windows => return "mingw",
         .macos, .ios, .tvos, .watchos, .visionos => return "darwin",
         .freebsd => return "freebsd",
+        .netbsd => return "netbsd",
         else => {},
     }
     switch (target.abi) {

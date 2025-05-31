@@ -675,10 +675,12 @@ test lessThan {
 }
 
 const eqlBytes_allowed = switch (builtin.zig_backend) {
+    // These backends don't support vectors yet.
+    .stage2_powerpc,
+    .stage2_riscv64,
+    => false,
     // The SPIR-V backend does not support the optimized path yet.
     .stage2_spirv64 => false,
-    // The RISC-V does not support vectors.
-    .stage2_riscv64 => false,
     // The naive memory comparison implementation is more useful for fuzzers to
     // find interesting inputs.
     else => !builtin.fuzz,

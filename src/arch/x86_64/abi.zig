@@ -578,6 +578,11 @@ pub const RegisterClass = struct {
         for (allocatable_regs, 0..) |reg, index| if (reg.class() == .general_purpose) set.set(index);
         break :blk set;
     };
+    pub const gphi: RegisterBitSet = blk: {
+        var set = RegisterBitSet.initEmpty();
+        for (allocatable_regs, 0..) |reg, index| if (reg.hasHi8()) set.set(index);
+        break :blk set;
+    };
     pub const x87: RegisterBitSet = blk: {
         var set = RegisterBitSet.initEmpty();
         for (allocatable_regs, 0..) |reg, index| if (reg.class() == .x87) set.set(index);

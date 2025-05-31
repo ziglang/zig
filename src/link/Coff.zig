@@ -1098,7 +1098,7 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
 ) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -1392,7 +1392,7 @@ fn updateNavCode(
 
     log.debug("updateNavCode {} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
 
-    const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
+    const target = zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const required_alignment = switch (pt.navAlignment(nav_index)) {
         .none => target_util.defaultFunctionAlignment(target),
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
@@ -3802,7 +3802,6 @@ const trace = @import("../tracy.zig").trace;
 
 const Air = @import("../Air.zig");
 const Compilation = @import("../Compilation.zig");
-const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");

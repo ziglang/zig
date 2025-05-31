@@ -66,6 +66,7 @@
 #define	_STDIO_H_
 #define	__STDIO_H_
 
+#include <_bounds.h>
 #include <sys/cdefs.h>
 #include <Availability.h>
 
@@ -80,6 +81,8 @@
 #include <sys/stdio.h>
 #include <_printf.h>
 
+_LIBC_SINGLE_BY_DEFAULT()
+
 typedef __darwin_off_t		fpos_t;
 
 #define	_FSTDIO			/* Define for new stdio with functions. */
@@ -92,7 +95,7 @@ typedef __darwin_off_t		fpos_t;
 
 /* stdio buffers */
 struct __sbuf {
-	unsigned char	*_base;
+	unsigned char *_LIBC_COUNT(_size)	_base;
 	int		_size;
 };
 
@@ -126,7 +129,7 @@ struct __sFILEX;
  * NB: see WARNING above before changing the layout of this structure!
  */
 typedef	struct __sFILE {
-	unsigned char *_p;	/* current position in (some) buffer */
+	unsigned char *_LIBC_UNSAFE_INDEXABLE	_p;	/* current position in (some) buffer */
 	int	_r;		/* read space left for getc() */
 	int	_w;		/* write space left for putc() */
 	short	_flags;		/* flags, below; this FILE is free if 0 */
@@ -137,9 +140,9 @@ typedef	struct __sFILE {
 	/* operations */
 	void	*_cookie;	/* cookie passed to io functions */
 	int	(* _Nullable _close)(void *);
-	int	(* _Nullable _read) (void *, char *, int);
+	int	(* _Nullable _read) (void *, char *_LIBC_COUNT(__n), int __n);
 	fpos_t	(* _Nullable _seek) (void *, fpos_t, int);
-	int	(* _Nullable _write)(void *, const char *, int);
+	int	(* _Nullable _write)(void *, const char *_LIBC_COUNT(__n), int __n);
 
 	/* separate buffer for long sequences of ungetc() */
 	struct	__sbuf _ub;	/* ungetc buffer */
@@ -233,7 +236,7 @@ int	 ferror(FILE *);
 int	 fflush(FILE *);
 int	 fgetc(FILE *);
 int	 fgetpos(FILE * __restrict, fpos_t *);
-char	*fgets(char * __restrict, int, FILE *);
+char *_LIBC_CSTR	fgets(char * __restrict _LIBC_COUNT(__size), int __size, FILE *);
 #if defined(_DARWIN_UNLIMITED_STREAMS) || defined(_DARWIN_C_SOURCE)
 FILE	*fopen(const char * __restrict __filename, const char * __restrict __mode) __DARWIN_ALIAS_STARTING(__MAC_10_6, __IPHONE_3_2, __DARWIN_EXTSN(fopen));
 #else /* !_DARWIN_UNLIMITED_STREAMS && !_DARWIN_C_SOURCE */
@@ -242,21 +245,21 @@ FILE	*fopen(const char * __restrict __filename, const char * __restrict __mode) 
 int	 fprintf(FILE * __restrict, const char * __restrict, ...) __printflike(2, 3);
 int	 fputc(int, FILE *);
 int	 fputs(const char * __restrict, FILE * __restrict) __DARWIN_ALIAS(fputs);
-size_t	 fread(void * __restrict __ptr, size_t __size, size_t __nitems, FILE * __restrict __stream);
+size_t	 fread(void * __restrict _LIBC_SIZE(__size * __nitems) __ptr, size_t __size, size_t __nitems, FILE * __restrict __stream);
 FILE	*freopen(const char * __restrict, const char * __restrict,
 				 FILE * __restrict) __DARWIN_ALIAS(freopen);
 int	 fscanf(FILE * __restrict, const char * __restrict, ...) __scanflike(2, 3);
 int	 fseek(FILE *, long, int);
 int	 fsetpos(FILE *, const fpos_t *);
 long	 ftell(FILE *);
-size_t	 fwrite(const void * __restrict __ptr, size_t __size, size_t __nitems, FILE * __restrict __stream) __DARWIN_ALIAS(fwrite);
+size_t	 fwrite(const void * __restrict _LIBC_SIZE(__size * __nitems) __ptr, size_t __size, size_t __nitems, FILE * __restrict __stream) __DARWIN_ALIAS(fwrite);
 int	 getc(FILE *);
 int	 getchar(void);
 
 #if !defined(_POSIX_C_SOURCE)
 __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of gets(3), it is highly recommended that you use fgets(3) instead.")
 #endif
-char	*gets(char *);
+char *_LIBC_CSTR	gets(char *_LIBC_UNSAFE_INDEXABLE) _LIBC_PTRCHECK_REPLACED(fgets);
 
 void	 perror(const char *) __cold;
 int	 putc(int, FILE *);
@@ -266,14 +269,15 @@ int	 remove(const char *);
 int	 rename (const char *__old, const char *__new);
 void	 rewind(FILE *);
 int	 scanf(const char * __restrict, ...) __scanflike(1, 2);
-void	 setbuf(FILE * __restrict, char * __restrict);
-int	 setvbuf(FILE * __restrict, char * __restrict, int, size_t);
+void	 setbuf(FILE * __restrict, char * __restrict _LIBC_COUNT_OR_NULL(BUFSIZ));
+int	 setvbuf(FILE * __restrict, char * __restrict _LIBC_COUNT_OR_NULL(__size), int, size_t __size);
 
 __swift_unavailable("Use snprintf instead.")
+_LIBC_PTRCHECK_REPLACED("snprintf")
 #if !defined(_POSIX_C_SOURCE)
 __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use snprintf(3) instead.")
 #endif
-int	 sprintf(char * __restrict, const char * __restrict, ...) __printflike(2, 3);
+int	 sprintf(char * __restrict _LIBC_UNSAFE_INDEXABLE, const char * __restrict, ...) __printflike(2, 3) _LIBC_PTRCHECK_REPLACED(snprintf);
 
 int	 sscanf(const char * __restrict, const char * __restrict, ...) __scanflike(2, 3);
 FILE	*tmpfile(void);
@@ -282,17 +286,18 @@ __swift_unavailable("Use mkstemp(3) instead.")
 #if !defined(_POSIX_C_SOURCE)
 __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of tmpnam(3), it is highly recommended that you use mkstemp(3) instead.")
 #endif
-char	*tmpnam(char *);
+char *_LIBC_CSTR	tmpnam(char *_LIBC_COUNT(L_tmpnam));
 
 int	 ungetc(int, FILE *);
 int	 vfprintf(FILE * __restrict, const char * __restrict, va_list) __printflike(2, 0);
 int	 vprintf(const char * __restrict, va_list) __printflike(1, 0);
 
 __swift_unavailable("Use vsnprintf instead.")
+_LIBC_PTRCHECK_REPLACED("vsnprintf")
 #if !defined(_POSIX_C_SOURCE)
 __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of sprintf(3), it is highly recommended that you use vsnprintf(3) instead.")
 #endif
-int	 vsprintf(char * __restrict, const char * __restrict, va_list) __printflike(2, 0);
+int	 vsprintf(char * __restrict _LIBC_UNSAFE_INDEXABLE, const char * __restrict, va_list) __printflike(2, 0) _LIBC_PTRCHECK_REPLACED(vsnprintf);
 __END_DECLS
 
 
@@ -302,7 +307,6 @@ __END_DECLS
  */
 
 #if __DARWIN_C_LEVEL >= 198808L
-#define	L_ctermid	1024	/* size for ctermid(); PATH_MAX */
 
 #include <_ctermid.h>
 
@@ -398,7 +402,7 @@ __swift_unavailable("Use mkstemp(3) instead.")
 #if !defined(_POSIX_C_SOURCE)
 __deprecated_msg("This function is provided for compatibility reasons only.  Due to security concerns inherent in the design of tempnam(3), it is highly recommended that you use mkstemp(3) instead.")
 #endif
-char	*tempnam(const char *__dir, const char *__prefix) __DARWIN_ALIAS(tempnam);
+char *_LIBC_CSTR	tempnam(const char *__dir, const char *__prefix) __DARWIN_ALIAS(tempnam);
 __END_DECLS
 
 #ifndef lint
@@ -428,10 +432,10 @@ __END_DECLS
 
 #if __DARWIN_C_LEVEL >= 200112L || defined(_C99_SOURCE) || defined(__cplusplus)
 __BEGIN_DECLS
-int	 snprintf(char * __restrict __str, size_t __size, const char * __restrict __format, ...) __printflike(3, 4);
+int	 snprintf(char * __restrict _LIBC_COUNT(__size) __str, size_t __size, const char * __restrict __format, ...) __printflike(3, 4);
 int	 vfscanf(FILE * __restrict __stream, const char * __restrict __format, va_list) __scanflike(2, 0);
 int	 vscanf(const char * __restrict __format, va_list) __scanflike(1, 0);
-int	 vsnprintf(char * __restrict __str, size_t __size, const char * __restrict __format, va_list) __printflike(3, 0);
+int	 vsnprintf(char * __restrict _LIBC_COUNT(__size) __str, size_t __size, const char * __restrict __format, va_list) __printflike(3, 0);
 int	 vsscanf(const char * __restrict __str, const char * __restrict __format, va_list) __scanflike(2, 0);
 __END_DECLS
 #endif /* __DARWIN_C_LEVEL >= 200112L || defined(_C99_SOURCE) || defined(__cplusplus) */
@@ -448,10 +452,10 @@ __END_DECLS
 __BEGIN_DECLS
 int	dprintf(int, const char * __restrict, ...) __printflike(2, 3) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
 int	vdprintf(int, const char * __restrict, va_list) __printflike(2, 0) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
-ssize_t getdelim(char ** __restrict __linep, size_t * __restrict __linecapp, int __delimiter, FILE * __restrict __stream) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
-ssize_t getline(char ** __restrict __linep, size_t * __restrict __linecapp, FILE * __restrict __stream) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
-FILE *fmemopen(void * __restrict __buf, size_t __size, const char * __restrict __mode) __API_AVAILABLE(macos(10.13), ios(11.0), tvos(11.0), watchos(4.0));
-FILE *open_memstream(char **__bufp, size_t *__sizep) __API_AVAILABLE(macos(10.13), ios(11.0), tvos(11.0), watchos(4.0));
+ssize_t getdelim(char *_LIBC_COUNT(*__linecapp) *__restrict __linep, size_t * __restrict __linecapp, int __delimiter, FILE * __restrict __stream) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
+ssize_t getline(char *_LIBC_COUNT(*__linecapp) *__restrict __linep, size_t * __restrict __linecapp, FILE * __restrict __stream) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
+FILE *fmemopen(void * __restrict __buf _LIBC_SIZE(__size), size_t __size, const char * __restrict __mode) __API_AVAILABLE(macos(10.13), ios(11.0), tvos(11.0), watchos(4.0));
+FILE *open_memstream(char *_LIBC_COUNT(*__sizep) *__bufp, size_t *__sizep) __API_AVAILABLE(macos(10.13), ios(11.0), tvos(11.0), watchos(4.0));
 __END_DECLS
 #endif /* __DARWIN_C_LEVEL >= 200809L */
 
@@ -464,22 +468,22 @@ __BEGIN_DECLS
 extern __const int sys_nerr;		/* perror(3) external variables */
 extern __const char *__const sys_errlist[];
 
-int	 asprintf(char ** __restrict, const char * __restrict, ...) __printflike(2, 3);
-char	*ctermid_r(char *);
-char	*fgetln(FILE *, size_t *);
+int	 asprintf(char *_LIBC_CSTR *__restrict, const char * __restrict, ...) __printflike(2, 3);
+char *_LIBC_CSTR	ctermid_r(char *_LIBC_COUNT(L_ctermid));
+char *_LIBC_COUNT(*__len)	fgetln(FILE *, size_t *__len);
 __const char *fmtcheck(const char *, const char *) __attribute__((format_arg(2)));
 int	 fpurge(FILE *);
-void	 setbuffer(FILE *, char *, int);
+void	 setbuffer(FILE *, char *_LIBC_COUNT_OR_NULL(__size), int __size);
 int	 setlinebuf(FILE *);
-int	 vasprintf(char ** __restrict, const char * __restrict, va_list) __printflike(2, 0);
+int	 vasprintf(char *_LIBC_CSTR *__restrict, const char * __restrict, va_list) __printflike(2, 0);
 
 
 /*
  * Stdio function-access interface.
  */
 FILE	*funopen(const void *,
-				 int (* _Nullable)(void *, char *, int),
-				 int (* _Nullable)(void *, const char *, int),
+				 int (* _Nullable)(void *, char *_LIBC_COUNT(__n), int __n),
+				 int (* _Nullable)(void *, const char *_LIBC_COUNT(__n), int __n),
 				 fpos_t (* _Nullable)(void *, fpos_t, int),
 				 int (* _Nullable)(void *));
 __END_DECLS

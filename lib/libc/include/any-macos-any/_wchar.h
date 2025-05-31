@@ -67,6 +67,7 @@
 #ifndef _WCHAR_H_
 #define _WCHAR_H_
 
+#include <_bounds.h>
 #include <_types.h>
 #include <sys/cdefs.h>
 #include <Availability.h>
@@ -91,12 +92,15 @@
 #include <time.h>
 #include <__wctype.h>
 
+_LIBC_SINGLE_BY_DEFAULT()
 
 /* Initially added in Issue 4 */
 __BEGIN_DECLS
 wint_t	btowc(int);
 wint_t	fgetwc(FILE *);
-wchar_t	*fgetws(wchar_t * __restrict, int, FILE * __restrict);
+wchar_t	*_LIBC_CSTR
+	fgetws(wchar_t * __restrict _LIBC_COUNT(__n), int __n,
+		FILE * __restrict);
 wint_t	fputwc(wchar_t, FILE *);
 int	fputws(const wchar_t * __restrict, FILE * __restrict);
 int	fwide(FILE *, int);
@@ -104,57 +108,78 @@ int	fwprintf(FILE * __restrict, const wchar_t * __restrict, ...);
 int	fwscanf(FILE * __restrict, const wchar_t * __restrict, ...);
 wint_t	getwc(FILE *);
 wint_t	getwchar(void);
-size_t	mbrlen(const char * __restrict, size_t, mbstate_t * __restrict);
-size_t	mbrtowc(wchar_t * __restrict, const char * __restrict, size_t,
-	    mbstate_t * __restrict);
+size_t	mbrlen(const char * __restrict _LIBC_COUNT(__n), size_t __n,
+		mbstate_t * __restrict);
+size_t	mbrtowc(wchar_t * __restrict, const char * __restrict _LIBC_COUNT(__n),
+	    size_t __n, mbstate_t * __restrict);
 int	mbsinit(const mbstate_t *);
-size_t	mbsrtowcs(wchar_t * __restrict, const char ** __restrict, size_t,
-	    mbstate_t * __restrict);
+size_t	mbsrtowcs(wchar_t * __restrict _LIBC_COUNT(__len),
+		const char ** __restrict, size_t __len, mbstate_t * __restrict);
 wint_t	putwc(wchar_t, FILE *);
 wint_t	putwchar(wchar_t);
-int	swprintf(wchar_t * __restrict, size_t, const wchar_t * __restrict, ...);
+int	swprintf(wchar_t * __restrict _LIBC_COUNT(__maxlen), size_t __maxlen,
+		const wchar_t * __restrict, ...);
 int	swscanf(const wchar_t * __restrict, const wchar_t * __restrict, ...);
 wint_t	ungetwc(wint_t, FILE *);
 int	vfwprintf(FILE * __restrict, const wchar_t * __restrict,
 	    __darwin_va_list);
-int	vswprintf(wchar_t * __restrict, size_t, const wchar_t * __restrict,
-	    __darwin_va_list);
+int	vswprintf(wchar_t * __restrict _LIBC_COUNT(__maxlen), size_t __maxlen,
+		const wchar_t * __restrict, __darwin_va_list);
 int	vwprintf(const wchar_t * __restrict, __darwin_va_list);
 size_t	wcrtomb(char * __restrict, wchar_t, mbstate_t * __restrict);
 wchar_t	*wcscat(wchar_t * __restrict, const wchar_t * __restrict);
 wchar_t	*wcschr(const wchar_t *, wchar_t);
 int	wcscmp(const wchar_t *, const wchar_t *);
 int	wcscoll(const wchar_t *, const wchar_t *);
-wchar_t	*wcscpy(wchar_t * __restrict, const wchar_t * __restrict);
+wchar_t	*wcscpy(wchar_t * __restrict _LIBC_UNSAFE_INDEXABLE,
+		const wchar_t * __restrict) _LIBC_PTRCHECK_REPLACED(wcslcpy);
 size_t	wcscspn(const wchar_t *, const wchar_t *);
-size_t	wcsftime(wchar_t * __restrict, size_t, const wchar_t * __restrict,
-	    const struct tm * __restrict) __DARWIN_ALIAS(wcsftime);
+size_t	wcsftime(wchar_t * __restrict _LIBC_COUNT(__maxlen), size_t __maxlen,
+		const wchar_t * __restrict, const struct tm * __restrict)
+		__DARWIN_ALIAS(wcsftime);
 size_t	wcslen(const wchar_t *);
-wchar_t	*wcsncat(wchar_t * __restrict, const wchar_t * __restrict, size_t);
-int	wcsncmp(const wchar_t *, const wchar_t *, size_t);
-wchar_t	*wcsncpy(wchar_t * __restrict , const wchar_t * __restrict, size_t);
+wchar_t	*_LIBC_UNSAFE_INDEXABLE
+		wcsncat(wchar_t * __restrict _LIBC_UNSAFE_INDEXABLE,
+		const wchar_t * __restrict _LIBC_COUNT(__n), size_t __n)
+		_LIBC_PTRCHECK_REPLACED(wcslcat);
+int	wcsncmp(const wchar_t *_LIBC_UNSAFE_INDEXABLE,
+		const wchar_t *_LIBC_UNSAFE_INDEXABLE, size_t);
+wchar_t	*_LIBC_COUNT(__n)
+		wcsncpy(wchar_t * __restrict _LIBC_COUNT(__n),
+		const wchar_t * __restrict _LIBC_UNSAFE_INDEXABLE, size_t __n)
+		_LIBC_PTRCHECK_REPLACED(wcslcpy);
 wchar_t	*wcspbrk(const wchar_t *, const wchar_t *);
 wchar_t	*wcsrchr(const wchar_t *, wchar_t);
-size_t	wcsrtombs(char * __restrict, const wchar_t ** __restrict, size_t,
-	    mbstate_t * __restrict);
+size_t	wcsrtombs(char * __restrict _LIBC_COUNT(__len),
+		const wchar_t ** __restrict, size_t __len, mbstate_t * __restrict);
 size_t	wcsspn(const wchar_t *, const wchar_t *);
 wchar_t	*wcsstr(const wchar_t * __restrict, const wchar_t * __restrict);
-size_t	wcsxfrm(wchar_t * __restrict, const wchar_t * __restrict, size_t);
+size_t	wcsxfrm(wchar_t * __restrict _LIBC_COUNT(__n),
+		const wchar_t * __restrict, size_t __n);
 int	wctob(wint_t);
 double	wcstod(const wchar_t * __restrict, wchar_t ** __restrict);
-wchar_t	*wcstok(wchar_t * __restrict, const wchar_t * __restrict,
-	    wchar_t ** __restrict);
-long	 wcstol(const wchar_t * __restrict, wchar_t ** __restrict, int);
+wchar_t	*_LIBC_CSTR
+		wcstok(wchar_t * __restrict _LIBC_CSTR, const wchar_t * __restrict,
+	    wchar_t *_LIBC_CSTR * __restrict);
+long	 wcstol(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict,
+		int);
 unsigned long
-	 wcstoul(const wchar_t * __restrict, wchar_t ** __restrict, int);
-wchar_t	*wmemchr(const wchar_t *, wchar_t, size_t);
-int	wmemcmp(const wchar_t *, const wchar_t *, size_t);
-wchar_t	*wmemcpy(wchar_t * __restrict, const wchar_t * __restrict, size_t);
-wchar_t	*wmemmove(wchar_t *, const wchar_t *, size_t);
-wchar_t	*wmemset(wchar_t *, wchar_t, size_t);
+	 wcstoul(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict, int);
+wchar_t	*_LIBC_UNSAFE_INDEXABLE /* in bounds of arg1 */
+		wmemchr(const wchar_t *_LIBC_COUNT(__n) /*arg1*/, wchar_t, size_t __n);
+int	wmemcmp(const wchar_t *_LIBC_COUNT(__n), const wchar_t *_LIBC_COUNT(__n),
+		size_t __n);
+wchar_t	*_LIBC_COUNT(__n)
+		wmemcpy(wchar_t * __restrict _LIBC_COUNT(__n),
+		const wchar_t * __restrict _LIBC_COUNT(__n), size_t __n);
+wchar_t	*_LIBC_COUNT(__n)
+		wmemmove(wchar_t *_LIBC_COUNT(__n), const wchar_t *_LIBC_COUNT(__n),
+		size_t __n);
+wchar_t	*_LIBC_COUNT(__n)
+		wmemset(wchar_t *_LIBC_COUNT(__n), wchar_t, size_t __n);
 int	wprintf(const wchar_t * __restrict, ...);
 int	wscanf(const wchar_t * __restrict, ...);
-int	wcswidth(const wchar_t *, size_t);
+int	wcswidth(const wchar_t *_LIBC_COUNT(__n), size_t __n);
 int	wcwidth(wchar_t);
 __END_DECLS
 
@@ -172,14 +197,14 @@ int	vfwscanf(FILE * __restrict, const wchar_t * __restrict,
 int	vswscanf(const wchar_t * __restrict, const wchar_t * __restrict,
 	    __darwin_va_list);
 int	vwscanf(const wchar_t * __restrict, __darwin_va_list);
-float	wcstof(const wchar_t * __restrict, wchar_t ** __restrict);
+float	wcstof(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict);
 long double
-	wcstold(const wchar_t * __restrict, wchar_t ** __restrict);
+	wcstold(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict);
 #if !__DARWIN_NO_LONG_LONG
 long long
-	wcstoll(const wchar_t * __restrict, wchar_t ** __restrict, int);
+	wcstoll(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict, int);
 unsigned long long
-	wcstoull(const wchar_t * __restrict, wchar_t ** __restrict, int);
+	wcstoull(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict, int);
 #endif /* !__DARWIN_NO_LONG_LONG */
 __END_DECLS
 #endif
@@ -192,17 +217,27 @@ __END_DECLS
 
 #if __DARWIN_C_LEVEL >= 200809L
 __BEGIN_DECLS
-size_t  mbsnrtowcs(wchar_t * __restrict, const char ** __restrict, size_t,
-            size_t, mbstate_t * __restrict);
-wchar_t *wcpcpy(wchar_t * __restrict, const wchar_t * __restrict) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
-wchar_t *wcpncpy(wchar_t * __restrict, const wchar_t * __restrict, size_t) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
-wchar_t *wcsdup(const wchar_t *) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
+size_t  mbsnrtowcs(wchar_t * __restrict _LIBC_COUNT(__len),
+		const char *_LIBC_UNSAFE_INDEXABLE* __restrict, size_t, size_t __len,
+		mbstate_t * __restrict);
+wchar_t *_LIBC_UNSAFE_INDEXABLE	wcpcpy(
+		wchar_t * __restrict _LIBC_UNSAFE_INDEXABLE,
+		const wchar_t * __restrict) _LIBC_PTRCHECK_REPLACED(wcslcpy)
+		__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3)
+		_LIBC_PTRCHECK_REPLACED(wcslcpy);
+wchar_t *_LIBC_COUNT(__n)	wcpncpy(
+		wchar_t * __restrict _LIBC_COUNT(__n),
+		const wchar_t * __restrict _LIBC_UNSAFE_INDEXABLE, size_t __n)
+		__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3)
+		_LIBC_PTRCHECK_REPLACED(wcslcpy);
+wchar_t *_LIBC_CSTR wcsdup(const wchar_t *)
+		__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
 int     wcscasecmp(const wchar_t *, const wchar_t *) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
-int     wcsncasecmp(const wchar_t *, const wchar_t *, size_t n) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
-size_t  wcsnlen(const wchar_t *, size_t) __pure __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
-size_t  wcsnrtombs(char * __restrict, const wchar_t ** __restrict, size_t,
-            size_t, mbstate_t * __restrict);
-FILE *open_wmemstream(wchar_t ** __bufp, size_t * __sizep) __API_AVAILABLE(macos(10.13), ios(11.0), tvos(11.0), watchos(4.0));
+int     wcsncasecmp(const wchar_t *_LIBC_UNSAFE_INDEXABLE, const wchar_t *_LIBC_UNSAFE_INDEXABLE, size_t n) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
+size_t  wcsnlen(const wchar_t *_LIBC_COUNT(__n), size_t __n) __pure __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
+size_t  wcsnrtombs(char * __restrict _LIBC_COUNT(__len), const wchar_t ** __restrict, size_t,
+            size_t __len, mbstate_t * __restrict);
+FILE *open_wmemstream(wchar_t *_LIBC_COUNT(*__sizep) * __bufp, size_t * __sizep) __API_AVAILABLE(macos(10.13), ios(11.0), tvos(11.0), watchos(4.0));
 __END_DECLS
 #endif /* __DARWIN_C_LEVEL >= 200809L */
 
@@ -212,9 +247,10 @@ __END_DECLS
 
 #if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
 __BEGIN_DECLS
-wchar_t *fgetwln(FILE * __restrict, size_t *) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
-size_t	wcslcat(wchar_t *, const wchar_t *, size_t);
-size_t	wcslcpy(wchar_t *, const wchar_t *, size_t);
+wchar_t *_LIBC_COUNT(*__len)
+		fgetwln(FILE * __restrict, size_t *__len) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
+size_t	wcslcat(wchar_t *_LIBC_COUNT(__len), const wchar_t *, size_t __len);
+size_t	wcslcpy(wchar_t *_LIBC_COUNT(__len), const wchar_t *, size_t __len);
 __END_DECLS
 #endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
 

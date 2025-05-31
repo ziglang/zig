@@ -4299,12 +4299,12 @@ fn fnDeclInner(
                             &[_]u32{
                                 try astgen.errNoteNode(
                                     type_expr,
-                                    "if this is a name, annotate its type '{s}: T'",
+                                    "if this is a name, annotate its type: '{s}: T'",
                                     .{identifier_str},
                                 ),
                                 try astgen.errNoteNode(
                                     type_expr,
-                                    "if this is a type, give it a name '<name>: {s}'",
+                                    "if this is a type, give it a name: 'name: {s}'",
                                     .{identifier_str},
                                 ),
                             },

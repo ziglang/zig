@@ -18,7 +18,6 @@ const trace = @import("../tracy.zig").trace;
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Air = @import("../Air.zig");
-const Liveness = @import("../Liveness.zig");
 
 pub const zig_h = "#include \"zig.h\"\n";
 
@@ -180,7 +179,7 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
 ) link.File.UpdateNavError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -206,7 +205,7 @@ pub fn updateFunc(
             .dg = .{
                 .gpa = gpa,
                 .pt = pt,
-                .mod = zcu.navFileScope(func.owner_nav).mod,
+                .mod = zcu.navFileScope(func.owner_nav).mod.?,
                 .error_msg = null,
                 .pass = .{ .nav = func.owner_nav },
                 .is_naked_fn = Type.fromInterned(func.ty).fnCallingConvention(zcu) == .naked,
@@ -337,7 +336,7 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) l
         .dg = .{
             .gpa = gpa,
             .pt = pt,
-            .mod = zcu.navFileScope(nav_index).mod,
+            .mod = zcu.navFileScope(nav_index).mod.?,
             .error_msg = null,
             .pass = .{ .nav = nav_index },
             .is_naked_fn = false,
@@ -490,7 +489,7 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
 
         for (self.navs.keys(), self.navs.values()) |nav, *av_block| try self.flushAvBlock(
             pt,
-            zcu.navFileScope(nav).mod,
+            zcu.navFileScope(nav).mod.?,
             &f,
             av_block,
             self.exported_navs.getPtr(nav),
@@ -846,7 +845,7 @@ pub fn updateExports(
     const gpa = zcu.gpa;
     const mod, const pass: codegen.DeclGen.Pass, const decl_block, const exported_block = switch (exported) {
         .nav => |nav| .{
-            zcu.navFileScope(nav).mod,
+            zcu.navFileScope(nav).mod.?,
             .{ .nav = nav },
             self.navs.getPtr(nav).?,
             (try self.exported_navs.getOrPut(gpa, nav)).value_ptr,

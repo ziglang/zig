@@ -608,15 +608,20 @@ pub fn defaultPanic(
 
     // For backends that cannot handle the language features depended on by the
     // default panic handler, we have a simpler panic handler:
-    if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_arm or
-        builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_x86 or
-        (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
-        builtin.zig_backend == .stage2_sparc64 or
-        builtin.zig_backend == .stage2_spirv64)
-    {
-        @trap();
+    switch (builtin.zig_backend) {
+        .stage2_aarch64,
+        .stage2_arm,
+        .stage2_powerpc,
+        .stage2_riscv64,
+        .stage2_spirv64,
+        .stage2_wasm,
+        .stage2_x86,
+        => @trap(),
+        .stage2_x86_64 => switch (builtin.target.ofmt) {
+            .elf, .macho => {},
+            else => @trap(),
+        },
+        else => {},
     }
 
     switch (builtin.os.tag) {
@@ -926,6 +931,8 @@ pub const StackIterator = struct {
                 }
             }
         }
+
+        if (builtin.omit_frame_pointer) return null;
 
         const fp = if (comptime native_arch.isSPARC())
             // On SPARC the offset is positive. (!)
@@ -1525,6 +1532,12 @@ fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_
 }
 
 fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8) noreturn {
+    // For backends that cannot handle the language features used by this segfault handler, we have a simpler one,
+    switch (builtin.zig_backend) {
+        .stage2_x86_64 => if (builtin.target.ofmt == .coff) @trap(),
+        else => {},
+    }
+
     comptime assert(windows.CONTEXT != void);
     nosuspend switch (panic_stage) {
         0 => {

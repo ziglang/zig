@@ -15,7 +15,14 @@ extern fn fuzzer_init_corpus_elem(input_ptr: [*]const u8, input_len: usize) void
 extern fn fuzzer_coverage_id() u64;
 
 pub fn main() !void {
-    fuzzer_init(FuzzerSlice.fromSlice(""));
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const args = try std.process.argsAlloc(gpa.allocator());
+    defer std.process.argsFree(gpa.allocator(), args);
+
+    const cache_dir = args[1];
+
+    fuzzer_init(FuzzerSlice.fromSlice(cache_dir));
     fuzzer_init_corpus_elem("hello".ptr, "hello".len);
     fuzzer_set_name("test".ptr, "test".len);
     _ = fuzzer_coverage_id();

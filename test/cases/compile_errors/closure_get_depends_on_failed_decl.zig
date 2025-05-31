@@ -18,9 +18,7 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :11:5: error: expected 0 argument(s), found 1
 // :1:12: note: function declared here
-// :17:19: note: called from here
+// :17:19: note: called inline here

@@ -1,0 +1,30 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#target=wasm32-wasi-selfhosted
+#update=initial version
+#file=main.zig
+const foo = @as(u8, 123);
+comptime {
+    // depends on value of `foo`
+    if (foo != 123) unreachable;
+}
+comptime {
+    // depends on type of `foo`
+    if (@TypeOf(&foo) != *const u8) unreachable;
+}
+pub fn main() void {}
+#expect_stdout=""
+#update=change the type
+#file=main.zig
+const foo = @as(u16, 123);
+comptime {
+    // depends on value of `foo`
+    if (foo != 123) unreachable;
+}
+comptime {
+    // depends on type of `foo`
+    if (@TypeOf(&foo) != *const u8) unreachable;
+}
+pub fn main() void {}
+#expect_error=main.zig:8:37: error: reached unreachable code

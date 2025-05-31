@@ -31,8 +31,8 @@ pub export fn entry2() void {
 // error
 //
 // :5:27: error: inline call is recursive
-// :12:12: note: called from here
+// :12:12: note: called inline here
 // :24:10: error: inline call is recursive
-// :20:10: note: called from here
-// :16:11: note: called from here
-// :28:10: note: called from here
+// :20:10: note: called inline here
+// :16:11: note: called inline here
+// :28:10: note: called inline here

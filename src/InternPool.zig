@@ -1723,6 +1723,19 @@ pub const FileIndex = enum(u32) {
             .index = @intFromEnum(file_index) & ip.getIndexMask(u32),
         };
     }
+    pub fn toOptional(i: FileIndex) Optional {
+        return @enumFromInt(@intFromEnum(i));
+    }
+    pub const Optional = enum(u32) {
+        none = std.math.maxInt(u32),
+        _,
+        pub fn unwrap(opt: Optional) ?FileIndex {
+            return switch (opt) {
+                .none => null,
+                _ => @enumFromInt(@intFromEnum(opt)),
+            };
+        }
+    };
 };
 
 const File = struct {
@@ -4535,6 +4548,7 @@ pub const Index = enum(u32) {
     u80_type,
     u128_type,
     i128_type,
+    u256_type,
     usize_type,
     isize_type,
     c_char_type,
@@ -4572,33 +4586,53 @@ pub const Index = enum(u32) {
     slice_const_u8_type,
     slice_const_u8_sentinel_0_type,
 
+    vector_8_i8_type,
     vector_16_i8_type,
     vector_32_i8_type,
+    vector_64_i8_type,
     vector_1_u8_type,
     vector_2_u8_type,
     vector_4_u8_type,
     vector_8_u8_type,
     vector_16_u8_type,
     vector_32_u8_type,
+    vector_64_u8_type,
+    vector_2_i16_type,
+    vector_4_i16_type,
     vector_8_i16_type,
     vector_16_i16_type,
+    vector_32_i16_type,
+    vector_4_u16_type,
     vector_8_u16_type,
     vector_16_u16_type,
+    vector_32_u16_type,
+    vector_2_i32_type,
     vector_4_i32_type,
     vector_8_i32_type,
+    vector_16_i32_type,
     vector_4_u32_type,
     vector_8_u32_type,
+    vector_16_u32_type,
     vector_2_i64_type,
     vector_4_i64_type,
+    vector_8_i64_type,
     vector_2_u64_type,
     vector_4_u64_type,
+    vector_8_u64_type,
+    vector_1_u128_type,
+    vector_2_u128_type,
+    vector_1_u256_type,
     vector_4_f16_type,
     vector_8_f16_type,
+    vector_16_f16_type,
+    vector_32_f16_type,
     vector_2_f32_type,
     vector_4_f32_type,
     vector_8_f32_type,
+    vector_16_f32_type,
     vector_2_f64_type,
     vector_4_f64_type,
+    vector_8_f64_type,
 
     optional_noreturn_type,
     anyerror_void_error_union_type,
@@ -4929,7 +4963,7 @@ pub const Index = enum(u32) {
     }
 };
 
-pub const static_keys = [_]Key{
+pub const static_keys: [static_len]Key = .{
     .{ .int_type = .{
         .signedness = .unsigned,
         .bits = 0,
@@ -5003,6 +5037,11 @@ pub const static_keys = [_]Key{
     .{ .int_type = .{
         .signedness = .signed,
         .bits = 128,
+    } },
+
+    .{ .int_type = .{
+        .signedness = .unsigned,
+        .bits = 256,
     } },
 
     .{ .simple_type = .usize },
@@ -5090,10 +5129,14 @@ pub const static_keys = [_]Key{
         },
     } },
 
+    // @Vector(8, i8)
+    .{ .vector_type = .{ .len = 8, .child = .i8_type } },
     // @Vector(16, i8)
     .{ .vector_type = .{ .len = 16, .child = .i8_type } },
     // @Vector(32, i8)
     .{ .vector_type = .{ .len = 32, .child = .i8_type } },
+    // @Vector(64, i8)
+    .{ .vector_type = .{ .len = 64, .child = .i8_type } },
     // @Vector(1, u8)
     .{ .vector_type = .{ .len = 1, .child = .u8_type } },
     // @Vector(2, u8)
@@ -5106,44 +5149,80 @@ pub const static_keys = [_]Key{
     .{ .vector_type = .{ .len = 16, .child = .u8_type } },
     // @Vector(32, u8)
     .{ .vector_type = .{ .len = 32, .child = .u8_type } },
+    // @Vector(64, u8)
+    .{ .vector_type = .{ .len = 64, .child = .u8_type } },
+    // @Vector(2, i16)
+    .{ .vector_type = .{ .len = 2, .child = .i16_type } },
+    // @Vector(4, i16)
+    .{ .vector_type = .{ .len = 4, .child = .i16_type } },
     // @Vector(8, i16)
     .{ .vector_type = .{ .len = 8, .child = .i16_type } },
     // @Vector(16, i16)
     .{ .vector_type = .{ .len = 16, .child = .i16_type } },
+    // @Vector(32, i16)
+    .{ .vector_type = .{ .len = 32, .child = .i16_type } },
+    // @Vector(4, u16)
+    .{ .vector_type = .{ .len = 4, .child = .u16_type } },
     // @Vector(8, u16)
     .{ .vector_type = .{ .len = 8, .child = .u16_type } },
     // @Vector(16, u16)
     .{ .vector_type = .{ .len = 16, .child = .u16_type } },
+    // @Vector(32, u16)
+    .{ .vector_type = .{ .len = 32, .child = .u16_type } },
+    // @Vector(2, i32)
+    .{ .vector_type = .{ .len = 2, .child = .i32_type } },
     // @Vector(4, i32)
     .{ .vector_type = .{ .len = 4, .child = .i32_type } },
     // @Vector(8, i32)
     .{ .vector_type = .{ .len = 8, .child = .i32_type } },
+    // @Vector(16, i32)
+    .{ .vector_type = .{ .len = 16, .child = .i32_type } },
     // @Vector(4, u32)
     .{ .vector_type = .{ .len = 4, .child = .u32_type } },
     // @Vector(8, u32)
     .{ .vector_type = .{ .len = 8, .child = .u32_type } },
+    // @Vector(16, u32)
+    .{ .vector_type = .{ .len = 16, .child = .u32_type } },
     // @Vector(2, i64)
     .{ .vector_type = .{ .len = 2, .child = .i64_type } },
     // @Vector(4, i64)
     .{ .vector_type = .{ .len = 4, .child = .i64_type } },
+    // @Vector(8, i64)
+    .{ .vector_type = .{ .len = 8, .child = .i64_type } },
     // @Vector(2, u64)
     .{ .vector_type = .{ .len = 2, .child = .u64_type } },
-    // @Vector(8, u64)
+    // @Vector(4, u64)
     .{ .vector_type = .{ .len = 4, .child = .u64_type } },
+    // @Vector(8, u64)
+    .{ .vector_type = .{ .len = 8, .child = .u64_type } },
+    // @Vector(1, u128)
+    .{ .vector_type = .{ .len = 1, .child = .u128_type } },
+    // @Vector(2, u128)
+    .{ .vector_type = .{ .len = 2, .child = .u128_type } },
+    // @Vector(1, u256)
+    .{ .vector_type = .{ .len = 1, .child = .u256_type } },
     // @Vector(4, f16)
     .{ .vector_type = .{ .len = 4, .child = .f16_type } },
     // @Vector(8, f16)
     .{ .vector_type = .{ .len = 8, .child = .f16_type } },
+    // @Vector(16, f16)
+    .{ .vector_type = .{ .len = 16, .child = .f16_type } },
+    // @Vector(32, f16)
+    .{ .vector_type = .{ .len = 32, .child = .f16_type } },
     // @Vector(2, f32)
     .{ .vector_type = .{ .len = 2, .child = .f32_type } },
     // @Vector(4, f32)
     .{ .vector_type = .{ .len = 4, .child = .f32_type } },
     // @Vector(8, f32)
     .{ .vector_type = .{ .len = 8, .child = .f32_type } },
+    // @Vector(16, f32)
+    .{ .vector_type = .{ .len = 16, .child = .f32_type } },
     // @Vector(2, f64)
     .{ .vector_type = .{ .len = 2, .child = .f64_type } },
     // @Vector(4, f64)
     .{ .vector_type = .{ .len = 4, .child = .f64_type } },
+    // @Vector(8, f64)
+    .{ .vector_type = .{ .len = 8, .child = .f64_type } },
 
     // ?noreturn
     .{ .opt_type = .noreturn_type },
@@ -5221,10 +5300,6 @@ pub const static_keys = [_]Key{
 /// assert below to break an unfortunate and arguably incorrect dependency loop
 /// when compiling.
 pub const static_len = Zir.Inst.Index.static_len;
-comptime {
-    //@compileLog(static_keys.len);
-    assert(static_len == static_keys.len);
-}
 
 pub const Tag = enum(u8) {
     /// This special tag represents a value which was removed from this pool via
@@ -11742,6 +11817,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .u80_type,
         .u128_type,
         .i128_type,
+        .u256_type,
         .usize_type,
         .isize_type,
         .c_char_type,
@@ -11777,33 +11853,53 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
+        .vector_8_i8_type,
         .vector_16_i8_type,
         .vector_32_i8_type,
+        .vector_64_i8_type,
         .vector_1_u8_type,
         .vector_2_u8_type,
         .vector_4_u8_type,
         .vector_8_u8_type,
         .vector_16_u8_type,
         .vector_32_u8_type,
+        .vector_64_u8_type,
+        .vector_2_i16_type,
+        .vector_4_i16_type,
         .vector_8_i16_type,
         .vector_16_i16_type,
+        .vector_32_i16_type,
+        .vector_4_u16_type,
         .vector_8_u16_type,
         .vector_16_u16_type,
+        .vector_32_u16_type,
+        .vector_2_i32_type,
         .vector_4_i32_type,
         .vector_8_i32_type,
+        .vector_16_i32_type,
         .vector_4_u32_type,
         .vector_8_u32_type,
+        .vector_16_u32_type,
         .vector_2_i64_type,
         .vector_4_i64_type,
+        .vector_8_i64_type,
         .vector_2_u64_type,
         .vector_4_u64_type,
+        .vector_8_u64_type,
+        .vector_1_u128_type,
+        .vector_2_u128_type,
+        .vector_1_u256_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
+        .vector_16_f16_type,
+        .vector_32_f16_type,
         .vector_2_f32_type,
         .vector_4_f32_type,
         .vector_8_f32_type,
+        .vector_16_f32_type,
         .vector_2_f64_type,
         .vector_4_f64_type,
+        .vector_8_f64_type,
         .optional_noreturn_type,
         .anyerror_void_error_union_type,
         .adhoc_inferred_error_set_type,
@@ -12007,30 +12103,6 @@ pub fn isVariable(ip: *const InternPool, val: Index) bool {
     return val.unwrap(ip).getTag(ip) == .variable;
 }
 
-pub fn getBackingNav(ip: *const InternPool, val: Index) Nav.Index.Optional {
-    var base = val;
-    while (true) {
-        const unwrapped_base = base.unwrap(ip);
-        const base_item = unwrapped_base.getItem(ip);
-        switch (base_item.tag) {
-            .ptr_nav => return @enumFromInt(unwrapped_base.getExtra(ip).view().items(.@"0")[
-                base_item.data + std.meta.fieldIndex(PtrNav, "nav").?
-            ]),
-            inline .ptr_eu_payload,
-            .ptr_opt_payload,
-            .ptr_elem,
-            .ptr_field,
-            => |tag| base = @enumFromInt(unwrapped_base.getExtra(ip).view().items(.@"0")[
-                base_item.data + std.meta.fieldIndex(tag.Payload(), "base").?
-            ]),
-            .ptr_slice => base = @enumFromInt(unwrapped_base.getExtra(ip).view().items(.@"0")[
-                base_item.data + std.meta.fieldIndex(PtrSlice, "ptr").?
-            ]),
-            else => return .none,
-        }
-    }
-}
-
 pub fn getBackingAddrTag(ip: *const InternPool, val: Index) ?Key.Ptr.BaseAddr.Tag {
     var base = val;
     while (true) {
@@ -12079,6 +12151,7 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .u80_type,
         .u128_type,
         .i128_type,
+        .u256_type,
         .usize_type,
         .isize_type,
         .c_char_type,
@@ -12121,33 +12194,53 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .slice_const_u8_sentinel_0_type,
         => .pointer,
 
+        .vector_8_i8_type,
         .vector_16_i8_type,
         .vector_32_i8_type,
+        .vector_64_i8_type,
         .vector_1_u8_type,
         .vector_2_u8_type,
         .vector_4_u8_type,
         .vector_8_u8_type,
         .vector_16_u8_type,
         .vector_32_u8_type,
+        .vector_64_u8_type,
+        .vector_2_i16_type,
+        .vector_4_i16_type,
         .vector_8_i16_type,
         .vector_16_i16_type,
+        .vector_32_i16_type,
+        .vector_4_u16_type,
         .vector_8_u16_type,
         .vector_16_u16_type,
+        .vector_32_u16_type,
+        .vector_2_i32_type,
         .vector_4_i32_type,
         .vector_8_i32_type,
+        .vector_16_i32_type,
         .vector_4_u32_type,
         .vector_8_u32_type,
+        .vector_16_u32_type,
         .vector_2_i64_type,
         .vector_4_i64_type,
+        .vector_8_i64_type,
         .vector_2_u64_type,
         .vector_4_u64_type,
+        .vector_8_u64_type,
+        .vector_1_u128_type,
+        .vector_2_u128_type,
+        .vector_1_u256_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
+        .vector_16_f16_type,
+        .vector_32_f16_type,
         .vector_2_f32_type,
         .vector_4_f32_type,
         .vector_8_f32_type,
+        .vector_16_f32_type,
         .vector_2_f64_type,
         .vector_4_f64_type,
+        .vector_8_f64_type,
         => .vector,
 
         .optional_noreturn_type => .optional,

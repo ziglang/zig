@@ -236,6 +236,8 @@ pub fn main() !void {
                 graph.debug_compiler_runtime_libs = true;
             } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                 builder.debug_compile_errors = true;
+            } else if (mem.eql(u8, arg, "--debug-incremental")) {
+                builder.debug_incremental = true;
             } else if (mem.eql(u8, arg, "--system")) {
                 // The usage text shows another argument after this parameter
                 // but it is handled by the parent process. The build runner
@@ -750,7 +752,7 @@ fn runStepNames(
     if (run.prominent_compile_errors and total_compile_errors > 0) {
         for (step_stack.keys()) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
-                s.result_error_bundle.renderToStdErr(.{ .ttyconf = ttyconf, .include_reference_trace = (b.reference_trace orelse 0) > 0 });
+                s.result_error_bundle.renderToStdErr(.{ .ttyconf = ttyconf });
             }
         }
 
@@ -1129,11 +1131,7 @@ fn workerMakeOneStep(
         defer std.debug.unlockStdErr();
 
         const gpa = b.allocator;
-        const options: std.zig.ErrorBundle.RenderOptions = .{
-            .ttyconf = run.ttyconf,
-            .include_reference_trace = (b.reference_trace orelse 0) > 0,
-        };
-        printErrorMessages(gpa, s, options, run.stderr, run.prominent_compile_errors) catch {};
+        printErrorMessages(gpa, s, .{ .ttyconf = run.ttyconf }, run.stderr, run.prominent_compile_errors) catch {};
     }
 
     handle_result: {

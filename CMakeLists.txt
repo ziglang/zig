@@ -512,13 +512,15 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/llvm/bitcode_writer.zig
     lib/std/zig/llvm/ir.zig
     src/Air.zig
+    src/Air/Legalize.zig
+    src/Air/Liveness.zig
+    src/Air/Liveness/Verify.zig
+    src/Air/types_resolved.zig
     src/Builtin.zig
     src/Compilation.zig
     src/Compilation/Config.zig
     src/DarwinPosixSpawn.zig
     src/InternPool.zig
-    src/Liveness.zig
-    src/Liveness/Verify.zig
     src/Package.zig
     src/Package/Fetch.zig
     src/Package/Fetch/git.zig
@@ -543,6 +545,7 @@ set(ZIG_STAGE2_SOURCES
     src/arch/arm/Mir.zig
     src/arch/arm/abi.zig
     src/arch/arm/bits.zig
+    src/arch/powerpc/CodeGen.zig
     src/arch/riscv64/abi.zig
     src/arch/riscv64/bits.zig
     src/arch/riscv64/CodeGen.zig
@@ -588,6 +591,7 @@ set(ZIG_STAGE2_SOURCES
     src/dev.zig
     src/libs/freebsd.zig
     src/libs/glibc.zig
+    src/libs/netbsd.zig
     src/introspect.zig
     src/libs/libcxx.zig
     src/libs/libtsan.zig

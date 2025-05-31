@@ -1840,15 +1840,36 @@ pub const REG = switch (native_os) {
         pub const RSP = 20;
     },
     .netbsd => switch (builtin.cpu.arch) {
-        .aarch64 => struct {
+        .aarch64, .aarch64_be => struct {
             pub const FP = 29;
             pub const SP = 31;
             pub const PC = 32;
         },
-        .arm => struct {
+        .arm, .armeb => struct {
             pub const FP = 11;
             pub const SP = 13;
             pub const PC = 15;
+        },
+        .x86 => struct {
+            pub const GS = 0;
+            pub const FS = 1;
+            pub const ES = 2;
+            pub const DS = 3;
+            pub const EDI = 4;
+            pub const ESI = 5;
+            pub const EBP = 6;
+            pub const ESP = 7;
+            pub const EBX = 8;
+            pub const EDX = 9;
+            pub const ECX = 10;
+            pub const EAX = 11;
+            pub const TRAPNO = 12;
+            pub const ERR = 13;
+            pub const EIP = 14;
+            pub const CS = 15;
+            pub const EFL = 16;
+            pub const UESP = 17;
+            pub const SS = 18;
         },
         .x86_64 => struct {
             pub const RDI = 0;
@@ -6806,10 +6827,15 @@ pub const mcontext_t = switch (native_os) {
         fpregs: solaris.fpregset_t,
     },
     .netbsd => switch (builtin.cpu.arch) {
-        .aarch64 => extern struct {
+        .aarch64, .aarch64_be => extern struct {
             gregs: [35]u64,
             fregs: [528]u8 align(16),
             spare: [8]u64,
+        },
+        .x86 => extern struct {
+            gregs: [19]u32,
+            fpregs: [161]u32,
+            mc_tlsbase: u32,
         },
         .x86_64 => extern struct {
             gregs: [26]u64,
@@ -9901,7 +9927,9 @@ pub const EVFILT = switch (native_os) {
         pub const PROC = -5;
         pub const SIGNAL = -6;
         pub const TIMER = -7;
+        pub const DEVICE = -8;
         pub const EXCEPT = -9;
+        pub const USER = -10;
     },
     else => void,
 };
@@ -10129,6 +10157,14 @@ pub const NOTE = switch (native_os) {
         pub const CHILD = 0x00000004;
         // data/hint flags for EVFILT.DEVICE
         pub const CHANGE = 0x00000001;
+        // data/hint flags for EVFILT_USER
+        pub const FFNOP = 0x00000000;
+        pub const FFAND = 0x40000000;
+        pub const FFOR = 0x80000000;
+        pub const FFCOPY = 0xc0000000;
+        pub const FFCTRLMASK = 0xc0000000;
+        pub const FFLAGSMASK = 0x00ffffff;
+        pub const TRIGGER = 0x01000000;
     },
     else => void,
 };
@@ -10795,6 +10831,9 @@ else
         a: c_longlong,
         b: c_longdouble,
     };
+
+pub const intmax_t = i64;
+pub const uintmax_t = u64;
 
 pub extern "c" fn pthread_getthreadid_np() c_int;
 pub extern "c" fn pthread_set_name_np(thread: pthread_t, name: [*:0]const u8) void;

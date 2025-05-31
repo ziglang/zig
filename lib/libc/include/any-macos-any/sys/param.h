@@ -202,7 +202,7 @@
 #define isset(a, i)      (((unsigned char *)(a))[(i)/NBBY] & (1u<<((i)%NBBY)))
 #define isclr(a, i)      ((((unsigned char *)(a))[(i)/NBBY] & (1u<<((i)%NBBY))) == 0)
 
-/* Macros for counting and rounding. */
+/* Macros for counting, rounding. */
 #ifndef howmany
 #define howmany(x, y)   ((((x) % (y)) == 0) ? ((x) / (y)) : (((x) / (y)) + 1))
 #endif

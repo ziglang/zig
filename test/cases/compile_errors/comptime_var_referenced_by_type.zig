@@ -22,4 +22,4 @@ comptime {
 //
 // :7:16: error: captured value contains reference to comptime var
 // :16:30: note: 'wrapper.ptr' points to comptime var declared here
-// :17:29: note: called from here
+// :17:29: note: called at comptime here

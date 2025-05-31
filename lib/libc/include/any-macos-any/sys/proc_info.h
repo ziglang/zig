@@ -825,6 +825,7 @@ struct channel_fdinfo {
 #define PROC_DIRTY_DEFER                0x4
 #define PROC_DIRTY_LAUNCH_IN_PROGRESS   0x8
 #define PROC_DIRTY_DEFER_ALWAYS         0x10
+#define PROC_DIRTY_SHUTDOWN_ON_CLEAN    0x20
 
 /* proc_get_dirty() flags */
 #define PROC_DIRTY_TRACKED              0x1

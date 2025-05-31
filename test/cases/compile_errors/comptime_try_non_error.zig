@@ -11,8 +11,6 @@ pub fn bar() u8 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:12: error: expected error union type, found 'u8'
-// :2:8: note: called from here
+// :2:8: note: called at comptime here

@@ -501,21 +501,26 @@ pub fn addrSpaceCastIsValid(
 /// part of a merge (result of a branch) and may not be stored in memory at all. This function returns
 /// for a particular architecture and address space wether such pointers are logical.
 pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
-    if (target.os.tag != .vulkan) {
-        return false;
-    }
+    if (target.os.tag != .vulkan) return false;
 
     return switch (as) {
         // TODO: Vulkan doesn't support pointers in the generic address space, we
         // should remove this case but this requires a change in defaultAddressSpace().
         // For now, at least disable them from being regarded as physical.
         .generic => true,
-        // For now, all global pointers are represented using PhysicalStorageBuffer, so these are real
-        // pointers.
+        // For now, all global pointers are represented using StorageBuffer or CrossWorkgroup,
+        // so these are real pointers.
         .global => false,
-        // TODO: Allowed with VK_KHR_variable_pointers.
-        .shared => true,
-        .constant, .local, .input, .output, .uniform, .push_constant, .storage_buffer => true,
+        .physical_storage_buffer => false,
+        .shared => !target.cpu.features.isEnabled(@intFromEnum(std.Target.spirv.Feature.variable_pointers)),
+        .constant,
+        .local,
+        .input,
+        .output,
+        .uniform,
+        .push_constant,
+        .storage_buffer,
+        => true,
         else => unreachable,
     };
 }
@@ -736,6 +741,7 @@ pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend
 
 pub fn supportsThreads(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     return switch (backend) {
+        .stage2_powerpc => true,
         .stage2_x86_64 => target.ofmt == .macho or target.ofmt == .elf,
         else => true,
     };
@@ -796,14 +802,16 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
     if (use_llvm) return .stage2_llvm;
     if (target.ofmt == .c) return .stage2_c;
     return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => .stage2_wasm,
-        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
-        .x86_64 => .stage2_x86_64,
-        .x86 => .stage2_x86,
         .aarch64, .aarch64_be => .stage2_aarch64,
+        .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => .stage2_powerpc,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
-        .spirv64 => .stage2_spirv64,
+        .spirv32 => if (target.os.tag == .opencl) .stage2_spirv64 else .other,
+        .spirv, .spirv64 => .stage2_spirv64,
+        .wasm32, .wasm64 => .stage2_wasm,
+        .x86 => .stage2_x86,
+        .x86_64 => .stage2_x86_64,
         else => .other,
     };
 }

@@ -527,3 +527,47 @@ test "@ptrCast slice of zero-bit type to different slice" {
     try comptime S.doTheTest(u0, &.{ 0, 0, 0, 0 });
     try comptime S.doTheTest(packed struct(u0) {}, &.{ .{}, .{} });
 }
+
+test "@ptrCast single-item pointer to slice with length 1" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest(comptime T: type, ptr: *const T) !void {
+            const slice: []const T = @ptrCast(ptr);
+            try expect(slice.len == 1);
+            try expect(&slice[0] == ptr);
+        }
+    };
+    try S.doTheTest(u8, &123);
+    try S.doTheTest(void, &{});
+    try S.doTheTest(struct { x: u32 }, &.{ .x = 123 });
+    try comptime S.doTheTest(u8, &123);
+    try comptime S.doTheTest(void, &{});
+    try comptime S.doTheTest(struct { x: u32 }, &.{ .x = 123 });
+}
+
+test "@ptrCast single-item pointer to slice of bytes" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn doTheTest(comptime T: type, ptr: *const T) !void {
+            const slice: []const u8 = @ptrCast(ptr);
+            try expect(slice.len == @sizeOf(T));
+            try expect(slice.ptr == @as([*]const u8, @ptrCast(ptr)));
+        }
+    };
+    try S.doTheTest(u16, &123);
+    try S.doTheTest(void, &{});
+    try S.doTheTest(struct { x: u32 }, &.{ .x = 123 });
+    try comptime S.doTheTest(u16, &123);
+    try comptime S.doTheTest(void, &{});
+    try comptime S.doTheTest(struct { x: u32 }, &.{ .x = 123 });
+}

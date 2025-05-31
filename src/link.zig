@@ -15,7 +15,6 @@ const Path = std.Build.Cache.Path;
 const Directory = std.Build.Cache.Directory;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = std.zig.LibCInstallation;
-const Liveness = @import("Liveness.zig");
 const Zcu = @import("Zcu.zig");
 const InternPool = @import("InternPool.zig");
 const Type = @import("Type.zig");
@@ -738,7 +737,7 @@ pub const File = struct {
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
         air: Air,
-        liveness: Liveness,
+        liveness: Air.Liveness,
     ) UpdateNavError!void {
         switch (base.tag) {
             inline else => |tag| {
@@ -1601,8 +1600,9 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             if (comp.remaining_prelink_tasks == 0) {
                 const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
                 defer pt.deactivate();
-                // This call takes ownership of `func.air`.
-                pt.linkerUpdateFunc(func.func, func.air) catch |err| switch (err) {
+                var air = func.air;
+                defer air.deinit(comp.gpa);
+                pt.linkerUpdateFunc(func.func, &air) catch |err| switch (err) {
                     error.OutOfMemory => diags.setAllocFailure(),
                 };
             } else {
@@ -1675,8 +1675,8 @@ pub fn spawnLld(
                 const rand_int = std.crypto.random.int(u64);
                 const rsp_path = "tmp" ++ s ++ std.fmt.hex(rand_int) ++ ".rsp";
 
-                const rsp_file = try comp.local_cache_directory.handle.createFileZ(rsp_path, .{});
-                defer comp.local_cache_directory.handle.deleteFileZ(rsp_path) catch |err|
+                const rsp_file = try comp.dirs.local_cache.handle.createFileZ(rsp_path, .{});
+                defer comp.dirs.local_cache.handle.deleteFileZ(rsp_path) catch |err|
                     log.warn("failed to delete response file {s}: {s}", .{ rsp_path, @errorName(err) });
                 {
                     defer rsp_file.close();
@@ -1700,7 +1700,7 @@ pub fn spawnLld(
                 var rsp_child = std.process.Child.init(&.{ argv[0], argv[1], try std.fmt.allocPrint(
                     arena,
                     "@{s}",
-                    .{try comp.local_cache_directory.join(arena, &.{rsp_path})},
+                    .{try comp.dirs.local_cache.join(arena, &.{rsp_path})},
                 ) }, arena);
                 if (comp.clang_passthrough_mode) {
                     rsp_child.stdin_behavior = .Inherit;

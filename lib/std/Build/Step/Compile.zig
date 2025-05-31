@@ -1447,6 +1447,10 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         try zig_args.append("--debug-compile-errors");
     }
 
+    if (b.debug_incremental) {
+        try zig_args.append("--debug-incremental");
+    }
+
     if (b.verbose_cimport) try zig_args.append("--verbose-cimport");
     if (b.verbose_air) try zig_args.append("--verbose-air");
     if (b.verbose_llvm_ir) |path| try zig_args.append(b.fmt("--verbose-llvm-ir={s}", .{path}));

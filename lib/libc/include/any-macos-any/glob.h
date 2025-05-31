@@ -38,8 +38,11 @@
 
 #include <_types.h>
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <Availability.h>
 #include <sys/_types/_size_t.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
 struct dirent;
@@ -50,7 +53,7 @@ typedef struct {
 	int gl_matchc;		/* Count of paths matching pattern. */
 	size_t gl_offs;		/* Reserved at beginning of gl_pathv. */
 	int gl_flags;		/* Copy of flags parameter to glob. */
-	char **gl_pathv;	/* List of paths matching pattern. */
+	char *_LIBC_CSTR *_LIBC_COUNT(gl_matchc)	gl_pathv; /* List of paths matching pattern. */
 				/* Copy of errfunc parameter to glob. */
 #ifdef __BLOCKS__
 	union {

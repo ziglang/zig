@@ -228,7 +228,7 @@ fn loadComptimePtrInner(
 
     const base_val: MutableValue = switch (ptr.base_addr) {
         .nav => |nav| val: {
-            try sema.ensureNavResolved(src, nav, .fully);
+            try sema.ensureNavResolved(block, src, nav, .fully);
             const val = ip.getNav(nav).status.fully_resolved.val;
             switch (ip.indexToKey(val)) {
                 .variable => return .runtime_load,

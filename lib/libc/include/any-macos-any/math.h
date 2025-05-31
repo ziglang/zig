@@ -31,6 +31,11 @@
 #include <sys/cdefs.h>
 #include <Availability.h>
 
+#if __has_include(<realtime_safety/realtime_safety.h>)
+#include <realtime_safety/realtime_safety.h>
+REALTIME_SAFE_BEGIN
+#endif
+
 __BEGIN_DECLS
 
 /******************************************************************************
@@ -41,7 +46,7 @@ __BEGIN_DECLS
     taking advantage of GCC's __FLT_EVAL_METHOD__ (which a compiler may
     define anytime and GCC does) that shadows FLT_EVAL_METHOD (which a
     compiler must define only in float.h).                                    */
-#if __FLT_EVAL_METHOD__ == 0 || __FLT_EVAL_METHOD__ == -1
+#if __FLT_EVAL_METHOD__ == 0 || __FLT_EVAL_METHOD__ == -1 || __FLT_EVAL_METHOD__ == 16
     typedef float float_t;
     typedef double double_t;
 #elif __FLT_EVAL_METHOD__ == 1
@@ -788,5 +793,10 @@ struct exception {
 #endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
 
 __END_DECLS
+
+#if __has_include(<realtime_safety/realtime_safety.h>)
+REALTIME_SAFE_END
+#endif
+
 #endif /* __MATH_H__ */
 

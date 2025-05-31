@@ -29,7 +29,6 @@ jobs:
       - name: Build and Test
         run: sh ci/x86_64-linux-release.sh
   aarch64-linux-debug:
-    timeout-minutes: 540
     runs-on: [self-hosted, Linux, aarch64]
     steps:
       - name: Checkout
@@ -37,7 +36,6 @@ jobs:
       - name: Build and Test
         run: sh ci/aarch64-linux-debug.sh
   aarch64-linux-release:
-    timeout-minutes: 540
     runs-on: [self-hosted, Linux, aarch64]
     steps:
       - name: Checkout
