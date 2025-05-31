@@ -9,16 +9,19 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 const Air = @This();
-const Value = @import("Value.zig");
-const Type = @import("Type.zig");
 const InternPool = @import("InternPool.zig");
+const Type = @import("Type.zig");
+const Value = @import("Value.zig");
 const Zcu = @import("Zcu.zig");
 const types_resolved = @import("Air/types_resolved.zig");
+
+pub const Legalize = @import("Air/Legalize.zig");
+pub const Liveness = @import("Air/Liveness.zig");
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 /// The first few indexes are reserved. See `ExtraIndex` for the values.
-extra: []const u32,
+extra: std.ArrayListUnmanaged(u32),
 
 pub const ExtraIndex = enum(u32) {
     /// Payload index of the main `Block` in the `extra` array.
@@ -244,22 +247,27 @@ pub const Inst = struct {
         /// Uses the `bin_op` field.
         bit_or,
         /// Shift right. `>>`
+        /// The rhs type may be a scalar version of the lhs type.
         /// Uses the `bin_op` field.
         shr,
         /// Shift right. The shift produces a poison value if it shifts out any non-zero bits.
+        /// The rhs type may be a scalar version of the lhs type.
         /// Uses the `bin_op` field.
         shr_exact,
         /// Shift left. `<<`
+        /// The rhs type may be a scalar version of the lhs type.
         /// Uses the `bin_op` field.
         shl,
         /// Shift left; For unsigned integers, the shift produces a poison value if it shifts
         /// out any non-zero bits. For signed integers, the shift produces a poison value if
         /// it shifts out any bits that disagree with the resultant sign bit.
+        /// The rhs type may be a scalar version of the lhs type.
         /// Uses the `bin_op` field.
         shl_exact,
         /// Saturating integer shift left. `<<|`. The result is the same type as the `lhs`.
         /// The `rhs` must have the same vector shape as the `lhs`, but with any unsigned
         /// integer as the scalar type.
+        /// The rhs type may be a scalar version of the lhs type.
         /// Uses the `bin_op` field.
         shl_sat,
         /// Bitwise XOR. `^`
@@ -973,6 +981,7 @@ pub const Inst = struct {
         u80_type = @intFromEnum(InternPool.Index.u80_type),
         u128_type = @intFromEnum(InternPool.Index.u128_type),
         i128_type = @intFromEnum(InternPool.Index.i128_type),
+        u256_type = @intFromEnum(InternPool.Index.u256_type),
         usize_type = @intFromEnum(InternPool.Index.usize_type),
         isize_type = @intFromEnum(InternPool.Index.isize_type),
         c_char_type = @intFromEnum(InternPool.Index.c_char_type),
@@ -1011,34 +1020,50 @@ pub const Inst = struct {
         vector_8_i8_type = @intFromEnum(InternPool.Index.vector_8_i8_type),
         vector_16_i8_type = @intFromEnum(InternPool.Index.vector_16_i8_type),
         vector_32_i8_type = @intFromEnum(InternPool.Index.vector_32_i8_type),
+        vector_64_i8_type = @intFromEnum(InternPool.Index.vector_64_i8_type),
         vector_1_u8_type = @intFromEnum(InternPool.Index.vector_1_u8_type),
         vector_2_u8_type = @intFromEnum(InternPool.Index.vector_2_u8_type),
         vector_4_u8_type = @intFromEnum(InternPool.Index.vector_4_u8_type),
         vector_8_u8_type = @intFromEnum(InternPool.Index.vector_8_u8_type),
         vector_16_u8_type = @intFromEnum(InternPool.Index.vector_16_u8_type),
         vector_32_u8_type = @intFromEnum(InternPool.Index.vector_32_u8_type),
+        vector_64_u8_type = @intFromEnum(InternPool.Index.vector_64_u8_type),
+        vector_2_i16_type = @intFromEnum(InternPool.Index.vector_2_i16_type),
         vector_4_i16_type = @intFromEnum(InternPool.Index.vector_4_i16_type),
         vector_8_i16_type = @intFromEnum(InternPool.Index.vector_8_i16_type),
         vector_16_i16_type = @intFromEnum(InternPool.Index.vector_16_i16_type),
+        vector_32_i16_type = @intFromEnum(InternPool.Index.vector_32_i16_type),
         vector_4_u16_type = @intFromEnum(InternPool.Index.vector_4_u16_type),
         vector_8_u16_type = @intFromEnum(InternPool.Index.vector_8_u16_type),
         vector_16_u16_type = @intFromEnum(InternPool.Index.vector_16_u16_type),
+        vector_32_u16_type = @intFromEnum(InternPool.Index.vector_32_u16_type),
+        vector_2_i32_type = @intFromEnum(InternPool.Index.vector_2_i32_type),
         vector_4_i32_type = @intFromEnum(InternPool.Index.vector_4_i32_type),
         vector_8_i32_type = @intFromEnum(InternPool.Index.vector_8_i32_type),
+        vector_16_i32_type = @intFromEnum(InternPool.Index.vector_16_i32_type),
         vector_4_u32_type = @intFromEnum(InternPool.Index.vector_4_u32_type),
         vector_8_u32_type = @intFromEnum(InternPool.Index.vector_8_u32_type),
+        vector_16_u32_type = @intFromEnum(InternPool.Index.vector_16_u32_type),
         vector_2_i64_type = @intFromEnum(InternPool.Index.vector_2_i64_type),
         vector_4_i64_type = @intFromEnum(InternPool.Index.vector_4_i64_type),
+        vector_8_i64_type = @intFromEnum(InternPool.Index.vector_8_i64_type),
         vector_2_u64_type = @intFromEnum(InternPool.Index.vector_2_u64_type),
         vector_4_u64_type = @intFromEnum(InternPool.Index.vector_4_u64_type),
+        vector_8_u64_type = @intFromEnum(InternPool.Index.vector_8_u64_type),
+        vector_1_u128_type = @intFromEnum(InternPool.Index.vector_1_u128_type),
         vector_2_u128_type = @intFromEnum(InternPool.Index.vector_2_u128_type),
+        vector_1_u256_type = @intFromEnum(InternPool.Index.vector_1_u256_type),
         vector_4_f16_type = @intFromEnum(InternPool.Index.vector_4_f16_type),
         vector_8_f16_type = @intFromEnum(InternPool.Index.vector_8_f16_type),
+        vector_16_f16_type = @intFromEnum(InternPool.Index.vector_16_f16_type),
+        vector_32_f16_type = @intFromEnum(InternPool.Index.vector_32_f16_type),
         vector_2_f32_type = @intFromEnum(InternPool.Index.vector_2_f32_type),
         vector_4_f32_type = @intFromEnum(InternPool.Index.vector_4_f32_type),
         vector_8_f32_type = @intFromEnum(InternPool.Index.vector_8_f32_type),
+        vector_16_f32_type = @intFromEnum(InternPool.Index.vector_16_f32_type),
         vector_2_f64_type = @intFromEnum(InternPool.Index.vector_2_f64_type),
         vector_4_f64_type = @intFromEnum(InternPool.Index.vector_4_f64_type),
+        vector_8_f64_type = @intFromEnum(InternPool.Index.vector_8_f64_type),
         optional_noreturn_type = @intFromEnum(InternPool.Index.optional_noreturn_type),
         anyerror_void_error_union_type = @intFromEnum(InternPool.Index.anyerror_void_error_union_type),
         adhoc_inferred_error_set_type = @intFromEnum(InternPool.Index.adhoc_inferred_error_set_type),
@@ -1361,9 +1386,9 @@ pub const UnionInit = struct {
 };
 
 pub fn getMainBody(air: Air) []const Air.Inst.Index {
-    const body_index = air.extra[@intFromEnum(ExtraIndex.main_block)];
+    const body_index = air.extra.items[@intFromEnum(ExtraIndex.main_block)];
     const extra = air.extraData(Block, body_index);
-    return @ptrCast(air.extra[extra.end..][0..extra.data.body_len]);
+    return @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]);
 }
 
 pub fn typeOf(air: *const Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
@@ -1639,9 +1664,9 @@ pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end
     var result: T = undefined;
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
-            u32 => air.extra[i],
-            InternPool.Index, Inst.Ref => @enumFromInt(air.extra[i]),
-            i32, CondBr.BranchHints => @bitCast(air.extra[i]),
+            u32 => air.extra.items[i],
+            InternPool.Index, Inst.Ref => @enumFromInt(air.extra.items[i]),
+            i32, CondBr.BranchHints => @bitCast(air.extra.items[i]),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
         i += 1;
@@ -1654,7 +1679,7 @@ pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end
 
 pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
     air.instructions.deinit(gpa);
-    gpa.free(air.extra);
+    air.extra.deinit(gpa);
     air.* = undefined;
 }
 
@@ -1683,7 +1708,7 @@ pub const NullTerminatedString = enum(u32) {
 
     pub fn toSlice(nts: NullTerminatedString, air: Air) [:0]const u8 {
         if (nts == .none) return "";
-        const bytes = std.mem.sliceAsBytes(air.extra[@intFromEnum(nts)..]);
+        const bytes = std.mem.sliceAsBytes(air.extra.items[@intFromEnum(nts)..]);
         return bytes[0..std.mem.indexOfScalar(u8, bytes, 0).? :0];
     }
 };
@@ -1926,7 +1951,7 @@ pub const UnwrappedSwitch = struct {
         return us.getHintInner(us.cases_len);
     }
     fn getHintInner(us: UnwrappedSwitch, idx: u32) std.builtin.BranchHint {
-        const bag = us.air.extra[us.branch_hints_start..][idx / 10];
+        const bag = us.air.extra.items[us.branch_hints_start..][idx / 10];
         const bits: u3 = @truncate(bag >> @intCast(3 * (idx % 10)));
         return @enumFromInt(bits);
     }
@@ -1954,13 +1979,13 @@ pub const UnwrappedSwitch = struct {
 
             const extra = it.air.extraData(SwitchBr.Case, it.extra_index);
             var extra_index = extra.end;
-            const items: []const Inst.Ref = @ptrCast(it.air.extra[extra_index..][0..extra.data.items_len]);
+            const items: []const Inst.Ref = @ptrCast(it.air.extra.items[extra_index..][0..extra.data.items_len]);
             extra_index += items.len;
             // TODO: ptrcast from []const Inst.Ref to []const [2]Inst.Ref when supported
-            const ranges_ptr: [*]const [2]Inst.Ref = @ptrCast(it.air.extra[extra_index..]);
+            const ranges_ptr: [*]const [2]Inst.Ref = @ptrCast(it.air.extra.items[extra_index..]);
             const ranges: []const [2]Inst.Ref = ranges_ptr[0..extra.data.ranges_len];
             extra_index += ranges.len * 2;
-            const body: []const Inst.Index = @ptrCast(it.air.extra[extra_index..][0..extra.data.body_len]);
+            const body: []const Inst.Index = @ptrCast(it.air.extra.items[extra_index..][0..extra.data.body_len]);
             extra_index += body.len;
             it.extra_index = @intCast(extra_index);
 
@@ -1975,7 +2000,7 @@ pub const UnwrappedSwitch = struct {
         /// Returns the body of the "default" (`else`) case.
         pub fn elseBody(it: *CaseIterator) []const Inst.Index {
             assert(it.next_case == it.cases_len);
-            return @ptrCast(it.air.extra[it.extra_index..][0..it.else_body_len]);
+            return @ptrCast(it.air.extra.items[it.extra_index..][0..it.else_body_len]);
         }
         pub const Case = struct {
             idx: u32,
@@ -2008,6 +2033,7 @@ pub fn unwrapSwitch(air: *const Air, switch_inst: Inst.Index) UnwrappedSwitch {
 pub const typesFullyResolved = types_resolved.typesFullyResolved;
 pub const typeFullyResolved = types_resolved.checkType;
 pub const valFullyResolved = types_resolved.checkVal;
+pub const legalize = Legalize.legalize;
 
 pub const CoveragePoint = enum(u1) {
     /// Indicates the block is not a place of interest corresponding to

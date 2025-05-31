@@ -12,7 +12,6 @@ const trace = @import("../tracy.zig").trace;
 const File = link.File;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
-const Liveness = @import("../Liveness.zig");
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const AnalUnit = InternPool.AnalUnit;
@@ -389,7 +388,7 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
 ) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");

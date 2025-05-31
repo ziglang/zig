@@ -14,7 +14,6 @@ const Allocator = mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const ErrorMsg = Zcu.ErrorMsg;
 const InternPool = @import("InternPool.zig");
-const Liveness = @import("Liveness.zig");
 const Zcu = @import("Zcu.zig");
 
 const Type = @import("Type.zig");
@@ -33,15 +32,18 @@ fn devFeatureForBackend(comptime backend: std.builtin.CompilerBackend) dev.Featu
     return @field(dev.Feature, @tagName(backend)["stage2_".len..] ++ "_backend");
 }
 
-fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
+pub fn importBackend(comptime backend: std.builtin.CompilerBackend) ?type {
     return switch (backend) {
         .stage2_aarch64 => @import("arch/aarch64/CodeGen.zig"),
         .stage2_arm => @import("arch/arm/CodeGen.zig"),
+        .stage2_c => @import("codegen/c.zig"),
+        .stage2_llvm => @import("codegen/llvm.zig"),
         .stage2_powerpc => @import("arch/powerpc/CodeGen.zig"),
         .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
         .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
+        .stage2_spirv64 => @import("codegen/spirv.zig"),
         .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
-        else => unreachable,
+        else => null,
     };
 }
 
@@ -51,7 +53,7 @@ pub fn generateFunction(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!void {
@@ -68,7 +70,7 @@ pub fn generateFunction(
         .stage2_x86_64,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
-            return importBackend(backend).generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output);
+            return importBackend(backend).?.generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output);
         },
     }
 }
@@ -93,7 +95,7 @@ pub fn generateLazyFunction(
         .stage2_x86_64,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
-            return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
+            return importBackend(backend).?.generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
         },
     }
 }

@@ -171,7 +171,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra[extra.end..][0..extra.data.body_len]),
+                    @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
                     zcu,
                 )) return false;
             },
@@ -181,7 +181,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra[extra.end..][0..extra.data.body_len]),
+                    @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
                     zcu,
                 )) return false;
             },
@@ -270,7 +270,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .aggregate_init => {
                 const ty = data.ty_pl.ty.toType();
                 const elems_len: usize = @intCast(ty.arrayLen(zcu));
-                const elems: []const Air.Inst.Ref = @ptrCast(air.extra[data.ty_pl.payload..][0..elems_len]);
+                const elems: []const Air.Inst.Ref = @ptrCast(air.extra.items[data.ty_pl.payload..][0..elems_len]);
                 if (!checkType(ty, zcu)) return false;
                 if (ty.zigTypeTag(zcu) == .@"struct") {
                     for (elems, 0..) |elem, elem_idx| {
@@ -336,7 +336,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .call_never_inline,
             => {
                 const extra = air.extraData(Air.Call, data.pl_op.payload);
-                const args: []const Air.Inst.Ref = @ptrCast(air.extra[extra.end..][0..extra.data.args_len]);
+                const args: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end..][0..extra.data.args_len]);
                 if (!checkRef(data.pl_op.operand, zcu)) return false;
                 for (args) |arg| if (!checkRef(arg, zcu)) return false;
             },
@@ -353,7 +353,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(data.pl_op.operand, zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra[extra.end..][0..extra.data.body_len]),
+                    @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
                     zcu,
                 )) return false;
             },
@@ -364,7 +364,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(extra.data.ptr, zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra[extra.end..][0..extra.data.body_len]),
+                    @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
                     zcu,
                 )) return false;
             },
@@ -374,12 +374,12 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(data.pl_op.operand, zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra[extra.end..][0..extra.data.then_body_len]),
+                    @ptrCast(air.extra.items[extra.end..][0..extra.data.then_body_len]),
                     zcu,
                 )) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra[extra.end + extra.data.then_body_len ..][0..extra.data.else_body_len]),
+                    @ptrCast(air.extra.items[extra.end + extra.data.then_body_len ..][0..extra.data.else_body_len]),
                     zcu,
                 )) return false;
             },
@@ -404,8 +404,8 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
                 // Luckily, we only care about the inputs and outputs, so we don't have to do
                 // the whole null-terminated string dance.
-                const outputs: []const Air.Inst.Ref = @ptrCast(air.extra[extra.end..][0..extra.data.outputs_len]);
-                const inputs: []const Air.Inst.Ref = @ptrCast(air.extra[extra.end + extra.data.outputs_len ..][0..extra.data.inputs_len]);
+                const outputs: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end..][0..extra.data.outputs_len]);
+                const inputs: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end + extra.data.outputs_len ..][0..extra.data.inputs_len]);
                 for (outputs) |output| if (output != .none and !checkRef(output, zcu)) return false;
                 for (inputs) |input| if (input != .none and !checkRef(input, zcu)) return false;
             },

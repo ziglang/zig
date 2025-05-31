@@ -10,7 +10,6 @@ const Allocator = mem.Allocator;
 const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
-const Liveness = @import("../../Liveness.zig");
 const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
 const link = @import("../../link.zig");
@@ -54,7 +53,7 @@ const InnerError = CodeGenError || error{OutOfRegisters};
 
 pt: Zcu.PerThread,
 air: Air,
-liveness: Liveness,
+liveness: Air.Liveness,
 bin_file: *link.File,
 gpa: Allocator,
 
@@ -82,7 +81,7 @@ scope_generation: u32,
 /// which is a relative jump, based on the address following the reloc.
 exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
 
-reused_operands: std.StaticBitSet(Liveness.bpi - 1) = undefined,
+reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -739,7 +738,7 @@ pub fn generate(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!void {
@@ -1426,7 +1425,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
         verbose_tracking_log.debug("{}", .{func.fmtTracking()});
 
         const old_air_bookkeeping = func.air_bookkeeping;
-        try func.ensureProcessDeathCapacity(Liveness.bpi);
+        try func.ensureProcessDeathCapacity(Air.Liveness.bpi);
 
         func.reused_operands = @TypeOf(func.reused_operands).initEmpty();
         try func.inst_tracking.ensureUnusedCapacity(func.gpa, 1);
@@ -1731,7 +1730,7 @@ fn freeValue(func: *Func, value: MCValue) !void {
     }
 }
 
-fn feed(func: *Func, bt: *Liveness.BigTomb, operand: Air.Inst.Ref) !void {
+fn feed(func: *Func, bt: *Air.Liveness.BigTomb, operand: Air.Inst.Ref) !void {
     if (bt.feed()) if (operand.toIndex()) |inst| {
         log.debug("feed inst: %{}", .{inst});
         try func.processDeath(inst);
@@ -1776,11 +1775,11 @@ fn finishAir(
     func: *Func,
     inst: Air.Inst.Index,
     result: MCValue,
-    operands: [Liveness.bpi - 1]Air.Inst.Ref,
+    operands: [Air.Liveness.bpi - 1]Air.Inst.Ref,
 ) !void {
     const tomb_bits = func.liveness.getTombBits(inst);
     for (0.., operands) |op_index, op| {
-        if (tomb_bits & @as(Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
+        if (tomb_bits & @as(Air.Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
         if (func.reused_operands.isSet(op_index)) continue;
         try func.processDeath(op.toIndexAllowNone() orelse continue);
     }
@@ -3651,7 +3650,7 @@ fn airTlvDllimportPtr(func: *Func, inst: Air.Inst.Index) !void {
 fn airTry(func: *Func, inst: Air.Inst.Index) !void {
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = func.air.extraData(Air.Try, pl_op.payload);
-    const body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[extra.end..][0..extra.data.body_len]);
     const operand_ty = func.typeOf(pl_op.operand);
     const result = try func.genTry(inst, pl_op.operand, body, operand_ty, false);
     return func.finishAir(inst, result, .{ .none, .none, .none });
@@ -4419,7 +4418,7 @@ fn reuseOperand(
     func: *Func,
     inst: Air.Inst.Index,
     operand: Air.Inst.Ref,
-    op_index: Liveness.OperandInt,
+    op_index: Air.Liveness.OperandInt,
     mcv: MCValue,
 ) bool {
     return func.reuseOperandAdvanced(inst, operand, op_index, mcv, inst);
@@ -4429,7 +4428,7 @@ fn reuseOperandAdvanced(
     func: *Func,
     inst: Air.Inst.Index,
     operand: Air.Inst.Ref,
-    op_index: Liveness.OperandInt,
+    op_index: Air.Liveness.OperandInt,
     mcv: MCValue,
     maybe_tracked_inst: ?Air.Inst.Index,
 ) bool {
@@ -4816,7 +4815,7 @@ fn airCall(func: *Func, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const callee = pl_op.operand;
     const extra = func.air.extraData(Air.Call, pl_op.payload);
-    const arg_refs: []const Air.Inst.Ref = @ptrCast(func.air.extra[extra.end..][0..extra.data.args_len]);
+    const arg_refs: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[extra.end..][0..extra.data.args_len]);
 
     const expected_num_args = 8;
     const ExpectedContents = extern struct {
@@ -5232,7 +5231,7 @@ fn airDbgStmt(func: *Func, inst: Air.Inst.Index) !void {
 fn airDbgInlineBlock(func: *Func, inst: Air.Inst.Index) !void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
-    try func.lowerBlock(inst, @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]));
+    try func.lowerBlock(inst, @ptrCast(func.air.extra.items[extra.end..][0..extra.data.body_len]));
 }
 
 fn airDbgVar(func: *Func, inst: Air.Inst.Index) InnerError!void {
@@ -5284,8 +5283,8 @@ fn airCondBr(func: *Func, inst: Air.Inst.Index) !void {
     const cond = try func.resolveInst(pl_op.operand);
     const cond_ty = func.typeOf(pl_op.operand);
     const extra = func.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra.end..][0..extra.data.then_body_len]);
-    const else_body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const then_body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[extra.end..][0..extra.data.then_body_len]);
+    const else_body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
     const liveness_cond_br = func.liveness.getCondBr(inst);
 
     // If the condition dies here in this condbr instruction, process
@@ -5644,7 +5643,7 @@ fn airLoop(func: *Func, inst: Air.Inst.Index) !void {
     // A loop is a setup to be able to jump back to the beginning.
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const loop = func.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(func.air.extra[loop.end..][0..loop.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[loop.end..][0..loop.data.body_len]);
 
     func.scope_generation += 1;
     const state = try func.saveState();
@@ -5674,7 +5673,7 @@ fn jump(func: *Func, index: Mir.Inst.Index) !Mir.Inst.Index {
 fn airBlock(func: *Func, inst: Air.Inst.Index) !void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Block, ty_pl.payload);
-    try func.lowerBlock(inst, @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]));
+    try func.lowerBlock(inst, @ptrCast(func.air.extra.items[extra.end..][0..extra.data.body_len]));
 }
 
 fn lowerBlock(func: *Func, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
@@ -6063,9 +6062,9 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     const clobbers_len: u31 = @truncate(extra.data.flags);
     var extra_i: usize = extra.end;
     const outputs: []const Air.Inst.Ref =
-        @ptrCast(func.air.extra[extra_i..][0..extra.data.outputs_len]);
+        @ptrCast(func.air.extra.items[extra_i..][0..extra.data.outputs_len]);
     extra_i += outputs.len;
-    const inputs: []const Air.Inst.Ref = @ptrCast(func.air.extra[extra_i..][0..extra.data.inputs_len]);
+    const inputs: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[extra_i..][0..extra.data.inputs_len]);
     extra_i += inputs.len;
 
     var result: MCValue = .none;
@@ -6083,8 +6082,8 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
     var outputs_extra_i = extra_i;
     for (outputs) |output| {
-        const extra_bytes = mem.sliceAsBytes(func.air.extra[extra_i..]);
-        const constraint = mem.sliceTo(mem.sliceAsBytes(func.air.extra[extra_i..]), 0);
+        const extra_bytes = mem.sliceAsBytes(func.air.extra.items[extra_i..]);
+        const constraint = mem.sliceTo(mem.sliceAsBytes(func.air.extra.items[extra_i..]), 0);
         const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
         // This equation accounts for the fact that even if we have exactly 4 bytes
         // for the string, we still use the next u32 for the null terminator.
@@ -6141,7 +6140,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     }
 
     for (inputs) |input| {
-        const input_bytes = mem.sliceAsBytes(func.air.extra[extra_i..]);
+        const input_bytes = mem.sliceAsBytes(func.air.extra.items[extra_i..]);
         const constraint = mem.sliceTo(input_bytes, 0);
         const name = mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
         // This equation accounts for the fact that even if we have exactly 4 bytes
@@ -6177,7 +6176,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     {
         var clobber_i: u32 = 0;
         while (clobber_i < clobbers_len) : (clobber_i += 1) {
-            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(func.air.extra[extra_i..]), 0);
+            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(func.air.extra.items[extra_i..]), 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += clobber.len / 4 + 1;
@@ -6224,7 +6223,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         labels.deinit(func.gpa);
     }
 
-    const asm_source = std.mem.sliceAsBytes(func.air.extra[extra_i..])[0..extra.data.source_len];
+    const asm_source = std.mem.sliceAsBytes(func.air.extra.items[extra_i..])[0..extra.data.source_len];
     var line_it = mem.tokenizeAny(u8, asm_source, "\n\r;");
     next_line: while (line_it.next()) |line| {
         var mnem_it = mem.tokenizeAny(u8, line, " \t");
@@ -6493,9 +6492,9 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         return func.fail("undefined label: '{s}'", .{label.key_ptr.*});
 
     for (outputs, args.items[0..outputs.len]) |output, arg_mcv| {
-        const extra_bytes = mem.sliceAsBytes(func.air.extra[outputs_extra_i..]);
+        const extra_bytes = mem.sliceAsBytes(func.air.extra.items[outputs_extra_i..]);
         const constraint =
-            mem.sliceTo(mem.sliceAsBytes(func.air.extra[outputs_extra_i..]), 0);
+            mem.sliceTo(mem.sliceAsBytes(func.air.extra.items[outputs_extra_i..]), 0);
         const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
         // This equation accounts for the fact that even if we have exactly 4 bytes
         // for the string, we still use the next u32 for the null terminator.
@@ -6508,7 +6507,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     }
 
     simple: {
-        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
         var buf_index: usize = 0;
         for (outputs) |output| {
             if (output == .none) continue;
@@ -8027,7 +8026,7 @@ fn airAggregateInit(func: *Func, inst: Air.Inst.Index) !void {
     const result_ty = func.typeOfIndex(inst);
     const len: usize = @intCast(result_ty.arrayLen(zcu));
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const elements: []const Air.Inst.Ref = @ptrCast(func.air.extra[ty_pl.payload..][0..len]);
+    const elements: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[ty_pl.payload..][0..len]);
 
     const result: MCValue = result: {
         switch (result_ty.zigTypeTag(zcu)) {
@@ -8113,8 +8112,8 @@ fn airAggregateInit(func: *Func, inst: Air.Inst.Index) !void {
         }
     };
 
-    if (elements.len <= Liveness.bpi - 1) {
-        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+    if (elements.len <= Air.Liveness.bpi - 1) {
+        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
         @memcpy(buf[0..elements.len], elements);
         return func.finishAir(inst, result, buf);
     }
