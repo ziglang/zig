@@ -1854,48 +1854,29 @@ pub fn sigismember(set: *const sigset_t, sig: usize) bool {
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.getsockname, &[3]usize{ @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len) });
-    }
     return syscall3(.getsockname, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len));
 }
 
 pub fn getpeername(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.getpeername, &[3]usize{ @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len) });
-    }
     return syscall3(.getpeername, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len));
 }
 
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.socket, &[3]usize{ domain, socket_type, protocol });
-    }
     return syscall3(.socket, domain, socket_type, protocol);
 }
 
 pub fn setsockopt(fd: i32, level: i32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.setsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @as(usize, @intCast(optlen)) });
-    }
     return syscall5(.setsockopt, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @as(usize, @intCast(optlen)));
 }
 
 pub fn getsockopt(fd: i32, level: i32, optname: u32, noalias optval: [*]u8, noalias optlen: *socklen_t) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.getsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @intFromPtr(optlen) });
-    }
     return syscall5(.getsockopt, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @intFromPtr(optlen));
 }
 
 pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
     const fd_usize = @as(usize, @bitCast(@as(isize, fd)));
     const msg_usize = @intFromPtr(msg);
-    if (native_arch == .x86) {
-        return socketcall(SC.sendmsg, &[3]usize{ fd_usize, msg_usize, flags });
-    } else {
-        return syscall3(.sendmsg, fd_usize, msg_usize, flags);
-    }
+    return syscall3(.sendmsg, fd_usize, msg_usize, flags);
 }
 
 pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
@@ -1942,21 +1923,13 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
 pub fn connect(fd: i32, addr: *const anyopaque, len: socklen_t) usize {
     const fd_usize = @as(usize, @bitCast(@as(isize, fd)));
     const addr_usize = @intFromPtr(addr);
-    if (native_arch == .x86) {
-        return socketcall(SC.connect, &[3]usize{ fd_usize, addr_usize, len });
-    } else {
-        return syscall3(.connect, fd_usize, addr_usize, len);
-    }
+    return syscall3(.connect, fd_usize, addr_usize, len);
 }
 
 pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
     const fd_usize = @as(usize, @bitCast(@as(isize, fd)));
     const msg_usize = @intFromPtr(msg);
-    if (native_arch == .x86) {
-        return socketcall(SC.recvmsg, &[3]usize{ fd_usize, msg_usize, flags });
-    } else {
-        return syscall3(.recvmsg, fd_usize, msg_usize, flags);
-    }
+    return syscall3(.recvmsg, fd_usize, msg_usize, flags);
 }
 
 pub fn recvmmsg(fd: i32, msgvec: ?[*]mmsghdr, vlen: u32, flags: u32, timeout: ?*timespec) usize {
@@ -1982,38 +1955,22 @@ pub fn recvfrom(
     const buf_usize = @intFromPtr(buf);
     const addr_usize = @intFromPtr(addr);
     const alen_usize = @intFromPtr(alen);
-    if (native_arch == .x86) {
-        return socketcall(SC.recvfrom, &[6]usize{ fd_usize, buf_usize, len, flags, addr_usize, alen_usize });
-    } else {
-        return syscall6(.recvfrom, fd_usize, buf_usize, len, flags, addr_usize, alen_usize);
-    }
+    return syscall6(.recvfrom, fd_usize, buf_usize, len, flags, addr_usize, alen_usize);
 }
 
 pub fn shutdown(fd: i32, how: i32) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.shutdown, &[2]usize{ @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, how))) });
-    }
     return syscall2(.shutdown, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, how))));
 }
 
 pub fn bind(fd: i32, addr: *const sockaddr, len: socklen_t) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.bind, &[3]usize{ @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @as(usize, @intCast(len)) });
-    }
     return syscall3(.bind, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @as(usize, @intCast(len)));
 }
 
 pub fn listen(fd: i32, backlog: u32) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.listen, &[2]usize{ @as(usize, @bitCast(@as(isize, fd))), backlog });
-    }
     return syscall2(.listen, @as(usize, @bitCast(@as(isize, fd))), backlog);
 }
 
 pub fn sendto(fd: i32, buf: [*]const u8, len: usize, flags: u32, addr: ?*const sockaddr, alen: socklen_t) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.sendto, &[6]usize{ @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(buf), len, flags, @intFromPtr(addr), @as(usize, @intCast(alen)) });
-    }
     return syscall6(.sendto, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(buf), len, flags, @intFromPtr(addr), @as(usize, @intCast(alen)));
 }
 
@@ -2038,23 +1995,15 @@ pub fn sendfile(outfd: i32, infd: i32, offset: ?*i64, count: usize) usize {
 }
 
 pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: *[2]i32) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.socketpair, &[4]usize{ @as(usize, @intCast(domain)), @as(usize, @intCast(socket_type)), @as(usize, @intCast(protocol)), @intFromPtr(fd) });
-    }
     return syscall4(.socketpair, @as(usize, @intCast(domain)), @as(usize, @intCast(socket_type)), @as(usize, @intCast(protocol)), @intFromPtr(fd));
 }
 
 pub fn accept(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.accept, &[4]usize{ @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len), 0 });
-    }
+    // There's no point in using the accept syscall as it just forwards to the accept4 syscall in the kernel.
     return accept4(fd, addr, len, 0);
 }
 
 pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flags: u32) usize {
-    if (native_arch == .x86) {
-        return socketcall(SC.accept4, &[4]usize{ @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len), flags });
-    }
     return syscall4(.accept4, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len), flags);
 }
 
