@@ -287,7 +287,7 @@ pub const Iterator = switch (native_os) {
                     name,
                     false,
                     &stat_info,
-                    0,
+                    @sizeOf(posix.Stat),
                 )))) {
                     .SUCCESS => {},
                     .INVAL => unreachable,
