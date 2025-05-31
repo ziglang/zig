@@ -51,10 +51,10 @@ pub fn BoundedArrayAligned(
         }
 
         /// View the internal array as a slice whose size was previously set.
-        pub fn items(self: anytype) switch (@TypeOf(&self.buffer)) {
-            *align(alignment.toByteUnits()) [buffer_capacity]T => []align(alignment.toByteUnits()) T,
-            *align(alignment.toByteUnits()) const [buffer_capacity]T => []align(alignment.toByteUnits()) const T,
-            else => unreachable,
+        pub fn items(self: anytype) switch (@TypeOf(self)) {
+            *Self => []align(alignment.toByteUnits()) T,
+            *const Self => []align(alignment.toByteUnits()) const T,
+            else => @compileError("Bad type"),
         } {
             return self.buffer[0..self.len];
         }
