@@ -23,8 +23,6 @@
 #ifndef WIN_PTHREADS_COND_H
 #define WIN_PTHREADS_COND_H
 
-#include <windows.h>
-
 #define CHECK_COND(c)                                                   \
     do {                                                                \
         if (!(c) || !*c || (*c == PTHREAD_COND_INITIALIZER)             \
@@ -40,7 +38,7 @@
 typedef struct cond_t cond_t;
 struct cond_t
 {
-    unsigned int valid;   
+    unsigned int valid;
     int busy;
     LONG waiters_count_; /* Number of waiting threads.  */
     LONG waiters_count_unblock_; /* Number of waiting threads whitch can be unblocked.  */
@@ -55,9 +53,5 @@ struct cond_t
     HANDLE sema_b; /* Semaphore used to queue up threads waiting for the condition which
                  became signaled.  */
 };
-
-void cond_print_set(int state, FILE *f);
-
-void cond_print(volatile pthread_cond_t *c, char *txt);
 
 #endif

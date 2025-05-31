@@ -5,7 +5,7 @@
  */
 long double fmal(long double x, long double y, long double z);
 
-#if defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
 
 double fma(double x, double y, double z);
 

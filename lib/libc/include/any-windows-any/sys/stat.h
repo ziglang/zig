@@ -70,67 +70,21 @@ extern "C" {
   _CRTIMP int __cdecl _stat32(const char *_Name,struct _stat32 *_Stat);
   _CRTIMP int __cdecl _fstat64(int _FileDes,struct _stat64 *_Stat);
   _CRTIMP int __cdecl _fstat32i64(int _FileDes,struct _stat32i64 *_Stat);
-  int __cdecl _fstat64i32(int _FileDes,struct _stat64i32 *_Stat);
-#ifndef __CRT__NO_INLINE
-  __CRT_INLINE int __cdecl _fstat64i32(int _FileDes,struct _stat64i32 *_Stat)
-  {
-    struct _stat64 st;
-    int __ret=_fstat64(_FileDes,&st);
-    if (__ret == -1) {
-      memset(_Stat,0,sizeof(struct _stat64i32));
-      return -1;
-    }
-    _Stat->st_dev=st.st_dev;
-    _Stat->st_ino=st.st_ino;
-    _Stat->st_mode=st.st_mode;
-    _Stat->st_nlink=st.st_nlink;
-    _Stat->st_uid=st.st_uid;
-    _Stat->st_gid=st.st_gid;
-    _Stat->st_rdev=st.st_rdev;
-    _Stat->st_size=(_off_t) st.st_size;
-    _Stat->st_atime=st.st_atime;
-    _Stat->st_mtime=st.st_mtime;
-    _Stat->st_ctime=st.st_ctime;
-    return __ret;
-  }
-#endif /* __CRT__NO_INLINE */
+  _CRTIMP int __cdecl _fstat64i32(int _FileDes,struct _stat64i32 *_Stat);
   _CRTIMP int __cdecl _stat64(const char *_Name,struct _stat64 *_Stat);
   _CRTIMP int __cdecl _stat32i64(const char *_Name,struct _stat32i64 *_Stat);
-  int __cdecl _stat64i32(const char *_Name,struct _stat64i32 *_Stat);
-#ifndef __CRT__NO_INLINE
-  __CRT_INLINE int __cdecl _stat64i32(const char *_Name,struct _stat64i32 *_Stat)
-  {
-    struct _stat64 st;
-    int __ret=_stat64(_Name,&st);
-    if (__ret == -1) {
-      memset(_Stat,0,sizeof(struct _stat64i32));
-      return -1;
-    }
-    _Stat->st_dev=st.st_dev;
-    _Stat->st_ino=st.st_ino;
-    _Stat->st_mode=st.st_mode;
-    _Stat->st_nlink=st.st_nlink;
-    _Stat->st_uid=st.st_uid;
-    _Stat->st_gid=st.st_gid;
-    _Stat->st_rdev=st.st_rdev;
-    _Stat->st_size=(_off_t) st.st_size;
-    _Stat->st_atime=st.st_atime;
-    _Stat->st_mtime=st.st_mtime;
-    _Stat->st_ctime=st.st_ctime;
-    return __ret;
-  }
-#endif /* __CRT__NO_INLINE */
+  _CRTIMP int __cdecl _stat64i32(const char *_Name,struct _stat64i32 *_Stat);
 
 #ifndef _WSTAT_DEFINED
 #define _WSTAT_DEFINED
   _CRTIMP int __cdecl _wstat32(const wchar_t *_Name,struct _stat32 *_Stat);
   _CRTIMP int __cdecl _wstat32i64(const wchar_t *_Name,struct _stat32i64 *_Stat);
-  int __cdecl _wstat64i32(const wchar_t *_Name,struct _stat64i32 *_Stat);
+  _CRTIMP int __cdecl _wstat64i32(const wchar_t *_Name,struct _stat64i32 *_Stat);
   _CRTIMP int __cdecl _wstat64(const wchar_t *_Name,struct _stat64 *_Stat);
 #endif
 
 #ifndef	NO_OLDNAMES
-#define	_S_IFBLK	0x3000	/* Block: Is this ever set under w32? */
+#define	_S_IFBLK	0x6000	/* Block: Is this ever set under w32? */
 
 #define S_IFMT _S_IFMT
 #define S_IFDIR _S_IFDIR
@@ -170,115 +124,69 @@ extern "C" {
 
 #endif
 
-#if !defined (RC_INVOKED) && !defined (NO_OLDNAMES)
-int __cdecl fstat(int _Desc,struct stat *_Stat);
-#ifdef _UCRT
-  __mingw_ovr int __cdecl stat(const char *_Filename,struct stat *_Stat)
-  {
-    return _stat(_Filename, (struct _stat *)_Stat);
-  }
-  __mingw_ovr int __cdecl wstat(const wchar_t *_Filename,struct stat *_Stat)
-  {
-    return _wstat(_Filename, (struct _stat *)_Stat);
-  }
-#else
-int __cdecl stat(const char *_Filename,struct stat *_Stat);
-int __cdecl wstat(const wchar_t *_Filename,struct stat *_Stat);
-#endif
+#if !defined(NO_OLDNAMES) || defined(_POSIX)
 
-#ifndef __CRT__NO_INLINE
-#ifdef _USE_32BIT_TIME_T
-__CRT_INLINE int __cdecl
- fstat(int _Desc,struct stat *_Stat) {
-  struct _stat32 st;
-  int __ret=_fstat32(_Desc,&st);
-  if (__ret == -1) {
-    memset(_Stat,0,sizeof(struct stat));
-    return -1;
-  }
-  /* struct stat and struct _stat32
-     are the same for this case. */
-  memcpy(_Stat, &st, sizeof(struct _stat32));
-  return __ret;
-}
-/* Disable it for making sure trailing slash issue is fixed.  */
-#if 0
-__CRT_INLINE int __cdecl
- stat(const char *_Filename,struct stat *_Stat) {
-  struct _stat32 st;
-  int __ret=_stat32(_Filename,&st);
-  if (__ret == -1) {
-    memset(_Stat,0,sizeof(struct stat));
-    return -1;
-  }
-  /* struct stat and struct _stat32
-     are the same for this case. */
-  memcpy(_Stat, &st, sizeof(struct _stat32));
-  return __ret;
-}
-#endif
-#else
-__CRT_INLINE int __cdecl
- fstat(int _Desc,struct stat *_Stat) {
-  struct _stat64 st;
-  int __ret=_fstat64(_Desc,&st);
-  if (__ret == -1) {
-    memset(_Stat,0,sizeof(struct stat));
-    return -1;
-  }
-  /* struct stat and struct _stat64i32
-     are the same for this case. */
-  _Stat->st_dev=st.st_dev;
-  _Stat->st_ino=st.st_ino;
-  _Stat->st_mode=st.st_mode;
-  _Stat->st_nlink=st.st_nlink;
-  _Stat->st_uid=st.st_uid;
-  _Stat->st_gid=st.st_gid;
-  _Stat->st_rdev=st.st_rdev;
-  _Stat->st_size=(_off_t) st.st_size;
-  _Stat->st_atime=st.st_atime;
-  _Stat->st_mtime=st.st_mtime;
-  _Stat->st_ctime=st.st_ctime;
-  return __ret;
-}
-/* Disable it for making sure trailing slash issue is fixed.  */
-#if 0
-__CRT_INLINE int __cdecl
- stat(const char *_Filename,struct stat *_Stat) {
-  struct _stat64 st;
-  int __ret=_stat64(_Filename,&st);
-  if (__ret == -1) {
-    memset(_Stat,0,sizeof(struct stat));
-    return -1;
-  }
-  /* struct stat and struct _stat64i32
-     are the same for this case. */
-  _Stat->st_dev=st.st_dev;
-  _Stat->st_ino=st.st_ino;
-  _Stat->st_mode=st.st_mode;
-  _Stat->st_nlink=st.st_nlink;
-  _Stat->st_uid=st.st_uid;
-  _Stat->st_gid=st.st_gid;
-  _Stat->st_rdev=st.st_rdev;
-  _Stat->st_size=(_off_t) st.st_size;
-  _Stat->st_atime=st.st_atime;
-  _Stat->st_mtime=st.st_mtime;
-  _Stat->st_ctime=st.st_ctime;
-  return __ret;
-}
-#endif
-#endif /* _USE_32BIT_TIME_T */
-#endif /* __CRT__NO_INLINE */
-#endif /* !RC_INVOKED && !NO_OLDNAMES */
-
+/*
+ * When building mingw-w64 CRT files it is required that the fstat, stat and
+ * wstat functions are not declared with __MINGW_ASM_CALL redirection.
+ * Otherwise the mingw-w64 would provide broken fstat, stat and wstat symbols.
+ * To prevent ABI issues, the mingw-w64 runtime should not call the fstat,
+ * stat and wstat functions, instead it should call the fixed-size variants.
+ */
+#ifndef _CRTBLD
+struct stat {
+  _dev_t st_dev;
+  _ino_t st_ino;
+  unsigned short st_mode;
+  short st_nlink;
+  short st_uid;
+  short st_gid;
+  _dev_t st_rdev;
+  off_t st_size; /* off_t follows _FILE_OFFSET_BITS */
+  time_t st_atime; /* time_t follows _USE_32BIT_TIME_T */
+  time_t st_mtime;
+  time_t st_ctime;
+};
 #if defined(_FILE_OFFSET_BITS) && (_FILE_OFFSET_BITS == 64)
 #ifdef _USE_32BIT_TIME_T
-#define stat _stat32i64
-#define fstat _fstat32i64
+int __cdecl fstat(int _Desc, struct stat *_Stat) __MINGW_ASM_CALL(_fstat32i64);
+int __cdecl stat(const char *_Filename, struct stat *_Stat) __MINGW_ASM_CALL(stat32i64);
+int __cdecl wstat(const wchar_t *_Filename, struct stat *_Stat) __MINGW_ASM_CALL(wstat32i64);
 #else
-#define stat _stat64
-#define fstat _fstat64
+int __cdecl fstat(int _Desc, struct stat *_Stat) __MINGW_ASM_CALL(_fstat64);
+int __cdecl stat(const char *_Filename, struct stat *_Stat) __MINGW_ASM_CALL(stat64);
+int __cdecl wstat(const wchar_t *_Filename, struct stat *_Stat) __MINGW_ASM_CALL(wstat64);
 #endif
+#else
+#ifdef _USE_32BIT_TIME_T
+int __cdecl fstat(int _Desc, struct stat *_Stat) __MINGW_ASM_CALL(_fstat32);
+int __cdecl stat(const char *_Filename, struct stat *_Stat) __MINGW_ASM_CALL(stat32);
+int __cdecl wstat(const wchar_t *_Filename, struct stat *_Stat) __MINGW_ASM_CALL(wstat32);
+#else
+int __cdecl fstat(int _Desc, struct stat *_Stat) __MINGW_ASM_CALL(_fstat64i32);
+int __cdecl stat(const char *_Filename, struct stat *_Stat) __MINGW_ASM_CALL(stat64i32);
+int __cdecl wstat(const wchar_t *_Filename, struct stat *_Stat) __MINGW_ASM_CALL(wstat64i32);
+#endif
+#endif
+#endif
+
+struct stat64 {
+  _dev_t st_dev;
+  _ino_t st_ino;
+  unsigned short st_mode;
+  short st_nlink;
+  short st_uid;
+  short st_gid;
+  _dev_t st_rdev;
+  __MINGW_EXTENSION __int64 st_size;
+  __time64_t st_atime;
+  __time64_t st_mtime;
+  __time64_t st_ctime;
+};
+int __cdecl fstat64(int _Desc, struct stat64 *_Stat);
+int __cdecl stat64(const char *_Filename, struct stat64 *_Stat);
+int __cdecl wstat64(const wchar_t *_Filename, struct stat64 *_Stat);
+
 #endif
 
 #ifdef __cplusplus

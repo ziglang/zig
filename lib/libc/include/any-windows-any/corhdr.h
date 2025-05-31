@@ -42,7 +42,7 @@ typedef enum CorTypeAttr {
   tdForwarder = 0x200000,
   tdReservedMask = 0x40800,
   tdRTSpecialName = 0x800,
-  tdHasSecurity = 0x40000,
+  tdHasSecurity = 0x40000
 } CorTypeAttr;
 
 typedef enum CorMethodAttr {
@@ -164,7 +164,7 @@ typedef enum CorPropertyAttr {
 typedef enum CorEventAttr {
   evSpecialName = 0x0200,
   evReservedMask = 0x0400,
-  evRTSpecialName = 0x0400,
+  evRTSpecialName = 0x0400
 } CorEventAttr;
 
 typedef enum CorMethodSemanticsAttr {
@@ -266,12 +266,12 @@ typedef enum CorAssemblyFlags {
 typedef enum CorManifestResourceFlags {
   mrVisibilityMask = 0x0007,
   mrPublic = 0x0001,
-  mrPrivate = 0x0002,
+  mrPrivate = 0x0002
 } CorManifestResourceFlags;
 
 typedef enum CorFileFlags {
   ffContainsMetaData = 0x0000,
-  ffContainsNoMetaData = 0x0001,
+  ffContainsNoMetaData = 0x0001
 } CorFileFlags;
 
 typedef enum CorPEKind {
@@ -331,7 +331,7 @@ typedef enum CorElementType {
   ELEMENT_TYPE_MAX = 0x22,
   ELEMENT_TYPE_MODIFIER = 0x40,
   ELEMENT_TYPE_SENTINEL = 0x01 | ELEMENT_TYPE_MODIFIER,
-  ELEMENT_TYPE_PINNED = 0x05 | ELEMENT_TYPE_MODIFIER,
+  ELEMENT_TYPE_PINNED = 0x05 | ELEMENT_TYPE_MODIFIER
 } CorElementType;
 
 typedef enum CorSerializationType {
@@ -370,7 +370,7 @@ typedef enum CorCallingConvention {
   IMAGE_CEE_CS_CALLCONV_MASK = 0x0f,
   IMAGE_CEE_CS_CALLCONV_HASTHIS = 0x20,
   IMAGE_CEE_CS_CALLCONV_EXPLICITTHIS = 0x40,
-  IMAGE_CEE_CS_CALLCONV_GENERIC = 0x10,
+  IMAGE_CEE_CS_CALLCONV_GENERIC = 0x10
 } CorCallingConvention;
 
 typedef enum CorUnmanagedCallingConvention {
@@ -381,7 +381,7 @@ typedef enum CorUnmanagedCallingConvention {
   IMAGE_CEE_CS_CALLCONV_C = IMAGE_CEE_UNMANAGED_CALLCONV_C,
   IMAGE_CEE_CS_CALLCONV_STDCALL = IMAGE_CEE_UNMANAGED_CALLCONV_STDCALL,
   IMAGE_CEE_CS_CALLCONV_THISCALL = IMAGE_CEE_UNMANAGED_CALLCONV_THISCALL,
-  IMAGE_CEE_CS_CALLCONV_FASTCALL = IMAGE_CEE_UNMANAGED_CALLCONV_FASTCALL,
+  IMAGE_CEE_CS_CALLCONV_FASTCALL = IMAGE_CEE_UNMANAGED_CALLCONV_FASTCALL
 } CorUnmanagedCallingConvention;
 
 typedef enum CorArgType {
@@ -395,7 +395,7 @@ typedef enum CorArgType {
   IMAGE_CEE_CS_OBJECT = 0x7,
   IMAGE_CEE_CS_STRUCT4 = 0x8,
   IMAGE_CEE_CS_STRUCT32 = 0x9,
-  IMAGE_CEE_CS_BYVALUE = 0xa,
+  IMAGE_CEE_CS_BYVALUE = 0xa
 } CorArgType;
 
 typedef enum CorNativeType {
@@ -471,7 +471,7 @@ typedef enum CorILMethodFlags {
   CorILMethod_SmallFormat = 0x0,
   CorILMethod_TinyFormat = 0x0002,
   CorILMethod_FatFormat = 0x0003,
-  CorILMethod_TinyFormat1 = 0x0006,
+  CorILMethod_TinyFormat1 = 0x0006
 } CorILMethodFlags;
 
 typedef enum CorExceptionFlag {
@@ -556,7 +556,7 @@ typedef enum CorSetENC {
   MDUpdateExtension = 0x00000003,
   MDUpdateIncremental = 0x00000004,
   MDUpdateDelta = 0x00000005,
-  MDUpdateMask = 0x00000007,
+  MDUpdateMask = 0x00000007
 } CorSetENC;
 
 typedef enum CorErrorIfEmitOutOfOrder {
@@ -567,7 +567,7 @@ typedef enum CorErrorIfEmitOutOfOrder {
   MDFieldOutOfOrder = 0x00000002,
   MDParamOutOfOrder = 0x00000004,
   MDPropertyOutOfOrder = 0x00000008,
-  MDEventOutOfOrder = 0x00000010,
+  MDEventOutOfOrder = 0x00000010
 } CorErrorIfEmitOutOfOrder;
 
 typedef enum CorImportOptions {
@@ -634,7 +634,7 @@ typedef enum CorTokenType {
   mdtGenericParamConstraint = 0x2c000000,
   mdtString = 0x70000000,
   mdtName = 0x71000000,
-  mdtBaseType = 0x72000000,
+  mdtBaseType = 0x72000000
 } CorTokenType;
 
 typedef enum CorOpenFlags {
@@ -669,7 +669,7 @@ typedef enum CorAttributeTargets {
   catGenericParameter = 0x4000,
   catAll = catAssembly | catModule | catClass | catStruct | catEnum | catConstructor
     | catMethod | catProperty | catField | catEvent | catInterface | catParameter | catDelegate | catGenericParameter,
-  catClassMembers = catClass | catStruct | catEnum | catConstructor | catMethod | catProperty | catField | catEvent | catDelegate | catInterface,
+  catClassMembers = catClass | catStruct | catEnum | catConstructor | catMethod | catProperty | catField | catEvent | catDelegate | catInterface
 } CorAttributeTargets;
 
 typedef enum CorFileMapping {

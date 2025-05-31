@@ -4,13 +4,10 @@
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
 
-#include <_mingw_mac.h>
+#include <math.h>
 
-	.file	"_chgignl.S"
-	.text
-	.align 4
-	.globl __MINGW_USYMBOL(_chgsignl)
-	.def	__MINGW_USYMBOL(_chgsignl);	.scl	2;	.type	32;	.endef
-__MINGW_USYMBOL(_chgsignl):
-	vneg.f64	d0, d0
-	bx	lr
+void sincos(double x, double *s, double *c)
+{
+    *s = sin(x);
+    *c = cos(x);
+}
