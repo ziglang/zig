@@ -5703,6 +5703,9 @@ pub const SOCK = switch (native_os) {
         pub const RAW = 3;
         pub const SEQPACKET = 5;
         pub const MISC = 255;
+
+        pub const NONBLOCK = 0x40000;
+        pub const CLOEXEC = 0x80000;
     },
     .openbsd => struct {
         pub const STREAM = 1;
