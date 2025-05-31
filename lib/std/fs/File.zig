@@ -1693,7 +1693,19 @@ pub fn tryLock(file: File, l: Lock) LockError!bool {
     if (is_windows) {
         var io_status_block: windows.IO_STATUS_BLOCK = undefined;
         const exclusive = switch (l) {
-            .none => return,
+            .none => {
+                windows.UnlockFile(
+                    file.handle,
+                    &io_status_block,
+                    &range_off,
+                    &range_len,
+                    null,
+                ) catch |err| switch (err) {
+                    error.RangeNotLocked => return true,
+                    else => |e| return e,
+                };
+                return true;
+            },
             .shared => false,
             .exclusive => true,
         };
