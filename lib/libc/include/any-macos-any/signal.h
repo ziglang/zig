@@ -59,11 +59,14 @@
 #define _USER_SIGNAL_H
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <_types.h>
 #include <sys/signal.h>
 
 #include <sys/_pthread/_pthread_types.h>
 #include <sys/_pthread/_pthread_t.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #if !defined(_ANSI_SOURCE) && (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))
 extern __const char *__const sys_signame[NSIG];

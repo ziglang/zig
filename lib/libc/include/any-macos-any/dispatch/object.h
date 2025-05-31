@@ -71,7 +71,7 @@ DISPATCH_SWIFT_NAME(DispatchObject) OS_OBJECT_DECL_CLASS(dispatch_object);
 /*
  * DISPATCH_DECL_SERIAL_EXECUTOR_SWIFT is for declaring subclasses of a serial executor base class. 
  */
-#if DISPATCH_OSX_SUPPORTS_AT_LEAST(140000, 170000, 170000, 100000)
+#if DISPATCH_OSX_SUPPORTS_AT_LEAST(140000, 170000, 170000, 100000, 90400, 10000)
 #define DISPATCH_DECL_SERIAL_EXECUTOR_SWIFT(name, swift_name) \
 	DISPATCH_DECL_SUBCLASS_SWIFT(name, dispatch_queue_serial_executor, swift_name)
 #else
@@ -159,6 +159,7 @@ typedef union {
 		DISPATCH_EXPORT struct dispatch_source_type_s \
 				_dispatch_source_type_##name; \
 		DISPATCH_SWIFT_NAME(swift_name) \
+		OS_OBJECT_SWIFT_SENDABLE \
 		OS_OBJECT_DECL_PROTOCOL(dispatch_source_##name, <OS_dispatch_source>); \
 		OS_OBJECT_CLASS_IMPLEMENTS_PROTOCOL( \
 				dispatch_source, dispatch_source_##name)
@@ -173,7 +174,7 @@ typedef union {
 		OS_OBJECT_DECL_PROTOCOL(name, <NSObject>); \
 		OS_OBJECT_CLASS_IMPLEMENTS_PROTOCOL(name, name)
 #ifndef DISPATCH_DATA_DECL
-#define DISPATCH_DATA_DECL(name) OS_OBJECT_DECL_SWIFT(name)
+#define DISPATCH_DATA_DECL(name) OS_OBJECT_DECL_SENDABLE_SWIFT(name)
 #endif // DISPATCH_DATA_DECL
 #define DISPATCH_DATA_DECL_SWIFT(name, swift_name) \
 		DISPATCH_SWIFT_NAME(swift_name) \

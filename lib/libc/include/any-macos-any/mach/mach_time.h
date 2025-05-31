@@ -67,6 +67,10 @@ uint64_t                        mach_continuous_time(void);
 __OSX_AVAILABLE(10.12) __IOS_AVAILABLE(10.0) __TVOS_AVAILABLE(10.0) __WATCHOS_AVAILABLE(3.0)
 uint64_t                        mach_continuous_approximate_time(void);
 
+/*
+ * variant of mach_continuous_time that uses speculative timebase
+ */
+
 __END_DECLS
 
 
