@@ -58,8 +58,11 @@
 #ifndef	_UTIME_H_
 #define	_UTIME_H_
 
+#include <_bounds.h>
 #include <_types.h>
 #include <sys/_types/_time_t.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 struct utimbuf {
 	time_t actime;		/* Access time */

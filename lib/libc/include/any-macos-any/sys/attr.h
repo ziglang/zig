@@ -129,6 +129,12 @@ typedef struct vol_capabilities_attr {
  */
 #define ATTR_MAX_BUFFER         8192
 
+
+/*
+ * Max size of attribute buffer if IOPOL_TYPE_VFS_SUPPORT_LONG_PATHS is enabled
+ */
+#define ATTR_MAX_BUFFER_LONGPATHS (ATTR_MAX_BUFFER - MAXPATHLEN + MAXLONGPATHLEN)
+
 /*
  * VOL_CAP_FMT_PERSISTENTOBJECTIDS: When set, the volume has object IDs
  * that are persistent (retain their values even when the volume is
@@ -491,13 +497,14 @@ typedef struct vol_attributes_attr {
 #define ATTR_VOL_MOUNTEXTFLAGS                  0x00080000
 #define ATTR_VOL_FSTYPENAME                     0x00100000
 #define ATTR_VOL_FSSUBTYPE                      0x00200000
+#define ATTR_VOL_OWNER                          0x00400000
 #define ATTR_VOL_SPACEUSED                      0x00800000
 #define ATTR_VOL_QUOTA_SIZE                     0x10000000
 #define ATTR_VOL_RESERVED_SIZE                  0x20000000
 #define ATTR_VOL_ATTRIBUTES                     0x40000000
 #define ATTR_VOL_INFO                           0x80000000
 
-#define ATTR_VOL_VALIDMASK                      0xF0BFFFFF
+#define ATTR_VOL_VALIDMASK                      0xF0FFFFFF
 
 /*
  * The list of settable ATTR_VOL_* attributes include the following:
