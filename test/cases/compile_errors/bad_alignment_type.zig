@@ -11,5 +11,5 @@ export fn entry2() void {
 // backend=stage2
 // target=native
 //
-// :2:22: error: expected type 'u32', found 'bool'
-// :6:21: error: fractional component prevents float value '12.34' from coercion to type 'u32'
+// :2:22: error: expected type 'u29', found 'bool'
+// :6:21: error: fractional component prevents float value '12.34' from coercion to type 'u29'
