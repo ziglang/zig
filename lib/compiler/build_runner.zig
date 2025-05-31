@@ -435,6 +435,9 @@ pub fn main() !void {
             else => return err,
         };
         if (fuzz) {
+            if (builtin.single_threaded) {
+                fatal("--fuzz not yet implemented for single-threaded builds", .{});
+            }
             switch (builtin.os.tag) {
                 // Current implementation depends on two things that need to be ported to Windows:
                 // * Memory-mapping to share data between the fuzzer and build runner.
