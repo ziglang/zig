@@ -1046,7 +1046,8 @@ pub fn orderAgainstZeroInner(
             },
             .enum_tag => |enum_tag| Value.fromInterned(enum_tag.int).orderAgainstZeroInner(strat, zcu, tid),
             .float => |float| switch (float.storage) {
-                inline else => |x| std.math.order(x, 0),
+                // check `x == 0` first to properly handle -0.0
+                inline else => |x| if (x == 0) .eq else std.math.order(x, 0),
             },
             .err => .gt, // error values cannot be 0
             else => unreachable,
