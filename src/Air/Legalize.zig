@@ -33,6 +33,10 @@ pub const Feature = enum {
     scalarize_mod_optimized,
     scalarize_max,
     scalarize_min,
+    scalarize_add_with_overflow,
+    scalarize_sub_with_overflow,
+    scalarize_mul_with_overflow,
+    scalarize_shl_with_overflow,
     scalarize_bit_and,
     scalarize_bit_or,
     scalarize_shr,
@@ -129,6 +133,10 @@ pub const Feature = enum {
             .mod_optimized => .scalarize_mod_optimized,
             .max => .scalarize_max,
             .min => .scalarize_min,
+            .add_with_overflow => .scalarize_add_with_overflow,
+            .sub_with_overflow => .scalarize_sub_with_overflow,
+            .mul_with_overflow => .scalarize_mul_with_overflow,
+            .shl_with_overflow => .scalarize_shl_with_overflow,
             .bit_and => .scalarize_bit_and,
             .bit_or => .scalarize_bit_or,
             .shr => .scalarize_shr,
@@ -279,10 +287,15 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             },
             .ptr_add,
             .ptr_sub,
-            .add_with_overflow,
+            => {},
+            inline .add_with_overflow,
             .sub_with_overflow,
             .mul_with_overflow,
             .shl_with_overflow,
+            => |air_tag| if (l.features.contains(comptime .scalarize(air_tag))) {
+                const ty_pl = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+                if (ty_pl.ty.toType().fieldType(0, zcu).isVector(zcu)) continue :inst l.replaceInst(inst, .block, try l.scalarizeOverflowBlockPayload(inst));
+            },
             .alloc,
             => {},
             .inferred_alloc,
@@ -518,7 +531,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 switch (vector_ty.vectorLen(zcu)) {
                     0 => unreachable,
                     1 => continue :inst l.replaceInst(inst, .bitcast, .{ .ty_op = .{
-                        .ty = Air.internedToRef(vector_ty.scalarType(zcu).toIntern()),
+                        .ty = Air.internedToRef(vector_ty.childType(zcu).toIntern()),
                         .operand = reduce.operand,
                     } }),
                     else => break :done,
@@ -646,7 +659,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime form:
                             .ty_op => loop.block.add(l, .{
                                 .tag = orig.tag,
                                 .data = .{ .ty_op = .{
-                                    .ty = Air.internedToRef(orig.data.ty_op.ty.toType().scalarType(zcu).toIntern()),
+                                    .ty = Air.internedToRef(res_ty.childType(zcu).toIntern()),
                                     .operand = loop.block.add(l, .{
                                         .tag = .array_elem_val,
                                         .data = .{ .bin_op = .{
@@ -745,7 +758,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime form:
                                     .shuffle_two => unwrapped.operand_a,
                                 };
                                 const operand_a_len = l.typeOf(operand_a).vectorLen(zcu);
-                                const elem_ty = unwrapped.result_ty.scalarType(zcu);
+                                const elem_ty = res_ty.childType(zcu);
                                 var res_elem: Result = .init(l, elem_ty, &loop.block);
                                 res_elem.block = .init(loop.block.stealCapacity(extra_insts));
                                 {
@@ -945,7 +958,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime form:
                             },
                             .select => {
                                 const extra = l.extraData(Air.Bin, orig.data.pl_op.payload).data;
-                                var res_elem: Result = .init(l, l.typeOf(extra.lhs).scalarType(zcu), &loop.block);
+                                var res_elem: Result = .init(l, l.typeOf(extra.lhs).childType(zcu), &loop.block);
                                 res_elem.block = .init(loop.block.stealCapacity(extra_insts));
                                 {
                                     var select_cond_br: CondBr = .init(l, res_elem.block.add(l, .{
@@ -989,6 +1002,176 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, comptime form:
                                 break :res_elem res_elem.inst.toRef();
                             },
                         },
+                    }),
+                } },
+            });
+
+            var loop_cond_br: CondBr = .init(l, (try loop.block.addCmp(
+                l,
+                .lt,
+                cur_index_inst.toRef(),
+                try pt.intRef(.usize, res_len - 1),
+                .{},
+            )).toRef(), &loop.block, .{});
+            loop_cond_br.then_block = .init(loop.block.stealRemainingCapacity());
+            {
+                _ = loop_cond_br.then_block.add(l, .{
+                    .tag = .store,
+                    .data = .{ .bin_op = .{
+                        .lhs = index_alloc_inst.toRef(),
+                        .rhs = loop_cond_br.then_block.add(l, .{
+                            .tag = .add,
+                            .data = .{ .bin_op = .{
+                                .lhs = cur_index_inst.toRef(),
+                                .rhs = .one_usize,
+                            } },
+                        }).toRef(),
+                    } },
+                });
+                _ = loop_cond_br.then_block.add(l, .{
+                    .tag = .repeat,
+                    .data = .{ .repeat = .{ .loop_inst = loop.inst } },
+                });
+            }
+            loop_cond_br.else_block = .init(loop_cond_br.then_block.stealRemainingCapacity());
+            _ = loop_cond_br.else_block.add(l, .{
+                .tag = .br,
+                .data = .{ .br = .{
+                    .block_inst = orig_inst,
+                    .operand = loop_cond_br.else_block.add(l, .{
+                        .tag = .load,
+                        .data = .{ .ty_op = .{
+                            .ty = Air.internedToRef(res_ty.toIntern()),
+                            .operand = res_alloc_inst.toRef(),
+                        } },
+                    }).toRef(),
+                } },
+            });
+            try loop_cond_br.finish(l);
+        }
+        try loop.finish(l);
+    }
+    return .{ .ty_pl = .{
+        .ty = Air.internedToRef(res_ty.toIntern()),
+        .payload = try l.addBlockBody(res_block.body()),
+    } };
+}
+fn scalarizeOverflowBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+
+    const orig = l.air_instructions.get(@intFromEnum(orig_inst));
+    const res_ty = l.typeOfIndex(orig_inst);
+    const wrapped_res_ty = res_ty.fieldType(0, zcu);
+    const wrapped_res_scalar_ty = wrapped_res_ty.childType(zcu);
+    const res_len = wrapped_res_ty.vectorLen(zcu);
+
+    var inst_buf: [21]Air.Inst.Index = undefined;
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
+
+    var res_block: Block = .init(&inst_buf);
+    {
+        const res_alloc_inst = res_block.add(l, .{
+            .tag = .alloc,
+            .data = .{ .ty = try pt.singleMutPtrType(res_ty) },
+        });
+        const ptr_wrapped_res_inst = res_block.add(l, .{
+            .tag = .struct_field_ptr_index_0,
+            .data = .{ .ty_op = .{
+                .ty = Air.internedToRef((try pt.singleMutPtrType(wrapped_res_ty)).toIntern()),
+                .operand = res_alloc_inst.toRef(),
+            } },
+        });
+        const ptr_overflow_res_inst = res_block.add(l, .{
+            .tag = .struct_field_ptr_index_1,
+            .data = .{ .ty_op = .{
+                .ty = Air.internedToRef((try pt.singleMutPtrType(res_ty.fieldType(1, zcu))).toIntern()),
+                .operand = res_alloc_inst.toRef(),
+            } },
+        });
+        const index_alloc_inst = res_block.add(l, .{
+            .tag = .alloc,
+            .data = .{ .ty = .ptr_usize },
+        });
+        _ = res_block.add(l, .{
+            .tag = .store,
+            .data = .{ .bin_op = .{
+                .lhs = index_alloc_inst.toRef(),
+                .rhs = .zero_usize,
+            } },
+        });
+
+        var loop: Loop = .init(l, &res_block);
+        loop.block = .init(res_block.stealRemainingCapacity());
+        {
+            const cur_index_inst = loop.block.add(l, .{
+                .tag = .load,
+                .data = .{ .ty_op = .{
+                    .ty = .usize_type,
+                    .operand = index_alloc_inst.toRef(),
+                } },
+            });
+            const extra = l.extraData(Air.Bin, orig.data.ty_pl.payload).data;
+            const res_elem = loop.block.add(l, .{
+                .tag = orig.tag,
+                .data = .{ .ty_pl = .{
+                    .ty = Air.internedToRef(try zcu.intern_pool.getTupleType(zcu.gpa, pt.tid, .{
+                        .types = &.{ wrapped_res_scalar_ty.toIntern(), .u1_type },
+                        .values = &(.{.none} ** 2),
+                    })),
+                    .payload = try l.addExtra(Air.Bin, .{
+                        .lhs = loop.block.add(l, .{
+                            .tag = .array_elem_val,
+                            .data = .{ .bin_op = .{
+                                .lhs = extra.lhs,
+                                .rhs = cur_index_inst.toRef(),
+                            } },
+                        }).toRef(),
+                        .rhs = loop.block.add(l, .{
+                            .tag = .array_elem_val,
+                            .data = .{ .bin_op = .{
+                                .lhs = extra.rhs,
+                                .rhs = cur_index_inst.toRef(),
+                            } },
+                        }).toRef(),
+                    }),
+                } },
+            });
+            _ = loop.block.add(l, .{
+                .tag = .vector_store_elem,
+                .data = .{ .vector_store_elem = .{
+                    .vector_ptr = ptr_overflow_res_inst.toRef(),
+                    .payload = try l.addExtra(Air.Bin, .{
+                        .lhs = cur_index_inst.toRef(),
+                        .rhs = loop.block.add(l, .{
+                            .tag = .struct_field_val,
+                            .data = .{ .ty_pl = .{
+                                .ty = .u1_type,
+                                .payload = try l.addExtra(Air.StructField, .{
+                                    .struct_operand = res_elem.toRef(),
+                                    .field_index = 1,
+                                }),
+                            } },
+                        }).toRef(),
+                    }),
+                } },
+            });
+            _ = loop.block.add(l, .{
+                .tag = .vector_store_elem,
+                .data = .{ .vector_store_elem = .{
+                    .vector_ptr = ptr_wrapped_res_inst.toRef(),
+                    .payload = try l.addExtra(Air.Bin, .{
+                        .lhs = cur_index_inst.toRef(),
+                        .rhs = loop.block.add(l, .{
+                            .tag = .struct_field_val,
+                            .data = .{ .ty_pl = .{
+                                .ty = Air.internedToRef(wrapped_res_scalar_ty.toIntern()),
+                                .payload = try l.addExtra(Air.StructField, .{
+                                    .struct_operand = res_elem.toRef(),
+                                    .field_index = 0,
+                                }),
+                            } },
+                        }).toRef(),
                     }),
                 } },
             });
@@ -1535,8 +1718,9 @@ fn addBlockBody(l: *Legalize, body: []const Air.Inst.Index) Error!u32 {
     return @intCast(l.air_extra.items.len);
 }
 
-// inline to propagate comptime `tag`s
-inline fn replaceInst(l: *Legalize, inst: Air.Inst.Index, tag: Air.Inst.Tag, data: Air.Inst.Data) Air.Inst.Tag {
+/// Returns `tag` to remind the caller to `continue :inst` the result.
+/// This is inline to propagate the comptime-known `tag`.
+inline fn replaceInst(l: *Legalize, inst: Air.Inst.Index, comptime tag: Air.Inst.Tag, data: Air.Inst.Data) Air.Inst.Tag {
     const orig_ty = if (std.debug.runtime_safety) l.typeOfIndex(inst) else {};
     l.air_instructions.set(@intFromEnum(inst), .{ .tag = tag, .data = data });
     if (std.debug.runtime_safety) assert(l.typeOfIndex(inst).toIntern() == orig_ty.toIntern());

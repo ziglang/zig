@@ -5244,31 +5244,34 @@ test min {
     try test_min.testFloatVectors();
 }
 
-inline fn addWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
+inline fn addWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, ChangeScalar(Type, u1) } {
     return @addWithOverflow(lhs, rhs);
 }
 test addWithOverflow {
     const test_add_with_overflow = binary(addWithOverflow, .{});
     try test_add_with_overflow.testInts();
+    try test_add_with_overflow.testIntVectors();
 }
 
-inline fn subWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
+inline fn subWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, ChangeScalar(Type, u1) } {
     return @subWithOverflow(lhs, rhs);
 }
 test subWithOverflow {
     const test_sub_with_overflow = binary(subWithOverflow, .{});
     try test_sub_with_overflow.testInts();
+    try test_sub_with_overflow.testIntVectors();
 }
 
-inline fn mulWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
+inline fn mulWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, ChangeScalar(Type, u1) } {
     return @mulWithOverflow(lhs, rhs);
 }
 test mulWithOverflow {
     const test_mul_with_overflow = binary(mulWithOverflow, .{});
     try test_mul_with_overflow.testInts();
+    try test_mul_with_overflow.testIntVectors();
 }
 
-inline fn shlWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
+inline fn shlWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, ChangeScalar(Type, u1) } {
     const bit_cast_rhs: AsSignedness(Type, .unsigned) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
     return @shlWithOverflow(lhs, if (comptime cast(Log2Int(Scalar(Type)), @bitSizeOf(Scalar(Type)))) |bits| truncate_rhs % splat(Log2Int(Type), bits) else truncate_rhs);
@@ -5276,6 +5279,7 @@ inline fn shlWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Ty
 test shlWithOverflow {
     const test_shl_with_overflow = binary(shlWithOverflow, .{});
     try test_shl_with_overflow.testInts();
+    try test_shl_with_overflow.testIntVectors();
 }
 
 inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
