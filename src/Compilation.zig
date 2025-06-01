@@ -2352,12 +2352,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     comp.remaining_prelink_tasks += 2;
 
                     // When linking mingw-w64 there are some import libs we always need.
-                    const always_link_libs: []const []const u8 = switch (comp.root_mod.optimize_mode) {
-                        .Debug => &mingw.always_link_libs_debug,
-                        .ReleaseSafe, .ReleaseFast, .ReleaseSmall => &mingw.always_link_libs_release,
-                    };
-                    try comp.windows_libs.ensureUnusedCapacity(gpa, always_link_libs.len);
-                    for (always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
+                    try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
+                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
                 } else {
                     return error.LibCUnavailable;
                 }
