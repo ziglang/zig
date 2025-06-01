@@ -1011,21 +1011,7 @@ const mingw32_winpthreads_src = [_][]const u8{
     "winpthreads" ++ path.sep_str ++ "thread.c",
 };
 
-const always_link_libs = [_][]const u8{
-    "advapi32",
-    "kernel32",
-    "ntdll",
-    "shell32",
-    "user32",
-};
-
-// In Debug mode, we link against `ucrtbased.dll` instead of the API set DLLs so that we can get
-// access to functions like `_CrtDbgReport`.
-pub const always_link_libs_debug = [_][]const u8{
-    "ucrtbased",
-} ++ always_link_libs;
-
-pub const always_link_libs_release = [_][]const u8{
+pub const always_link_libs = [_][]const u8{
     "api-ms-win-crt-conio-l1-1-0",
     "api-ms-win-crt-convert-l1-1-0",
     "api-ms-win-crt-environment-l1-1-0",
@@ -1041,4 +1027,9 @@ pub const always_link_libs_release = [_][]const u8{
     "api-ms-win-crt-string-l1-1-0",
     "api-ms-win-crt-time-l1-1-0",
     "api-ms-win-crt-utility-l1-1-0",
-} ++ always_link_libs;
+    "advapi32",
+    "kernel32",
+    "ntdll",
+    "shell32",
+    "user32",
+};
