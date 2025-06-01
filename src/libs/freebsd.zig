@@ -985,7 +985,7 @@ fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
     assert(comp.freebsd_so_files == null);
     comp.freebsd_so_files = so_files;
 
-    var task_buffer: [libs.len]link.Task = undefined;
+    var task_buffer: [libs.len]link.PrelinkTask = undefined;
     var task_buffer_i: usize = 0;
 
     {

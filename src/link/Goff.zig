@@ -13,6 +13,7 @@ const Path = std.Build.Cache.Path;
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
+const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
@@ -72,14 +73,14 @@ pub fn updateFunc(
     self: *Goff,
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
+    mir: *const codegen.AnyMir,
+    maybe_undef_air: *const Air,
 ) link.File.UpdateNavError!void {
     _ = self;
     _ = pt;
     _ = func_index;
-    _ = air;
-    _ = liveness;
+    _ = mir;
+    _ = maybe_undef_air;
     unreachable; // we always use llvm
 }
 

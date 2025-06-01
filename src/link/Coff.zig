@@ -1057,8 +1057,10 @@ pub fn updateFunc(
     coff: *Coff,
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
+    mir: *const codegen.AnyMir,
+    /// This may be `undefined`; only pass it to `emitFunction`.
+    /// This parameter will eventually be removed.
+    maybe_undef_air: *const Air,
 ) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -1079,15 +1081,15 @@ pub fn updateFunc(
     var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
     defer code_buffer.deinit(gpa);
 
-    try codegen.generateFunction(
+    try codegen.emitFunction(
         &coff.base,
         pt,
         zcu.navSrcLoc(nav_index),
         func_index,
-        air,
-        liveness,
+        mir,
         &code_buffer,
         .none,
+        maybe_undef_air,
     );
 
     try coff.updateNavCode(pt, nav_index, code_buffer.items, .FUNCTION);

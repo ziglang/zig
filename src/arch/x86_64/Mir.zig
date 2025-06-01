@@ -1929,6 +1929,67 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.* = undefined;
 }
 
+pub fn emit(
+    mir: Mir,
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    func_index: InternPool.Index,
+    code: *std.ArrayListUnmanaged(u8),
+    debug_output: link.File.DebugInfoOutput,
+    /// TODO: remove dependency on this argument. This blocks enabling `Zcu.Feature.separate_thread`.
+    air: *const Air,
+) codegen.CodeGenError!void {
+    const zcu = pt.zcu;
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+    const func = zcu.funcInfo(func_index);
+    const fn_info = zcu.typeToFunc(.fromInterned(func.ty)).?;
+    const nav = func.owner_nav;
+    const mod = zcu.navFileScope(nav).mod.?;
+    var e: Emit = .{
+        .air = air.*,
+        .lower = .{
+            .bin_file = lf,
+            .target = &mod.resolved_target.result,
+            .allocator = gpa,
+            .mir = mir,
+            .cc = fn_info.cc,
+            .src_loc = src_loc,
+            .output_mode = comp.config.output_mode,
+            .link_mode = comp.config.link_mode,
+            .pic = mod.pic,
+        },
+        .atom_index = sym: {
+            if (lf.cast(.elf)) |ef| break :sym try ef.zigObjectPtr().?.getOrCreateMetadataForNav(zcu, nav);
+            if (lf.cast(.macho)) |mf| break :sym try mf.getZigObject().?.getOrCreateMetadataForNav(mf, nav);
+            if (lf.cast(.coff)) |cf| {
+                const atom = try cf.getOrCreateAtomForNav(nav);
+                break :sym cf.getAtom(atom).getSymbolIndex().?;
+            }
+            if (lf.cast(.plan9)) |p9f| break :sym try p9f.seeNav(pt, nav);
+            unreachable;
+        },
+        .debug_output = debug_output,
+        .code = code,
+        .prev_di_loc = .{
+            .line = func.lbrace_line,
+            .column = func.lbrace_column,
+            .is_stmt = switch (debug_output) {
+                .dwarf => |dwarf| dwarf.dwarf.debug_line.header.default_is_stmt,
+                .plan9 => undefined,
+                .none => undefined,
+            },
+        },
+        .prev_di_pc = 0,
+    };
+    e.emitMir() catch |err| switch (err) {
+        error.LowerFail, error.EmitFail => return zcu.codegenFailMsg(nav, e.lower.err_msg.?),
+        error.InvalidInstruction, error.CannotEncode => return zcu.codegenFail(nav, "emit MIR failed: {s} (Zig compiler bug)", .{@errorName(err)}),
+        else => return zcu.codegenFail(nav, "emit MIR failed: {s}", .{@errorName(err)}),
+    };
+}
+
 pub fn extraData(mir: Mir, comptime T: type, index: u32) struct { data: T, end: u32 } {
     const fields = std.meta.fields(T);
     var i: u32 = index;
@@ -1987,3 +2048,7 @@ const IntegerBitSet = std.bit_set.IntegerBitSet;
 const InternPool = @import("../../InternPool.zig");
 const Mir = @This();
 const Register = bits.Register;
+const Emit = @import("Emit.zig");
+const codegen = @import("../../codegen.zig");
+const link = @import("../../link.zig");
+const Zcu = @import("../../Zcu.zig");

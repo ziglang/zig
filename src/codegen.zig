@@ -182,7 +182,7 @@ pub fn emitFunction(
     /// in the pipeline. Any information needed to call emit must be stored in MIR.
     /// This is `undefined` if the backend supports the `separate_thread` feature.
     air: *const Air,
-) Allocator.Error!void {
+) CodeGenError!void {
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
     const target = zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;

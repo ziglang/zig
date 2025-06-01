@@ -4376,26 +4376,40 @@ pub fn addDependency(pt: Zcu.PerThread, unit: AnalUnit, dependee: InternPool.Dep
 /// other code. This function is currently run either on the main thread, or on a separate
 /// codegen thread, depending on whether the backend supports `Zcu.Feature.separate_thread`.
 pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, out: *@import("../link.zig").ZcuTask.LinkFunc.SharedMir) void {
+    const zcu = pt.zcu;
     if (runCodegenInner(pt, func_index, air)) |mir| {
         out.value = mir;
         out.status.store(.ready, .release);
     } else |err| switch (err) {
         error.OutOfMemory => {
-            pt.zcu.comp.setAllocFailure();
+            zcu.comp.setAllocFailure();
             out.status.store(.failed, .monotonic);
         },
         error.CodegenFail => {
-            pt.zcu.assertCodegenFailed(pt.zcu.funcInfo(func_index).owner_nav);
+            zcu.assertCodegenFailed(zcu.funcInfo(func_index).owner_nav);
             out.status.store(.failed, .monotonic);
         },
         error.NoLinkFile => {
-            assert(pt.zcu.comp.bin_file == null);
+            assert(zcu.comp.bin_file == null);
+            out.status.store(.failed, .monotonic);
+        },
+        error.BackendDoesNotProduceMir => {
+            const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
+            switch (backend) {
+                else => unreachable, // assertion failure
+                .stage2_llvm => {},
+            }
             out.status.store(.failed, .monotonic);
         },
     }
-    pt.zcu.comp.link_task_queue.mirReady(pt.zcu.comp, out);
+    zcu.comp.link_task_queue.mirReady(zcu.comp, out);
 }
-fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) error{ OutOfMemory, CodegenFail, NoLinkFile }!codegen.AnyMir {
+fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) error{
+    OutOfMemory,
+    CodegenFail,
+    NoLinkFile,
+    BackendDoesNotProduceMir,
+}!codegen.AnyMir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -4441,7 +4455,9 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
     // "emit" step because LLVM does not support incremental linking. Our linker (LLD or self-hosted)
     // will just see the ZCU object file which LLVM ultimately emits.
     if (zcu.llvm_object) |llvm_object| {
-        return llvm_object.updateFunc(pt, func_index, air, &liveness);
+        assert(pt.tid == .main); // LLVM has a lot of shared state
+        try llvm_object.updateFunc(pt, func_index, air, &liveness);
+        return error.BackendDoesNotProduceMir;
     }
 
     const lf = comp.bin_file orelse return error.NoLinkFile;

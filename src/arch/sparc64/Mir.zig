@@ -12,7 +12,11 @@ const assert = std.debug.assert;
 
 const Mir = @This();
 const bits = @import("bits.zig");
-const Air = @import("../../Air.zig");
+const InternPool = @import("../../InternPool.zig");
+const Emit = @import("Emit.zig");
+const codegen = @import("../../codegen.zig");
+const link = @import("../../link.zig");
+const Zcu = @import("../../Zcu.zig");
 
 const Instruction = bits.Instruction;
 const ASI = bits.Instruction.ASI;
@@ -368,6 +372,39 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     gpa.free(mir.extra);
     mir.* = undefined;
+}
+
+pub fn emit(
+    mir: Mir,
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    func_index: InternPool.Index,
+    code: *std.ArrayListUnmanaged(u8),
+    debug_output: link.File.DebugInfoOutput,
+    air: *const @import("../../Air.zig"),
+) codegen.CodeGenError!void {
+    _ = air; // using this would be a bug
+    const zcu = pt.zcu;
+    const func = zcu.funcInfo(func_index);
+    const nav = func.owner_nav;
+    const mod = zcu.navFileScope(nav).mod.?;
+    var e: Emit = .{
+        .mir = mir,
+        .bin_file = lf,
+        .debug_output = debug_output,
+        .target = &mod.resolved_target.result,
+        .src_loc = src_loc,
+        .code = code,
+        .prev_di_pc = 0,
+        .prev_di_line = func.lbrace_line,
+        .prev_di_column = func.lbrace_column,
+    };
+    defer e.deinit();
+    e.emitMir() catch |err| switch (err) {
+        error.EmitFail => return zcu.codegenFailMsg(nav, e.err_msg.?),
+        else => |err1| return err1,
+    };
 }
 
 /// Returns the requested data, as well as the new index which is at the start of the

@@ -777,8 +777,10 @@ pub fn updateFunc(
     macho_file: *MachO,
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
+    mir: *const codegen.AnyMir,
+    /// This may be `undefined`; only pass it to `emitFunction`.
+    /// This parameter will eventually be removed.
+    maybe_undef_air: *const Air,
 ) link.File.UpdateNavError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -796,15 +798,15 @@ pub fn updateFunc(
     var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, sym_index) else null;
     defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
-    try codegen.generateFunction(
+    try codegen.emitFunction(
         &macho_file.base,
         pt,
         zcu.navSrcLoc(func.owner_nav),
         func_index,
-        air,
-        liveness,
+        mir,
         &code_buffer,
         if (debug_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
+        maybe_undef_air,
     );
     const code = code_buffer.items;
 

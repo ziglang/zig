@@ -4550,8 +4550,6 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 air.deinit(gpa);
                 return;
             }
-            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
-            defer pt.deactivate();
             const shared_mir = try gpa.create(link.ZcuTask.LinkFunc.SharedMir);
             shared_mir.* = .{
                 .status = .init(.pending),
@@ -4567,7 +4565,11 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 } });
             } else {
                 const emit_needs_air = !zcu.backendSupportsFeature(.separate_thread);
-                pt.runCodegen(func.func, &air, shared_mir);
+                {
+                    const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+                    defer pt.deactivate();
+                    pt.runCodegen(func.func, &air, shared_mir);
+                }
                 assert(shared_mir.status.load(.monotonic) != .pending);
                 comp.dispatchZcuLinkTask(tid, .{ .link_func = .{
                     .func = func.func,

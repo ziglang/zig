@@ -759,6 +759,8 @@ pub const File = struct {
         switch (base.tag) {
             .lld => unreachable,
             inline else => |tag| {
+                if (tag == .wasm) @panic("MLUGG TODO");
+                if (tag == .spirv) @panic("MLUGG TODO");
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateFunc(pt, func_index, mir, maybe_undef_air);
             },

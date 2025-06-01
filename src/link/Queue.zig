@@ -97,8 +97,7 @@ pub fn mirReady(q: *Queue, comp: *Compilation, mir: *ZcuTask.LinkFunc.SharedMir)
         q.mutex.lock();
         defer q.mutex.unlock();
         switch (q.state) {
-            .finished => unreachable, // there's definitely a task queued
-            .running => return,
+            .finished, .running => return,
             .wait_for_mir => |wait_for| if (wait_for != mir) return,
         }
         // We were waiting for `mir`, so we will restart the linker thread.

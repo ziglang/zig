@@ -50,7 +50,6 @@ pt: Zcu.PerThread,
 air: Air,
 liveness: Air.Liveness,
 bin_file: *link.File,
-debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 func_index: InternPool.Index,
 err_msg: ?*ErrorMsg,
@@ -264,6 +263,9 @@ const DbgInfoReloc = struct {
     }
 
     fn genArgDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
+        // TODO: Add a pseudo-instruction or something to defer this work until Emit.
+        //       We aren't allowed to interact with linker state here.
+        if (true) return;
         switch (function.debug_output) {
             .dwarf => |dw| {
                 const loc: link.File.Dwarf.Loc = switch (reloc.mcv) {
@@ -292,6 +294,9 @@ const DbgInfoReloc = struct {
     }
 
     fn genVarDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
+        // TODO: Add a pseudo-instruction or something to defer this work until Emit.
+        //       We aren't allowed to interact with linker state here.
+        if (true) return;
         switch (function.debug_output) {
             .dwarf => |dw| {
                 const loc: link.File.Dwarf.Loc = switch (reloc.mcv) {
@@ -335,11 +340,9 @@ pub fn generate(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
-    code: *std.ArrayListUnmanaged(u8),
-    debug_output: link.File.DebugInfoOutput,
-) CodeGenError!void {
+    air: *const Air,
+    liveness: *const Air.Liveness,
+) CodeGenError!Mir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
@@ -358,11 +361,10 @@ pub fn generate(
     var function: Self = .{
         .gpa = gpa,
         .pt = pt,
-        .air = air,
-        .liveness = liveness,
+        .air = air.*,
+        .liveness = liveness.*,
         .target = target,
         .bin_file = lf,
-        .debug_output = debug_output,
         .func_index = func_index,
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
@@ -402,31 +404,15 @@ pub fn generate(
             return function.fail("failed to generate debug info: {s}", .{@errorName(err)});
     }
 
-    var mir = Mir{
+    var mir: Mir = .{
         .instructions = function.mir_instructions.toOwnedSlice(),
-        .extra = try function.mir_extra.toOwnedSlice(gpa),
-    };
-    defer mir.deinit(gpa);
-
-    var emit = Emit{
-        .mir = mir,
-        .bin_file = lf,
-        .debug_output = debug_output,
-        .target = target,
-        .src_loc = src_loc,
-        .code = code,
-        .prev_di_pc = 0,
-        .prev_di_line = func.lbrace_line,
-        .prev_di_column = func.lbrace_column,
-        .stack_size = function.max_end_stack,
+        .extra = &.{}, // fallible, so assign after errdefer
+        .max_end_stack = function.max_end_stack,
         .saved_regs_stack_space = function.saved_regs_stack_space,
     };
-    defer emit.deinit();
-
-    emit.emitMir() catch |err| switch (err) {
-        error.EmitFail => return function.failMsg(emit.err_msg.?),
-        else => |e| return e,
-    };
+    errdefer mir.deinit(gpa);
+    mir.extra = try function.mir_extra.toOwnedSlice(gpa);
+    return mir;
 }
 
 fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
