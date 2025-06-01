@@ -10263,7 +10263,7 @@ fn zirIntCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@intCast");
     const operand = try sema.resolveInst(extra.rhs);
 
-    return sema.intCast(block, block.nodeOffset(inst_data.src_node), dest_ty, src, operand, operand_src, true, false);
+    return sema.intCast(block, block.nodeOffset(inst_data.src_node), dest_ty, src, operand, operand_src);
 }
 
 fn intCast(
@@ -10274,8 +10274,6 @@ fn intCast(
     dest_ty_src: LazySrcLoc,
     operand: Air.Inst.Ref,
     operand_src: LazySrcLoc,
-    runtime_safety: bool,
-    safety_panics_are_enum: bool,
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -10294,7 +10292,7 @@ fn intCast(
 
     if ((try sema.typeHasOnePossibleValue(dest_ty))) |opv| {
         // requirement: intCast(u0, input) iff input == 0
-        if (runtime_safety and block.wantSafety()) {
+        if (block.wantSafety()) {
             try sema.requireRuntimeBlock(block, src, operand_src);
             const wanted_info = dest_scalar_ty.intInfo(zcu);
             const wanted_bits = wanted_info.bits;
@@ -10311,7 +10309,7 @@ fn intCast(
                     const is_in_range = try block.addBinOp(.cmp_lte, operand, zero_inst);
                     break :ok is_in_range;
                 };
-                try sema.addSafetyCheck(block, src, ok, if (safety_panics_are_enum) .invalid_enum_value else .cast_truncated_data);
+                try sema.addSafetyCheck(block, src, ok, .integer_out_of_bounds);
             }
         }
 
@@ -10319,10 +10317,9 @@ fn intCast(
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    if (runtime_safety and block.wantSafety()) {
+    if (block.wantSafety()) {
         if (zcu.backendSupportsFeature(.panic_fn)) {
-            _ = try sema.preparePanicId(src, .negative_to_unsigned);
-            _ = try sema.preparePanicId(src, .cast_truncated_data);
+            _ = try sema.preparePanicId(src, .integer_out_of_bounds);
         }
         return block.addTyOp(.intcast_safe, dest_ty, operand);
     }
@@ -37984,8 +37981,7 @@ fn getExpectedBuiltinFnType(sema: *Sema, decl: Zcu.BuiltinDecl) CompileError!Typ
         .@"panic.castToNull",
         .@"panic.incorrectAlignment",
         .@"panic.invalidErrorCode",
-        .@"panic.castTruncatedData",
-        .@"panic.negativeToUnsigned",
+        .@"panic.integerOutOfBounds",
         .@"panic.integerOverflow",
         .@"panic.shlOverflow",
         .@"panic.shrOverflow",

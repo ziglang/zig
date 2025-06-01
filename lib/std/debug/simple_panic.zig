@@ -72,12 +72,8 @@ pub fn invalidErrorCode() noreturn {
     call("invalid error code", null);
 }
 
-pub fn castTruncatedData() noreturn {
-    call("integer cast truncated bits", null);
-}
-
-pub fn negativeToUnsigned() noreturn {
-    call("attempt to cast negative value to unsigned integer", null);
+pub fn integerOutOfBounds() noreturn {
+    call("integer does not fit in destination type", null);
 }
 
 pub fn integerOverflow() noreturn {
@@ -122,6 +118,10 @@ pub fn forLenMismatch() noreturn {
 
 /// Delete after next zig1.wasm update
 pub const memcpyLenMismatch = copyLenMismatch;
+/// Delete after next zig1.wasm update
+pub const castTruncatedData = integerOutOfBounds;
+/// Delete after next zig1.wasm update
+pub const negativeToUnsigned = integerOutOfBounds;
 
 pub fn copyLenMismatch() noreturn {
     call("source and destination have non-equal lengths", null);

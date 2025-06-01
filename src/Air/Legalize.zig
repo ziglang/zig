@@ -1307,7 +1307,7 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
     var main_block: Block = .init(&inst_buf);
     var cur_block: *Block = &main_block;
 
-    const panic_id: Zcu.SimplePanicId = if (dest_is_enum) .invalid_enum_value else .cast_truncated_data;
+    const panic_id: Zcu.SimplePanicId = if (dest_is_enum) .invalid_enum_value else .integer_out_of_bounds;
 
     if (have_min_check or have_max_check) {
         const dest_int_ty = if (dest_is_enum) dest_ty.intTagType(zcu) else dest_ty;

@@ -65,12 +65,7 @@ pub fn invalidErrorCode() noreturn {
     @trap();
 }
 
-pub fn castTruncatedData() noreturn {
-    @branchHint(.cold);
-    @trap();
-}
-
-pub fn negativeToUnsigned() noreturn {
+pub fn integerOutOfBounds() noreturn {
     @branchHint(.cold);
     @trap();
 }
@@ -127,6 +122,10 @@ pub fn forLenMismatch() noreturn {
 
 /// Delete after next zig1.wasm update
 pub const memcpyLenMismatch = copyLenMismatch;
+/// Delete after next zig1.wasm update
+pub const castTruncatedData = integerOutOfBounds;
+/// Delete after next zig1.wasm update
+pub const negativeToUnsigned = integerOutOfBounds;
 
 pub fn copyLenMismatch() noreturn {
     @branchHint(.cold);

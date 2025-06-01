@@ -78,13 +78,9 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
             @branchHint(.cold);
             call("invalid error code", @returnAddress());
         }
-        pub fn castTruncatedData() noreturn {
+        pub fn integerOutOfBounds() noreturn {
             @branchHint(.cold);
-            call("integer cast truncated bits", @returnAddress());
-        }
-        pub fn negativeToUnsigned() noreturn {
-            @branchHint(.cold);
-            call("attempt to cast negative value to unsigned integer", @returnAddress());
+            call("integer does not fit in destination type", @returnAddress());
         }
         pub fn integerOverflow() noreturn {
             @branchHint(.cold);
@@ -128,6 +124,10 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
         }
         /// Delete after next zig1.wasm update
         pub const memcpyLenMismatch = copyLenMismatch;
+        /// Delete after next zig1.wasm update
+        pub const castTruncatedData = integerOutOfBounds;
+        /// Delete after next zig1.wasm update
+        pub const negativeToUnsigned = integerOutOfBounds;
         pub fn copyLenMismatch() noreturn {
             @branchHint(.cold);
             call("source and destination arguments have non-equal lengths", @returnAddress());

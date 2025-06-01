@@ -9189,11 +9189,7 @@ pub const FuncGen = struct {
             const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
             assert(is_vector == (dest_ty.zigTypeTag(zcu) == .vector));
 
-            const min_panic_id: Zcu.SimplePanicId, const max_panic_id: Zcu.SimplePanicId = id: {
-                if (dest_is_enum) break :id .{ .invalid_enum_value, .invalid_enum_value };
-                if (dest_info.signedness == .unsigned) break :id .{ .negative_to_unsigned, .cast_truncated_data };
-                break :id .{ .cast_truncated_data, .cast_truncated_data };
-            };
+            const panic_id: Zcu.SimplePanicId = if (dest_is_enum) .invalid_enum_value else .integer_out_of_bounds;
 
             if (have_min_check) {
                 const min_const_scalar = try minIntConst(&o.builder, dest_scalar, operand_scalar_llvm_ty, zcu);
@@ -9207,7 +9203,7 @@ pub const FuncGen = struct {
                 const ok_block = try fg.wip.block(1, "IntMinOk");
                 _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
                 fg.wip.cursor = .{ .block = fail_block };
-                try fg.buildSimplePanic(min_panic_id);
+                try fg.buildSimplePanic(panic_id);
                 fg.wip.cursor = .{ .block = ok_block };
             }
 
@@ -9223,7 +9219,7 @@ pub const FuncGen = struct {
                 const ok_block = try fg.wip.block(1, "IntMaxOk");
                 _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
                 fg.wip.cursor = .{ .block = fail_block };
-                try fg.buildSimplePanic(max_panic_id);
+                try fg.buildSimplePanic(panic_id);
                 fg.wip.cursor = .{ .block = ok_block };
             }
         }
