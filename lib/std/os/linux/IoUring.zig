@@ -4065,7 +4065,22 @@ inline fn skipKernelLessThan(required: std.SemanticVersion) !void {
     const release = mem.sliceTo(&uts.release, 0);
     // Strips potential extra, as kernel version might not be semver compliant, example "6.8.9-300.fc40.x86_64"
     const extra_index = std.mem.indexOfAny(u8, release, "-+");
-    const stripped = release[0..(extra_index orelse release.len)];
+
+    // Also strips the string after the third dot because examples exist such as "6.6.87.1-microsoft-standard-WSL2"
+    var dot_count: usize = 0;
+    var index: usize = 0;
+    var third_dot_index: ?usize = null;
+    while (std.mem.indexOfScalar(u8, release[index..], '.')) |addend| {
+        index += addend;
+        dot_count += 1;
+        if (dot_count == 3) {
+            third_dot_index = index;
+            break;
+        }
+        index += 1;
+    }
+
+    const stripped = release[0..(@min(extra_index orelse release.len, third_dot_index orelse release.len))];
     // Make sure the input don't rely on the extra we just stripped
     try testing.expect(required.pre == null and required.build == null);
 
