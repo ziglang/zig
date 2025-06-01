@@ -4186,6 +4186,7 @@ fn lldiv1(q: []Limb, a: []Limb, b: Limb) void {
         assert(q.len >= calcDivQLenExact(a, &.{b}));
         // b must be normalized
         assert(@clz(b) == 0);
+        assert(!slicesOverlap(q, a));
     }
 
     const n = a.len;
