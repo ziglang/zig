@@ -120,13 +120,6 @@ pub fn forLenMismatch() noreturn {
     @trap();
 }
 
-/// Delete after next zig1.wasm update
-pub const memcpyLenMismatch = copyLenMismatch;
-/// Delete after next zig1.wasm update
-pub const castTruncatedData = integerOutOfBounds;
-/// Delete after next zig1.wasm update
-pub const negativeToUnsigned = integerOutOfBounds;
-
 pub fn copyLenMismatch() noreturn {
     @branchHint(.cold);
     @trap();

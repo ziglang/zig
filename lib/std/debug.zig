@@ -122,12 +122,6 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
             @branchHint(.cold);
             call("for loop over objects with non-equal lengths", @returnAddress());
         }
-        /// Delete after next zig1.wasm update
-        pub const memcpyLenMismatch = copyLenMismatch;
-        /// Delete after next zig1.wasm update
-        pub const castTruncatedData = integerOutOfBounds;
-        /// Delete after next zig1.wasm update
-        pub const negativeToUnsigned = integerOutOfBounds;
         pub fn copyLenMismatch() noreturn {
             @branchHint(.cold);
             call("source and destination arguments have non-equal lengths", @returnAddress());

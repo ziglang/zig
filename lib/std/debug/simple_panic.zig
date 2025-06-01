@@ -116,13 +116,6 @@ pub fn forLenMismatch() noreturn {
     call("for loop over objects with non-equal lengths", null);
 }
 
-/// Delete after next zig1.wasm update
-pub const memcpyLenMismatch = copyLenMismatch;
-/// Delete after next zig1.wasm update
-pub const castTruncatedData = integerOutOfBounds;
-/// Delete after next zig1.wasm update
-pub const negativeToUnsigned = integerOutOfBounds;
-
 pub fn copyLenMismatch() noreturn {
     call("source and destination have non-equal lengths", null);
 }
