@@ -587,7 +587,6 @@ const mingw32_generic_src = [_][]const u8{
     "math" ++ path.sep_str ++ "isnan.c",
     "math" ++ path.sep_str ++ "isnanf.c",
     "math" ++ path.sep_str ++ "isnanl.c",
-    "math" ++ path.sep_str ++ "ldexpf.c",
     "math" ++ path.sep_str ++ "lgamma.c",
     "math" ++ path.sep_str ++ "lgammaf.c",
     "math" ++ path.sep_str ++ "lgammal.c",
@@ -925,8 +924,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fucom.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ilogbl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "internal_logl.S",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ldexp.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ldexpl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "log10l.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "log1pl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "log2l.S",
@@ -969,8 +966,6 @@ const mingw32_x86_32_src = [_][]const u8{
 };
 
 const mingw32_arm_src = [_][]const u8{
-    // mingwex
-    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "ldexpl.c",
 };
 
 const mingw32_arm32_src = [_][]const u8{
