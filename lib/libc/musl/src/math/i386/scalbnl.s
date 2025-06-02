@@ -1,8 +1,3 @@
-.global ldexpl
-.type ldexpl,@function
-ldexpl:
-	nop
-
 .global scalblnl
 .type scalblnl,@function
 scalblnl:

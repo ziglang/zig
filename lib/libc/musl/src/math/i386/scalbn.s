@@ -1,8 +1,3 @@
-.global ldexp
-.type ldexp,@function
-ldexp:
-	nop
-
 .global scalbln
 .type scalbln,@function
 scalbln:

@@ -1,8 +1,3 @@
-.global ldexpf
-.type ldexpf,@function
-ldexpf:
-	nop
-
 .global scalblnf
 .type scalblnf,@function
 scalblnf:
