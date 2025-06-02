@@ -5904,8 +5904,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         // them being defined matches the behavior of how MSVC calls rc.exe which is the more
         // relevant behavior in this case.
         switch (rc_src.owner.optimize_mode) {
-            .Debug => try argv.append("-D_DEBUG"),
-            .ReleaseSafe => {},
+            .Debug, .ReleaseSafe => {},
             .ReleaseFast, .ReleaseSmall => try argv.append("-DNDEBUG"),
         }
         try argv.appendSlice(rc_src.extra_flags);
@@ -6260,10 +6259,7 @@ pub fn addCCArgs(
         // LLVM IR files don't support these flags.
         if (ext != .ll and ext != .bc) {
             switch (mod.optimize_mode) {
-                .Debug => {
-                    // windows c runtime requires -D_DEBUG if using debug libraries
-                    try argv.append("-D_DEBUG");
-                },
+                .Debug => {},
                 .ReleaseSafe => {
                     try argv.append("-D_FORTIFY_SOURCE=2");
                 },
