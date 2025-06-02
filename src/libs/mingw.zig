@@ -107,15 +107,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                         }
                     }
                 } else if (target.cpu.arch == .thumb) {
-                    for (mingw32_arm_src) |dep| {
-                        try c_source_files.append(.{
-                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                                "libc", "mingw", dep,
-                            }),
-                            .extra_flags = crt_args.items,
-                            .owner = undefined,
-                        });
-                    }
                     for (mingw32_arm32_src) |dep| {
                         try c_source_files.append(.{
                             .src_path = try comp.dirs.zig_lib.join(arena, &.{
@@ -126,15 +117,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                         });
                     }
                 } else if (target.cpu.arch == .aarch64) {
-                    for (mingw32_arm_src) |dep| {
-                        try c_source_files.append(.{
-                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                                "libc", "mingw", dep,
-                            }),
-                            .extra_flags = crt_args.items,
-                            .owner = undefined,
-                        });
-                    }
                     for (mingw32_arm64_src) |dep| {
                         try c_source_files.append(.{
                             .src_path = try comp.dirs.zig_lib.join(arena, &.{
@@ -587,7 +569,6 @@ const mingw32_generic_src = [_][]const u8{
     "math" ++ path.sep_str ++ "isnan.c",
     "math" ++ path.sep_str ++ "isnanf.c",
     "math" ++ path.sep_str ++ "isnanl.c",
-    "math" ++ path.sep_str ++ "ldexpf.c",
     "math" ++ path.sep_str ++ "lgamma.c",
     "math" ++ path.sep_str ++ "lgammaf.c",
     "math" ++ path.sep_str ++ "lgammal.c",
@@ -925,8 +906,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fucom.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ilogbl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "internal_logl.S",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ldexp.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ldexpl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "log10l.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "log1pl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "log2l.S",
@@ -936,9 +915,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "powl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "remainderl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "remquol.S",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "scalbn.S",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "scalbnf.S",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "scalbnl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "sinl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "sinl_internal.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "tanl.S",
@@ -966,11 +942,6 @@ const mingw32_x86_32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ceilf.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "floorf.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fmodf.c",
-};
-
-const mingw32_arm_src = [_][]const u8{
-    // mingwex
-    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "ldexpl.c",
 };
 
 const mingw32_arm32_src = [_][]const u8{
