@@ -28,6 +28,15 @@ const SpvAssembler = @import("spirv/Assembler.zig");
 
 const InstMap = std.AutoHashMapUnmanaged(Air.Inst.Index, IdRef);
 
+pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initMany(&.{
+        .expand_intcast_safe,
+        .expand_add_safe,
+        .expand_sub_safe,
+        .expand_mul_safe,
+    });
+}
+
 pub const zig_call_abi_ver = 3;
 pub const big_int_bits = 32;
 
@@ -3243,7 +3252,8 @@ const NavGen = struct {
 
             .splat => try self.airSplat(inst),
             .reduce, .reduce_optimized => try self.airReduce(inst),
-            .shuffle                   => try self.airShuffle(inst),
+            .shuffle_one               => try self.airShuffleOne(inst),
+            .shuffle_two               => try self.airShuffleTwo(inst),
 
             .ptr_add => try self.airPtrAdd(inst),
             .ptr_sub => try self.airPtrSub(inst),
@@ -3379,6 +3389,10 @@ const NavGen = struct {
     fn airShift(self: *NavGen, inst: Air.Inst.Index, unsigned: BinaryOp, signed: BinaryOp) !?IdRef {
         const zcu = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+
+        if (self.typeOf(bin_op.lhs).isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu)) {
+            return self.fail("vector shift with scalar rhs", .{});
+        }
 
         const base = try self.temporary(bin_op.lhs);
         const shift = try self.temporary(bin_op.rhs);
@@ -3866,6 +3880,10 @@ const NavGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
 
+        if (self.typeOf(extra.lhs).isVector(zcu) and !self.typeOf(extra.rhs).isVector(zcu)) {
+            return self.fail("vector shift with scalar rhs", .{});
+        }
+
         const base = try self.temporary(extra.lhs);
         const shift = try self.temporary(extra.rhs);
 
@@ -4030,40 +4048,57 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn airShuffle(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
-        const pt = self.pt;
+    fn airShuffleOne(ng: *NavGen, inst: Air.Inst.Index) !?IdRef {
+        const pt = ng.pt;
         const zcu = pt.zcu;
-        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-        const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
-        const a = try self.resolve(extra.a);
-        const b = try self.resolve(extra.b);
-        const mask = Value.fromInterned(extra.mask);
+        const gpa = zcu.gpa;
 
-        // Note: number of components in the result, a, and b may differ.
-        const result_ty = self.typeOfIndex(inst);
-        const scalar_ty = result_ty.scalarType(zcu);
-        const scalar_ty_id = try self.resolveType(scalar_ty, .direct);
+        const unwrapped = ng.air.unwrapShuffleOne(zcu, inst);
+        const mask = unwrapped.mask;
+        const result_ty = unwrapped.result_ty;
+        const elem_ty = result_ty.childType(zcu);
+        const operand = try ng.resolve(unwrapped.operand);
 
-        const constituents = try self.gpa.alloc(IdRef, result_ty.vectorLen(zcu));
-        defer self.gpa.free(constituents);
+        const constituents = try gpa.alloc(IdRef, mask.len);
+        defer gpa.free(constituents);
 
-        for (constituents, 0..) |*id, i| {
-            const elem = try mask.elemValue(pt, i);
-            if (elem.isUndef(zcu)) {
-                id.* = try self.spv.constUndef(scalar_ty_id);
-                continue;
-            }
-
-            const index = elem.toSignedInt(zcu);
-            if (index >= 0) {
-                id.* = try self.extractVectorComponent(scalar_ty, a, @intCast(index));
-            } else {
-                id.* = try self.extractVectorComponent(scalar_ty, b, @intCast(~index));
-            }
+        for (constituents, mask) |*id, mask_elem| {
+            id.* = switch (mask_elem.unwrap()) {
+                .elem => |idx| try ng.extractVectorComponent(elem_ty, operand, idx),
+                .value => |val| try ng.constant(elem_ty, .fromInterned(val), .direct),
+            };
         }
 
-        const result_ty_id = try self.resolveType(result_ty, .direct);
-        return try self.constructComposite(result_ty_id, constituents);
+        const result_ty_id = try ng.resolveType(result_ty, .direct);
+        return try ng.constructComposite(result_ty_id, constituents);
+    }
+
+    fn airShuffleTwo(ng: *NavGen, inst: Air.Inst.Index) !?IdRef {
+        const pt = ng.pt;
+        const zcu = pt.zcu;
+        const gpa = zcu.gpa;
+
+        const unwrapped = ng.air.unwrapShuffleTwo(zcu, inst);
+        const mask = unwrapped.mask;
+        const result_ty = unwrapped.result_ty;
+        const elem_ty = result_ty.childType(zcu);
+        const elem_ty_id = try ng.resolveType(elem_ty, .direct);
+        const operand_a = try ng.resolve(unwrapped.operand_a);
+        const operand_b = try ng.resolve(unwrapped.operand_b);
+
+        const constituents = try gpa.alloc(IdRef, mask.len);
+        defer gpa.free(constituents);
+
+        for (constituents, mask) |*id, mask_elem| {
+            id.* = switch (mask_elem.unwrap()) {
+                .a_elem => |idx| try ng.extractVectorComponent(elem_ty, operand_a, idx),
+                .b_elem => |idx| try ng.extractVectorComponent(elem_ty, operand_b, idx),
+                .undef => try ng.spv.constUndef(elem_ty_id),
+            };
+        }
+
+        const result_ty_id = try ng.resolveType(result_ty, .direct);
+        return try ng.constructComposite(result_ty_id, constituents);
     }
 
     fn indicesToIds(self: *NavGen, indices: []const u32) ![]IdRef {

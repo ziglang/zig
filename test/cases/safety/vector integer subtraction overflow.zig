@@ -18,5 +18,5 @@ fn sub(a: @Vector(4, u32), b: @Vector(4, u32)) @Vector(4, u32) {
     return a - b;
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

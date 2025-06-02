@@ -1741,10 +1741,11 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *A
         return;
     }
 
-    const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
-    try air.legalize(backend, zcu);
+    legalize: {
+        try air.legalize(pt, @import("../codegen.zig").legalizeFeatures(pt, nav_index) orelse break :legalize);
+    }
 
-    var liveness = try Air.Liveness.analyze(gpa, air.*, ip);
+    var liveness = try Air.Liveness.analyze(zcu, air.*, ip);
     defer liveness.deinit(gpa);
 
     if (build_options.enable_debug_extensions and comp.verbose_air) {
@@ -1756,6 +1757,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *A
     if (std.debug.runtime_safety) {
         var verify: Air.Liveness.Verify = .{
             .gpa = gpa,
+            .zcu = zcu,
             .air = air.*,
             .liveness = liveness,
             .intern_pool = ip,
@@ -3022,7 +3024,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
         // is unused so it just has to be a no-op.
         sema.air_instructions.set(@intFromEnum(ptr_inst), .{
             .tag = .alloc,
-            .data = .{ .ty = Type.single_const_pointer_to_comptime_int },
+            .data = .{ .ty = .ptr_const_comptime_int },
         });
     }
 
@@ -3841,6 +3843,21 @@ pub fn nullValue(pt: Zcu.PerThread, opt_ty: Type) Allocator.Error!Value {
         .ty = opt_ty.toIntern(),
         .val = .none,
     } }));
+}
+
+/// `ty` is an integer or a vector of integers.
+pub fn overflowArithmeticTupleType(pt: Zcu.PerThread, ty: Type) !Type {
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const ov_ty: Type = if (ty.zigTypeTag(zcu) == .vector) try pt.vectorType(.{
+        .len = ty.vectorLen(zcu),
+        .child = .u1_type,
+    }) else .u1;
+    const tuple_ty = try ip.getTupleType(zcu.gpa, pt.tid, .{
+        .types = &.{ ty.toIntern(), ov_ty.toIntern() },
+        .values = &.{ .none, .none },
+    });
+    return .fromInterned(tuple_ty);
 }
 
 pub fn smallestUnsignedInt(pt: Zcu.PerThread, max: u64) Allocator.Error!Type {

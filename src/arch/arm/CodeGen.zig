@@ -41,6 +41,10 @@ const gp = abi.RegisterClass.gp;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
 
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
+}
+
 gpa: Allocator,
 pt: Zcu.PerThread,
 air: Air,
@@ -763,7 +767,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .error_name      => try self.airErrorName(inst),
             .splat           => try self.airSplat(inst),
             .select          => try self.airSelect(inst),
-            .shuffle         => try self.airShuffle(inst),
+            .shuffle_one     => try self.airShuffleOne(inst),
+            .shuffle_two     => try self.airShuffleTwo(inst),
             .reduce          => try self.airReduce(inst),
             .aggregate_init  => try self.airAggregateInit(inst),
             .union_init      => try self.airUnionInit(inst),
@@ -1857,7 +1862,10 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const overflow_bit_offset: u32 = @intCast(tuple_ty.structFieldOffset(1, zcu));
 
         switch (lhs_ty.zigTypeTag(zcu)) {
-            .vector => return self.fail("TODO implement shl_with_overflow for vectors", .{}),
+            .vector => if (!rhs_ty.isVector(zcu))
+                return self.fail("TODO implement vector shl_with_overflow with scalar rhs", .{})
+            else
+                return self.fail("TODO implement shl_with_overflow for vectors", .{}),
             .int => {
                 const int_info = lhs_ty.intInfo(zcu);
                 if (int_info.bits <= 32) {
@@ -1978,8 +1986,14 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
+    const zcu = self.pt.zcu;
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else if (self.typeOf(bin_op.lhs).isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+        return self.fail("TODO implement vector shl_sat with scalar rhs for {}", .{self.target.cpu.arch})
+    else
+        return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3788,7 +3802,10 @@ fn shiftExact(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+        .vector => if (!rhs_ty.isVector(zcu))
+            return self.fail("TODO ARM vector shift with scalar rhs", .{})
+        else
+            return self.fail("TODO ARM binary operations on vectors", .{}),
         .int => {
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 32) {
@@ -3828,7 +3845,10 @@ fn shiftNormal(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+        .vector => if (!rhs_ty.isVector(zcu))
+            return self.fail("TODO ARM vector shift with scalar rhs", .{})
+        else
+            return self.fail("TODO ARM binary operations on vectors", .{}),
         .int => {
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 32) {
@@ -6002,10 +6022,14 @@ fn airSelect(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ pl_op.operand, extra.lhs, extra.rhs });
 }
 
-fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airShuffle for arm", .{});
-    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+fn airShuffleOne(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airShuffleOne for arm", .{});
+}
+
+fn airShuffleTwo(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airShuffleTwo for arm", .{});
 }
 
 fn airReduce(self: *Self, inst: Air.Inst.Index) !void {

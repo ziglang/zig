@@ -50,8 +50,6 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// The panic handler function must be populated before lowering AIR
         /// that contains this instruction.
-        /// This instruction will only be emitted if the backend has the
-        /// feature `safety_checked_instructions`.
         /// Uses the `bin_op` field.
         add_safe,
         /// Float addition. The instruction is allowed to have equal or more
@@ -79,8 +77,6 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// The panic handler function must be populated before lowering AIR
         /// that contains this instruction.
-        /// This instruction will only be emitted if the backend has the
-        /// feature `safety_checked_instructions`.
         /// Uses the `bin_op` field.
         sub_safe,
         /// Float subtraction. The instruction is allowed to have equal or more
@@ -108,8 +104,6 @@ pub const Inst = struct {
         /// is the same as both operands.
         /// The panic handler function must be populated before lowering AIR
         /// that contains this instruction.
-        /// This instruction will only be emitted if the backend has the
-        /// feature `safety_checked_instructions`.
         /// Uses the `bin_op` field.
         mul_safe,
         /// Float multiplication. The instruction is allowed to have equal or more
@@ -705,9 +699,21 @@ pub const Inst = struct {
         /// equal to the scalar value.
         /// Uses the `ty_op` field.
         splat,
-        /// Constructs a vector by selecting elements from `a` and `b` based on `mask`.
-        /// Uses the `ty_pl` field with payload `Shuffle`.
-        shuffle,
+        /// Constructs a vector by selecting elements from a single vector based on a mask. Each
+        /// mask element is either an index into the vector, or a comptime-known value, or "undef".
+        /// Uses the `ty_pl` field, where the payload index points to:
+        /// 1. mask_elem: ShuffleOneMask  // for each `mask_len`, which comes from `ty_pl.ty`
+        /// 2. operand: Ref               // guaranteed not to be an interned value
+        /// See `unwrapShuffleOne`.
+        shuffle_one,
+        /// Constructs a vector by selecting elements from two vectors based on a mask. Each mask
+        /// element is either an index into one of the vectors, or "undef".
+        /// Uses the `ty_pl` field, where the payload index points to:
+        /// 1. mask_elem: ShuffleOneMask  // for each `mask_len`, which comes from `ty_pl.ty`
+        /// 2. operand_a: Ref             // guaranteed not to be an interned value
+        /// 3. operand_b: Ref             // guaranteed not to be an interned value
+        /// See `unwrapShuffleTwo`.
+        shuffle_two,
         /// Constructs a vector element-wise from `a` or `b` based on `pred`.
         /// Uses the `pl_op` field with `pred` as operand, and payload `Bin`.
         select,
@@ -1011,10 +1017,11 @@ pub const Inst = struct {
         null_type = @intFromEnum(InternPool.Index.null_type),
         undefined_type = @intFromEnum(InternPool.Index.undefined_type),
         enum_literal_type = @intFromEnum(InternPool.Index.enum_literal_type),
+        ptr_usize_type = @intFromEnum(InternPool.Index.ptr_usize_type),
+        ptr_const_comptime_int_type = @intFromEnum(InternPool.Index.ptr_const_comptime_int_type),
         manyptr_u8_type = @intFromEnum(InternPool.Index.manyptr_u8_type),
         manyptr_const_u8_type = @intFromEnum(InternPool.Index.manyptr_const_u8_type),
         manyptr_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.manyptr_const_u8_sentinel_0_type),
-        single_const_pointer_to_comptime_int_type = @intFromEnum(InternPool.Index.single_const_pointer_to_comptime_int_type),
         slice_const_u8_type = @intFromEnum(InternPool.Index.slice_const_u8_type),
         slice_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.slice_const_u8_sentinel_0_type),
         vector_8_i8_type = @intFromEnum(InternPool.Index.vector_8_i8_type),
@@ -1070,11 +1077,16 @@ pub const Inst = struct {
         generic_poison_type = @intFromEnum(InternPool.Index.generic_poison_type),
         empty_tuple_type = @intFromEnum(InternPool.Index.empty_tuple_type),
         undef = @intFromEnum(InternPool.Index.undef),
+        undef_bool = @intFromEnum(InternPool.Index.undef_bool),
+        undef_usize = @intFromEnum(InternPool.Index.undef_usize),
+        undef_u1 = @intFromEnum(InternPool.Index.undef_u1),
         zero = @intFromEnum(InternPool.Index.zero),
         zero_usize = @intFromEnum(InternPool.Index.zero_usize),
+        zero_u1 = @intFromEnum(InternPool.Index.zero_u1),
         zero_u8 = @intFromEnum(InternPool.Index.zero_u8),
         one = @intFromEnum(InternPool.Index.one),
         one_usize = @intFromEnum(InternPool.Index.one_usize),
+        one_u1 = @intFromEnum(InternPool.Index.one_u1),
         one_u8 = @intFromEnum(InternPool.Index.one_u8),
         four_u8 = @intFromEnum(InternPool.Index.four_u8),
         negative_one = @intFromEnum(InternPool.Index.negative_one),
@@ -1121,7 +1133,7 @@ pub const Inst = struct {
         }
 
         pub fn toType(ref: Ref) Type {
-            return Type.fromInterned(ref.toInterned().?);
+            return .fromInterned(ref.toInterned().?);
         }
     };
 
@@ -1241,10 +1253,10 @@ pub const CondBr = struct {
     else_body_len: u32,
     branch_hints: BranchHints,
     pub const BranchHints = packed struct(u32) {
-        true: std.builtin.BranchHint,
-        false: std.builtin.BranchHint,
-        then_cov: CoveragePoint,
-        else_cov: CoveragePoint,
+        true: std.builtin.BranchHint = .none,
+        false: std.builtin.BranchHint = .none,
+        then_cov: CoveragePoint = .none,
+        else_cov: CoveragePoint = .none,
         _: u24 = 0,
     };
 };
@@ -1299,13 +1311,6 @@ pub const FieldParentPtr = struct {
     field_index: u32,
 };
 
-pub const Shuffle = struct {
-    a: Inst.Ref,
-    b: Inst.Ref,
-    mask: InternPool.Index,
-    mask_len: u32,
-};
-
 pub const VectorCmp = struct {
     lhs: Inst.Ref,
     rhs: Inst.Ref,
@@ -1317,6 +1322,64 @@ pub const VectorCmp = struct {
 
     pub fn encodeOp(compare_operator: std.math.CompareOperator) u32 {
         return @intFromEnum(compare_operator);
+    }
+};
+
+/// Used by `Inst.Tag.shuffle_one`. Represents a mask element which either indexes into a
+/// runtime-known vector, or is a comptime-known value.
+pub const ShuffleOneMask = packed struct(u32) {
+    index: u31,
+    kind: enum(u1) { elem, value },
+    pub fn elem(idx: u32) ShuffleOneMask {
+        return .{ .index = @intCast(idx), .kind = .elem };
+    }
+    pub fn value(val: Value) ShuffleOneMask {
+        return .{ .index = @intCast(@intFromEnum(val.toIntern())), .kind = .value };
+    }
+    pub const Unwrapped = union(enum) {
+        /// The resulting element is this index into the runtime vector.
+        elem: u32,
+        /// The resulting element is this comptime-known value.
+        /// It is correctly typed. It might be `undefined`.
+        value: InternPool.Index,
+    };
+    pub fn unwrap(raw: ShuffleOneMask) Unwrapped {
+        return switch (raw.kind) {
+            .elem => .{ .elem = raw.index },
+            .value => .{ .value = @enumFromInt(raw.index) },
+        };
+    }
+};
+
+/// Used by `Inst.Tag.shuffle_two`. Represents a mask element which either indexes into one
+/// of two runtime-known vectors, or is undefined.
+pub const ShuffleTwoMask = enum(u32) {
+    undef = std.math.maxInt(u32),
+    _,
+    pub fn aElem(idx: u32) ShuffleTwoMask {
+        return @enumFromInt(idx << 1);
+    }
+    pub fn bElem(idx: u32) ShuffleTwoMask {
+        return @enumFromInt(idx << 1 | 1);
+    }
+    pub const Unwrapped = union(enum) {
+        /// The resulting element is this index into the first runtime vector.
+        a_elem: u32,
+        /// The resulting element is this index into the second runtime vector.
+        b_elem: u32,
+        /// The resulting element is `undefined`.
+        undef,
+    };
+    pub fn unwrap(raw: ShuffleTwoMask) Unwrapped {
+        switch (raw) {
+            .undef => return .undef,
+            _ => {},
+        }
+        const x = @intFromEnum(raw);
+        return switch (@as(u1, @truncate(x))) {
+            0 => .{ .a_elem = x >> 1 },
+            1 => .{ .b_elem = x >> 1 },
+        };
     }
 };
 
@@ -1393,7 +1456,7 @@ pub fn getMainBody(air: Air) []const Air.Inst.Index {
 
 pub fn typeOf(air: *const Air, inst: Air.Inst.Ref, ip: *const InternPool) Type {
     if (inst.toInterned()) |ip_index| {
-        return Type.fromInterned(ip.typeOf(ip_index));
+        return .fromInterned(ip.typeOf(ip_index));
     } else {
         return air.typeOfIndex(inst.toIndex().?, ip);
     }
@@ -1483,7 +1546,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .is_non_err_ptr,
         .is_named_enum_value,
         .error_set_has_value,
-        => return Type.bool,
+        => return .bool,
 
         .alloc,
         .ret_ptr,
@@ -1503,7 +1566,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .cmpxchg_weak,
         .cmpxchg_strong,
         .slice,
-        .shuffle,
         .aggregate_init,
         .union_init,
         .field_parent_ptr,
@@ -1517,6 +1579,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .ptr_sub,
         .try_ptr,
         .try_ptr_cold,
+        .shuffle_one,
+        .shuffle_two,
         => return datas[@intFromEnum(inst)].ty_pl.ty.toType(),
 
         .not,
@@ -1574,7 +1638,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .ret_load,
         .unreach,
         .trap,
-        => return Type.noreturn,
+        => return .noreturn,
 
         .breakpoint,
         .dbg_stmt,
@@ -1597,22 +1661,22 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .set_err_return_trace,
         .vector_store_elem,
         .c_va_end,
-        => return Type.void,
+        => return .void,
 
         .slice_len,
         .ret_addr,
         .frame_addr,
         .save_err_return_trace_index,
-        => return Type.usize,
+        => return .usize,
 
-        .wasm_memory_grow => return Type.isize,
-        .wasm_memory_size => return Type.usize,
+        .wasm_memory_grow => return .isize,
+        .wasm_memory_size => return .usize,
 
-        .tag_name, .error_name => return Type.slice_const_u8_sentinel_0,
+        .tag_name, .error_name => return .slice_const_u8_sentinel_0,
 
         .call, .call_always_tail, .call_never_tail, .call_never_inline => {
             const callee_ty = air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip);
-            return Type.fromInterned(ip.funcTypeReturnType(callee_ty.toIntern()));
+            return .fromInterned(ip.funcTypeReturnType(callee_ty.toIntern()));
         },
 
         .slice_elem_val, .ptr_elem_val, .array_elem_val => {
@@ -1630,7 +1694,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .reduce, .reduce_optimized => {
             const operand_ty = air.typeOf(datas[@intFromEnum(inst)].reduce.operand, ip);
-            return Type.fromInterned(ip.indexToKey(operand_ty.ip_index).vector_type.child);
+            return .fromInterned(ip.indexToKey(operand_ty.ip_index).vector_type.child);
         },
 
         .mul_add => return air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip),
@@ -1641,7 +1705,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .@"try", .try_cold => {
             const err_union_ty = air.typeOf(datas[@intFromEnum(inst)].pl_op.operand, ip);
-            return Type.fromInterned(ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type);
+            return .fromInterned(ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type);
         },
 
         .tlv_dllimport_ptr => return .fromInterned(datas[@intFromEnum(inst)].ty_nav.ty),
@@ -1649,7 +1713,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .work_item_id,
         .work_group_size,
         .work_group_id,
-        => return Type.u32,
+        => return .u32,
 
         .inferred_alloc => unreachable,
         .inferred_alloc_comptime => unreachable,
@@ -1696,7 +1760,7 @@ pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
 /// Returns `null` if runtime-known.
 pub fn value(air: Air, inst: Inst.Ref, pt: Zcu.PerThread) !?Value {
     if (inst.toInterned()) |ip_index| {
-        return Value.fromInterned(ip_index);
+        return .fromInterned(ip_index);
     }
     const index = inst.toIndex().?;
     return air.typeOfIndex(index, &pt.zcu.intern_pool).onePossibleValue(pt);
@@ -1903,7 +1967,8 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .reduce,
         .reduce_optimized,
         .splat,
-        .shuffle,
+        .shuffle_one,
+        .shuffle_two,
         .select,
         .is_named_enum_value,
         .tag_name,
@@ -2027,6 +2092,48 @@ pub fn unwrapSwitch(air: *const Air, switch_inst: Inst.Index) UnwrappedSwitch {
         .else_body_len = extra.data.else_body_len,
         .branch_hints_start = @intCast(extra.end),
         .cases_start = @intCast(extra.end + hint_bag_count),
+    };
+}
+
+pub fn unwrapShuffleOne(air: *const Air, zcu: *const Zcu, inst_index: Inst.Index) struct {
+    result_ty: Type,
+    operand: Inst.Ref,
+    mask: []const ShuffleOneMask,
+} {
+    const inst = air.instructions.get(@intFromEnum(inst_index));
+    switch (inst.tag) {
+        .shuffle_one => {},
+        else => unreachable, // assertion failure
+    }
+    const result_ty: Type = .fromInterned(inst.data.ty_pl.ty.toInterned().?);
+    const mask_len: u32 = result_ty.vectorLen(zcu);
+    const extra_idx = inst.data.ty_pl.payload;
+    return .{
+        .result_ty = result_ty,
+        .operand = @enumFromInt(air.extra.items[extra_idx + mask_len]),
+        .mask = @ptrCast(air.extra.items[extra_idx..][0..mask_len]),
+    };
+}
+
+pub fn unwrapShuffleTwo(air: *const Air, zcu: *const Zcu, inst_index: Inst.Index) struct {
+    result_ty: Type,
+    operand_a: Inst.Ref,
+    operand_b: Inst.Ref,
+    mask: []const ShuffleTwoMask,
+} {
+    const inst = air.instructions.get(@intFromEnum(inst_index));
+    switch (inst.tag) {
+        .shuffle_two => {},
+        else => unreachable, // assertion failure
+    }
+    const result_ty: Type = .fromInterned(inst.data.ty_pl.ty.toInterned().?);
+    const mask_len: u32 = result_ty.vectorLen(zcu);
+    const extra_idx = inst.data.ty_pl.payload;
+    return .{
+        .result_ty = result_ty,
+        .operand_a = @enumFromInt(air.extra.items[extra_idx + mask_len + 0]),
+        .operand_b = @enumFromInt(air.extra.items[extra_idx + mask_len + 1]),
+        .mask = @ptrCast(air.extra.items[extra_idx..][0..mask_len]),
     };
 }
 

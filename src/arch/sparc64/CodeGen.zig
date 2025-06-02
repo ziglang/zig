@@ -41,6 +41,10 @@ const Self = @This();
 
 const InnerError = CodeGenError || error{OutOfRegisters};
 
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
+}
+
 const RegisterView = enum(u1) {
     caller,
     callee,
@@ -617,7 +621,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .error_name      => try self.airErrorName(inst),
             .splat           => try self.airSplat(inst),
             .select          => @panic("TODO try self.airSelect(inst)"),
-            .shuffle         => @panic("TODO try self.airShuffle(inst)"),
+            .shuffle_one     => @panic("TODO try self.airShuffleOne(inst)"),
+            .shuffle_two     => @panic("TODO try self.airShuffleTwo(inst)"),
             .reduce          => @panic("TODO try self.airReduce(inst)"),
             .aggregate_init  => try self.airAggregateInit(inst),
             .union_init      => try self.airUnionInit(inst),
@@ -2270,8 +2275,14 @@ fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
+    const zcu = self.pt.zcu;
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else if (self.typeOf(bin_op.lhs).isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+        return self.fail("TODO implement vector shl_sat with scalar rhs for {}", .{self.target.cpu.arch})
+    else
+        return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -2287,7 +2298,10 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const rhs_ty = self.typeOf(extra.rhs);
 
         switch (lhs_ty.zigTypeTag(zcu)) {
-            .vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
+            .vector => if (!rhs_ty.isVector(zcu))
+                return self.fail("TODO implement vector shl_with_overflow with scalar rhs", .{})
+            else
+                return self.fail("TODO implement mul_with_overflow for vectors", .{}),
             .int => {
                 const int_info = lhs_ty.intInfo(zcu);
                 if (int_info.bits <= 64) {
@@ -3002,7 +3016,10 @@ fn binOp(
 
             // Truncate if necessary
             switch (lhs_ty.zigTypeTag(zcu)) {
-                .vector => return self.fail("TODO binary operations on vectors", .{}),
+                .vector => if (rhs_ty.isVector(zcu))
+                    return self.fail("TODO vector shift with scalar rhs", .{})
+                else
+                    return self.fail("TODO binary operations on vectors", .{}),
                 .int => {
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
@@ -3024,7 +3041,10 @@ fn binOp(
         .shr_exact,
         => {
             switch (lhs_ty.zigTypeTag(zcu)) {
-                .vector => return self.fail("TODO binary operations on vectors", .{}),
+                .vector => if (rhs_ty.isVector(zcu))
+                    return self.fail("TODO vector shift with scalar rhs", .{})
+                else
+                    return self.fail("TODO binary operations on vectors", .{}),
                 .int => {
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {

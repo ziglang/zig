@@ -441,8 +441,7 @@ pub const BuiltinDecl = enum {
     @"panic.castToNull",
     @"panic.incorrectAlignment",
     @"panic.invalidErrorCode",
-    @"panic.castTruncatedData",
-    @"panic.negativeToUnsigned",
+    @"panic.integerOutOfBounds",
     @"panic.integerOverflow",
     @"panic.shlOverflow",
     @"panic.shrOverflow",
@@ -518,8 +517,7 @@ pub const BuiltinDecl = enum {
             .@"panic.castToNull",
             .@"panic.incorrectAlignment",
             .@"panic.invalidErrorCode",
-            .@"panic.castTruncatedData",
-            .@"panic.negativeToUnsigned",
+            .@"panic.integerOutOfBounds",
             .@"panic.integerOverflow",
             .@"panic.shlOverflow",
             .@"panic.shrOverflow",
@@ -585,8 +583,7 @@ pub const SimplePanicId = enum {
     cast_to_null,
     incorrect_alignment,
     invalid_error_code,
-    cast_truncated_data,
-    negative_to_unsigned,
+    integer_out_of_bounds,
     integer_overflow,
     shl_overflow,
     shr_overflow,
@@ -609,8 +606,7 @@ pub const SimplePanicId = enum {
             .cast_to_null               => .@"panic.castToNull",
             .incorrect_alignment        => .@"panic.incorrectAlignment",
             .invalid_error_code         => .@"panic.invalidErrorCode",
-            .cast_truncated_data        => .@"panic.castTruncatedData",
-            .negative_to_unsigned       => .@"panic.negativeToUnsigned",
+            .integer_out_of_bounds      => .@"panic.integerOutOfBounds",
             .integer_overflow           => .@"panic.integerOverflow",
             .shl_overflow               => .@"panic.shlOverflow",
             .shr_overflow               => .@"panic.shrOverflow",
@@ -3829,26 +3825,8 @@ pub const Feature = enum {
     is_named_enum_value,
     error_set_has_value,
     field_reordering,
-    /// When this feature is supported, the backend supports the following AIR instructions:
-    /// * `Air.Inst.Tag.add_safe`
-    /// * `Air.Inst.Tag.sub_safe`
-    /// * `Air.Inst.Tag.mul_safe`
-    /// * `Air.Inst.Tag.intcast_safe`
-    /// The motivation for this feature is that it makes AIR smaller, and makes it easier
-    /// to generate better machine code in the backends. All backends should migrate to
-    /// enabling this feature.
-    safety_checked_instructions,
     /// If the backend supports running from another thread.
     separate_thread,
-    /// If the backend supports the following AIR instructions with vector types:
-    /// * `Air.Inst.Tag.bit_and`
-    /// * `Air.Inst.Tag.bit_or`
-    /// * `Air.Inst.Tag.bitcast`
-    /// * `Air.Inst.Tag.float_from_int`
-    /// * `Air.Inst.Tag.fptrunc`
-    /// * `Air.Inst.Tag.int_from_float`
-    /// If not supported, Sema will scalarize the operation.
-    all_vector_instructions,
 };
 
 pub fn backendSupportsFeature(zcu: *const Zcu, comptime feature: Feature) bool {

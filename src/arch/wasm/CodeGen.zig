@@ -31,6 +31,15 @@ const libcFloatSuffix = target_util.libcFloatSuffix;
 const compilerRtFloatAbbrev = target_util.compilerRtFloatAbbrev;
 const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 
+pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initMany(&.{
+        .expand_intcast_safe,
+        .expand_add_safe,
+        .expand_sub_safe,
+        .expand_mul_safe,
+    });
+}
+
 /// Reference to the function declaration the code
 /// section belongs to
 owner_nav: InternPool.Nav.Index,
@@ -1995,7 +2004,8 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .ret_load => cg.airRetLoad(inst),
         .splat => cg.airSplat(inst),
         .select => cg.airSelect(inst),
-        .shuffle => cg.airShuffle(inst),
+        .shuffle_one => cg.airShuffleOne(inst),
+        .shuffle_two => cg.airShuffleTwo(inst),
         .reduce => cg.airReduce(inst),
         .aggregate_init => cg.airAggregateInit(inst),
         .union_init => cg.airUnionInit(inst),
@@ -2638,6 +2648,10 @@ fn airBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     // For big integers we can ignore this as we will call into compiler-rt which handles this.
     const result = switch (op) {
         .shr, .shl => result: {
+            if (lhs_ty.isVector(zcu) and !rhs_ty.isVector(zcu)) {
+                return cg.fail("TODO: implement vector '{s}' with scalar rhs", .{@tagName(op)});
+            }
+
             const lhs_wasm_bits = toWasmBits(@intCast(lhs_ty.bitSize(zcu))) orelse {
                 return cg.fail("TODO: implement '{s}' for types larger than 128 bits", .{@tagName(op)});
             };
@@ -3055,8 +3069,12 @@ fn airWrapBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     const lhs_ty = cg.typeOf(bin_op.lhs);
     const rhs_ty = cg.typeOf(bin_op.rhs);
 
-    if (lhs_ty.zigTypeTag(zcu) == .vector or rhs_ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: Implement wrapping arithmetic for vectors", .{});
+    if (lhs_ty.isVector(zcu)) {
+        if ((op == .shr or op == .shl) and !rhs_ty.isVector(zcu)) {
+            return cg.fail("TODO: implement wrapping vector '{s}' with scalar rhs", .{@tagName(op)});
+        } else {
+            return cg.fail("TODO: implement wrapping '{s}' for vectors", .{@tagName(op)});
+        }
     }
 
     // For certain operations, such as shifting, the types are different.
@@ -5160,66 +5178,105 @@ fn airSelect(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.fail("TODO: Implement wasm airSelect", .{});
 }
 
-fn airShuffle(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airShuffleOne(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pt = cg.pt;
     const zcu = pt.zcu;
-    const inst_ty = cg.typeOfIndex(inst);
-    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = cg.air.extraData(Air.Shuffle, ty_pl.payload).data;
 
-    const a = try cg.resolveInst(extra.a);
-    const b = try cg.resolveInst(extra.b);
-    const mask = Value.fromInterned(extra.mask);
-    const mask_len = extra.mask_len;
+    const unwrapped = cg.air.unwrapShuffleOne(zcu, inst);
+    const result_ty = unwrapped.result_ty;
+    const mask = unwrapped.mask;
+    const operand = try cg.resolveInst(unwrapped.operand);
 
-    const child_ty = inst_ty.childType(zcu);
-    const elem_size = child_ty.abiSize(zcu);
+    const elem_ty = result_ty.childType(zcu);
+    const elem_size = elem_ty.abiSize(zcu);
 
-    // TODO: One of them could be by ref; handle in loop
-    if (isByRef(cg.typeOf(extra.a), zcu, cg.target) or isByRef(inst_ty, zcu, cg.target)) {
-        const result = try cg.allocStack(inst_ty);
+    // TODO: this function could have an `i8x16_shuffle` fast path like `airShuffleTwo` if we were
+    // to lower the comptime-known operands to a non-by-ref vector value.
 
-        for (0..mask_len) |index| {
-            const value = (try mask.elemValue(pt, index)).toSignedInt(zcu);
+    // TODO: this is incorrect if either operand or the result is *not* by-ref, which is possible.
+    // I tried to fix it, but I couldn't make much sense of how this backend handles memory.
+    if (!isByRef(result_ty, zcu, cg.target) or
+        !isByRef(cg.typeOf(unwrapped.operand), zcu, cg.target)) return cg.fail("TODO: handle mixed by-ref shuffle", .{});
 
-            try cg.emitWValue(result);
+    const dest_alloc = try cg.allocStack(result_ty);
+    for (mask, 0..) |mask_elem, out_idx| {
+        try cg.emitWValue(dest_alloc);
+        const elem_val = switch (mask_elem.unwrap()) {
+            .elem => |idx| try cg.load(operand, elem_ty, @intCast(elem_size * idx)),
+            .value => |val| try cg.lowerConstant(.fromInterned(val), elem_ty),
+        };
+        try cg.store(.stack, elem_val, elem_ty, @intCast(dest_alloc.offset() + elem_size * out_idx));
+    }
+    return cg.finishAir(inst, dest_alloc, &.{unwrapped.operand});
+}
 
-            const loaded = if (value >= 0)
-                try cg.load(a, child_ty, @as(u32, @intCast(@as(i64, @intCast(elem_size)) * value)))
-            else
-                try cg.load(b, child_ty, @as(u32, @intCast(@as(i64, @intCast(elem_size)) * ~value)));
+fn airShuffleTwo(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const pt = cg.pt;
+    const zcu = pt.zcu;
 
-            try cg.store(.stack, loaded, child_ty, result.stack_offset.value + @as(u32, @intCast(elem_size)) * @as(u32, @intCast(index)));
-        }
+    const unwrapped = cg.air.unwrapShuffleTwo(zcu, inst);
+    const result_ty = unwrapped.result_ty;
+    const mask = unwrapped.mask;
+    const operand_a = try cg.resolveInst(unwrapped.operand_a);
+    const operand_b = try cg.resolveInst(unwrapped.operand_b);
 
-        return cg.finishAir(inst, result, &.{ extra.a, extra.b });
-    } else {
-        var operands = [_]u32{
-            @intFromEnum(std.wasm.SimdOpcode.i8x16_shuffle),
-        } ++ [1]u32{undefined} ** 4;
+    const a_ty = cg.typeOf(unwrapped.operand_a);
+    const b_ty = cg.typeOf(unwrapped.operand_b);
+    const elem_ty = result_ty.childType(zcu);
+    const elem_size = elem_ty.abiSize(zcu);
 
-        var lanes = mem.asBytes(operands[1..]);
-        for (0..@as(usize, @intCast(mask_len))) |index| {
-            const mask_elem = (try mask.elemValue(pt, index)).toSignedInt(zcu);
-            const base_index = if (mask_elem >= 0)
-                @as(u8, @intCast(@as(i64, @intCast(elem_size)) * mask_elem))
-            else
-                16 + @as(u8, @intCast(@as(i64, @intCast(elem_size)) * ~mask_elem));
-
-            for (0..@as(usize, @intCast(elem_size))) |byte_offset| {
-                lanes[index * @as(usize, @intCast(elem_size)) + byte_offset] = base_index + @as(u8, @intCast(byte_offset));
+    // WASM has `i8x16_shuffle`, which we can apply if the element type bit size is a multiple of 8
+    // and the input and output vectors have a bit size of 128 (and are hence not by-ref). Otherwise,
+    // we fall back to a naive loop lowering.
+    if (!isByRef(a_ty, zcu, cg.target) and
+        !isByRef(b_ty, zcu, cg.target) and
+        !isByRef(result_ty, zcu, cg.target) and
+        elem_ty.bitSize(zcu) % 8 == 0)
+    {
+        var lane_map: [16]u8 align(4) = undefined;
+        const lanes_per_elem: usize = @intCast(elem_ty.bitSize(zcu) / 8);
+        for (mask, 0..) |mask_elem, out_idx| {
+            const out_first_lane = out_idx * lanes_per_elem;
+            const in_first_lane = switch (mask_elem.unwrap()) {
+                .a_elem => |i| i * lanes_per_elem,
+                .b_elem => |i| i * lanes_per_elem + 16,
+                .undef => 0, // doesn't matter
+            };
+            for (lane_map[out_first_lane..][0..lanes_per_elem], in_first_lane..) |*out, in| {
+                out.* = @intCast(in);
             }
         }
-
-        try cg.emitWValue(a);
-        try cg.emitWValue(b);
-
+        try cg.emitWValue(operand_a);
+        try cg.emitWValue(operand_b);
         const extra_index = cg.extraLen();
-        try cg.mir_extra.appendSlice(cg.gpa, &operands);
+        try cg.mir_extra.appendSlice(cg.gpa, &.{
+            @intFromEnum(std.wasm.SimdOpcode.i8x16_shuffle),
+            @bitCast(lane_map[0..4].*),
+            @bitCast(lane_map[4..8].*),
+            @bitCast(lane_map[8..12].*),
+            @bitCast(lane_map[12..].*),
+        });
         try cg.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
-
-        return cg.finishAir(inst, .stack, &.{ extra.a, extra.b });
+        return cg.finishAir(inst, .stack, &.{ unwrapped.operand_a, unwrapped.operand_b });
     }
+
+    // TODO: this is incorrect if either operand or the result is *not* by-ref, which is possible.
+    // I tried to fix it, but I couldn't make much sense of how this backend handles memory.
+    if (!isByRef(result_ty, zcu, cg.target) or
+        !isByRef(a_ty, zcu, cg.target) or
+        !isByRef(b_ty, zcu, cg.target)) return cg.fail("TODO: handle mixed by-ref shuffle", .{});
+
+    const dest_alloc = try cg.allocStack(result_ty);
+    for (mask, 0..) |mask_elem, out_idx| {
+        try cg.emitWValue(dest_alloc);
+        const elem_val = switch (mask_elem.unwrap()) {
+            .a_elem => |idx| try cg.load(operand_a, elem_ty, @intCast(elem_size * idx)),
+            .b_elem => |idx| try cg.load(operand_b, elem_ty, @intCast(elem_size * idx)),
+            .undef => try cg.emitUndefined(elem_ty),
+        };
+        try cg.store(.stack, elem_val, elem_ty, @intCast(dest_alloc.offset() + elem_size * out_idx));
+    }
+    return cg.finishAir(inst, dest_alloc, &.{ unwrapped.operand_a, unwrapped.operand_b });
 }
 
 fn airReduce(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -6067,13 +6124,17 @@ fn airShlWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty = cg.typeOf(extra.lhs);
     const rhs_ty = cg.typeOf(extra.rhs);
 
-    if (ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: Implement overflow arithmetic for vectors", .{});
+    if (ty.isVector(zcu)) {
+        if (!rhs_ty.isVector(zcu)) {
+            return cg.fail("TODO: implement vector 'shl_with_overflow' with scalar rhs", .{});
+        } else {
+            return cg.fail("TODO: implement vector 'shl_with_overflow'", .{});
+        }
     }
 
     const int_info = ty.intInfo(zcu);
     const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: Implement shl_with_overflow for integer bitsize: {d}", .{int_info.bits});
+        return cg.fail("TODO: implement 'shl_with_overflow' for integer bitsize: {d}", .{int_info.bits});
     };
 
     // Ensure rhs is coerced to lhs as they must have the same WebAssembly types
@@ -6994,6 +7055,11 @@ fn airShlSat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const pt = cg.pt;
     const zcu = pt.zcu;
+
+    if (cg.typeOf(bin_op.lhs).isVector(zcu) and !cg.typeOf(bin_op.rhs).isVector(zcu)) {
+        return cg.fail("TODO: implement vector 'shl_sat' with scalar rhs", .{});
+    }
+
     const ty = cg.typeOfIndex(inst);
     const int_info = ty.intInfo(zcu);
     const is_signed = int_info.signedness == .signed;
