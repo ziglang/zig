@@ -291,10 +291,9 @@ fn printValue(options: *Options, out: Writer, comptime T: type, value: T, indent
             try out.writeAll(".{ ");
             switch (value) {
                 inline else => |payload, tag| {
-                    const elem_indent = indent +| indent_width;
-                    try printValue(options, out, @"union".tag_type.?, tag, elem_indent);
+                    try printValue(options, out, @"union".tag_type.?, tag, indent);
                     try out.writeAll(" = ");
-                    try printValue(options, out, @TypeOf(payload), payload, elem_indent);
+                    try printValue(options, out, @TypeOf(payload), payload, indent);
                 },
             }
             try out.writeAll(" }");
