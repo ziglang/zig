@@ -5181,6 +5181,8 @@ inline fn divFloor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@divFloor(
 }
 test divFloor {
     const test_div_floor = binary(divFloor, .{ .compare = .approx_int });
+    try test_div_floor.testInts();
+    try test_div_floor.testIntVectors();
     try test_div_floor.testFloats();
     try test_div_floor.testFloatVectors();
 }
@@ -5198,7 +5200,7 @@ test rem {
 
 inline fn mod(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@mod(lhs, rhs)) {
     // workaround llvm backend bugs
-    if (@inComptime()) {
+    if (@inComptime() and @typeInfo(Scalar(Type)) == .float) {
         const scalarMod = struct {
             fn scalarMod(scalar_lhs: Scalar(Type), scalar_rhs: Scalar(Type)) Scalar(Type) {
                 const scalar_rem = @rem(scalar_lhs, scalar_rhs);
@@ -5218,6 +5220,8 @@ inline fn mod(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@mod(lhs, rhs))
 }
 test mod {
     const test_mod = binary(mod, .{});
+    try test_mod.testInts();
+    try test_mod.testIntVectors();
     try test_mod.testFloats();
     try test_mod.testFloatVectors();
 }

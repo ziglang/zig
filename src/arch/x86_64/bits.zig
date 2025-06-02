@@ -429,6 +429,16 @@ pub const Register = enum(u8) {
         };
     }
 
+    pub inline fn isClass(reg: Register, rc: Class) bool {
+        switch (rc) {
+            else => return reg.class() == rc,
+            .gphi => {
+                const reg_id = reg.id();
+                return (reg_id >= comptime Register.ah.id()) and reg_id <= comptime Register.bh.id();
+            },
+        }
+    }
+
     pub fn id(reg: Register) u7 {
         const base = switch (@intFromEnum(reg)) {
             // zig fmt: off
@@ -615,22 +625,17 @@ pub const Register = enum(u8) {
     }
 
     pub fn toHi8(reg: Register) Register {
-        assert(reg.hasHi8());
+        assert(reg.isClass(.gphi));
         return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.ah));
     }
 
-    pub fn hasHi8(reg: Register) bool {
-        const reg_id = reg.id();
-        return (reg_id >= comptime Register.ah.id()) and reg_id <= comptime Register.bh.id();
-    }
-
     pub fn to80(reg: Register) Register {
-        assert(reg.class() == .x87);
+        assert(reg.isClass(.x87));
         return reg;
     }
 
     fn sseBase(reg: Register) u8 {
-        assert(reg.class() == .sse);
+        assert(reg.isClass(.sse));
         return switch (@intFromEnum(reg)) {
             @intFromEnum(Register.zmm0)...@intFromEnum(Register.zmm31) => @intFromEnum(Register.zmm0),
             @intFromEnum(Register.ymm0)...@intFromEnum(Register.ymm31) => @intFromEnum(Register.ymm0),
@@ -694,11 +699,13 @@ test "Register enc - different classes" {
 }
 
 test "Register classes" {
-    try expect(Register.r11.class() == .general_purpose);
-    try expect(Register.ymm11.class() == .sse);
-    try expect(Register.mm3.class() == .mmx);
-    try expect(Register.st3.class() == .x87);
-    try expect(Register.fs.class() == .segment);
+    try expect(Register.r11.isClass(.general_purpose));
+    try expect(Register.rdx.isClass(.gphi));
+    try expect(!Register.dil.isClass(.gphi));
+    try expect(Register.ymm11.isClass(.sse));
+    try expect(Register.mm3.isClass(.mmx));
+    try expect(Register.st3.isClass(.x87));
+    try expect(Register.fs.isClass(.segment));
 }
 
 pub const FrameIndex = enum(u32) {
