@@ -218,7 +218,7 @@ __threadid
 __timezone
 __toascii
 __tzname
-#if !defined(DEF_DEBUG) || !defined(DEF_ARM64)
+#if !defined(DEF_DEBUG) || !defined(__aarch64__)
 ; symbols __unDName and __unDNameEx are available in all versions except ARM64 ucrtbased.dll
 __unDName
 __unDNameEx
@@ -388,7 +388,7 @@ _flushall
 _fpclass
 F_X64(_fpclassf)
 _fpieee_flt
-_fpreset DATA ; DATA added manually
+_fpreset F_LD80(DATA) ; DATA added manually
 _fputc_nolock
 _fputchar
 _fputwc_nolock
@@ -493,7 +493,7 @@ F_DEBUG(_invalid_parameter)
 _invalid_parameter_noinfo
 _invalid_parameter_noinfo_noreturn
 _invoke_watson
-#if !defined(DEF_DEBUG) || !defined(DEF_ARM64)
+#if !defined(DEF_DEBUG) || !defined(__aarch64__)
 ; symbol _is_exception_typeof is available in all versions except ARM64 ucrtbased.dll
 _is_exception_typeof
 #endif
@@ -1433,7 +1433,7 @@ _o__strtof_l
 _o__strtoi64
 _o__strtoi64_l
 _o__strtol_l
-F_ARM_ANY(_o__strtold_l) ; Can't use long double functions from the CRT on x86
+F_LD64(_o__strtold_l) ; Can't use long double functions from the CRT on x86
 _o__strtoll_l
 _o__strtoui64
 _o__strtoui64_l
@@ -1513,7 +1513,7 @@ _o__wcstof_l
 _o__wcstoi64
 _o__wcstoi64_l
 _o__wcstol_l
-F_ARM_ANY(_o__wcstold_l) ; Can't use long double functions from the CRT on x86
+F_LD64(_o__wcstold_l) ; Can't use long double functions from the CRT on x86
 _o__wcstoll_l
 _o__wcstombs_l
 _o__wcstombs_s_l
@@ -1611,21 +1611,21 @@ _o_acos
 F_NON_I386(_o_acosf)
 _o_acosh
 _o_acoshf
-F_ARM_ANY(_o_acoshl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_acoshl) ; Can't use long double functions from the CRT on x86
 _o_asctime
 _o_asctime_s
 _o_asin
 F_NON_I386(_o_asinf)
 _o_asinh
 _o_asinhf
-F_ARM_ANY(_o_asinhl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_asinhl) ; Can't use long double functions from the CRT on x86
 _o_atan
 _o_atan2
 F_NON_I386(_o_atan2f)
 F_NON_I386(_o_atanf)
 _o_atanh
 _o_atanhf
-F_ARM_ANY(_o_atanhl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_atanhl) ; Can't use long double functions from the CRT on x86
 _o_atof
 _o_atoi
 _o_atol
@@ -1647,13 +1647,13 @@ F_NON_I386(_o_coshf)
 _o_erf
 _o_erfc
 _o_erfcf
-F_ARM_ANY(_o_erfcl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_erfcl) ; Can't use long double functions from the CRT on x86
 _o_erff
-F_ARM_ANY(_o_erfl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_erfl) ; Can't use long double functions from the CRT on x86
 _o_exp
 _o_exp2
 _o_exp2f
-F_ARM_ANY(_o_exp2l) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_exp2l) ; Can't use long double functions from the CRT on x86
 F_NON_I386(_o_expf)
 _o_fabs
 F_ARM_ANY(_o_fabsf)
@@ -1670,7 +1670,7 @@ _o_floor
 F_NON_I386(_o_floorf)
 _o_fma
 _o_fmaf
-F_ARM_ANY(_o_fmal) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_fmal) ; Can't use long double functions from the CRT on x86
 _o_fmod
 F_NON_I386(_o_fmodf)
 _o_fopen
@@ -1729,33 +1729,33 @@ _o_isxdigit
 _o_ldexp
 _o_lgamma
 _o_lgammaf
-F_ARM_ANY(_o_lgammal) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_lgammal) ; Can't use long double functions from the CRT on x86
 _o_llrint
 _o_llrintf
-F_ARM_ANY(_o_llrintl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_llrintl) ; Can't use long double functions from the CRT on x86
 _o_llround
 _o_llroundf
-F_ARM_ANY(_o_llroundl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_llroundl) ; Can't use long double functions from the CRT on x86
 _o_localeconv
 _o_log
 _o_log10
 F_NON_I386(_o_log10f)
 _o_log1p
 _o_log1pf
-F_ARM_ANY(_o_log1pl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_log1pl) ; Can't use long double functions from the CRT on x86
 _o_log2
 _o_log2f
-F_ARM_ANY(_o_log2l) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_log2l) ; Can't use long double functions from the CRT on x86
 _o_logb
 _o_logbf
-F_ARM_ANY(_o_logbl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_logbl) ; Can't use long double functions from the CRT on x86
 F_NON_I386(_o_logf)
 _o_lrint
 _o_lrintf
-F_ARM_ANY(_o_lrintl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_lrintl) ; Can't use long double functions from the CRT on x86
 _o_lround
 _o_lroundf
-F_ARM_ANY(_o_lroundl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_lroundl) ; Can't use long double functions from the CRT on x86
 _o_malloc
 _o_mblen
 _o_mbrlen
@@ -1772,16 +1772,16 @@ _o_modf
 F_NON_I386(_o_modff)
 _o_nan
 _o_nanf
-F_ARM_ANY(_o_nanl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_nanl) ; Can't use long double functions from the CRT on x86
 _o_nearbyint
 _o_nearbyintf
-F_ARM_ANY(_o_nearbyintl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_nearbyintl) ; Can't use long double functions from the CRT on x86
 _o_nextafter
 _o_nextafterf
-F_ARM_ANY(_o_nextafterl) ; Can't use long double functions from the CRT on x86
-F_ARM_ANY(_o_nexttoward) ; Can't use long double functions from the CRT on x86
-F_ARM_ANY(_o_nexttowardf) ; Can't use long double functions from the CRT on x86
-F_ARM_ANY(_o_nexttowardl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_nextafterl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_nexttoward) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_nexttowardf) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_nexttowardl) ; Can't use long double functions from the CRT on x86
 _o_pow
 _o_powf
 _o_putc
@@ -1797,24 +1797,24 @@ _o_rand_s
 _o_realloc
 _o_remainder
 _o_remainderf
-F_ARM_ANY(_o_remainderl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_remainderl) ; Can't use long double functions from the CRT on x86
 _o_remove
 _o_remquo
 _o_remquof
-F_ARM_ANY(_o_remquol) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_remquol) ; Can't use long double functions from the CRT on x86
 _o_rewind
 _o_rint
 _o_rintf
-F_ARM_ANY(_o_rintl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_rintl) ; Can't use long double functions from the CRT on x86
 _o_round
 _o_roundf
-F_ARM_ANY(_o_roundl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_roundl) ; Can't use long double functions from the CRT on x86
 _o_scalbln
 _o_scalblnf
-F_ARM_ANY(_o_scalblnl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_scalblnl) ; Can't use long double functions from the CRT on x86
 _o_scalbn
 _o_scalbnf
-F_ARM_ANY(_o_scalbnl) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_scalbnl) ; Can't use long double functions from the CRT on x86
 _o_set_terminate
 _o_setbuf
 _o_setvbuf
@@ -1838,7 +1838,7 @@ _o_strtof
 _o_strtok
 _o_strtok_s
 _o_strtol
-F_ARM_ANY(_o_strtold) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_strtold) ; Can't use long double functions from the CRT on x86
 _o_strtoll
 _o_strtoul
 _o_strtoull
@@ -1850,7 +1850,7 @@ F_NON_I386(_o_tanhf)
 _o_terminate
 _o_tgamma
 _o_tgammaf
-F_ARM_ANY(_o_tgammal) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_tgammal) ; Can't use long double functions from the CRT on x86
 _o_tmpfile_s
 _o_tmpnam_s
 _o_tolower
@@ -1875,7 +1875,7 @@ _o_wcstof
 _o_wcstok
 _o_wcstok_s
 _o_wcstol
-F_ARM_ANY(_o_wcstold) ; Can't use long double functions from the CRT on x86
+F_LD64(_o_wcstold) ; Can't use long double functions from the CRT on x86
 _o_wcstoll
 _o_wcstombs
 _o_wcstombs_s
@@ -2004,7 +2004,7 @@ _strtoi64
 _strtoi64_l
 _strtoimax_l
 _strtol_l
-F_ARM_ANY(_strtold_l) ; Can't use long double functions from the CRT on x86
+F_LD64(_strtold_l) ; Can't use long double functions from the CRT on x86
 _strtoll_l
 _strtoui64
 _strtoui64_l
@@ -2094,7 +2094,7 @@ _wcstoi64
 _wcstoi64_l
 _wcstoimax_l
 _wcstol_l
-F_ARM_ANY(_wcstold_l) ; Can't use long double functions from the CRT on x86
+F_LD64(_wcstold_l) ; Can't use long double functions from the CRT on x86
 _wcstoll_l
 _wcstombs_l
 _wcstombs_s_l
@@ -2212,21 +2212,21 @@ acos
 F_NON_I386(acosf)
 acosh
 acoshf
-F_ARM_ANY(acoshl) ; Can't use long double functions from the CRT on x86
+F_LD64(acoshl) ; Can't use long double functions from the CRT on x86
 asctime
 asctime_s
 asin
 F_NON_I386(asinf)
 asinh
 asinhf
-F_ARM_ANY(asinhl) ; Can't use long double functions from the CRT on x86
+F_LD64(asinhl) ; Can't use long double functions from the CRT on x86
 atan
 atan2
 F_NON_I386(atan2f)
 F_NON_I386(atanf)
 atanh
 atanhf
-F_ARM_ANY(atanhl) ; Can't use long double functions from the CRT on x86
+F_LD64(atanhl) ; Can't use long double functions from the CRT on x86
 atof
 atoi
 atol
@@ -2238,111 +2238,111 @@ c16rtomb
 c32rtomb
 cabs
 cabsf
-F_ARM_ANY(cabsl) ; Can't use long double functions from the CRT on x86
+F_LD64(cabsl) ; Can't use long double functions from the CRT on x86
 cacos
 cacosf
 cacosh
 cacoshf
-F_ARM_ANY(cacoshl) ; Can't use long double functions from the CRT on x86
-F_ARM_ANY(cacosl) ; Can't use long double functions from the CRT on x86
+F_LD64(cacoshl) ; Can't use long double functions from the CRT on x86
+F_LD64(cacosl) ; Can't use long double functions from the CRT on x86
 calloc
 carg
 cargf
-F_ARM_ANY(cargl) ; Can't use long double functions from the CRT on x86
+F_LD64(cargl) ; Can't use long double functions from the CRT on x86
 casin
 casinf
 casinh
 casinhf
-F_ARM_ANY(casinhl) ; Can't use long double functions from the CRT on x86
-F_ARM_ANY(casinl) ; Can't use long double functions from the CRT on x86
+F_LD64(casinhl) ; Can't use long double functions from the CRT on x86
+F_LD64(casinl) ; Can't use long double functions from the CRT on x86
 catan
 catanf
 catanh
 catanhf
-F_ARM_ANY(catanhl) ; Can't use long double functions from the CRT on x86
-F_ARM_ANY(catanl) ; Can't use long double functions from the CRT on x86
+F_LD64(catanhl) ; Can't use long double functions from the CRT on x86
+F_LD64(catanl) ; Can't use long double functions from the CRT on x86
 cbrt
 cbrtf
-F_ARM_ANY(cbrtl) ; Can't use long double functions from the CRT on x86
+F_LD64(cbrtl) ; Can't use long double functions from the CRT on x86
 ccos
 ccosf
 ccosh
 ccoshf
-F_ARM_ANY(ccoshl) ; Can't use long double functions from the CRT on x86
-F_ARM_ANY(ccosl) ; Can't use long double functions from the CRT on x86
+F_LD64(ccoshl) ; Can't use long double functions from the CRT on x86
+F_LD64(ccosl) ; Can't use long double functions from the CRT on x86
 ceil
 F_NON_I386(ceilf)
 cexp
 cexpf
-F_ARM_ANY(cexpl) ; Can't use long double functions from the CRT on x86
+F_LD64(cexpl) ; Can't use long double functions from the CRT on x86
 cimag
 cimagf
-F_ARM_ANY(cimagl) ; Can't use long double functions from the CRT on x86
+F_LD64(cimagl) ; Can't use long double functions from the CRT on x86
 clearerr
 clearerr_s
 clock
 clog
 clog10
 clog10f
-F_ARM_ANY(clog10l) ; Can't use long double functions from the CRT on x86
+F_LD64(clog10l) ; Can't use long double functions from the CRT on x86
 clogf
-F_ARM_ANY(clogl) ; Can't use long double functions from the CRT on x86
+F_LD64(clogl) ; Can't use long double functions from the CRT on x86
 conj
 conjf
-F_ARM_ANY(conjl) ; Can't use long double functions from the CRT on x86
+F_LD64(conjl) ; Can't use long double functions from the CRT on x86
 copysign
 copysignf
-F_ARM_ANY(copysignl) ; Can't use long double functions from the CRT on x86
+F_LD64(copysignl) ; Can't use long double functions from the CRT on x86
 cos
 F_NON_I386(cosf)
 cosh
 F_NON_I386(coshf)
 cpow
 cpowf
-F_ARM_ANY(cpowl) ; Can't use long double functions from the CRT on x86
+F_LD64(cpowl) ; Can't use long double functions from the CRT on x86
 cproj
 cprojf
-F_ARM_ANY(cprojl) ; Can't use long double functions from the CRT on x86
+F_LD64(cprojl) ; Can't use long double functions from the CRT on x86
 creal
 crealf
-F_ARM_ANY(creall) ; Can't use long double functions from the CRT on x86
+F_LD64(creall) ; Can't use long double functions from the CRT on x86
 csin
 csinf
 csinh
 csinhf
-F_ARM_ANY(csinhl) ; Can't use long double functions from the CRT on x86
-F_ARM_ANY(csinl) ; Can't use long double functions from the CRT on x86
+F_LD64(csinhl) ; Can't use long double functions from the CRT on x86
+F_LD64(csinl) ; Can't use long double functions from the CRT on x86
 csqrt
 csqrtf
-F_ARM_ANY(csqrtl) ; Can't use long double functions from the CRT on x86
+F_LD64(csqrtl) ; Can't use long double functions from the CRT on x86
 ctan
 ctanf
 ctanh
 ctanhf
-F_ARM_ANY(ctanhl) ; Can't use long double functions from the CRT on x86
-F_ARM_ANY(ctanl) ; Can't use long double functions from the CRT on x86
+F_LD64(ctanhl) ; Can't use long double functions from the CRT on x86
+F_LD64(ctanl) ; Can't use long double functions from the CRT on x86
 div
 erf
 erfc
 erfcf
-F_ARM_ANY(erfcl) ; Can't use long double functions from the CRT on x86
+F_LD64(erfcl) ; Can't use long double functions from the CRT on x86
 erff
-F_ARM_ANY(erfl) ; Can't use long double functions from the CRT on x86
+F_LD64(erfl) ; Can't use long double functions from the CRT on x86
 exit
 exp
 exp2
 exp2f
-F_ARM_ANY(exp2l) ; Can't use long double functions from the CRT on x86
+F_LD64(exp2l) ; Can't use long double functions from the CRT on x86
 F_NON_I386(expf)
 expm1
 expm1f
-F_ARM_ANY(expm1l) ; Can't use long double functions from the CRT on x86
+F_LD64(expm1l) ; Can't use long double functions from the CRT on x86
 fabs
 F_ARM_ANY(fabsf)
 fclose
 fdim
 fdimf
-F_ARM_ANY(fdiml) ; Can't use long double functions from the CRT on x86
+F_LD64(fdiml) ; Can't use long double functions from the CRT on x86
 ; Don't use the float env functions from UCRT; fesetround doesn't seem to have
 ; any effect on the FPU control word as required by other libmingwex math
 ; routines.
@@ -2367,13 +2367,13 @@ floor
 F_NON_I386(floorf)
 fma
 fmaf
-F_ARM_ANY(fmal) ; Can't use long double functions from the CRT on x86
+F_LD64(fmal) ; Can't use long double functions from the CRT on x86
 fmax
 fmaxf
-F_ARM_ANY(fmaxl) ; Can't use long double functions from the CRT on x86
+F_LD64(fmaxl) ; Can't use long double functions from the CRT on x86
 fmin
 fminf
-F_ARM_ANY(fminl) ; Can't use long double functions from the CRT on x86
+F_LD64(fminl) ; Can't use long double functions from the CRT on x86
 fmod
 F_NON_I386(fmodf)
 fopen
@@ -2403,7 +2403,7 @@ getwchar
 hypot
 ilogb
 ilogbf
-F_ARM_ANY(ilogbl) ; Can't use long double functions from the CRT on x86
+F_LD64(ilogbl) ; Can't use long double functions from the CRT on x86
 imaxabs
 imaxdiv
 is_wctype
@@ -2441,36 +2441,36 @@ ldiv
 ; the mingw ones do. Therefore prefer the libmingwex version instead.
 lgamma DATA
 lgammaf DATA
-F_ARM_ANY(lgammal DATA) ; Can't use long double functions from the CRT on x86
+F_LD64(lgammal DATA) ; Can't use long double functions from the CRT on x86
 llabs
 lldiv
 llrint
 llrintf
-F_ARM_ANY(llrintl) ; Can't use long double functions from the CRT on x86
+F_LD64(llrintl) ; Can't use long double functions from the CRT on x86
 llround
 llroundf
-F_ARM_ANY(llroundl) ; Can't use long double functions from the CRT on x86
+F_LD64(llroundl) ; Can't use long double functions from the CRT on x86
 localeconv
 log
 log10
 F_NON_I386(log10f)
 log1p
 log1pf
-F_ARM_ANY(log1pl) ; Can't use long double functions from the CRT on x86
+F_LD64(log1pl) ; Can't use long double functions from the CRT on x86
 log2
 log2f
-F_ARM_ANY(log2l) ; Can't use long double functions from the CRT on x86
+F_LD64(log2l) ; Can't use long double functions from the CRT on x86
 logb
 logbf
-F_ARM_ANY(logbl) ; Can't use long double functions from the CRT on x86
+F_LD64(logbl) ; Can't use long double functions from the CRT on x86
 F_NON_I386(logf)
 longjmp
 lrint
 lrintf
-F_ARM_ANY(lrintl) ; Can't use long double functions from the CRT on x86
+F_LD64(lrintl) ; Can't use long double functions from the CRT on x86
 lround
 lroundf
-F_ARM_ANY(lroundl) ; Can't use long double functions from the CRT on x86
+F_LD64(lroundl) ; Can't use long double functions from the CRT on x86
 malloc
 mblen
 mbrlen
@@ -2493,18 +2493,18 @@ modf
 F_NON_I386(modff)
 nan
 nanf
-F_ARM_ANY(nanl) ; Can't use long double functions from the CRT on x86
+F_LD64(nanl) ; Can't use long double functions from the CRT on x86
 nearbyint
 nearbyintf
-F_ARM_ANY(nearbyintl) ; Can't use long double functions from the CRT on x86
+F_LD64(nearbyintl) ; Can't use long double functions from the CRT on x86
 nextafter
 nextafterf
-F_ARM_ANY(nextafterl) ; Can't use long double functions from the CRT on x86
+F_LD64(nextafterl) ; Can't use long double functions from the CRT on x86
 ; All of the nexttoward functions take the second parameter as long double,
 ; making them unusable for x86.
-F_ARM_ANY(nexttoward) ; Can't use long double functions from the CRT on x86
-F_ARM_ANY(nexttowardf) ; Can't use long double functions from the CRT on x86
-F_ARM_ANY(nexttowardl) ; Can't use long double functions from the CRT on x86
+F_LD64(nexttoward) ; Can't use long double functions from the CRT on x86
+F_LD64(nexttowardf) ; Can't use long double functions from the CRT on x86
+F_LD64(nexttowardl) ; Can't use long double functions from the CRT on x86
 norm
 normf
 norml
@@ -2525,25 +2525,25 @@ rand_s
 realloc
 remainder
 remainderf
-F_ARM_ANY(remainderl) ; Can't use long double functions from the CRT on x86
+F_LD64(remainderl) ; Can't use long double functions from the CRT on x86
 remove
 remquo
 remquof
-F_ARM_ANY(remquol) ; Can't use long double functions from the CRT on x86
+F_LD64(remquol) ; Can't use long double functions from the CRT on x86
 rename
 rewind
 rint
 rintf
-F_ARM_ANY(rintl) ; Can't use long double functions from the CRT on x86
+F_LD64(rintl) ; Can't use long double functions from the CRT on x86
 round
 roundf
-F_ARM_ANY(roundl) ; Can't use long double functions from the CRT on x86
+F_LD64(roundl) ; Can't use long double functions from the CRT on x86
 scalbln
 scalblnf
-F_ARM_ANY(scalblnl) ; Can't use long double functions from the CRT on x86
+F_LD64(scalblnl) ; Can't use long double functions from the CRT on x86
 scalbn
 scalbnf
-F_ARM_ANY(scalbnl) ; Can't use long double functions from the CRT on x86
+F_LD64(scalbnl) ; Can't use long double functions from the CRT on x86
 set_terminate
 set_unexpected
 setbuf
@@ -2587,7 +2587,7 @@ strtoimax
 strtok
 strtok_s
 strtol
-F_ARM_ANY(strtold) ; Can't use long double functions from the CRT on x86
+F_LD64(strtold) ; Can't use long double functions from the CRT on x86
 strtoll
 strtoul
 strtoull
@@ -2602,7 +2602,7 @@ F_NON_I386(tanhf)
 terminate
 tgamma
 tgammaf
-F_ARM_ANY(tgammal) ; Can't use long double functions from the CRT on x86
+F_LD64(tgammal) ; Can't use long double functions from the CRT on x86
 tmpfile
 tmpfile_s
 tmpnam
@@ -2614,7 +2614,7 @@ towlower
 towupper
 trunc
 truncf
-F_ARM_ANY(truncl) ; Can't use long double functions from the CRT on x86
+F_LD64(truncl) ; Can't use long double functions from the CRT on x86
 unexpected
 ungetc
 ungetwc
@@ -2648,7 +2648,7 @@ wcstoimax
 wcstok
 wcstok_s
 wcstol
-F_ARM_ANY(wcstold) ; Can't use long double functions from the CRT on x86
+F_LD64(wcstold) ; Can't use long double functions from the CRT on x86
 wcstoll
 wcstombs
 wcstombs_s

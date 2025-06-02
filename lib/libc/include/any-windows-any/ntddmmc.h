@@ -125,7 +125,7 @@ typedef enum _FEATURE_NUMBER {
   FeatureDvdCPRM = 0x010B,
   FeatureFirmwareDate = 0x010C,
   FeatureAACS = 0x010D,
-  FeatureVCPS = 0x0110,
+  FeatureVCPS = 0x0110
 } FEATURE_NUMBER, *PFEATURE_NUMBER;
 
 typedef struct _FEATURE_DATA_PROFILE_LIST_EX {

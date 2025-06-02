@@ -24,17 +24,27 @@
  * Posix Condition Variables for Microsoft Windows.
  * 22-9-2010 Partly based on the ACE framework implementation.
  */
-#include <windows.h>
-#include <stdio.h>
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <malloc.h>
+#include <stdio.h>
 #include <time.h>
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+#define WINPTHREAD_COND_DECL WINPTHREAD_API
+
+/* public header files */
 #include "pthread.h"
 #include "pthread_time.h"
-#include "ref.h"
+/* internal header files */
 #include "cond.h"
-#include "thread.h"
 #include "misc.h"
-#include "winpthread_internal.h"
+#include "thread.h"
 
 #include "pthread_compat.h"
 
@@ -52,41 +62,13 @@ typedef struct sCondWaitHelper {
 
 int do_sema_b_wait_intern (HANDLE sema, int nointerrupt, DWORD timeout);
 
-#ifdef WINPTHREAD_DBG
-static int print_state = 0;
-static FILE *fo;
-void cond_print_set(int state, FILE *f)
-{
-    if (f) fo = f;
-    if (!fo) fo = stdout;
-    print_state = state;
-}
-
-void cond_print(volatile pthread_cond_t *c, char *txt)
-{
-    if (!print_state) return;
-    cond_t *c_ = (cond_t *)*c;
-    if (c_ == NULL) {
-        fprintf(fo,"C%p %lu %s\n",(void *)*c,GetCurrentThreadId(),txt);
-    } else {
-        fprintf(fo,"C%p %lu V=%0X w=%ld %s\n",
-            (void *)*c,
-            GetCurrentThreadId(),
-            (int)c_->valid, 
-            c_->waiters_count_,
-            txt
-            );
-    }
-}
-#endif
-
 static pthread_spinlock_t cond_locked = PTHREAD_SPINLOCK_INITIALIZER;
 
 static int
 cond_static_init (pthread_cond_t *c)
 {
   int r = 0;
-  
+
   pthread_spin_lock (&cond_locked);
   if (c == NULL)
     r = EINVAL;
@@ -144,40 +126,6 @@ pthread_condattr_setclock(pthread_condattr_t *a, clockid_t clock_id)
 }
 
 int
-__pthread_clock_nanosleep (clockid_t clock_id, int flags, const struct timespec *rqtp,
-			   struct timespec *rmtp)
-{
-  unsigned long long tick, tick2;
-  unsigned long long delay;
-  DWORD dw;
-
-  if (clock_id != CLOCK_REALTIME
-      && clock_id != CLOCK_MONOTONIC
-      && clock_id != CLOCK_PROCESS_CPUTIME_ID)
-   return EINVAL;
-  if ((flags & TIMER_ABSTIME) != 0)
-    delay = _pthread_rel_time_in_ms (rqtp);
-  else
-    delay = _pthread_time_in_ms_from_timespec (rqtp);
-  do
-    {
-      dw = (DWORD) (delay >= 99999ULL ? 99999ULL : delay);
-      tick = _pthread_time_in_ms ();
-      pthread_delay_np_ms (dw);
-      tick2 = _pthread_time_in_ms ();
-      tick2 -= tick;
-      if (tick2 >= delay)
-        delay = 0;
-      else
-        delay -= tick2;
-    }
-  while (delay != 0ULL);
-  if (rmtp)
-    memset (rmtp, 0, sizeof (*rmtp));
-  return 0;
-}
-
-int
 pthread_condattr_setpshared (pthread_condattr_t *a, int s)
 {
   if (!a || (s != PTHREAD_PROCESS_SHARED && s != PTHREAD_PROCESS_PRIVATE))
@@ -218,7 +166,7 @@ pthread_cond_init (pthread_cond_t *c, const pthread_condattr_t *a)
   _c->sema_b =  CreateSemaphore (NULL,       /* no security */
       0,          /* initially 0 */
       0x7fffffff, /* max count */
-      NULL);  
+      NULL);
   if (_c->sema_q == NULL || _c->sema_b == NULL) {
       if (_c->sema_q != NULL)
 	CloseHandle (_c->sema_q);
@@ -356,7 +304,7 @@ pthread_cond_broadcast (pthread_cond_t *c)
 {
   cond_t *_c;
   int r;
-  int relCnt = 0;    
+  int relCnt = 0;
 
   if (!c || !*c)
     return EINVAL;
@@ -465,7 +413,7 @@ tryagain:
 }
 
 static int
-pthread_cond_timedwait_impl (pthread_cond_t *c, pthread_mutex_t *external_mutex, const struct timespec *t, int rel)
+pthread_cond_timedwait_impl (pthread_cond_t *c, pthread_mutex_t *external_mutex, const struct _timespec64 *t, int rel)
 {
   sCondWaitHelper ch;
   DWORD dwr;
@@ -531,15 +479,29 @@ tryagain:
 }
 
 int
-pthread_cond_timedwait(pthread_cond_t *c, pthread_mutex_t *m, const struct timespec *t)
+pthread_cond_timedwait64(pthread_cond_t *c, pthread_mutex_t *m, const struct _timespec64 *t)
 {
   return pthread_cond_timedwait_impl(c, m, t, 0);
 }
 
 int
-pthread_cond_timedwait_relative_np(pthread_cond_t *c, pthread_mutex_t *m, const struct timespec *t)
+pthread_cond_timedwait32(pthread_cond_t *c, pthread_mutex_t *m, const struct _timespec32 *t)
+{
+  struct _timespec64 t64 = {.tv_sec = t->tv_sec, .tv_nsec = t->tv_nsec};
+  return pthread_cond_timedwait_impl(c, m, &t64, 0);
+}
+
+int
+pthread_cond_timedwait64_relative_np(pthread_cond_t *c, pthread_mutex_t *m, const struct _timespec64 *t)
 {
   return pthread_cond_timedwait_impl(c, m, t, 1);
+}
+
+int
+pthread_cond_timedwait32_relative_np(pthread_cond_t *c, pthread_mutex_t *m, const struct _timespec32 *t)
+{
+  struct _timespec64 t64 = {.tv_sec = t->tv_sec, .tv_nsec = t->tv_nsec};
+  return pthread_cond_timedwait_impl(c, m, &t64, 1);
 }
 
 static void
@@ -751,5 +713,5 @@ do_sema_b_release(HANDLE sema, LONG count,CRITICAL_SECTION *cs, LONG *val)
   }
   InterlockedExchangeAdd(val, -count);
   LeaveCriticalSection(cs);
-  return EINVAL;  
+  return EINVAL;
 }
