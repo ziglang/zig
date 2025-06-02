@@ -65,6 +65,6 @@ test "ldexpl" {
 test "ldexpl.special" {
     // Ported from libc-test
     // https://repo.or.cz/libc-test.git/blob/HEAD:/src/math/special/ldexpl.h
-    try expect(math.isNan(ldexpl(math.nan(f128), 0)));
-    try expect(math.isPositiveInf(ldexpl(math.inf(f128), 0)));
+    try expect(math.isNan(ldexpl(math.nan(c_longdouble), 0)));
+    try expect(math.isPositiveInf(ldexpl(math.inf(c_longdouble), 0)));
 }
