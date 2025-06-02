@@ -1,5 +1,5 @@
 const std = @import("std");
-const .NAME = @import(".NAME");
+const _LITNAME = @import(".NAME");
 
 pub fn main() !void {
     // Prints to stderr, ignoring potential errors.

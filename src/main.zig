@@ -7426,6 +7426,12 @@ const Templates = struct {
             }
             if (templates.strip and contents[i] == '\n') {
                 new_line = true;
+            } else if (contents[i] == '_') {
+                if (std.mem.startsWith(u8, contents[i..], "_LITNAME")) {
+                    try templates.buffer.appendSlice(root_name);
+                    i += "_LITNAME".len;
+                    continue;
+                }
             } else if (contents[i] == '.') {
                 if (std.mem.startsWith(u8, contents[i..], ".LITNAME")) {
                     try templates.buffer.append('.');
