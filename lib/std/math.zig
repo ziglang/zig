@@ -1199,35 +1199,33 @@ pub inline fn ceil(value: anytype) @TypeOf(value) {
 pub fn CeilPowerOfTwoPromote(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .comptime_int => comptime_int,
-        .int => |info| switch (info.signedness) {
-            .signed => @compileError("Signed inputs not accepted"),
-            .unsigned => std.meta.Int(.unsigned, info.bits + 1),
-        },
+        .int => |info| std.meta.Int(
+            .unsigned,
+            // at a minimum, return `u1`
+            @max(info.bits + @intFromBool(info.signedness == .unsigned), 1),
+        ),
         else => @compileError("ceilPowerOfTwo does not operate on type " ++ @typeName(T)),
     };
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
-/// Only unsigned integers and `comptime_int` can be used. Input must be positive.
-/// Result is a type with 1 more bit than the input type.
+/// Operates on integer types. Result type is the most restricted type that can
+/// represent all possible outputs.
 pub fn ceilPowerOfTwoPromote(comptime T: type, value: T) CeilPowerOfTwoPromote(T) {
-    assert(value > 0);
-    if (value == 1) return 1;
+    if (value <= 1) return 1;
     const one: CeilPowerOfTwoPromote(T) = 1;
     return one << @intCast(log2(value - 1) + 1);
 }
 
 /// Returns the next power of two (if the value is not already a power of two).
-/// Only unsigned integers and `comptime_int` can be used. Input must be positive.
-/// If the value doesn't fit, returns an error.
+/// Operates on integer types. If the value doesn't fit, returns an error.
 pub fn ceilPowerOfTwo(comptime T: type, value: T) error{Overflow}!T {
     const x = ceilPowerOfTwoPromote(T, value);
     return if (T == comptime_int or x <= maxInt(T)) @intCast(x) else error.Overflow;
 }
 
-/// Returns the next power of two (if the value is not already a power
-/// of two). Only unsigned integers and `comptime_int` can be used. Input must
-/// be positive. Asserts that the value fits.
+/// Returns the next power of two (if the value is not already a power of two).
+/// Operates on integer types. Asserts that the value fits.
 pub fn ceilPowerOfTwoAssert(comptime T: type, value: T) T {
     return ceilPowerOfTwo(T, value) catch unreachable;
 }
