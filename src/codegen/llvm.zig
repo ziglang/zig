@@ -18,7 +18,6 @@ const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
 const Package = @import("../Package.zig");
 const Air = @import("../Air.zig");
-const Liveness = @import("../Liveness.zig");
 const Value = @import("../Value.zig");
 const Type = @import("../Type.zig");
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
@@ -36,6 +35,10 @@ const compilerRtFloatAbbrev = target_util.compilerRtFloatAbbrev;
 const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 
 const Error = error{ OutOfMemory, CodegenFail };
+
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
+}
 
 fn subArchName(features: std.Target.Cpu.Feature.Set, arch: anytype, mappings: anytype) ?[]const u8 {
     inline for (mappings) |mapping| {
@@ -1121,7 +1124,7 @@ pub const Object = struct {
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
         air: Air,
-        liveness: Liveness,
+        liveness: Air.Liveness,
     ) !void {
         assert(std.meta.eql(pt, o.pt));
         const zcu = pt.zcu;
@@ -3082,10 +3085,11 @@ pub const Object = struct {
             .undefined_type,
             .enum_literal_type,
             => unreachable,
+            .ptr_usize_type,
+            .ptr_const_comptime_int_type,
             .manyptr_u8_type,
             .manyptr_const_u8_type,
             .manyptr_const_u8_sentinel_0_type,
-            .single_const_pointer_to_comptime_int_type,
             => .ptr,
             .slice_const_u8_type,
             .slice_const_u8_sentinel_0_type,
@@ -3099,11 +3103,16 @@ pub const Object = struct {
             => unreachable,
             // values, not types
             .undef,
+            .undef_bool,
+            .undef_usize,
+            .undef_u1,
             .zero,
             .zero_usize,
+            .zero_u1,
             .zero_u8,
             .one,
             .one_usize,
+            .one_u1,
             .one_u8,
             .four_u8,
             .negative_one,
@@ -4616,7 +4625,7 @@ pub const FuncGen = struct {
     gpa: Allocator,
     ng: *NavGen,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
     wip: Builder.WipFunction,
     is_naked: bool,
     fuzz: ?Fuzz,
@@ -4960,7 +4969,8 @@ pub const FuncGen = struct {
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
                 .select         => try self.airSelect(inst),
-                .shuffle        => try self.airShuffle(inst),
+                .shuffle_one    => try self.airShuffleOne(inst),
+                .shuffle_two    => try self.airShuffleTwo(inst),
                 .aggregate_init => try self.airAggregateInit(inst),
                 .union_init     => try self.airUnionInit(inst),
                 .prefetch       => try self.airPrefetch(inst),
@@ -5014,6 +5024,8 @@ pub const FuncGen = struct {
                 .wasm_memory_grow => try self.airWasmMemoryGrow(inst),
 
                 .vector_store_elem => try self.airVectorStoreElem(inst),
+
+                .tlv_dllimport_ptr => try self.airTlvDllimportPtr(inst),
 
                 .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
@@ -5181,7 +5193,7 @@ pub const FuncGen = struct {
     fn airCall(self: *FuncGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !Builder.Value {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
-        const args: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]);
+        const args: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.args_len]);
         const o = self.ng.object;
         const pt = o.pt;
         const zcu = pt.zcu;
@@ -5854,7 +5866,7 @@ pub const FuncGen = struct {
     fn airBlock(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Block, ty_pl.payload);
-        return self.lowerBlock(inst, null, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+        return self.lowerBlock(inst, null, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
     }
 
     fn lowerBlock(
@@ -6138,8 +6150,8 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const cond = try self.resolveInst(pl_op.operand);
         const extra = self.air.extraData(Air.CondBr, pl_op.payload);
-        const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.then_body_len]);
-        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+        const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.then_body_len]);
+        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
 
         const Hint = enum {
             none,
@@ -6203,7 +6215,7 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const err_union = try self.resolveInst(pl_op.operand);
         const extra = self.air.extraData(Air.Try, pl_op.payload);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
         const err_union_ty = self.typeOf(pl_op.operand);
         const payload_ty = self.typeOfIndex(inst);
         const can_elide_load = if (isByRef(payload_ty, zcu)) self.canElideLoad(body_tail) else false;
@@ -6217,7 +6229,7 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.TryPtr, ty_pl.payload);
         const err_union_ptr = try self.resolveInst(extra.data.ptr);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
         const err_union_ty = self.typeOf(extra.data.ptr).childType(zcu);
         const is_unused = self.liveness.isUnused(inst);
 
@@ -6548,7 +6560,7 @@ pub const FuncGen = struct {
     fn airLoop(self: *FuncGen, inst: Air.Inst.Index) !void {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[loop.end..][0..loop.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[loop.end..][0..loop.data.body_len]);
         const loop_block = try self.wip.block(1, "Loop"); // `airRepeat` will increment incoming each time
         _ = try self.wip.br(loop_block);
 
@@ -7074,7 +7086,7 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
         self.arg_inline_index = 0;
-        return self.lowerBlock(inst, extra.data.func, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+        return self.lowerBlock(inst, extra.data.func, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
     }
 
     fn airDbgVarPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -7199,9 +7211,9 @@ pub const FuncGen = struct {
         const clobbers_len: u31 = @truncate(extra.data.flags);
         var extra_i: usize = extra.end;
 
-        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]);
+        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.outputs_len]);
         extra_i += outputs.len;
-        const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]);
+        const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
         var llvm_constraints: std.ArrayListUnmanaged(u8) = .empty;
@@ -7237,8 +7249,8 @@ pub const FuncGen = struct {
 
         var rw_extra_i = extra_i;
         for (outputs, llvm_ret_indirect, llvm_rw_vals) |output, *is_indirect, *llvm_rw_val| {
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
@@ -7318,7 +7330,7 @@ pub const FuncGen = struct {
         }
 
         for (inputs) |input| {
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
             const constraint = std.mem.sliceTo(extra_bytes, 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
@@ -7383,8 +7395,8 @@ pub const FuncGen = struct {
         }
 
         for (outputs, llvm_ret_indirect, llvm_rw_vals, 0..) |output, is_indirect, llvm_rw_val, output_index| {
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[rw_extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[rw_extra_i..]), 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[rw_extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[rw_extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
@@ -7423,7 +7435,7 @@ pub const FuncGen = struct {
         {
             var clobber_i: u32 = 0;
             while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
                 // This equation accounts for the fact that even if we have exactly 4 bytes
                 // for the string, we still use the next u32 for the null terminator.
                 extra_i += clobber.len / 4 + 1;
@@ -7463,7 +7475,7 @@ pub const FuncGen = struct {
             else => {},
         }
 
-        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
+        const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
         // hackety hacks until stage2 has proper inline asm in the frontend.
         var rendered_template = std.ArrayList(u8).init(self.gpa);
@@ -8110,6 +8122,13 @@ pub const FuncGen = struct {
         const new_vector = try self.wip.insertElement(loaded, operand, index, "");
         _ = try self.store(vector_ptr, vector_ptr_ty, new_vector, .none);
         return .none;
+    }
+
+    fn airTlvDllimportPtr(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = fg.ng.object;
+        const ty_nav = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
+        const llvm_ptr_const = try o.lowerNavRefValue(ty_nav.nav);
+        return llvm_ptr_const.toValue();
     }
 
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -8909,6 +8928,8 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(extra.rhs);
 
         const lhs_ty = self.typeOf(extra.lhs);
+        if (lhs_ty.isVector(zcu) and !self.typeOf(extra.rhs).isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
         const lhs_scalar_ty = lhs_ty.scalarType(zcu);
 
         const dest_ty = self.typeOfIndex(inst);
@@ -8978,6 +8999,8 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
 
         const lhs_ty = self.typeOf(bin_op.lhs);
+        if (lhs_ty.isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
         const lhs_scalar_ty = lhs_ty.scalarType(zcu);
 
         const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_ty), "");
@@ -8989,14 +9012,17 @@ pub const FuncGen = struct {
 
     fn airShl(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
+        const zcu = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
 
-        const lhs_type = self.typeOf(bin_op.lhs);
+        const lhs_ty = self.typeOf(bin_op.lhs);
+        if (lhs_ty.isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
 
-        const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_type), "");
+        const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_ty), "");
         return self.wip.bin(.shl, lhs, casted_rhs, "");
     }
 
@@ -9015,6 +9041,8 @@ pub const FuncGen = struct {
         const llvm_lhs_scalar_ty = llvm_lhs_ty.scalarType(&o.builder);
 
         const rhs_ty = self.typeOf(bin_op.rhs);
+        if (lhs_ty.isVector(zcu) and !rhs_ty.isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
         const rhs_info = rhs_ty.intInfo(zcu);
         assert(rhs_info.signedness == .unsigned);
         const llvm_rhs_ty = try o.lowerType(rhs_ty);
@@ -9087,6 +9115,8 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
 
         const lhs_ty = self.typeOf(bin_op.lhs);
+        if (lhs_ty.isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
         const lhs_scalar_ty = lhs_ty.scalarType(zcu);
 
         const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_ty), "");
@@ -9159,11 +9189,7 @@ pub const FuncGen = struct {
             const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
             assert(is_vector == (dest_ty.zigTypeTag(zcu) == .vector));
 
-            const min_panic_id: Zcu.SimplePanicId, const max_panic_id: Zcu.SimplePanicId = id: {
-                if (dest_is_enum) break :id .{ .invalid_enum_value, .invalid_enum_value };
-                if (dest_info.signedness == .unsigned) break :id .{ .negative_to_unsigned, .cast_truncated_data };
-                break :id .{ .cast_truncated_data, .cast_truncated_data };
-            };
+            const panic_id: Zcu.SimplePanicId = if (dest_is_enum) .invalid_enum_value else .integer_out_of_bounds;
 
             if (have_min_check) {
                 const min_const_scalar = try minIntConst(&o.builder, dest_scalar, operand_scalar_llvm_ty, zcu);
@@ -9177,7 +9203,7 @@ pub const FuncGen = struct {
                 const ok_block = try fg.wip.block(1, "IntMinOk");
                 _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
                 fg.wip.cursor = .{ .block = fail_block };
-                try fg.buildSimplePanic(min_panic_id);
+                try fg.buildSimplePanic(panic_id);
                 fg.wip.cursor = .{ .block = ok_block };
             }
 
@@ -9193,7 +9219,7 @@ pub const FuncGen = struct {
                 const ok_block = try fg.wip.block(1, "IntMaxOk");
                 _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
                 fg.wip.cursor = .{ .block = fail_block };
-                try fg.buildSimplePanic(max_panic_id);
+                try fg.buildSimplePanic(panic_id);
                 fg.wip.cursor = .{ .block = ok_block };
             }
         }
@@ -9241,8 +9267,6 @@ pub const FuncGen = struct {
         const operand_ty = self.typeOf(ty_op.operand);
         const dest_ty = self.typeOfIndex(inst);
         const target = zcu.getTarget();
-        const dest_bits = dest_ty.floatBits(target);
-        const src_bits = operand_ty.floatBits(target);
 
         if (intrinsicsAllowed(dest_ty, target) and intrinsicsAllowed(operand_ty, target)) {
             return self.wip.cast(.fptrunc, operand, try o.lowerType(dest_ty), "");
@@ -9250,6 +9274,8 @@ pub const FuncGen = struct {
             const operand_llvm_ty = try o.lowerType(operand_ty);
             const dest_llvm_ty = try o.lowerType(dest_ty);
 
+            const dest_bits = dest_ty.floatBits(target);
+            const src_bits = operand_ty.floatBits(target);
             const fn_name = try o.builder.strtabStringFmt("__trunc{s}f{s}f2", .{
                 compilerRtFloatAbbrev(src_bits), compilerRtFloatAbbrev(dest_bits),
             });
@@ -9334,11 +9360,12 @@ pub const FuncGen = struct {
             return self.wip.conv(.unsigned, operand, llvm_dest_ty, "");
         }
 
-        if (operand_ty.zigTypeTag(zcu) == .int and inst_ty.isPtrAtRuntime(zcu)) {
+        const operand_scalar_ty = operand_ty.scalarType(zcu);
+        const inst_scalar_ty = inst_ty.scalarType(zcu);
+        if (operand_scalar_ty.zigTypeTag(zcu) == .int and inst_scalar_ty.isPtrAtRuntime(zcu)) {
             return self.wip.cast(.inttoptr, operand, llvm_dest_ty, "");
         }
-
-        if (operand_ty.isPtrAtRuntime(zcu) and inst_ty.zigTypeTag(zcu) == .int) {
+        if (operand_scalar_ty.isPtrAtRuntime(zcu) and inst_scalar_ty.zigTypeTag(zcu) == .int) {
             return self.wip.cast(.ptrtoint, operand, llvm_dest_ty, "");
         }
 
@@ -9636,7 +9663,7 @@ pub const FuncGen = struct {
         const zcu = o.pt.zcu;
         const ip = &zcu.intern_pool;
         for (body_tail[1..]) |body_inst| {
-            switch (fg.liveness.categorizeOperand(fg.air, body_inst, body_tail[0], ip)) {
+            switch (fg.liveness.categorizeOperand(fg.air, zcu, body_inst, body_tail[0], ip)) {
                 .none => continue,
                 .write, .noret, .complex => return false,
                 .tomb => return true,
@@ -10391,42 +10418,192 @@ pub const FuncGen = struct {
         return self.wip.select(.normal, pred, a, b, "");
     }
 
-    fn airShuffle(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
+    fn airShuffleOne(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = fg.ng.object;
         const pt = o.pt;
         const zcu = pt.zcu;
-        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-        const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
-        const a = try self.resolveInst(extra.a);
-        const b = try self.resolveInst(extra.b);
-        const mask = Value.fromInterned(extra.mask);
-        const mask_len = extra.mask_len;
-        const a_len = self.typeOf(extra.a).vectorLen(zcu);
+        const gpa = zcu.gpa;
 
-        // LLVM uses integers larger than the length of the first array to
-        // index into the second array. This was deemed unnecessarily fragile
-        // when changing code, so Zig uses negative numbers to index the
-        // second vector. These start at -1 and go down, and are easiest to use
-        // with the ~ operator. Here we convert between the two formats.
-        const values = try self.gpa.alloc(Builder.Constant, mask_len);
-        defer self.gpa.free(values);
+        const unwrapped = fg.air.unwrapShuffleOne(zcu, inst);
 
-        for (values, 0..) |*val, i| {
-            const elem = try mask.elemValue(pt, i);
-            if (elem.isUndef(zcu)) {
-                val.* = try o.builder.undefConst(.i32);
-            } else {
-                const int = elem.toSignedInt(zcu);
-                const unsigned: u32 = @intCast(if (int >= 0) int else ~int + a_len);
-                val.* = try o.builder.intConst(.i32, unsigned);
+        const operand = try fg.resolveInst(unwrapped.operand);
+        const mask = unwrapped.mask;
+        const operand_ty = fg.typeOf(unwrapped.operand);
+        const llvm_operand_ty = try o.lowerType(operand_ty);
+        const llvm_result_ty = try o.lowerType(unwrapped.result_ty);
+        const llvm_elem_ty = try o.lowerType(unwrapped.result_ty.childType(zcu));
+        const llvm_poison_elem = try o.builder.poisonConst(llvm_elem_ty);
+        const llvm_poison_mask_elem = try o.builder.poisonConst(.i32);
+        const llvm_mask_ty = try o.builder.vectorType(.normal, @intCast(mask.len), .i32);
+
+        // LLVM requires that the two input vectors have the same length, so lowering isn't trivial.
+        // And, in the words of jacobly0: "llvm sucks at shuffles so we do have to hold its hand at
+        // least a bit". So, there are two cases here.
+        //
+        // If the operand length equals the mask length, we do just the one `shufflevector`, where
+        // the second operand is a constant vector with comptime-known elements at the right indices
+        // and poison values elsewhere (in the indices which won't be selected).
+        //
+        // Otherwise, we lower to *two* `shufflevector` instructions. The first shuffles the runtime
+        // operand with an all-poison vector to extract and correctly position all of the runtime
+        // elements. We also make a constant vector with all of the comptime elements correctly
+        // positioned. Then, our second instruction selects elements from those "runtime-or-poison"
+        // and "comptime-or-poison" vectors to compute the result.
+
+        // This buffer is used primarily for the mask constants.
+        const llvm_elem_buf = try gpa.alloc(Builder.Constant, mask.len);
+        defer gpa.free(llvm_elem_buf);
+
+        // ...but first, we'll collect all of the comptime-known values.
+        var any_defined_comptime_value = false;
+        for (mask, llvm_elem_buf) |mask_elem, *llvm_elem| {
+            llvm_elem.* = switch (mask_elem.unwrap()) {
+                .elem => llvm_poison_elem,
+                .value => |val| if (!Value.fromInterned(val).isUndef(zcu)) elem: {
+                    any_defined_comptime_value = true;
+                    break :elem try o.lowerValue(val);
+                } else llvm_poison_elem,
+            };
+        }
+        // This vector is like the result, but runtime elements are replaced with poison.
+        const comptime_and_poison: Builder.Value = if (any_defined_comptime_value) vec: {
+            break :vec try o.builder.vectorValue(llvm_result_ty, llvm_elem_buf);
+        } else try o.builder.poisonValue(llvm_result_ty);
+
+        if (operand_ty.vectorLen(zcu) == mask.len) {
+            // input length equals mask/output length, so we lower to one instruction
+            for (mask, llvm_elem_buf, 0..) |mask_elem, *llvm_elem, elem_idx| {
+                llvm_elem.* = switch (mask_elem.unwrap()) {
+                    .elem => |idx| try o.builder.intConst(.i32, idx),
+                    .value => |val| if (!Value.fromInterned(val).isUndef(zcu)) mask_val: {
+                        break :mask_val try o.builder.intConst(.i32, mask.len + elem_idx);
+                    } else llvm_poison_mask_elem,
+                };
             }
+            return fg.wip.shuffleVector(
+                operand,
+                comptime_and_poison,
+                try o.builder.vectorValue(llvm_mask_ty, llvm_elem_buf),
+                "",
+            );
         }
 
-        const llvm_mask_value = try o.builder.vectorValue(
-            try o.builder.vectorType(.normal, mask_len, .i32),
-            values,
+        for (mask, llvm_elem_buf) |mask_elem, *llvm_elem| {
+            llvm_elem.* = switch (mask_elem.unwrap()) {
+                .elem => |idx| try o.builder.intConst(.i32, idx),
+                .value => llvm_poison_mask_elem,
+            };
+        }
+        // This vector is like our result, but all comptime-known elements are poison.
+        const runtime_and_poison = try fg.wip.shuffleVector(
+            operand,
+            try o.builder.poisonValue(llvm_operand_ty),
+            try o.builder.vectorValue(llvm_mask_ty, llvm_elem_buf),
+            "",
         );
-        return self.wip.shuffleVector(a, b, llvm_mask_value, "");
+
+        if (!any_defined_comptime_value) {
+            // `comptime_and_poison` is just poison; a second shuffle would be a nop.
+            return runtime_and_poison;
+        }
+
+        // In this second shuffle, the inputs, the mask, and the output all have the same length.
+        for (mask, llvm_elem_buf, 0..) |mask_elem, *llvm_elem, elem_idx| {
+            llvm_elem.* = switch (mask_elem.unwrap()) {
+                .elem => try o.builder.intConst(.i32, elem_idx),
+                .value => |val| if (!Value.fromInterned(val).isUndef(zcu)) mask_val: {
+                    break :mask_val try o.builder.intConst(.i32, mask.len + elem_idx);
+                } else llvm_poison_mask_elem,
+            };
+        }
+        // Merge the runtime and comptime elements with the mask we just built.
+        return fg.wip.shuffleVector(
+            runtime_and_poison,
+            comptime_and_poison,
+            try o.builder.vectorValue(llvm_mask_ty, llvm_elem_buf),
+            "",
+        );
+    }
+
+    fn airShuffleTwo(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = fg.ng.object;
+        const pt = o.pt;
+        const zcu = pt.zcu;
+        const gpa = zcu.gpa;
+
+        const unwrapped = fg.air.unwrapShuffleTwo(zcu, inst);
+
+        const mask = unwrapped.mask;
+        const llvm_elem_ty = try o.lowerType(unwrapped.result_ty.childType(zcu));
+        const llvm_mask_ty = try o.builder.vectorType(.normal, @intCast(mask.len), .i32);
+        const llvm_poison_mask_elem = try o.builder.poisonConst(.i32);
+
+        // This is kind of simpler than in `airShuffleOne`. We extend the shorter vector to the
+        // length of the longer one with an initial `shufflevector` if necessary, and then do the
+        // actual computation with a second `shufflevector`.
+
+        const operand_a_len = fg.typeOf(unwrapped.operand_a).vectorLen(zcu);
+        const operand_b_len = fg.typeOf(unwrapped.operand_b).vectorLen(zcu);
+        const operand_len: u32 = @max(operand_a_len, operand_b_len);
+
+        // If we need to extend an operand, this is the type that mask will have.
+        const llvm_operand_mask_ty = try o.builder.vectorType(.normal, operand_len, .i32);
+
+        const llvm_elem_buf = try gpa.alloc(Builder.Constant, @max(mask.len, operand_len));
+        defer gpa.free(llvm_elem_buf);
+
+        const operand_a: Builder.Value = extend: {
+            const raw = try fg.resolveInst(unwrapped.operand_a);
+            if (operand_a_len == operand_len) break :extend raw;
+            // Extend with a `shufflevector`, with a mask `<0, 1, ..., n, poison, poison, ..., poison>`
+            const mask_elems = llvm_elem_buf[0..operand_len];
+            for (mask_elems[0..operand_a_len], 0..) |*llvm_elem, elem_idx| {
+                llvm_elem.* = try o.builder.intConst(.i32, elem_idx);
+            }
+            @memset(mask_elems[operand_a_len..], llvm_poison_mask_elem);
+            const llvm_this_operand_ty = try o.builder.vectorType(.normal, operand_a_len, llvm_elem_ty);
+            break :extend try fg.wip.shuffleVector(
+                raw,
+                try o.builder.poisonValue(llvm_this_operand_ty),
+                try o.builder.vectorValue(llvm_operand_mask_ty, mask_elems),
+                "",
+            );
+        };
+        const operand_b: Builder.Value = extend: {
+            const raw = try fg.resolveInst(unwrapped.operand_b);
+            if (operand_b_len == operand_len) break :extend raw;
+            // Extend with a `shufflevector`, with a mask `<0, 1, ..., n, poison, poison, ..., poison>`
+            const mask_elems = llvm_elem_buf[0..operand_len];
+            for (mask_elems[0..operand_b_len], 0..) |*llvm_elem, elem_idx| {
+                llvm_elem.* = try o.builder.intConst(.i32, elem_idx);
+            }
+            @memset(mask_elems[operand_b_len..], llvm_poison_mask_elem);
+            const llvm_this_operand_ty = try o.builder.vectorType(.normal, operand_b_len, llvm_elem_ty);
+            break :extend try fg.wip.shuffleVector(
+                raw,
+                try o.builder.poisonValue(llvm_this_operand_ty),
+                try o.builder.vectorValue(llvm_operand_mask_ty, mask_elems),
+                "",
+            );
+        };
+
+        // `operand_a` and `operand_b` now have the same length (we've extended the shorter one with
+        // an initial shuffle if necessary). Now for the easy bit.
+
+        const mask_elems = llvm_elem_buf[0..mask.len];
+        for (mask, mask_elems) |mask_elem, *llvm_mask_elem| {
+            llvm_mask_elem.* = switch (mask_elem.unwrap()) {
+                .a_elem => |idx| try o.builder.intConst(.i32, idx),
+                .b_elem => |idx| try o.builder.intConst(.i32, operand_len + idx),
+                .undef => llvm_poison_mask_elem,
+            };
+        }
+        return fg.wip.shuffleVector(
+            operand_a,
+            operand_b,
+            try o.builder.vectorValue(llvm_mask_ty, mask_elems),
+            "",
+        );
     }
 
     /// Reduce a vector by repeatedly applying `llvm_fn` to produce an accumulated result.
@@ -10619,7 +10796,7 @@ pub const FuncGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const result_ty = self.typeOfIndex(inst);
         const len: usize = @intCast(result_ty.arrayLen(zcu));
-        const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
+        const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[ty_pl.payload..][0..len]);
         const llvm_result_ty = try o.lowerType(result_ty);
 
         switch (result_ty.zigTypeTag(zcu)) {

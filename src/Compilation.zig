@@ -190,6 +190,8 @@ time_report: bool,
 stack_report: bool,
 debug_compiler_runtime_libs: bool,
 debug_compile_errors: bool,
+/// Do not check this field directly. Instead, use the `debugIncremental` wrapper function.
+debug_incremental: bool,
 incremental: bool,
 alloc_failure_occurred: bool = false,
 last_update_was_cache_hit: bool = false,
@@ -352,12 +354,17 @@ pub const Path = struct {
         gpa.free(p.sub_path);
     }
 
-    /// The returned digest is relocatable across any compiler process using the same lib and cache
+    /// The added data is relocatable across any compiler process using the same lib and cache
     /// directories; it does not depend on cwd.
-    pub fn digest(p: Path) Cache.BinDigest {
-        var h = Cache.hasher_init;
+    pub fn addToHasher(p: Path, h: *Cache.Hasher) void {
         h.update(&.{@intFromEnum(p.root)});
         h.update(p.sub_path);
+    }
+
+    /// Small convenience wrapper around `addToHasher`.
+    pub fn digest(p: Path) Cache.BinDigest {
+        var h = Cache.hasher_init;
+        p.addToHasher(&h);
         return h.finalResult();
     }
 
@@ -762,6 +769,14 @@ pub const Directories = struct {
         };
     }
 };
+
+/// This small wrapper function just checks whether debug extensions are enabled before checking
+/// `comp.debug_incremental`. It is inline so that comptime-known `false` propagates to the caller,
+/// preventing debugging features from making it into release builds of the compiler.
+pub inline fn debugIncremental(comp: *const Compilation) bool {
+    if (!build_options.enable_debug_extensions) return false;
+    return comp.debug_incremental;
+}
 
 pub const default_stack_protector_buffer_size = target_util.default_stack_protector_buffer_size;
 pub const SemaError = Zcu.SemaError;
@@ -1593,6 +1608,7 @@ pub const CreateOptions = struct {
     verbose_llvm_cpu_features: bool = false,
     debug_compiler_runtime_libs: bool = false,
     debug_compile_errors: bool = false,
+    debug_incremental: bool = false,
     incremental: bool = false,
     /// Normally when you create a `Compilation`, Zig will automatically build
     /// and link in required dependencies, such as compiler-rt and libc. When
@@ -1963,6 +1979,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .test_name_prefix = options.test_name_prefix,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
+            .debug_incremental = options.debug_incremental,
             .incremental = options.incremental,
             .root_name = root_name,
             .sysroot = sysroot,
@@ -2335,8 +2352,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     comp.remaining_prelink_tasks += 2;
 
                     // When linking mingw-w64 there are some import libs we always need.
-                    try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
-                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
+                    const always_link_libs: []const []const u8 = switch (comp.root_mod.optimize_mode) {
+                        .Debug => &mingw.always_link_libs_debug,
+                        .ReleaseSafe, .ReleaseFast, .ReleaseSmall => &mingw.always_link_libs_release,
+                    };
+                    try comp.windows_libs.ensureUnusedCapacity(gpa, always_link_libs.len);
+                    for (always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
                 } else {
                     return error.LibCUnavailable;
                 }
@@ -2508,6 +2529,7 @@ pub fn destroy(comp: *Compilation) void {
 
 pub fn clearMiscFailures(comp: *Compilation) void {
     comp.alloc_failure_occurred = false;
+    comp.link_diags.flags = .{};
     for (comp.misc_failures.values()) |*value| {
         value.deinit(comp.gpa);
     }
@@ -2774,7 +2796,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
     if (anyErrors(comp)) {
         // Skip flushing and keep source files loaded for error reporting.
-        comp.link_diags.flags = .{};
         return;
     }
 

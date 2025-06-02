@@ -32,12 +32,15 @@
 */
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
-extern char ***_NSGetArgv(void);
+extern char *_LIBC_CSTR *_LIBC_NULL_TERMINATED *_NSGetArgv(void);
 extern int *_NSGetArgc(void);
-extern char ***_NSGetEnviron(void);
-extern char **_NSGetProgname(void);
+extern char *_LIBC_CSTR *_LIBC_NULL_TERMINATED	*_NSGetEnviron(void);
+extern char *_LIBC_CSTR	*_NSGetProgname(void);
 #ifdef __LP64__
 extern struct mach_header_64 *
 #else /* !__LP64__ */

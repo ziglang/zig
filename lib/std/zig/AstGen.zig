@@ -11194,6 +11194,7 @@ fn rvalueInner(
             const as_void = @as(u64, @intFromEnum(Zir.Inst.Ref.void_type)) << 32;
             const as_comptime_int = @as(u64, @intFromEnum(Zir.Inst.Ref.comptime_int_type)) << 32;
             const as_usize = @as(u64, @intFromEnum(Zir.Inst.Ref.usize_type)) << 32;
+            const as_u1 = @as(u64, @intFromEnum(Zir.Inst.Ref.u1_type)) << 32;
             const as_u8 = @as(u64, @intFromEnum(Zir.Inst.Ref.u8_type)) << 32;
             switch ((@as(u64, @intFromEnum(ty_inst)) << 32) | @as(u64, @intFromEnum(result))) {
                 as_ty | @intFromEnum(Zir.Inst.Ref.u1_type),
@@ -11237,10 +11238,11 @@ fn rvalueInner(
                 as_ty | @intFromEnum(Zir.Inst.Ref.null_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.undefined_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.enum_literal_type),
+                as_ty | @intFromEnum(Zir.Inst.Ref.ptr_usize_type),
+                as_ty | @intFromEnum(Zir.Inst.Ref.ptr_const_comptime_int_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.manyptr_u8_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.manyptr_const_u8_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.manyptr_const_u8_sentinel_0_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.single_const_pointer_to_comptime_int_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.slice_const_u8_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.slice_const_u8_sentinel_0_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.anyerror_void_error_union_type),
@@ -11249,27 +11251,45 @@ fn rvalueInner(
                 as_comptime_int | @intFromEnum(Zir.Inst.Ref.zero),
                 as_comptime_int | @intFromEnum(Zir.Inst.Ref.one),
                 as_comptime_int | @intFromEnum(Zir.Inst.Ref.negative_one),
+                as_usize | @intFromEnum(Zir.Inst.Ref.undef_usize),
                 as_usize | @intFromEnum(Zir.Inst.Ref.zero_usize),
                 as_usize | @intFromEnum(Zir.Inst.Ref.one_usize),
+                as_u1 | @intFromEnum(Zir.Inst.Ref.undef_u1),
+                as_u1 | @intFromEnum(Zir.Inst.Ref.zero_u1),
+                as_u1 | @intFromEnum(Zir.Inst.Ref.one_u1),
                 as_u8 | @intFromEnum(Zir.Inst.Ref.zero_u8),
                 as_u8 | @intFromEnum(Zir.Inst.Ref.one_u8),
                 as_u8 | @intFromEnum(Zir.Inst.Ref.four_u8),
+                as_bool | @intFromEnum(Zir.Inst.Ref.undef_bool),
                 as_bool | @intFromEnum(Zir.Inst.Ref.bool_true),
                 as_bool | @intFromEnum(Zir.Inst.Ref.bool_false),
                 as_void | @intFromEnum(Zir.Inst.Ref.void_value),
                 => return result, // type of result is already correct
 
+                as_bool | @intFromEnum(Zir.Inst.Ref.undef) => return .undef_bool,
+                as_usize | @intFromEnum(Zir.Inst.Ref.undef) => return .undef_usize,
+                as_usize | @intFromEnum(Zir.Inst.Ref.undef_u1) => return .undef_usize,
+                as_u1 | @intFromEnum(Zir.Inst.Ref.undef) => return .undef_u1,
+
                 as_usize | @intFromEnum(Zir.Inst.Ref.zero) => return .zero_usize,
+                as_u1 | @intFromEnum(Zir.Inst.Ref.zero) => return .zero_u1,
                 as_u8 | @intFromEnum(Zir.Inst.Ref.zero) => return .zero_u8,
                 as_usize | @intFromEnum(Zir.Inst.Ref.one) => return .one_usize,
+                as_u1 | @intFromEnum(Zir.Inst.Ref.one) => return .one_u1,
                 as_u8 | @intFromEnum(Zir.Inst.Ref.one) => return .one_u8,
                 as_comptime_int | @intFromEnum(Zir.Inst.Ref.zero_usize) => return .zero,
+                as_u1 | @intFromEnum(Zir.Inst.Ref.zero_usize) => return .zero_u1,
                 as_u8 | @intFromEnum(Zir.Inst.Ref.zero_usize) => return .zero_u8,
                 as_comptime_int | @intFromEnum(Zir.Inst.Ref.one_usize) => return .one,
+                as_u1 | @intFromEnum(Zir.Inst.Ref.one_usize) => return .one_u1,
                 as_u8 | @intFromEnum(Zir.Inst.Ref.one_usize) => return .one_u8,
+                as_comptime_int | @intFromEnum(Zir.Inst.Ref.zero_u1) => return .zero,
                 as_comptime_int | @intFromEnum(Zir.Inst.Ref.zero_u8) => return .zero,
+                as_usize | @intFromEnum(Zir.Inst.Ref.zero_u1) => return .zero_usize,
                 as_usize | @intFromEnum(Zir.Inst.Ref.zero_u8) => return .zero_usize,
+                as_comptime_int | @intFromEnum(Zir.Inst.Ref.one_u1) => return .one,
                 as_comptime_int | @intFromEnum(Zir.Inst.Ref.one_u8) => return .one,
+                as_usize | @intFromEnum(Zir.Inst.Ref.one_u1) => return .one_usize,
                 as_usize | @intFromEnum(Zir.Inst.Ref.one_u8) => return .one_usize,
 
                 // Need an explicit type coercion instruction.

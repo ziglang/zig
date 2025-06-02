@@ -145,7 +145,7 @@ const test_targets = blk: {
         .{
             .target = std.Target.Query.parse(.{
                 .arch_os_abi = "spirv64-vulkan",
-                .cpu_features = "vulkan_v1_2+int64+float16+float64",
+                .cpu_features = "vulkan_v1_2+physical_storage_buffer+int64+float16+float64",
             }) catch unreachable,
             .use_llvm = false,
             .use_lld = false,
@@ -1657,16 +1657,23 @@ pub fn addCliTests(b: *std.Build) *Step {
     }
 
     {
-        // TODO this should move to become a CLI test rather than standalone
-        //    cases.addBuildFile("test/standalone/options/build.zig", .{
-        //        .extra_argv = &.{
-        //            "-Dbool_true",
-        //            "-Dbool_false=false",
-        //            "-Dint=1234",
-        //            "-De=two",
-        //            "-Dstring=hello",
-        //        },
-        //    });
+        const run_test = b.addSystemCommand(&.{
+            b.graph.zig_exe,
+            "build",
+            "test",
+            "-Dbool_true",
+            "-Dbool_false=false",
+            "-Dint=1234",
+            "-De=two",
+            "-Dstring=hello",
+        });
+        run_test.addArg("--build-file");
+        run_test.addFileArg(b.path("test/standalone/options/build.zig"));
+        run_test.addArg("--cache-dir");
+        run_test.addFileArg(.{ .cwd_relative = b.cache_root.join(b.allocator, &.{}) catch @panic("OOM") });
+        run_test.setName("test build options");
+
+        step.dependOn(&run_test.step);
     }
 
     return step;

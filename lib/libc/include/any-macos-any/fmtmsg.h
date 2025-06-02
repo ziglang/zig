@@ -29,6 +29,10 @@
 #ifndef _FMTMSG_H_
 #define	_FMTMSG_H_
 
+#include <_bounds.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
+
 /* Source of condition is... */
 #define	MM_HARD		0x0001	/* ...hardware. */
 #define	MM_SOFT		0x0002	/* ...software. */

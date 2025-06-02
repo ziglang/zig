@@ -139,9 +139,6 @@ xpc_session_create_xpc_service(const char *name,
  * An out-parameter that, if set and in the event of an error, will point to an
  * {@link xpc_rich_error_t} describing the details of any errors that occurred.
  *
- * @param cancel_handler
- * The cancel handler block that will be executed when this session is canceled.
- *
  * @result
  * On success this returns a new session object. The returned session is
  * activated by default and can be used to send messages. The caller is

@@ -10,7 +10,6 @@ const Allocator = mem.Allocator;
 const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
-const Liveness = @import("../../Liveness.zig");
 const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
 const link = @import("../../link.zig");
@@ -52,9 +51,18 @@ const Instruction = encoding.Instruction;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
 
+pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initMany(&.{
+        .expand_intcast_safe,
+        .expand_add_safe,
+        .expand_sub_safe,
+        .expand_mul_safe,
+    });
+}
+
 pt: Zcu.PerThread,
 air: Air,
-liveness: Liveness,
+liveness: Air.Liveness,
 bin_file: *link.File,
 gpa: Allocator,
 
@@ -82,7 +90,7 @@ scope_generation: u32,
 /// which is a relative jump, based on the address following the reloc.
 exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
 
-reused_operands: std.StaticBitSet(Liveness.bpi - 1) = undefined,
+reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -162,12 +170,8 @@ const MCValue = union(enum) {
     immediate: u64,
     /// The value doesn't exist in memory yet.
     load_symbol: SymbolOffset,
-    /// A TLV value.
-    load_tlv: u32,
     /// The address of the memory location not-yet-allocated by the linker.
     lea_symbol: SymbolOffset,
-    /// The address of a TLV value.
-    lea_tlv: u32,
     /// The value is in a target-specific register.
     register: Register,
     /// The value is split across two registers
@@ -224,7 +228,6 @@ const MCValue = union(enum) {
             .lea_frame,
             .undef,
             .lea_symbol,
-            .lea_tlv,
             .air_ref,
             .reserved_frame,
             => false,
@@ -233,7 +236,6 @@ const MCValue = union(enum) {
             .register_pair,
             .register_offset,
             .load_symbol,
-            .load_tlv,
             .indirect,
             => true,
 
@@ -254,12 +256,10 @@ const MCValue = union(enum) {
             .undef,
             .air_ref,
             .lea_symbol,
-            .lea_tlv,
             .reserved_frame,
             => unreachable, // not in memory
 
             .load_symbol => |sym_off| .{ .lea_symbol = sym_off },
-            .load_tlv => |sym| .{ .lea_tlv = sym },
             .memory => |addr| .{ .immediate = addr },
             .load_frame => |off| .{ .lea_frame = off },
             .indirect => |reg_off| switch (reg_off.off) {
@@ -281,7 +281,6 @@ const MCValue = union(enum) {
             .register_pair,
             .load_frame,
             .load_symbol,
-            .load_tlv,
             .reserved_frame,
             => unreachable, // not a pointer
 
@@ -290,7 +289,6 @@ const MCValue = union(enum) {
             .register_offset => |reg_off| .{ .indirect = reg_off },
             .lea_frame => |off| .{ .load_frame = off },
             .lea_symbol => |sym_off| .{ .load_symbol = sym_off },
-            .lea_tlv => |sym| .{ .load_tlv = sym },
         };
     }
 
@@ -308,8 +306,6 @@ const MCValue = union(enum) {
             .indirect,
             .load_symbol,
             .lea_symbol,
-            .lea_tlv,
-            .load_tlv,
             => switch (off) {
                 0 => mcv,
                 else => unreachable,
@@ -367,8 +363,6 @@ const InstTracking = struct {
             .memory,
             .load_frame,
             .lea_frame,
-            .load_tlv,
-            .lea_tlv,
             .load_symbol,
             .lea_symbol,
             => result,
@@ -424,8 +418,6 @@ const InstTracking = struct {
             .lea_frame,
             .load_symbol,
             .lea_symbol,
-            .load_tlv,
-            .lea_tlv,
             => inst_tracking.long,
             .dead,
             .register,
@@ -454,8 +446,6 @@ const InstTracking = struct {
             .lea_frame,
             .load_symbol,
             .lea_symbol,
-            .load_tlv,
-            .lea_tlv,
             => assert(std.meta.eql(inst_tracking.long, target.long)),
             .load_frame,
             .reserved_frame,
@@ -757,7 +747,7 @@ pub fn generate(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!void {
@@ -1444,7 +1434,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
         verbose_tracking_log.debug("{}", .{func.fmtTracking()});
 
         const old_air_bookkeeping = func.air_bookkeeping;
-        try func.ensureProcessDeathCapacity(Liveness.bpi);
+        try func.ensureProcessDeathCapacity(Air.Liveness.bpi);
 
         func.reused_operands = @TypeOf(func.reused_operands).initEmpty();
         try func.inst_tracking.ensureUnusedCapacity(func.gpa, 1);
@@ -1596,7 +1586,8 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .error_name      => try func.airErrorName(inst),
             .splat           => try func.airSplat(inst),
             .select          => try func.airSelect(inst),
-            .shuffle         => try func.airShuffle(inst),
+            .shuffle_one     => try func.airShuffleOne(inst),
+            .shuffle_two     => try func.airShuffleTwo(inst),
             .reduce          => try func.airReduce(inst),
             .aggregate_init  => try func.airAggregateInit(inst),
             .union_init      => try func.airUnionInit(inst),
@@ -1664,6 +1655,8 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .wrap_optional         => try func.airWrapOptional(inst),
             .wrap_errunion_payload => try func.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try func.airWrapErrUnionErr(inst),
+
+            .tlv_dllimport_ptr => try func.airTlvDllimportPtr(inst),
 
             .add_optimized,
             .sub_optimized,
@@ -1747,7 +1740,7 @@ fn freeValue(func: *Func, value: MCValue) !void {
     }
 }
 
-fn feed(func: *Func, bt: *Liveness.BigTomb, operand: Air.Inst.Ref) !void {
+fn feed(func: *Func, bt: *Air.Liveness.BigTomb, operand: Air.Inst.Ref) !void {
     if (bt.feed()) if (operand.toIndex()) |inst| {
         log.debug("feed inst: %{}", .{inst});
         try func.processDeath(inst);
@@ -1792,11 +1785,11 @@ fn finishAir(
     func: *Func,
     inst: Air.Inst.Index,
     result: MCValue,
-    operands: [Liveness.bpi - 1]Air.Inst.Ref,
+    operands: [Air.Liveness.bpi - 1]Air.Inst.Ref,
 ) !void {
     const tomb_bits = func.liveness.getTombBits(inst);
     for (0.., operands) |op_index, op| {
-        if (tomb_bits & @as(Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
+        if (tomb_bits & @as(Air.Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
         if (func.reused_operands.isSet(op_index)) continue;
         try func.processDeath(op.toIndexAllowNone() orelse continue);
     }
@@ -2781,6 +2774,7 @@ fn genBinOp(
         .shl,
         .shl_exact,
         => {
+            if (lhs_ty.isVector(zcu) and !rhs_ty.isVector(zcu)) return func.fail("TODO: vector shift with scalar rhs", .{});
             if (bit_size > 64) return func.fail("TODO: genBinOp shift > 64 bits, {}", .{bit_size});
             try func.truncateRegister(rhs_ty, rhs_reg);
 
@@ -3265,8 +3259,14 @@ fn airMulWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airShlWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airShlWithOverflow", .{});
+    const result: MCValue = if (func.liveness.isUnused(inst))
+        .unreach
+    else if (func.typeOf(bin_op.lhs).isVector(zcu) and !func.typeOf(bin_op.rhs).isVector(zcu))
+        return func.fail("TODO implement vector airShlWithOverflow with scalar rhs", .{})
+    else
+        return func.fail("TODO implement airShlWithOverflow", .{});
     return func.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3283,8 +3283,14 @@ fn airMulSat(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airShlSat(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airShlSat", .{});
+    const result: MCValue = if (func.liveness.isUnused(inst))
+        .unreach
+    else if (func.typeOf(bin_op.lhs).isVector(zcu) and !func.typeOf(bin_op.rhs).isVector(zcu))
+        return func.fail("TODO implement vector airShlSat with scalar rhs", .{})
+    else
+        return func.fail("TODO implement airShlSat", .{});
     return func.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3620,10 +3626,54 @@ fn airWrapErrUnionErr(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn airTlvDllimportPtr(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
+    const ip = &zcu.intern_pool;
+    const ty_nav = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
+    const ptr_ty: Type = .fromInterned(ty_nav.ty);
+
+    const nav = ip.getNav(ty_nav.nav);
+    const tlv_sym_index = if (func.bin_file.cast(.elf)) |elf_file| sym: {
+        const zo = elf_file.zigObjectPtr().?;
+        if (nav.getExtern(ip)) |e| {
+            const sym = try elf_file.getGlobalSymbol(nav.name.toSlice(ip), e.lib_name.toSlice(ip));
+            zo.symbol(sym).flags.is_extern_ptr = true;
+            break :sym sym;
+        }
+        break :sym try zo.getOrCreateMetadataForNav(zcu, ty_nav.nav);
+    } else return func.fail("TODO tlv_dllimport_ptr on {}", .{func.bin_file.tag});
+
+    const dest_mcv = try func.allocRegOrMem(ptr_ty, inst, true);
+    if (dest_mcv.isRegister()) {
+        _ = try func.addInst(.{
+            .tag = .pseudo_load_tlv,
+            .data = .{ .reloc = .{
+                .register = dest_mcv.getReg().?,
+                .atom_index = try func.owner.getSymbolIndex(func),
+                .sym_index = tlv_sym_index,
+            } },
+        });
+    } else {
+        const tmp_reg, const tmp_lock = try func.allocReg(.int);
+        defer func.register_manager.unlockReg(tmp_lock);
+        _ = try func.addInst(.{
+            .tag = .pseudo_load_tlv,
+            .data = .{ .reloc = .{
+                .register = tmp_reg,
+                .atom_index = try func.owner.getSymbolIndex(func),
+                .sym_index = tlv_sym_index,
+            } },
+        });
+        try func.genCopy(ptr_ty, dest_mcv, .{ .register = tmp_reg });
+    }
+
+    return func.finishAir(inst, dest_mcv, .{ .none, .none, .none });
+}
+
 fn airTry(func: *Func, inst: Air.Inst.Index) !void {
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = func.air.extraData(Air.Try, pl_op.payload);
-    const body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[extra.end..][0..extra.data.body_len]);
     const operand_ty = func.typeOf(pl_op.operand);
     const result = try func.genTry(inst, pl_op.operand, body, operand_ty, false);
     return func.finishAir(inst, result, .{ .none, .none, .none });
@@ -4391,7 +4441,7 @@ fn reuseOperand(
     func: *Func,
     inst: Air.Inst.Index,
     operand: Air.Inst.Ref,
-    op_index: Liveness.OperandInt,
+    op_index: Air.Liveness.OperandInt,
     mcv: MCValue,
 ) bool {
     return func.reuseOperandAdvanced(inst, operand, op_index, mcv, inst);
@@ -4401,7 +4451,7 @@ fn reuseOperandAdvanced(
     func: *Func,
     inst: Air.Inst.Index,
     operand: Air.Inst.Ref,
-    op_index: Liveness.OperandInt,
+    op_index: Air.Liveness.OperandInt,
     mcv: MCValue,
     maybe_tracked_inst: ?Air.Inst.Index,
 ) bool {
@@ -4494,14 +4544,12 @@ fn load(func: *Func, dst_mcv: MCValue, ptr_mcv: MCValue, ptr_ty: Type) InnerErro
         .register_offset,
         .lea_frame,
         .lea_symbol,
-        .lea_tlv,
         => try func.genCopy(dst_ty, dst_mcv, ptr_mcv.deref()),
 
         .memory,
         .indirect,
         .load_symbol,
         .load_frame,
-        .load_tlv,
         => {
             const addr_reg = try func.copyToTmpRegister(ptr_ty, ptr_mcv);
             const addr_lock = func.register_manager.lockRegAssumeUnused(addr_reg);
@@ -4548,14 +4596,12 @@ fn store(func: *Func, ptr_mcv: MCValue, src_mcv: MCValue, ptr_ty: Type) !void {
         .register_offset,
         .lea_symbol,
         .lea_frame,
-        .lea_tlv,
         => try func.genCopy(src_ty, ptr_mcv.deref(), src_mcv),
 
         .memory,
         .indirect,
         .load_symbol,
         .load_frame,
-        .load_tlv,
         => {
             const addr_reg = try func.copyToTmpRegister(ptr_ty, ptr_mcv);
             const addr_lock = func.register_manager.lockRegAssumeUnused(addr_reg);
@@ -4792,7 +4838,7 @@ fn airCall(func: *Func, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const callee = pl_op.operand;
     const extra = func.air.extraData(Air.Call, pl_op.payload);
-    const arg_refs: []const Air.Inst.Ref = @ptrCast(func.air.extra[extra.end..][0..extra.data.args_len]);
+    const arg_refs: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[extra.end..][0..extra.data.args_len]);
 
     const expected_num_args = 8;
     const ExpectedContents = extern struct {
@@ -5208,7 +5254,7 @@ fn airDbgStmt(func: *Func, inst: Air.Inst.Index) !void {
 fn airDbgInlineBlock(func: *Func, inst: Air.Inst.Index) !void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
-    try func.lowerBlock(inst, @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]));
+    try func.lowerBlock(inst, @ptrCast(func.air.extra.items[extra.end..][0..extra.data.body_len]));
 }
 
 fn airDbgVar(func: *Func, inst: Air.Inst.Index) InnerError!void {
@@ -5260,8 +5306,8 @@ fn airCondBr(func: *Func, inst: Air.Inst.Index) !void {
     const cond = try func.resolveInst(pl_op.operand);
     const cond_ty = func.typeOf(pl_op.operand);
     const extra = func.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra.end..][0..extra.data.then_body_len]);
-    const else_body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const then_body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[extra.end..][0..extra.data.then_body_len]);
+    const else_body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
     const liveness_cond_br = func.liveness.getCondBr(inst);
 
     // If the condition dies here in this condbr instruction, process
@@ -5620,7 +5666,7 @@ fn airLoop(func: *Func, inst: Air.Inst.Index) !void {
     // A loop is a setup to be able to jump back to the beginning.
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const loop = func.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(func.air.extra[loop.end..][0..loop.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[loop.end..][0..loop.data.body_len]);
 
     func.scope_generation += 1;
     const state = try func.saveState();
@@ -5650,7 +5696,7 @@ fn jump(func: *Func, index: Mir.Inst.Index) !Mir.Inst.Index {
 fn airBlock(func: *Func, inst: Air.Inst.Index) !void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Block, ty_pl.payload);
-    try func.lowerBlock(inst, @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]));
+    try func.lowerBlock(inst, @ptrCast(func.air.extra.items[extra.end..][0..extra.data.body_len]));
 }
 
 fn lowerBlock(func: *Func, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
@@ -6039,9 +6085,9 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     const clobbers_len: u31 = @truncate(extra.data.flags);
     var extra_i: usize = extra.end;
     const outputs: []const Air.Inst.Ref =
-        @ptrCast(func.air.extra[extra_i..][0..extra.data.outputs_len]);
+        @ptrCast(func.air.extra.items[extra_i..][0..extra.data.outputs_len]);
     extra_i += outputs.len;
-    const inputs: []const Air.Inst.Ref = @ptrCast(func.air.extra[extra_i..][0..extra.data.inputs_len]);
+    const inputs: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[extra_i..][0..extra.data.inputs_len]);
     extra_i += inputs.len;
 
     var result: MCValue = .none;
@@ -6059,8 +6105,8 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
     var outputs_extra_i = extra_i;
     for (outputs) |output| {
-        const extra_bytes = mem.sliceAsBytes(func.air.extra[extra_i..]);
-        const constraint = mem.sliceTo(mem.sliceAsBytes(func.air.extra[extra_i..]), 0);
+        const extra_bytes = mem.sliceAsBytes(func.air.extra.items[extra_i..]);
+        const constraint = mem.sliceTo(mem.sliceAsBytes(func.air.extra.items[extra_i..]), 0);
         const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
         // This equation accounts for the fact that even if we have exactly 4 bytes
         // for the string, we still use the next u32 for the null terminator.
@@ -6117,7 +6163,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     }
 
     for (inputs) |input| {
-        const input_bytes = mem.sliceAsBytes(func.air.extra[extra_i..]);
+        const input_bytes = mem.sliceAsBytes(func.air.extra.items[extra_i..]);
         const constraint = mem.sliceTo(input_bytes, 0);
         const name = mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
         // This equation accounts for the fact that even if we have exactly 4 bytes
@@ -6153,7 +6199,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     {
         var clobber_i: u32 = 0;
         while (clobber_i < clobbers_len) : (clobber_i += 1) {
-            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(func.air.extra[extra_i..]), 0);
+            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(func.air.extra.items[extra_i..]), 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
             extra_i += clobber.len / 4 + 1;
@@ -6200,7 +6246,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         labels.deinit(func.gpa);
     }
 
-    const asm_source = std.mem.sliceAsBytes(func.air.extra[extra_i..])[0..extra.data.source_len];
+    const asm_source = std.mem.sliceAsBytes(func.air.extra.items[extra_i..])[0..extra.data.source_len];
     var line_it = mem.tokenizeAny(u8, asm_source, "\n\r;");
     next_line: while (line_it.next()) |line| {
         var mnem_it = mem.tokenizeAny(u8, line, " \t");
@@ -6469,9 +6515,9 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         return func.fail("undefined label: '{s}'", .{label.key_ptr.*});
 
     for (outputs, args.items[0..outputs.len]) |output, arg_mcv| {
-        const extra_bytes = mem.sliceAsBytes(func.air.extra[outputs_extra_i..]);
+        const extra_bytes = mem.sliceAsBytes(func.air.extra.items[outputs_extra_i..]);
         const constraint =
-            mem.sliceTo(mem.sliceAsBytes(func.air.extra[outputs_extra_i..]), 0);
+            mem.sliceTo(mem.sliceAsBytes(func.air.extra.items[outputs_extra_i..]), 0);
         const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
         // This equation accounts for the fact that even if we have exactly 4 bytes
         // for the string, we still use the next u32 for the null terminator.
@@ -6484,7 +6530,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     }
 
     simple: {
-        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
         var buf_index: usize = 0;
         for (outputs) |output| {
             if (output == .none) continue;
@@ -6544,7 +6590,7 @@ fn genCopy(func: *Func, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
             ty,
             src_mcv,
         ),
-        .load_symbol, .load_tlv => {
+        .load_symbol => {
             const addr_reg, const addr_lock = try func.allocReg(.int);
             defer func.register_manager.unlockReg(addr_lock);
 
@@ -7072,25 +7118,6 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             try func.genSetReg(ty, addr_reg, src_mcv.address());
             try func.genSetReg(ty, reg, .{ .indirect = .{ .reg = addr_reg } });
         },
-        .lea_tlv => |sym| {
-            const atom_index = try func.owner.getSymbolIndex(func);
-
-            _ = try func.addInst(.{
-                .tag = .pseudo_load_tlv,
-                .data = .{ .reloc = .{
-                    .register = reg,
-                    .atom_index = atom_index,
-                    .sym_index = sym,
-                } },
-            });
-        },
-        .load_tlv => {
-            const addr_reg, const addr_lock = try func.allocReg(.int);
-            defer func.register_manager.unlockReg(addr_lock);
-
-            try func.genSetReg(ty, addr_reg, src_mcv.address());
-            try func.genSetReg(ty, reg, .{ .indirect = .{ .reg = addr_reg } });
-        },
         .air_ref => |ref| try func.genSetReg(ty, reg, try func.resolveInst(ref)),
         else => return func.fail("TODO: genSetReg {s}", .{@tagName(src_mcv)}),
     }
@@ -7256,7 +7283,6 @@ fn genSetMem(
             return func.genSetMem(base, disp, ty, .{ .register = reg });
         },
         .air_ref => |src_ref| try func.genSetMem(base, disp, ty, try func.resolveInst(src_ref)),
-        else => return func.fail("TODO: genSetMem {s}", .{@tagName(src_mcv)}),
     }
 }
 
@@ -8005,10 +8031,14 @@ fn airSelect(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, result, .{ pl_op.operand, extra.lhs, extra.rhs });
 }
 
-fn airShuffle(func: *Func, inst: Air.Inst.Index) !void {
-    const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airShuffle for riscv64", .{});
-    return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+fn airShuffleOne(func: *Func, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return func.fail("TODO implement airShuffleOne for riscv64", .{});
+}
+
+fn airShuffleTwo(func: *Func, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return func.fail("TODO implement airShuffleTwo for riscv64", .{});
 }
 
 fn airReduce(func: *Func, inst: Air.Inst.Index) !void {
@@ -8023,7 +8053,7 @@ fn airAggregateInit(func: *Func, inst: Air.Inst.Index) !void {
     const result_ty = func.typeOfIndex(inst);
     const len: usize = @intCast(result_ty.arrayLen(zcu));
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const elements: []const Air.Inst.Ref = @ptrCast(func.air.extra[ty_pl.payload..][0..len]);
+    const elements: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[ty_pl.payload..][0..len]);
 
     const result: MCValue = result: {
         switch (result_ty.zigTypeTag(zcu)) {
@@ -8109,8 +8139,8 @@ fn airAggregateInit(func: *Func, inst: Air.Inst.Index) !void {
         }
     };
 
-    if (elements.len <= Liveness.bpi - 1) {
-        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+    if (elements.len <= Air.Liveness.bpi - 1) {
+        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
         @memcpy(buf[0..elements.len], elements);
         return func.finishAir(inst, result, buf);
     }
@@ -8190,7 +8220,6 @@ fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
             .undef => unreachable,
             .lea_symbol => |sym_index| .{ .lea_symbol = .{ .sym = sym_index } },
             .load_symbol => |sym_index| .{ .load_symbol = .{ .sym = sym_index } },
-            .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
             .load_got, .load_direct, .lea_direct => {

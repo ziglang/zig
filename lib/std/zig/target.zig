@@ -26,7 +26,6 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .armeb, .os = .linux, .abi = .musleabihf, .os_ver = .{ .major = 2, .minor = 6, .patch = 0 } },
     .{ .arch = .armeb, .os = .netbsd, .abi = .eabi, .os_ver = .{ .major = 1, .minor = 2, .patch = 0 } },
     .{ .arch = .armeb, .os = .netbsd, .abi = .eabihf, .os_ver = .{ .major = 1, .minor = 2, .patch = 0 } },
-    .{ .arch = .thumb, .os = .freebsd, .abi = .eabihf, .os_ver = .{ .major = 11, .minor = 0, .patch = 0 } },
     .{ .arch = .thumb, .os = .linux, .abi = .musleabi, .os_ver = .{ .major = 2, .minor = 1, .patch = 0 } },
     .{ .arch = .thumb, .os = .linux, .abi = .musleabihf, .os_ver = .{ .major = 2, .minor = 1, .patch = 0 } },
     .{ .arch = .thumb, .os = .windows, .abi = .gnu },
@@ -297,10 +296,6 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
         if (eqlIgnoreCase(ignore_case, name, "portabledeviceguids"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "pthread"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "scrnsave"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "scrnsavw"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "strmiids"))
             return true;

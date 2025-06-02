@@ -677,6 +677,7 @@ const usage_build_generic =
     \\  --debug-compile-errors       Crash with helpful diagnostics at the first compile error
     \\  --debug-link-snapshot        Enable dumping of the linker's state in JSON format
     \\  --debug-rt                   Debug compiler runtime libraries
+    \\  --debug-incremental          Enable incremental compilation debug features
     \\
 ;
 
@@ -832,6 +833,7 @@ fn buildOutputType(
     var data_sections = false;
     var listen: Listen = .none;
     var debug_compile_errors = false;
+    var debug_incremental = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
         EnvVar.ZIG_VERBOSE_LINK.isSet();
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
@@ -1383,6 +1385,12 @@ fn buildOutputType(
                         }
                     } else if (mem.eql(u8, arg, "--debug-rt")) {
                         debug_compiler_runtime_libs = true;
+                    } else if (mem.eql(u8, arg, "--debug-incremental")) {
+                        if (build_options.enable_debug_extensions) {
+                            debug_incremental = true;
+                        } else {
+                            warn("Zig was compiled without debug extensions. --debug-incremental has no effect.", .{});
+                        }
                     } else if (mem.eql(u8, arg, "-fincremental")) {
                         dev.check(.incremental);
                         opt_incremental = true;
@@ -3460,6 +3468,9 @@ fn buildOutputType(
     };
 
     const incremental = opt_incremental orelse false;
+    if (debug_incremental and !incremental) {
+        fatal("--debug-incremental requires -fincremental", .{});
+    }
 
     const disable_lld_caching = !output_to_cache;
 
@@ -3592,6 +3603,7 @@ fn buildOutputType(
         .cache_mode = cache_mode,
         .subsystem = subsystem,
         .debug_compile_errors = debug_compile_errors,
+        .debug_incremental = debug_incremental,
         .incremental = incremental,
         .enable_link_snapshots = enable_link_snapshots,
         .install_name = install_name,
@@ -4195,8 +4207,24 @@ fn serve(
     const main_progress_node = std.Progress.start(.{});
     const file_system_inputs = comp.file_system_inputs.?;
 
+    const IncrementalDebugServer = if (build_options.enable_debug_extensions)
+        @import("IncrementalDebugServer.zig")
+    else
+        void;
+
+    var ids: IncrementalDebugServer = if (comp.debugIncremental()) ids: {
+        break :ids .init(comp.zcu orelse @panic("--debug-incremental requires a ZCU"));
+    } else undefined;
+    defer if (comp.debugIncremental()) ids.deinit();
+
+    if (comp.debugIncremental()) ids.spawn();
+
     while (true) {
         const hdr = try server.receiveMessage();
+
+        // Lock the debug server while hanling the message.
+        if (comp.debugIncremental()) ids.mutex.lock();
+        defer if (comp.debugIncremental()) ids.mutex.unlock();
 
         switch (hdr.tag) {
             .exit => return cleanExit(),

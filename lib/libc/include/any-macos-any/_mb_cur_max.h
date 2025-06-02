@@ -25,6 +25,9 @@
 #define __MB_CUR_MAX_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
 int		___mb_cur_max(void);

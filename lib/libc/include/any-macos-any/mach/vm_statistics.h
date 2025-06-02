@@ -66,6 +66,7 @@
 #ifndef _MACH_VM_STATISTICS_H_
 #define _MACH_VM_STATISTICS_H_
 
+#include <stdbool.h>
 #include <sys/cdefs.h>
 
 #include <mach/machine/vm_types.h>
@@ -330,12 +331,18 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 #define GUARD_TYPE_VIRT_MEMORY  0x5
 
 /* Reasons for exception for virtual memory */
-enum virtual_memory_guard_exception_codes {
-	kGUARD_EXC_DEALLOC_GAP  = 1u << 0,
-	kGUARD_EXC_RECLAIM_COPYIO_FAILURE = 1u << 1,
-	kGUARD_EXC_RECLAIM_INDEX_FAILURE = 1u << 2,
-	kGUARD_EXC_RECLAIM_DEALLOCATE_FAILURE = 1u << 3,
-};
+__enum_decl(virtual_memory_guard_exception_code_t, uint32_t, {
+	kGUARD_EXC_DEALLOC_GAP  = 1,
+	kGUARD_EXC_RECLAIM_COPYIO_FAILURE = 2,
+	kGUARD_EXC_SEC_LOOKUP_DENIED = 3,
+	kGUARD_EXC_RECLAIM_INDEX_FAILURE = 4,
+	kGUARD_EXC_SEC_RANGE_DENIED = 6,
+	kGUARD_EXC_SEC_ACCESS_FAULT = 7,
+	kGUARD_EXC_RECLAIM_DEALLOCATE_FAILURE = 8,
+	kGUARD_EXC_SEC_COPY_DENIED = 16,
+	kGUARD_EXC_SEC_SHARING_DENIED = 32,
+	kGUARD_EXC_SEC_ASYNC_ACCESS_FAULT = 64,
+});
 
 
 /* current accounting postmark */

@@ -192,8 +192,6 @@ test eql {
 }
 
 test "eql (vectors)" {
-    if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     const random = std.crypto.random;
     const expect = std.testing.expect;
     var a: [100]u8 = undefined;

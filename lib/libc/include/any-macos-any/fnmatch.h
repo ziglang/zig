@@ -58,7 +58,10 @@
 #ifndef	_FNMATCH_H_
 #define	_FNMATCH_H_
 
+#include <_bounds.h>
 #include <sys/cdefs.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #define	FNM_NOMATCH	1	/* Match failed. */
 

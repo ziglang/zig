@@ -30,7 +30,6 @@ const AstGen = std.zig.AstGen;
 const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
 const build_options = @import("build_options");
-const Liveness = @import("Liveness.zig");
 const isUpDir = @import("introspect.zig").isUpDir;
 const clang = @import("clang.zig");
 const InternPool = @import("InternPool.zig");
@@ -308,7 +307,55 @@ free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 /// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the element.
 builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
 
+incremental_debug_state: if (build_options.enable_debug_extensions) IncrementalDebugState else void =
+    if (build_options.enable_debug_extensions) .init else {},
+
 generation: u32 = 0,
+
+pub const IncrementalDebugState = struct {
+    /// All container types in the ZCU, even dead ones.
+    /// Value is the generation the type was created on.
+    types: std.AutoArrayHashMapUnmanaged(InternPool.Index, u32),
+    /// All `Nav`s in the ZCU, even dead ones.
+    /// Value is the generation the `Nav` was created on.
+    navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, u32),
+    /// All `AnalUnit`s in the ZCU, even dead ones.
+    units: std.AutoArrayHashMapUnmanaged(AnalUnit, UnitInfo),
+
+    pub const init: IncrementalDebugState = .{
+        .types = .empty,
+        .navs = .empty,
+        .units = .empty,
+    };
+    pub fn deinit(ids: *IncrementalDebugState, gpa: Allocator) void {
+        for (ids.units.values()) |*unit_info| {
+            unit_info.deps.deinit(gpa);
+        }
+        ids.types.deinit(gpa);
+        ids.navs.deinit(gpa);
+        ids.units.deinit(gpa);
+    }
+
+    pub const UnitInfo = struct {
+        last_update_gen: u32,
+        /// This information isn't easily recoverable from `InternPool`'s dependency storage format.
+        deps: std.ArrayListUnmanaged(InternPool.Dependee),
+    };
+    pub fn getUnitInfo(ids: *IncrementalDebugState, gpa: Allocator, unit: AnalUnit) Allocator.Error!*UnitInfo {
+        const gop = try ids.units.getOrPut(gpa, unit);
+        if (!gop.found_existing) gop.value_ptr.* = .{
+            .last_update_gen = std.math.maxInt(u32),
+            .deps = .empty,
+        };
+        return gop.value_ptr;
+    }
+    pub fn newType(ids: *IncrementalDebugState, zcu: *Zcu, ty: InternPool.Index) Allocator.Error!void {
+        try ids.types.putNoClobber(zcu.gpa, ty, zcu.generation);
+    }
+    pub fn newNav(ids: *IncrementalDebugState, zcu: *Zcu, nav: InternPool.Nav.Index) Allocator.Error!void {
+        try ids.navs.putNoClobber(zcu.gpa, nav, zcu.generation);
+    }
+};
 
 pub const PerThread = @import("Zcu/PerThread.zig");
 
@@ -394,8 +441,7 @@ pub const BuiltinDecl = enum {
     @"panic.castToNull",
     @"panic.incorrectAlignment",
     @"panic.invalidErrorCode",
-    @"panic.castTruncatedData",
-    @"panic.negativeToUnsigned",
+    @"panic.integerOutOfBounds",
     @"panic.integerOverflow",
     @"panic.shlOverflow",
     @"panic.shrOverflow",
@@ -471,8 +517,7 @@ pub const BuiltinDecl = enum {
             .@"panic.castToNull",
             .@"panic.incorrectAlignment",
             .@"panic.invalidErrorCode",
-            .@"panic.castTruncatedData",
-            .@"panic.negativeToUnsigned",
+            .@"panic.integerOutOfBounds",
             .@"panic.integerOverflow",
             .@"panic.shlOverflow",
             .@"panic.shrOverflow",
@@ -538,8 +583,7 @@ pub const SimplePanicId = enum {
     cast_to_null,
     incorrect_alignment,
     invalid_error_code,
-    cast_truncated_data,
-    negative_to_unsigned,
+    integer_out_of_bounds,
     integer_overflow,
     shl_overflow,
     shr_overflow,
@@ -562,8 +606,7 @@ pub const SimplePanicId = enum {
             .cast_to_null               => .@"panic.castToNull",
             .incorrect_alignment        => .@"panic.incorrectAlignment",
             .invalid_error_code         => .@"panic.invalidErrorCode",
-            .cast_truncated_data        => .@"panic.castTruncatedData",
-            .negative_to_unsigned       => .@"panic.negativeToUnsigned",
+            .integer_out_of_bounds      => .@"panic.integerOutOfBounds",
             .integer_overflow           => .@"panic.integerOverflow",
             .shl_overflow               => .@"panic.shlOverflow",
             .shr_overflow               => .@"panic.shrOverflow",
@@ -2746,6 +2789,10 @@ pub fn deinit(zcu: *Zcu) void {
         zcu.free_type_references.deinit(gpa);
 
         if (zcu.resolved_references) |*r| r.deinit(gpa);
+
+        if (zcu.comp.debugIncremental()) {
+            zcu.incremental_debug_state.deinit(gpa);
+        }
     }
     zcu.intern_pool.deinit(gpa);
 }
@@ -3693,7 +3740,7 @@ pub fn errorSetBits(zcu: *const Zcu) u16 {
     const target = zcu.getTarget();
 
     if (zcu.error_limit == 0) return 0;
-    if (target.cpu.arch == .spirv64) {
+    if (target.cpu.arch.isSpirV()) {
         if (!std.Target.spirv.featureSetHas(target.cpu.features, .storage_push_constant16)) {
             return 32;
         }
@@ -3778,26 +3825,8 @@ pub const Feature = enum {
     is_named_enum_value,
     error_set_has_value,
     field_reordering,
-    /// When this feature is supported, the backend supports the following AIR instructions:
-    /// * `Air.Inst.Tag.add_safe`
-    /// * `Air.Inst.Tag.sub_safe`
-    /// * `Air.Inst.Tag.mul_safe`
-    /// * `Air.Inst.Tag.intcast_safe`
-    /// The motivation for this feature is that it makes AIR smaller, and makes it easier
-    /// to generate better machine code in the backends. All backends should migrate to
-    /// enabling this feature.
-    safety_checked_instructions,
     /// If the backend supports running from another thread.
     separate_thread,
-    /// If the backend supports the following AIR instructions with vector types:
-    /// * `Air.Inst.Tag.bit_and`
-    /// * `Air.Inst.Tag.bit_or`
-    /// * `Air.Inst.Tag.bitcast`
-    /// * `Air.Inst.Tag.float_from_int`
-    /// * `Air.Inst.Tag.fptrunc`
-    /// * `Air.Inst.Tag.int_from_float`
-    /// If not supported, Sema will scalarize the operation.
-    all_vector_instructions,
 };
 
 pub fn backendSupportsFeature(zcu: *const Zcu, comptime feature: Feature) bool {
@@ -4237,13 +4266,6 @@ pub fn setFileRootType(zcu: *Zcu, file_index: File.Index, root_type: InternPool.
     const file_index_unwrapped = file_index.unwrap(ip);
     const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
     files.view().items(.root_type)[file_index_unwrapped.index] = root_type;
-}
-
-pub fn filePathDigest(zcu: *const Zcu, file_index: File.Index) Cache.BinDigest {
-    const ip = &zcu.intern_pool;
-    const file_index_unwrapped = file_index.unwrap(ip);
-    const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
-    return files.view().items(.bin_digest)[file_index_unwrapped.index];
 }
 
 pub fn navSrcLoc(zcu: *const Zcu, nav_index: InternPool.Nav.Index) LazySrcLoc {

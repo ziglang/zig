@@ -5,11 +5,14 @@ const Air = @import("../../Air.zig");
 const codegen = @import("../../codegen.zig");
 const InternPool = @import("../../InternPool.zig");
 const link = @import("../../link.zig");
-const Liveness = @import("../../Liveness.zig");
 const Zcu = @import("../../Zcu.zig");
 
 const assert = std.debug.assert;
 const log = std.log.scoped(.codegen);
+
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
+}
 
 pub fn generate(
     bin_file: *link.File,
@@ -17,7 +20,7 @@ pub fn generate(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
 ) codegen.CodeGenError!void {

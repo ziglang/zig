@@ -12,9 +12,10 @@ const Allocator = std.mem.Allocator;
 const Log2Int = std.math.Log2Int;
 
 const Liveness = @This();
-const trace = @import("tracy.zig").trace;
-const Air = @import("Air.zig");
-const InternPool = @import("InternPool.zig");
+const trace = @import("../tracy.zig").trace;
+const Air = @import("../Air.zig");
+const InternPool = @import("../InternPool.zig");
+const Zcu = @import("../Zcu.zig");
 
 pub const Verify = @import("Liveness/Verify.zig");
 
@@ -136,12 +137,15 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
     };
 }
 
-pub fn analyze(gpa: Allocator, air: Air, intern_pool: *InternPool) Allocator.Error!Liveness {
+pub fn analyze(zcu: *Zcu, air: Air, intern_pool: *InternPool) Allocator.Error!Liveness {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = zcu.gpa;
+
     var a: Analysis = .{
         .gpa = gpa,
+        .zcu = zcu,
         .air = air,
         .tomb_bits = try gpa.alloc(
             usize,
@@ -220,6 +224,7 @@ const OperandCategory = enum {
 pub fn categorizeOperand(
     l: Liveness,
     air: Air,
+    zcu: *Zcu,
     inst: Air.Inst.Index,
     operand: Air.Inst.Index,
     ip: *const InternPool,
@@ -334,6 +339,7 @@ pub fn categorizeOperand(
         .wasm_memory_size,
         .err_return_trace,
         .save_err_return_trace_index,
+        .tlv_dllimport_ptr,
         .c_va_start,
         .work_item_id,
         .work_group_size,
@@ -479,7 +485,7 @@ pub fn categorizeOperand(
             const inst_data = air_datas[@intFromEnum(inst)].pl_op;
             const callee = inst_data.operand;
             const extra = air.extraData(Air.Call, inst_data.payload);
-            const args = @as([]const Air.Inst.Ref, @ptrCast(air.extra[extra.end..][0..extra.data.args_len]));
+            const args = @as([]const Air.Inst.Ref, @ptrCast(air.extra.items[extra.end..][0..extra.data.args_len]));
             if (args.len + 1 <= bpi - 1) {
                 if (callee == operand_ref) return matchOperandSmallIndex(l, inst, 0, .write);
                 for (args, 0..) |arg, i| {
@@ -510,10 +516,15 @@ pub fn categorizeOperand(
             if (extra.rhs == operand_ref) return matchOperandSmallIndex(l, inst, 2, .none);
             return .none;
         },
-        .shuffle => {
-            const extra = air.extraData(Air.Shuffle, air_datas[@intFromEnum(inst)].ty_pl.payload).data;
-            if (extra.a == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
-            if (extra.b == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
+        .shuffle_one => {
+            const unwrapped = air.unwrapShuffleOne(zcu, inst);
+            if (unwrapped.operand == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            return .none;
+        },
+        .shuffle_two => {
+            const unwrapped = air.unwrapShuffleTwo(zcu, inst);
+            if (unwrapped.operand_a == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
+            if (unwrapped.operand_b == operand_ref) return matchOperandSmallIndex(l, inst, 1, .none);
             return .none;
         },
         .reduce, .reduce_optimized => {
@@ -531,7 +542,7 @@ pub fn categorizeOperand(
             const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
             const aggregate_ty = ty_pl.ty.toType();
             const len = @as(usize, @intCast(aggregate_ty.arrayLenIp(ip)));
-            const elements = @as([]const Air.Inst.Ref, @ptrCast(air.extra[ty_pl.payload..][0..len]));
+            const elements = @as([]const Air.Inst.Ref, @ptrCast(air.extra.items[ty_pl.payload..][0..len]));
 
             if (elements.len <= bpi - 1) {
                 for (elements, 0..) |elem, i| {
@@ -610,7 +621,7 @@ pub fn categorizeOperand(
                         .dbg_inline_block => Air.DbgInlineBlock,
                         else => unreachable,
                     }, ty_pl.payload);
-                    break :body air.extra[extra.end..][0..extra.data.body_len];
+                    break :body air.extra.items[extra.end..][0..extra.data.body_len];
                 },
                 else => unreachable,
             });
@@ -629,8 +640,8 @@ pub fn categorizeOperand(
                 if (cond_extra.data.then_body_len > 2 or cond_extra.data.else_body_len > 2)
                     return .complex;
 
-                const then_body: []const Air.Inst.Index = @ptrCast(air.extra[cond_extra.end..][0..cond_extra.data.then_body_len]);
-                const else_body: []const Air.Inst.Index = @ptrCast(air.extra[cond_extra.end + cond_extra.data.then_body_len ..][0..cond_extra.data.else_body_len]);
+                const then_body: []const Air.Inst.Index = @ptrCast(air.extra.items[cond_extra.end..][0..cond_extra.data.then_body_len]);
+                const else_body: []const Air.Inst.Index = @ptrCast(air.extra.items[cond_extra.end + cond_extra.data.then_body_len ..][0..cond_extra.data.else_body_len]);
                 if (then_body.len > 1 and air_tags[@intFromEnum(then_body[1])] != .unreach)
                     return .complex;
                 if (else_body.len > 1 and air_tags[@intFromEnum(else_body[1])] != .unreach)
@@ -638,7 +649,7 @@ pub fn categorizeOperand(
 
                 var operand_live: bool = true;
                 for (&[_]Air.Inst.Index{ then_body[0], else_body[0] }) |cond_inst| {
-                    if (l.categorizeOperand(air, cond_inst, operand, ip) == .tomb)
+                    if (l.categorizeOperand(air, zcu, cond_inst, operand, ip) == .tomb)
                         operand_live = false;
 
                     switch (air_tags[@intFromEnum(cond_inst)]) {
@@ -823,6 +834,7 @@ pub const BigTomb = struct {
 /// In-progress data; on successful analysis converted into `Liveness`.
 const Analysis = struct {
     gpa: Allocator,
+    zcu: *Zcu,
     air: Air,
     intern_pool: *InternPool,
     tomb_bits: []usize,
@@ -960,6 +972,7 @@ fn analyzeInst(
         .wasm_memory_size,
         .err_return_trace,
         .save_err_return_trace_index,
+        .tlv_dllimport_ptr,
         .c_va_start,
         .work_item_id,
         .work_group_size,
@@ -1094,7 +1107,7 @@ fn analyzeInst(
             const inst_data = inst_datas[@intFromEnum(inst)].pl_op;
             const callee = inst_data.operand;
             const extra = a.air.extraData(Air.Call, inst_data.payload);
-            const args = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra[extra.end..][0..extra.data.args_len]));
+            const args = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra.end..][0..extra.data.args_len]));
             if (args.len + 1 <= bpi - 1) {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
                 buf[0] = callee;
@@ -1117,9 +1130,13 @@ fn analyzeInst(
             const extra = a.air.extraData(Air.Bin, pl_op.payload).data;
             return analyzeOperands(a, pass, data, inst, .{ pl_op.operand, extra.lhs, extra.rhs });
         },
-        .shuffle => {
-            const extra = a.air.extraData(Air.Shuffle, inst_datas[@intFromEnum(inst)].ty_pl.payload).data;
-            return analyzeOperands(a, pass, data, inst, .{ extra.a, extra.b, .none });
+        .shuffle_one => {
+            const unwrapped = a.air.unwrapShuffleOne(a.zcu, inst);
+            return analyzeOperands(a, pass, data, inst, .{ unwrapped.operand, .none, .none });
+        },
+        .shuffle_two => {
+            const unwrapped = a.air.unwrapShuffleTwo(a.zcu, inst);
+            return analyzeOperands(a, pass, data, inst, .{ unwrapped.operand_a, unwrapped.operand_b, .none });
         },
         .reduce, .reduce_optimized => {
             const reduce = inst_datas[@intFromEnum(inst)].reduce;
@@ -1133,7 +1150,7 @@ fn analyzeInst(
             const ty_pl = inst_datas[@intFromEnum(inst)].ty_pl;
             const aggregate_ty = ty_pl.ty.toType();
             const len = @as(usize, @intCast(aggregate_ty.arrayLenIp(ip)));
-            const elements = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra[ty_pl.payload..][0..len]));
+            const elements = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[ty_pl.payload..][0..len]));
 
             if (elements.len <= bpi - 1) {
                 var buf = [1]Air.Inst.Ref{.none} ** (bpi - 1);
@@ -1188,9 +1205,9 @@ fn analyzeInst(
         .assembly => {
             const extra = a.air.extraData(Air.Asm, inst_datas[@intFromEnum(inst)].ty_pl.payload);
             var extra_i: usize = extra.end;
-            const outputs = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra[extra_i..][0..extra.data.outputs_len]));
+            const outputs = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra_i..][0..extra.data.outputs_len]));
             extra_i += outputs.len;
-            const inputs = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra[extra_i..][0..extra.data.inputs_len]));
+            const inputs = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra_i..][0..extra.data.inputs_len]));
             extra_i += inputs.len;
 
             const num_operands = simple: {
@@ -1233,7 +1250,7 @@ fn analyzeInst(
                 .dbg_inline_block => Air.DbgInlineBlock,
                 else => unreachable,
             }, ty_pl.payload);
-            return analyzeInstBlock(a, pass, data, inst, ty_pl.ty, @ptrCast(a.air.extra[extra.end..][0..extra.data.body_len]));
+            return analyzeInstBlock(a, pass, data, inst, ty_pl.ty, @ptrCast(a.air.extra.items[extra.end..][0..extra.data.body_len]));
         },
         .loop => return analyzeInstLoop(a, pass, data, inst),
 
@@ -1594,7 +1611,7 @@ fn analyzeInstLoop(
 ) !void {
     const inst_datas = a.air.instructions.items(.data);
     const extra = a.air.extraData(Air.Block, inst_datas[@intFromEnum(inst)].ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(a.air.extra[extra.end..][0..extra.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(a.air.extra.items[extra.end..][0..extra.data.body_len]);
     const gpa = a.gpa;
 
     try analyzeOperands(a, pass, data, inst, .{ .none, .none, .none });
@@ -1655,13 +1672,13 @@ fn analyzeInstCondBr(
     };
 
     const then_body: []const Air.Inst.Index = switch (inst_type) {
-        .cond_br => @ptrCast(a.air.extra[extra.end..][0..extra.data.then_body_len]),
+        .cond_br => @ptrCast(a.air.extra.items[extra.end..][0..extra.data.then_body_len]),
         else => &.{}, // we won't use this
     };
 
     const else_body: []const Air.Inst.Index = @ptrCast(switch (inst_type) {
-        .cond_br => a.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len],
-        .@"try", .try_ptr => a.air.extra[extra.end..][0..extra.data.body_len],
+        .cond_br => a.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len],
+        .@"try", .try_ptr => a.air.extra.items[extra.end..][0..extra.data.body_len],
     });
 
     switch (pass) {

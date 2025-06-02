@@ -109,27 +109,21 @@ pub fn feed(p: *HeadParser, bytes: []const u8) usize {
                     continue;
                 },
                 else => {
+                    const Vector = @Vector(vector_len, u8);
+                    // const BoolVector = @Vector(vector_len, bool);
+                    const BitVector = @Vector(vector_len, u1);
+                    const SizeVector = @Vector(vector_len, u8);
+
                     const chunk = bytes[index..][0..vector_len];
-                    const matches = if (use_vectors) matches: {
-                        const Vector = @Vector(vector_len, u8);
-                        // const BoolVector = @Vector(vector_len, bool);
-                        const BitVector = @Vector(vector_len, u1);
-                        const SizeVector = @Vector(vector_len, u8);
+                    const v: Vector = chunk.*;
+                    // depends on https://github.com/ziglang/zig/issues/19755
+                    // const matches_r: BitVector = @bitCast(v == @as(Vector, @splat('\r')));
+                    // const matches_n: BitVector = @bitCast(v == @as(Vector, @splat('\n')));
+                    const matches_r: BitVector = @select(u1, v == @as(Vector, @splat('\r')), @as(Vector, @splat(1)), @as(Vector, @splat(0)));
+                    const matches_n: BitVector = @select(u1, v == @as(Vector, @splat('\n')), @as(Vector, @splat(1)), @as(Vector, @splat(0)));
+                    const matches_or: SizeVector = matches_r | matches_n;
 
-                        const v: Vector = chunk.*;
-                        const matches_r: BitVector = @bitCast(v == @as(Vector, @splat('\r')));
-                        const matches_n: BitVector = @bitCast(v == @as(Vector, @splat('\n')));
-                        const matches_or: SizeVector = matches_r | matches_n;
-
-                        break :matches @reduce(.Add, matches_or);
-                    } else matches: {
-                        var matches: u8 = 0;
-                        for (chunk) |byte| switch (byte) {
-                            '\r', '\n' => matches += 1,
-                            else => {},
-                        };
-                        break :matches matches;
-                    };
+                    const matches = @reduce(.Add, matches_or);
                     switch (matches) {
                         0 => {},
                         1 => switch (chunk[vector_len - 1]) {
@@ -357,7 +351,6 @@ inline fn intShift(comptime T: type, x: anytype) T {
 
 const HeadParser = @This();
 const std = @import("std");
-const use_vectors = builtin.zig_backend != .stage2_x86_64;
 const builtin = @import("builtin");
 
 test feed {
