@@ -126,7 +126,7 @@ fn printStructDefinition(options: *Options, out: Writer, comptime T: type) !void
             try out.writeAll(")");
         },
     }
-    if (@"struct".fields.len == 0) return out.writeAll(" {};\n\n");
+    if (@"struct".fields.len == 0) return out.writeAll(" {}");
     try out.writeAll(" {\n");
 
     inline for (@"struct".fields) |field| {
@@ -158,7 +158,7 @@ fn printUnionDefinition(options: *Options, out: Writer, comptime T: type) !void 
     try out.writeAll("union(");
     try printTypeName(options, out, tag_type, indent_width);
     try out.writeAll(")");
-    if (@"union".fields.len == 0) return out.writeAll(" {};\n\n");
+    if (@"union".fields.len == 0) return out.writeAll(" {}");
     try out.writeAll(" {\n");
 
     inline for (@"union".fields) |field| {
