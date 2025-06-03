@@ -4,6 +4,7 @@ const mem = std.mem;
 const testing = std.testing;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
 
 const ObjectMap = @import("dynamic.zig").ObjectMap;
 const Array = @import("dynamic.zig").Array;
@@ -73,8 +74,7 @@ test "json.parser.dynamic" {
 
 test "write json then parse it" {
     var out_buffer: [1000]u8 = undefined;
-    var fixed_writer: std.io.BufferedWriter = undefined;
-    fixed_writer.initFixed(&out_buffer);
+    var fixed_writer: Writer = .fixed(&out_buffer);
     var jw: json.Stringify = .{ .writer = &fixed_writer, .options = .{} };
 
     try jw.beginObject();
@@ -240,8 +240,7 @@ test "Value.jsonStringify" {
         .{ .object = obj },
     };
     var buffer: [0x1000]u8 = undefined;
-    var fixed_writer: std.io.BufferedWriter = undefined;
-    fixed_writer.initFixed(&buffer);
+    var fixed_writer: Writer = .fixed(&buffer);
 
     var jw: json.Stringify = .{ .writer = &fixed_writer, .options = .{ .whitespace = .indent_1 } };
     try jw.write(array);

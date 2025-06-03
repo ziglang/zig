@@ -2,6 +2,12 @@
 //! source lives here. These APIs are provided as-is and have absolutely no API
 //! guarantees whatsoever.
 
+const std = @import("std.zig");
+const tokenizer = @import("zig/tokenizer.zig");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
+
 pub const ErrorBundle = @import("zig/ErrorBundle.zig");
 pub const Server = @import("zig/Server.zig");
 pub const Client = @import("zig/Client.zig");
@@ -356,11 +362,6 @@ pub fn serializeCpuAlloc(ally: Allocator, cpu: std.Target.Cpu) Allocator.Error![
     return buffer.toOwnedSlice();
 }
 
-const std = @import("std.zig");
-const tokenizer = @import("zig/tokenizer.zig");
-const assert = std.debug.assert;
-const Allocator = std.mem.Allocator;
-
 /// Return a Formatter for a Zig identifier, escaping it with `@""` syntax if needed.
 ///
 /// - An empty `{}` format specifier escapes invalid identifiers, identifiers that shadow primitives
@@ -412,11 +413,7 @@ test fmtId {
 }
 
 /// Print the string as a Zig identifier, escaping it with `@""` syntax if needed.
-fn formatId(
-    bytes: []const u8,
-    bw: *std.io.BufferedWriter,
-    comptime fmt: []const u8,
-) !void {
+fn formatId(bytes: []const u8, bw: *Writer, comptime fmt: []const u8) !void {
     const allow_primitive, const allow_underscore = comptime parse_fmt: {
         var allow_primitive = false;
         var allow_underscore = false;
@@ -470,11 +467,7 @@ test fmtEscapes {
 /// Print the string as escaped contents of a double quoted or single-quoted string.
 /// Format `{}` treats contents as a double-quoted string.
 /// Format `{'}` treats contents as a single-quoted string.
-pub fn stringEscape(
-    bytes: []const u8,
-    bw: *std.io.BufferedWriter,
-    comptime f: []const u8,
-) !void {
+pub fn stringEscape(bytes: []const u8, bw: *Writer, comptime f: []const u8) !void {
     for (bytes) |byte| switch (byte) {
         '\n' => try bw.writeAll("\\n"),
         '\r' => try bw.writeAll("\\r"),

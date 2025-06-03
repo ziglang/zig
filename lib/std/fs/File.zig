@@ -844,7 +844,7 @@ pub fn write(self: File, bytes: []const u8) WriteError!usize {
     return posix.write(self.handle, bytes);
 }
 
-/// One-shot alternative to `std.io.BufferedWriter.writeAll` via `writer`.
+/// One-shot alternative to `std.io.Writer.writeAll` via `writer`.
 pub fn writeAll(self: File, bytes: []const u8) WriteError!void {
     var index: usize = 0;
     while (index < bytes.len) {
@@ -1029,7 +1029,7 @@ pub const Reader = struct {
 
     fn stream(
         io_reader: *std.io.Reader,
-        bw: *BufferedWriter,
+        bw: *std.io.Writer,
         limit: std.io.Limit,
     ) std.io.Reader.StreamError!usize {
         const r: *Reader = @fieldParentPtr("interface", io_reader);
@@ -1180,6 +1180,12 @@ pub const Reader = struct {
             .failure => return error.ReadFailed,
         }
     }
+
+    pub fn atEnd(r: *Reader) bool {
+        // Even if stat fails, size is set when end is encountered.
+        const size = r.getSize() orelse return false;
+        return size - r.pos == 0;
+    }
 };
 
 pub const Writer = struct {
@@ -1189,6 +1195,7 @@ pub const Writer = struct {
     pos: u64 = 0,
     sendfile_err: ?SendfileError = null,
     seek_err: ?SeekError = null,
+    interface: std.io.Writer,
 
     pub const Mode = Reader.Mode;
 
@@ -1205,18 +1212,18 @@ pub const Writer = struct {
     /// vectors through the underlying write calls as possible.
     const max_buffers_len = 16;
 
-    pub fn interface(w: *Writer) std.io.Writer {
+    pub fn init(file: File, buffer: []u8) std.io.Writer {
         return .{
-            .context = w,
-            .vtable = &.{
-                .writeSplat = writeSplat,
-                .writeFile = writeFile,
+            .file = file,
+            .interface = .{
+                .context = undefined,
+                .vtable = &.{
+                    .drain = drain,
+                    .sendFile = sendFile,
+                },
+                .buffer = buffer,
             },
         };
-    }
-
-    pub fn writable(w: *Writer, buffer: []u8) std.io.BufferedWriter {
-        return interface(w).buffered(buffer);
     }
 
     pub fn moveToReader(w: *Writer) Reader {
@@ -1229,9 +1236,10 @@ pub const Writer = struct {
         };
     }
 
-    pub fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
-        const w: *Writer = @ptrCast(@alignCast(context));
+    pub fn drain(io_writer: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
+        const w: *Writer = @fieldParentPtr("interface", io_writer);
         const handle = w.file.handle;
+        if (true) @panic("update to check for buffered data");
         var splat_buffer: [256]u8 = undefined;
         if (is_windows) {
             if (data.len == 1 and splat == 0) return 0;
@@ -1282,14 +1290,8 @@ pub const Writer = struct {
         };
     }
 
-    pub fn writeFile(
-        context: ?*anyopaque,
-        file_reader: *Reader,
-        limit: std.io.Limit,
-        headers_and_trailers: []const []const u8,
-        headers_len: usize,
-    ) std.io.Writer.FileError!usize {
-        const w: *Writer = @ptrCast(@alignCast(context));
+    pub fn sendFile(io_writer: *Writer, file_reader: *Reader, limit: std.io.Limit) std.io.Writer.FileError!usize {
+        const w: *Writer = @fieldParentPtr("interface", io_writer);
         const out_fd = w.file.handle;
         const in_fd = file_reader.file.handle;
         // TODO try using copy_file_range on Linux
@@ -1299,9 +1301,8 @@ pub const Writer = struct {
         if (native_os == .linux and w.mode == .streaming) sf: {
             // Try using sendfile on Linux.
             if (w.sendfile_err != null) break :sf;
-            // Linux sendfile does not support headers or trailers but it does
-            // support a streaming read from in_file.
-            if (headers_len > 0) return writeSplat(context, headers_and_trailers[0..headers_len], 1);
+            // Linux sendfile does not support headers.
+            if (io_writer.end != 0) return drain(io_writer, &.{""}, 1);
             const max_count = 0x7ffff000; // Avoid EINVAL.
             var off: std.os.linux.off_t = undefined;
             const off_ptr: ?*std.os.linux.off_t, const count: usize = switch (file_reader.mode) {
@@ -1315,8 +1316,7 @@ pub const Writer = struct {
                         }
                         return 0;
                     };
-                    off = std.math.cast(std.os.linux.off_t, file_reader.pos) orelse
-                        return writeSplat(context, headers_and_trailers, 1);
+                    off = std.math.cast(std.os.linux.off_t, file_reader.pos) orelse return error.ReadFailed;
                     break :o .{ &off, @min(@intFromEnum(limit), size - file_reader.pos, max_count) };
                 },
                 .streaming => .{ null, limit.minInt(max_count) },
@@ -1576,4 +1576,3 @@ const linux = std.os.linux;
 const windows = std.os.windows;
 const maxInt = std.math.maxInt;
 const Alignment = std.mem.Alignment;
-const BufferedWriter = std.io.BufferedWriter;

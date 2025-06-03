@@ -10,6 +10,7 @@ const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
 const pwhash = crypto.pwhash;
+const Writer = std.io.Writer;
 
 const phc_format = @import("phc_encoding.zig");
 
@@ -304,26 +305,22 @@ const crypt_format = struct {
 
     /// Serialize parameters into a string in modular crypt format.
     pub fn serialize(params: anytype, str: []u8) EncodingError![]const u8 {
-        var bw: std.io.BufferedWriter = undefined;
-        bw.initFixed(str);
-        try serializeTo(params, &bw);
-        return bw.getWritten();
+        var w: Writer = .fixed(str);
+        try serializeTo(params, &w);
+        return w.getWritten();
     }
 
     /// Compute the number of bytes required to serialize `params`
     pub fn calcSize(params: anytype) usize {
         var trash: [64]u8 = undefined;
-        var bw: std.io.BufferedWriter = .{
-            .unbuffered_writer = .discarding,
-            .buffer = &trash,
-        };
-        serializeTo(params, &bw) catch |err| switch (err) {
+        var w: std.io.Writer = .discarding(&trash);
+        serializeTo(params, &w) catch |err| switch (err) {
             error.WriteFailed => unreachable,
         };
-        return bw.count;
+        return w.count;
     }
 
-    fn serializeTo(params: anytype, out: *std.io.BufferedWriter) !void {
+    fn serializeTo(params: anytype, out: *Writer) !void {
         var header: [14]u8 = undefined;
         header[0..3].* = prefix.*;
         Codec.intEncode(header[3..4], params.ln);

@@ -49,7 +49,7 @@ pub const Fde = struct {
 
     pub fn format(
         fde: Fde,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         comptime unused_fmt_string: []const u8,
     ) !void {
         _ = fde;
@@ -72,7 +72,7 @@ pub const Fde = struct {
 
     fn format2(
         ctx: FdeFormatContext,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         comptime unused_fmt_string: []const u8,
     ) !void {
         _ = unused_fmt_string;
@@ -148,7 +148,7 @@ pub const Cie = struct {
 
     pub fn format(
         cie: Cie,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         comptime unused_fmt_string: []const u8,
     ) !void {
         _ = cie;
@@ -171,7 +171,7 @@ pub const Cie = struct {
 
     fn format2(
         ctx: CieFormatContext,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         comptime unused_fmt_string: []const u8,
     ) !void {
         _ = unused_fmt_string;
@@ -319,7 +319,7 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
     }
 }
 
-pub fn writeEhFrame(elf_file: *Elf, bw: *std.io.BufferedWriter) !void {
+pub fn writeEhFrame(elf_file: *Elf, bw: *Writer) !void {
     relocs_log.debug("{x}: .eh_frame", .{
         elf_file.sections.items(.shdr)[elf_file.section_indexes.eh_frame.?].sh_addr,
     });
@@ -380,7 +380,7 @@ pub fn writeEhFrame(elf_file: *Elf, bw: *std.io.BufferedWriter) !void {
     if (has_reloc_errors) return error.RelocFailure;
 }
 
-pub fn writeEhFrameRelocatable(elf_file: *Elf, bw: *std.io.BufferedWriter) !void {
+pub fn writeEhFrameRelocatable(elf_file: *Elf, bw: *Writer) !void {
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
 
@@ -482,7 +482,7 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, relocs: *std.ArrayList(elf.Elf64_Rela)
     }
 }
 
-pub fn writeEhFrameHdr(elf_file: *Elf, bw: *std.io.BufferedWriter) !void {
+pub fn writeEhFrameHdr(elf_file: *Elf, bw: *Writer) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
 
@@ -607,9 +607,10 @@ const assert = std.debug.assert;
 const elf = std.elf;
 const math = std.math;
 const relocs_log = std.log.scoped(.link_relocs);
-const relocation = @import("relocation.zig");
-
+const Writer = std.io.Writer;
 const Allocator = std.mem.Allocator;
+
+const relocation = @import("relocation.zig");
 const Atom = @import("Atom.zig");
 const DW_EH_PE = std.dwarf.EH.PE;
 const Elf = @import("../Elf.zig");

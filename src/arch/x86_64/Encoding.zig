@@ -3,6 +3,7 @@ const Encoding = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const math = std.math;
+const Writer = std.io.Writer;
 
 const bits = @import("bits.zig");
 const encoder = @import("encoder.zig");
@@ -158,8 +159,8 @@ pub fn modRmExt(encoding: Encoding) u3 {
     };
 }
 
-pub fn format(encoding: Encoding, bw: *std.io.BufferedWriter, comptime fmt: []const u8) !void {
-    _ = fmt;
+pub fn format(encoding: Encoding, bw: *Writer, comptime fmt: []const u8) !void {
+    comptime assert(fmt.len == 0);
 
     var opc = encoding.opcode();
     if (encoding.data.mode.isVex()) {
@@ -1016,8 +1017,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
     @memcpy(inst.ops[0..ops.len], ops);
 
     var buf: [15]u8 = undefined;
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(&buf);
+    var bw: Writer = .fixed(&buf);
     inst.encode(&bw, .{
         .allow_frame_locs = true,
         .allow_symbols = true,

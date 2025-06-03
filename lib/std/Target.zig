@@ -301,7 +301,7 @@ pub const Os = struct {
 
         /// This function is defined to serialize a Zig source code representation of this
         /// type, that, when parsed, will deserialize into the same data.
-        pub fn format(ver: WindowsVersion, bw: *std.io.BufferedWriter, comptime fmt_str: []const u8) std.io.Writer.Error!void {
+        pub fn format(ver: WindowsVersion, bw: *std.io.Writer, comptime fmt_str: []const u8) std.io.Writer.Error!void {
             const maybe_name = std.enums.tagName(WindowsVersion, ver);
             if (comptime std.mem.eql(u8, fmt_str, "s")) {
                 if (maybe_name) |name|

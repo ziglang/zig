@@ -2,6 +2,7 @@ const std = @import("std");
 const ConfigHeader = @This();
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
 
 pub const Style = union(enum) {
     /// A configure format supported by autotools that uses `#undef foo` to
@@ -277,7 +278,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 fn render_autoconf_undef(
     step: *Step,
     contents: []const u8,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
@@ -382,7 +383,7 @@ fn render_autoconf_at(
 fn render_cmake(
     step: *Step,
     contents: []const u8,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
@@ -508,7 +509,7 @@ fn render_cmake(
 
 fn render_blank(
     gpa: std.mem.Allocator,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     defines: std.StringArrayHashMap(Value),
     include_path: []const u8,
     include_guard_override: ?[]const u8,
@@ -541,11 +542,11 @@ fn render_blank(
     , .{include_guard_name});
 }
 
-fn render_nasm(bw: *std.io.BufferedWriter, defines: std.StringArrayHashMap(Value)) !void {
+fn render_nasm(bw: *Writer, defines: std.StringArrayHashMap(Value)) !void {
     for (defines.keys(), defines.values()) |name, value| try renderValueNasm(bw, name, value);
 }
 
-fn renderValueC(bw: *std.io.BufferedWriter, name: []const u8, value: Value) !void {
+fn renderValueC(bw: *Writer, name: []const u8, value: Value) !void {
     switch (value) {
         .undef => try bw.print("/* #undef {s} */\n", .{name}),
         .defined => try bw.print("#define {s}\n", .{name}),
@@ -557,7 +558,7 @@ fn renderValueC(bw: *std.io.BufferedWriter, name: []const u8, value: Value) !voi
     }
 }
 
-fn renderValueNasm(bw: *std.io.BufferedWriter, name: []const u8, value: Value) !void {
+fn renderValueNasm(bw: *Writer, name: []const u8, value: Value) !void {
     switch (value) {
         .undef => try bw.print("; %undef {s}\n", .{name}),
         .defined => try bw.print("%define {s}\n", .{name}),
@@ -570,7 +571,7 @@ fn renderValueNasm(bw: *std.io.BufferedWriter, name: []const u8, value: Value) !
 }
 
 fn expand_variables_autoconf_at(
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     contents: []const u8,
     values: std.StringArrayHashMap(Value),
     used: []bool,

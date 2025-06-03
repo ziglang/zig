@@ -10,6 +10,7 @@ const target = @import("target.zig");
 const assert = std.debug.assert;
 const glibc = @import("libs/glibc.zig");
 const introspect = @import("introspect.zig");
+const Writer = std.io.Writer;
 
 pub fn cmdTargets(arena: Allocator, args: []const []const u8) !void {
     _ = args;
@@ -20,7 +21,7 @@ pub fn cmdTargets(arena: Allocator, args: []const []const u8) !void {
     try bw.flush();
 }
 
-fn print(arena: Allocator, output: *std.io.BufferedWriter, host: *const Target) std.io.Writer.Error!void {
+fn print(arena: Allocator, output: *Writer, host: *const Target) Writer.Error!void {
     var zig_lib_directory = introspect.findZigLibDir(arena) catch |err| {
         fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };

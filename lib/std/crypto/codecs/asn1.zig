@@ -1,5 +1,8 @@
 //! ASN.1 types for public consumption.
+
 const std = @import("std");
+const Writer = std.io.Writer;
+
 pub const der = @import("./asn1/der.zig");
 pub const Oid = @import("./asn1/Oid.zig");
 
@@ -90,7 +93,7 @@ pub const Tag = struct {
         };
     }
 
-    pub fn encode(self: Tag, writer: *std.io.BufferedWriter) std.io.Writer.Error!void {
+    pub fn encode(self: Tag, writer: *Writer) Writer.Error!void {
         var tag1: FirstTag = .{
             .number = undefined,
             .constructed = self.constructed,

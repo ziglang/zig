@@ -9,7 +9,7 @@ pub const EncodeError = error{
     MissingPrefix,
 };
 
-pub fn encode(dot_notation: []const u8, out: *std.io.BufferedWriter) EncodeError!void {
+pub fn encode(dot_notation: []const u8, out: *Writer) EncodeError!void {
     var split = std.mem.splitScalar(u8, dot_notation, '.');
     const first_str = split.next() orelse return error.MissingPrefix;
     const second_str = split.next() orelse return error.MissingPrefix;
@@ -41,8 +41,7 @@ pub fn encode(dot_notation: []const u8, out: *std.io.BufferedWriter) EncodeError
 pub const InitError = std.fmt.ParseIntError || error{ MissingPrefix, BufferTooSmall };
 
 pub fn fromDot(dot_notation: []const u8, out: []u8) InitError!Oid {
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(out);
+    var bw: Writer = .fixed(out);
     encode(dot_notation, &bw) catch |err| switch (err) {
         error.WriteFailed => return error.BufferTooSmall,
         else => |e| return e,
@@ -58,7 +57,7 @@ test fromDot {
     }
 }
 
-pub fn toDot(self: Oid, writer: *std.io.BufferedWriter) std.io.Writer.Error!void {
+pub fn toDot(self: Oid, writer: *Writer) Writer.Error!void {
     const encoded = self.encoded;
     const first = @divTrunc(encoded[0], 40);
     const second = encoded[0] - first * 40;
@@ -90,8 +89,7 @@ test toDot {
     var buf: [256]u8 = undefined;
 
     for (test_cases) |t| {
-        var bw: std.io.BufferedWriter = undefined;
-        bw.initFixed(&buf);
+        var bw: Writer = .fixed(&buf);
         try toDot(Oid{ .encoded = t.encoded }, &bw);
         try std.testing.expectEqualStrings(t.dot_notation, bw.getWritten());
     }
@@ -219,3 +217,4 @@ const encoding_base = 128;
 const Allocator = std.mem.Allocator;
 const der = @import("der.zig");
 const asn1 = @import("../asn1.zig");
+const Writer = std.io.Writer;

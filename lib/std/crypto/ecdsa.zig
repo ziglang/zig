@@ -6,6 +6,7 @@ const io = std.io;
 const mem = std.mem;
 const sha3 = crypto.hash.sha3;
 const testing = std.testing;
+const Writer = std.io.Writer;
 
 const EncodingError = crypto.errors.EncodingError;
 const IdentityElementError = crypto.errors.IdentityElementError;
@@ -135,8 +136,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// The maximum length of the DER encoding is der_encoded_length_max.
             /// The function returns a slice, that can be shorter than der_encoded_length_max.
             pub fn toDer(sig: Signature, buf: *[der_encoded_length_max]u8) []u8 {
-                var w: std.io.BufferedWriter = undefined;
-                w.initFixed(buf);
+                var w: Writer = .fixed(buf);
                 const r_len = @as(u8, @intCast(sig.r.len + (sig.r[0] >> 7)));
                 const s_len = @as(u8, @intCast(sig.s.len + (sig.s[0] >> 7)));
                 const seq_len = @as(u8, @intCast(2 + r_len + 2 + s_len));

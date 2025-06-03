@@ -23,6 +23,7 @@ const Container = flate.Container;
 const Token = @import("Token.zig");
 const testing = std.testing;
 const Decompress = @This();
+const Writer = std.io.Writer;
 
 input: *std.io.Reader,
 // Hashes, produces checksum, of uncompressed data for gzip/zlib footer.
@@ -141,7 +142,7 @@ fn decodeSymbol(self: *Decompress, decoder: anytype) !Symbol {
 
 pub fn read(
     context: ?*anyopaque,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     limit: std.io.Limit,
 ) std.io.Reader.StreamError!usize {
     const d: *Decompress = @alignCast(@ptrCast(context));
@@ -159,7 +160,7 @@ pub fn read(
 
 fn readInner(
     d: *Decompress,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     limit: std.io.Limit,
 ) (Error || error{ WriteFailed, EndOfStream })!usize {
     const in = d.input;
@@ -347,7 +348,7 @@ fn readInner(
 
 /// Write match (back-reference to the same data slice) starting at `distance`
 /// back from current write position, and `length` of bytes.
-fn writeMatch(bw: *std.io.BufferedWriter, length: u16, distance: u16) !void {
+fn writeMatch(bw: *Writer, length: u16, distance: u16) !void {
     _ = bw;
     _ = length;
     _ = distance;
@@ -727,8 +728,7 @@ test "decompress" {
         },
     };
     for (cases) |c| {
-        var fb: std.io.Reader = undefined;
-        fb.initFixed(@constCast(c.in));
+        var fb: std.io.Reader = .fixed(c.in);
         var aw: std.io.AllocatingWriter = undefined;
         aw.init(testing.allocator);
         defer aw.deinit();
@@ -788,8 +788,7 @@ test "gzip decompress" {
         },
     };
     for (cases) |c| {
-        var fb: std.io.Reader = undefined;
-        fb.initFixed(@constCast(c.in));
+        var fb: std.io.Reader = .fixed(c.in);
         var aw: std.io.AllocatingWriter = undefined;
         aw.init(testing.allocator);
         defer aw.deinit();
@@ -818,8 +817,7 @@ test "zlib decompress" {
         },
     };
     for (cases) |c| {
-        var fb: std.io.Reader = undefined;
-        fb.initFixed(@constCast(c.in));
+        var fb: std.io.Reader = .fixed(c.in);
         var aw: std.io.AllocatingWriter = undefined;
         aw.init(testing.allocator);
         defer aw.deinit();
@@ -880,8 +878,7 @@ test "fuzzing tests" {
     };
 
     inline for (cases, 0..) |c, case_no| {
-        var in: std.io.Reader = undefined;
-        in.initFixed(@constCast(@embedFile("testdata/fuzz/" ++ c.input ++ ".input")));
+        var in: std.io.Reader = .fixed(@embedFile("testdata/fuzz/" ++ c.input ++ ".input"));
         var aw: std.io.AllocatingWriter = undefined;
         aw.init(testing.allocator);
         defer aw.deinit();
@@ -903,8 +900,7 @@ test "bug 18966" {
     const input = @embedFile("testdata/fuzz/bug_18966.input");
     const expect = @embedFile("testdata/fuzz/bug_18966.expect");
 
-    var in: std.io.Reader = undefined;
-    in.initFixed(@constCast(input));
+    var in: std.io.Reader = .fixed(input);
     var aw: std.io.AllocatingWriter = undefined;
     aw.init(testing.allocator);
     defer aw.deinit();
@@ -921,8 +917,7 @@ test "reading into empty buffer" {
         0b0000_0001, 0b0000_1100, 0x00, 0b1111_0011, 0xff, // deflate fixed buffer header len, nlen
         'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a, // non compressed data
     };
-    var in: std.io.Reader = undefined;
-    in.initFixed(@constCast(input));
+    var in: std.io.Reader = .fixed(input);
     var decomp: Decompress = .init(&in, .raw);
     var decompress_br = decomp.readable(&.{});
     var buf: [0]u8 = undefined;

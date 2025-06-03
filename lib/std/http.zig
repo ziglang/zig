@@ -1,6 +1,8 @@
 const builtin = @import("builtin");
 const std = @import("std.zig");
 const assert = std.debug.assert;
+const Writer = std.io.Writer;
+const File = std.fs.File;
 
 pub const Client = @import("http/Client.zig");
 pub const Server = @import("http/Server.zig");
@@ -504,7 +506,7 @@ pub const Reader = struct {
 
     fn contentLengthRead(
         ctx: ?*anyopaque,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         limit: std.io.Limit,
     ) std.io.Reader.StreamError!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
@@ -534,7 +536,7 @@ pub const Reader = struct {
 
     fn chunkedRead(
         ctx: ?*anyopaque,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         limit: std.io.Limit,
     ) std.io.Reader.StreamError!usize {
         const reader: *Reader = @alignCast(@ptrCast(ctx));
@@ -559,7 +561,7 @@ pub const Reader = struct {
 
     fn chunkedReadEndless(
         reader: *Reader,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         limit: std.io.Limit,
         chunk_len_ptr: *RemainingChunkLen,
     ) (BodyError || std.io.Reader.StreamError)!usize {
@@ -747,11 +749,12 @@ pub const Decompressor = struct {
 pub const BodyWriter = struct {
     /// Until the lifetime of `BodyWriter` ends, it is illegal to modify the
     /// state of this other than via methods of `BodyWriter`.
-    http_protocol_output: *std.io.BufferedWriter,
+    http_protocol_output: *Writer,
     state: State,
     elide: bool,
+    interface: Writer,
 
-    pub const WriteError = std.io.Writer.Error;
+    pub const Error = Writer.Error;
 
     /// How many zeroes to reserve for hex-encoded chunk length.
     const chunk_len_digits = 8;
@@ -787,7 +790,7 @@ pub const BodyWriter = struct {
     };
 
     /// Sends all buffered data across `BodyWriter.http_protocol_output`.
-    pub fn flush(w: *BodyWriter) WriteError!void {
+    pub fn flush(w: *BodyWriter) Error!void {
         const out = w.http_protocol_output;
         switch (w.state) {
             .end, .none, .content_length => return out.flush(),
@@ -820,7 +823,7 @@ pub const BodyWriter = struct {
     /// See also:
     /// * `endUnflushed`
     /// * `endChunked`
-    pub fn end(w: *BodyWriter) WriteError!void {
+    pub fn end(w: *BodyWriter) Error!void {
         try endUnflushed(w);
         try w.http_protocol_output.flush();
     }
@@ -836,7 +839,7 @@ pub const BodyWriter = struct {
     /// See also:
     /// * `end`
     /// * `endChunked`
-    pub fn endUnflushed(w: *BodyWriter) WriteError!void {
+    pub fn endUnflushed(w: *BodyWriter) Error!void {
         switch (w.state) {
             .end => unreachable,
             .content_length => |len| {
@@ -862,7 +865,7 @@ pub const BodyWriter = struct {
     /// See also:
     /// * `endChunkedUnflushed`
     /// * `end`
-    pub fn endChunked(w: *BodyWriter, options: EndChunkedOptions) WriteError!void {
+    pub fn endChunked(w: *BodyWriter, options: EndChunkedOptions) Error!void {
         try endChunkedUnflushed(w, options);
         try w.http_protocol_output.flush();
     }
@@ -879,7 +882,7 @@ pub const BodyWriter = struct {
     /// * `endChunked`
     /// * `endUnflushed`
     /// * `end`
-    pub fn endChunkedUnflushed(w: *BodyWriter, options: EndChunkedOptions) WriteError!void {
+    pub fn endChunkedUnflushed(w: *BodyWriter, options: EndChunkedOptions) Error!void {
         const chunked = &w.state.chunked;
         if (w.elide) {
             w.state = .end;
@@ -910,138 +913,78 @@ pub const BodyWriter = struct {
         w.state = .end;
     }
 
-    fn contentLengthWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) WriteError!usize {
-        const w: *BodyWriter = @alignCast(@ptrCast(context));
-        const n = if (w.elide) countSplat(data, splat) else try w.http_protocol_output.writeSplat(data, splat);
+    fn contentLengthDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+        const bw: *BodyWriter = @fieldParentPtr("interface", w);
+        assert(!bw.elide);
+        const out = w.http_protocol_output;
+        const n = try w.drainTo(out, data, splat);
         w.state.content_length -= n;
         return n;
     }
 
-    fn noneWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) WriteError!usize {
-        const w: *BodyWriter = @alignCast(@ptrCast(context));
-        if (w.elide) return countSplat(data, splat);
-        return w.http_protocol_output.writeSplat(data, splat);
-    }
-
-    fn countSplat(data: []const []const u8, splat: usize) usize {
-        if (data.len == 0) return 0;
-        var total: usize = 0;
-        for (data[0 .. data.len - 1]) |buf| total += buf.len;
-        total += data[data.len - 1].len * splat;
-        return total;
-    }
-
-    fn elideWriteFile(
-        file_reader: *std.fs.File.Reader,
-        limit: std.io.Limit,
-        headers_and_trailers: []const []const u8,
-        headers_len: usize,
-    ) error{ReadFailed}!usize {
-        var source = file_reader.readable(&.{});
-        var n = source.discard(limit) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
-            error.EndOfStream => {
-                var n: usize = 0;
-                for (headers_and_trailers) |bytes| n += bytes.len;
-                return n;
-            },
-        };
-        if (file_reader.size) |size| {
-            if (size - file_reader.pos == 0) {
-                // End of file reached.
-                for (headers_and_trailers) |bytes| n += bytes.len;
-                return n;
-            }
-        }
-        for (headers_and_trailers[0..headers_len]) |bytes| n += bytes.len;
-        return n;
+    fn noneDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+        const bw: *BodyWriter = @fieldParentPtr("interface", w);
+        assert(!bw.elide);
+        const out = w.http_protocol_output;
+        return try w.drainTo(out, data, splat);
     }
 
     /// Returns `null` if size cannot be computed without making any syscalls.
-    fn countWriteFile(
-        file_reader: *std.fs.File.Reader,
-        limit: std.io.Limit,
-        headers_and_trailers: []const []const u8,
-    ) ?usize {
-        var total: u64 = @min(@intFromEnum(limit), file_reader.getSize() orelse return null);
-        for (headers_and_trailers) |bytes| total += bytes.len;
-        return std.math.lossyCast(usize, total);
+    fn noneSendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) Writer.FileError!usize {
+        const bw: *BodyWriter = @fieldParentPtr("interface", w);
+        assert(!bw.elide);
+        return w.sendFileTo(bw.http_protocol_output, file_reader, limit);
     }
 
-    fn noneWriteFile(
-        context: ?*anyopaque,
-        file_reader: *std.fs.File.Reader,
-        limit: std.io.Limit,
-        headers_and_trailers: []const []const u8,
-        headers_len: usize,
-    ) std.io.Writer.FileError!usize {
-        const w: *BodyWriter = @alignCast(@ptrCast(context));
-        if (w.elide) return elideWriteFile(file_reader, limit, headers_and_trailers, headers_len);
-        return w.http_protocol_output.writeFile(file_reader, limit, headers_and_trailers, headers_len);
-    }
-
-    fn contentLengthWriteFile(
-        context: ?*anyopaque,
-        file_reader: *std.fs.File.Reader,
-        limit: std.io.Limit,
-        headers_and_trailers: []const []const u8,
-        headers_len: usize,
-    ) std.io.Writer.FileError!usize {
-        const w: *BodyWriter = @alignCast(@ptrCast(context));
-        if (w.elide) return elideWriteFile(file_reader, limit, headers_and_trailers, headers_len);
-        const n = try w.http_protocol_output.writeFile(file_reader, limit, headers_and_trailers, headers_len);
-        w.state.content_length -= n;
+    fn contentLengthSendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) Writer.FileError!usize {
+        const bw: *BodyWriter = @fieldParentPtr("interface", w);
+        assert(!bw.elide);
+        const n = try w.sendFileTo(bw.http_protocol_output, file_reader, limit);
+        bw.state.content_length -= n;
         return n;
     }
 
-    fn chunkedWriteFile(
-        context: ?*anyopaque,
-        file_reader: *std.fs.File.Reader,
-        limit: std.io.Limit,
-        headers_and_trailers: []const []const u8,
-        headers_len: usize,
-    ) std.io.Writer.FileError!usize {
-        const w: *BodyWriter = @alignCast(@ptrCast(context));
-        if (w.elide) return elideWriteFile(file_reader, limit, headers_and_trailers, headers_len);
-        if (limit == .nothing) return chunkedWriteSplat(context, headers_and_trailers, 1);
-        const data_len = countWriteFile(file_reader, headers_and_trailers) orelse {
+    fn chunkedSendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) Writer.FileError!usize {
+        const bw: *BodyWriter = @fieldParentPtr("interface", w);
+        assert(!bw.elide);
+        const data_len = w.countSendFileUpperBound(file_reader, limit) orelse {
             // If the file size is unknown, we cannot lower to a `writeFile` since we would
             // have to flush the chunk header before knowing the chunk length.
             return error.Unimplemented;
         };
-        const bw = w.http_protocol_output;
-        const chunked = &w.state.chunked;
+        const out = bw.http_protocol_output;
+        const chunked = &bw.state.chunked;
         state: switch (chunked.*) {
             .offset => |off| {
                 // TODO: is it better perf to read small files into the buffer?
-                const buffered_len = bw.end - off - chunk_header_template.len;
+                const buffered_len = out.end - off - chunk_header_template.len;
                 const chunk_len = data_len + buffered_len;
-                writeHex(bw.buffer[off..][0..chunk_len_digits], chunk_len);
-                const n = try bw.writeFile(file_reader, limit, headers_and_trailers, headers_len);
+                writeHex(out.buffer[off..][0..chunk_len_digits], chunk_len);
+                const n = try w.sendFileTo(out, file_reader, limit);
                 chunked.* = .{ .chunk_len = data_len + 2 - n };
                 return n;
             },
             .chunk_len => |chunk_len| l: switch (chunk_len) {
                 0 => {
-                    const off = bw.end;
-                    const header_buf = try bw.writableArray(chunk_header_template.len);
+                    const off = out.end;
+                    const header_buf = try out.writableArray(chunk_header_template.len);
                     @memcpy(header_buf, chunk_header_template);
                     chunked.* = .{ .offset = off };
                     continue :state .{ .offset = off };
                 },
                 1 => {
-                    try bw.writeByte('\n');
+                    try out.writeByte('\n');
                     chunked.chunk_len = 0;
                     continue :l 0;
                 },
                 2 => {
-                    try bw.writeByte('\r');
+                    try out.writeByte('\r');
                     chunked.chunk_len = 1;
                     continue :l 1;
                 },
                 else => {
                     const new_limit = limit.min(.limited(chunk_len - 2));
-                    const n = try bw.writeFile(file_reader, new_limit, headers_and_trailers, headers_len);
+                    const n = try w.sendFileTo(out, file_reader, new_limit);
                     chunked.chunk_len = chunk_len - n;
                     return n;
                 },
@@ -1049,47 +992,45 @@ pub const BodyWriter = struct {
         }
     }
 
-    fn chunkedWriteSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) WriteError!usize {
-        const w: *BodyWriter = @alignCast(@ptrCast(context));
-        const data_len = countSplat(data, splat);
-        if (w.elide) return data_len;
-
-        const bw = w.http_protocol_output;
-        const chunked = &w.state.chunked;
-
+    fn chunkedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+        const bw: *BodyWriter = @fieldParentPtr("interface", w);
+        assert(!bw.elide);
+        const out = w.http_protocol_output;
+        const data_len = Writer.countSplat(w.end, data, splat);
+        const chunked = &bw.state.chunked;
         state: switch (chunked.*) {
             .offset => |offset| {
-                if (bw.unusedCapacitySlice().len >= data_len) {
-                    assert(data_len == (bw.writeSplat(data, splat) catch unreachable));
+                if (out.unusedCapacityLen() >= data_len) {
+                    assert(data_len == (w.drainTo(out, data, splat) catch unreachable));
                     return data_len;
                 }
-                const buffered_len = bw.end - offset - chunk_header_template.len;
+                const buffered_len = out.end - offset - chunk_header_template.len;
                 const chunk_len = data_len + buffered_len;
-                writeHex(bw.buffer[offset..][0..chunk_len_digits], chunk_len);
-                const n = try bw.writeSplat(data, splat);
+                writeHex(out.buffer[offset..][0..chunk_len_digits], chunk_len);
+                const n = try w.drainTo(w, data, splat);
                 chunked.* = .{ .chunk_len = data_len + 2 - n };
                 return n;
             },
             .chunk_len => |chunk_len| l: switch (chunk_len) {
                 0 => {
-                    const offset = bw.end;
-                    const header_buf = try bw.writableArray(chunk_header_template.len);
+                    const offset = out.end;
+                    const header_buf = try out.writableArray(chunk_header_template.len);
                     @memcpy(header_buf, chunk_header_template);
                     chunked.* = .{ .offset = offset };
                     continue :state .{ .offset = offset };
                 },
                 1 => {
-                    try bw.writeByte('\n');
+                    try out.writeByte('\n');
                     chunked.chunk_len = 0;
                     continue :l 0;
                 },
                 2 => {
-                    try bw.writeByte('\r');
+                    try out.writeByte('\r');
                     chunked.chunk_len = 1;
                     continue :l 1;
                 },
                 else => {
-                    const n = try bw.writeSplatLimit(data, splat, .limited(chunk_len - 2));
+                    const n = try w.drainToLimit(data, splat, .limited(chunk_len - 2));
                     chunked.chunk_len = chunk_len - n;
                     return n;
                 },
@@ -1112,21 +1053,21 @@ pub const BodyWriter = struct {
         }
     }
 
-    pub fn writer(w: *BodyWriter) std.io.Writer {
-        return .{
+    pub fn writer(w: *BodyWriter) Writer {
+        return if (w.elide) .discarding else .{
             .context = w,
             .vtable = switch (w.state) {
                 .none => &.{
-                    .writeSplat = noneWriteSplat,
-                    .writeFile = noneWriteFile,
+                    .drain = noneDrain,
+                    .sendFile = noneSendFile,
                 },
                 .content_length => &.{
-                    .writeSplat = contentLengthWriteSplat,
-                    .writeFile = contentLengthWriteFile,
+                    .drain = contentLengthDrain,
+                    .sendFile = contentLengthSendFile,
                 },
                 .chunked => &.{
-                    .writeSplat = chunkedWriteSplat,
-                    .writeFile = chunkedWriteFile,
+                    .drain = chunkedDrain,
+                    .sendFile = chunkedSendFile,
                 },
                 .end => unreachable,
             },

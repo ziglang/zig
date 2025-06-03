@@ -6,6 +6,7 @@ const meta = std.meta;
 const Ast = std.zig.Ast;
 const Token = std.zig.Token;
 const primitives = std.zig.primitives;
+const Writer = std.io.Writer;
 
 const Render = @This();
 
@@ -82,7 +83,7 @@ pub const Fixups = struct {
     }
 };
 
-pub fn renderTree(gpa: Allocator, bw: *std.io.BufferedWriter, tree: Ast, fixups: Fixups) Error!void {
+pub fn renderTree(gpa: Allocator, bw: *Writer, tree: Ast, fixups: Fixups) Error!void {
     assert(tree.errors.len == 0); // Cannot render an invalid tree.
     var auto_indenting_stream: AutoIndentingStream = .init(gpa, bw, indent_delta);
     defer auto_indenting_stream.deinit();
@@ -3136,7 +3137,7 @@ fn anythingBetween(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenI
     return false;
 }
 
-fn writeFixingWhitespace(bw: *std.io.BufferedWriter, slice: []const u8) Error!void {
+fn writeFixingWhitespace(bw: *Writer, slice: []const u8) Error!void {
     for (slice) |byte| switch (byte) {
         '\t' => try bw.splatByteAll(' ', indent_delta),
         '\r' => {},
@@ -3266,7 +3267,7 @@ fn rowSize(tree: Ast, exprs: []const Ast.Node.Index, rtoken: Ast.TokenIndex) usi
 /// This should be done whenever a scope that ends in a .semicolon or a
 /// .comma is introduced.
 const AutoIndentingStream = struct {
-    underlying_writer: *std.io.BufferedWriter,
+    underlying_writer: *Writer,
 
     /// Offset into the source at which formatting has been disabled with
     /// a `zig fmt: off` comment.
@@ -3301,10 +3302,10 @@ const AutoIndentingStream = struct {
         indent_count: usize,
     };
 
-    pub fn init(gpa: Allocator, bw: *std.io.BufferedWriter, indent_delta_: usize) AutoIndentingStream {
+    pub fn init(gpa: Allocator, bw: *Writer, starting_indent_delta: usize) AutoIndentingStream {
         return .{
             .underlying_writer = bw,
-            .indent_delta = indent_delta_,
+            .indent_delta = starting_indent_delta,
             .indent_stack = .init(gpa),
             .space_stack = .init(gpa),
         };

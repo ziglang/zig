@@ -7,6 +7,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const File = std.fs.File;
 const is_le = builtin.target.cpu.arch.endian() == .little;
+const Writer = std.io.Writer;
 
 pub const CompressionMethod = enum(u16) {
     store = 0,
@@ -200,7 +201,7 @@ pub const Decompress = union {
 
     fn readStore(
         context: ?*anyopaque,
-        writer: *std.io.BufferedWriter,
+        writer: *Writer,
         limit: std.io.Limit,
     ) std.io.Reader.StreamError!usize {
         const d: *Decompress = @ptrCast(@alignCast(context));
@@ -209,7 +210,7 @@ pub const Decompress = union {
 
     fn readDeflate(
         context: ?*anyopaque,
-        writer: *std.io.BufferedWriter,
+        writer: *Writer,
         limit: std.io.Limit,
     ) std.io.Reader.StreamError!usize {
         const d: *Decompress = @ptrCast(@alignCast(context));

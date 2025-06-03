@@ -9,6 +9,7 @@ const abi = std.debug.Dwarf.abi;
 const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
 
 /// Expressions can be evaluated in different contexts, each requiring its own set of inputs.
 /// Callers should specify all the fields relevant to their context. If a field is required
@@ -826,7 +827,7 @@ pub fn Builder(comptime options: Options) type {
 
     return struct {
         /// Zero-operand instructions
-        pub fn writeOpcode(writer: *std.io.BufferedWriter, comptime opcode: u8) !void {
+        pub fn writeOpcode(writer: *Writer, comptime opcode: u8) !void {
             if (options.call_frame_context and !comptime isOpcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
             switch (opcode) {
                 OP.dup,
@@ -867,14 +868,14 @@ pub fn Builder(comptime options: Options) type {
         }
 
         // 2.5.1.1: Literal Encodings
-        pub fn writeLiteral(writer: *std.io.BufferedWriter, literal: u8) !void {
+        pub fn writeLiteral(writer: *Writer, literal: u8) !void {
             switch (literal) {
                 0...31 => |n| try writer.writeByte(n + OP.lit0),
                 else => return error.InvalidLiteral,
             }
         }
 
-        pub fn writeConst(writer: *std.io.BufferedWriter, comptime T: type, value: T) !void {
+        pub fn writeConst(writer: *Writer, comptime T: type, value: T) !void {
             if (@typeInfo(T) != .int) @compileError("Constants must be integers");
 
             switch (T) {
@@ -906,12 +907,12 @@ pub fn Builder(comptime options: Options) type {
             }
         }
 
-        pub fn writeConstx(writer: *std.io.BufferedWriter, debug_addr_offset: anytype) !void {
+        pub fn writeConstx(writer: *Writer, debug_addr_offset: anytype) !void {
             try writer.writeByte(OP.constx);
             try leb.writeUleb128(writer, debug_addr_offset);
         }
 
-        pub fn writeConstType(writer: *std.io.BufferedWriter, die_offset: anytype, value_bytes: []const u8) !void {
+        pub fn writeConstType(writer: *Writer, die_offset: anytype, value_bytes: []const u8) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             if (value_bytes.len > 0xff) return error.InvalidTypeLength;
             try writer.writeByte(OP.const_type);
@@ -920,36 +921,36 @@ pub fn Builder(comptime options: Options) type {
             try writer.writeAll(value_bytes);
         }
 
-        pub fn writeAddr(writer: *std.io.BufferedWriter, value: Address) !void {
+        pub fn writeAddr(writer: *Writer, value: Address) !void {
             try writer.writeByte(OP.addr);
             try writer.writeInt(Address, value, options.endian);
         }
 
-        pub fn writeAddrx(writer: *std.io.BufferedWriter, debug_addr_offset: anytype) !void {
+        pub fn writeAddrx(writer: *Writer, debug_addr_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.addrx);
             try leb.writeUleb128(writer, debug_addr_offset);
         }
 
         // 2.5.1.2: Register Values
-        pub fn writeFbreg(writer: *std.io.BufferedWriter, offset: anytype) !void {
+        pub fn writeFbreg(writer: *Writer, offset: anytype) !void {
             try writer.writeByte(OP.fbreg);
             try leb.writeIleb128(writer, offset);
         }
 
-        pub fn writeBreg(writer: *std.io.BufferedWriter, register: u8, offset: anytype) !void {
+        pub fn writeBreg(writer: *Writer, register: u8, offset: anytype) !void {
             if (register > 31) return error.InvalidRegister;
             try writer.writeByte(OP.breg0 + register);
             try leb.writeIleb128(writer, offset);
         }
 
-        pub fn writeBregx(writer: *std.io.BufferedWriter, register: anytype, offset: anytype) !void {
+        pub fn writeBregx(writer: *Writer, register: anytype, offset: anytype) !void {
             try writer.writeByte(OP.bregx);
             try leb.writeUleb128(writer, register);
             try leb.writeIleb128(writer, offset);
         }
 
-        pub fn writeRegvalType(writer: *std.io.BufferedWriter, register: anytype, offset: anytype) !void {
+        pub fn writeRegvalType(writer: *Writer, register: anytype, offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.regval_type);
             try leb.writeUleb128(writer, register);
@@ -957,29 +958,29 @@ pub fn Builder(comptime options: Options) type {
         }
 
         // 2.5.1.3: Stack Operations
-        pub fn writePick(writer: *std.io.BufferedWriter, index: u8) !void {
+        pub fn writePick(writer: *Writer, index: u8) !void {
             try writer.writeByte(OP.pick);
             try writer.writeByte(index);
         }
 
-        pub fn writeDerefSize(writer: *std.io.BufferedWriter, size: u8) !void {
+        pub fn writeDerefSize(writer: *Writer, size: u8) !void {
             try writer.writeByte(OP.deref_size);
             try writer.writeByte(size);
         }
 
-        pub fn writeXDerefSize(writer: *std.io.BufferedWriter, size: u8) !void {
+        pub fn writeXDerefSize(writer: *Writer, size: u8) !void {
             try writer.writeByte(OP.xderef_size);
             try writer.writeByte(size);
         }
 
-        pub fn writeDerefType(writer: *std.io.BufferedWriter, size: u8, die_offset: anytype) !void {
+        pub fn writeDerefType(writer: *Writer, size: u8, die_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.deref_type);
             try writer.writeByte(size);
             try leb.writeUleb128(writer, die_offset);
         }
 
-        pub fn writeXDerefType(writer: *std.io.BufferedWriter, size: u8, die_offset: anytype) !void {
+        pub fn writeXDerefType(writer: *Writer, size: u8, die_offset: anytype) !void {
             try writer.writeByte(OP.xderef_type);
             try writer.writeByte(size);
             try leb.writeUleb128(writer, die_offset);
@@ -987,24 +988,24 @@ pub fn Builder(comptime options: Options) type {
 
         // 2.5.1.4: Arithmetic and Logical Operations
 
-        pub fn writePlusUconst(writer: *std.io.BufferedWriter, uint_value: anytype) !void {
+        pub fn writePlusUconst(writer: *Writer, uint_value: anytype) !void {
             try writer.writeByte(OP.plus_uconst);
             try leb.writeUleb128(writer, uint_value);
         }
 
         // 2.5.1.5: Control Flow Operations
 
-        pub fn writeSkip(writer: *std.io.BufferedWriter, offset: i16) !void {
+        pub fn writeSkip(writer: *Writer, offset: i16) !void {
             try writer.writeByte(OP.skip);
             try writer.writeInt(i16, offset, options.endian);
         }
 
-        pub fn writeBra(writer: *std.io.BufferedWriter, offset: i16) !void {
+        pub fn writeBra(writer: *Writer, offset: i16) !void {
             try writer.writeByte(OP.bra);
             try writer.writeInt(i16, offset, options.endian);
         }
 
-        pub fn writeCall(writer: *std.io.BufferedWriter, comptime T: type, offset: T) !void {
+        pub fn writeCall(writer: *Writer, comptime T: type, offset: T) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             switch (T) {
                 u16 => try writer.writeByte(OP.call2),
@@ -1015,19 +1016,19 @@ pub fn Builder(comptime options: Options) type {
             try writer.writeInt(T, offset, options.endian);
         }
 
-        pub fn writeCallRef(writer: *std.io.BufferedWriter, comptime is_64: bool, value: if (is_64) u64 else u32) !void {
+        pub fn writeCallRef(writer: *Writer, comptime is_64: bool, value: if (is_64) u64 else u32) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.call_ref);
             try writer.writeInt(if (is_64) u64 else u32, value, options.endian);
         }
 
-        pub fn writeConvert(writer: *std.io.BufferedWriter, die_offset: anytype) !void {
+        pub fn writeConvert(writer: *Writer, die_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.convert);
             try leb.writeUleb128(writer, die_offset);
         }
 
-        pub fn writeReinterpret(writer: *std.io.BufferedWriter, die_offset: anytype) !void {
+        pub fn writeReinterpret(writer: *Writer, die_offset: anytype) !void {
             if (options.call_frame_context) return error.InvalidCFAOpcode;
             try writer.writeByte(OP.reinterpret);
             try leb.writeUleb128(writer, die_offset);
@@ -1035,23 +1036,23 @@ pub fn Builder(comptime options: Options) type {
 
         // 2.5.1.7: Special Operations
 
-        pub fn writeEntryValue(writer: *std.io.BufferedWriter, expression: []const u8) !void {
+        pub fn writeEntryValue(writer: *Writer, expression: []const u8) !void {
             try writer.writeByte(OP.entry_value);
             try leb.writeUleb128(writer, expression.len);
             try writer.writeAll(expression);
         }
 
         // 2.6: Location Descriptions
-        pub fn writeReg(writer: *std.io.BufferedWriter, register: u8) !void {
+        pub fn writeReg(writer: *Writer, register: u8) !void {
             try writer.writeByte(OP.reg0 + register);
         }
 
-        pub fn writeRegx(writer: *std.io.BufferedWriter, register: anytype) !void {
+        pub fn writeRegx(writer: *Writer, register: anytype) !void {
             try writer.writeByte(OP.regx);
             try leb.writeUleb128(writer, register);
         }
 
-        pub fn writeImplicitValue(writer: *std.io.BufferedWriter, value_bytes: []const u8) !void {
+        pub fn writeImplicitValue(writer: *Writer, value_bytes: []const u8) !void {
             try writer.writeByte(OP.implicit_value);
             try leb.writeUleb128(writer, value_bytes.len);
             try writer.writeAll(value_bytes);

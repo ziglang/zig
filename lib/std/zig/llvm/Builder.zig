@@ -91,7 +91,7 @@ pub const String = enum(u32) {
         string: String,
         builder: *const Builder,
     };
-    fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime fmt_str: []const u8) std.io.Writer.Error!void {
+    fn format(data: FormatData, bw: *Writer, comptime fmt_str: []const u8) Writer.Error!void {
         if (comptime std.mem.indexOfNone(u8, fmt_str, "\"r")) |_|
             @compileError("invalid format string: '" ++ fmt_str ++ "'");
         assert(data.string != .none);
@@ -649,7 +649,7 @@ pub const Type = enum(u32) {
         type: Type,
         builder: *const Builder,
     };
-    fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime fmt_str: []const u8) std.io.Writer.Error!void {
+    fn format(data: FormatData, bw: *Writer, comptime fmt_str: []const u8) Writer.Error!void {
         assert(data.type != .none);
         if (comptime std.mem.eql(u8, fmt_str, "m")) {
             const item = data.builder.type_items.items[@intFromEnum(data.type)];
@@ -1129,7 +1129,7 @@ pub const Attribute = union(Kind) {
             attribute_index: Index,
             builder: *const Builder,
         };
-        fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime fmt_str: []const u8) std.io.Writer.Error!void {
+        fn format(data: FormatData, bw: *Writer, comptime fmt_str: []const u8) Writer.Error!void {
             if (comptime std.mem.indexOfNone(u8, fmt_str, "\"#")) |_|
                 @compileError("invalid format string: '" ++ fmt_str ++ "'");
             const attribute = data.attribute_index.toAttribute(data.builder);
@@ -1568,7 +1568,7 @@ pub const Attributes = enum(u32) {
         attributes: Attributes,
         builder: *const Builder,
     };
-    fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime fmt_str: []const u8) std.io.Writer.Error!void {
+    fn format(data: FormatData, bw: *Writer, comptime fmt_str: []const u8) Writer.Error!void {
         for (data.attributes.slice(data.builder)) |attribute_index| try Attribute.Index.format(.{
             .attribute_index = attribute_index,
             .builder = data.builder,
@@ -1761,11 +1761,11 @@ pub const Linkage = enum(u4) {
     extern_weak = 7,
     external = 0,
 
-    pub fn format(self: Linkage, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: Linkage, bw: *Writer, comptime _: []const u8) Writer.Error!void {
         if (self != .external) try bw.print(" {s}", .{@tagName(self)});
     }
 
-    fn formatOptional(data: ?Linkage, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+    fn formatOptional(data: ?Linkage, bw: *Writer, comptime _: []const u8) Writer.Error!void {
         if (data) |linkage| try bw.print(" {s}", .{@tagName(linkage)});
     }
     pub fn fmtOptional(self: ?Linkage) std.fmt.Formatter(formatOptional) {
@@ -1778,7 +1778,7 @@ pub const Preemption = enum {
     dso_local,
     implicit_dso_local,
 
-    pub fn format(self: Preemption, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: Preemption, bw: *Writer, comptime _: []const u8) Writer.Error!void {
         if (self == .dso_local) try bw.print(" {s}", .{@tagName(self)});
     }
 };
@@ -1796,11 +1796,7 @@ pub const Visibility = enum(u2) {
         };
     }
 
-    pub fn format(
-        self: Visibility,
-        comptime format_string: []const u8,
-        writer: *std.io.BufferedWriter,
-    ) std.io.Writer.Error!void {
+    pub fn format(self: Visibility, comptime format_string: []const u8, writer: *Writer) Writer.Error!void {
         comptime assert(format_string.len == 0);
         if (self != .default) try writer.print(" {s}", .{@tagName(self)});
     }
@@ -1811,7 +1807,7 @@ pub const DllStorageClass = enum(u2) {
     dllimport = 1,
     dllexport = 2,
 
-    pub fn format(self: DllStorageClass, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: DllStorageClass, bw: *Writer, comptime _: []const u8) Writer.Error!void {
         if (self != .default) try bw.print(" {s}", .{@tagName(self)});
     }
 };
@@ -1823,7 +1819,7 @@ pub const ThreadLocal = enum(u3) {
     initialexec = 3,
     localexec = 4,
 
-    pub fn format(self: ThreadLocal, bw: *std.io.BufferedWriter, comptime prefix: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: ThreadLocal, bw: *Writer, comptime prefix: []const u8) Writer.Error!void {
         if (self == .default) return;
         try bw.print("{s}thread_local", .{prefix});
         if (self != .generaldynamic) try bw.print("({s})", .{@tagName(self)});
@@ -1837,7 +1833,7 @@ pub const UnnamedAddr = enum(u2) {
     unnamed_addr = 1,
     local_unnamed_addr = 2,
 
-    pub fn format(self: UnnamedAddr, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: UnnamedAddr, bw: *Writer, comptime _: []const u8) Writer.Error!void {
         if (self != .default) try bw.print(" {s}", .{@tagName(self)});
     }
 };
@@ -1931,7 +1927,7 @@ pub const AddrSpace = enum(u24) {
         pub const funcref: AddrSpace = @enumFromInt(20);
     };
 
-    pub fn format(self: AddrSpace, bw: *std.io.BufferedWriter, comptime prefix: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: AddrSpace, bw: *Writer, comptime prefix: []const u8) Writer.Error!void {
         if (self != .default) try bw.print("{s}addrspace({d})", .{ prefix, @intFromEnum(self) });
     }
 };
@@ -1940,7 +1936,7 @@ pub const ExternallyInitialized = enum {
     default,
     externally_initialized,
 
-    pub fn format(self: ExternallyInitialized, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: ExternallyInitialized, bw: *Writer, comptime _: []const u8) Writer.Error!void {
         if (self != .default) try bw.print(" {s}", .{@tagName(self)});
     }
 };
@@ -1964,7 +1960,7 @@ pub const Alignment = enum(u6) {
         return if (self == .default) 0 else (@intFromEnum(self) + 1);
     }
 
-    pub fn format(self: Alignment, bw: *std.io.BufferedWriter, comptime prefix: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: Alignment, bw: *Writer, comptime prefix: []const u8) Writer.Error!void {
         try bw.print("{s}align {d}", .{ prefix, self.toByteUnits() orelse return });
     }
 };
@@ -2038,7 +2034,7 @@ pub const CallConv = enum(u10) {
 
     pub const default = CallConv.ccc;
 
-    pub fn format(self: CallConv, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: CallConv, bw: *Writer, comptime _: []const u8) Writer.Error!void {
         switch (self) {
             default => {},
             .fastcc,
@@ -2119,7 +2115,7 @@ pub const StrtabString = enum(u32) {
         string: StrtabString,
         builder: *const Builder,
     };
-    fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime fmt_str: []const u8) std.io.Writer.Error!void {
+    fn format(data: FormatData, bw: *Writer, comptime fmt_str: []const u8) Writer.Error!void {
         if (comptime std.mem.indexOfNone(u8, fmt_str, "\"r")) |_|
             @compileError("invalid format string: '" ++ fmt_str ++ "'");
         assert(data.string != .none);
@@ -2306,7 +2302,7 @@ pub const Global = struct {
             global: Index,
             builder: *const Builder,
         };
-        fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+        fn format(data: FormatData, bw: *Writer, comptime _: []const u8) Writer.Error!void {
             try bw.print("@{f}", .{
                 data.global.unwrap(data.builder).name(data.builder).fmt(data.builder),
             });
@@ -4752,7 +4748,7 @@ pub const Function = struct {
                 function: Function.Index,
                 builder: *Builder,
             };
-            fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime fmt_str: []const u8) std.io.Writer.Error!void {
+            fn format(data: FormatData, bw: *Writer, comptime fmt_str: []const u8) Writer.Error!void {
                 if (comptime std.mem.indexOfNone(u8, fmt_str, ", %")) |_|
                     @compileError("invalid format string: '" ++ fmt_str ++ "'");
                 if (comptime std.mem.indexOfScalar(u8, fmt_str, ',') != null) {
@@ -6944,7 +6940,7 @@ pub const MemoryAccessKind = enum(u1) {
     normal,
     @"volatile",
 
-    pub fn format(self: MemoryAccessKind, bw: *std.io.BufferedWriter, comptime prefix: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: MemoryAccessKind, bw: *Writer, comptime prefix: []const u8) Writer.Error!void {
         if (self != .normal) try bw.print("{s}{s}", .{ prefix, @tagName(self) });
     }
 };
@@ -6953,7 +6949,7 @@ pub const SyncScope = enum(u1) {
     singlethread,
     system,
 
-    pub fn format(self: SyncScope, bw: *std.io.BufferedWriter, comptime prefix: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: SyncScope, bw: *Writer, comptime prefix: []const u8) Writer.Error!void {
         if (self != .system) try bw.print(
             \\{s}syncscope("{s}")
         , .{ prefix, @tagName(self) });
@@ -6969,7 +6965,7 @@ pub const AtomicOrdering = enum(u3) {
     acq_rel = 5,
     seq_cst = 6,
 
-    pub fn format(self: AtomicOrdering, bw: *std.io.BufferedWriter, comptime prefix: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: AtomicOrdering, bw: *Writer, comptime prefix: []const u8) Writer.Error!void {
         if (self != .none) try bw.print("{s}{s}", .{ prefix, @tagName(self) });
     }
 };
@@ -7385,7 +7381,7 @@ pub const Constant = enum(u32) {
         constant: Constant,
         builder: *Builder,
     };
-    fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime fmt_str: []const u8) std.io.Writer.Error!void {
+    fn format(data: FormatData, bw: *Writer, comptime fmt_str: []const u8) Writer.Error!void {
         if (comptime std.mem.indexOfNone(u8, fmt_str, ", %")) |_|
             @compileError("invalid format string: '" ++ fmt_str ++ "'");
         if (comptime std.mem.indexOfScalar(u8, fmt_str, ',') != null) {
@@ -7712,7 +7708,7 @@ pub const Value = enum(u32) {
         function: Function.Index,
         builder: *Builder,
     };
-    fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime fmt_str: []const u8) std.io.Writer.Error!void {
+    fn format(data: FormatData, bw: *Writer, comptime fmt_str: []const u8) Writer.Error!void {
         switch (data.value.unwrap()) {
             .instruction => |instruction| try Function.Instruction.Index.format(.{
                 .instruction = instruction,
@@ -7757,7 +7753,7 @@ pub const MetadataString = enum(u32) {
         metadata_string: MetadataString,
         builder: *const Builder,
     };
-    fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+    fn format(data: FormatData, bw: *Writer, comptime _: []const u8) Writer.Error!void {
         try printEscapedString(data.metadata_string.slice(data.builder), .always_quote, bw);
     }
     fn fmt(self: MetadataString, builder: *const Builder) std.fmt.Formatter(format) {
@@ -7922,7 +7918,7 @@ pub const Metadata = enum(u32) {
         AllCallsDescribed: bool = false,
         Unused: u2 = 0,
 
-        pub fn format(self: DIFlags, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+        pub fn format(self: DIFlags, bw: *Writer, comptime _: []const u8) Writer.Error!void {
             var need_pipe = false;
             inline for (@typeInfo(DIFlags).@"struct".fields) |field| {
                 switch (@typeInfo(field.type)) {
@@ -7979,7 +7975,7 @@ pub const Metadata = enum(u32) {
             ObjCDirect: bool = false,
             Unused: u20 = 0,
 
-            pub fn format(self: DISPFlags, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+            pub fn format(self: DISPFlags, bw: *Writer, comptime _: []const u8) Writer.Error!void {
                 var need_pipe = false;
                 inline for (@typeInfo(DISPFlags).@"struct".fields) |field| {
                     switch (@typeInfo(field.type)) {
@@ -8196,7 +8192,7 @@ pub const Metadata = enum(u32) {
                 };
             };
         };
-        fn format(data: FormatData, bw: *std.io.BufferedWriter, comptime fmt_str: []const u8) std.io.Writer.Error!void {
+        fn format(data: FormatData, bw: *Writer, comptime fmt_str: []const u8) Writer.Error!void {
             if (data.node == .none) return;
 
             const is_specialized = fmt_str.len > 0 and fmt_str[0] == 'S';
@@ -8370,7 +8366,7 @@ pub const Metadata = enum(u32) {
                 DIGlobalVariableExpression,
             },
             nodes: anytype,
-            bw: *std.io.BufferedWriter,
+            bw: *Writer,
         ) !void {
             comptime var fmt_str: []const u8 = "";
             const names = comptime std.meta.fieldNames(@TypeOf(nodes));
@@ -8623,12 +8619,12 @@ pub fn deinit(self: *Builder) void {
     self.* = undefined;
 }
 
-pub fn setModuleAsm(self: *Builder, aw: *std.io.AllocatingWriter) *std.io.BufferedWriter {
+pub fn setModuleAsm(self: *Builder, aw: *std.io.AllocatingWriter) *Writer {
     self.module_asm.clearRetainingCapacity();
     return self.appendModuleAsm(aw);
 }
 
-pub fn appendModuleAsm(self: *Builder, aw: *std.io.AllocatingWriter) *std.io.BufferedWriter {
+pub fn appendModuleAsm(self: *Builder, aw: *std.io.AllocatingWriter) *Writer {
     return aw.fromArrayList(self.gpa, &self.module_asm);
 }
 
@@ -9379,14 +9375,14 @@ pub fn printToFile(self: *Builder, path: []const u8) bool {
     return true;
 }
 
-pub fn printBuffered(self: *Builder, writer: std.io.Writer) std.io.Writer.Error!void {
+pub fn printBuffered(self: *Builder, writer: Writer) Writer.Error!void {
     var buffer: [4096]u8 = undefined;
     var bw = writer.buffered(&buffer);
     try self.print(&bw);
     try bw.flush();
 }
 
-pub fn print(self: *Builder, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+pub fn print(self: *Builder, bw: *Writer) Writer.Error!void {
     var need_newline = false;
     var metadata_formatter: Metadata.Formatter = .{ .builder = self, .need_comma = undefined };
     defer metadata_formatter.map.deinit(self.gpa);
@@ -10458,7 +10454,7 @@ fn isValidIdentifier(id: []const u8) bool {
 }
 
 const QuoteBehavior = enum { always_quote, quote_unless_valid_identifier };
-fn printEscapedString(slice: []const u8, quotes: QuoteBehavior, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn printEscapedString(slice: []const u8, quotes: QuoteBehavior, bw: *Writer) Writer.Error!void {
     const need_quotes = switch (quotes) {
         .always_quote => true,
         .quote_unless_valid_identifier => !isValidIdentifier(slice),
@@ -15097,6 +15093,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
     return bitcode.toOwnedSlice();
 }
 
+const std = @import("../../std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const bitcode_writer = @import("bitcode_writer.zig");
@@ -15105,4 +15102,4 @@ const builtin = @import("builtin");
 const DW = std.dwarf;
 const ir = @import("ir.zig");
 const log = std.log.scoped(.llvm);
-const std = @import("../../std.zig");
+const Writer = std.io.Writer;

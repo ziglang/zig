@@ -148,8 +148,8 @@ pub fn fmtRelocType(r_type: u32, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatte
     } };
 }
 
-fn formatRelocType(ctx: FormatRelocTypeCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-    _ = unused_fmt_string;
+fn formatRelocType(ctx: FormatRelocTypeCtx, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+    comptime assert(unused_fmt_string.len == 0);
     const r_type = ctx.r_type;
     switch (ctx.cpu_arch) {
         .x86_64 => try bw.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),
@@ -159,9 +159,10 @@ fn formatRelocType(ctx: FormatRelocTypeCtx, bw: *std.io.BufferedWriter, comptime
     }
 }
 
+const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
-const std = @import("std");
+const Writer = std.io.Writer;
 
 const Dwarf = @import("../Dwarf.zig");
 const Elf = @import("../Elf.zig");

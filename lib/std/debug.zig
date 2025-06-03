@@ -12,6 +12,7 @@ const windows = std.os.windows;
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
+const Writer = std.io.Writer;
 
 pub const MemoryAccessor = @import("debug/MemoryAccessor.zig");
 pub const FixedBufferReader = @import("debug/FixedBufferReader.zig");
@@ -208,9 +209,9 @@ pub fn unlockStdErr() void {
 ///
 /// During the lock, any `std.Progress` information is cleared from the terminal.
 ///
-/// Returns a `std.io.BufferedWriter` with empty buffer, meaning that it is
+/// Returns a `Writer` with empty buffer, meaning that it is
 /// in fact unbuffered and does not need to be flushed.
-pub fn lockStderrWriter(buffer: []u8) *std.io.BufferedWriter {
+pub fn lockStderrWriter(buffer: []u8) *Writer {
     return std.Progress.lockStderrWriter(buffer);
 }
 
@@ -252,7 +253,7 @@ pub fn dumpHex(bytes: []const u8) void {
 }
 
 /// Prints a hexadecimal view of the bytes, returning any error that occurs.
-pub fn dumpHexFallible(bw: *std.io.BufferedWriter, ttyconf: std.io.tty.Config, bytes: []const u8) !void {
+pub fn dumpHexFallible(bw: *Writer, ttyconf: std.io.tty.Config, bytes: []const u8) !void {
     var chunks = mem.window(u8, bytes, 16, 16);
     while (chunks.next()) |window| {
         // 1. Print the address.
@@ -329,7 +330,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 }
 
 /// Prints the current stack trace to the provided writer.
-pub fn dumpCurrentStackTraceToWriter(start_addr: ?usize, writer: *std.io.BufferedWriter) !void {
+pub fn dumpCurrentStackTraceToWriter(start_addr: ?usize, writer: *Writer) !void {
     if (builtin.target.cpu.arch.isWasm()) {
         if (native_os == .wasi) {
             try writer.writeAll("Unable to dump stack trace: not implemented for Wasm\n");
@@ -413,7 +414,7 @@ pub inline fn getContext(context: *ThreadContext) bool {
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
-pub fn dumpStackTraceFromBase(context: *ThreadContext, stderr: *std.io.BufferedWriter) void {
+pub fn dumpStackTraceFromBase(context: *ThreadContext, stderr: *Writer) void {
     nosuspend {
         if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
@@ -584,8 +585,7 @@ pub fn panicExtra(
     const size = 0x1000;
     const trunc_msg = "(msg truncated)";
     var buf: [size + trunc_msg.len]u8 = undefined;
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(buf[0..size]);
+    var bw: Writer = .fixed(buf[0..size]);
     // a minor annoyance with this is that it will result in the NoSpaceLeft
     // error being part of the @panic stack trace (but that error should
     // only happen rarely)
@@ -733,7 +733,7 @@ fn waitForOtherThreadToFinishPanicking() void {
 
 pub fn writeStackTrace(
     stack_trace: std.builtin.StackTrace,
-    writer: *std.io.BufferedWriter,
+    writer: *Writer,
     debug_info: *SelfInfo,
     tty_config: io.tty.Config,
 ) !void {
@@ -964,7 +964,7 @@ pub const StackIterator = struct {
 };
 
 pub fn writeCurrentStackTrace(
-    writer: *std.io.BufferedWriter,
+    writer: *Writer,
     debug_info: *SelfInfo,
     tty_config: io.tty.Config,
     start_addr: ?usize,
@@ -1052,7 +1052,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
 }
 
 pub fn writeStackTraceWindows(
-    writer: *std.io.BufferedWriter,
+    writer: *Writer,
     debug_info: *SelfInfo,
     tty_config: io.tty.Config,
     context: *const windows.CONTEXT,
@@ -1072,7 +1072,7 @@ pub fn writeStackTraceWindows(
     }
 }
 
-fn printUnknownSource(debug_info: *SelfInfo, writer: *std.io.BufferedWriter, address: usize, tty_config: io.tty.Config) !void {
+fn printUnknownSource(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: io.tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address);
     return printLineInfo(
         writer,
@@ -1085,14 +1085,14 @@ fn printUnknownSource(debug_info: *SelfInfo, writer: *std.io.BufferedWriter, add
     );
 }
 
-fn printLastUnwindError(it: *StackIterator, debug_info: *SelfInfo, writer: *std.io.BufferedWriter, tty_config: io.tty.Config) void {
+fn printLastUnwindError(it: *StackIterator, debug_info: *SelfInfo, writer: *Writer, tty_config: io.tty.Config) void {
     if (!have_ucontext) return;
     if (it.getLastError()) |unwind_error| {
         printUnwindError(debug_info, writer, unwind_error.address, unwind_error.err, tty_config) catch {};
     }
 }
 
-fn printUnwindError(debug_info: *SelfInfo, writer: *std.io.BufferedWriter, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
+fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address) orelse "???";
     try tty_config.setColor(writer, .dim);
     if (err == error.MissingDebugInfo) {
@@ -1103,7 +1103,7 @@ fn printUnwindError(debug_info: *SelfInfo, writer: *std.io.BufferedWriter, addre
     try tty_config.setColor(writer, .reset);
 }
 
-pub fn printSourceAtAddress(debug_info: *SelfInfo, writer: *std.io.BufferedWriter, address: usize, tty_config: io.tty.Config) !void {
+pub fn printSourceAtAddress(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: io.tty.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, writer, address, tty_config),
         else => return err,
@@ -1127,7 +1127,7 @@ pub fn printSourceAtAddress(debug_info: *SelfInfo, writer: *std.io.BufferedWrite
 }
 
 fn printLineInfo(
-    writer: *std.io.BufferedWriter,
+    writer: *Writer,
     source_location: ?SourceLocation,
     address: usize,
     symbol_name: []const u8,
@@ -1174,7 +1174,7 @@ fn printLineInfo(
     }
 }
 
-fn printLineFromFileAnyOs(writer: *std.io.BufferedWriter, source_location: SourceLocation) !void {
+fn printLineFromFileAnyOs(writer: *Writer, source_location: SourceLocation) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
     var f = try fs.cwd().openFile(source_location.file_name, .{});
@@ -1567,7 +1567,7 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, msg: u8, label:
     posix.abort();
 }
 
-fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8, stderr: *std.io.BufferedWriter) void {
+fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8, stderr: *Writer) void {
     _ = switch (msg) {
         0 => stderr.print("{s}\n", .{label.?}),
         1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
@@ -1699,7 +1699,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
             t: @This(),
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
-            writer: *std.io.BufferedWriter,
+            writer: *Writer,
         ) !void {
             if (fmt.len != 0) std.fmt.invalidFmtError(fmt, t);
             _ = options;

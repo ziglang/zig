@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 const Target = std.Target;
+const Writer = std.io.Writer;
 
 const Zcu = @import("../../Zcu.zig");
 const Mir = @import("Mir.zig");
@@ -256,7 +257,8 @@ pub const FrameIndex = enum(u32) {
         return @intFromEnum(fi) < named_count;
     }
 
-    pub fn format(fi: FrameIndex, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+    pub fn format(fi: FrameIndex, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
+        comptime assert(fmt.len == 0);
         try bw.writeAll("FrameIndex");
         if (fi.isNamed())
             try bw.print(".{s}", .{@tagName(fi)})

@@ -3,6 +3,7 @@ const testing = std.testing;
 const zip = @import("../zip.zig");
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
+const Writer = std.io.Writer;
 
 const File = struct {
     name: []const u8,
@@ -103,7 +104,7 @@ const Zip64Options = struct {
 };
 
 fn writeZip(
-    writer: *std.io.BufferedWriter,
+    writer: *Writer,
     files: []const File,
     store: []FileStore,
     options: WriteZipOptions,
@@ -129,13 +130,13 @@ fn writeZip(
 /// Provides methods to format and write the contents of a zip archive
 /// to the underlying Writer.
 const Zipper = struct {
-    writer: *std.io.BufferedWriter,
+    writer: *Writer,
     init_count: u64,
     central_count: u64 = 0,
     first_central_offset: ?u64 = null,
     last_central_limit: ?u64 = null,
 
-    fn init(writer: *std.io.BufferedWriter) Zipper {
+    fn init(writer: *Writer) Zipper {
         return .{ .writer = writer, .init_count = writer.count };
     }
 
@@ -198,8 +199,7 @@ const Zipper = struct {
             },
             .deflate => {
                 const offset = writer.count;
-                var br: std.io.Reader = undefined;
-                br.initFixed(@constCast(opt.content));
+                var br: std.io.Reader = .fixed(opt.content);
                 var compress: std.compress.flate.Compress = .init(&br, .{});
                 var compress_br = compress.readable(&.{});
                 const n = try compress_br.readRemaining(writer);

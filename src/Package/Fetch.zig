@@ -1366,9 +1366,9 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
             const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
             var buffer: [4096]u8 = undefined;
-            var index_buffered_writer: std.io.BufferedWriter = index_file.writer().buffered(&buffer);
-            try git.indexPack(gpa, object_format, pack_file, &index_buffered_writer);
-            try index_buffered_writer.flush();
+            var index_file_writer = index_file.writer(&buffer);
+            try git.indexPack(gpa, object_format, pack_file, &index_file_writer.interface);
+            try index_file_writer.flush();
             try index_file.sync();
         }
 
@@ -1639,14 +1639,14 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
     var buffer: [4096]u8 = undefined;
-    var bw: std.io.BufferedWriter = std.fs.File.stdout().writer().buffered(&buffer);
+    var file_writer = std.fs.File.stdout().writer(&buffer);
+    const w = &file_writer.interface;
     for (all_files) |hashed_file| {
-        try bw.print("{s}: {x}: {s}\n", .{
+        try w.print("{s}: {x}: {s}\n", .{
             @tagName(hashed_file.kind), &hashed_file.hash, hashed_file.normalized_path,
         });
     }
-
-    try bw.flush();
+    try file_writer.flush();
 }
 
 fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile) void {

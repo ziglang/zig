@@ -9,6 +9,7 @@ const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
 const Allocator = std.mem.Allocator;
 const Target = std.Target;
+const Writer = std.io.Writer;
 
 const max_aggregate_items = 100;
 const max_string_len = 256;
@@ -20,7 +21,7 @@ pub const FormatContext = struct {
     depth: u8,
 };
 
-pub fn formatSema(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime fmt: []const u8) std.io.Writer.Error!void {
+pub fn formatSema(ctx: FormatContext, bw: *Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
     const sema = ctx.opt_sema.?;
     comptime std.debug.assert(fmt.len == 0);
     return print(ctx.val, bw, ctx.depth, ctx.pt, sema) catch |err| switch (err) {
@@ -31,7 +32,7 @@ pub fn formatSema(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime fmt: 
     };
 }
 
-pub fn format(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime fmt: []const u8) std.io.Writer.Error!void {
+pub fn format(ctx: FormatContext, bw: *Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
     std.debug.assert(ctx.opt_sema == null);
     comptime std.debug.assert(fmt.len == 0);
     return print(ctx.val, bw, ctx.depth, ctx.pt, null) catch |err| switch (err) {
@@ -43,7 +44,7 @@ pub fn format(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime fmt: []co
 
 pub fn print(
     val: Value,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
@@ -186,7 +187,7 @@ fn printAggregate(
     val: Value,
     aggregate: InternPool.Key.Aggregate,
     is_ref: bool,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
@@ -272,7 +273,7 @@ fn printPtr(
     ptr_val: Value,
     /// Whether to print `derivation` as an lvalue or rvalue. If `null`, the more concise option is chosen.
     want_kind: ?PrintPtrKind,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
@@ -318,7 +319,7 @@ const PrintPtrKind = enum { lvalue, rvalue };
 /// Returns the root derivation, which may be ignored.
 pub fn printPtrDerivation(
     derivation: Value.PointerDeriveStep,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     pt: Zcu.PerThread,
     /// Whether to print `derivation` as an lvalue or rvalue. If `null`, the more concise option is chosen.
     /// If this is `.rvalue`, the result may look like `&foo`, so it's not necessarily valid to treat it as

@@ -133,7 +133,7 @@ fn finalize(rebase: *Rebase, gpa: Allocator) !void {
     try done(bw);
 }
 
-fn finalizeSegment(entries: []const Entry, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn finalizeSegment(entries: []const Entry, bw: *Writer) Writer.Error!void {
     if (entries.len == 0) return;
 
     const segment_id = entries[0].segment_id;
@@ -220,24 +220,24 @@ fn finalizeSegment(entries: []const Entry, bw: *std.io.BufferedWriter) std.io.Wr
     }
 }
 
-fn setTypePointer(bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn setTypePointer(bw: *Writer) Writer.Error!void {
     log.debug(">>> set type: {d}", .{macho.REBASE_TYPE_POINTER});
     try bw.writeByte(macho.REBASE_OPCODE_SET_TYPE_IMM | @as(u4, @intCast(macho.REBASE_TYPE_POINTER)));
 }
 
-fn setSegmentOffset(segment_id: u4, offset: u64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn setSegmentOffset(segment_id: u4, offset: u64, bw: *Writer) Writer.Error!void {
     log.debug(">>> set segment: {d} and offset: {x}", .{ segment_id, offset });
     try bw.writeByte(macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @as(u4, @truncate(segment_id)));
     try bw.writeLeb128(offset);
 }
 
-fn rebaseAddAddr(addr: u64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn rebaseAddAddr(addr: u64, bw: *Writer) Writer.Error!void {
     log.debug(">>> rebase with add: {x}", .{addr});
     try bw.writeByte(macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB);
     try bw.writeLeb128(addr);
 }
 
-fn rebaseTimes(count: usize, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn rebaseTimes(count: usize, bw: *Writer) Writer.Error!void {
     log.debug(">>> rebase with count: {d}", .{count});
     if (count <= 0xf) {
         try bw.writeByte(macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES | @as(u4, @truncate(count)));
@@ -247,14 +247,14 @@ fn rebaseTimes(count: usize, bw: *std.io.BufferedWriter) std.io.Writer.Error!voi
     }
 }
 
-fn rebaseTimesSkip(count: usize, skip: u64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn rebaseTimesSkip(count: usize, skip: u64, bw: *Writer) Writer.Error!void {
     log.debug(">>> rebase with count: {d} and skip: {x}", .{ count, skip });
     try bw.writeByte(macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB);
     try bw.writeLeb128(count);
     try bw.writeLeb128(skip);
 }
 
-fn addAddr(addr: u64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn addAddr(addr: u64, bw: *Writer) Writer.Error!void {
     log.debug(">>> add: {x}", .{addr});
     if (std.math.divExact(u64, addr, @sizeOf(u64))) |scaled| {
         if (std.math.cast(u4, scaled)) |imm_scaled| return bw.writeByte(
@@ -265,12 +265,12 @@ fn addAddr(addr: u64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
     try bw.writeLeb128(addr);
 }
 
-fn done(bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn done(bw: *Writer) Writer.Error!void {
     log.debug(">>> done", .{});
     try bw.writeByte(macho.REBASE_OPCODE_DONE);
 }
 
-pub fn write(rebase: Rebase, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+pub fn write(rebase: Rebase, bw: *Writer) Writer.Error!void {
     try bw.writeAll(rebase.buffer.items);
 }
 
@@ -654,9 +654,10 @@ const log = std.log.scoped(.link_dyld_info);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
-const trace = @import("../../../tracy.zig").trace;
-
 const Allocator = mem.Allocator;
+const Writer = std.io.Writer;
+
+const trace = @import("../../../tracy.zig").trace;
 const File = @import("../file.zig").File;
 const MachO = @import("../../MachO.zig");
 const Rebase = @This();

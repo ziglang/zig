@@ -215,8 +215,7 @@ pub const Tz = struct {
 
 test "slim" {
     const data = @embedFile("tz/asia_tokyo.tzif");
-    var in_stream: std.io.Reader = undefined;
-    in_stream.initFixed(data);
+    var in_stream: std.io.Reader = .fixed(data);
 
     var tz = try std.Tz.parse(std.testing.allocator, &in_stream);
     defer tz.deinit();
@@ -229,8 +228,7 @@ test "slim" {
 
 test "fat" {
     const data = @embedFile("tz/antarctica_davis.tzif");
-    var in_stream: std.io.Reader = undefined;
-    in_stream.initFixed(data);
+    var in_stream: std.io.Reader = .fixed(data);
 
     var tz = try std.Tz.parse(std.testing.allocator, &in_stream);
     defer tz.deinit();
@@ -243,8 +241,7 @@ test "fat" {
 test "legacy" {
     // Taken from Slackware 8.0, from 2001
     const data = @embedFile("tz/europe_vatican.tzif");
-    var in_stream: std.io.Reader = undefined;
-    in_stream.initFixed(data);
+    var in_stream: std.io.Reader = .fixed(data);
 
     var tz = try std.Tz.parse(std.testing.allocator, &in_stream);
     defer tz.deinit();

@@ -10,6 +10,7 @@ const log = std.log.scoped(.liveness);
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Log2Int = std.math.Log2Int;
+const Writer = std.io.Writer;
 
 const Liveness = @This();
 const trace = @import("../tracy.zig").trace;
@@ -2036,7 +2037,7 @@ fn fmtInstSet(set: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void)) FmtIns
 const FmtInstSet = struct {
     set: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void),
 
-    pub fn format(val: FmtInstSet, bw: *std.io.BufferedWriter, comptime _: []const u8) !void {
+    pub fn format(val: FmtInstSet, bw: *Writer, comptime _: []const u8) !void {
         if (val.set.count() == 0) {
             try bw.writeAll("[no instructions]");
             return;
@@ -2056,7 +2057,8 @@ fn fmtInstList(list: []const Air.Inst.Index) FmtInstList {
 const FmtInstList = struct {
     list: []const Air.Inst.Index,
 
-    pub fn format(val: FmtInstList, bw: *std.io.BufferedWriter, comptime _: []const u8) !void {
+    pub fn format(val: FmtInstList, bw: *Writer, comptime fmt: []const u8) !void {
+        comptime assert(fmt.len == 0);
         if (val.list.len == 0) {
             try bw.writeAll("[no instructions]");
             return;

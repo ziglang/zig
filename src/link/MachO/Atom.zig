@@ -580,8 +580,7 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
 
     relocs_log.debug("{x}: {s}", .{ self.value, name });
 
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(buffer);
+    var bw: Writer = .fixed(buffer);
 
     var has_error = false;
     var i: usize = 0;
@@ -638,8 +637,8 @@ fn resolveRelocInner(
     subtractor: ?Relocation,
     code: []u8,
     macho_file: *MachO,
-    bw: *std.io.BufferedWriter,
-) std.io.Writer.Error!void {
+    bw: *Writer,
+) Writer.Error!void {
     const t = &macho_file.base.comp.root_mod.resolved_target.result;
     const cpu_arch = t.cpu.arch;
     const rel_offset = math.cast(usize, rel.offset - self.off) orelse return error.Overflow;
@@ -938,8 +937,7 @@ const x86_64 = struct {
     }
 
     fn encode(insts: []const Instruction, code: []u8) !void {
-        var bw: std.io.BufferedWriter = undefined;
-        bw.initFixed(code);
+        var bw: Writer = .fixed(code);
         for (insts) |inst| try inst.encode(&bw, .{});
     }
 
@@ -1140,8 +1138,8 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-    _ = unused_fmt_string;
+fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+    comptime assert(unused_fmt_string.len == 0);
     const atom = ctx.atom;
     const macho_file = ctx.macho_file;
     const file = atom.getFile(macho_file);
@@ -1197,19 +1195,20 @@ pub const Extra = struct {
 
 pub const Alignment = @import("../../InternPool.zig").Alignment;
 
-const aarch64 = @import("../aarch64.zig");
+const std = @import("std");
 const assert = std.debug.assert;
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const log = std.log.scoped(.link);
 const relocs_log = std.log.scoped(.link_relocs);
-const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
-
+const Writer = std.io.Writer;
 const Allocator = mem.Allocator;
-const Atom = @This();
 const AtomicBool = std.atomic.Value(bool);
+
+const aarch64 = @import("../aarch64.zig");
+const trace = @import("../../tracy.zig").trace;
+const Atom = @This();
 const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");

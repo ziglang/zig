@@ -269,8 +269,7 @@ fn finalizeDwarfSegment(self: *DebugSymbols, macho_file: *MachO) void {
 
 fn writeLoadCommands(self: *DebugSymbols, macho_file: *MachO) !struct { usize, usize } {
     const gpa = self.allocator;
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(try gpa.alloc(u8, load_commands.calcLoadCommandsSizeDsym(macho_file, self)));
+    var bw: Writer = .fixed(try gpa.alloc(u8, load_commands.calcLoadCommandsSizeDsym(macho_file, self)));
     defer gpa.free(bw.buffer);
 
     var ncmds: usize = 0;
@@ -456,6 +455,7 @@ const math = std.math;
 const mem = std.mem;
 const padToIdeal = MachO.padToIdeal;
 const trace = @import("../../tracy.zig").trace;
+const Writer = std.io.Writer;
 
 const Allocator = mem.Allocator;
 const MachO = @import("../MachO.zig");

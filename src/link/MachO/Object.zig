@@ -1065,8 +1065,7 @@ fn initEhFrameRecords(self: *Object, allocator: Allocator, sect_id: u8, file: Fi
         }
     }
 
-    var it: eh_frame.Iterator = undefined;
-    it.br.initFixed(self.eh_frame_data.items);
+    var it: eh_frame.Iterator = .{ .br = .fixed(self.eh_frame_data.items) };
     while (try it.next()) |rec| {
         switch (rec.tag) {
             .cie => try self.cies.append(allocator, .{
@@ -1695,7 +1694,7 @@ pub fn updateArSize(self: *Object, macho_file: *MachO) !void {
     };
 }
 
-pub fn writeAr(self: Object, bw: *std.io.BufferedWriter, ar_format: Archive.Format, macho_file: *MachO) !void {
+pub fn writeAr(self: Object, bw: *Writer, ar_format: Archive.Format, macho_file: *MachO) !void {
     // Header
     const size = try macho_file.cast(usize, self.output_ar_state.size);
     const basename = std.fs.path.basename(self.path.sub_path);
@@ -2513,7 +2512,7 @@ pub fn readSectionData(self: Object, allocator: Allocator, file: File.Handle, n_
     return data;
 }
 
-pub fn format(self: *Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+pub fn format(self: *Object, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = self;
     _ = bw;
     _ = unused_fmt_string;
@@ -2532,7 +2531,7 @@ pub fn fmtAtoms(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatAtoms
     } };
 }
 
-fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatAtoms(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     const macho_file = ctx.macho_file;
@@ -2550,7 +2549,7 @@ pub fn fmtCies(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatCies) 
     } };
 }
 
-fn formatCies(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatCies(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     try bw.writeAll("  cies\n");
@@ -2566,7 +2565,7 @@ pub fn fmtFdes(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatFdes) 
     } };
 }
 
-fn formatFdes(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatFdes(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     try bw.writeAll("  fdes\n");
@@ -2582,7 +2581,7 @@ pub fn fmtUnwindRecords(self: *Object, macho_file: *MachO) std.fmt.Formatter(for
     } };
 }
 
-fn formatUnwindRecords(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatUnwindRecords(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     const macho_file = ctx.macho_file;
@@ -2599,7 +2598,7 @@ pub fn fmtSymtab(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatSymt
     } };
 }
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     const macho_file = ctx.macho_file;
@@ -2629,7 +2628,7 @@ pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(object: Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatPath(object: Object, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     if (object.in_archive) |ar| {
         try bw.print("{f}({s})", .{
@@ -2690,7 +2689,7 @@ const StabFile = struct {
             return object.symbols.items[index];
         }
 
-        pub fn format(stab: Stab, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+        pub fn format(stab: Stab, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
             _ = stab;
             _ = bw;
             _ = unused_fmt_string;
@@ -2703,7 +2702,7 @@ const StabFile = struct {
             return .{ .data = .{ stab, object } };
         }
 
-        fn format2(ctx: StabFormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+        fn format2(ctx: StabFormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
             _ = unused_fmt_string;
             const stab, const object = ctx;
             const sym = stab.getSymbol(object).?;
@@ -3104,17 +3103,18 @@ const aarch64 = struct {
     }
 };
 
+const std = @import("std");
 const assert = std.debug.assert;
-const eh_frame = @import("eh_frame.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
-const trace = @import("../../tracy.zig").trace;
-const std = @import("std");
 const Path = std.Build.Cache.Path;
+const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
 
-const Allocator = mem.Allocator;
+const eh_frame = @import("eh_frame.zig");
+const trace = @import("../../tracy.zig").trace;
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Cie = eh_frame.Cie;

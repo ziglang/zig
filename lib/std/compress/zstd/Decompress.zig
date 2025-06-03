@@ -3,8 +3,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Reader = std.io.Reader;
 const Limit = std.io.Limit;
-const BufferedWriter = std.io.BufferedWriter;
 const zstd = @import("../zstd.zig");
+const Writer = std.io.Writer;
 
 input: *Reader,
 state: State,
@@ -77,7 +77,7 @@ pub fn reader(self: *Decompress) Reader {
     };
 }
 
-fn read(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) Reader.StreamError!usize {
+fn read(context: ?*anyopaque, bw: *Writer, limit: Limit) Reader.StreamError!usize {
     const d: *Decompress = @ptrCast(@alignCast(context));
     const in = d.input;
 
@@ -139,7 +139,7 @@ fn initFrame(d: *Decompress, window_size_max: usize, magic: Frame.Magic) !void {
     }
 }
 
-fn readInFrame(d: *Decompress, bw: *BufferedWriter, limit: Limit, state: *State.InFrame) !usize {
+fn readInFrame(d: *Decompress, bw: *Writer, limit: Limit, state: *State.InFrame) !usize {
     const in = d.input;
 
     const header_bytes = try in.takeArray(3);
@@ -649,8 +649,7 @@ pub const Frame = struct {
 
                 if (decode.literal_written_count + literal_length > decode.literal_header.regenerated_size)
                     return error.MalformedLiteralsLength;
-                var sub_bw: BufferedWriter = undefined;
-                sub_bw.initFixed(dest[write_pos..]);
+                var sub_bw: Writer = .fixed(dest[write_pos..]);
                 try decodeLiterals(decode, &sub_bw, literal_length);
                 decode.literal_written_count += literal_length;
                 // This is not a @memmove; it intentionally repeats patterns
@@ -698,7 +697,7 @@ pub const Frame = struct {
             }
 
             /// Decode `len` bytes of literals into `dest`.
-            fn decodeLiterals(self: *Decode, dest: *BufferedWriter, len: usize) !void {
+            fn decodeLiterals(self: *Decode, dest: *Writer, len: usize) !void {
                 switch (self.literal_header.block_type) {
                     .raw => {
                         try dest.writeAll(self.literal_streams.one[self.literal_written_count..][0..len]);

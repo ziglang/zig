@@ -2,6 +2,7 @@ const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const math = std.math;
+const Writer = std.io.Writer;
 
 /// Provides deterministic randomness in unit tests.
 /// Initialized on startup. Read-only after that.
@@ -459,7 +460,7 @@ fn SliceDiffer(comptime T: type) type {
 
         const Self = @This();
 
-        pub fn write(self: Self, bw: *std.io.BufferedWriter) !void {
+        pub fn write(self: Self, bw: *Writer) !void {
             for (self.expected, 0..) |value, i| {
                 const full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
@@ -480,7 +481,7 @@ const BytesDiffer = struct {
     actual: []const u8,
     ttyconf: std.io.tty.Config,
 
-    pub fn write(self: BytesDiffer, bw: *std.io.BufferedWriter) !void {
+    pub fn write(self: BytesDiffer, bw: *Writer) !void {
         var expected_iterator = std.mem.window(u8, self.expected, 16, 16);
         var row: usize = 0;
         while (expected_iterator.next()) |chunk| {
@@ -526,7 +527,7 @@ const BytesDiffer = struct {
         }
     }
 
-    fn writeDiff(self: BytesDiffer, bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytype, diff: bool) !void {
+    fn writeDiff(self: BytesDiffer, bw: *Writer, comptime fmt: []const u8, args: anytype, diff: bool) !void {
         if (diff) try self.ttyconf.setColor(bw, .red);
         try bw.print(fmt, args);
         if (diff) try self.ttyconf.setColor(bw, .reset);

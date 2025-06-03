@@ -72,8 +72,6 @@ pub const Limit = enum(usize) {
 pub const Reader = @import("io/Reader.zig");
 pub const Writer = @import("io/Writer.zig");
 
-pub const AllocatingWriter = @import("io/AllocatingWriter.zig");
-
 pub const ChangeDetectionStream = @import("io/change_detection_stream.zig").ChangeDetectionStream;
 pub const changeDetectionStream = @import("io/change_detection_stream.zig").changeDetectionStream;
 
@@ -485,7 +483,6 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 }
 
 test {
-    _ = AllocatingWriter;
     _ = Reader;
     _ = Writer;
     _ = @import("io/test.zig");

@@ -6,6 +6,8 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const InternPool = @import("../../InternPool.zig");
 const link = @import("../../link.zig");
+const Writer = std.io.Writer;
+
 const Mir = @import("Mir.zig");
 
 /// EFLAGS condition codes
@@ -728,7 +730,8 @@ pub const FrameIndex = enum(u32) {
         return @intFromEnum(fi) < named_count;
     }
 
-    pub fn format(fi: FrameIndex, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+    pub fn format(fi: FrameIndex, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
+        comptime assert(fmt.len == 0);
         try bw.writeAll("FrameIndex");
         if (fi.isNamed())
             try bw.print(".{s}", .{@tagName(fi)})
@@ -835,7 +838,8 @@ pub const Memory = struct {
             };
         }
 
-        pub fn format(s: Size, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+        pub fn format(s: Size, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
+            comptime assert(fmt.len == 0);
             if (s == .none) return;
             try bw.writeAll(@tagName(s));
             switch (s) {

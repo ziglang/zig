@@ -65,7 +65,7 @@ fn trampolineSize(cpu_arch: std.Target.Cpu.Arch) usize {
     };
 }
 
-pub fn format(thunk: Thunk, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+pub fn format(thunk: Thunk, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = thunk;
     _ = bw;
     _ = unused_fmt_string;
@@ -84,8 +84,8 @@ const FormatContext = struct {
     elf_file: *Elf,
 };
 
-fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-    _ = unused_fmt_string;
+fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+    comptime assert(unused_fmt_string.len == 0);
     const thunk = ctx.thunk;
     const elf_file = ctx.elf_file;
     try bw.print("@{x} : size({x})\n", .{ thunk.value, thunk.size(elf_file) });
@@ -117,14 +117,15 @@ const aarch64 = struct {
     const Instruction = util.Instruction;
 };
 
+const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
 const log = std.log.scoped(.link);
 const math = std.math;
 const mem = std.mem;
-const std = @import("std");
-
 const Allocator = mem.Allocator;
+const Writer = std.io.Writer;
+
 const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const Symbol = @import("Symbol.zig");

@@ -15,6 +15,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Ast = std.zig.Ast;
+const Writer = std.io.Writer;
 
 const Zcu = @This();
 const Compilation = @import("Compilation.zig");
@@ -1101,8 +1102,7 @@ pub const File = struct {
         const gpa = pt.zcu.gpa;
         const ip = &pt.zcu.intern_pool;
         const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
-        var bw: std.io.BufferedWriter = undefined;
-        bw.initFixed((try strings.addManyAsSlice(file.fullyQualifiedNameLen()))[0]);
+        var bw: Writer = .fixed((try strings.addManyAsSlice(file.fullyQualifiedNameLen()))[0]);
         file.renderFullyQualifiedName(&bw) catch unreachable;
         assert(bw.end == bw.buffer.len);
         return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(bw.end), .no_embedded_nulls);
@@ -4260,7 +4260,7 @@ pub fn fmtDependee(zcu: *Zcu, d: InternPool.Dependee) std.fmt.Formatter(formatDe
     return .{ .data = .{ .dependee = d, .zcu = zcu } };
 }
 
-fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, bw: *std.io.BufferedWriter, comptime fmt: []const u8) !void {
+fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, bw: *Writer, comptime fmt: []const u8) !void {
     _ = fmt;
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
@@ -4284,7 +4284,7 @@ fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, bw: *std.io.Buffer
         .memoized_state => return bw.writeAll("memoized_state"),
     }
 }
-fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, bw: *std.io.BufferedWriter, comptime fmt: []const u8) !void {
+fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, bw: *Writer, comptime fmt: []const u8) !void {
     _ = fmt;
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;

@@ -22,7 +22,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const BufferedWriter = std.io.BufferedWriter;
+const Writer = std.io.Writer;
 
 /// Options for `serialize`.
 pub const SerializeOptions = struct {
@@ -41,7 +41,7 @@ pub const SerializeOptions = struct {
 /// Serialize the given value as ZON.
 ///
 /// It is asserted at comptime that `@TypeOf(val)` is not a recursive type.
-pub fn serialize(val: anytype, options: SerializeOptions, writer: *BufferedWriter) std.io.Writer.Error!void {
+pub fn serialize(val: anytype, options: SerializeOptions, writer: *Writer) Writer.Error!void {
     var s: Serializer = .{
         .writer = writer,
         .options = .{ .whitespace = options.whitespace },
@@ -60,7 +60,7 @@ pub fn serialize(val: anytype, options: SerializeOptions, writer: *BufferedWrite
 pub fn serializeMaxDepth(
     val: anytype,
     options: SerializeOptions,
-    writer: *BufferedWriter,
+    writer: *Writer,
     depth: usize,
 ) Serializer.DepthError!void {
     var s: Serializer = .{
@@ -80,7 +80,7 @@ pub fn serializeMaxDepth(
 pub fn serializeArbitraryDepth(
     val: anytype,
     options: SerializeOptions,
-    writer: *BufferedWriter,
+    writer: *Writer,
 ) Serializer.Error!void {
     var s: Serializer = .{
         .writer = writer,
@@ -437,9 +437,9 @@ pub const SerializeContainerOptions = struct {
 pub const Serializer = struct {
     options: Options = .{},
     indent_level: u8 = 0,
-    writer: *BufferedWriter,
+    writer: *Writer,
 
-    pub const Error = std.io.Writer.Error;
+    pub const Error = Writer.Error;
     pub const DepthError = Error || error{ExceededMaxDepth};
 
     pub const Options = struct {
@@ -1040,7 +1040,7 @@ pub const Serializer = struct {
 };
 
 test Serializer {
-    var bw: std.io.BufferedWriter = .{
+    var bw: Writer = .{
         .unbuffered_writer = .discarding,
         .buffer = &.{},
     };

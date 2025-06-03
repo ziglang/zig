@@ -905,20 +905,18 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?mem.Alig
         pub fn print(self: *Self, gpa: Allocator, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
             comptime assert(T == u8);
             try self.ensureUnusedCapacity(gpa, fmt.len);
-            var aw: std.io.AllocatingWriter = undefined;
-            const bw = aw.fromArrayList(gpa, self);
+            var aw: std.io.AllocatingWriter = .fromArrayList(gpa, self);
             defer self.* = aw.toArrayList();
-            return bw.print(fmt, args) catch |err| switch (err) {
+            return aw.interface.print(fmt, args) catch |err| switch (err) {
                 error.WriteFailed => return error.OutOfMemory,
             };
         }
 
         pub fn printAssumeCapacity(self: *Self, comptime fmt: []const u8, args: anytype) void {
             comptime assert(T == u8);
-            var bw: std.io.BufferedWriter = undefined;
-            bw.initFixed(self.unusedCapacitySlice());
-            bw.print(fmt, args) catch unreachable;
-            self.items.len += bw.end;
+            var w: std.io.Writer = .fixed(self.unusedCapacitySlice());
+            w.print(fmt, args) catch unreachable;
+            self.items.len += w.end;
         }
 
         /// Append a value to the list `n` times.

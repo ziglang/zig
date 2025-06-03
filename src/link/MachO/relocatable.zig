@@ -205,8 +205,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
         state_log.debug("ar_symtab\n{f}\n", .{ar_symtab.fmt(macho_file)});
     }
 
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(try gpa.alloc(u8, total_size));
+    var bw: Writer = .fixed(try gpa.alloc(u8, total_size));
     defer gpa.free(bw.buffer);
 
     // Write magic
@@ -683,8 +682,7 @@ fn writeSectionsToFile(macho_file: *MachO) !void {
 
 fn writeLoadCommands(macho_file: *MachO) error{ LinkFailure, OutOfMemory }!struct { usize, usize } {
     const gpa = macho_file.base.comp.gpa;
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(try gpa.alloc(u8, load_commands.calcLoadCommandsSizeObject(macho_file)));
+    var bw: Writer = .fixed(try gpa.alloc(u8, load_commands.calcLoadCommandsSizeObject(macho_file)));
     defer gpa.free(bw.buffer);
 
     var ncmds: usize = 0;
@@ -759,6 +757,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const state_log = std.log.scoped(.link_state);
+const Writer = std.io.Writer;
 
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");

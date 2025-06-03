@@ -12,6 +12,7 @@ const Sha1 = std.crypto.hash.Sha1;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const assert = std.debug.assert;
 const zlib = std.compress.zlib;
+const Writer = std.io.Writer;
 
 /// The ID of a Git object.
 pub const Oid = union(Format) {
@@ -65,7 +66,7 @@ pub const Oid = union(Format) {
             };
         }
 
-        pub fn writable(hasher: *Hasher, buffer: []u8) std.io.BufferedWriter {
+        pub fn writer(hasher: *Hasher, buffer: []u8) Writer {
             return switch (hasher.*) {
                 inline else => |*inner| inner.writable(buffer),
             };
@@ -134,9 +135,9 @@ pub const Oid = union(Format) {
         } else error.InvalidOid;
     }
 
-    pub fn format(oid: Oid, bw: *std.io.BufferedWriter, comptime fmt: []const u8) std.io.Writer.Error!void {
-        _ = fmt;
-        try bw.print("{x}", .{oid.slice()});
+    pub fn format(oid: Oid, w: *Writer, comptime fmt: []const u8) Writer.Error!void {
+        comptime assert(fmt.len == 0);
+        try w.print("{x}", .{oid.slice()});
     }
 
     pub fn slice(oid: *const Oid) []const u8 {
@@ -608,7 +609,7 @@ const Packet = union(enum) {
     }
 
     /// Writes a packet in pkt-line format.
-    fn write(packet: Packet, writer: *std.io.BufferedWriter) !void {
+    fn write(packet: Packet, writer: *Writer) !void {
         switch (packet) {
             .flush => try writer.writeAll("0000"),
             .delimiter => try writer.writeAll("0001"),
@@ -1481,8 +1482,7 @@ fn resolveDeltaChain(
         const expanded_alloc_size = std.math.cast(usize, expanded_size) orelse return error.ObjectTooLarge;
         const expanded_data = try allocator.alloc(u8, expanded_alloc_size);
         errdefer allocator.free(expanded_data);
-        var expanded_delta_stream: std.io.BufferedWriter = undefined;
-        expanded_delta_stream.initFixed(expanded_data);
+        var expanded_delta_stream: Writer = .fixed(expanded_data);
         try expandDelta(base_data, &delta_reader, &expanded_delta_stream);
         if (expanded_delta_stream.end != expanded_size) return error.InvalidObject;
 
@@ -1505,7 +1505,7 @@ fn readObjectRaw(gpa: Allocator, reader: *std.io.Reader, size: u64) ![]u8 {
 
 /// The format of the delta data is documented in
 /// [pack-format](https://git-scm.com/docs/pack-format).
-fn expandDelta(base_object: []const u8, delta_reader: *std.io.Reader, writer: *std.io.BufferedWriter) !void {
+fn expandDelta(base_object: []const u8, delta_reader: *std.io.Reader, writer: *Writer) !void {
     var base_offset: u32 = 0;
     while (true) {
         const inst: packed struct { value: u7, copy: bool } = @bitCast(delta_reader.takeByte() catch |e| switch (e) {

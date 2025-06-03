@@ -1,5 +1,5 @@
 in: *std.io.Reader,
-out: *std.io.BufferedWriter,
+out: *Writer,
 
 pub const Message = struct {
     pub const Header = extern struct {
@@ -94,7 +94,7 @@ pub const Message = struct {
 
 pub const Options = struct {
     in: *std.io.Reader,
-    out: *std.io.BufferedWriter,
+    out: *Writer,
     zig_version: []const u8,
 };
 
@@ -215,3 +215,4 @@ const assert = std.debug.assert;
 const native_endian = builtin.target.cpu.arch.endian();
 const need_bswap = native_endian != .little;
 const Cache = std.Build.Cache;
+const Writer = std.io.Writer;

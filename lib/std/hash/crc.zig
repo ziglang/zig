@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const Writer = std.io.Writer;
 
 pub fn Generic(comptime W: type, comptime algorithm: Algorithm(W)) type {
     return struct {
@@ -79,21 +80,18 @@ pub fn Generic(comptime W: type, comptime algorithm: Algorithm(W)) type {
             return c.final();
         }
 
-        pub fn writable(self: *Self, buffer: []u8) std.io.BufferedWriter {
+        pub fn writer(self: *Self, buffer: []u8) Writer {
             return .{
-                .unbuffered_writer = .{
-                    .context = self,
-                    .vtable = &.{
-                        .writeSplat = writeSplat,
-                        .writeFile = std.io.Writer.unimplementedWriteFile,
-                    },
-                },
+                .context = self,
+                .vtable = &.{ .drain = drain },
                 .buffer = buffer,
             };
         }
 
-        fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
-            const self: *Self = @ptrCast(@alignCast(context));
+        fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
+            const self: *Self = @ptrCast(@alignCast(w.context));
+            self.update(w.buffered());
+            w.end = 0;
             var n: usize = 0;
             for (data[0 .. data.len - 1]) |slice| {
                 self.update(slice);

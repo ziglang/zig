@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.x86_64_encoder);
 const math = std.math;
 const testing = std.testing;
+const Writer = std.io.Writer;
 
 const bits = @import("bits.zig");
 const Encoding = @import("Encoding.zig");
@@ -226,7 +227,7 @@ pub const Instruction = struct {
             };
         }
 
-        fn format(op: Operand, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) !void {
+        fn format(op: Operand, bw: *Writer, comptime unused_format_string: []const u8) !void {
             _ = op;
             _ = bw;
             _ = unused_format_string;
@@ -238,7 +239,7 @@ pub const Instruction = struct {
             enc_op: Encoding.Op,
         };
 
-        fn fmtContext(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) std.io.Writer.Error!void {
+        fn fmtContext(ctx: FormatContext, bw: *Writer, comptime unused_format_string: []const u8) Writer.Error!void {
             _ = unused_format_string;
             const op = ctx.op;
             const enc_op = ctx.enc_op;
@@ -360,7 +361,7 @@ pub const Instruction = struct {
         return inst;
     }
 
-    pub fn format(inst: Instruction, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) std.io.Writer.Error!void {
+    pub fn format(inst: Instruction, bw: *Writer, comptime unused_format_string: []const u8) Writer.Error!void {
         _ = unused_format_string;
         switch (inst.prefix) {
             .none, .directive => {},
@@ -374,7 +375,7 @@ pub const Instruction = struct {
         }
     }
 
-    pub fn encode(inst: Instruction, bw: *std.io.BufferedWriter, comptime opts: Options) !void {
+    pub fn encode(inst: Instruction, bw: *Writer, comptime opts: Options) !void {
         assert(inst.prefix != .directive);
         const encoder: Encoder(opts) = .{ .bw = bw };
         const enc = inst.encoding;
@@ -784,7 +785,7 @@ pub const Options = struct { allow_frame_locs: bool = false, allow_symbols: bool
 
 fn Encoder(comptime opts: Options) type {
     return struct {
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
 
         const Self = @This();
         pub const options = opts;
@@ -2198,7 +2199,7 @@ const Assembler = struct {
         };
     }
 
-    pub fn assemble(as: *Assembler, bw: *std.io.BufferedWriter) !void {
+    pub fn assemble(as: *Assembler, bw: *Writer) !void {
         while (try as.next()) |parsed_inst| {
             const inst: Instruction = try .new(.none, parsed_inst.mnemonic, &parsed_inst.ops);
             try inst.encode(bw, .{});

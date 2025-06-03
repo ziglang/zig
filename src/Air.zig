@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const Writer = std.io.Writer;
 
 const Air = @This();
 const InternPool = @import("InternPool.zig");
@@ -957,7 +958,8 @@ pub const Inst = struct {
             return index.unwrap().target;
         }
 
-        pub fn format(index: Index, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+        pub fn format(index: Index, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
+            comptime assert(fmt.len == 0);
             try bw.writeByte('%');
             switch (index.unwrap()) {
                 .ref => {},

@@ -12,6 +12,7 @@ const ThreadPool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
 const ErrorBundle = std.zig.ErrorBundle;
 const fatal = std.process.fatal;
+const Writer = std.io.Writer;
 
 const Value = @import("Value.zig");
 const Type = @import("Type.zig");
@@ -1000,15 +1001,12 @@ pub const CObject = struct {
 
                 const file = std.fs.cwd().openFile(file_name, .{}) catch break :source_line 0;
                 defer file.close();
-                file.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
-
                 var buffer: [1 << 10]u8 = undefined;
-                var fr = file.reader();
-                var br = fr.interface().buffered(&buffer);
-                var bw: std.io.BufferedWriter = undefined;
-                bw.initFixed(&buffer);
+                var fr = file.reader(&buffer);
+                fr.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
+                var bw: Writer = .fixed(&buffer);
                 break :source_line try eb.addString(
-                    buffer[0 .. br.readDelimiterEnding(&bw, '\n') catch break :source_line 0],
+                    buffer[0 .. fr.interface.readDelimiterEnding(&bw, '\n') catch break :source_line 0],
                 );
             };
 
@@ -6026,8 +6024,8 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
             // In .rc files, a " within a quoted string is escaped as ""
             const fmtRcEscape = struct {
-                fn formatRcEscape(bytes: []const u8, bw: *std.io.BufferedWriter, comptime fmt: []const u8) !void {
-                    _ = fmt;
+                fn formatRcEscape(bytes: []const u8, bw: *Writer, comptime fmt: []const u8) !void {
+                    comptime assert(fmt.len == 0);
                     for (bytes) |byte| switch (byte) {
                         '"' => try bw.writeAll("\"\""),
                         '\\' => try bw.writeAll("\\\\"),

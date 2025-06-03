@@ -13,6 +13,7 @@ const lossyCast = math.lossyCast;
 const expectFmt = std.testing.expectFmt;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
 
 pub const float = @import("fmt/float.zig");
 
@@ -92,7 +93,7 @@ pub const Options = struct {
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 ///
 /// To print literal curly braces, escape them by writing them twice, e.g. `{{` or `}}`.
-pub fn format(bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytype) std.io.Writer.Error!void {
+pub fn format(bw: *Writer, comptime fmt: []const u8, args: anytype) Writer.Error!void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
     if (args_type_info != .@"struct") {
@@ -452,7 +453,7 @@ fn SliceEscape(comptime case: Case) type {
     return struct {
         pub fn format(
             bytes: []const u8,
-            bw: *std.io.BufferedWriter,
+            bw: *Writer,
             comptime fmt: []const u8,
         ) !void {
             _ = fmt;
@@ -494,8 +495,7 @@ pub fn fmtSliceEscapeUpper(bytes: []const u8) std.fmt.Formatter(formatSliceEscap
 /// Asserts the rendered integer value fits in `buffer`.
 /// Returns the end index within `buffer`.
 pub fn printInt(buffer: []u8, value: anytype, base: u8, case: Case, options: Options) usize {
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(buffer);
+    var bw: Writer = .fixed(buffer);
     bw.printIntOptions(value, base, case, options) catch unreachable;
     return bw.end;
 }
@@ -532,7 +532,7 @@ pub fn Formatter(comptime formatFn: anytype) type {
     const Data = @typeInfo(@TypeOf(formatFn)).@"fn".params[0].type.?;
     return struct {
         data: Data,
-        pub fn format(self: @This(), writer: *std.io.BufferedWriter, comptime fmt: []const u8) std.io.Writer.Error!void {
+        pub fn format(self: @This(), writer: *Writer, comptime fmt: []const u8) Writer.Error!void {
             try formatFn(self.data, writer, fmt);
         }
     };
@@ -830,8 +830,7 @@ pub const BufPrintError = error{
 
 /// Print a Formatter string into `buf`. Returns a slice of the bytes printed.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(buf);
+    var bw: Writer = .fixed(buf);
     bw.print(fmt, args) catch |err| switch (err) {
         error.WriteFailed => return error.NoSpaceLeft,
     };
@@ -846,7 +845,7 @@ pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErr
 /// Count the characters needed for format.
 pub fn count(comptime fmt: []const u8, args: anytype) usize {
     var trash_buffer: [64]u8 = undefined;
-    var bw: std.io.BufferedWriter = .{
+    var bw: Writer = .{
         .unbuffered_writer = .discarding,
         .buffer = &trash_buffer,
     };
@@ -1018,16 +1017,15 @@ test "int.padded" {
 test "buffer" {
     {
         var buf1: [32]u8 = undefined;
-        var bw: std.io.BufferedWriter = undefined;
-        bw.initFixed(&buf1);
+        var bw: Writer = .fixed(&buf1);
         try bw.printValue("", .{}, 1234, std.options.fmt_max_depth);
         try std.testing.expectEqualStrings("1234", bw.getWritten());
 
-        bw.initFixed(&buf1);
+        bw = .fixed(&buf1);
         try bw.printValue("c", .{}, 'a', std.options.fmt_max_depth);
         try std.testing.expectEqualStrings("a", bw.getWritten());
 
-        bw.initFixed(&buf1);
+        bw = .fixed(&buf1);
         try bw.printValue("b", .{}, 0b1100, std.options.fmt_max_depth);
         try std.testing.expectEqualStrings("1100", bw.getWritten());
     }

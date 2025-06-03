@@ -166,8 +166,7 @@ fn finalize(self: *Trie, allocator: Allocator) !void {
 
     assert(self.buffer.len == 0);
     self.buffer = try allocator.alloc(u8, size);
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(self.buffer);
+    var bw: Writer = .fixed(self.buffer);
     for (ordered_nodes.items) |node_index| {
         try self.writeNode(node_index, &bw);
     }
@@ -185,7 +184,7 @@ const FinalizeNodeResult = struct {
 /// Updates offset of this node in the output byte stream.
 fn finalizeNode(self: *Trie, node_index: Node.Index, offset_in_trie: u32) !FinalizeNodeResult {
     var buf: [1024]u8 = undefined;
-    var bw = std.io.Writer.null.buffered(&buf);
+    var bw = Writer.null.buffered(&buf);
     const slice = self.nodes.slice();
 
     var node_size: u32 = 0;
@@ -229,7 +228,7 @@ pub fn deinit(self: *Trie, allocator: Allocator) void {
     allocator.free(self.buffer);
 }
 
-pub fn write(self: Trie, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+pub fn write(self: Trie, bw: *Writer) Writer.Error!void {
     try bw.writeAll(self.buffer);
 }
 
@@ -239,7 +238,7 @@ pub fn write(self: Trie, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
 /// iterate over `Trie.ordered_nodes` and call this method on each node.
 /// This is one of the requirements of the MachO.
 /// Panics if `finalize` was not called before calling this method.
-fn writeNode(self: *Trie, node_index: Node.Index, bw: *std.io.BufferedWriter) !void {
+fn writeNode(self: *Trie, node_index: Node.Index, bw: *Writer) !void {
     const slice = self.nodes.slice();
     const edges = slice.items(.edges)[node_index];
     const is_terminal = slice.items(.is_terminal)[node_index];
@@ -408,9 +407,10 @@ const macho = std.macho;
 const mem = std.mem;
 const std = @import("std");
 const testing = std.testing;
+const Writer = std.io.Writer;
+
 const trace = @import("../../../tracy.zig").trace;
 const DeprecatedLinearFifo = @import("../../../deprecated.zig").LinearFifo;
-
 const Allocator = mem.Allocator;
 const MachO = @import("../../MachO.zig");
 const Trie = @This();

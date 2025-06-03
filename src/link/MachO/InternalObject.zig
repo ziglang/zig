@@ -848,7 +848,7 @@ pub fn fmtAtoms(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(for
     } };
 }
 
-fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatAtoms(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     try bw.writeAll("  atoms\n");
     for (ctx.self.getAtoms()) |atom_index| {
@@ -864,8 +864,8 @@ pub fn fmtSymtab(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(fo
     } };
 }
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-    _ = unused_fmt_string;
+fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+    comptime assert(unused_fmt_string.len == 0);
     const macho_file = ctx.macho_file;
     const self = ctx.self;
     try bw.writeAll("  symbols\n");
@@ -896,6 +896,7 @@ const macho = std.macho;
 const mem = std.mem;
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
+const Writer = std.io.Writer;
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");

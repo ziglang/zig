@@ -2198,7 +2198,7 @@ const FormatContext = struct {
     elf_file: *Elf,
 };
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const self = ctx.self;
     const elf_file = ctx.elf_file;
@@ -2221,8 +2221,8 @@ pub fn fmtAtoms(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(formatAtoms)
     } };
 }
 
-fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-    _ = unused_fmt_string;
+fn formatAtoms(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+    comptime assert(unused_fmt_string.len == 0);
     try bw.writeAll("  atoms\n");
     for (ctx.self.atoms_indexes.items) |atom_index| {
         const atom_ptr = ctx.self.atom(atom_index) orelse continue;
@@ -2326,6 +2326,7 @@ const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
 
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");

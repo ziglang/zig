@@ -167,7 +167,7 @@ pub fn lastAtom(list: AtomList, elf_file: *Elf) *Atom {
     return elf_file.atom(list.atoms.keys()[list.atoms.keys().len - 1]).?;
 }
 
-pub fn format(list: AtomList, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+pub fn format(list: AtomList, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = list;
     _ = bw;
     _ = unused_fmt_string;
@@ -180,8 +180,8 @@ pub fn fmt(list: AtomList, elf_file: *Elf) std.fmt.Formatter(format2) {
     return .{ .data = .{ list, elf_file } };
 }
 
-fn format2(ctx: FormatCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-    _ = unused_fmt_string;
+fn format2(ctx: FormatCtx, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+    comptime assert(unused_fmt_string.len == 0);
     const list, const elf_file = ctx;
     try bw.print("list : @{x} : shdr({d}) : align({x}) : size({x})", .{
         list.address(elf_file),                list.output_section_index,
@@ -195,13 +195,14 @@ fn format2(ctx: FormatCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_strin
     try bw.writeAll(" }");
 }
 
+const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
 const log = std.log.scoped(.link);
 const math = std.math;
-const std = @import("std");
-
 const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
+
 const Atom = @import("Atom.zig");
 const AtomList = @This();
 const Elf = @import("../Elf.zig");

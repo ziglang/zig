@@ -5,6 +5,7 @@ const std = @import("std.zig");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const Writer = std.io.Writer;
 
 const Uri = @This();
 
@@ -84,7 +85,7 @@ pub const Component = union(enum) {
         };
     }
 
-    pub fn format(component: Component, bw: *std.io.BufferedWriter, comptime fmt: []const u8) std.io.Writer.Error!void {
+    pub fn format(component: Component, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
         if (fmt.len == 0) {
             try bw.print("std.Uri.Component{{ .{s} = \"{}\" }}", .{
                 @tagName(component),
@@ -136,10 +137,10 @@ pub const Component = union(enum) {
     }
 
     pub fn percentEncode(
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         raw: []const u8,
         comptime isValidChar: fn (u8) bool,
-    ) std.io.Writer.Error!void {
+    ) Writer.Error!void {
         var start: usize = 0;
         for (raw, 0..) |char, index| {
             if (isValidChar(char)) continue;
@@ -280,7 +281,7 @@ pub const WriteToStreamOptions = struct {
     port: bool = true,
 };
 
-pub fn writeToStream(uri: Uri, options: WriteToStreamOptions, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+pub fn writeToStream(uri: Uri, options: WriteToStreamOptions, bw: *Writer) Writer.Error!void {
     if (options.scheme) {
         try bw.print("{s}:", .{uri.scheme});
         if (options.authority and uri.host != null) {
@@ -317,7 +318,7 @@ pub fn writeToStream(uri: Uri, options: WriteToStreamOptions, bw: *std.io.Buffer
     }
 }
 
-pub fn format(uri: Uri, bw: *std.io.BufferedWriter, comptime fmt: []const u8) std.io.Writer.Error!void {
+pub fn format(uri: Uri, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
     const scheme = comptime std.mem.indexOfScalar(u8, fmt, ';') != null or fmt.len == 0;
     const authentication = comptime std.mem.indexOfScalar(u8, fmt, '@') != null or fmt.len == 0;
     const authority = comptime std.mem.indexOfScalar(u8, fmt, '+') != null or fmt.len == 0;
@@ -461,8 +462,7 @@ test remove_dot_segments {
 
 /// 5.2.3. Merge Paths
 fn merge_paths(base: Component, new: []u8, aux_buf: *[]u8) error{NoSpaceLeft}!Component {
-    var aux: std.io.BufferedWriter = undefined;
-    aux.initFixed(aux_buf.*);
+    var aux: Writer = .fixed(aux_buf.*);
     if (!base.isEmpty()) {
         aux.print("{fpath}", .{base}) catch return error.NoSpaceLeft;
         aux.end = std.mem.lastIndexOfScalar(u8, aux.getWritten(), '/') orelse

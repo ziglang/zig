@@ -358,7 +358,7 @@ pub const Iterator = struct {
             };
         }
 
-        fn read(context: ?*anyopaque, bw: *std.io.BufferedWriter, limit: std.io.Limit) std.io.Reader.StreamError!usize {
+        fn read(context: ?*anyopaque, bw: *std.io.Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
             const file: *File = @ptrCast(@alignCast(context));
             if (file.unread_bytes.* == 0) return error.EndOfStream;
             const n = try file.parent_reader.read(bw, limit.min(.limited(file.unread_bytes.*)));
@@ -381,7 +381,7 @@ pub const Iterator = struct {
             return n;
         }
 
-        pub fn readRemaining(file: *File, out: *std.io.BufferedWriter) std.io.Reader.StreamRemainingError!void {
+        pub fn readRemaining(file: *File, out: *std.io.Writer) std.io.Reader.StreamRemainingError!void {
             return file.reader().readRemaining(out);
         }
     };
@@ -818,8 +818,7 @@ test PaxIterator {
     var buffer: [1024]u8 = undefined;
 
     outer: for (cases) |case| {
-        var br: std.io.Reader = undefined;
-        br.initFixed(case.data);
+        var br: std.io.Reader = .fixed(case.data);
         var iter: PaxIterator = .init(&br, case.data.len);
 
         var i: usize = 0;
@@ -955,8 +954,7 @@ test Iterator {
     //    example/empty/
 
     const data = @embedFile("tar/testdata/example.tar");
-    var br: std.io.Reader = undefined;
-    br.initFixed(data);
+    var br: std.io.Reader = .fixed(data);
 
     // User provided buffers to the iterator
     var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
@@ -1015,8 +1013,7 @@ test pipeToFileSystem {
     //    example/empty/
 
     const data = @embedFile("tar/testdata/example.tar");
-    var br: std.io.Reader = undefined;
-    br.initFixed(data);
+    var br: std.io.Reader = .fixed(data);
 
     var tmp = testing.tmpDir(.{ .no_follow = true });
     defer tmp.cleanup();
@@ -1047,8 +1044,7 @@ test pipeToFileSystem {
 
 test "pipeToFileSystem root_dir" {
     const data = @embedFile("tar/testdata/example.tar");
-    var br: std.io.Reader = undefined;
-    br.initFixed(data);
+    var br: std.io.Reader = .fixed(data);
 
     // with strip_components = 1
     {
@@ -1073,7 +1069,7 @@ test "pipeToFileSystem root_dir" {
 
     // with strip_components = 0
     {
-        br.initFixed(data);
+        br = .fixed(data);
         var tmp = testing.tmpDir(.{ .no_follow = true });
         defer tmp.cleanup();
         var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
@@ -1096,8 +1092,7 @@ test "pipeToFileSystem root_dir" {
 
 test "findRoot with single file archive" {
     const data = @embedFile("tar/testdata/22752.tar");
-    var br: std.io.Reader = undefined;
-    br.initFixed(data);
+    var br: std.io.Reader = .fixed(data);
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1111,8 +1106,7 @@ test "findRoot with single file archive" {
 
 test "findRoot without explicit root dir" {
     const data = @embedFile("tar/testdata/19820.tar");
-    var br: std.io.Reader = undefined;
-    br.initFixed(data);
+    var br: std.io.Reader = .fixed(data);
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1126,8 +1120,7 @@ test "findRoot without explicit root dir" {
 
 test "pipeToFileSystem strip_components" {
     const data = @embedFile("tar/testdata/example.tar");
-    var br: std.io.Reader = undefined;
-    br.initFixed(data);
+    var br: std.io.Reader = .fixed(data);
 
     var tmp = testing.tmpDir(.{ .no_follow = true });
     defer tmp.cleanup();
@@ -1188,8 +1181,7 @@ test "executable bit" {
     const data = @embedFile("tar/testdata/example.tar");
 
     for ([_]PipeOptions.ModeMode{ .ignore, .executable_bit_only }) |opt| {
-        var br: std.io.Reader = undefined;
-        br.initFixed(data);
+        var br: std.io.Reader = .fixed(data);
 
         var tmp = testing.tmpDir(.{ .no_follow = true });
         //defer tmp.cleanup();

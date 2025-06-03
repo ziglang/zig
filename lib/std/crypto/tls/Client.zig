@@ -25,7 +25,7 @@ input: *std.io.Reader,
 
 /// The encrypted stream from the client to the server. Bytes are pushed here
 /// via `writer`.
-output: *std.io.BufferedWriter,
+output: *Writer,
 
 /// Populated when `error.TlsAlert` is returned.
 alert: ?tls.Alert = null,
@@ -72,7 +72,7 @@ pub const SslKeyLog = struct {
     client_key_seq: u64,
     server_key_seq: u64,
     client_random: [32]u8,
-    writer: *std.io.BufferedWriter,
+    writer: *Writer,
 
     fn clientCounter(key_log: *@This()) u64 {
         defer key_log.client_key_seq += 1;
@@ -176,7 +176,7 @@ const InitError = error{
 pub fn init(
     client: *Client,
     input: *std.io.Reader,
-    output: *std.io.BufferedWriter,
+    output: *Writer,
     options: Options,
 ) InitError!void {
     assert(input.buffer.len >= min_buffer_len);
@@ -1043,7 +1043,7 @@ pub fn eof(c: Client) bool {
     return c.received_close_notify;
 }
 
-fn read(context: ?*anyopaque, bw: *std.io.BufferedWriter, limit: std.io.Limit) Reader.StreamError!usize {
+fn read(context: ?*anyopaque, bw: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
     const c: *Client = @ptrCast(@alignCast(context));
     if (c.eof()) return error.EndOfStream;
     const input = c.input;
@@ -1226,7 +1226,7 @@ fn failRead(c: *Client, err: ReadError) error{ReadFailed} {
     return error.ReadFailed;
 }
 
-fn logSecrets(bw: *std.io.BufferedWriter, context: anytype, secrets: anytype) void {
+fn logSecrets(bw: *Writer, context: anytype, secrets: anytype) void {
     inline for (@typeInfo(@TypeOf(secrets)).@"struct".fields) |field| bw.print("{s}" ++
         (if (@hasField(@TypeOf(context), "counter")) "_{d}" else "") ++ " {x} {x}\n", .{field.name} ++
         (if (@hasField(@TypeOf(context), "counter")) .{context.counter} else .{}) ++ .{

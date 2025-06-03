@@ -7,6 +7,12 @@
 //! empty, it means there are no errors. This special encoding exists so that
 //! heap allocation is not needed in the common case of no errors.
 
+const std = @import("std");
+const ErrorBundle = @This();
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const Writer = std.io.Writer;
+
 string_bytes: []const u8,
 /// The first thing in this array is an `ErrorMessageList`.
 extra: []const u32,
@@ -163,7 +169,7 @@ pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
     renderToWriter(eb, options, bw) catch return;
 }
 
-pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, bw: *std.io.BufferedWriter) (std.io.Writer.Error || std.posix.UnexpectedError)!void {
+pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, bw: *Writer) (Writer.Error || std.posix.UnexpectedError)!void {
     if (eb.extra.len == 0) return;
     for (eb.getMessages()) |err_msg| {
         try renderErrorMessageToWriter(eb, options, err_msg, bw, "error", .red, 0);
@@ -182,11 +188,11 @@ fn renderErrorMessageToWriter(
     eb: ErrorBundle,
     options: RenderOptions,
     err_msg_index: MessageIndex,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     kind: []const u8,
     color: std.io.tty.Color,
     indent: usize,
-) (std.io.Writer.Error || std.posix.UnexpectedError)!void {
+) (Writer.Error || std.posix.UnexpectedError)!void {
     const ttyconf = options.ttyconf;
     const err_msg = eb.getErrorMessage(err_msg_index);
     const prefix_start = bw.count;
@@ -294,7 +300,7 @@ fn renderErrorMessageToWriter(
 /// to allow for long, good-looking error messages.
 ///
 /// This is used to split the message in `@compileError("hello\nworld")` for example.
-fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, bw: *std.io.BufferedWriter, indent: usize) !void {
+fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, bw: *Writer, indent: usize) !void {
     var lines = std.mem.splitScalar(u8, eb.nullTerminatedString(err_msg.msg), '\n');
     while (lines.next()) |line| {
         try bw.writeAll(line);
@@ -303,11 +309,6 @@ fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, bw: *std.io.BufferedWriter, 
         try bw.splatByteAll(' ', indent);
     }
 }
-
-const std = @import("std");
-const ErrorBundle = @This();
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
 
 pub const Wip = struct {
     gpa: Allocator,

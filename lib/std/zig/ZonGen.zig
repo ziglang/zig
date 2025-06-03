@@ -521,8 +521,8 @@ pub fn strLitSizeHint(tree: Ast, node: Ast.Node.Index) usize {
 pub fn parseStrLit(
     tree: Ast,
     node: Ast.Node.Index,
-    writer: *std.io.BufferedWriter,
-) std.io.Writer.Error!std.zig.string_literal.Result {
+    writer: *Writer,
+) Writer.Error!std.zig.string_literal.Result {
     switch (tree.nodeTag(node)) {
         .string_literal => {
             const token = tree.nodeMainToken(node);
@@ -933,3 +933,4 @@ const StringIndexContext = std.hash_map.StringIndexContext;
 const ZonGen = @This();
 const Zoir = @import("Zoir.zig");
 const Ast = @import("Ast.zig");
+const Writer = std.io.Writer;

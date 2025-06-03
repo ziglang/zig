@@ -157,7 +157,7 @@ pub const Section = struct {
         }
     };
 
-    pub fn format(msec: Section, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+    pub fn format(msec: Section, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
         _ = msec;
         _ = bw;
         _ = unused_fmt_string;
@@ -176,7 +176,7 @@ pub const Section = struct {
         elf_file: *Elf,
     };
 
-    pub fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+    pub fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
         _ = unused_fmt_string;
         const msec = ctx.msec;
         const elf_file = ctx.elf_file;
@@ -219,7 +219,7 @@ pub const Subsection = struct {
         return msec.bytes.items[msub.string_index..][0..msub.size];
     }
 
-    pub fn format(msub: Subsection, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+    pub fn format(msub: Subsection, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
         _ = msub;
         _ = bw;
         _ = unused_fmt_string;
@@ -238,7 +238,7 @@ pub const Subsection = struct {
         elf_file: *Elf,
     };
 
-    pub fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+    pub fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
         _ = unused_fmt_string;
         const msub = ctx.msub;
         const elf_file = ctx.elf_file;
@@ -307,11 +307,12 @@ pub const InputSection = struct {
 
 const String = struct { pos: u32, len: u32 };
 
+const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
-const std = @import("std");
-
 const Allocator = mem.Allocator;
+const Writer = std.io.Writer;
+
 const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const Merge = @This();

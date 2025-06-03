@@ -675,7 +675,7 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const dylib = ctx.dylib;
     const macho_file = ctx.macho_file;
@@ -901,19 +901,17 @@ const Export = struct {
     };
 };
 
+const std = @import("std");
 const assert = std.debug.assert;
-const fat = @import("fat.zig");
 const fs = std.fs;
 const fmt = std.fmt;
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
-const tapi = @import("../tapi.zig");
-const trace = @import("../../tracy.zig").trace;
-const std = @import("std");
 const Allocator = mem.Allocator;
 const Path = std.Build.Cache.Path;
+const Writer = std.io.Writer;
 
 const Dylib = @This();
 const File = @import("file.zig").File;
@@ -922,3 +920,6 @@ const LoadCommandIterator = macho.LoadCommandIterator;
 const MachO = @import("../MachO.zig");
 const Symbol = @import("Symbol.zig");
 const Tbd = tapi.Tbd;
+const fat = @import("fat.zig");
+const tapi = @import("../tapi.zig");
+const trace = @import("../../tracy.zig").trace;

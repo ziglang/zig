@@ -2,7 +2,7 @@ const Limited = @This();
 
 const std = @import("../../std.zig");
 const Reader = std.io.Reader;
-const BufferedWriter = std.io.BufferedWriter;
+const Writer = std.io.Writer;
 const Limit = std.io.Limit;
 
 unlimited: *Reader,
@@ -25,10 +25,10 @@ pub fn init(reader: *Reader, limit: Limit, buffer: []u8) Limited {
     };
 }
 
-fn stream(context: ?*anyopaque, bw: *BufferedWriter, limit: Limit) Reader.StreamError!usize {
+fn stream(context: ?*anyopaque, w: *Writer, limit: Limit) Reader.StreamError!usize {
     const l: *Limited = @alignCast(@ptrCast(context));
     const combined_limit = limit.min(l.remaining);
-    const n = try l.unlimited_reader.read(bw, combined_limit);
+    const n = try l.unlimited_reader.read(w, combined_limit);
     l.remaining = l.remaining.subtract(n).?;
     return n;
 }
