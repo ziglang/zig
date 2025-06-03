@@ -2,7 +2,6 @@ const std = @import("std");
 const expect = std.testing.expect;
 const math = std.math;
 const common = @import("common.zig");
-const scalbn = @import("scalbn.zig");
 
 comptime {
     @export(&scalbln, .{ .name = "scalbln", .linkage = common.linkage, .visibility = common.visibility });
@@ -13,7 +12,7 @@ comptime {
 pub fn scalbln(x: f64, n: c_long) callconv(.c) f64 {
     // mirror musl implementation - clamp c_long to i32
     const clamped_n: i32 = math.clamp(n, math.minInt(i32), math.maxInt(i32));
-    return scalbn.scalbn(x, clamped_n);
+    return math.ldexp(x, clamped_n);
 }
 
 test "scalbln" {
@@ -31,7 +30,7 @@ test "scalbln.special" {
 
 pub fn scalblnf(x: f32, n: c_long) callconv(.c) f32 {
     const clamped_n: i32 = math.clamp(n, math.minInt(i32), math.maxInt(i32));
-    return scalbn.scalbnf(x, clamped_n);
+    return math.ldexp(x, clamped_n);
 }
 
 test "scalblnf" {
@@ -49,14 +48,7 @@ test "scalblnf.special" {
 
 pub fn scalblnl(x: c_longdouble, n: c_long) callconv(.c) c_longdouble {
     const clamped_n: i32 = math.clamp(n, math.minInt(i32), math.maxInt(i32));
-    switch (@typeInfo(c_longdouble).float.bits) {
-        16 => return scalbn.scalbnl(@as(f16, x), clamped_n),
-        32 => return scalbn.scalbnl(@as(f32, x), clamped_n),
-        64 => return scalbn.scalbnl(@as(f64, x), clamped_n),
-        80 => return scalbn.scalbnl(@as(f80, x), clamped_n),
-        128 => return scalbn.scalbnl(@as(f128, x), clamped_n),
-        else => @compileError("unreachable"),
-    }
+    return math.ldexp(x, clamped_n);
 }
 
 
