@@ -1392,19 +1392,19 @@ pub fn Hashed(comptime Hasher: type) type {
             const this: *@This() = @alignCast(@fieldParentPtr("interface", r));
             const data = w.writableVector(limit);
             const n = try this.in.readVec(data);
-            w.advanceVector(n);
+            const result = w.advanceVector(n);
             var remaining: usize = n;
             for (data) |slice| {
                 if (remaining < slice.len) {
                     this.hasher.update(slice[0..remaining]);
-                    return n;
+                    return result;
                 } else {
                     remaining -= slice.len;
                     this.hasher.update(slice);
                 }
             }
             assert(remaining == 0);
-            return n;
+            return result;
         }
 
         fn discard(r: *Reader, limit: Limit) Error!usize {

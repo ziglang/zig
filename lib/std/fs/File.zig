@@ -1213,6 +1213,10 @@ pub const Writer = struct {
     const max_buffers_len = 16;
 
     pub fn init(file: File, buffer: []u8) std.io.Writer {
+        return initMode(file, buffer, .positional);
+    }
+
+    pub fn initMode(file: File, buffer: []u8, init_mode: Writer.Mode) std.io.Writer {
         return .{
             .file = file,
             .interface = .{
@@ -1223,6 +1227,7 @@ pub const Writer = struct {
                 },
                 .buffer = buffer,
             },
+            .mode = init_mode,
         };
     }
 
