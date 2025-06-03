@@ -11,7 +11,7 @@ comptime {
 
 pub fn scalbln(x: f64, n: c_long) callconv(.c) f64 {
     // mirror musl implementation - clamp c_long to i32
-    const clamped_n: i32 = math.clamp(n, math.minInt(i32), math.maxInt(i32));
+    const clamped_n: i32 = @intCast(math.clamp(n, math.minInt(i32), math.maxInt(i32)));
     return math.ldexp(x, clamped_n);
 }
 
@@ -29,7 +29,7 @@ test "scalbln.special" {
 }
 
 pub fn scalblnf(x: f32, n: c_long) callconv(.c) f32 {
-    const clamped_n: i32 = math.clamp(n, math.minInt(i32), math.maxInt(i32));
+    const clamped_n: i32 = @intCast(math.clamp(n, math.minInt(i32), math.maxInt(i32)));
     return math.ldexp(x, clamped_n);
 }
 
@@ -47,7 +47,7 @@ test "scalblnf.special" {
 }
 
 pub fn scalblnl(x: c_longdouble, n: c_long) callconv(.c) c_longdouble {
-    const clamped_n: i32 = math.clamp(n, math.minInt(i32), math.maxInt(i32));
+    const clamped_n: i32 = @intCast(math.clamp(n, math.minInt(i32), math.maxInt(i32)));
     return math.ldexp(x, clamped_n);
 }
 
