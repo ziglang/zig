@@ -1672,16 +1672,7 @@ pub fn discardingDrain(w: *Writer, data: []const []const u8, splat: usize) Error
 
 pub fn discardingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
     if (File.Handle == void) return error.Unimplemented;
-    if (w.end != 0) {
-        if (@intFromEnum(limit) >= w.end) {
-            w.end = 0;
-        } else {
-            const remaining = w.buffer[@intFromEnum(limit)..w.end];
-            @memmove(w.buffer[0..remaining.len], remaining);
-            w.end = remaining.len;
-        }
-        return 0;
-    }
+    w.end = 0;
     if (file_reader.getSize()) |size| {
         const n = limit.minInt(size - file_reader.pos);
         file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
@@ -1692,6 +1683,19 @@ pub fn discardingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) F
         // treat the file as a pipe.
         return error.Unimplemented;
     }
+}
+
+/// This function is used by `VTable.drain` function implementations to
+/// implement partial drains.
+pub fn consume(w: *Writer, n: usize) usize {
+    if (n < w.end) {
+        const remaining = w.buffer[n..w.end];
+        @memmove(w.buffer[0..remaining.len], remaining);
+        w.end = remaining.len;
+        return 0;
+    }
+    defer w.end = 0;
+    return n - w.end;
 }
 
 /// For use when the `Writer` implementation can cannot offer a more efficient
@@ -1768,13 +1772,14 @@ pub fn Hashed(comptime Hasher: type) type {
         fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
             const this: *@This() = @alignCast(@fieldParentPtr("interface", w));
             const aux_n = try this.out.writeSplatAux(w.buffered(), data, splat);
-            if (aux_n <= w.end) {
+            if (aux_n < w.end) {
                 this.hasher.update(w.buffer[0..aux_n]);
                 const remaining = w.buffer[aux_n..w.end];
                 @memmove(w.buffer[0..remaining.len], remaining);
                 w.end = remaining.len;
                 return 0;
             }
+            this.hasher.update(w.buffered());
             const n = aux_n - w.end;
             w.end = 0;
             var remaining: usize = n;
