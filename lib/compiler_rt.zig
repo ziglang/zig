@@ -225,8 +225,8 @@ comptime {
     _ = @import("compiler_rt/fmin.zig");
     _ = @import("compiler_rt/fmod.zig");
     _ = @import("compiler_rt/ldexp.zig");
-    _ = @import("compiler_rt/scalbn.zig");
     _ = @import("compiler_rt/scalbln.zig");
+    _ = @import("compiler_rt/scalbn.zig");
     _ = @import("compiler_rt/log.zig");
     _ = @import("compiler_rt/log10.zig");
     _ = @import("compiler_rt/log2.zig");
