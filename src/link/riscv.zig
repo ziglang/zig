@@ -1,4 +1,4 @@
-pub fn writeSetSub6(comptime op: enum { set, sub }, addend: anytype, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+pub fn writeSetSub6(comptime op: enum { set, sub }, addend: anytype, bw: *Writer) Writer.Error!void {
     const mask: u8 = 0b11_000000;
     const actual: i8 = @truncate(addend);
     const old_value = (try bw.writableArray(1))[0];
@@ -9,7 +9,7 @@ pub fn writeSetSub6(comptime op: enum { set, sub }, addend: anytype, bw: *std.io
     try bw.writeByte(new_value);
 }
 
-pub fn writeSetSubUleb(comptime op: enum { set, sub }, addend: i64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+pub fn writeSetSubUleb(comptime op: enum { set, sub }, addend: i64, bw: *Writer) Writer.Error!void {
     switch (op) {
         .set => try overwriteUleb(@intCast(addend), bw),
         .sub => {
@@ -20,7 +20,7 @@ pub fn writeSetSubUleb(comptime op: enum { set, sub }, addend: i64, bw: *std.io.
     }
 }
 
-fn overwriteUleb(new_value: u64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn overwriteUleb(new_value: u64, bw: *Writer) Writer.Error!void {
     var value: u64 = new_value;
     while (true) {
         const byte = (try bw.writableArray(1))[0];
@@ -34,8 +34,8 @@ pub fn writeAddend(
     comptime Int: type,
     comptime op: enum { add, sub },
     value: anytype,
-    bw: *std.io.BufferedWriter,
-) std.io.Writer.Error!void {
+    bw: *Writer,
+) Writer.Error!void {
     const n = @divExact(@bitSizeOf(Int), 8);
     var V: Int = mem.readInt(Int, (try bw.writableSliceGreedy(n))[0..n], .little);
     const addend: Int = @truncate(value);
@@ -108,8 +108,9 @@ pub const Eflags = packed struct(u32) {
     };
 };
 
-const mem = std.mem;
 const std = @import("std");
+const mem = std.mem;
+const Writer = std.io.Writer;
 
 const encoding = @import("../arch/riscv64/encoding.zig");
 const Instruction = encoding.Instruction;

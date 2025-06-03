@@ -18,6 +18,7 @@ const builtin = @import("builtin");
 const mem = std.mem;
 const math = std.math;
 const htest = @import("test.zig");
+const Writer = std.io.Writer;
 
 pub const Sha224 = Sha2x32(iv224, 224);
 pub const Sha256 = Sha2x32(iv256, 256);
@@ -382,20 +383,20 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
             for (&d.s, v) |*dv, vv| dv.* +%= vv;
         }
 
-        pub fn writable(this: *@This(), buffer: []u8) std.io.BufferedWriter {
+        pub fn writable(this: *@This(), buffer: []u8) Writer {
             return .{
                 .unbuffered_writer = .{
                     .context = this,
                     .vtable = &.{
                         .writeSplat = writeSplat,
-                        .writeFile = std.io.Writer.unimplementedWriteFile,
+                        .writeFile = Writer.unimplementedWriteFile,
                     },
                 },
                 .buffer = buffer,
             };
         }
 
-        fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
+        fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Error!usize {
             const this: *@This() = @ptrCast(@alignCast(context));
             const start_total = this.total_len;
             for (data[0 .. data.len - 1]) |slice| this.update(slice);

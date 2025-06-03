@@ -152,7 +152,7 @@ fn parseNum(text: []const u8) error{ InvalidVersion, Overflow }!usize {
 
 pub fn format(
     self: Version,
-    bw: *std.io.BufferedWriter,
+    bw: *std.io.Writer,
     comptime fmt: []const u8,
 ) !void {
     if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);

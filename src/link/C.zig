@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const fs = std.fs;
 const Path = std.Build.Cache.Path;
+const Writer = std.io.Writer;
 
 const C = @This();
 const build_options = @import("build_options");
@@ -397,12 +398,12 @@ pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.P
     return self.flushModule(arena, tid, prog_node);
 }
 
-fn abiDefines(bw: *std.io.BufferedWriter, target: std.Target) !void {
+fn abiDefines(w: *Writer, target: std.Target) !void {
     switch (target.abi) {
-        .msvc, .itanium => try bw.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
+        .msvc, .itanium => try w.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
         else => {},
     }
-    try bw.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{
+    try w.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{
         target.cMaxIntAlignment(),
     });
 }

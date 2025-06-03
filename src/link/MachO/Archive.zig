@@ -78,11 +78,11 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
 }
 
 pub fn writeHeader(
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     object_name: []const u8,
     object_size: usize,
     format: Format,
-) std.io.Writer.Error!void {
+) Writer.Error!void {
     var hdr: ar_hdr = undefined;
     @memset(mem.asBytes(&hdr), ' ');
     inline for (@typeInfo(ar_hdr).@"struct".fields) |field| @field(hdr, field.name)[0] = '0';
@@ -177,7 +177,7 @@ pub const ArSymtab = struct {
         return ptr_width + ar.entries.items.len * 2 * ptr_width + ptr_width + mem.alignForward(usize, ar.strtab.buffer.items.len, ptr_width);
     }
 
-    pub fn write(ar: ArSymtab, bw: *std.io.BufferedWriter, format: Format, macho_file: *MachO) std.io.Writer.Error!void {
+    pub fn write(ar: ArSymtab, bw: *Writer, format: Format, macho_file: *MachO) Writer.Error!void {
         const ptr_width = ptrWidth(format);
         // Header
         try writeHeader(bw, SYMDEF, ar.size(format), format);
@@ -212,7 +212,7 @@ pub const ArSymtab = struct {
         return .{ .data = .{ .ar = ar, .macho_file = macho_file } };
     }
 
-    fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+    fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
         _ = unused_fmt_string;
         const ar = ctx.ar;
         const macho_file = ctx.macho_file;
@@ -249,7 +249,7 @@ pub fn ptrWidth(format: Format) usize {
     };
 }
 
-pub fn writeInt(bw: *std.io.BufferedWriter, format: Format, value: u64) std.io.Writer.Error!void {
+pub fn writeInt(bw: *Writer, format: Format, value: u64) Writer.Error!void {
     switch (format) {
         .p32 => try bw.writeInt(u32, std.math.cast(u32, value) orelse return error.Overflow, .little),
         .p64 => try bw.writeInt(u64, value, .little),
@@ -271,8 +271,9 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 const std = @import("std");
-const Allocator = mem.Allocator;
+const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
+const Writer = std.io.Writer;
 
 const Archive = @This();
 const File = @import("file.zig").File;

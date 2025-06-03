@@ -509,7 +509,7 @@ pub fn setSymbolExtra(self: *SharedObject, index: u32, extra: Symbol.Extra) void
     }
 }
 
-pub fn format(self: SharedObject, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+pub fn format(self: SharedObject, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = self;
     _ = bw;
     _ = unused_fmt_string;
@@ -528,8 +528,8 @@ const FormatContext = struct {
     elf_file: *Elf,
 };
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-    _ = unused_fmt_string;
+fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+    comptime assert(unused_fmt_string.len == 0);
     const shared = ctx.shared;
     const elf_file = ctx.elf_file;
     try bw.writeAll("  globals\n");
@@ -553,6 +553,7 @@ const mem = std.mem;
 const Path = std.Build.Cache.Path;
 const Stat = std.Build.Cache.File.Stat;
 const Allocator = mem.Allocator;
+const Writer = std.io.Writer;
 
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;

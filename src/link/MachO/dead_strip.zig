@@ -196,7 +196,7 @@ const Level = struct {
         self.value += 1;
     }
 
-    pub fn format(self: *const @This(), bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: *const @This(), bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
         _ = unused_fmt_string;
         try bw.splatByteAll(' ', self.value);
     }
@@ -213,6 +213,7 @@ const mem = std.mem;
 const trace = @import("../../tracy.zig").trace;
 const track_live_log = std.log.scoped(.dead_strip_track_live);
 const std = @import("std");
+const Writer = std.io.Writer;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");

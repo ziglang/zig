@@ -449,8 +449,8 @@ const FormatContext = struct {
     elf_file: *Elf,
 };
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-    _ = unused_fmt_string;
+fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+    comptime assert(unused_fmt_string.len == 0);
     const self = ctx.self;
     const elf_file = ctx.elf_file;
     try bw.writeAll("  globals\n");
@@ -464,12 +464,13 @@ fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_
     }
 }
 
+const std = @import("std");
+const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 const elf = std.elf;
 const mem = std.mem;
-const std = @import("std");
+const Writer = std.io.Writer;
 
-const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;

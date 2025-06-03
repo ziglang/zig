@@ -449,8 +449,7 @@ fn parseEhFrame(
     const fdes_start = self.fdes.items.len;
     const cies_start = self.cies.items.len;
 
-    var it: eh_frame.Iterator = undefined;
-    it.br.initFixed(raw);
+    var it: eh_frame.Iterator = .{ .br = .fixed(raw) };
     while (try it.next()) |rec| {
         const rel_range = filterRelocs(self.relocs.items[rel_start..][0..relocs.len], rec.offset, rec.size + 4);
         switch (rec.tag) {
@@ -1200,8 +1199,7 @@ pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index
         const chdr = (try r.takeStruct(elf.Elf64_Chdr)).*;
         switch (chdr.ch_type) {
             .ZLIB => {
-                var bw: std.io.BufferedWriter = undefined;
-                bw.initFixed(try gpa.alloc(u8, std.math.cast(usize, chdr.ch_size) orelse return error.Overflow));
+                var bw: Writer = .fixed(try gpa.alloc(u8, std.math.cast(usize, chdr.ch_size) orelse return error.Overflow));
                 errdefer gpa.free(bw.buffer);
                 try std.compress.zlib.decompress(&r, &bw);
                 if (bw.end != bw.buffer.len) return error.InputOutput;
@@ -1431,7 +1429,7 @@ pub fn comdatGroup(self: *Object, index: Elf.ComdatGroup.Index) *Elf.ComdatGroup
     return &self.comdat_groups.items[index];
 }
 
-pub fn format(self: *Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+pub fn format(self: *Object, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = self;
     _ = bw;
     _ = unused_fmt_string;
@@ -1450,7 +1448,7 @@ const FormatContext = struct {
     elf_file: *Elf,
 };
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     const elf_file = ctx.elf_file;
@@ -1477,7 +1475,7 @@ pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatAtoms) {
     } };
 }
 
-fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatAtoms(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     try bw.writeAll("  atoms\n");
@@ -1494,7 +1492,7 @@ pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatCies) {
     } };
 }
 
-fn formatCies(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatCies(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     try bw.writeAll("  cies\n");
@@ -1510,7 +1508,7 @@ pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatFdes) {
     } };
 }
 
-fn formatFdes(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatFdes(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     try bw.writeAll("  fdes\n");
@@ -1526,7 +1524,7 @@ pub fn fmtComdatGroups(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatCo
     } };
 }
 
-fn formatComdatGroups(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatComdatGroups(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const object = ctx.object;
     const elf_file = ctx.elf_file;
@@ -1548,8 +1546,8 @@ pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(object: Object, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-    _ = unused_fmt_string;
+fn formatPath(object: Object, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+    comptime assert(unused_fmt_string.len == 0);
     if (object.archive) |ar| {
         try bw.print("{f}({f})", .{ ar.path, object.path });
     } else {
@@ -1575,6 +1573,7 @@ const math = std.math;
 const mem = std.mem;
 const Path = std.Build.Cache.Path;
 const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
 
 const Diags = @import("../../link.zig").Diags;
 const Archive = @import("Archive.zig");

@@ -4,6 +4,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const leb = std.leb;
+const Writer = std.io.Writer;
 
 const Wasm = link.File.Wasm;
 const Mir = @import("Mir.zig");
@@ -15,7 +16,7 @@ const codegen = @import("../../codegen.zig");
 mir: Mir,
 wasm: *Wasm,
 /// The binary representation of this module is written here.
-bw: *std.io.BufferedWriter,
+bw: *Writer,
 
 pub const Error = error{
     OutOfMemory,
@@ -882,12 +883,12 @@ pub fn lowerToCode(emit: *Emit) Error!void {
 }
 
 /// Asserts 20 unused capacity.
-fn encodeMemArg(bw: *std.io.BufferedWriter, mem_arg: Mir.MemArg) std.io.Writer.Error!void {
+fn encodeMemArg(bw: *Writer, mem_arg: Mir.MemArg) Writer.Error!void {
     try bw.writeLeb128(Wasm.Alignment.fromNonzeroByteUnits(mem_arg.alignment).toLog2Units());
     try bw.writeLeb128(mem_arg.offset);
 }
 
-fn uavRefOffObj(wasm: *Wasm, bw: *std.io.BufferedWriter, data: Mir.UavRefOffObj, is_wasm32: bool) std.io.Writer.Error!void {
+fn uavRefOffObj(wasm: *Wasm, bw: *Writer, data: Mir.UavRefOffObj, is_wasm32: bool) Writer.Error!void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
@@ -903,7 +904,7 @@ fn uavRefOffObj(wasm: *Wasm, bw: *std.io.BufferedWriter, data: Mir.UavRefOffObj,
     try bw.splatByteAll(0, if (is_wasm32) 5 else 10);
 }
 
-fn uavRefOffExe(wasm: *Wasm, bw: *std.io.BufferedWriter, data: Mir.UavRefOffExe, is_wasm32: bool) !void {
+fn uavRefOffExe(wasm: *Wasm, bw: *Writer, data: Mir.UavRefOffExe, is_wasm32: bool) !void {
     const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
     try bw.writeByte(@intFromEnum(opcode));
 
@@ -911,7 +912,7 @@ fn uavRefOffExe(wasm: *Wasm, bw: *std.io.BufferedWriter, data: Mir.UavRefOffExe,
     try bw.writeLeb128(@as(i32, @bitCast(@as(u32, @intCast(@as(i64, addr) + data.offset)))));
 }
 
-fn navRefOff(wasm: *Wasm, bw: *std.io.BufferedWriter, data: Mir.NavRefOff, is_wasm32: bool) !void {
+fn navRefOff(wasm: *Wasm, bw: *Writer, data: Mir.NavRefOff, is_wasm32: bool) !void {
     const comp = wasm.base.comp;
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
@@ -936,6 +937,6 @@ fn navRefOff(wasm: *Wasm, bw: *std.io.BufferedWriter, data: Mir.NavRefOff, is_wa
     }
 }
 
-fn appendOutputFunctionIndex(bw: *std.io.BufferedWriter, i: Wasm.OutputFunctionIndex) std.io.Writer.Error!void {
+fn appendOutputFunctionIndex(bw: *Writer, i: Wasm.OutputFunctionIndex) Writer.Error!void {
     return bw.writeLeb128(@intFromEnum(i));
 }

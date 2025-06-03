@@ -139,7 +139,7 @@ pub const Bind = struct {
         try done(bw);
     }
 
-    fn finalizeSegment(entries: []const Entry, ctx: *MachO, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+    fn finalizeSegment(entries: []const Entry, ctx: *MachO, bw: *Writer) Writer.Error!void {
         if (entries.len == 0) return;
 
         const seg_id = entries[0].segment_id;
@@ -251,7 +251,7 @@ pub const Bind = struct {
         }
     }
 
-    pub fn write(bind: Bind, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+    pub fn write(bind: Bind, bw: *Writer) Writer.Error!void {
         try bw.writeAll(bind.buffer.items);
     }
 };
@@ -380,7 +380,7 @@ pub const WeakBind = struct {
         try done(bw);
     }
 
-    fn finalizeSegment(entries: []const Entry, ctx: *MachO, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+    fn finalizeSegment(entries: []const Entry, ctx: *MachO, bw: *Writer) Writer.Error!void {
         if (entries.len == 0) return;
 
         const seg_id = entries[0].segment_id;
@@ -481,7 +481,7 @@ pub const WeakBind = struct {
         }
     }
 
-    pub fn write(bind: WeakBind, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+    pub fn write(bind: WeakBind, bw: *Writer) Writer.Error!void {
         try bw.writeAll(bind.buffer.items);
     }
 };
@@ -565,30 +565,30 @@ pub const LazyBind = struct {
         }
     }
 
-    pub fn write(bind: LazyBind, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+    pub fn write(bind: LazyBind, bw: *Writer) Writer.Error!void {
         try bw.writeAll(bind.buffer.items);
     }
 };
 
-fn setSegmentOffset(segment_id: u4, offset: u64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn setSegmentOffset(segment_id: u4, offset: u64, bw: *Writer) Writer.Error!void {
     log.debug(">>> set segment: {d} and offset: {x}", .{ segment_id, offset });
     try bw.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | segment_id);
     try bw.writeLeb128(offset);
 }
 
-fn setSymbol(name: []const u8, flags: u4, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn setSymbol(name: []const u8, flags: u4, bw: *Writer) Writer.Error!void {
     log.debug(">>> set symbol: {s} with flags: {x}", .{ name, flags });
     try bw.writeByte(macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM | flags);
     try bw.writeAll(name);
     try bw.writeByte(0);
 }
 
-fn setTypePointer(bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn setTypePointer(bw: *Writer) Writer.Error!void {
     log.debug(">>> set type: {d}", .{macho.BIND_TYPE_POINTER});
     try bw.writeByte(macho.BIND_OPCODE_SET_TYPE_IMM | @as(u4, @intCast(macho.BIND_TYPE_POINTER)));
 }
 
-fn setDylibOrdinal(ordinal: i16, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn setDylibOrdinal(ordinal: i16, bw: *Writer) Writer.Error!void {
     switch (ordinal) {
         else => unreachable, // Invalid dylib special binding
         macho.BIND_SPECIAL_DYLIB_SELF,
@@ -610,18 +610,18 @@ fn setDylibOrdinal(ordinal: i16, bw: *std.io.BufferedWriter) std.io.Writer.Error
     }
 }
 
-fn setAddend(addend: i64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn setAddend(addend: i64, bw: *Writer) Writer.Error!void {
     log.debug(">>> set addend: {x}", .{addend});
     try bw.writeByte(macho.BIND_OPCODE_SET_ADDEND_SLEB);
     try bw.writeLeb128(addend);
 }
 
-fn doBind(bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn doBind(bw: *Writer) Writer.Error!void {
     log.debug(">>> bind", .{});
     try bw.writeByte(macho.BIND_OPCODE_DO_BIND);
 }
 
-fn doBindAddAddr(addr: u64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn doBindAddAddr(addr: u64, bw: *Writer) Writer.Error!void {
     log.debug(">>> bind with add: {x}", .{addr});
     if (std.math.divExact(u64, addr, @sizeOf(u64))) |scaled| {
         if (std.math.cast(u4, scaled)) |imm_scaled| return bw.writeByte(
@@ -632,34 +632,35 @@ fn doBindAddAddr(addr: u64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void
     try bw.writeLeb128(addr);
 }
 
-fn doBindTimesSkip(count: usize, skip: u64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn doBindTimesSkip(count: usize, skip: u64, bw: *Writer) Writer.Error!void {
     log.debug(">>> bind with count: {d} and skip: {x}", .{ count, skip });
     try bw.writeByte(macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB);
     try bw.writeLeb128(count);
     try bw.writeLeb128(skip);
 }
 
-fn addAddr(addr: u64, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn addAddr(addr: u64, bw: *Writer) Writer.Error!void {
     log.debug(">>> add: {x}", .{addr});
     try bw.writeByte(macho.BIND_OPCODE_ADD_ADDR_ULEB);
     try bw.writeLeb128(addr);
 }
 
-fn done(bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+fn done(bw: *Writer) Writer.Error!void {
     log.debug(">>> done", .{});
     try bw.writeByte(macho.BIND_OPCODE_DONE);
 }
 
+const std = @import("std");
 const assert = std.debug.assert;
 const leb = std.leb;
 const log = std.log.scoped(.link_dyld_info);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
-const trace = @import("../../../tracy.zig").trace;
-const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
 
-const Allocator = mem.Allocator;
+const trace = @import("../../../tracy.zig").trace;
 const File = @import("../file.zig").File;
 const MachO = @import("../../MachO.zig");
 const Symbol = @import("../Symbol.zig");

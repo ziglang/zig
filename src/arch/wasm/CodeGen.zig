@@ -6,6 +6,7 @@ const testing = std.testing;
 const leb = std.leb;
 const mem = std.mem;
 const log = std.log.scoped(.codegen);
+const Writer = std.io.Writer;
 
 const CodeGen = @This();
 const codegen = @import("../../codegen.zig");
@@ -1199,7 +1200,7 @@ pub const Function = extern struct {
         }
     };
 
-    pub fn lower(f: *Function, wasm: *Wasm, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+    pub fn lower(f: *Function, wasm: *Wasm, bw: *Writer) Writer.Error!void {
         // Write the locals in the prologue of the function body.
         const locals = wasm.all_zcu_locals.items[f.locals_off..][0..f.locals_len];
 

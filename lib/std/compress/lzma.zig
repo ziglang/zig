@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const expectError = std.testing.expectError;
+const Writer = std.io.Writer;
 
 pub const RangeDecoder = struct {
     range: u32,
@@ -320,7 +321,7 @@ pub const Decode = struct {
         self: *Decode,
         allocator: Allocator,
         br: *std.io.Reader,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         buffer: anytype,
         decoder: *RangeDecoder,
         bytes_read: *usize,
@@ -417,7 +418,7 @@ pub const Decode = struct {
         self: *Decode,
         allocator: Allocator,
         br: *std.io.Reader,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         buffer: anytype,
         decoder: *RangeDecoder,
         bytes_read: *usize,
@@ -429,7 +430,7 @@ pub const Decode = struct {
         self: *Decode,
         allocator: Allocator,
         br: *std.io.Reader,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         buffer: anytype,
         decoder: *RangeDecoder,
         bytes_read: *usize,
@@ -667,8 +668,8 @@ const LzCircularBuffer = struct {
         self: *Self,
         allocator: Allocator,
         lit: u8,
-        bw: *std.io.BufferedWriter,
-    ) std.io.Writer.Error!void {
+        bw: *Writer,
+    ) Writer.Error!void {
         try self.set(allocator, self.cursor, lit);
         self.cursor += 1;
         self.len += 1;
@@ -686,8 +687,8 @@ const LzCircularBuffer = struct {
         allocator: Allocator,
         len: usize,
         dist: usize,
-        bw: *std.io.BufferedWriter,
-    ) std.io.Writer.Error!void {
+        bw: *Writer,
+    ) Writer.Error!void {
         if (dist > self.dict_size or dist > self.len) {
             return error.CorruptInput;
         }
@@ -704,7 +705,7 @@ const LzCircularBuffer = struct {
         }
     }
 
-    pub fn finish(self: *Self, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+    pub fn finish(self: *Self, bw: *Writer) Writer.Error!void {
         if (self.cursor > 0) {
             try bw.writeAll(self.buf.items[0..self.cursor]);
             self.cursor = 0;
@@ -839,8 +840,7 @@ test "Vec2D get addition overflow" {
 
 fn testDecompress(compressed: []const u8) ![]u8 {
     const allocator = std.testing.allocator;
-    var br: std.io.Reader = undefined;
-    br.initFixed(compressed);
+    var br: std.io.Reader = .fixed(compressed);
     var decompressor = try Decompress.initOptions(allocator, &br, .{});
     defer decompressor.deinit();
     const reader = decompressor.reader();
@@ -927,8 +927,7 @@ test "too small uncompressed size in header" {
 
 test "reading one byte" {
     const compressed = @embedFile("testdata/good-known_size-with_eopm.lzma");
-    var br: std.io.Reader = undefined;
-    br.initFixed(compressed);
+    var br: std.io.Reader = .fixed(compressed);
     var decompressor = try Decompress.initOptions(std.testing.allocator, &br, .{});
     defer decompressor.deinit();
     var buffer = [1]u8{0};

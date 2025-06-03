@@ -12,6 +12,7 @@ const Watch = std.Build.Watch;
 const Fuzz = std.Build.Fuzz;
 const Allocator = std.mem.Allocator;
 const fatal = std.process.fatal;
+const Writer = std.io.Writer;
 const runner = @This();
 
 pub const root = @import("@build");
@@ -770,7 +771,7 @@ const PrintNode = struct {
     last: bool = false,
 };
 
-fn printPrefix(node: *PrintNode, stderr: *std.io.BufferedWriter, ttyconf: std.io.tty.Config) !void {
+fn printPrefix(node: *PrintNode, stderr: *Writer, ttyconf: std.io.tty.Config) !void {
     const parent = node.parent orelse return;
     if (parent.parent == null) return;
     try printPrefix(parent, stderr, ttyconf);
@@ -784,7 +785,7 @@ fn printPrefix(node: *PrintNode, stderr: *std.io.BufferedWriter, ttyconf: std.io
     }
 }
 
-fn printChildNodePrefix(stderr: *std.io.BufferedWriter, ttyconf: std.io.tty.Config) !void {
+fn printChildNodePrefix(stderr: *Writer, ttyconf: std.io.tty.Config) !void {
     try stderr.writeAll(switch (ttyconf) {
         .no_color, .windows_api => "+- ",
         .escape_codes => "\x1B\x28\x30\x6d\x71\x1B\x28\x42 ", // └─
@@ -793,7 +794,7 @@ fn printChildNodePrefix(stderr: *std.io.BufferedWriter, ttyconf: std.io.tty.Conf
 
 fn printStepStatus(
     s: *Step,
-    stderr: *std.io.BufferedWriter,
+    stderr: *Writer,
     ttyconf: std.io.tty.Config,
     run: *const Run,
 ) !void {
@@ -873,7 +874,7 @@ fn printStepStatus(
 
 fn printStepFailure(
     s: *Step,
-    stderr: *std.io.BufferedWriter,
+    stderr: *Writer,
     ttyconf: std.io.tty.Config,
 ) !void {
     if (s.result_error_bundle.errorMessageCount() > 0) {
@@ -927,7 +928,7 @@ fn printTreeStep(
     b: *std.Build,
     s: *Step,
     run: *const Run,
-    stderr: *std.io.BufferedWriter,
+    stderr: *Writer,
     ttyconf: std.io.tty.Config,
     parent_node: *PrintNode,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
@@ -1185,7 +1186,7 @@ pub fn printErrorMessages(
     gpa: Allocator,
     failing_step: *Step,
     options: std.zig.ErrorBundle.RenderOptions,
-    stderr: *std.io.BufferedWriter,
+    stderr: *Writer,
     prominent_compile_errors: bool,
 ) !void {
     // Provide context for where these error messages are coming from by
@@ -1238,7 +1239,7 @@ pub fn printErrorMessages(
     }
 }
 
-fn steps(builder: *std.Build, bw: *std.io.BufferedWriter) !void {
+fn steps(builder: *std.Build, bw: *Writer) !void {
     const allocator = builder.allocator;
     for (builder.top_level_steps.values()) |top_level_step| {
         const name = if (&top_level_step.step == builder.default_step)
@@ -1251,7 +1252,7 @@ fn steps(builder: *std.Build, bw: *std.io.BufferedWriter) !void {
 
 var stdio_buffer: [256]u8 = undefined;
 
-fn usage(b: *std.Build, bw: *std.io.BufferedWriter) !void {
+fn usage(b: *std.Build, bw: *Writer) !void {
     try bw.print(
         \\Usage: {s} build [steps] [options]
         \\

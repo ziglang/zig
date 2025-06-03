@@ -100,8 +100,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
         state_log.debug("ar_strtab\n{f}\n", .{ar_strtab});
     }
 
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(try gpa.alloc(u8, total_size));
+    var bw: Writer = .fixed(try gpa.alloc(u8, total_size));
     defer gpa.free(bw.buffer);
 
     // Write magic
@@ -406,8 +405,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         };
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var bw: std.io.BufferedWriter = undefined;
-        bw.initFixed(try gpa.alloc(u8, sh_size - existing_size));
+        var bw: Writer = .fixed(try gpa.alloc(u8, sh_size - existing_size));
         defer gpa.free(bw.buffer);
         try eh_frame.writeEhFrameRelocatable(elf_file, &bw);
         log.debug("writing .eh_frame from 0x{x} to 0x{x}", .{
@@ -445,8 +443,7 @@ fn writeComdatGroups(elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     for (elf_file.comdat_group_sections.items) |cgs| {
         const shdr = elf_file.sections.items(.shdr)[cgs.shndx];
-        var bw: std.io.BufferedWriter = undefined;
-        bw.initFixed(try gpa.alloc(u8, math.cast(usize, shdr.sh_size) orelse return error.Overflow));
+        var bw: Writer = .fixed(try gpa.alloc(u8, math.cast(usize, shdr.sh_size) orelse return error.Overflow));
         defer gpa.free(bw.buffer);
         try cgs.write(elf_file, &bw);
         log.debug("writing COMDAT group from 0x{x} to 0x{x}", .{
@@ -458,18 +455,19 @@ fn writeComdatGroups(elf_file: *Elf) !void {
     }
 }
 
+const std = @import("std");
 const assert = std.debug.assert;
-const build_options = @import("build_options");
-const eh_frame = @import("eh_frame.zig");
 const elf = std.elf;
-const link = @import("../../link.zig");
 const log = std.log.scoped(.link);
 const math = std.math;
 const mem = std.mem;
 const state_log = std.log.scoped(.link_state);
 const Path = std.Build.Cache.Path;
-const std = @import("std");
+const Writer = std.io.Writer;
 
+const link = @import("../../link.zig");
+const build_options = @import("build_options");
+const eh_frame = @import("eh_frame.zig");
 const Archive = @import("Archive.zig");
 const Compilation = @import("../../Compilation.zig");
 const Elf = @import("../Elf.zig");

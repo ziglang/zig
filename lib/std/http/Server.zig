@@ -6,11 +6,12 @@ const mem = std.mem;
 const Uri = std.Uri;
 const assert = std.debug.assert;
 const testing = std.testing;
+const Writer = std.io.Writer;
 
 const Server = @This();
 
 /// Data from the HTTP server to the HTTP client.
-out: *std.io.BufferedWriter,
+out: *Writer,
 reader: http.Reader,
 
 /// Initialize an HTTP server that can respond to multiple requests on the same
@@ -20,7 +21,7 @@ reader: http.Reader,
 /// header, otherwise `receiveHead` returns `error.HttpHeadersOversize`.
 ///
 /// The returned `Server` is ready for `receiveHead` to be called.
-pub fn init(in: *std.io.Reader, out: *std.io.BufferedWriter) Server {
+pub fn init(in: *std.io.Reader, out: *Writer) Server {
     return .{
         .reader = .{
             .in = in,
@@ -397,7 +398,7 @@ pub const Request = struct {
     /// be done to satisfy the request.
     ///
     /// Asserts status is not `continue`.
-    pub fn respondStreaming(request: *Request, options: RespondStreamingOptions) std.io.Writer.Error!http.BodyWriter {
+    pub fn respondStreaming(request: *Request, options: RespondStreamingOptions) Writer.Error!http.BodyWriter {
         try writeExpectContinue(request);
         const o = options.respond_options;
         assert(o.status != .@"continue");
@@ -485,7 +486,7 @@ pub const Request = struct {
 
     /// The header is not guaranteed to be sent until `WebSocket.flush` is
     /// called on the returned struct.
-    pub fn respondWebSocket(request: *Request, options: WebSocketOptions) std.io.Writer.Error!WebSocket {
+    pub fn respondWebSocket(request: *Request, options: WebSocketOptions) Writer.Error!WebSocket {
         if (request.head.expect != null) return error.HttpExpectationFailed;
 
         const out = request.server.out;
@@ -611,7 +612,7 @@ pub const Request = struct {
 pub const WebSocket = struct {
     key: []const u8,
     input: *std.io.Reader,
-    output: *std.io.BufferedWriter,
+    output: *Writer,
 
     pub const Header0 = packed struct(u8) {
         opcode: Opcode,
@@ -701,21 +702,21 @@ pub const WebSocket = struct {
         }
     }
 
-    pub fn writeMessage(ws: *WebSocket, data: []const u8, op: Opcode) std.io.Writer.Error!void {
+    pub fn writeMessage(ws: *WebSocket, data: []const u8, op: Opcode) Writer.Error!void {
         try writeMessageVecUnflushed(ws, &.{data}, op);
         try ws.output.flush();
     }
 
-    pub fn writeMessageUnflushed(ws: *WebSocket, data: []const u8, op: Opcode) std.io.Writer.Error!void {
+    pub fn writeMessageUnflushed(ws: *WebSocket, data: []const u8, op: Opcode) Writer.Error!void {
         try writeMessageVecUnflushed(ws, &.{data}, op);
     }
 
-    pub fn writeMessageVec(ws: *WebSocket, data: []const []const u8, op: Opcode) std.io.Writer.Error!void {
+    pub fn writeMessageVec(ws: *WebSocket, data: []const []const u8, op: Opcode) Writer.Error!void {
         try writeMessageVecUnflushed(ws, data, op);
         try ws.output.flush();
     }
 
-    pub fn writeMessageVecUnflushed(ws: *WebSocket, data: []const []const u8, op: Opcode) std.io.Writer.Error!void {
+    pub fn writeMessageVecUnflushed(ws: *WebSocket, data: []const []const u8, op: Opcode) Writer.Error!void {
         const total_len = l: {
             var total_len: u64 = 0;
             for (data) |iovec| total_len += iovec.len;
@@ -749,7 +750,7 @@ pub const WebSocket = struct {
         try out.writeVecAll(data);
     }
 
-    pub fn flush(ws: *WebSocket) std.io.Writer.Error!void {
+    pub fn flush(ws: *WebSocket) Writer.Error!void {
         try ws.output.flush();
     }
 };

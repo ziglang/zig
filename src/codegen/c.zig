@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
 const log = std.log.scoped(.c);
+const Writer = std.io.Writer;
 
 const dev = @import("../dev.zig");
 const link = @import("../link.zig");
@@ -30,7 +31,7 @@ pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
     }) else null; // we don't currently ask zig1 to use safe optimization modes
 }
 
-pub const Error = std.io.Writer.Error || std.mem.Allocator.Error || error{AnalysisFail};
+pub const Error = Writer.Error || std.mem.Allocator.Error || error{AnalysisFail};
 
 pub const CType = @import("c/Type.zig");
 
@@ -305,9 +306,9 @@ fn isReservedIdent(ident: []const u8) bool {
 
 fn formatIdent(
     ident: []const u8,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     comptime fmt_str: []const u8,
-) std.io.Writer.Error!void {
+) Writer.Error!void {
     const solo = fmt_str.len != 0 and fmt_str[0] == ' '; // space means solo; not part of a bigger ident.
     if (solo and isReservedIdent(ident)) {
         try bw.writeAll("zig_e_");
@@ -335,9 +336,9 @@ const CTypePoolStringFormatData = struct {
 };
 fn formatCTypePoolString(
     data: CTypePoolStringFormatData,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     comptime fmt_str: []const u8,
-) std.io.Writer.Error!void {
+) Writer.Error!void {
     if (data.ctype_pool_string.toSlice(data.ctype_pool)) |slice|
         try formatIdent(slice, bw, fmt_str)
     else
@@ -465,7 +466,7 @@ pub const Function = struct {
         return result;
     }
 
-    fn writeCValue(f: *Function, bw: *std.io.BufferedWriter, c_value: CValue, location: ValueRenderLocation) !void {
+    fn writeCValue(f: *Function, bw: *Writer, c_value: CValue, location: ValueRenderLocation) !void {
         switch (c_value) {
             .none => unreachable,
             .new_local, .local => |i| try bw.print("t{d}", .{i}),
@@ -478,7 +479,7 @@ pub const Function = struct {
         }
     }
 
-    fn writeCValueDeref(f: *Function, bw: *std.io.BufferedWriter, c_value: CValue) !void {
+    fn writeCValueDeref(f: *Function, bw: *Writer, c_value: CValue) !void {
         switch (c_value) {
             .none => unreachable,
             .new_local, .local, .constant => {
@@ -499,7 +500,7 @@ pub const Function = struct {
 
     fn writeCValueMember(
         f: *Function,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         c_value: CValue,
         member: CValue,
     ) Error!void {
@@ -513,7 +514,7 @@ pub const Function = struct {
         }
     }
 
-    fn writeCValueDerefMember(f: *Function, bw: *std.io.BufferedWriter, c_value: CValue, member: CValue) !void {
+    fn writeCValueDerefMember(f: *Function, bw: *Writer, c_value: CValue, member: CValue) !void {
         switch (c_value) {
             .new_local, .local, .arg, .arg_array => {
                 try f.writeCValue(bw, c_value, .Other);
@@ -545,15 +546,15 @@ pub const Function = struct {
         return f.object.dg.byteSize(ctype);
     }
 
-    fn renderType(f: *Function, bw: *std.io.BufferedWriter, ctype: Type) !void {
+    fn renderType(f: *Function, bw: *Writer, ctype: Type) !void {
         return f.object.dg.renderType(bw, ctype);
     }
 
-    fn renderCType(f: *Function, bw: *std.io.BufferedWriter, ctype: CType) !void {
+    fn renderCType(f: *Function, bw: *Writer, ctype: CType) !void {
         return f.object.dg.renderCType(bw, ctype);
     }
 
-    fn renderIntCast(f: *Function, bw: *std.io.BufferedWriter, dest_ty: Type, src: CValue, v: Vectorize, src_ty: Type, location: ValueRenderLocation) !void {
+    fn renderIntCast(f: *Function, bw: *Writer, dest_ty: Type, src: CValue, v: Vectorize, src_ty: Type, location: ValueRenderLocation) !void {
         return f.object.dg.renderIntCast(bw, dest_ty, .{ .c_value = .{ .f = f, .value = src, .v = v } }, src_ty, location);
     }
 
@@ -716,7 +717,7 @@ pub const DeclGen = struct {
 
     fn renderUav(
         dg: *DeclGen,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         uav: InternPool.Key.Ptr.BaseAddr.Uav,
         location: ValueRenderLocation,
     ) Error!void {
@@ -782,7 +783,7 @@ pub const DeclGen = struct {
 
     fn renderNav(
         dg: *DeclGen,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         nav_index: InternPool.Nav.Index,
         location: ValueRenderLocation,
     ) Error!void {
@@ -831,7 +832,7 @@ pub const DeclGen = struct {
 
     fn renderPointer(
         dg: *DeclGen,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         derivation: Value.PointerDeriveStep,
         location: ValueRenderLocation,
     ) Error!void {
@@ -935,13 +936,13 @@ pub const DeclGen = struct {
         }
     }
 
-    fn renderErrorName(dg: *DeclGen, bw: *std.io.BufferedWriter, err_name: InternPool.NullTerminatedString) !void {
+    fn renderErrorName(dg: *DeclGen, bw: *Writer, err_name: InternPool.NullTerminatedString) !void {
         try bw.print("zig_error_{f}", .{fmtIdent(err_name.toSlice(&dg.pt.zcu.intern_pool))});
     }
 
     fn renderValue(
         dg: *DeclGen,
-        writer: *std.io.BufferedWriter,
+        writer: *Writer,
         val: Value,
         location: ValueRenderLocation,
     ) Error!void {
@@ -1550,7 +1551,7 @@ pub const DeclGen = struct {
 
     fn renderUndefValue(
         dg: *DeclGen,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         ty: Type,
         location: ValueRenderLocation,
     ) Error!void {
@@ -1853,7 +1854,7 @@ pub const DeclGen = struct {
 
     fn renderFunctionSignature(
         dg: *DeclGen,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         fn_val: Value,
         fn_align: InternPool.Alignment,
         kind: CType.Kind,
@@ -1974,11 +1975,11 @@ pub const DeclGen = struct {
     ///   | `renderTypeAndName` | "uint8_t *name" | "uint8_t *name[10]" |
     ///   | `renderType`        | "uint8_t *"     | "uint8_t *[10]"     |
     ///
-    fn renderType(dg: *DeclGen, bw: *std.io.BufferedWriter, t: Type) Error!void {
+    fn renderType(dg: *DeclGen, bw: *Writer, t: Type) Error!void {
         try dg.renderCType(bw, try dg.ctypeFromType(t, .complete));
     }
 
-    fn renderCType(dg: *DeclGen, bw: *std.io.BufferedWriter, ctype: CType) Error!void {
+    fn renderCType(dg: *DeclGen, bw: *Writer, ctype: CType) Error!void {
         _ = try renderTypePrefix(dg.pass, &dg.ctype_pool, dg.pt.zcu, bw, ctype, .suffix, .{});
         try renderTypeSuffix(dg.pass, &dg.ctype_pool, dg.pt.zcu, bw, ctype, .suffix, .{});
     }
@@ -1993,7 +1994,7 @@ pub const DeclGen = struct {
             value: Value,
         },
 
-        pub fn writeValue(self: *const IntCastContext, dg: *DeclGen, bw: *std.io.BufferedWriter, location: ValueRenderLocation) !void {
+        pub fn writeValue(self: *const IntCastContext, dg: *DeclGen, bw: *Writer, location: ValueRenderLocation) !void {
             switch (self.*) {
                 .c_value => |v| {
                     try v.f.writeCValue(bw, v.value, location);
@@ -2039,7 +2040,7 @@ pub const DeclGen = struct {
     ///   | > 64 bit integer | > 64 bit integer | zig_make_<dest_ty>(zig_hi_<src_ty>(src), zig_lo_<src_ty>(src))
     fn renderIntCast(
         dg: *DeclGen,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         dest_ty: Type,
         context: IntCastContext,
         src_ty: Type,
@@ -2123,7 +2124,7 @@ pub const DeclGen = struct {
     ///
     fn renderTypeAndName(
         dg: *DeclGen,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         ty: Type,
         name: CValue,
         qualifiers: CQualifiers,
@@ -2144,7 +2145,7 @@ pub const DeclGen = struct {
 
     fn renderCTypeAndName(
         dg: *DeclGen,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         ctype: CType,
         name: CValue,
         qualifiers: CQualifiers,
@@ -2164,7 +2165,7 @@ pub const DeclGen = struct {
         try renderTypeSuffix(dg.pass, &dg.ctype_pool, zcu, bw, ctype, .suffix, .{});
     }
 
-    fn writeName(dg: *DeclGen, bw: *std.io.BufferedWriter, c_value: CValue) !void {
+    fn writeName(dg: *DeclGen, bw: *Writer, c_value: CValue) !void {
         switch (c_value) {
             .new_local, .local => |i| try bw.print("t{d}", .{i}),
             .constant => |uav| try renderUavName(bw, uav),
@@ -2174,7 +2175,7 @@ pub const DeclGen = struct {
         }
     }
 
-    fn writeCValue(dg: *DeclGen, bw: *std.io.BufferedWriter, c_value: CValue) Error!void {
+    fn writeCValue(dg: *DeclGen, bw: *Writer, c_value: CValue) Error!void {
         switch (c_value) {
             .none, .new_local, .local, .local_ref => unreachable,
             .constant => |uav| try renderUavName(bw, uav),
@@ -2197,7 +2198,7 @@ pub const DeclGen = struct {
         }
     }
 
-    fn writeCValueDeref(dg: *DeclGen, bw: *std.io.BufferedWriter, c_value: CValue) !void {
+    fn writeCValueDeref(dg: *DeclGen, bw: *Writer, c_value: CValue) !void {
         switch (c_value) {
             .none,
             .new_local,
@@ -2226,7 +2227,7 @@ pub const DeclGen = struct {
 
     fn writeCValueMember(
         dg: *DeclGen,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         c_value: CValue,
         member: CValue,
     ) Error!void {
@@ -2237,7 +2238,7 @@ pub const DeclGen = struct {
 
     fn writeCValueDerefMember(
         dg: *DeclGen,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         c_value: CValue,
         member: CValue,
     ) !void {
@@ -2293,7 +2294,7 @@ pub const DeclGen = struct {
         try fwd.writeAll(";\n");
     }
 
-    fn renderNavName(dg: *DeclGen, bw: *std.io.BufferedWriter, nav_index: InternPool.Nav.Index) !void {
+    fn renderNavName(dg: *DeclGen, bw: *Writer, nav_index: InternPool.Nav.Index) !void {
         const zcu = dg.pt.zcu;
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
@@ -2312,15 +2313,15 @@ pub const DeclGen = struct {
         }
     }
 
-    fn renderUavName(bw: *std.io.BufferedWriter, uav: Value) !void {
+    fn renderUavName(bw: *Writer, uav: Value) !void {
         try bw.print("__anon_{d}", .{@intFromEnum(uav.toIntern())});
     }
 
-    fn renderTypeForBuiltinFnName(dg: *DeclGen, bw: *std.io.BufferedWriter, ty: Type) !void {
+    fn renderTypeForBuiltinFnName(dg: *DeclGen, bw: *Writer, ty: Type) !void {
         try dg.renderCTypeForBuiltinFnName(bw, try dg.ctypeFromType(ty, .complete));
     }
 
-    fn renderCTypeForBuiltinFnName(dg: *DeclGen, bw: *std.io.BufferedWriter, ctype: CType) !void {
+    fn renderCTypeForBuiltinFnName(dg: *DeclGen, bw: *Writer, ctype: CType) !void {
         switch (ctype.info(&dg.ctype_pool)) {
             else => |ctype_info| try bw.print("{c}{d}", .{
                 if (ctype.isBool())
@@ -2339,7 +2340,7 @@ pub const DeclGen = struct {
         }
     }
 
-    fn renderBuiltinInfo(dg: *DeclGen, bw: *std.io.BufferedWriter, ty: Type, info: BuiltinInfo) !void {
+    fn renderBuiltinInfo(dg: *DeclGen, bw: *Writer, ty: Type, info: BuiltinInfo) !void {
         const ctype = try dg.ctypeFromType(ty, .complete);
         const is_big = ctype.info(&dg.ctype_pool) == .array;
         switch (info) {
@@ -2388,9 +2389,9 @@ const RenderCTypeTrailing = enum {
 
     pub fn format(
         self: @This(),
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         comptime fmt: []const u8,
-    ) std.io.Writer.Error!void {
+    ) Writer.Error!void {
         if (fmt.len != 0) @compileError("invalid format string '" ++
             fmt ++ "' for type '" ++ @typeName(@This()) ++ "'");
         switch (self) {
@@ -2399,12 +2400,12 @@ const RenderCTypeTrailing = enum {
         }
     }
 };
-fn renderAlignedTypeName(bw: *std.io.BufferedWriter, ctype: CType) !void {
+fn renderAlignedTypeName(bw: *Writer, ctype: CType) !void {
     try bw.print("anon__aligned_{d}", .{@intFromEnum(ctype.index)});
 }
 fn renderFwdDeclTypeName(
     zcu: *Zcu,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     ctype: CType,
     fwd_decl: CType.Info.FwdDecl,
     attributes: []const u8,
@@ -2423,11 +2424,11 @@ fn renderTypePrefix(
     pass: DeclGen.Pass,
     ctype_pool: *const CType.Pool,
     zcu: *Zcu,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     ctype: CType,
     parent_fix: CTypeFix,
     qualifiers: CQualifiers,
-) std.io.Writer.Error!RenderCTypeTrailing {
+) Writer.Error!RenderCTypeTrailing {
     var trailing = RenderCTypeTrailing.maybe_space;
     switch (ctype.info(ctype_pool)) {
         .basic => |basic_info| try bw.writeAll(@tagName(basic_info)),
@@ -2540,11 +2541,11 @@ fn renderTypeSuffix(
     pass: DeclGen.Pass,
     ctype_pool: *const CType.Pool,
     zcu: *Zcu,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     ctype: CType,
     parent_fix: CTypeFix,
     qualifiers: CQualifiers,
-) std.io.Writer.Error!void {
+) Writer.Error!void {
     switch (ctype.info(ctype_pool)) {
         .basic, .aligned, .fwd_decl, .aggregate => {},
         .pointer => |pointer_info| try renderTypeSuffix(
@@ -2596,7 +2597,7 @@ fn renderTypeSuffix(
 }
 fn renderFields(
     zcu: *Zcu,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     ctype_pool: *const CType.Pool,
     aggregate_info: CType.Info.Aggregate,
     indent: usize,
@@ -2638,7 +2639,7 @@ fn renderFields(
 
 pub fn genTypeDecl(
     zcu: *Zcu,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     global_ctype_pool: *const CType.Pool,
     global_ctype: CType,
     pass: DeclGen.Pass,
@@ -2718,7 +2719,7 @@ pub fn genTypeDecl(
     }
 }
 
-pub fn genGlobalAsm(zcu: *Zcu, bw: *std.io.BufferedWriter) !void {
+pub fn genGlobalAsm(zcu: *Zcu, bw: *Writer) !void {
     for (zcu.global_assembly.values()) |asm_source| {
         try bw.print("__asm({fs});\n", .{fmtStringLiteral(asm_source, null)});
     }
@@ -5126,7 +5127,7 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !CVal
     return local;
 }
 
-fn airTrap(f: *Function, bw: *std.io.BufferedWriter) !void {
+fn airTrap(f: *Function, bw: *Writer) !void {
     // Not even allowed to call trap in a naked function.
     if (f.object.dg.is_naked_fn) return;
     try bw.writeAll("zig_trap();\n");
@@ -6931,7 +6932,7 @@ fn airAtomicStore(f: *Function, inst: Air.Inst.Index, order: [*:0]const u8) !CVa
     return .none;
 }
 
-fn writeSliceOrPtr(f: *Function, bw: *std.io.BufferedWriter, ptr: CValue, ptr_ty: Type) !void {
+fn writeSliceOrPtr(f: *Function, bw: *Writer, ptr: CValue, ptr_ty: Type) !void {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
     if (ptr_ty.isSlice(zcu)) {
@@ -7859,7 +7860,7 @@ fn toMemoryOrder(order: std.builtin.AtomicOrder) [:0]const u8 {
     };
 }
 
-fn writeMemoryOrder(bw: *std.io.BufferedWriter, order: std.builtin.AtomicOrder) !void {
+fn writeMemoryOrder(bw: *Writer, order: std.builtin.AtomicOrder) !void {
     return bw.writeAll(toMemoryOrder(order));
 }
 
@@ -8004,7 +8005,7 @@ const StringLiteral = struct {
     len: usize,
     cur_len: usize,
     start_count: usize,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
 
     // MSVC throws C2078 if an array of size 65536 or greater is initialized with a string literal,
     // regardless of the length of the string literal initializing it. Array initializer syntax is
@@ -8017,7 +8018,7 @@ const StringLiteral = struct {
     const max_char_len = 4;
     const max_literal_len = @min(16380 - max_char_len, 4095);
 
-    fn init(bw: *std.io.BufferedWriter, len: usize) StringLiteral {
+    fn init(bw: *Writer, len: usize) StringLiteral {
         return .{
             .cur_len = 0,
             .len = len,
@@ -8026,7 +8027,7 @@ const StringLiteral = struct {
         };
     }
 
-    pub fn start(sl: *StringLiteral) std.io.Writer.Error!void {
+    pub fn start(sl: *StringLiteral) Writer.Error!void {
         if (sl.len <= max_string_initializer_len) {
             try sl.bw.writeByte('\"');
         } else {
@@ -8034,7 +8035,7 @@ const StringLiteral = struct {
         }
     }
 
-    pub fn end(sl: *StringLiteral) std.io.Writer.Error!void {
+    pub fn end(sl: *StringLiteral) Writer.Error!void {
         if (sl.len <= max_string_initializer_len) {
             try sl.bw.writeByte('\"');
         } else {
@@ -8042,7 +8043,7 @@ const StringLiteral = struct {
         }
     }
 
-    fn writeStringLiteralChar(sl: *StringLiteral, c: u8) std.io.Writer.Error!void {
+    fn writeStringLiteralChar(sl: *StringLiteral, c: u8) Writer.Error!void {
         switch (c) {
             7 => try sl.bw.writeAll("\\a"),
             8 => try sl.bw.writeAll("\\b"),
@@ -8059,7 +8060,7 @@ const StringLiteral = struct {
         }
     }
 
-    pub fn writeChar(sl: *StringLiteral, c: u8) std.io.Writer.Error!void {
+    pub fn writeChar(sl: *StringLiteral, c: u8) Writer.Error!void {
         if (sl.len <= max_string_initializer_len) {
             if (sl.cur_len == 0 and sl.bw.count - sl.start_count > 1)
                 try sl.bw.writeAll("\"\"");
@@ -8081,9 +8082,9 @@ const StringLiteral = struct {
 const FormatStringContext = struct { str: []const u8, sentinel: ?u8 };
 fn formatStringLiteral(
     data: FormatStringContext,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     comptime fmt: []const u8,
-) std.io.Writer.Error!void {
+) Writer.Error!void {
     if (fmt.len != 1 or fmt[0] != 's') @compileError("Invalid fmt: " ++ fmt);
 
     var literal: StringLiteral = .init(bw, data.str.len + @intFromBool(data.sentinel != null));
@@ -8112,9 +8113,9 @@ const FormatIntLiteralContext = struct {
 };
 fn formatIntLiteral(
     data: FormatIntLiteralContext,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     comptime fmt: []const u8,
-) std.io.Writer.Error!void {
+) Writer.Error!void {
     const pt = data.dg.pt;
     const zcu = pt.zcu;
     const target = &data.dg.mod.resolved_target.result;
@@ -8302,7 +8303,7 @@ const Materialize = struct {
         } };
     }
 
-    pub fn mat(self: Materialize, f: *Function, bw: *std.io.BufferedWriter) !void {
+    pub fn mat(self: Materialize, f: *Function, bw: *Writer) !void {
         try f.writeCValue(bw, self.local, .Other);
     }
 
@@ -8314,27 +8315,27 @@ const Materialize = struct {
 const Assignment = struct {
     ctype: CType,
 
-    pub fn start(f: *Function, bw: *std.io.BufferedWriter, ctype: CType) !Assignment {
+    pub fn start(f: *Function, bw: *Writer, ctype: CType) !Assignment {
         const self: Assignment = .{ .ctype = ctype };
         try self.restart(f, bw);
         return self;
     }
 
-    pub fn restart(self: Assignment, f: *Function, bw: *std.io.BufferedWriter) !void {
+    pub fn restart(self: Assignment, f: *Function, bw: *Writer) !void {
         switch (self.strategy(f)) {
             .assign => {},
             .memcpy => try bw.writeAll("memcpy("),
         }
     }
 
-    pub fn assign(self: Assignment, f: *Function, bw: *std.io.BufferedWriter) !void {
+    pub fn assign(self: Assignment, f: *Function, bw: *Writer) !void {
         switch (self.strategy(f)) {
             .assign => try bw.writeAll(" = "),
             .memcpy => try bw.writeAll(", "),
         }
     }
 
-    pub fn end(self: Assignment, f: *Function, bw: *std.io.BufferedWriter) !void {
+    pub fn end(self: Assignment, f: *Function, bw: *Writer) !void {
         switch (self.strategy(f)) {
             .assign => {},
             .memcpy => {
@@ -8358,7 +8359,7 @@ const Assignment = struct {
 const Vectorize = struct {
     index: CValue = .none,
 
-    pub fn start(f: *Function, inst: Air.Inst.Index, writer: *std.io.BufferedWriter, ty: Type) !Vectorize {
+    pub fn start(f: *Function, inst: Air.Inst.Index, writer: *Writer, ty: Type) !Vectorize {
         const pt = f.object.dg.pt;
         const zcu = pt.zcu;
         return if (ty.zigTypeTag(zcu) == .vector) index: {
@@ -8378,7 +8379,7 @@ const Vectorize = struct {
         } else .{};
     }
 
-    pub fn elem(self: Vectorize, f: *Function, bw: *std.io.BufferedWriter) !void {
+    pub fn elem(self: Vectorize, f: *Function, bw: *Writer) !void {
         if (self.index != .none) {
             try bw.writeByte('[');
             try f.writeCValue(bw, self.index, .Other);
@@ -8386,7 +8387,7 @@ const Vectorize = struct {
         }
     }
 
-    pub fn end(self: Vectorize, f: *Function, inst: Air.Inst.Index, bw: *std.io.BufferedWriter) !void {
+    pub fn end(self: Vectorize, f: *Function, inst: Air.Inst.Index, bw: *Writer) !void {
         if (self.index != .none) {
             try f.object.outdent();
             try bw.writeByte('}');

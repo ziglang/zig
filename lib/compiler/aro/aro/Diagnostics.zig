@@ -535,13 +535,13 @@ fn tagKind(d: *Diagnostics, tag: Tag, langopts: LangOpts) Kind {
 }
 
 const MsgWriter = struct {
-    w: std.io.BufferedWriter(4096, std.fs.File.Writer),
+    w: *std.fs.File.Writer,
     config: std.io.tty.Config,
 
-    fn init(config: std.io.tty.Config) MsgWriter {
+    fn init(config: std.io.tty.Config, buffer: []u8) MsgWriter {
         std.debug.lockStdErr();
         return .{
-            .w = std.io.bufferedWriter(std.io.getStdErr().writer()),
+            .w = std.fs.stderr().writer(buffer),
             .config = config,
         };
     }

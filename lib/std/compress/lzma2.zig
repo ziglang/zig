@@ -1,8 +1,9 @@
 const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const lzma = std.compress.lzma;
+const Writer = std.io.Writer;
 
-pub fn decompress(gpa: Allocator, reader: *std.io.Reader, writer: *std.io.BufferedWriter) std.io.Reader.StreamError!void {
+pub fn decompress(gpa: Allocator, reader: *std.io.Reader, writer: *Writer) std.io.Reader.StreamError!void {
     var decoder = try Decode.init(gpa);
     defer decoder.deinit(gpa);
     return decoder.decompress(gpa, reader, writer);
@@ -34,7 +35,7 @@ pub const Decode = struct {
         self: *Decode,
         allocator: Allocator,
         reader: *std.io.Reader,
-        writer: *std.io.BufferedWriter,
+        writer: *Writer,
     ) !void {
         var accum = LzAccumBuffer.init(std.math.maxInt(usize));
         defer accum.deinit(allocator);
@@ -57,7 +58,7 @@ pub const Decode = struct {
         self: *Decode,
         allocator: Allocator,
         br: *std.io.Reader,
-        writer: *std.io.BufferedWriter,
+        writer: *Writer,
         accum: *LzAccumBuffer,
         status: u8,
     ) !void {
@@ -150,7 +151,7 @@ pub const Decode = struct {
     fn parseUncompressed(
         allocator: Allocator,
         reader: *std.io.Reader,
-        writer: *std.io.BufferedWriter,
+        writer: *Writer,
         accum: *LzAccumBuffer,
         reset_dict: bool,
     ) !void {
@@ -276,8 +277,7 @@ test decompress {
         0x01, 0x00, 0x05, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x02,
         0x00, 0x06, 0x57, 0x6F, 0x72, 0x6C, 0x64, 0x21, 0x0A, 0x00,
     };
-    var stream: std.io.Reader = undefined;
-    stream.initFixed(&compressed);
+    var stream: std.io.Reader = .fixed(&compressed);
     var decomp: std.io.AllocatingWriter = undefined;
     const decomp_bw = decomp.init(std.testing.allocator);
     defer decomp.deinit();

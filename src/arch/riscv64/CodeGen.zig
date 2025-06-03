@@ -6,6 +6,7 @@ const mem = std.mem;
 const math = std.math;
 const assert = std.debug.assert;
 const Allocator = mem.Allocator;
+const Writer = std.io.Writer;
 
 const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
@@ -564,7 +565,8 @@ const InstTracking = struct {
         }
     }
 
-    pub fn format(inst_tracking: InstTracking, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+    pub fn format(inst_tracking: InstTracking, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
+        comptime assert(fmt.len == 0);
         if (!std.meta.eql(inst_tracking.long, inst_tracking.short)) try bw.print("|{}| ", .{inst_tracking.long});
         try bw.print("{}", .{inst_tracking.short});
     }
@@ -958,7 +960,7 @@ const FormatWipMirData = struct {
     func: *Func,
     inst: Mir.Inst.Index,
 };
-fn formatWipMir(data: FormatWipMirData, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+fn formatWipMir(data: FormatWipMirData, bw: *Writer, comptime _: []const u8) Writer.Error!void {
     const pt = data.func.pt;
     const comp = pt.zcu.comp;
     var lower: Lower = .{
@@ -1006,7 +1008,7 @@ const FormatNavData = struct {
     ip: *const InternPool,
     nav_index: InternPool.Nav.Index,
 };
-fn formatNav(data: FormatNavData, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+fn formatNav(data: FormatNavData, bw: *Writer, comptime _: []const u8) Writer.Error!void {
     try bw.print("{f}", .{data.ip.getNav(data.nav_index).fqn.fmt(data.ip)});
 }
 fn fmtNav(nav_index: InternPool.Nav.Index, ip: *const InternPool) std.fmt.Formatter(formatNav) {
@@ -1020,13 +1022,18 @@ const FormatAirData = struct {
     func: *Func,
     inst: Air.Inst.Index,
 };
-fn formatAir(data: FormatAirData, _: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
-    @import("../../print_air.zig").dumpInst(
-        data.inst,
-        data.func.pt,
-        data.func.air,
-        data.func.liveness,
-    );
+fn formatAir(data: FormatAirData, w: *Writer, comptime fmt: []const u8) Writer.Error!void {
+    comptime assert(fmt.len == 0);
+    // not acceptable implementation:
+    //@import("../../print_air.zig").dumpInst(
+    //    data.inst,
+    //    data.func.pt,
+    //    data.func.air,
+    //    data.func.liveness,
+    //);
+    _ = data;
+    _ = w;
+    @panic("TODO: unimplemented");
 }
 fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(formatAir) {
     return .{ .data = .{ .func = func, .inst = inst } };
@@ -1035,7 +1042,8 @@ fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(formatAir) {
 const FormatTrackingData = struct {
     func: *Func,
 };
-fn formatTracking(data: FormatTrackingData, bw: *std.io.BufferedWriter, comptime _: []const u8) std.io.Writer.Error!void {
+fn formatTracking(data: FormatTrackingData, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
+    comptime assert(fmt.len == 0);
     var it = data.func.inst_tracking.iterator();
     while (it.next()) |entry| try bw.print("\n%{d} = {f}", .{ entry.key_ptr.*, entry.value_ptr.* });
 }

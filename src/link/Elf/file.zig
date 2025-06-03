@@ -14,8 +14,8 @@ pub const File = union(enum) {
         return .{ .data = file };
     }
 
-    fn formatPath(file: File, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-        _ = unused_fmt_string;
+    fn formatPath(file: File, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+        comptime assert(unused_fmt_string.len == 0);
         switch (file) {
             .zig_object => |zo| try bw.writeAll(zo.basename),
             .linker_defined => try bw.writeAll("(linker defined)"),
@@ -289,6 +289,8 @@ const elf = std.elf;
 const log = std.log.scoped(.link);
 const Path = std.Build.Cache.Path;
 const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
+const assert = std.debug.assert;
 
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");

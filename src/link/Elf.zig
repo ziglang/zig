@@ -3739,8 +3739,7 @@ fn writeAtoms(self: *Elf) !void {
     if (self.requiresThunks()) {
         for (self.thunks.items) |th| {
             try buffer.resize(th.size(self));
-            var bw: std.io.BufferedWriter = undefined;
-            bw.initFixed(buffer.items);
+            var bw: Writer = .fixed(buffer.items);
             const shdr = slice.items(.shdr)[th.output_section_index];
             const offset = @as(u64, @intCast(th.value)) + shdr.sh_offset;
             try th.write(self, &bw);
@@ -3846,7 +3845,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     var buffer: std.ArrayListUnmanaged(u8) = .empty;
     defer buffer.deinit(gpa);
-    var bw: std.io.BufferedWriter = undefined;
+    var bw: Writer = undefined;
 
     if (self.section_indexes.interp) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
@@ -3866,7 +3865,7 @@ fn writeSyntheticSections(self: *Elf) !void {
     if (self.section_indexes.gnu_hash) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try buffer.resize(gpa, self.gnu_hash.size());
-        bw.initFixed(buffer.items);
+        bw = .fixed(buffer.items);
         try self.gnu_hash.write(self, &bw);
         assert(bw.end == bw.buffer.len);
         try self.pwriteAll(bw.buffer, shdr.sh_offset);
@@ -3880,7 +3879,7 @@ fn writeSyntheticSections(self: *Elf) !void {
     if (self.section_indexes.verneed) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try buffer.resize(gpa, self.verneed.size());
-        bw.initFixed(buffer.items);
+        bw = .fixed(buffer.items);
         try self.verneed.write(&bw);
         assert(bw.end == bw.buffer.len);
         try self.pwriteAll(bw.buffer, shdr.sh_offset);
@@ -3889,7 +3888,7 @@ fn writeSyntheticSections(self: *Elf) !void {
     if (self.section_indexes.dynamic) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try buffer.resize(gpa, self.dynamic.size(self));
-        bw.initFixed(buffer.items);
+        bw = .fixed(buffer.items);
         try self.dynamic.write(self, &bw);
         assert(bw.end == bw.buffer.len);
         try self.pwriteAll(bw.buffer, shdr.sh_offset);
@@ -3898,7 +3897,7 @@ fn writeSyntheticSections(self: *Elf) !void {
     if (self.section_indexes.dynsymtab) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try buffer.resize(gpa, self.dynsym.size());
-        bw.initFixed(buffer.items);
+        bw = .fixed(buffer.items);
         try self.dynsym.write(self, &bw);
         assert(bw.end == bw.buffer.len);
         try self.pwriteAll(bw.buffer, shdr.sh_offset);
@@ -3918,7 +3917,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = try self.cast(usize, shdr.sh_size);
         try buffer.resize(gpa, @intCast(sh_size - existing_size));
-        bw.initFixed(buffer.items);
+        bw = .fixed(buffer.items);
         try eh_frame.writeEhFrame(self, &bw);
         assert(bw.end == bw.buffer.len);
         try self.pwriteAll(bw.buffer, shdr.sh_offset + existing_size);
@@ -3928,7 +3927,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = try self.cast(usize, shdr.sh_size);
         try buffer.resize(gpa, sh_size);
-        bw.initFixed(buffer.items);
+        bw = .fixed(buffer.items);
         try eh_frame.writeEhFrameHdr(self, &bw);
         assert(bw.end == bw.buffer.len);
         try self.pwriteAll(bw.buffer, shdr.sh_offset);
@@ -3937,7 +3936,7 @@ fn writeSyntheticSections(self: *Elf) !void {
     if (self.section_indexes.got) |index| {
         const shdr = slice.items(.shdr)[index];
         try buffer.resize(gpa, self.got.size(self));
-        bw.initFixed(buffer.items);
+        bw = .fixed(buffer.items);
         try self.got.write(self, &bw);
         assert(bw.end == bw.buffer.len);
         try self.pwriteAll(bw.buffer, shdr.sh_offset);
@@ -3954,7 +3953,7 @@ fn writeSyntheticSections(self: *Elf) !void {
     if (self.section_indexes.plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try buffer.resize(gpa, self.plt.size(self));
-        bw.initFixed(buffer.items);
+        bw = .fixed(buffer.items);
         try self.plt.write(self, &bw);
         assert(bw.end == bw.buffer.len);
         try self.pwriteAll(bw.buffer, shdr.sh_offset);
@@ -3963,7 +3962,7 @@ fn writeSyntheticSections(self: *Elf) !void {
     if (self.section_indexes.got_plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try buffer.resize(gpa, self.got_plt.size(self));
-        bw.initFixed(buffer.items);
+        bw = .fixed(buffer.items);
         try self.got_plt.write(self, &bw);
         assert(bw.end == bw.buffer.len);
         try self.pwriteAll(bw.buffer, shdr.sh_offset);
@@ -3972,7 +3971,7 @@ fn writeSyntheticSections(self: *Elf) !void {
     if (self.section_indexes.plt_got) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         try buffer.resize(gpa, self.plt_got.size(self));
-        bw.initFixed(buffer.items);
+        bw = .fixed(buffer.items);
         try self.plt_got.write(self, &bw);
         assert(bw.end == bw.buffer.len);
         try self.pwriteAll(bw.buffer, shdr.sh_offset);
@@ -4672,7 +4671,7 @@ fn fmtShdr(self: *Elf, shdr: elf.Elf64_Shdr) std.fmt.Formatter(formatShdr) {
     } };
 }
 
-fn formatShdr(ctx: FormatShdrCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatShdr(ctx: FormatShdrCtx, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const shdr = ctx.shdr;
     try bw.print("{s} : @{x} ({x}) : align({x}) : size({x}) : entsize({x}) : flags({f})", .{
@@ -4687,7 +4686,7 @@ pub fn fmtShdrFlags(sh_flags: u64) std.fmt.Formatter(formatShdrFlags) {
     return .{ .data = sh_flags };
 }
 
-fn formatShdrFlags(sh_flags: u64, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) !void {
+fn formatShdrFlags(sh_flags: u64, bw: *Writer, comptime unused_fmt_string: []const u8) !void {
     _ = unused_fmt_string;
     if (elf.SHF_WRITE & sh_flags != 0) {
         try bw.writeByte('W');
@@ -4747,7 +4746,7 @@ fn fmtPhdr(self: *Elf, phdr: elf.Elf64_Phdr) std.fmt.Formatter(formatPhdr) {
 
 fn formatPhdr(
     ctx: FormatPhdrCtx,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     comptime unused_fmt_string: []const u8,
 ) !void {
     _ = unused_fmt_string;
@@ -4783,7 +4782,7 @@ pub fn dumpState(self: *Elf) std.fmt.Formatter(fmtDumpState) {
 
 fn fmtDumpState(
     self: *Elf,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     comptime unused_fmt_string: []const u8,
 ) !void {
     _ = unused_fmt_string;
@@ -5004,7 +5003,7 @@ pub const Ref = struct {
         return ref.index == other.index and ref.file == other.file;
     }
 
-    pub fn format(ref: Ref, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+    pub fn format(ref: Ref, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
         _ = unused_fmt_string;
         try bw.print("ref({},{})", .{ ref.index, ref.file });
     }
@@ -5281,6 +5280,7 @@ const Allocator = std.mem.Allocator;
 const Hash = std.hash.Wyhash;
 const Path = std.Build.Cache.Path;
 const Stat = std.Build.Cache.File.Stat;
+const Writer = std.io.Writer;
 
 const codegen = @import("../codegen.zig");
 const dev = @import("../dev.zig");
