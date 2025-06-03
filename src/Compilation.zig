@@ -3500,7 +3500,7 @@ pub fn saveState(comp: *Compilation) !void {
             // TODO handle the union safety field
             //addBuf(&bufs, mem.sliceAsBytes(wasm.mir_instructions.items(.data)));
             addBuf(&bufs, mem.sliceAsBytes(wasm.mir_extra.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.all_zcu_locals.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.mir_locals.items));
             addBuf(&bufs, mem.sliceAsBytes(wasm.tag_name_bytes.items));
             addBuf(&bufs, mem.sliceAsBytes(wasm.tag_name_offs.items));
 

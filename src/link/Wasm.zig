@@ -282,7 +282,7 @@ mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// Corresponds to `mir_instructions`.
 mir_extra: std.ArrayListUnmanaged(u32) = .empty,
 /// All local types for all Zcu functions.
-all_zcu_locals: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
+mir_locals: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
 
 params_scratch: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
 returns_scratch: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
@@ -866,8 +866,23 @@ const ZcuDataStarts = struct {
 };
 
 pub const ZcuFunc = union {
-    function: CodeGen.Function,
+    function: Function,
     tag_name: TagName,
+
+    pub const Function = extern struct {
+        /// Index into `Wasm.mir_instructions`.
+        instructions_off: u32,
+        /// This is unused except for as a safety slice bound and could be removed.
+        instructions_len: u32,
+        /// Index into `Wasm.mir_extra`.
+        extra_off: u32,
+        /// This is unused except for as a safety slice bound and could be removed.
+        extra_len: u32,
+        /// Index into `Wasm.mir_locals`.
+        locals_off: u32,
+        locals_len: u32,
+        prologue: Mir.Prologue,
+    };
 
     pub const TagName = extern struct {
         symbol_name: String,
@@ -3107,7 +3122,7 @@ pub fn deinit(wasm: *Wasm) void {
 
     wasm.mir_instructions.deinit(gpa);
     wasm.mir_extra.deinit(gpa);
-    wasm.all_zcu_locals.deinit(gpa);
+    wasm.mir_locals.deinit(gpa);
 
     if (wasm.dwarf) |*dwarf| dwarf.deinit();
 
@@ -3167,33 +3182,96 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.missing_exports.deinit(gpa);
 }
 
-pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Air.Liveness) !void {
+pub fn updateFunc(
+    wasm: *Wasm,
+    pt: Zcu.PerThread,
+    func_index: InternPool.Index,
+    any_mir: *const codegen.AnyMir,
+    maybe_undef_air: *const Air,
+) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
     dev.check(.wasm_backend);
+    _ = maybe_undef_air; // we (correctly) do not need this
 
+    // This linker implementation only works with codegen backend `.stage2_wasm`.
+    const mir = &any_mir.wasm;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
-    try wasm.functions.ensureUnusedCapacity(gpa, 1);
-    try wasm.zcu_funcs.ensureUnusedCapacity(gpa, 1);
-
     const ip = &zcu.intern_pool;
+    const is_obj = zcu.comp.config.output_mode == .Obj;
+    const target = &zcu.comp.root_mod.resolved_target.result;
     const owner_nav = zcu.funcInfo(func_index).owner_nav;
     log.debug("updateFunc {}", .{ip.getNav(owner_nav).fqn.fmt(ip)});
 
+    // For Wasm, we do not lower the MIR to code just yet. That lowering happens during `flush`,
+    // after garbage collection, which can affect function and global indexes, which affects the
+    // LEB integer encoding, which affects the output binary size.
+
+    // However, we do move the MIR into a more efficient in-memory representation, where the arrays
+    // for all functions are packed together rather than keeping them each in their own `Mir`.
+    const mir_instructions_off: u32 = @intCast(wasm.mir_instructions.len);
+    const mir_extra_off: u32 = @intCast(wasm.mir_extra.items.len);
+    const mir_locals_off: u32 = @intCast(wasm.mir_locals.items.len);
+    {
+        // Copying MultiArrayList data is a little non-trivial. Resize, then memcpy both slices.
+        const old_len = wasm.mir_instructions.len;
+        try wasm.mir_instructions.resize(gpa, old_len + mir.instructions.len);
+        const dest_slice = wasm.mir_instructions.slice().subslice(old_len, mir.instructions.len);
+        const src_slice = mir.instructions;
+        @memcpy(dest_slice.items(.tag), src_slice.items(.tag));
+        @memcpy(dest_slice.items(.data), src_slice.items(.data));
+    }
+    try wasm.mir_extra.appendSlice(gpa, mir.extra);
+    try wasm.mir_locals.appendSlice(gpa, mir.locals);
+
+    // We also need to populate some global state from `mir`.
+    try wasm.zcu_indirect_function_set.ensureUnusedCapacity(gpa, mir.indirect_function_set.count());
+    for (mir.indirect_function_set.keys()) |nav| wasm.zcu_indirect_function_set.putAssumeCapacity(nav, {});
+    for (mir.func_tys.keys()) |func_ty| {
+        const fn_info = zcu.typeToFunc(.fromInterned(func_ty)).?;
+        _ = try wasm.internFunctionType(fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target);
+    }
+    wasm.error_name_table_ref_count += mir.error_name_table_ref_count;
+    // We need to populate UAV data. In theory, we can lower the UAV values while we fill `mir.uavs`.
+    // However, lowering the data might cause *more* UAVs to be created, and mixing them up would be
+    // a headache. So instead, just write `undefined` placeholder code and use the `ZcuDataStarts`.
     const zds: ZcuDataStarts = .init(wasm);
+    for (mir.uavs.keys(), mir.uavs.values()) |uav_val, uav_align| {
+        if (uav_align != .none) {
+            const gop = try wasm.overaligned_uavs.getOrPut(gpa, uav_val);
+            gop.value_ptr.* = if (gop.found_existing) gop.value_ptr.maxStrict(uav_align) else uav_align;
+        }
+        if (is_obj) {
+            const gop = try wasm.uavs_obj.getOrPut(gpa, uav_val);
+            if (!gop.found_existing) gop.value_ptr.* = undefined; // `zds` handles lowering
+        } else {
+            const gop = try wasm.uavs_exe.getOrPut(gpa, uav_val);
+            if (!gop.found_existing) gop.value_ptr.* = .{
+                .code = undefined, // `zds` handles lowering
+                .count = 0,
+            };
+            gop.value_ptr.count += 1;
+        }
+    }
+    try zds.finish(wasm, pt); // actually generates the UAVs
+
+    try wasm.functions.ensureUnusedCapacity(gpa, 1);
+    try wasm.zcu_funcs.ensureUnusedCapacity(gpa, 1);
 
     // This converts AIR to MIR but does not yet lower to wasm code.
-    // That lowering happens during `flush`, after garbage collection, which
-    // can affect function and global indexes, which affects the LEB integer
-    // encoding, which affects the output binary size.
-    const function = try CodeGen.function(wasm, pt, func_index, air, liveness);
-    wasm.zcu_funcs.putAssumeCapacity(func_index, .{ .function = function });
+    wasm.zcu_funcs.putAssumeCapacity(func_index, .{ .function = .{
+        .instructions_off = mir_instructions_off,
+        .instructions_len = @intCast(mir.instructions.len),
+        .extra_off = mir_extra_off,
+        .extra_len = @intCast(mir.extra.len),
+        .locals_off = mir_locals_off,
+        .locals_len = @intCast(mir.locals.len),
+        .prologue = mir.prologue,
+    } });
     wasm.functions.putAssumeCapacity(.pack(wasm, .{ .zcu_func = @enumFromInt(wasm.zcu_funcs.entries.len - 1) }), {});
-
-    try zds.finish(wasm, pt);
 }
 
 // Generate code for the "Nav", storing it in memory to be later written to
@@ -3988,58 +4066,54 @@ pub fn symbolNameIndex(wasm: *Wasm, name: String) Allocator.Error!SymbolTableInd
     return @enumFromInt(gop.index);
 }
 
-pub fn refUavObj(wasm: *Wasm, ip_index: InternPool.Index, orig_ptr_ty: InternPool.Index) !UavsObjIndex {
+pub fn addUavReloc(
+    wasm: *Wasm,
+    reloc_offset: usize,
+    uav_val: InternPool.Index,
+    orig_ptr_ty: InternPool.Index,
+    addend: u32,
+) !void {
     const comp = wasm.base.comp;
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
     const gpa = comp.gpa;
-    assert(comp.config.output_mode == .Obj);
 
-    if (orig_ptr_ty != .none) {
-        const abi_alignment = Zcu.Type.fromInterned(ip.typeOf(ip_index)).abiAlignment(zcu);
-        const explicit_alignment = ip.indexToKey(orig_ptr_ty).ptr_type.flags.alignment;
-        if (explicit_alignment.compare(.gt, abi_alignment)) {
-            const gop = try wasm.overaligned_uavs.getOrPut(gpa, ip_index);
-            gop.value_ptr.* = if (gop.found_existing) gop.value_ptr.maxStrict(explicit_alignment) else explicit_alignment;
-        }
+    @"align": {
+        const ptr_type = ip.indexToKey(orig_ptr_ty).ptr_type;
+        const this_align = ptr_type.flags.alignment;
+        if (this_align == .none) break :@"align";
+        const abi_align = Zcu.Type.fromInterned(ptr_type.child).abiAlignment(zcu);
+        if (this_align.compare(.lte, abi_align)) break :@"align";
+        const gop = try wasm.overaligned_uavs.getOrPut(gpa, uav_val);
+        gop.value_ptr.* = if (gop.found_existing) gop.value_ptr.maxStrict(this_align) else this_align;
     }
 
-    const gop = try wasm.uavs_obj.getOrPut(gpa, ip_index);
-    if (!gop.found_existing) gop.value_ptr.* = .{
-        // Lowering the value is delayed to avoid recursion.
-        .code = undefined,
-        .relocs = undefined,
-    };
-    return @enumFromInt(gop.index);
-}
-
-pub fn refUavExe(wasm: *Wasm, ip_index: InternPool.Index, orig_ptr_ty: InternPool.Index) !UavsExeIndex {
-    const comp = wasm.base.comp;
-    const zcu = comp.zcu.?;
-    const ip = &zcu.intern_pool;
-    const gpa = comp.gpa;
-    assert(comp.config.output_mode != .Obj);
-
-    if (orig_ptr_ty != .none) {
-        const abi_alignment = Zcu.Type.fromInterned(ip.typeOf(ip_index)).abiAlignment(zcu);
-        const explicit_alignment = ip.indexToKey(orig_ptr_ty).ptr_type.flags.alignment;
-        if (explicit_alignment.compare(.gt, abi_alignment)) {
-            const gop = try wasm.overaligned_uavs.getOrPut(gpa, ip_index);
-            gop.value_ptr.* = if (gop.found_existing) gop.value_ptr.maxStrict(explicit_alignment) else explicit_alignment;
-        }
-    }
-
-    const gop = try wasm.uavs_exe.getOrPut(gpa, ip_index);
-    if (gop.found_existing) {
-        gop.value_ptr.count += 1;
+    if (comp.config.output_mode == .Obj) {
+        const gop = try wasm.uavs_obj.getOrPut(gpa, uav_val);
+        if (!gop.found_existing) gop.value_ptr.* = undefined; // to avoid recursion, `ZcuDataStarts` will lower the value later
+        try wasm.out_relocs.append(gpa, .{
+            .offset = @intCast(reloc_offset),
+            .pointee = .{ .symbol_index = try wasm.uavSymbolIndex(uav_val) },
+            .tag = switch (wasm.pointerSize()) {
+                32 => .memory_addr_i32,
+                64 => .memory_addr_i64,
+                else => unreachable,
+            },
+            .addend = @intCast(addend),
+        });
     } else {
-        gop.value_ptr.* = .{
-            // Lowering the value is delayed to avoid recursion.
-            .code = undefined,
-            .count = 1,
+        const gop = try wasm.uavs_exe.getOrPut(gpa, uav_val);
+        if (!gop.found_existing) gop.value_ptr.* = .{
+            .code = undefined, // to avoid recursion, `ZcuDataStarts` will lower the value later
+            .count = 0,
         };
+        gop.value_ptr.count += 1;
+        try wasm.uav_fixups.append(gpa, .{
+            .uavs_exe_index = @enumFromInt(gop.index),
+            .offset = @intCast(reloc_offset),
+            .addend = addend,
+        });
     }
-    return @enumFromInt(gop.index);
 }
 
 pub fn refNavObj(wasm: *Wasm, nav_index: InternPool.Nav.Index) !NavsObjIndex {
@@ -4073,10 +4147,11 @@ pub fn refNavExe(wasm: *Wasm, nav_index: InternPool.Nav.Index) !NavsExeIndex {
 }
 
 /// Asserts it is called after `Flush.data_segments` is fully populated and sorted.
-pub fn uavAddr(wasm: *Wasm, uav_index: UavsExeIndex) u32 {
+pub fn uavAddr(wasm: *Wasm, ip_index: InternPool.Index) u32 {
     assert(wasm.flush_buffer.memory_layout_finished);
     const comp = wasm.base.comp;
     assert(comp.config.output_mode != .Obj);
+    const uav_index: UavsExeIndex = @enumFromInt(wasm.uavs_exe.getIndex(ip_index).?);
     const ds_id: DataSegmentId = .pack(wasm, .{ .uav_exe = uav_index });
     return wasm.flush_buffer.data_segments.get(ds_id).?;
 }

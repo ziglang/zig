@@ -759,7 +759,6 @@ pub const File = struct {
         switch (base.tag) {
             .lld => unreachable,
             inline else => |tag| {
-                if (tag == .wasm) @panic("MLUGG TODO");
                 if (tag == .spirv) @panic("MLUGG TODO");
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateFunc(pt, func_index, mir, maybe_undef_air);
@@ -1450,12 +1449,12 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
             const nav = zcu.funcInfo(func.func).owner_nav;
             const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
             defer pt.deactivate();
-            assert(zcu.llvm_object == null); // LLVM codegen doesn't produce MIR
             switch (func.mir.status.load(.monotonic)) {
                 .pending => unreachable,
                 .ready => {},
                 .failed => return,
             }
+            assert(zcu.llvm_object == null); // LLVM codegen doesn't produce MIR
             const mir = &func.mir.value;
             if (comp.bin_file) |lf| {
                 lf.updateFunc(pt, func.func, mir, func.air) catch |err| switch (err) {

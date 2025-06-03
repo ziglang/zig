@@ -123,6 +123,7 @@ pub const AnyMir = union {
             .stage2_riscv64,
             .stage2_sparc64,
             .stage2_x86_64,
+            .stage2_wasm,
             .stage2_c,
             => |backend_ct| @field(mir, tag(backend_ct)).deinit(gpa),
         }
@@ -153,6 +154,7 @@ pub fn generateFunction(
         .stage2_riscv64,
         .stage2_sparc64,
         .stage2_x86_64,
+        .stage2_wasm,
         .stage2_c,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
@@ -784,7 +786,6 @@ fn lowerUavRef(
     const comp = lf.comp;
     const target = &comp.root_mod.resolved_target.result;
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
-    const is_obj = comp.config.output_mode == .Obj;
     const uav_val = uav.val;
     const uav_ty = Type.fromInterned(ip.typeOf(uav_val));
     const is_fn_body = uav_ty.zigTypeTag(zcu) == .@"fn";
@@ -804,21 +805,7 @@ fn lowerUavRef(
             dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
             assert(reloc_parent == .none);
-            if (is_obj) {
-                try wasm.out_relocs.append(gpa, .{
-                    .offset = @intCast(code.items.len),
-                    .pointee = .{ .symbol_index = try wasm.uavSymbolIndex(uav.val) },
-                    .tag = if (ptr_width_bytes == 4) .memory_addr_i32 else .memory_addr_i64,
-                    .addend = @intCast(offset),
-                });
-            } else {
-                try wasm.uav_fixups.ensureUnusedCapacity(gpa, 1);
-                wasm.uav_fixups.appendAssumeCapacity(.{
-                    .uavs_exe_index = try wasm.refUavExe(uav.val, uav.orig_ty),
-                    .offset = @intCast(code.items.len),
-                    .addend = @intCast(offset),
-                });
-            }
+            try wasm.addUavReloc(code.items.len, uav.val, uav.orig_ty, @intCast(offset));
             code.appendNTimesAssumeCapacity(0, ptr_width_bytes);
             return;
         },
