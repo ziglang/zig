@@ -27,18 +27,19 @@ pub const Block = struct {
     /// Optional headers.
     headers: StringKeyHashMap,
     /// The decoded bytes of the contents. Typically a DER encoded ASN.1 structure.
-    bytes: []const u8,
+    bytes: ArraySlice,
     allocator: Allocator,
 
     const Self = @This();
 
     pub fn init(allocator: Allocator) Block {
         const headers = StringKeyHashMap.init(allocator);
+        const bytes = ArraySlice.init(allocator);
 
         return .{
             .type = "",
             .headers = headers,
-            .bytes = "",
+            .bytes = bytes,
             .allocator = allocator,
         };
     }
@@ -48,7 +49,8 @@ pub const Block = struct {
         var headers = self.headers;
         headers.deinit();
 
-        self.allocator.free(self.bytes);
+        self.bytes.deinit();
+
         self.* = undefined;
     }
 };
@@ -146,13 +148,16 @@ pub fn decode(allocator: Allocator, data: []const u8) !Block {
         }
 
         const base64_data = try removeSpacesAndTabs(allocator, rest[0..end_index]);
+        defer allocator.free(base64_data);
 
         const base64_decode_len = try base64.decodedLen(base64_data.len, .standard);
         const decoded_data = try allocator.alloc(u8, base64_decode_len);
 
+        defer allocator.free(decoded_data);
+
         const base64_decoded = try base64.decode(decoded_data, base64_data, .standard);
 
-        p.bytes = try allocator.dupe(u8, base64_decoded);
+        try p.bytes.appendSlice(base64_decoded);
 
         return p;
     }
@@ -171,7 +176,10 @@ fn appendHeader(list: *ArraySlice, k: []const u8, v: []const u8) !void {
 
 /// Encodes pem bytes.
 pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
-    var headers_it = (try b.headers.clone()).iterator();
+    var hc = try b.headers.clone();
+    defer hc.deinit();
+
+    var headers_it = hc.iterator();
     while (headers_it.next()) |kv| {
         if (mem.indexOf(u8, kv.value_ptr.*, ":") != null) {
             return Error.PemHeaderHasColon;
@@ -190,12 +198,16 @@ pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
         const proc_type = "Proc-Type";
 
         var h = try allocator.alloc([]const u8, b.headers.count());
+        defer allocator.free(h);
 
         var has_proc_type: bool = false;
 
         var kv_i: usize = 0;
 
-        var headers = (try b.headers.clone()).iterator();
+        var hc2 = try b.headers.clone();
+        defer hc2.deinit();
+
+        var headers = hc2.iterator();
         while (headers.next()) |kv| {
             if (mem.eql(u8, kv.key_ptr.*, proc_type)) {
                 has_proc_type = true;
@@ -211,35 +223,47 @@ pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
                 try appendHeader(&buf, proc_type, vv[0..]);
             }
 
-            h.len -= 1;
-            h = h[0..];
-        }
+            // strings sort a to z
+            sort.block([]const u8, h[0..h.len-1], {}, stringSort([]const u8));
 
-        // strings sort a to z
-        sort.block([]const u8, h, {}, stringSort([]const u8));
+            for (h[0..h.len-1]) |k| {
+                if (b.headers.get(k)) |val| {
+                    try appendHeader(&buf, k, val);
+                }
+            }
+        } else {
+            // strings sort a to z
+            sort.block([]const u8, h, {}, stringSort([]const u8));
 
-        for (h) |k| {
-            if (b.headers.get(k)) |val| {
-                try appendHeader(&buf, k, val);
+            for (h) |k| {
+                if (b.headers.get(k)) |val| {
+                    try appendHeader(&buf, k, val);
+                }
             }
         }
 
         try buf.appendSlice("\n");
     }
 
-    const bytes_len = base64.encodedLen(b.bytes.len, .standard);
+    const bytes_len = base64.encodedLen(b.bytes.items.len, .standard);
     const buffer = try allocator.alloc(u8, bytes_len);
 
-    const banse64_encoded = try base64.encode(buffer, b.bytes, .standard);
+    defer allocator.free(buffer);
+
+    var bytes = try b.bytes.clone();
+    const bytes_slice = try bytes.toOwnedSlice();
+    defer allocator.free(bytes_slice);
+
+    const base64_encoded = try base64.encode(buffer, bytes_slice, .standard);
 
     var idx: usize = 0;
     while (true) {
-        if (banse64_encoded[idx..].len < pem_line_length) {
-            try buf.appendSlice(banse64_encoded[idx..]);
+        if (base64_encoded[idx..].len < pem_line_length) {
+            try buf.appendSlice(base64_encoded[idx..]);
             try buf.appendSlice(nl);
             break;
         } else {
-            try buf.appendSlice(banse64_encoded[idx..(idx + pem_line_length)]);
+            try buf.appendSlice(base64_encoded[idx..(idx + pem_line_length)]);
             try buf.appendSlice(nl);
 
             idx += pem_line_length;
@@ -256,18 +280,9 @@ pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
 pub fn stringSort(comptime T: type) fn (void, T, T) bool {
     return struct {
         pub fn inner(_: void, a: T, b: T) bool {
-            if (a.len < b.len) {
-                for (a, 0..) |aa, i| {
-                    if (aa > b[i]) {
-                        return false;
-                    }
-                }
-            } else {
-                for (b, 0..) |bb, j| {
-                    if (bb < a[j]) {
-                        return false;
-                    }
-                }
+            // return false if a > b
+            if (mem.order(u8, a, b) == .gt) {
+                return false;
             }
 
             return true;
@@ -391,7 +406,7 @@ test "ASN.1 type CERTIFICATE" {
     defer pem.deinit();
 
     try testing.expectFmt("CERTIFICATE", "{s}", .{pem.type});
-    try testing.expect(pem.bytes.len > 0);
+    try testing.expect(pem.bytes.items.len > 0);
 
     const check =
         "MIIBmTCCAUegAwIBAgIBKjAJBgUrDgMCHQUAMBMxETAPBgNVBAMTCEF0bGFudGlz" ++
@@ -404,7 +419,13 @@ test "ASN.1 type CERTIFICATE" {
         "CQYFKw4DAh0FAANBAKi6HRBaNEL5R0n56nvfclQNaXiDT174uf+lojzA4lhVInc0" ++
         "ILwpnZ1izL4MlI9eCSHhVQBHEp2uQdXJB+d5Byg=";
 
-    try testing.expectEqualStrings(check, try base64Encode(alloc, pem.bytes));
+    const b = try pem.bytes.toOwnedSlice();
+    defer alloc.free(b);
+
+    const bytes_encoded = try base64Encode(alloc, b);
+    defer alloc.free(bytes_encoded);
+
+    try testing.expectEqualStrings(check, bytes_encoded);
 }
 
 test "ASN.1 type CERTIFICATE + Explanatory Text" {
@@ -430,7 +451,7 @@ test "ASN.1 type CERTIFICATE + Explanatory Text" {
     defer pem.deinit();
 
     try testing.expectFmt("CERTIFICATE", "{s}", .{pem.type});
-    try testing.expect(pem.bytes.len > 0);
+    try testing.expect(pem.bytes.items.len > 0);
 
     const check =
         "MIIBmTCCAUegAwIBAgIBKjAJBgUrDgMCHQUAMBMxETAPBgNVBAMTCEF0bGFudGlz" ++
@@ -443,7 +464,13 @@ test "ASN.1 type CERTIFICATE + Explanatory Text" {
         "CQYFKw4DAh0FAANBAKi6HRBaNEL5R0n56nvfclQNaXiDT174uf+lojzA4lhVInc0" ++
         "ILwpnZ1izL4MlI9eCSHhVQBHEp2uQdXJB+d5Byg=";
 
-    try testing.expectEqualStrings(check, try base64Encode(alloc, pem.bytes));
+    const b = try pem.bytes.toOwnedSlice();
+    defer alloc.free(b);
+
+    const bytes_encoded = try base64Encode(alloc, b);
+    defer alloc.free(bytes_encoded);
+
+    try testing.expectEqualStrings(check, bytes_encoded);
 }
 
 test "ASN.1 type RSA PRIVATE With headers" {
@@ -469,7 +496,7 @@ test "ASN.1 type RSA PRIVATE With headers" {
     defer pem.deinit();
 
     try testing.expectFmt("RSA PRIVATE", "{s}", .{pem.type});
-    try testing.expect(pem.bytes.len > 0);
+    try testing.expect(pem.bytes.items.len > 0);
 
     const header_1 = pem.headers.get("ID").?;
     const header_2 = pem.headers.get("ABC").?;
@@ -487,7 +514,13 @@ test "ASN.1 type RSA PRIVATE With headers" {
         "CQYFKw4DAh0FAANBAKi6HRBaNEL5R0n56nvfclQNaXiDT174uf+lojzA4lhVInc0" ++
         "ILwpnZ1izL4MlI9eCSHhVQBHEp2uQdXJB+d5Byg=";
 
-    try testing.expectEqualStrings(check, try base64Encode(alloc, pem.bytes));
+    const b = try pem.bytes.toOwnedSlice();
+    defer alloc.free(b);
+
+    const bytes_encoded = try base64Encode(alloc, b);
+    defer alloc.free(bytes_encoded);
+
+    try testing.expectEqualStrings(check, bytes_encoded);
 }
 
 test "encode pem bin" {
@@ -497,9 +530,12 @@ test "encode pem bin" {
     pp.type = "RSA PRIVATE";
     try pp.headers.put("TTTYYY", "dghW66666");
     try pp.headers.put("Proc-Type", "4,Encond");
-    pp.bytes = "pem bytes";
+    try pp.bytes.appendSlice("pem bytes");
+
+    defer pp.deinit();
 
     const encoded_pem = try encode(alloc, pp);
+    defer alloc.free(encoded_pem);
 
     const check =
         \\-----BEGIN RSA PRIVATE-----
@@ -517,8 +553,13 @@ test "encode pem bin" {
     defer pem.deinit();
 
     try testing.expectFmt("RSA PRIVATE", "{s}", .{pem.type});
-    try testing.expect(pem.bytes.len > 0);
-    try testing.expectFmt("pem bytes", "{s}", .{pem.bytes});
+    try testing.expect(pem.bytes.items.len > 0);
+
+    var pem_bytes = try pem.bytes.clone();
+    const bb = try pem_bytes.toOwnedSlice();
+    defer alloc.free(bb);
+
+    try testing.expectFmt("pem bytes", "{s}", .{bb});
 
     const header_1 = pem.headers.get("Proc-Type").?;
     const header_2 = pem.headers.get("TTTYYY").?;
