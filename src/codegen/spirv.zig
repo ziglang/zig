@@ -250,12 +250,12 @@ pub const Object = struct {
         self: *Object,
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
-        air: Air,
-        liveness: Air.Liveness,
+        air: *const Air,
+        liveness: *const Air.Liveness,
     ) !void {
         const nav = pt.zcu.funcInfo(func_index).owner_nav;
         // TODO: Separate types for generating decls and functions?
-        try self.genNav(pt, nav, air, liveness, true);
+        try self.genNav(pt, nav, air.*, liveness.*, true);
     }
 
     pub fn updateNav(

@@ -111,24 +111,6 @@ pub fn deinit(self: *SpirV) void {
     self.object.deinit();
 }
 
-pub fn updateFunc(
-    self: *SpirV,
-    pt: Zcu.PerThread,
-    func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
-) link.File.UpdateNavError!void {
-    if (build_options.skip_non_native) {
-        @panic("Attempted to compile for architecture that was disabled by build configuration");
-    }
-
-    const ip = &pt.zcu.intern_pool;
-    const func = pt.zcu.funcInfo(func_index);
-    log.debug("lowering function {}", .{ip.getNav(func.owner_nav).name.fmt(ip)});
-
-    try self.object.updateFunc(pt, func_index, air, liveness);
-}
-
 pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
