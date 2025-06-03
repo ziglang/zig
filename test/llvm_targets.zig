@@ -174,7 +174,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .nvptx64, .os_tag = .nvcl, .abi = .none },
 
     .{ .cpu_arch = .powerpc, .os_tag = .aix, .abi = .eabihf },
-    .{ .cpu_arch = .powerpc, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .haiku, .abi = .eabi },
@@ -285,7 +284,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .wasm64, .os_tag = .wasi, .abi = .musl },
     .{ .cpu_arch = .wasm64, .os_tag = .wasi, .abi = .none },
 
-    .{ .cpu_arch = .x86, .os_tag = .freebsd, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .haiku, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .hurd, .abi = .gnu },
