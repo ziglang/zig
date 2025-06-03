@@ -7,6 +7,7 @@ const std = @import("../std.zig");
 const mem = std.mem;
 const math = std.math;
 const assert = std.debug.assert;
+const Writer = std.io.Writer;
 
 pub const block_length = 64;
 pub const digest_length = 20;
@@ -252,21 +253,18 @@ pub fn round(d_s: *[5]u32, b: *const [64]u8) void {
     d_s[4] +%= v[4];
 }
 
-pub fn writable(sha1: *Sha1, buffer: []u8) std.io.BufferedWriter {
+pub fn writer(sha1: *Sha1, buffer: []u8) Writer {
     return .{
-        .unbuffered_writer = .{
-            .context = sha1,
-            .vtable = &.{
-                .writeSplat = writeSplat,
-                .writeFile = std.io.Writer.unimplementedWriteFile,
-            },
-        },
+        .context = sha1,
+        .vtable = &.{ .drain = drain },
         .buffer = buffer,
     };
 }
 
-fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
-    const sha1: *Sha1 = @ptrCast(@alignCast(context));
+fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
+    const sha1: *Sha1 = @ptrCast(@alignCast(w.context));
+    sha1.update(w.buffered());
+    w.end = 0;
     const start_total = sha1.total_len;
     if (sha1.buf_end == 0) {
         try writeSplatAligned(sha1, data, splat);
@@ -299,7 +297,7 @@ fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) std.
     return @intCast(sha1.total_len - start_total);
 }
 
-fn writeSplatAligned(sha1: *Sha1, data: []const []const u8, splat: usize) std.io.Writer.Error!void {
+fn writeSplatAligned(sha1: *Sha1, data: []const []const u8, splat: usize) Writer.Error!void {
     assert(sha1.buf_end == 0);
     for (data[0 .. data.len - 1]) |slice| {
         var off: usize = 0;

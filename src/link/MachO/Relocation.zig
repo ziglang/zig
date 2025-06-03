@@ -76,7 +76,7 @@ pub fn fmtPretty(rel: Relocation, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatt
     return .{ .data = .{ rel, cpu_arch } };
 }
 
-fn formatPretty(ctx: FormatCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatPretty(ctx: FormatCtx, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const rel, const cpu_arch = ctx;
     try bw.writeAll(switch (rel.type) {
@@ -157,10 +157,11 @@ pub const Type = enum {
 
 const Tag = enum { local, @"extern" };
 
+const std = @import("std");
 const assert = std.debug.assert;
 const macho = std.macho;
 const math = std.math;
-const std = @import("std");
+const Writer = std.io.Writer;
 
 const Atom = @import("Atom.zig");
 const MachO = @import("../MachO.zig");

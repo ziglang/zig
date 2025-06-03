@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
+const Writer = std.io.Writer;
 
 /// This is an "advanced" function. It allows one to use a fixed amount of memory to store a
 /// ULEB128. This defeats the entire purpose of using this data encoding; it will no longer use
@@ -241,7 +242,7 @@ fn test_write_leb128(value: anytype) !void {
     const signedness = @typeInfo(T).int.signedness;
     const t_signed = signedness == .signed;
 
-    const writeStream = if (t_signed) std.io.BufferedWriter.writeIleb128 else std.io.BufferedWriter.writeUleb128;
+    const writeStream = if (t_signed) Writer.writeIleb128 else Writer.writeUleb128;
     const readStream = if (t_signed) std.io.Reader.readIleb128 else std.io.Reader.readUleb128;
 
     // decode to a larger bit size too, to ensure sign extension
@@ -261,8 +262,7 @@ fn test_write_leb128(value: anytype) !void {
     const max_groups = if (@typeInfo(T).int.bits == 0) 1 else (@typeInfo(T).int.bits + 6) / 7;
 
     var buf: [max_groups]u8 = undefined;
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(&buf);
+    var bw: Writer = .fixed(&buf);
 
     // stream write
     try testing.expect((try writeStream(&bw, value)) == bytes_needed);

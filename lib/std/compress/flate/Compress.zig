@@ -47,6 +47,7 @@ const testing = std.testing;
 const expect = testing.expect;
 const mem = std.mem;
 const math = std.math;
+const Writer = std.io.Writer;
 
 const Compress = @This();
 const Token = @import("Token.zig");
@@ -142,7 +143,7 @@ const FlushOption = enum { none, flush, final };
 /// flush tokens to the token writer.
 ///
 /// Returns number of bytes consumed from `lh`.
-fn tokenizeSlice(c: *Compress, bw: *std.io.BufferedWriter, limit: std.io.Limit, lh: []const u8) !usize {
+fn tokenizeSlice(c: *Compress, bw: *Writer, limit: std.io.Limit, lh: []const u8) !usize {
     _ = bw;
     _ = limit;
     if (true) @panic("TODO");
@@ -299,7 +300,7 @@ pub fn finish(c: *Compress) !void {
 
 /// Use another writer while preserving history. Most probably flush
 /// should be called on old writer before setting new.
-pub fn setWriter(self: *Compress, new_writer: *std.io.BufferedWriter) void {
+pub fn setWriter(self: *Compress, new_writer: *Writer) void {
     self.block_writer.setWriter(new_writer);
     self.output = new_writer;
 }
@@ -767,7 +768,7 @@ fn byFreq(context: void, a: LiteralNode, b: LiteralNode) bool {
 
 fn read(
     context: ?*anyopaque,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     limit: std.io.Limit,
 ) std.io.Reader.StreamError!usize {
     const c: *Compress = @ptrCast(@alignCast(context));
@@ -1147,8 +1148,7 @@ test "file tokenization" {
         const data = case.data;
 
         for (levels, 0..) |level, i| { // for each compression level
-            var original: std.io.Reader = undefined;
-            original.initFixed(data);
+            var original: std.io.Reader = .fixed(data);
 
             // buffer for decompressed data
             var al = std.ArrayList(u8).init(testing.allocator);
@@ -1181,10 +1181,10 @@ test "file tokenization" {
 }
 
 const TokenDecoder = struct {
-    output: *std.io.BufferedWriter,
+    output: *Writer,
     tokens_count: usize,
 
-    pub fn init(output: *std.io.BufferedWriter) TokenDecoder {
+    pub fn init(output: *Writer) TokenDecoder {
         return .{
             .output = output,
             .tokens_count = 0,
@@ -1222,8 +1222,7 @@ test "store simple compressor" {
         //0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x77, 0x6f, 0x72, 0x6c, 0x64, 0x21,
     };
 
-    var fbs: std.io.Reader = undefined;
-    fbs.initFixed(data);
+    var fbs: std.io.Reader = .fixed(data);
     var al = std.ArrayList(u8).init(testing.allocator);
     defer al.deinit();
 
@@ -1232,7 +1231,7 @@ test "store simple compressor" {
     try cmp.finish();
     try testing.expectEqualSlices(u8, &expected, al.items);
 
-    fbs.initFixed(data);
+    fbs = .fixed(data);
     try al.resize(0);
 
     // huffman only compresoor will also emit store block for this small sample
@@ -1244,7 +1243,7 @@ test "store simple compressor" {
 
 test "sliding window match" {
     const data = "Blah blah blah blah blah!";
-    var win: std.io.BufferedWriter = .{};
+    var win: Writer = .{};
     try expect(win.write(data) == data.len);
     try expect(win.wp == data.len);
     try expect(win.rp == 0);
@@ -1263,9 +1262,9 @@ test "sliding window match" {
 }
 
 test "sliding window slide" {
-    var win: std.io.BufferedWriter = .{};
-    win.wp = std.io.BufferedWriter.buffer_len - 11;
-    win.rp = std.io.BufferedWriter.buffer_len - 111;
+    var win: Writer = .{};
+    win.wp = Writer.buffer_len - 11;
+    win.rp = Writer.buffer_len - 111;
     win.buffer[win.rp] = 0xab;
     try expect(win.lookahead().len == 100);
     try expect(win.tokensBuffer().?.len == win.rp);
@@ -1273,8 +1272,8 @@ test "sliding window slide" {
     const n = win.slide();
     try expect(n == 32757);
     try expect(win.buffer[win.rp] == 0xab);
-    try expect(win.rp == std.io.BufferedWriter.hist_len - 111);
-    try expect(win.wp == std.io.BufferedWriter.hist_len - 11);
+    try expect(win.rp == Writer.hist_len - 111);
+    try expect(win.wp == Writer.hist_len - 11);
     try expect(win.lookahead().len == 100);
     try expect(win.tokensBuffer() == null);
 }

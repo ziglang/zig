@@ -13,6 +13,7 @@ const net = std.net;
 const Uri = std.Uri;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
+const Writer = std.io.Writer;
 
 const Client = @This();
 
@@ -229,7 +230,7 @@ pub const Connection = struct {
     stream_reader: net.Stream.Reader,
     /// HTTP protocol from client to server.
     /// This either goes directly to `stream_writer`, or to a TLS client.
-    writer: std.io.BufferedWriter,
+    writer: Writer,
     /// HTTP protocol from server to client.
     /// This either comes directly from `stream_reader`, or from a TLS client.
     reader: std.io.Reader,
@@ -297,7 +298,7 @@ pub const Connection = struct {
 
     const Tls = struct {
         /// Data from `client` to `Connection.stream`.
-        writer: std.io.BufferedWriter,
+        writer: Writer,
         /// Data from `Connection.stream` to `client`.
         reader: std.io.Reader,
         client: std.crypto.tls.Client,
@@ -403,7 +404,7 @@ pub const Connection = struct {
         }
     }
 
-    pub fn flush(c: *Connection) std.io.Writer.Error!void {
+    pub fn flush(c: *Connection) Writer.Error!void {
         try c.writer.flush();
         if (c.protocol == .tls) {
             if (disable_tls) unreachable;
@@ -415,7 +416,7 @@ pub const Connection = struct {
     /// If the connection is a TLS connection, sends the close_notify alert.
     ///
     /// Flushes all buffers.
-    pub fn end(c: *Connection) std.io.Writer.Error!void {
+    pub fn end(c: *Connection) Writer.Error!void {
         try c.writer.flush();
         if (c.protocol == .tls) {
             if (disable_tls) unreachable;
@@ -818,13 +819,13 @@ pub const Request = struct {
     }
 
     /// Sends and flushes a complete request as only HTTP head, no body.
-    pub fn sendBodiless(r: *Request) std.io.Writer.Error!void {
+    pub fn sendBodiless(r: *Request) Writer.Error!void {
         try sendBodilessUnflushed(r);
         try r.connection.?.flush();
     }
 
     /// Sends but does not flush a complete request as only HTTP head, no body.
-    pub fn sendBodilessUnflushed(r: *Request) std.io.Writer.Error!void {
+    pub fn sendBodilessUnflushed(r: *Request) Writer.Error!void {
         assert(r.transfer_encoding == .none);
         assert(!r.method.requestHasBody());
         try sendHead(r);
@@ -834,7 +835,7 @@ pub const Request = struct {
     ///
     /// See also:
     /// * `sendBodyUnflushed`
-    pub fn sendBody(r: *Request) std.io.Writer.Error!http.BodyWriter {
+    pub fn sendBody(r: *Request) Writer.Error!http.BodyWriter {
         const result = try sendBodyUnflushed(r);
         try r.connection.?.flush();
         return result;
@@ -845,7 +846,7 @@ pub const Request = struct {
     ///
     /// See also:
     /// * `sendBody`
-    pub fn sendBodyUnflushed(r: *Request) std.io.Writer.Error!http.BodyWriter {
+    pub fn sendBodyUnflushed(r: *Request) Writer.Error!http.BodyWriter {
         assert(r.method.requestHasBody());
         try sendHead(r);
         return .{
@@ -860,7 +861,7 @@ pub const Request = struct {
     }
 
     /// Sends HTTP headers without flushing.
-    fn sendHead(r: *Request) std.io.Writer.Error!void {
+    fn sendHead(r: *Request) Writer.Error!void {
         const uri = r.uri;
         const connection = r.connection.?;
         const w = &connection.writer;
@@ -1134,7 +1135,7 @@ pub const Request = struct {
 
     /// Returns true if the default behavior is required, otherwise handles
     /// writing (or not writing) the header.
-    fn emitOverridableHeader(prefix: []const u8, v: Headers.Value, bw: *std.io.BufferedWriter) std.io.Writer.Error!bool {
+    fn emitOverridableHeader(prefix: []const u8, v: Headers.Value, bw: *Writer) Writer.Error!bool {
         switch (v) {
             .default => return true,
             .omit => return false,
@@ -1242,16 +1243,14 @@ pub const basic_authorization = struct {
     }
 
     pub fn value(uri: Uri, out: []u8) []u8 {
-        var bw: std.io.BufferedWriter = undefined;
-        bw.initFixed(out);
+        var bw: Writer = .fixed(out);
         write(uri, &bw) catch unreachable;
         return bw.getWritten();
     }
 
-    pub fn write(uri: Uri, out: *std.io.BufferedWriter) std.io.Writer.Error!void {
+    pub fn write(uri: Uri, out: *Writer) Writer.Error!void {
         var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
-        var bw: std.io.BufferedWriter = undefined;
-        bw.initFixed(&buf);
+        var bw: Writer = .fixed(&buf);
         bw.print("{fuser}:{fpassword}", .{
             uri.user orelse Uri.Component.empty,
             uri.password orelse Uri.Component.empty,

@@ -648,8 +648,7 @@ const Unit = struct {
         assert(len >= unit.trailer_len);
         if (sec == &dwarf.debug_line.section) {
             var buf: [1 + uleb128Bytes(std.math.maxInt(u32)) + 1]u8 = undefined;
-            var bw: std.io.BufferedWriter = undefined;
-            bw.initFixed(&buf);
+            var bw: Writer = .fixed(&buf);
             bw.writeByte(DW.LNS.extended_op) catch unreachable;
             const extended_op_bytes = bw.end;
             var op_len_bytes: u5 = 1;
@@ -668,8 +667,7 @@ const Unit = struct {
             assert(bw.end >= unit.trailer_len and bw.end <= len);
             return dwarf.getFile().?.pwriteAll(bw.getWritten(), sec.off(dwarf) + start);
         }
-        var trailer_bw: std.io.BufferedWriter = undefined;
-        trailer_bw.initFixed(try dwarf.gpa.alloc(u8, len));
+        var trailer_bw: Writer = .fixed(try dwarf.gpa.alloc(u8, len));
         defer dwarf.gpa.free(trailer_bw.buffer);
         const fill_byte: u8 = if (sec == &dwarf.debug_abbrev.section) fill: {
             assert(uleb128Bytes(@intFromEnum(AbbrevCode.null)) == 1);
@@ -833,8 +831,7 @@ const Entry = struct {
                 1 + uleb128Bytes(std.math.maxInt(u32)) + 1,
             )
         ]u8 = undefined;
-        var bw: std.io.BufferedWriter = undefined;
-        bw.initFixed(&buf);
+        var bw: Writer = .fixed(&buf);
         if (sec == &dwarf.debug_info.section) switch (len) {
             0 => {},
             1 => bw.writeLeb128(try dwarf.refAbbrevCode(.pad_1)) catch unreachable,
@@ -1134,7 +1131,7 @@ pub const Loc = union(enum) {
         };
     }
 
-    fn writeReg(bw: *std.io.BufferedWriter, reg: u32, op0: u8, opx: u8) std.io.Writer.Error!void {
+    fn writeReg(bw: *Writer, reg: u32, op0: u8, opx: u8) Writer.Error!void {
         if (std.math.cast(u5, reg)) |small_reg| {
             try bw.writeByte(op0 + small_reg);
         } else {
@@ -1143,7 +1140,7 @@ pub const Loc = union(enum) {
         }
     }
 
-    fn write(loc: Loc, bw: *std.io.BufferedWriter, adapter: anytype) UpdateError!void {
+    fn write(loc: Loc, bw: *Writer, adapter: anytype) UpdateError!void {
         switch (loc) {
             .empty => {},
             .addr_reloc => |sym_index| {
@@ -1795,10 +1792,10 @@ pub const WipNav = struct {
         fn endian(_: ExprLocCounter) std.builtin.Endian {
             return @import("builtin").cpu.arch.endian();
         }
-        fn addrSym(counter: ExprLocCounter, bw: *std.io.BufferedWriter, _: u32) error{}!void {
+        fn addrSym(counter: ExprLocCounter, bw: *Writer, _: u32) error{}!void {
             bw.count += @intFromEnum(counter.address_size);
         }
-        fn infoEntry(counter: ExprLocCounter, bw: *std.io.BufferedWriter, _: Unit.Index, _: Entry.Index) error{}!void {
+        fn infoEntry(counter: ExprLocCounter, bw: *Writer, _: Unit.Index, _: Entry.Index) error{}!void {
             bw.count += counter.section_offset_bytes;
         }
     };
@@ -1817,10 +1814,10 @@ pub const WipNav = struct {
             fn endian(ctx: @This()) std.builtin.Endian {
                 return ctx.wip_nav.dwarf.endian;
             }
-            fn addrSym(ctx: @This(), _: *std.io.BufferedWriter, sym_index: u32) UpdateError!void {
+            fn addrSym(ctx: @This(), _: *Writer, sym_index: u32) UpdateError!void {
                 try ctx.wip_nav.infoAddrSym(sym_index, 0);
             }
-            fn infoEntry(ctx: @This(), _: *std.io.BufferedWriter, unit: Unit.Index, entry: Entry.Index) UpdateError!void {
+            fn infoEntry(ctx: @This(), _: *Writer, unit: Unit.Index, entry: Entry.Index) UpdateError!void {
                 try ctx.wip_nav.infoSectionOffset(.debug_info, unit, entry, 0);
             }
         } = .{ .wip_nav = wip_nav };
@@ -1852,10 +1849,10 @@ pub const WipNav = struct {
             fn endian(ctx: @This()) std.builtin.Endian {
                 return ctx.wip_nav.dwarf.endian;
             }
-            fn addrSym(ctx: @This(), _: *std.io.BufferedWriter, sym_index: u32) UpdateError!void {
+            fn addrSym(ctx: @This(), _: *Writer, sym_index: u32) UpdateError!void {
                 try ctx.wip_nav.frameAddrSym(sym_index, 0);
             }
-            fn infoEntry(ctx: @This(), _: *std.io.BufferedWriter, unit: Unit.Index, entry: Entry.Index) UpdateError!void {
+            fn infoEntry(ctx: @This(), _: *Writer, unit: Unit.Index, entry: Entry.Index) UpdateError!void {
                 try ctx.wip_nav.sectionOffset(.debug_frame, .debug_info, unit, entry, 0);
             }
         } = .{ .wip_nav = wip_nav };
@@ -2756,8 +2753,7 @@ fn finishWipNavFuncInner(
             try dibw.writeLeb128(@intFromEnum(AbbrevCode.null));
         } else {
             const abbrev_code_buf = wip_nav.debug_info.getWritten()[0..AbbrevCode.decl_bytes];
-            var abbrev_code_br: std.io.Reader = undefined;
-            abbrev_code_br.initFixed(abbrev_code_buf);
+            var abbrev_code_br: std.io.Reader = .fixed(abbrev_code_buf);
             const abbrev_code: AbbrevCode = @enumFromInt(abbrev_code_br.takeLeb128(@typeInfo(AbbrevCode).@"enum".tag_type) catch unreachable);
             std.leb.writeUnsignedFixed(
                 AbbrevCode.decl_bytes,
@@ -4565,14 +4561,14 @@ pub fn flush(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
 
     var header: std.ArrayListUnmanaged(u8) = .empty;
     defer header.deinit(gpa);
-    var header_bw: std.io.BufferedWriter = undefined;
+    var header_bw: Writer = undefined;
     if (dwarf.debug_aranges.section.dirty) {
         for (dwarf.debug_aranges.section.units.items, 0..) |*unit_ptr, unit_index| {
             const unit: Unit.Index = @enumFromInt(unit_index);
             unit_ptr.clear();
             try unit_ptr.cross_section_relocs.ensureTotalCapacity(gpa, 1);
             try header.resize(gpa, unit_ptr.header_len);
-            header_bw.initFixed(header.items);
+            header_bw = .fixed(header.items);
             const unit_len = (if (unit_ptr.next.unwrap()) |next_unit|
                 dwarf.debug_aranges.section.getUnit(next_unit).off
             else
@@ -4610,7 +4606,7 @@ pub fn flush(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
                     const Register = @import("../arch/x86_64/bits.zig").Register;
                     for (dwarf.debug_frame.section.units.items) |*unit| {
                         try header.resize(gpa, unit.header_len);
-                        header_bw.initFixed(header.items);
+                        header_bw = .fixed(header.items);
                         const unit_len = unit.header_len - dwarf.unitLengthBytes();
                         switch (dwarf.format) {
                             .@"32" => header_bw.writeInt(u32, @intCast(unit_len), dwarf.endian) catch unreachable,
@@ -4651,7 +4647,7 @@ pub fn flush(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
             try unit_ptr.cross_unit_relocs.ensureTotalCapacity(gpa, 1);
             try unit_ptr.cross_section_relocs.ensureTotalCapacity(gpa, 7);
             try header.resize(gpa, unit_ptr.header_len);
-            header_bw.initFixed(header.items);
+            header_bw = .fixed(header.items);
             const unit_len = (if (unit_ptr.next.unwrap()) |next_unit|
                 dwarf.debug_info.section.getUnit(next_unit).off
             else
@@ -4751,7 +4747,7 @@ pub fn flush(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
             unit.clear();
             try unit.cross_section_relocs.ensureTotalCapacity(gpa, mod_info.dirs.count() + 2 * (mod_info.files.count()));
             try header.resize(gpa, unit.header_len);
-            header_bw.initFixed(header.items);
+            header_bw = .fixed(header.items);
             const unit_len = (if (unit.next.unwrap()) |next_unit|
                 dwarf.debug_line.section.getUnit(next_unit).off
             else
@@ -4859,7 +4855,7 @@ pub fn flush(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
     if (dwarf.debug_rnglists.section.dirty) {
         for (dwarf.debug_rnglists.section.units.items) |*unit| {
             try header.resize(gpa, unit.header_len);
-            header_bw.initFixed(header.items);
+            header_bw = .fixed(header.items);
             const unit_len = (if (unit.next.unwrap()) |next_unit|
                 dwarf.debug_rnglists.section.getUnit(next_unit).off
             else
@@ -6078,7 +6074,7 @@ fn writeInt(dwarf: *Dwarf, buf: []u8, int: u64) void {
     }
 }
 
-fn writeIntTo(dwarf: *Dwarf, bw: *std.io.BufferedWriter, len: usize, int: u64) !void {
+fn writeIntTo(dwarf: *Dwarf, bw: *Writer, len: usize, int: u64) !void {
     dwarf.writeInt(try bw.writableSlice(len), int);
 }
 
@@ -6127,8 +6123,7 @@ fn leb128Bytes(value: anytype) u32 {
     var buffer: [
         std.math.divCeil(u16, @intFromBool(value_info.signedness == .signed) + value_info.bits, 7) catch unreachable
     ]u8 = undefined;
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(&buffer);
+    var bw: Writer = .fixed(&buffer);
     bw.writeLeb128(value) catch unreachable;
     return @intCast(bw.end);
 }
@@ -6155,3 +6150,4 @@ const log = std.log.scoped(.dwarf);
 const std = @import("std");
 const target_info = @import("../target.zig");
 const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;

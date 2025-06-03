@@ -316,7 +316,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
     out.st_size = esym.st_size;
 }
 
-pub fn format(symbol: Symbol, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+pub fn format(symbol: Symbol, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = symbol;
     _ = bw;
     _ = unused_fmt_string;
@@ -335,7 +335,7 @@ pub fn fmtName(symbol: Symbol, elf_file: *Elf) std.fmt.Formatter(formatName) {
     } };
 }
 
-fn formatName(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatName(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const elf_file = ctx.elf_file;
     const symbol = ctx.symbol;
@@ -358,8 +358,8 @@ pub fn fmt(symbol: Symbol, elf_file: *Elf) std.fmt.Formatter(format2) {
     } };
 }
 
-fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-    _ = unused_fmt_string;
+fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+    comptime assert(unused_fmt_string.len == 0);
     const symbol = ctx.symbol;
     const elf_file = ctx.elf_file;
     try bw.print("%{d} : {f} : @{x}", .{
@@ -461,12 +461,13 @@ pub const Extra = struct {
 
 pub const Index = u32;
 
+const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
 const mem = std.mem;
-const std = @import("std");
-const synthetic_sections = @import("synthetic_sections.zig");
+const Writer = std.io.Writer;
 
+const synthetic_sections = @import("synthetic_sections.zig");
 const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;

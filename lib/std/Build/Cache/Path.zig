@@ -140,11 +140,7 @@ pub fn toStringZ(p: Path, allocator: Allocator) Allocator.Error![:0]u8 {
     return std.fmt.allocPrintZ(allocator, "{f}", .{p});
 }
 
-pub fn format(
-    self: Path,
-    bw: *std.io.BufferedWriter,
-    comptime fmt_string: []const u8,
-) !void {
+pub fn format(self: Path, w: *std.io.Writer, comptime fmt_string: []const u8) !void {
     if (fmt_string.len == 1) {
         // Quote-escape the string.
         const stringEscape = std.zig.stringEscape;
@@ -154,33 +150,33 @@ pub fn format(
             else => @compileError("unsupported format string: " ++ fmt_string),
         };
         if (self.root_dir.path) |p| {
-            try stringEscape(p, bw, f);
-            if (self.sub_path.len > 0) try stringEscape(fs.path.sep_str, bw, f);
+            try stringEscape(p, w, f);
+            if (self.sub_path.len > 0) try stringEscape(fs.path.sep_str, w, f);
         }
         if (self.sub_path.len > 0) {
-            try stringEscape(self.sub_path, bw, f);
+            try stringEscape(self.sub_path, w, f);
         }
         return;
     }
     if (fmt_string.len > 0)
         std.fmt.invalidFmtError(fmt_string, self);
     if (std.fs.path.isAbsolute(self.sub_path)) {
-        try bw.writeAll(self.sub_path);
+        try w.writeAll(self.sub_path);
         return;
     }
     if (self.root_dir.path) |p| {
-        try bw.writeAll(p);
+        try w.writeAll(p);
         if (self.sub_path.len > 0) {
-            try bw.writeAll(fs.path.sep_str);
-            try bw.writeAll(self.sub_path);
+            try w.writeAll(fs.path.sep_str);
+            try w.writeAll(self.sub_path);
         }
         return;
     }
     if (self.sub_path.len > 0) {
-        try bw.writeAll(self.sub_path);
+        try w.writeAll(self.sub_path);
         return;
     }
-    try bw.writeByte('.');
+    try w.writeByte('.');
 }
 
 pub fn eql(self: Path, other: Path) bool {

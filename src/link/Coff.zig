@@ -1,5 +1,41 @@
 //! The main driver of the self-hosted COFF linker.
 
+const Coff = @This();
+
+const std = @import("std");
+const build_options = @import("build_options");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const coff_util = std.coff;
+const fmt = std.fmt;
+const fs = std.fs;
+const log = std.log.scoped(.link);
+const math = std.math;
+const mem = std.mem;
+
+const Allocator = std.mem.Allocator;
+const Path = std.Build.Cache.Path;
+const Directory = std.Build.Cache.Directory;
+const Cache = std.Build.Cache;
+const Writer = std.io.Writer;
+
+const aarch64_util = @import("../arch/aarch64/bits.zig");
+const allocPrint = std.fmt.allocPrint;
+const codegen = @import("../codegen.zig");
+const link = @import("../link.zig");
+const target_util = @import("../target.zig");
+const trace = @import("../tracy.zig").trace;
+
+const Compilation = @import("../Compilation.zig");
+const Zcu = @import("../Zcu.zig");
+const InternPool = @import("../InternPool.zig");
+const TableSection = @import("table_section.zig").TableSection;
+const StringTable = @import("StringTable.zig");
+const Type = @import("../Type.zig");
+const Value = @import("../Value.zig");
+const AnalUnit = InternPool.AnalUnit;
+const dev = @import("../dev.zig");
+
 base: link.File,
 image_base: u64,
 /// TODO this and minor_subsystem_version should be combined into one property and left as
@@ -2175,8 +2211,7 @@ fn writeDataDirectoriesHeaders(coff: *Coff) !void {
 fn writeHeader(coff: *Coff) !void {
     const target = &coff.base.comp.root_mod.resolved_target.result;
     const gpa = coff.base.comp.gpa;
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(try gpa.alloc(u8, coff.getSizeOfHeaders()));
+    var bw: Writer = .fixed(try gpa.alloc(u8, coff.getSizeOfHeaders()));
     defer gpa.free(bw.buffer);
 
     bw.writeAll(&msdos_stub) catch unreachable;
@@ -3066,14 +3101,14 @@ const ImportTable = struct {
         ctx: Context,
     };
 
-    fn format(itab: ImportTable, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) std.io.Writer.Error!void {
+    fn format(itab: ImportTable, bw: *Writer, comptime unused_format_string: []const u8) Writer.Error!void {
         _ = itab;
         _ = bw;
         _ = unused_format_string;
         @compileError("do not format ImportTable directly; use itab.fmtDebug()");
     }
 
-    fn format2(fmt_ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_format_string: []const u8) std.io.Writer.Error!void {
+    fn format2(fmt_ctx: FormatContext, bw: *Writer, comptime unused_format_string: []const u8) Writer.Error!void {
         comptime assert(unused_format_string.len == 0);
         const lib_name = fmt_ctx.ctx.coff.temp_strtab.getAssumeExists(fmt_ctx.ctx.name_off);
         const base_vaddr = getBaseAddress(fmt_ctx.ctx);
@@ -3104,41 +3139,6 @@ fn pwriteAll(coff: *Coff, bytes: []const u8, offset: u64) error{LinkFailure}!voi
         error.WriteFailed => return diags.fail("failed to write: {s}", .{@errorName(fw.err.?)}),
     };
 }
-
-const Coff = @This();
-
-const std = @import("std");
-const build_options = @import("build_options");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const coff_util = std.coff;
-const fmt = std.fmt;
-const fs = std.fs;
-const log = std.log.scoped(.link);
-const math = std.math;
-const mem = std.mem;
-
-const Allocator = std.mem.Allocator;
-const Path = std.Build.Cache.Path;
-const Directory = std.Build.Cache.Directory;
-const Cache = std.Build.Cache;
-
-const aarch64_util = @import("../arch/aarch64/bits.zig");
-const allocPrint = std.fmt.allocPrint;
-const codegen = @import("../codegen.zig");
-const link = @import("../link.zig");
-const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
-
-const Compilation = @import("../Compilation.zig");
-const Zcu = @import("../Zcu.zig");
-const InternPool = @import("../InternPool.zig");
-const TableSection = @import("table_section.zig").TableSection;
-const StringTable = @import("StringTable.zig");
-const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
-const AnalUnit = InternPool.AnalUnit;
-const dev = @import("../dev.zig");
 
 /// This is the start of a Portable Executable (PE) file.
 /// It starts with a MS-DOS header followed by a MS-DOS stub program.

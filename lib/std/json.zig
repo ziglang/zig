@@ -127,9 +127,9 @@ pub fn Formatter(comptime T: type) type {
             self: @This(),
             comptime fmt_spec: []const u8,
             options: std.fmt.FormatOptions,
-            writer: *std.io.BufferedWriter,
+            writer: *std.io.Writer,
         ) !void {
-            _ = fmt_spec;
+            comptime std.debug.assert(fmt_spec.len == 0);
             _ = options;
             try Stringify.value(self.value, self.options, writer);
         }

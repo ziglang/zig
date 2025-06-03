@@ -23,13 +23,14 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const BitStack = std.BitStack;
 const Stringify = @This();
+const Writer = std.io.Writer;
 
 const IndentationMode = enum(u1) {
     object = 0,
     array = 1,
 };
 
-writer: *std.io.BufferedWriter,
+writer: *Writer,
 options: Options = .{},
 indent_level: usize = 0,
 next_punctuation: enum {
@@ -77,7 +78,7 @@ const safety_checks: @TypeOf(safety_checks_hint) = if (build_mode_has_safety)
 else
     .assumed_correct;
 
-pub const Error = std.io.Writer.Error;
+pub const Error = Writer.Error;
 
 pub fn beginArray(self: *Stringify) Error!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
@@ -224,8 +225,7 @@ pub fn print(self: *Stringify, comptime fmt: []const u8, args: anytype) Error!vo
 
 test print {
     var out_buf: [1024]u8 = undefined;
-    var out: std.io.BufferedWriter = undefined;
-    out.initFixed(&out_buf);
+    var out: Writer = .fixed(&out_buf);
 
     var w: Stringify = .{ .writer = &out, .options = .{ .whitespace = .indent_2 } };
 
@@ -567,10 +567,10 @@ pub const Options = struct {
     emit_nonportable_numbers_as_strings: bool = false,
 };
 
-/// Writes the given value to the `std.io.Writer` writer.
+/// Writes the given value to the `Writer` writer.
 /// See `Stringify` for how the given value is serialized into JSON.
 /// The maximum nesting depth of the output JSON document is 256.
-pub fn value(v: anytype, options: Options, writer: *std.io.BufferedWriter) Error!void {
+pub fn value(v: anytype, options: Options, writer: *Writer) Error!void {
     var s: Stringify = .{ .writer = writer, .options = options };
     try s.write(v);
 }
@@ -634,7 +634,7 @@ test valueAlloc {
     try std.testing.expectEqualStrings(expected, actual);
 }
 
-fn outputUnicodeEscape(codepoint: u21, bw: *std.io.BufferedWriter) Error!void {
+fn outputUnicodeEscape(codepoint: u21, bw: *Writer) Error!void {
     if (codepoint <= 0xFFFF) {
         // If the character is in the Basic Multilingual Plane (U+0000 through U+FFFF),
         // then it may be represented as a six-character sequence: a reverse solidus, followed
@@ -654,7 +654,7 @@ fn outputUnicodeEscape(codepoint: u21, bw: *std.io.BufferedWriter) Error!void {
     }
 }
 
-fn outputSpecialEscape(c: u8, writer: *std.io.BufferedWriter) Error!void {
+fn outputSpecialEscape(c: u8, writer: *Writer) Error!void {
     switch (c) {
         '\\' => try writer.writeAll("\\\\"),
         '\"' => try writer.writeAll("\\\""),
@@ -668,14 +668,14 @@ fn outputSpecialEscape(c: u8, writer: *std.io.BufferedWriter) Error!void {
 }
 
 /// Write `string` to `writer` as a JSON encoded string.
-pub fn encodeJsonString(string: []const u8, options: Options, writer: *std.io.BufferedWriter) Error!void {
+pub fn encodeJsonString(string: []const u8, options: Options, writer: *Writer) Error!void {
     try writer.writeByte('\"');
     try encodeJsonStringChars(string, options, writer);
     try writer.writeByte('\"');
 }
 
 /// Write `chars` to `writer` as JSON encoded string characters.
-pub fn encodeJsonStringChars(chars: []const u8, options: Options, writer: *std.io.BufferedWriter) Error!void {
+pub fn encodeJsonStringChars(chars: []const u8, options: Options, writer: *Writer) Error!void {
     var write_cursor: usize = 0;
     var i: usize = 0;
     if (options.escape_unicode) {
@@ -718,8 +718,7 @@ pub fn encodeJsonStringChars(chars: []const u8, options: Options, writer: *std.i
 
 test "json write stream" {
     var out_buf: [1024]u8 = undefined;
-    var out: std.io.BufferedWriter = undefined;
-    out.initFixed(&out_buf);
+    var out: Writer = .fixed(&out_buf);
     var w: Stringify = .{ .writer = &out, .options = .{ .whitespace = .indent_2 } };
     try testBasicWriteStream(&w);
 }
@@ -971,16 +970,14 @@ test "stringify struct with custom stringifier" {
 
 fn testStringify(expected: []const u8, v: anytype, options: Options) !void {
     var buffer: [4096]u8 = undefined;
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(&buffer);
+    var bw: Writer = .fixed(&buffer);
     try value(v, options, &bw);
     try std.testing.expectEqualStrings(expected, bw.getWritten());
 }
 
 test "raw streaming" {
     var out_buf: [1024]u8 = undefined;
-    var out: std.io.BufferedWriter = undefined;
-    out.initFixed(&out_buf);
+    var out: Writer = .fixed(&out_buf);
 
     var w: Stringify = .{ .writer = &out, .options = .{ .whitespace = .indent_2 } };
     try w.beginObject();

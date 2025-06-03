@@ -6,6 +6,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
+const Writer = std.io.Writer;
 
 const CheckObject = @This();
 
@@ -231,7 +232,7 @@ const ComputeCompareExpected = struct {
 
     pub fn format(
         value: ComputeCompareExpected,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         comptime fmt: []const u8,
     ) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, value);
@@ -619,7 +620,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
 
             fn formatMessageString(
                 ctx: Ctx,
-                bw: *std.io.BufferedWriter,
+                bw: *Writer,
                 comptime unused_fmt_string: []const u8,
             ) !void {
                 _ = unused_fmt_string;
@@ -813,7 +814,7 @@ const MachODumper = struct {
             return null;
         }
 
-        fn dumpHeader(hdr: macho.mach_header_64, bw: *std.io.BufferedWriter) !void {
+        fn dumpHeader(hdr: macho.mach_header_64, bw: *Writer) !void {
             const cputype = switch (hdr.cputype) {
                 macho.CPU_TYPE_ARM64 => "ARM64",
                 macho.CPU_TYPE_X86_64 => "X86_64",
@@ -881,7 +882,7 @@ const MachODumper = struct {
             try bw.writeByte('\n');
         }
 
-        fn dumpLoadCommand(lc: macho.LoadCommandIterator.LoadCommand, index: usize, bw: *std.io.BufferedWriter) !void {
+        fn dumpLoadCommand(lc: macho.LoadCommandIterator.LoadCommand, index: usize, bw: *Writer) !void {
             // print header first
             try bw.print(
                 \\LC {d}
@@ -1107,7 +1108,7 @@ const MachODumper = struct {
             }
         }
 
-        fn dumpSymtab(ctx: ObjectContext, bw: *std.io.BufferedWriter) !void {
+        fn dumpSymtab(ctx: ObjectContext, bw: *Writer) !void {
             try bw.writeAll(symtab_label ++ "\n");
 
             for (ctx.symtab.items) |sym| {
@@ -1178,7 +1179,7 @@ const MachODumper = struct {
             }
         }
 
-        fn dumpIndirectSymtab(ctx: ObjectContext, bw: *std.io.BufferedWriter) !void {
+        fn dumpIndirectSymtab(ctx: ObjectContext, bw: *Writer) !void {
             try bw.writeAll(indirect_symtab_label ++ "\n");
 
             var sects_buffer: [3]macho.section_64 = undefined;
@@ -1227,7 +1228,7 @@ const MachODumper = struct {
             }
         }
 
-        fn dumpRebaseInfo(ctx: ObjectContext, data: []const u8, bw: *std.io.BufferedWriter) !void {
+        fn dumpRebaseInfo(ctx: ObjectContext, data: []const u8, bw: *Writer) !void {
             var rebases: std.ArrayList(u64) = .init(ctx.gpa);
             defer rebases.deinit();
             try ctx.parseRebaseInfo(data, &rebases);
@@ -1324,7 +1325,7 @@ const MachODumper = struct {
             };
         };
 
-        fn dumpBindInfo(ctx: ObjectContext, data: []const u8, bw: *std.io.BufferedWriter) !void {
+        fn dumpBindInfo(ctx: ObjectContext, data: []const u8, bw: *Writer) !void {
             var bindings: std.ArrayList(Binding) = .init(ctx.gpa);
             defer {
                 for (bindings.items) |*b| {
@@ -1348,8 +1349,7 @@ const MachODumper = struct {
         }
 
         fn parseBindInfo(ctx: ObjectContext, data: []const u8, bindings: *std.ArrayList(Binding)) !void {
-            var br: std.io.Reader = undefined;
-            br.initFixed(@constCast(data));
+            var br: std.io.Reader = .fixed(data);
 
             var seg_id: ?u8 = null;
             var tag: Binding.Tag = .self;
@@ -1439,15 +1439,14 @@ const MachODumper = struct {
             } else |_| {}
         }
 
-        fn dumpExportsTrie(ctx: ObjectContext, data: []const u8, bw: *std.io.BufferedWriter) !void {
+        fn dumpExportsTrie(ctx: ObjectContext, data: []const u8, bw: *Writer) !void {
             const seg = ctx.getSegmentByName("__TEXT") orelse return;
 
             var arena = std.heap.ArenaAllocator.init(ctx.gpa);
             defer arena.deinit();
 
             var exports: std.ArrayList(Export) = .init(arena.allocator());
-            var br: std.io.Reader = undefined;
-            br.initFixed(@constCast(data));
+            var br: std.io.Reader = .fixed(data);
             try parseTrieNode(arena.allocator(), &br, "", &exports);
 
             mem.sort(Export, exports.items, {}, Export.lessThan);
@@ -1577,7 +1576,7 @@ const MachODumper = struct {
             }
         }
 
-        fn dumpSection(ctx: ObjectContext, sect: macho.section_64, bw: *std.io.BufferedWriter) !void {
+        fn dumpSection(ctx: ObjectContext, sect: macho.section_64, bw: *Writer) !void {
             const data = ctx.data[sect.offset..][0..sect.size];
             try bw.print("{s}", .{data});
         }
@@ -1704,8 +1703,7 @@ const ElfDumper = struct {
 
     fn parseAndDumpArchive(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var br: std.io.Reader = undefined;
-        br.initFixed(@constCast(bytes));
+        var br: std.io.Reader = .fixed(bytes);
 
         if (!mem.eql(u8, try br.takeArray(elf.ARMAG.len), elf.ARMAG)) return error.InvalidArchiveMagicNumber;
 
@@ -1779,8 +1777,7 @@ const ElfDumper = struct {
         }
 
         fn parseSymtab(ctx: *ArchiveContext, data: []const u8, ptr_width: enum { p32, p64 }) !void {
-            var br: std.io.Reader = undefined;
-            br.initFixed(@constCast(data));
+            var br: std.io.Reader = .fixed(data);
             const num = switch (ptr_width) {
                 .p32 => try br.takeInt(u32, .big),
                 .p64 => try br.takeInt(u64, .big),
@@ -1807,7 +1804,7 @@ const ElfDumper = struct {
             }
         }
 
-        fn dumpSymtab(ctx: ArchiveContext, bw: *std.io.BufferedWriter) !void {
+        fn dumpSymtab(ctx: ArchiveContext, bw: *Writer) !void {
             var symbols: std.AutoArrayHashMap(usize, std.ArrayList([]const u8)) = .init(ctx.gpa);
             defer {
                 for (symbols.values()) |*value| value.deinit();
@@ -1827,7 +1824,7 @@ const ElfDumper = struct {
             }
         }
 
-        fn dumpObjects(ctx: ArchiveContext, step: *Step, check: Check, bw: *std.io.BufferedWriter) !void {
+        fn dumpObjects(ctx: ArchiveContext, step: *Step, check: Check, bw: *Writer) !void {
             for (ctx.objects.values()) |object| {
                 try bw.print("object {s}\n", .{object.name});
                 const output = try parseAndDumpObject(step, check, object.data);
@@ -1850,8 +1847,7 @@ const ElfDumper = struct {
 
     fn parseAndDumpObject(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var br: std.io.Reader = undefined;
-        br.initFixed(@constCast(bytes));
+        var br: std.io.Reader = .fixed(bytes);
 
         const hdr = try br.takeStruct(elf.Elf64_Ehdr);
         if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) return error.InvalidMagicNumber;
@@ -1944,13 +1940,13 @@ const ElfDumper = struct {
         symtab: Symtab,
         dysymtab: Symtab,
 
-        fn dumpHeader(ctx: ObjectContext, bw: *std.io.BufferedWriter) !void {
+        fn dumpHeader(ctx: ObjectContext, bw: *Writer) !void {
             try bw.writeAll("header\n");
             try bw.print("type {s}\n", .{@tagName(ctx.hdr.e_type)});
             try bw.print("entry {x}\n", .{ctx.hdr.e_entry});
         }
 
-        fn dumpPhdrs(ctx: ObjectContext, bw: *std.io.BufferedWriter) !void {
+        fn dumpPhdrs(ctx: ObjectContext, bw: *Writer) !void {
             if (ctx.phdrs.len == 0) return;
 
             try bw.writeAll("program headers\n");
@@ -1989,7 +1985,7 @@ const ElfDumper = struct {
             }
         }
 
-        fn dumpShdrs(ctx: ObjectContext, bw: *std.io.BufferedWriter) !void {
+        fn dumpShdrs(ctx: ObjectContext, bw: *Writer) !void {
             if (ctx.shdrs.len == 0) return;
 
             try bw.writeAll("section headers\n");
@@ -2006,7 +2002,7 @@ const ElfDumper = struct {
             }
         }
 
-        fn dumpDynamicSection(ctx: ObjectContext, shndx: usize, bw: *std.io.BufferedWriter) !void {
+        fn dumpDynamicSection(ctx: ObjectContext, shndx: usize, bw: *Writer) !void {
             const shdr = ctx.shdrs[shndx];
             const strtab = ctx.getSectionContents(shdr.sh_link);
             const data = ctx.getSectionContents(shndx);
@@ -2144,7 +2140,7 @@ const ElfDumper = struct {
             }
         }
 
-        fn dumpSymtab(ctx: ObjectContext, comptime @"type": enum { symtab, dysymtab }, bw: *std.io.BufferedWriter) !void {
+        fn dumpSymtab(ctx: ObjectContext, comptime @"type": enum { symtab, dysymtab }, bw: *Writer) !void {
             const symtab = switch (@"type") {
                 .symtab => ctx.symtab,
                 .dysymtab => ctx.dysymtab,
@@ -2226,7 +2222,7 @@ const ElfDumper = struct {
             }
         }
 
-        fn dumpSection(ctx: ObjectContext, shndx: usize, bw: *std.io.BufferedWriter) !void {
+        fn dumpSection(ctx: ObjectContext, shndx: usize, bw: *Writer) !void {
             const data = ctx.getSectionContents(shndx);
             try bw.print("{s}", .{data});
         }
@@ -2276,7 +2272,7 @@ const ElfDumper = struct {
 
     fn formatShType(
         sh_type: u32,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         comptime unused_fmt_string: []const u8,
     ) !void {
         _ = unused_fmt_string;
@@ -2321,7 +2317,7 @@ const ElfDumper = struct {
 
     fn formatPhType(
         ph_type: u32,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         comptime unused_fmt_string: []const u8,
     ) !void {
         _ = unused_fmt_string;
@@ -2353,8 +2349,7 @@ const WasmDumper = struct {
 
     fn parseAndDump(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var br: std.io.Reader = undefined;
-        br.initFixed(@constCast(bytes));
+        var br: std.io.Reader = .fixed(bytes);
 
         const buf = try br.takeArray(8);
         if (!mem.eql(u8, buf[0..4], &std.wasm.magic)) return error.InvalidMagicByte;
@@ -2376,12 +2371,12 @@ const WasmDumper = struct {
         step: *Step,
         check: Check,
         br: *std.io.Reader,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
     ) !void {
         var section_br: std.io.Reader = undefined;
         switch (check.kind) {
             .headers => while (br.takeEnum(std.wasm.Section, .little)) |section| {
-                section_br.initFixed(try br.take(try br.takeLeb128(u32)));
+                section_br = .fixed(try br.take(try br.takeLeb128(u32)));
                 try parseAndDumpSection(step, section, &section_br, bw);
             } else |err| switch (err) {
                 error.InvalidEnumTag => return step.fail("invalid section id", .{}),
@@ -2396,7 +2391,7 @@ const WasmDumper = struct {
         step: *Step,
         section: std.wasm.Section,
         br: *std.io.Reader,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
     ) !void {
         try bw.print(
             \\Section {s}
@@ -2444,7 +2439,7 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseSection(step: *Step, section: std.wasm.Section, br: *std.io.Reader, entries: u32, bw: *std.io.BufferedWriter) !void {
+    fn parseSection(step: *Step, section: std.wasm.Section, br: *std.io.Reader, entries: u32, bw: *Writer) !void {
         switch (section) {
             .type => {
                 var i: u32 = 0;
@@ -2575,7 +2570,7 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpType(step: *Step, comptime E: type, br: *std.io.Reader, bw: *std.io.BufferedWriter) !E {
+    fn parseDumpType(step: *Step, comptime E: type, br: *std.io.Reader, bw: *Writer) !E {
         const tag = br.takeEnum(E, .little) catch |err| switch (err) {
             error.InvalidEnumTag => return step.fail("invalid wasm type value", .{}),
             else => |e| return e,
@@ -2584,7 +2579,7 @@ const WasmDumper = struct {
         return tag;
     }
 
-    fn parseDumpLimits(br: *std.io.Reader, bw: *std.io.BufferedWriter) !void {
+    fn parseDumpLimits(br: *std.io.Reader, bw: *Writer) !void {
         const flags = try br.takeLeb128(u8);
         const min = try br.takeLeb128(u32);
 
@@ -2592,7 +2587,7 @@ const WasmDumper = struct {
         if (flags != 0) try bw.print("max {x}\n", .{try br.takeLeb128(u32)});
     }
 
-    fn parseDumpInit(step: *Step, br: *std.io.Reader, bw: *std.io.BufferedWriter) !void {
+    fn parseDumpInit(step: *Step, br: *std.io.Reader, bw: *Writer) !void {
         const opcode = br.takeEnum(std.wasm.Opcode, .little) catch |err| switch (err) {
             error.InvalidEnumTag => return step.fail("invalid wasm opcode", .{}),
             else => |e| return e,
@@ -2612,14 +2607,14 @@ const WasmDumper = struct {
     }
 
     /// https://webassembly.github.io/spec/core/appendix/custom.html
-    fn parseDumpNames(step: *Step, br: *std.io.Reader, bw: *std.io.BufferedWriter) !void {
+    fn parseDumpNames(step: *Step, br: *std.io.Reader, bw: *Writer) !void {
         var subsection_br: std.io.Reader = undefined;
         while (br.seek < br.buffer.len) {
             switch (try parseDumpType(step, std.wasm.NameSubsection, br, bw)) {
                 // The module name subsection ... consists of a single name
                 // that is assigned to the module itself.
                 .module => {
-                    subsection_br.initFixed(try br.take(try br.takeLeb128(u32)));
+                    subsection_br = .fixed(try br.take(try br.takeLeb128(u32)));
                     const name = try subsection_br.take(try subsection_br.takeLeb128(u32));
                     try bw.print(
                         \\name {s}
@@ -2631,7 +2626,7 @@ const WasmDumper = struct {
                 // The function name subsection ... consists of a name map
                 // assigning function names to function indices.
                 .function, .global, .data_segment => {
-                    subsection_br.initFixed(try br.take(try br.takeLeb128(u32)));
+                    subsection_br = .fixed(try br.take(try br.takeLeb128(u32)));
                     const entries = try br.takeLeb128(u32);
                     try bw.print(
                         \\names {d}
@@ -2661,7 +2656,7 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpProducers(br: *std.io.Reader, bw: *std.io.BufferedWriter) !void {
+    fn parseDumpProducers(br: *std.io.Reader, bw: *Writer) !void {
         const field_count = try br.takeLeb128(u32);
         try bw.print(
             \\fields {d}
@@ -2689,7 +2684,7 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpFeatures(br: *std.io.Reader, bw: *std.io.BufferedWriter) !void {
+    fn parseDumpFeatures(br: *std.io.Reader, bw: *Writer) !void {
         const feature_count = try br.takeLeb128(u32);
         try bw.print(
             \\features {d}

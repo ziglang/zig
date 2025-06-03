@@ -286,7 +286,7 @@ pub fn setOutputSym(symbol: Symbol, macho_file: *MachO, out: *macho.nlist_64) vo
     }
 }
 
-pub fn format(symbol: Symbol, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+pub fn format(symbol: Symbol, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = symbol;
     _ = bw;
     _ = unused_fmt_string;
@@ -305,8 +305,8 @@ pub fn fmt(symbol: Symbol, macho_file: *MachO) std.fmt.Formatter(format2) {
     } };
 }
 
-fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-    _ = unused_fmt_string;
+fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+    comptime assert(unused_fmt_string.len == 0);
     const symbol = ctx.symbol;
     try bw.print("%{d} : {s} : @{x}", .{
         symbol.nlist_idx,
@@ -425,6 +425,7 @@ pub const Index = u32;
 const assert = std.debug.assert;
 const macho = std.macho;
 const std = @import("std");
+const Writer = std.io.Writer;
 
 const Atom = @import("Atom.zig");
 const File = @import("file.zig").File;

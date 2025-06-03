@@ -209,7 +209,7 @@ pub fn getStandardDefineAbbrev(ctype: CType) ?[]const u8 {
     };
 }
 
-pub fn renderLiteralPrefix(ctype: CType, bw: *std.io.BufferedWriter, kind: Kind, pool: *const Pool) std.io.Writer.Error!void {
+pub fn renderLiteralPrefix(ctype: CType, bw: *Writer, kind: Kind, pool: *const Pool) Writer.Error!void {
     switch (ctype.info(pool)) {
         .basic => |basic_info| switch (basic_info) {
             .void => unreachable,
@@ -270,7 +270,7 @@ pub fn renderLiteralPrefix(ctype: CType, bw: *std.io.BufferedWriter, kind: Kind,
     }
 }
 
-pub fn renderLiteralSuffix(ctype: CType, bw: *std.io.BufferedWriter, pool: *const Pool) std.io.Writer.Error!void {
+pub fn renderLiteralSuffix(ctype: CType, bw: *Writer, pool: *const Pool) Writer.Error!void {
     switch (ctype.info(pool)) {
         .basic => |basic_info| switch (basic_info) {
             .void => unreachable,
@@ -940,10 +940,10 @@ pub const Pool = struct {
         const FormatData = struct { string: String, pool: *const Pool };
         fn format(
             data: FormatData,
-            bw: *std.io.BufferedWriter,
+            bw: *Writer,
             comptime fmt_str: []const u8,
-        ) std.io.Writer.Error!void {
-            if (fmt_str.len > 0) @compileError("invalid format string '" ++ fmt_str ++ "'");
+        ) Writer.Error!void {
+            comptime assert(fmt_str.len == 0);
             if (data.string.toSlice(data.pool)) |slice|
                 try bw.writeAll(slice)
             else
@@ -3280,10 +3280,12 @@ pub const AlignAs = packed struct {
     }
 };
 
+const std = @import("std");
 const assert = std.debug.assert;
+const Writer = std.io.Writer;
+
 const CType = @This();
 const InternPool = @import("../../InternPool.zig");
 const Module = @import("../../Package/Module.zig");
-const std = @import("std");
 const Type = @import("../../Type.zig");
 const Zcu = @import("../../Zcu.zig");

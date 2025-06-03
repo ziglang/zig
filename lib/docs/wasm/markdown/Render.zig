@@ -5,6 +5,8 @@
 //! for node types for which they require no special rendering.
 
 const std = @import("std");
+const Writer = std.io.Writer;
+
 const Document = @import("Document.zig");
 const Node = Document.Node;
 const Render = @This();
@@ -14,10 +16,10 @@ renderFn: *const fn (
     r: Render,
     doc: Document,
     node: Node.Index,
-    writer: *std.io.BufferedWriter,
-) std.io.Writer.Error!void = renderDefault,
+    writer: *Writer,
+) Writer.Error!void = renderDefault,
 
-pub fn render(r: Render, doc: Document, writer: *std.io.BufferedWriter) std.io.Writer.Error!void {
+pub fn render(r: Render, doc: Document, writer: *Writer) Writer.Error!void {
     try r.renderFn(r, doc, .root, writer);
 }
 
@@ -25,8 +27,8 @@ pub fn renderDefault(
     r: Render,
     doc: Document,
     node: Node.Index,
-    writer: *std.io.BufferedWriter,
-) std.io.Writer.Error!void {
+    writer: *Writer,
+) Writer.Error!void {
     const data = doc.nodes.items(.data)[@intFromEnum(node)];
     switch (doc.nodes.items(.tag)[@intFromEnum(node)]) {
         .root => {
@@ -183,8 +185,8 @@ pub fn renderDefault(
 pub fn renderInlineNodeText(
     doc: Document,
     node: Node.Index,
-    writer: *std.io.BufferedWriter,
-) std.io.Writer.Error!void {
+    writer: *Writer,
+) Writer.Error!void {
     const data = doc.nodes.items(.data)[@intFromEnum(node)];
     switch (doc.nodes.items(.tag)[@intFromEnum(node)]) {
         .root,
@@ -229,7 +231,7 @@ pub fn fmtHtml(bytes: []const u8) std.fmt.Formatter(formatHtml) {
     return .{ .data = bytes };
 }
 
-fn formatHtml(bytes: []const u8, writer: *std.io.BufferedWriter, comptime fmt: []const u8) !void {
+fn formatHtml(bytes: []const u8, writer: *Writer, comptime fmt: []const u8) !void {
     _ = fmt;
     for (bytes) |b| {
         switch (b) {

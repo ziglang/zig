@@ -8,6 +8,7 @@ const mem = std.mem;
 const math = std.math;
 const target_util = @import("target.zig");
 const trace = @import("tracy.zig").trace;
+const Writer = std.io.Writer;
 
 const Air = @import("Air.zig");
 const Allocator = mem.Allocator;
@@ -326,7 +327,7 @@ pub fn generateSymbolInner(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     val: Value,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     reloc_parent: link.File.RelocInfo.Parent,
 ) GenerateSymbolError!void {
     const zcu = pt.zcu;
@@ -707,7 +708,7 @@ fn lowerPtr(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     ptr_val: InternPool.Index,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     reloc_parent: link.File.RelocInfo.Parent,
     prev_offset: u64,
 ) GenerateSymbolError!void {
@@ -760,7 +761,7 @@ fn lowerUavRef(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     uav: InternPool.Key.Ptr.BaseAddr.Uav,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     reloc_parent: link.File.RelocInfo.Parent,
     offset: u64,
 ) GenerateSymbolError!void {
@@ -814,7 +815,7 @@ fn lowerNavRef(
     lf: *link.File,
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
-    bw: *std.io.BufferedWriter,
+    bw: *Writer,
     reloc_parent: link.File.RelocInfo.Parent,
     offset: u64,
 ) GenerateSymbolError!void {

@@ -1,3 +1,12 @@
+const std = @import("std");
+const mem = std.mem;
+const fs = std.fs;
+const process = std.process;
+const Allocator = std.mem.Allocator;
+const Color = std.zig.Color;
+const fatal = std.process.fatal;
+const File = std.fs.File;
+
 const usage_fmt =
     \\Usage: zig fmt [file]...
     \\
@@ -27,7 +36,7 @@ const Fmt = struct {
     gpa: Allocator,
     arena: Allocator,
     out_buffer: std.ArrayListUnmanaged(u8),
-    stdout: *std.io.BufferedWriter,
+    stdout_writer: *File.Writer,
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
@@ -49,7 +58,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    try std.fs.File.stdout().writeAll(usage_fmt);
+                    try File.stdout().writeAll(usage_fmt);
                     return process.cleanExit();
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
@@ -133,10 +142,9 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             try std.zig.printAstErrorsToStderr(gpa, tree, "<stdin>", color);
             process.exit(2);
         }
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(gpa);
+        var aw: std.io.AllocatingWriter = .init(gpa);
         defer aw.deinit();
-        try tree.render(gpa, &aw.buffered_writer, .{});
+        try tree.render(gpa, &aw.interface, .{});
         const formatted = aw.getWritten();
 
         if (check_flag) {
@@ -144,7 +152,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             process.exit(code);
         }
 
-        return std.fs.File.stdout().writeAll(formatted);
+        return File.stdout().writeAll(formatted);
     }
 
     if (input_files.items.len == 0) {
@@ -152,7 +160,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 
     var stdout_buffer: [4096]u8 = undefined;
-    var stdout: std.io.BufferedWriter = std.fs.File.stdout().writer().buffered(&stdout_buffer);
+    var stdout_writer = File.stdout().writer(&stdout_buffer);
 
     var fmt: Fmt = .{
         .gpa = gpa,
@@ -163,7 +171,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         .force_zon = force_zon,
         .color = color,
         .out_buffer = .empty,
-        .stdout = &stdout,
+        .stdout_writer = &stdout_writer,
     };
     defer fmt.seen.deinit();
     defer fmt.out_buffer.deinit(gpa);
@@ -190,6 +198,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     if (fmt.any_error) {
         process.exit(1);
     }
+    try fmt.stdout_writer.flush();
 }
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) anyerror!void {
@@ -336,7 +345,7 @@ fn fmtPathFile(
         return;
 
     if (check_mode) {
-        try fmt.stdout.print("{s}\n", .{file_path});
+        try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
         fmt.any_error = true;
     } else {
         var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
@@ -344,17 +353,9 @@ fn fmtPathFile(
 
         try af.file.writeAll(fmt.out_buffer.items);
         try af.finish();
-        try fmt.stdout.print("{s}\n", .{file_path});
+        try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
     }
 }
-
-const std = @import("std");
-const mem = std.mem;
-const fs = std.fs;
-const process = std.process;
-const Allocator = std.mem.Allocator;
-const Color = std.zig.Color;
-const fatal = std.process.fatal;
 
 /// Provided for debugging/testing purposes; unused by the compiler.
 pub fn main() !void {

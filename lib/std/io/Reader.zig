@@ -1149,8 +1149,7 @@ pub fn restitute(r: *Reader, n: usize) void {
 }
 
 test fixed {
-    var r: Reader = undefined;
-    r.initFixed("a\x02");
+    var r: Reader = .fixed("a\x02");
     try testing.expect((try r.takeByte()) == 'a');
     try testing.expect((try r.takeEnum(enum(u8) {
         a = 0,
@@ -1186,8 +1185,7 @@ test peekArray {
 }
 
 test discardAll {
-    var r: Reader = undefined;
-    r.initFixed("foobar");
+    var r: Reader = .fixed("foobar");
     try r.discard(3);
     try testing.expectEqualStrings("bar", try r.take(3));
     try r.discard(0);
@@ -1300,8 +1298,7 @@ test readVec {
 
 test "expected error.EndOfStream" {
     // Unit test inspired by https://github.com/ziglang/zig/issues/17733
-    var r: std.io.Reader = undefined;
-    r.initFixed("");
+    var r: std.io.Reader = .fixed("");
     try std.testing.expectError(error.EndOfStream, r.readEnum(enum(u8) { a, b }, .little));
     try std.testing.expectError(error.EndOfStream, r.isBytes("foo"));
 }

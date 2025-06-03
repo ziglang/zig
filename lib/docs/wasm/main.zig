@@ -5,6 +5,7 @@ const Ast = std.zig.Ast;
 const Walk = @import("Walk");
 const markdown = @import("markdown.zig");
 const Decl = Walk.Decl;
+const Writer = std.io.Writer;
 
 const fileSourceHtml = @import("html_render.zig").fileSourceHtml;
 const appendEscaped = @import("html_render.zig").appendEscaped;
@@ -702,7 +703,7 @@ fn render_docs(
                 r: markdown.Render,
                 doc: markdown.Document,
                 node: markdown.Document.Node.Index,
-                writer: *std.io.BufferedWriter,
+                writer: *Writer,
             ) !void {
                 const decl_index_ptr: *const Decl.Index = @alignCast(@ptrCast(r.context));
                 const data = doc.nodes.items(.data)[@intFromEnum(node)];

@@ -20,7 +20,7 @@ pub fn getTargetAddress(thunk: Thunk, ref: MachO.Ref, macho_file: *MachO) u64 {
     return thunk.getAddress(macho_file) + thunk.symbols.getIndex(ref).? * trampoline_size;
 }
 
-pub fn write(thunk: Thunk, macho_file: *MachO, bw: *std.io.BufferedWriter) !void {
+pub fn write(thunk: Thunk, macho_file: *MachO, bw: *Writer) !void {
     for (thunk.symbols.keys(), 0..) |ref, i| {
         const sym = ref.getSymbol(macho_file).?;
         const saddr = thunk.getAddress(macho_file) + i * trampoline_size;
@@ -61,7 +61,7 @@ pub fn writeSymtab(thunk: Thunk, macho_file: *MachO, ctx: anytype) void {
     }
 }
 
-pub fn format(thunk: Thunk, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+pub fn format(thunk: Thunk, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = thunk;
     _ = bw;
     _ = unused_fmt_string;
@@ -80,7 +80,7 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const thunk = ctx.thunk;
     const macho_file = ctx.macho_file;
@@ -103,6 +103,7 @@ const math = std.math;
 const mem = std.mem;
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
+const Writer = std.io.Writer;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");

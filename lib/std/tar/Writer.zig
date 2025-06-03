@@ -14,7 +14,7 @@ pub const Options = struct {
     mtime: u64 = 0,
 };
 
-underlying_writer: *std.io.BufferedWriter,
+underlying_writer: *std.io.Writer,
 prefix: []const u8 = "",
 mtime_now: u64 = 0,
 
@@ -277,7 +277,7 @@ pub const Header = extern struct {
         try octal(&w.checksum, checksum);
     }
 
-    pub fn write(h: *Header, bw: *std.io.BufferedWriter) error{ OctalOverflow, WriteFailed }!void {
+    pub fn write(h: *Header, bw: *std.io.Writer) error{ OctalOverflow, WriteFailed }!void {
         try h.updateChecksum();
         try bw.writeAll(std.mem.asBytes(h));
     }
@@ -433,16 +433,14 @@ test "write files" {
     {
         const root = "root";
 
-        var output: std.io.AllocatingWriter = undefined;
-        output.init(testing.allocator);
+        var output: std.io.AllocatingWriter = .init(testing.allocator);
         var wrt: Writer = .{ .underlying_writer = &output.buffered_writer };
         defer output.deinit();
         try wrt.setRoot(root);
         for (files) |file|
             try wrt.writeFileBytes(file.path, file.content, .{});
 
-        var input: std.io.Reader = undefined;
-        input.initFixed(output.getWritten());
+        var input: std.io.Reader = .fixed(output.getWritten());
         var iter = std.tar.iterator(&input, .{
             .file_name_buffer = &file_name_buffer,
             .link_name_buffer = &link_name_buffer,
@@ -476,13 +474,11 @@ test "write files" {
         var wrt: Writer = .{ .underlying_writer = &output.buffered_writer };
         defer output.deinit();
         for (files) |file| {
-            var content: std.io.Reader = undefined;
-            content.initFixed(file.content);
+            var content: std.io.Reader = .fixed(file.content);
             try wrt.writeFileStream(file.path, file.content.len, &content, .{});
         }
 
-        var input: std.io.Reader = undefined;
-        input.initFixed(output.getWritten());
+        var input: std.io.Reader = .fixed(output.getWritten());
         var iter = std.tar.iterator(&input, .{
             .file_name_buffer = &file_name_buffer,
             .link_name_buffer = &link_name_buffer,

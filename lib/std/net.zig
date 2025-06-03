@@ -1915,7 +1915,7 @@ pub const Stream = struct {
 
             fn read(
                 context: ?*anyopaque,
-                bw: *std.io.BufferedWriter,
+                bw: *std.io.Writer,
                 limit: std.io.Limit,
             ) std.io.Reader.Error!usize {
                 const buf = limit.slice(try bw.writableSliceGreedy(1));

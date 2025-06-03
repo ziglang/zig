@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
+const Writer = std.io.Writer;
 
 const Allocator = mem.Allocator;
 const DebugSymbols = @import("DebugSymbols.zig");
@@ -180,7 +181,7 @@ pub fn calcMinHeaderPadSize(macho_file: *MachO) !u32 {
     return offset;
 }
 
-pub fn writeDylinkerLC(bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+pub fn writeDylinkerLC(bw: *Writer) Writer.Error!void {
     const name_len = mem.sliceTo(default_dyld_path, 0).len;
     const cmdsize = @as(u32, @intCast(mem.alignForward(
         u64,
@@ -204,7 +205,7 @@ const WriteDylibLCCtx = struct {
     compatibility_version: u32 = 0x10000,
 };
 
-pub fn writeDylibLC(ctx: WriteDylibLCCtx, bw: *std.io.BufferedWriter) !void {
+pub fn writeDylibLC(ctx: WriteDylibLCCtx, bw: *Writer) !void {
     const name_len = ctx.name.len + 1;
     const cmdsize: u32 = @intCast(mem.alignForward(
         u64,
@@ -252,7 +253,7 @@ pub fn writeDylibIdLC(macho_file: *MachO, writer: anytype) !void {
     }, writer);
 }
 
-pub fn writeRpathLC(bw: *std.io.BufferedWriter, rpath: []const u8) !void {
+pub fn writeRpathLC(bw: *Writer, rpath: []const u8) !void {
     const rpath_len = rpath.len + 1;
     const cmdsize = @as(u32, @intCast(mem.alignForward(
         u64,
@@ -268,7 +269,7 @@ pub fn writeRpathLC(bw: *std.io.BufferedWriter, rpath: []const u8) !void {
     try bw.splatByteAll(0, cmdsize - @sizeOf(macho.rpath_command) - rpath_len);
 }
 
-pub fn writeVersionMinLC(bw: *std.io.BufferedWriter, platform: MachO.Platform, sdk_version: ?std.SemanticVersion) std.io.Writer.Error!void {
+pub fn writeVersionMinLC(bw: *Writer, platform: MachO.Platform, sdk_version: ?std.SemanticVersion) Writer.Error!void {
     const cmd: macho.LC = switch (platform.os_tag) {
         .macos => .VERSION_MIN_MACOSX,
         .ios => .VERSION_MIN_IPHONEOS,
@@ -286,7 +287,7 @@ pub fn writeVersionMinLC(bw: *std.io.BufferedWriter, platform: MachO.Platform, s
     }));
 }
 
-pub fn writeBuildVersionLC(bw: *std.io.BufferedWriter, platform: MachO.Platform, sdk_version: ?std.SemanticVersion) std.io.Writer.Error!void {
+pub fn writeBuildVersionLC(bw: *Writer, platform: MachO.Platform, sdk_version: ?std.SemanticVersion) Writer.Error!void {
     const cmdsize = @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
     try bw.writeStruct(macho.build_version_command{
         .cmdsize = cmdsize,

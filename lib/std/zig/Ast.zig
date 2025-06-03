@@ -4,6 +4,16 @@
 //! For Zon syntax, the root node is at nodes[0] and contains lhs as the node
 //! index of the main expression.
 
+const std = @import("../std.zig");
+const assert = std.debug.assert;
+const testing = std.testing;
+const mem = std.mem;
+const Token = std.zig.Token;
+const Ast = @This();
+const Allocator = std.mem.Allocator;
+const Parse = @import("Parse.zig");
+const Writer = std.io.Writer;
+
 /// Reference to externally-owned data.
 source: [:0]const u8,
 
@@ -205,7 +215,7 @@ pub fn renderAlloc(tree: Ast, gpa: Allocator) error{OutOfMemory}![]u8 {
 
 pub const Render = @import("Ast/Render.zig");
 
-pub fn render(tree: Ast, gpa: Allocator, bw: *std.io.BufferedWriter, fixups: Render.Fixups) Render.Error!void {
+pub fn render(tree: Ast, gpa: Allocator, bw: *Writer, fixups: Render.Fixups) Render.Error!void {
     return Render.tree(gpa, bw, tree, fixups);
 }
 
@@ -311,7 +321,7 @@ pub fn rootDecls(tree: Ast) []const Node.Index {
     }
 }
 
-pub fn renderError(tree: Ast, parse_error: Error, bw: *std.io.BufferedWriter) std.io.Writer.Error!void {
+pub fn renderError(tree: Ast, parse_error: Error, bw: *Writer) Writer.Error!void {
     switch (parse_error.tag) {
         .asterisk_after_ptr_deref => {
             // Note that the token will point at the `.*` but ideally the source
@@ -4117,15 +4127,6 @@ pub fn tokensToSpan(tree: *const Ast, start: Ast.TokenIndex, end: Ast.TokenIndex
     const end_off = tree.tokenStart(end_tok) + @as(u32, @intCast(tree.tokenSlice(end_tok).len));
     return Span{ .start = start_off, .end = end_off, .main = tree.tokenStart(main) };
 }
-
-const std = @import("../std.zig");
-const assert = std.debug.assert;
-const testing = std.testing;
-const mem = std.mem;
-const Token = std.zig.Token;
-const Ast = @This();
-const Allocator = std.mem.Allocator;
-const Parse = @import("Parse.zig");
 
 test {
     _ = Parse;

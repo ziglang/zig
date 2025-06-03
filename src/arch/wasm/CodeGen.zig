@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const log = std.log.scoped(.codegen);
+const Writer = std.io.Writer;
 
 const CodeGen = @This();
 const codegen = @import("../../codegen.zig");

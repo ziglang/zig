@@ -2527,8 +2527,7 @@ fn writeThunkWorker(self: *MachO, thunk: Thunk) void {
 
     const doWork = struct {
         fn doWork(th: Thunk, buffer: []u8, macho_file: *MachO) !void {
-            var bw: std.io.BufferedWriter = undefined;
-            bw.initFixed(buffer[try macho_file.cast(usize, th.value)..][0..th.size()]);
+            var bw: Writer = .fixed(buffer[try macho_file.cast(usize, th.value)..][0..th.size()]);
             try th.write(macho_file, &bw);
         }
     }.doWork;
@@ -2556,8 +2555,7 @@ fn writeSyntheticSectionWorker(self: *MachO, sect_id: u8, out: []u8) void {
 
     const doWork = struct {
         fn doWork(macho_file: *MachO, tag: Tag, buffer: []u8) !void {
-            var bw: std.io.BufferedWriter = undefined;
-            bw.initFixed(buffer);
+            var bw: Writer = .fixed(buffer);
             switch (tag) {
                 .eh_frame => eh_frame.write(macho_file, buffer),
                 .unwind_info => try macho_file.unwind_info.write(macho_file, &bw),
@@ -2606,8 +2604,7 @@ fn updateLazyBindSizeWorker(self: *MachO) void {
             try macho_file.lazy_bind_section.updateSize(macho_file);
             const sect_id = macho_file.stubs_helper_sect_index.?;
             const out = &macho_file.sections.items(.out)[sect_id];
-            var bw: std.io.BufferedWriter = undefined;
-            bw.initFixed(out.items);
+            var bw: Writer = .fixed(out.items);
             try macho_file.stubs_helper.write(macho_file, &bw);
         }
     }.doWork;
@@ -2667,8 +2664,7 @@ fn writeDyldInfo(self: *MachO) !void {
     needed_size += cmd.lazy_bind_size;
     needed_size += cmd.export_size;
 
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(try gpa.alloc(u8, needed_size));
+    var bw: Writer = .fixed(try gpa.alloc(u8, needed_size));
     defer gpa.free(bw.buffer);
     @memset(bw.buffer, 0);
 
@@ -2690,8 +2686,7 @@ pub fn writeDataInCode(self: *MachO) !void {
     const gpa = self.base.comp.gpa;
     const cmd = self.data_in_code_cmd;
 
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(try gpa.alloc(u8, self.data_in_code.size()));
+    var bw: Writer = .fixed(try gpa.alloc(u8, self.data_in_code.size()));
     defer gpa.free(bw.buffer);
 
     try self.data_in_code.write(self, &bw);
@@ -2706,8 +2701,7 @@ fn writeIndsymtab(self: *MachO) !void {
     const gpa = self.base.comp.gpa;
     const cmd = self.dysymtab_cmd;
 
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(try gpa.alloc(u8, @sizeOf(u32) * cmd.nindirectsyms));
+    var bw: Writer = .fixed(try gpa.alloc(u8, @sizeOf(u32) * cmd.nindirectsyms));
     defer gpa.free(bw.buffer);
 
     try self.indsymtab.write(self, &bw);
@@ -2822,12 +2816,11 @@ fn calcSymtabSize(self: *MachO) !void {
     }
 }
 
-fn writeLoadCommands(self: *MachO) std.io.Writer.Error!struct { usize, usize, u64 } {
+fn writeLoadCommands(self: *MachO) Writer.Error!struct { usize, usize, u64 } {
     const comp = self.base.comp;
     const gpa = comp.gpa;
 
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(try gpa.alloc(u8, try load_commands.calcLoadCommandsSize(self, false)));
+    var bw: Writer = .fixed(try gpa.alloc(u8, try load_commands.calcLoadCommandsSize(self, false)));
     defer gpa.free(bw.buffer);
 
     var ncmds: usize = 0;
@@ -3021,8 +3014,7 @@ pub fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
     const seg = self.getTextSegment();
     const offset = self.codesig_cmd.dataoff;
 
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(try gpa.alloc(u8, code_sig.size()));
+    var bw: Writer = .fixed(try gpa.alloc(u8, code_sig.size()));
     defer gpa.free(bw.buffer);
     try code_sig.writeAdhocSignature(self, .{
         .file = self.base.file.?,
@@ -3910,7 +3902,7 @@ pub fn dumpState(self: *MachO) std.fmt.Formatter(fmtDumpState) {
     return .{ .data = self };
 }
 
-fn fmtDumpState(self: *MachO, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn fmtDumpState(self: *MachO, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     if (self.getZigObject()) |zo| {
         try bw.print("zig_object({d}) : {s}\n", .{ zo.index, zo.basename });
@@ -3969,7 +3961,7 @@ fn fmtSections(self: *MachO) std.fmt.Formatter(formatSections) {
     return .{ .data = self };
 }
 
-fn formatSections(self: *MachO, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatSections(self: *MachO, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.segment_id), 0..) |header, seg_id, i| {
@@ -3987,7 +3979,7 @@ fn fmtSegments(self: *MachO) std.fmt.Formatter(formatSegments) {
     return .{ .data = self };
 }
 
-fn formatSegments(self: *MachO, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatSegments(self: *MachO, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     for (self.segments.items, 0..) |seg, i| {
         try bw.print("seg({d}) : {s} : @{x}-{x} ({x}-{x})\n", .{
@@ -4001,7 +3993,7 @@ pub fn fmtSectType(tt: u8) std.fmt.Formatter(formatSectType) {
     return .{ .data = tt };
 }
 
-fn formatSectType(tt: u8, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatSectType(tt: u8, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const name = switch (tt) {
         macho.S_REGULAR => "REGULAR",
@@ -4270,7 +4262,7 @@ pub const Platform = struct {
         cpu_arch: std.Target.Cpu.Arch,
     };
 
-    pub fn formatTarget(ctx: FmtCtx, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+    pub fn formatTarget(ctx: FmtCtx, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
         _ = unused_fmt_string;
         try bw.print("{s}-{s}", .{ @tagName(ctx.cpu_arch), @tagName(ctx.platform.os_tag) });
         if (ctx.platform.abi != .none) {
@@ -4483,8 +4475,8 @@ pub const Ref = struct {
         };
     }
 
-    pub fn format(ref: Ref, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-        _ = unused_fmt_string;
+    pub fn format(ref: Ref, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+        comptime assert(unused_fmt_string.len == 0);
         try bw.print("%{d} in file({d})", .{ ref.index, ref.file });
     }
 };
@@ -5387,6 +5379,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
+const Writer = std.io.Writer;
 
 const aarch64 = @import("../arch/aarch64/bits.zig");
 const bind = @import("MachO/dyld_info/bind.zig");

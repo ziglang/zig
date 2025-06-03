@@ -622,8 +622,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
     const cpu_arch = elf_file.getTarget().cpu.arch;
     const file_ptr = self.file(elf_file).?;
 
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(code);
+    var bw: Writer = .fixed(code);
 
     const rels = self.relocs(elf_file);
     var it = RelocsIterator{ .relocs = rels };
@@ -807,8 +806,7 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
     const cpu_arch = elf_file.getTarget().cpu.arch;
     const file_ptr = self.file(elf_file).?;
 
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(code);
+    var bw: Writer = .fixed(code);
 
     const rels = self.relocs(elf_file);
     var has_reloc_errors = false;
@@ -908,7 +906,7 @@ pub fn setExtra(atom: Atom, extras: Extra, elf_file: *Elf) void {
     atom.file(elf_file).?.setAtomExtra(atom.extra_index, extras);
 }
 
-pub fn format(atom: Atom, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+pub fn format(atom: Atom, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = atom;
     _ = bw;
     _ = unused_fmt_string;
@@ -927,7 +925,7 @@ const FormatContext = struct {
     elf_file: *Elf,
 };
 
-fn format2(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const atom = ctx.atom;
     const elf_file = ctx.elf_file;
@@ -1079,8 +1077,8 @@ const x86_64 = struct {
         target: *const Symbol,
         args: ResolveArgs,
         it: *RelocsIterator,
-        bw: *std.io.BufferedWriter,
-    ) std.io.Writer.Error!void {
+        bw: *Writer,
+    ) Writer.Error!void {
         dev.check(.x86_64_backend);
         const t = &elf_file.base.comp.root_mod.resolved_target.result;
         const diags = &elf_file.base.comp.link_diags;
@@ -1211,8 +1209,8 @@ const x86_64 = struct {
         rel: elf.Elf64_Rela,
         target: *const Symbol,
         args: ResolveArgs,
-        bw: *std.io.BufferedWriter,
-    ) std.io.Writer.Error!void {
+        bw: *Writer,
+    ) Writer.Error!void {
         dev.check(.x86_64_backend);
 
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
@@ -1287,7 +1285,7 @@ const x86_64 = struct {
         rels: []const elf.Elf64_Rela,
         value: i32,
         elf_file: *Elf,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
     ) !void {
         dev.check(.x86_64_backend);
         assert(rels.len == 2);
@@ -1327,7 +1325,7 @@ const x86_64 = struct {
         rels: []const elf.Elf64_Rela,
         value: i32,
         elf_file: *Elf,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
     ) !void {
         dev.check(.x86_64_backend);
         assert(rels.len == 2);
@@ -1388,7 +1386,7 @@ const x86_64 = struct {
                     .{ .imm = .s(-129) },
                 }, t) catch return false;
                 var buf: [std.atomic.cache_line]u8 = undefined;
-                var bw = std.io.Writer.null.buffered(&buf);
+                var bw = Writer.null.buffered(&buf);
                 inst.encode(&bw, .{}) catch return false;
                 return true;
             },
@@ -1435,7 +1433,7 @@ const x86_64 = struct {
         rels: []const elf.Elf64_Rela,
         value: i32,
         elf_file: *Elf,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
     ) !void {
         dev.check(.x86_64_backend);
         assert(rels.len == 2);
@@ -1483,8 +1481,7 @@ const x86_64 = struct {
     }
 
     fn encode(insts: []const Instruction, code: []u8) !void {
-        var bw: std.io.BufferedWriter = undefined;
-        bw.initFixed(code);
+        var bw: Writer = .fixed(code);
         for (insts) |inst| try inst.encode(&bw, .{});
     }
 
@@ -1589,8 +1586,8 @@ const aarch64 = struct {
         target: *const Symbol,
         args: ResolveArgs,
         it: *RelocsIterator,
-        bw: *std.io.BufferedWriter,
-    ) std.io.Writer.Error!void {
+        bw: *Writer,
+    ) Writer.Error!void {
         _ = it;
 
         const diags = &elf_file.base.comp.link_diags;
@@ -1792,7 +1789,7 @@ const aarch64 = struct {
         rel: elf.Elf64_Rela,
         target: *const Symbol,
         args: ResolveArgs,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
     ) !void {
         const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
         _, const A, const S, _, _, _, _ = args;
@@ -1865,7 +1862,7 @@ const riscv = struct {
         target: *const Symbol,
         args: ResolveArgs,
         it: *RelocsIterator,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
     ) !void {
         const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_RISCV = @enumFromInt(rel.r_type());
@@ -2000,8 +1997,8 @@ const riscv = struct {
         rel: elf.Elf64_Rela,
         target: *const Symbol,
         args: ResolveArgs,
-        bw: *std.io.BufferedWriter,
-    ) std.io.Writer.Error!void {
+        bw: *Writer,
+    ) Writer.Error!void {
         const r_type: elf.R_RISCV = @enumFromInt(rel.r_type());
 
         _, const A, const S, const GOT, _, _, const DTP = args;
@@ -2105,14 +2102,15 @@ pub const Extra = struct {
 const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
-const eh_frame = @import("eh_frame.zig");
 const log = std.log.scoped(.link);
 const math = std.math;
 const mem = std.mem;
 const relocs_log = std.log.scoped(.link_relocs);
-const relocation = @import("relocation.zig");
-
 const Allocator = mem.Allocator;
+const Writer = std.io.Writer;
+
+const eh_frame = @import("eh_frame.zig");
+const relocation = @import("relocation.zig");
 const Atom = @This();
 const Elf = @import("../Elf.zig");
 const Fde = eh_frame.Fde;

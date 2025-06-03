@@ -1,10 +1,11 @@
+const WindowsSdk = @This();
+const builtin = @import("builtin");
+const std = @import("std");
+const Writer = std.io.Writer;
+
 windows10sdk: ?Installation,
 windows81sdk: ?Installation,
 msvc_lib_dir: ?[]const u8,
-
-const WindowsSdk = @This();
-const std = @import("std");
-const builtin = @import("builtin");
 
 const windows = std.os.windows;
 const RRF = windows.advapi32.RRF;
@@ -759,8 +760,7 @@ const MsvcLibDir = struct {
         while (instances_dir_it.next() catch return error.PathNotFound) |entry| {
             if (entry.kind != .directory) continue;
 
-            var bw: std.io.BufferedWriter = undefined;
-            bw.initFixed(&state_subpath_buf);
+            var bw: Writer = .fixed(&state_subpath_buf);
 
             bw.writeAll(entry.name) catch unreachable;
             bw.writeByte(std.fs.path.sep) catch unreachable;

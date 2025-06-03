@@ -23,6 +23,7 @@ const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.link);
 const assert = std.debug.assert;
 const Path = std.Build.Cache.Path;
+const Writer = std.io.Writer;
 
 base: link.File,
 sixtyfour_bit: bool,
@@ -336,25 +337,24 @@ fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void 
         };
         try fn_map_res.value_ptr.functions.put(gpa, nav_index, out);
 
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(arena);
+        var aw: std.io.AllocatingWriter = .init(arena);
         defer aw.deinit();
-        const bw = &aw.buffered_writer;
+        const w = &aw.interface;
 
         // every 'z' starts with 0
-        try bw.writeByte(0);
+        try w.writeByte(0);
         // path component value of '/'
-        try bw.writeInt(u16, 1, .big);
+        try w.writeInt(u16, 1, .big);
 
         // getting the full file path
         {
             const full_path = try file.path.toAbsolute(comp.dirs, gpa);
             defer gpa.free(full_path);
-            try self.addPathComponents(full_path, bw);
+            try self.addPathComponents(full_path, w);
         }
 
         // null terminate
-        try bw.writeByte(0);
+        try w.writeByte(0);
         const final = try aw.toOwnedSlice();
         self.syms.items[fn_map_res.value_ptr.sym_index - 1] = .{
             .type = .z,
@@ -370,17 +370,17 @@ fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void 
     }
 }
 
-fn addPathComponents(self: *Plan9, path: []const u8, bw: *std.io.BufferedWriter) !void {
+fn addPathComponents(self: *Plan9, path: []const u8, w: *Writer) !void {
     const gpa = self.base.comp.gpa;
     const sep = std.fs.path.sep;
     var it = std.mem.tokenizeScalar(u8, path, sep);
     while (it.next()) |component| {
         if (self.file_segments.get(component)) |num| {
-            try bw.writeInt(u16, num, .big);
+            try w.writeInt(u16, num, .big);
         } else {
             self.file_segments_i += 1;
             try self.file_segments.put(gpa, component, self.file_segments_i);
-            try bw.writeInt(u16, self.file_segments_i, .big);
+            try w.writeInt(u16, self.file_segments_i, .big);
         }
     }
 }
@@ -527,14 +527,14 @@ fn allocateGotIndex(self: *Plan9) usize {
     }
 }
 
-pub fn changeLine(bw: *std.io.Writer, delta_line: i32) !void {
+pub fn changeLine(w: *std.io.Writer, delta_line: i32) !void {
     if (delta_line > 0 and delta_line < 65) {
-        try bw.writeByte(@intCast(delta_line));
+        try w.writeByte(@intCast(delta_line));
     } else if (delta_line < 0 and delta_line > -65) {
-        try bw.writeByte(@intCast(-delta_line + 64));
+        try w.writeByte(@intCast(-delta_line + 64));
     } else if (delta_line != 0) {
-        try bw.writeByte(0);
-        try bw.writeInt(i32, delta_line, .big);
+        try w.writeByte(0);
+        try w.writeInt(i32, delta_line, .big);
     }
 }
 
@@ -1205,16 +1205,16 @@ pub fn writeSym(self: *Plan9, w: anytype, sym: aout.Sym) !void {
     try w.writeByte(0);
 }
 
-pub fn writeSyms(self: *Plan9, bw: *std.io.BufferedWriter) !void {
+pub fn writeSyms(self: *Plan9, w: *Writer) !void {
     const zcu = self.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
     // write __GOT
-    try self.writeSym(bw, self.syms.items[0]);
+    try self.writeSym(w, self.syms.items[0]);
     // write the f symbols
     {
         var it = self.file_segments.iterator();
         while (it.next()) |entry| {
-            try self.writeSym(bw, .{
+            try self.writeSym(w, .{
                 .type = .f,
                 .value = entry.value_ptr.*,
                 .name = entry.key_ptr.*,
@@ -1230,12 +1230,12 @@ pub fn writeSyms(self: *Plan9, bw: *std.io.BufferedWriter) !void {
             const nav_metadata = self.navs.get(nav_index).?;
             const atom = self.getAtom(nav_metadata.index);
             const sym = self.syms.items[atom.sym_index.?];
-            try self.writeSym(bw, sym);
+            try self.writeSym(w, sym);
             if (self.nav_exports.get(nav_index)) |export_indices| {
                 for (export_indices) |export_idx| {
                     const exp = export_idx.ptr(zcu);
                     if (nav_metadata.getExport(self, exp.opts.name.toSlice(ip))) |exp_i| {
-                        try self.writeSym(bw, self.syms.items[exp_i]);
+                        try self.writeSym(w, self.syms.items[exp_i]);
                     }
                 }
             }
@@ -1248,7 +1248,7 @@ pub fn writeSyms(self: *Plan9, bw: *std.io.BufferedWriter) !void {
             const meta = kv.value_ptr;
             const data_atom = if (meta.rodata_state != .unused) self.getAtomPtr(meta.rodata_atom) else continue;
             const sym = self.syms.items[data_atom.sym_index.?];
-            try self.writeSym(bw, sym);
+            try self.writeSym(w, sym);
         }
     }
     // text symbols are the hardest:
@@ -1259,8 +1259,8 @@ pub fn writeSyms(self: *Plan9, bw: *std.io.BufferedWriter) !void {
         while (it_file.next()) |fentry| {
             var symidx_and_submap = fentry.value_ptr;
             // write the z symbols
-            try self.writeSym(bw, self.syms.items[symidx_and_submap.sym_index - 1]);
-            try self.writeSym(bw, self.syms.items[symidx_and_submap.sym_index]);
+            try self.writeSym(w, self.syms.items[symidx_and_submap.sym_index - 1]);
+            try self.writeSym(w, self.syms.items[symidx_and_submap.sym_index]);
 
             // write all the decls come from the file of the z symbol
             var submap_it = symidx_and_submap.functions.iterator();
@@ -1269,7 +1269,7 @@ pub fn writeSyms(self: *Plan9, bw: *std.io.BufferedWriter) !void {
                 const nav_metadata = self.navs.get(nav_index).?;
                 const atom = self.getAtom(nav_metadata.index);
                 const sym = self.syms.items[atom.sym_index.?];
-                try self.writeSym(bw, sym);
+                try self.writeSym(w, sym);
                 if (self.nav_exports.get(nav_index)) |export_indices| {
                     for (export_indices) |export_idx| {
                         const exp = export_idx.ptr(zcu);
@@ -1277,7 +1277,7 @@ pub fn writeSyms(self: *Plan9, bw: *std.io.BufferedWriter) !void {
                             const s = self.syms.items[exp_i];
                             if (mem.eql(u8, s.name, "_start"))
                                 self.entry_val = s.value;
-                            try self.writeSym(bw, s);
+                            try self.writeSym(w, s);
                         }
                     }
                 }
@@ -1290,7 +1290,7 @@ pub fn writeSyms(self: *Plan9, bw: *std.io.BufferedWriter) !void {
                 const meta = kv.value_ptr;
                 const text_atom = if (meta.text_state != .unused) self.getAtomPtr(meta.text_atom) else continue;
                 const sym = self.syms.items[text_atom.sym_index.?];
-                try self.writeSym(bw, sym);
+                try self.writeSym(w, sym);
             }
         }
     }
@@ -1299,7 +1299,7 @@ pub fn writeSyms(self: *Plan9, bw: *std.io.BufferedWriter) !void {
         if (idx) |atom_idx| {
             const atom = self.getAtom(atom_idx);
             const sym = self.syms.items[atom.sym_index.?];
-            try self.writeSym(bw, sym);
+            try self.writeSym(w, sym);
         }
     }
 }

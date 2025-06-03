@@ -28,6 +28,7 @@ const fs = std.fs;
 const leb = std.leb;
 const log = std.log.scoped(.link);
 const mem = std.mem;
+const Writer = std.io.Writer;
 
 const Mir = @import("../arch/wasm/Mir.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
@@ -2124,8 +2125,8 @@ pub const FunctionType = extern struct {
         wasm: *const Wasm,
         ft: FunctionType,
 
-        pub fn format(self: Formatter, bw: *std.io.BufferedWriter, comptime format_string: []const u8) std.io.Writer.Error!void {
-            if (format_string.len != 0) std.fmt.invalidFmtError(format_string, self);
+        pub fn format(self: Formatter, bw: *Writer, comptime format_string: []const u8) Writer.Error!void {
+            comptime assert(format_string.len == 0);
             const params = self.ft.params.slice(self.wasm);
             const returns = self.ft.returns.slice(self.wasm);
 
@@ -2904,7 +2905,7 @@ pub const Feature = packed struct(u8) {
         @"=",
     };
 
-    pub fn format(feature: Feature, bw: *std.io.BufferedWriter, comptime fmt: []const u8) std.io.Writer.Error!void {
+    pub fn format(feature: Feature, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
         _ = fmt;
         try bw.print("{s} {s}", .{ @tagName(feature.prefix), @tagName(feature.tag) });
     }
@@ -3037,8 +3038,7 @@ fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
     const stat = try obj.file.stat();
     const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
-    var br: std.io.Reader = undefined;
-    br.initFixed(try gpa.alloc(u8, size));
+    var br: std.io.Reader = .fixed(try gpa.alloc(u8, size));
     defer gpa.free(br.storageBuffer());
 
     const n = try obj.file.preadAll(br.storageBuffer(), 0);

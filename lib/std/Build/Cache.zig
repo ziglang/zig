@@ -286,9 +286,8 @@ pub const HashHelper = struct {
 
 pub fn binToHex(bin_digest: BinDigest) HexDigest {
     var out_digest: HexDigest = undefined;
-    var bw: std.io.BufferedWriter = undefined;
-    bw.initFixed(&out_digest);
-    bw.printHex(&bin_digest, .lower) catch unreachable;
+    var w: std.io.Writer = .fixed(&out_digest);
+    w.printHex(&bin_digest, .lower) catch unreachable;
     return out_digest;
 }
 

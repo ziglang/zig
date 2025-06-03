@@ -317,7 +317,7 @@ pub fn updateArSize(self: *ZigObject) void {
     self.output_ar_state.size = self.data.items.len;
 }
 
-pub fn writeAr(self: ZigObject, bw: *std.io.BufferedWriter, ar_format: Archive.Format) std.io.Writer.Error!void {
+pub fn writeAr(self: ZigObject, bw: *Writer, ar_format: Archive.Format) Writer.Error!void {
     // Header
     const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
     try Archive.writeHeader(bw, self.basename, size, ar_format);
@@ -1688,7 +1688,7 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-fn formatSymtab(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     try bw.writeAll("  symbols\n");
     const self = ctx.self;
@@ -1711,7 +1711,7 @@ pub fn fmtAtoms(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(formatAt
     } };
 }
 
-fn formatAtoms(ctx: FormatContext, bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
+fn formatAtoms(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
     _ = unused_fmt_string;
     const self = ctx.self;
     const macho_file = ctx.macho_file;
@@ -1783,6 +1783,7 @@ const mem = std.mem;
 const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
+const Writer = std.io.Writer;
 
 const Allocator = std.mem.Allocator;
 const Archive = @import("Archive.zig");

@@ -27,7 +27,7 @@ pub const GotSection = struct {
         return got.symbols.items.len * @sizeOf(u64);
     }
 
-    pub fn write(got: GotSection, macho_file: *MachO, bw: *std.io.BufferedWriter) !void {
+    pub fn write(got: GotSection, macho_file: *MachO, bw: *Writer) !void {
         const tracy = trace(@src());
         defer tracy.end();
         for (got.symbols.items) |ref| {
@@ -48,7 +48,7 @@ pub const GotSection = struct {
 
     pub fn format2(
         ctx: FormatCtx,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         comptime unused_fmt_string: []const u8,
     ) !void {
         _ = unused_fmt_string;
@@ -94,7 +94,7 @@ pub const StubsSection = struct {
         return stubs.symbols.items.len * header.reserved2;
     }
 
-    pub fn write(stubs: StubsSection, macho_file: *MachO, bw: *std.io.BufferedWriter) !void {
+    pub fn write(stubs: StubsSection, macho_file: *MachO, bw: *Writer) !void {
         const tracy = trace(@src());
         defer tracy.end();
         const cpu_arch = macho_file.getTarget().cpu.arch;
@@ -137,7 +137,7 @@ pub const StubsSection = struct {
 
     pub fn format2(
         ctx: FormatCtx,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         comptime unused_fmt_string: []const u8,
     ) !void {
         _ = unused_fmt_string;
@@ -185,7 +185,7 @@ pub const StubsHelperSection = struct {
         return s;
     }
 
-    pub fn write(stubs_helper: StubsHelperSection, macho_file: *MachO, bw: *std.io.BufferedWriter) !void {
+    pub fn write(stubs_helper: StubsHelperSection, macho_file: *MachO, bw: *Writer) !void {
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -230,7 +230,7 @@ pub const StubsHelperSection = struct {
         }
     }
 
-    fn writePreamble(stubs_helper: StubsHelperSection, macho_file: *MachO, bw: *std.io.BufferedWriter) !void {
+    fn writePreamble(stubs_helper: StubsHelperSection, macho_file: *MachO, bw: *Writer) !void {
         _ = stubs_helper;
         const obj = macho_file.getInternalObject().?;
         const cpu_arch = macho_file.getTarget().cpu.arch;
@@ -289,7 +289,7 @@ pub const LaSymbolPtrSection = struct {
         return macho_file.stubs.symbols.items.len * @sizeOf(u64);
     }
 
-    pub fn write(laptr: LaSymbolPtrSection, macho_file: *MachO, bw: *std.io.BufferedWriter) !void {
+    pub fn write(laptr: LaSymbolPtrSection, macho_file: *MachO, bw: *Writer) !void {
         const tracy = trace(@src());
         defer tracy.end();
         _ = laptr;
@@ -339,7 +339,7 @@ pub const TlvPtrSection = struct {
         return tlv.symbols.items.len * @sizeOf(u64);
     }
 
-    pub fn write(tlv: TlvPtrSection, macho_file: *MachO, bw: *std.io.BufferedWriter) !void {
+    pub fn write(tlv: TlvPtrSection, macho_file: *MachO, bw: *Writer) !void {
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -364,7 +364,7 @@ pub const TlvPtrSection = struct {
 
     pub fn format2(
         ctx: FormatCtx,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         comptime unused_fmt_string: []const u8,
     ) !void {
         _ = unused_fmt_string;
@@ -415,7 +415,7 @@ pub const ObjcStubsSection = struct {
         return objc.symbols.items.len * entrySize(macho_file.getTarget().cpu.arch);
     }
 
-    pub fn write(objc: ObjcStubsSection, macho_file: *MachO, bw: *std.io.BufferedWriter) !void {
+    pub fn write(objc: ObjcStubsSection, macho_file: *MachO, bw: *Writer) !void {
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -487,7 +487,7 @@ pub const ObjcStubsSection = struct {
 
     pub fn format2(
         ctx: FormatCtx,
-        bw: *std.io.BufferedWriter,
+        bw: *Writer,
         comptime unused_fmt_string: []const u8,
     ) !void {
         _ = unused_fmt_string;
@@ -516,7 +516,7 @@ pub const Indsymtab = struct {
         macho_file.dysymtab_cmd.nindirectsyms = ind.nsyms(macho_file);
     }
 
-    pub fn write(ind: Indsymtab, macho_file: *MachO, bw: *std.io.BufferedWriter) !void {
+    pub fn write(ind: Indsymtab, macho_file: *MachO, bw: *Writer) !void {
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -593,7 +593,7 @@ pub const DataInCode = struct {
         macho_file.data_in_code_cmd.datasize = math.cast(u32, dice.size()) orelse return error.Overflow;
     }
 
-    pub fn write(dice: DataInCode, macho_file: *MachO, bw: *std.io.BufferedWriter) !void {
+    pub fn write(dice: DataInCode, macho_file: *MachO, bw: *Writer) !void {
         const base_address = if (!macho_file.base.isRelocatable())
             macho_file.getTextSegment().vmaddr
         else
@@ -617,13 +617,14 @@ pub const DataInCode = struct {
     };
 };
 
+const std = @import("std");
 const aarch64 = @import("../aarch64.zig");
 const assert = std.debug.assert;
 const macho = std.macho;
 const math = std.math;
-const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
-
 const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
+
+const trace = @import("../../tracy.zig").trace;
 const MachO = @import("../MachO.zig");
 const Symbol = @import("Symbol.zig");

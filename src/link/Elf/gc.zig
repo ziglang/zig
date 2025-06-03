@@ -185,8 +185,8 @@ const Level = struct {
         self.value += 1;
     }
 
-    pub fn format(self: *const @This(), bw: *std.io.BufferedWriter, comptime unused_fmt_string: []const u8) std.io.Writer.Error!void {
-        _ = unused_fmt_string;
+    pub fn format(self: *const @This(), bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
+        comptime assert(unused_fmt_string.len == 0);
         try bw.splatByteAll(' ', self.value);
     }
 };
@@ -198,8 +198,9 @@ const assert = std.debug.assert;
 const elf = std.elf;
 const gc_track_live_log = std.log.scoped(.gc_track_live);
 const mem = std.mem;
-
 const Allocator = mem.Allocator;
+const Writer = std.io.Writer;
+
 const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
