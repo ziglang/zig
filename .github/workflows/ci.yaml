@@ -11,7 +11,7 @@ permissions:
   contents: read
 jobs:
   build:
-    runs-on: big-ubuntu
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         target:
@@ -48,7 +48,7 @@ jobs:
     needs: build
     permissions:
       contents: write
-    runs-on: big-ubuntu
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
