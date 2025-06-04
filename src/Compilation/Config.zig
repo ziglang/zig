@@ -318,14 +318,6 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    var link_libunwind = b: {
-        if (link_libcpp and target_util.libCxxNeedsLibUnwind(target)) {
-            if (options.link_libunwind == false) return error.LibCppRequiresLibUnwind;
-            break :b true;
-        }
-        break :b options.link_libunwind orelse false;
-    };
-
     const link_libc = b: {
         if (target_util.osRequiresLibC(target)) {
             if (options.link_libc == false) return error.OsRequiresLibC;
@@ -335,7 +327,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.link_libc == false) return error.LibCppRequiresLibC;
             break :b true;
         }
-        if (link_libunwind) {
+        if (options.link_libunwind == true) {
             if (options.link_libc == false) return error.LibUnwindRequiresLibC;
             break :b true;
         }
@@ -406,12 +398,17 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b .static;
     };
 
-    // This is done here to avoid excessive duplicated logic due to the complex dependencies between these options.
-    if (options.output_mode == .Exe and link_libc and target_util.libCNeedsLibUnwind(target, link_mode)) {
-        if (options.link_libunwind == false) return error.LibCRequiresLibUnwind;
-
-        link_libunwind = true;
-    }
+    const link_libunwind = b: {
+        if (options.output_mode == .Exe and link_libc and target_util.libCNeedsLibUnwind(target, link_mode)) {
+            if (options.link_libunwind == false) return error.LibCRequiresLibUnwind;
+            break :b true;
+        }
+        if (link_libcpp and target_util.libCxxNeedsLibUnwind(target)) {
+            if (options.link_libunwind == false) return error.LibCppRequiresLibUnwind;
+            break :b true;
+        }
+        break :b options.link_libunwind orelse false;
+    };
 
     const import_memory = options.import_memory orelse (options.output_mode == .Obj);
     const export_memory = b: {
