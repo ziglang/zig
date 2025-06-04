@@ -1040,11 +1040,8 @@ pub const Serializer = struct {
 };
 
 test Serializer {
-    var bw: Writer = .{
-        .unbuffered_writer = .discarding,
-        .buffer = &.{},
-    };
-    var s: Serializer = .{ .writer = &bw };
+    var w: Writer = .discarding(&.{});
+    var s: Serializer = .{ .writer = &w };
     var vec2 = try s.beginStruct(.{});
     try vec2.field("x", 1.5, .{});
     try vec2.fieldPrefix("prefix");

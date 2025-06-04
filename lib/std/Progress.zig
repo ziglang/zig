@@ -608,12 +608,10 @@ pub fn unlockStdErr() void {
 }
 
 /// Protected by `stderr_mutex`.
-var stderr_buffered_writer: Writer = .{
-    .unbuffered_writer = stderr_file_writer.interface(),
-    .buffer = &.{},
-};
+const stderr_writer: *Writer = &stderr_file_writer.interface;
 /// Protected by `stderr_mutex`.
 var stderr_file_writer: std.fs.File.Writer = .{
+    .interface = std.fs.File.Writer.init_interface(&.{}),
     .file = if (is_windows) undefined else .stderr(),
     .mode = .streaming,
 };
@@ -628,14 +626,14 @@ pub fn lockStderrWriter(buffer: []u8) *Writer {
     stderr_mutex.lock();
     clearWrittenWithEscapeCodes() catch {};
     if (is_windows) stderr_file_writer.file = .stderr();
-    stderr_buffered_writer.flush() catch {};
-    stderr_buffered_writer.buffer = buffer;
-    return &stderr_buffered_writer;
+    stderr_writer.flush() catch {};
+    stderr_writer.buffer = buffer;
+    return &stderr_writer;
 }
 
 pub fn unlockStderrWriter() void {
-    stderr_buffered_writer.flush() catch {};
-    stderr_buffered_writer.buffer = &.{};
+    stderr_writer.flush() catch {};
+    stderr_writer.buffer = &.{};
     stderr_mutex.unlock();
 }
 

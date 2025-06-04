@@ -197,12 +197,9 @@ pub fn serialize(params: anytype, str: []u8) Error![]const u8 {
 /// Compute the number of bytes required to serialize `params`
 pub fn calcSize(params: anytype) usize {
     var trash: [128]u8 = undefined;
-    var bw: Writer = .{
-        .unbuffered_writer = .discarding,
-        .buffer = &trash,
-    };
-    serializeTo(params, &bw) catch unreachable;
-    return bw.count;
+    var w: Writer = .discarding(&trash);
+    serializeTo(params, &w) catch unreachable;
+    return w.count;
 }
 
 fn serializeTo(params: anytype, out: *Writer) !void {
