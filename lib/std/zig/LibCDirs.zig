@@ -170,6 +170,8 @@ pub fn detectFromBuilding(
     // Some architecture families are handled by the same set of headers.
     const arch_name = if (target.isMuslLibC() or target.isWasiLibC())
         std.zig.target.muslArchNameHeaders(target.cpu.arch)
+    else if (target.isGnuLibC())
+        std.zig.target.glibcArchNameHeaders(target.cpu.arch)
     else if (target.isFreeBSDLibC())
         std.zig.target.freebsdArchNameHeaders(target.cpu.arch)
     else if (target.isNetBSDLibC())
@@ -179,6 +181,10 @@ pub fn detectFromBuilding(
     const os_name = @tagName(target.os.tag);
     const abi_name = if (target.isMuslLibC())
         std.zig.target.muslAbiNameHeaders(target.abi)
+    else if (target.isGnuLibC())
+        std.zig.target.glibcAbiNameHeaders(target.abi)
+    else if (target.isNetBSDLibC())
+        std.zig.target.netbsdAbiNameHeaders(target.abi)
     else
         @tagName(target.abi);
     const arch_include_dir = try std.fmt.allocPrint(

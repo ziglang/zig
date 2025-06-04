@@ -916,7 +916,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "copysignl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cosl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cosl_internal.S",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cossin.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cossinl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "exp2l.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "expl.c",
@@ -965,11 +964,8 @@ const mingw32_x86_32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atan2f.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atanf.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ceilf.S",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cosf.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "floorf.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fmodf.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "sinf.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "tanf.c",
 };
 
 const mingw32_arm_src = [_][]const u8{
@@ -983,7 +979,6 @@ const mingw32_arm32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "s_rint.c",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "s_rintf.c",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "sincos.S",
-    "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "sincosf.S",
 };
 
 const mingw32_arm64_src = [_][]const u8{
@@ -992,7 +987,6 @@ const mingw32_arm64_src = [_][]const u8{
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rint.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rintf.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "sincos.S",
-    "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "sincosf.S",
 };
 
 const mingw32_winpthreads_src = [_][]const u8{
@@ -1011,21 +1005,7 @@ const mingw32_winpthreads_src = [_][]const u8{
     "winpthreads" ++ path.sep_str ++ "thread.c",
 };
 
-const always_link_libs = [_][]const u8{
-    "advapi32",
-    "kernel32",
-    "ntdll",
-    "shell32",
-    "user32",
-};
-
-// In Debug mode, we link against `ucrtbased.dll` instead of the API set DLLs so that we can get
-// access to functions like `_CrtDbgReport`.
-pub const always_link_libs_debug = [_][]const u8{
-    "ucrtbased",
-} ++ always_link_libs;
-
-pub const always_link_libs_release = [_][]const u8{
+pub const always_link_libs = [_][]const u8{
     "api-ms-win-crt-conio-l1-1-0",
     "api-ms-win-crt-convert-l1-1-0",
     "api-ms-win-crt-environment-l1-1-0",
@@ -1041,4 +1021,9 @@ pub const always_link_libs_release = [_][]const u8{
     "api-ms-win-crt-string-l1-1-0",
     "api-ms-win-crt-time-l1-1-0",
     "api-ms-win-crt-utility-l1-1-0",
-} ++ always_link_libs;
+    "advapi32",
+    "kernel32",
+    "ntdll",
+    "shell32",
+    "user32",
+};

@@ -8005,8 +8005,9 @@ pub const pthread_rwlock_t = switch (native_os) {
     .netbsd => extern struct {
         magic: c_uint = 0x99990009,
         interlock: switch (builtin.cpu.arch) {
-            .aarch64, .sparc, .x86_64, .x86 => u8,
-            .arm, .powerpc => c_int,
+            .aarch64, .aarch64_be, .m68k, .sparc, .sparc64, .x86, .x86_64 => u8,
+            .arm, .armeb, .powerpc => c_int,
+            .mips, .mipsel, .mips64, .mips64el => c_uint,
             else => unreachable,
         } = 0,
         rblocked_first: ?*u8 = null,
@@ -10385,12 +10386,20 @@ pub const sigaction = switch (native_os) {
 
 /// Zig's version of SIGRTMIN.  Actually a function.
 pub fn sigrtmin() u8 {
-    return @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmin())));
+    return switch (native_os) {
+        .freebsd => 65,
+        .netbsd => 33,
+        else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmin()))),
+    };
 }
 
 /// Zig's version of SIGRTMAX.  Actually a function.
 pub fn sigrtmax() u8 {
-    return @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmax())));
+    return switch (native_os) {
+        .freebsd => 126,
+        .netbsd => 63,
+        else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmax()))),
+    };
 }
 
 pub const sigfillset = switch (native_os) {
@@ -11255,7 +11264,7 @@ const private = struct {
     extern "c" fn __msync13(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn __nanosleep50(rqtp: *const timespec, rmtp: ?*timespec) c_int;
     extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
-    extern "c" fn __sigfillset14(set: ?*sigset_t) void;
+    extern "c" fn __sigfillset14(set: ?*sigset_t) c_int;
     extern "c" fn __sigprocmask14(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn __socket30(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
     extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;

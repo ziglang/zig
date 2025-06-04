@@ -265,7 +265,7 @@ comptime {
         _ = @import("compiler_rt/ssp.zig");
     }
 
-    if (!builtin.link_libc and builtin.abi == .msvc) {
+    if (!builtin.link_libc and builtin.os.tag == .windows and (builtin.abi == .none or builtin.abi == .msvc)) {
         @export(&_fltused, .{ .name = "_fltused", .linkage = common.linkage, .visibility = common.visibility });
     }
 }

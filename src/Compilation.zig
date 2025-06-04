@@ -2352,12 +2352,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     comp.remaining_prelink_tasks += 2;
 
                     // When linking mingw-w64 there are some import libs we always need.
-                    const always_link_libs: []const []const u8 = switch (comp.root_mod.optimize_mode) {
-                        .Debug => &mingw.always_link_libs_debug,
-                        .ReleaseSafe, .ReleaseFast, .ReleaseSmall => &mingw.always_link_libs_release,
-                    };
-                    try comp.windows_libs.ensureUnusedCapacity(gpa, always_link_libs.len);
-                    for (always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
+                    try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
+                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
                 } else {
                     return error.LibCUnavailable;
                 }
@@ -5908,8 +5904,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         // them being defined matches the behavior of how MSVC calls rc.exe which is the more
         // relevant behavior in this case.
         switch (rc_src.owner.optimize_mode) {
-            .Debug => try argv.append("-D_DEBUG"),
-            .ReleaseSafe => {},
+            .Debug, .ReleaseSafe => {},
             .ReleaseFast, .ReleaseSmall => try argv.append("-DNDEBUG"),
         }
         try argv.appendSlice(rc_src.extra_flags);
@@ -6264,10 +6259,7 @@ pub fn addCCArgs(
         // LLVM IR files don't support these flags.
         if (ext != .ll and ext != .bc) {
             switch (mod.optimize_mode) {
-                .Debug => {
-                    // windows c runtime requires -D_DEBUG if using debug libraries
-                    try argv.append("-D_DEBUG");
-                },
+                .Debug => {},
                 .ReleaseSafe => {
                     try argv.append("-D_FORTIFY_SOURCE=2");
                 },

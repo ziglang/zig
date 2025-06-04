@@ -463,7 +463,10 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
 
     try args.append("-I");
     try args.append(try std.fmt.allocPrint(arena, "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}", .{
-        comp.dirs.zig_lib.path orelse ".", @tagName(target.cpu.arch), @tagName(target.os.tag), @tagName(target.abi),
+        comp.dirs.zig_lib.path orelse ".",
+        std.zig.target.glibcArchNameHeaders(target.cpu.arch),
+        @tagName(target.os.tag),
+        std.zig.target.glibcAbiNameHeaders(target.abi),
     }));
 
     try args.append("-I");

@@ -111,7 +111,7 @@ pub const Instruction = struct {
         };
 
         pub fn initMoffs(reg: Register, offset: u64) Memory {
-            assert(reg.class() == .segment);
+            assert(reg.isClass(.segment));
             return .{ .moffs = .{ .seg = reg, .offset = offset } };
         }
 
@@ -139,7 +139,7 @@ pub const Instruction = struct {
                 .rip => false,
                 .sib => |s| switch (s.base) {
                     .none, .frame, .table, .reloc, .rip_inst => false,
-                    .reg => |reg| reg.class() == .segment,
+                    .reg => |reg| reg.isClass(.segment),
                 },
             };
         }
@@ -199,7 +199,7 @@ pub const Instruction = struct {
         pub fn isSegmentRegister(op: Operand) bool {
             return switch (op) {
                 .none => unreachable,
-                .reg => |reg| reg.class() == .segment,
+                .reg => |reg| reg.isClass(.segment),
                 .mem => |mem| mem.isSegmentRegister(),
                 .imm => unreachable,
                 .bytes => unreachable,
@@ -776,7 +776,7 @@ pub const LegacyPrefixes = packed struct {
     padding: u5 = 0,
 
     pub fn setSegmentOverride(self: *LegacyPrefixes, reg: Register) void {
-        assert(reg.class() == .segment);
+        assert(reg.isClass(.segment));
         switch (reg) {
             .cs => self.prefix_2e = true,
             .ss => self.prefix_36 = true,
@@ -2457,7 +2457,7 @@ const Assembler = struct {
                 .general_purpose, .segment => {
                     const tok = try as.expect(.string);
                     const base = registerFromString(as.source(tok)) orelse return error.InvalidMemoryOperand;
-                    if (base.class() != cond) return error.InvalidMemoryOperand;
+                    if (!base.isClass(cond)) return error.InvalidMemoryOperand;
                     res.base = base;
                 },
                 .rip => {
@@ -2498,7 +2498,7 @@ const Assembler = struct {
                         error.Overflow => {
                             if (is_neg) return err;
                             if (res.base) |base| {
-                                if (base.class() != .segment) return err;
+                                if (!base.isClass(.segment)) return err;
                             }
                             const offset = try std.fmt.parseInt(u64, as.source(tok), 0);
                             res.offset = offset;

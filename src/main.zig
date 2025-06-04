@@ -4749,6 +4749,7 @@ const usage_init =
     \\   directory.
     \\
     \\Options:
+    \\  -s, --strip            Generate files without comments
     \\  -h, --help             Print this help and exit
     \\
     \\
@@ -4757,12 +4758,15 @@ const usage_init =
 fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     dev.check(.init_command);
 
+    var strip = false;
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
-                if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
+                if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip")) {
+                    strip = true;
+                } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                     try io.getStdOut().writeAll(usage_init);
                     return cleanExit();
                 } else {
@@ -4774,7 +4778,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         }
     }
 
-    var templates = findTemplates(gpa, arena);
+    var templates = findTemplates(gpa, arena, strip);
     defer templates.deinit();
 
     const cwd_path = try introspect.getResolvedCwd(arena);
@@ -7332,7 +7336,7 @@ fn loadManifest(
         ) catch |err| switch (err) {
             error.FileNotFound => {
                 const fingerprint: Package.Fingerprint = .generate(options.root_name);
-                var templates = findTemplates(gpa, arena);
+                var templates = findTemplates(gpa, arena, true);
                 defer templates.deinit();
                 templates.write(arena, options.dir, options.root_name, Package.Manifest.basename, fingerprint) catch |e| {
                     fatal("unable to write {s}: {s}", .{
@@ -7378,6 +7382,7 @@ const Templates = struct {
     zig_lib_directory: Cache.Directory,
     dir: fs.Dir,
     buffer: std.ArrayList(u8),
+    strip: bool,
 
     fn deinit(templates: *Templates) void {
         templates.zig_lib_directory.handle.close();
@@ -7406,9 +7411,28 @@ const Templates = struct {
         };
         templates.buffer.clearRetainingCapacity();
         try templates.buffer.ensureUnusedCapacity(contents.len);
+        var new_line = templates.strip;
         var i: usize = 0;
         while (i < contents.len) {
-            if (contents[i] == '.') {
+            if (new_line) {
+                const trimmed = std.mem.trimLeft(u8, contents[i..], " ");
+                if (std.mem.startsWith(u8, trimmed, "//")) {
+                    i += std.mem.indexOfScalar(u8, contents[i..], '\n') orelse break;
+                    i += 1;
+                    continue;
+                } else {
+                    new_line = false;
+                }
+            }
+            if (templates.strip and contents[i] == '\n') {
+                new_line = true;
+            } else if (contents[i] == '_') {
+                if (std.mem.startsWith(u8, contents[i..], "_LITNAME")) {
+                    try templates.buffer.appendSlice(root_name);
+                    i += "_LITNAME".len;
+                    continue;
+                }
+            } else if (contents[i] == '.') {
                 if (std.mem.startsWith(u8, contents[i..], ".LITNAME")) {
                     try templates.buffer.append('.');
                     try templates.buffer.appendSlice(root_name);
@@ -7440,7 +7464,7 @@ const Templates = struct {
     }
 };
 
-fn findTemplates(gpa: Allocator, arena: Allocator) Templates {
+fn findTemplates(gpa: Allocator, arena: Allocator, strip: bool) Templates {
     const cwd_path = introspect.getResolvedCwd(arena) catch |err| {
         fatal("unable to get cwd: {s}", .{@errorName(err)});
     };
@@ -7464,6 +7488,7 @@ fn findTemplates(gpa: Allocator, arena: Allocator) Templates {
         .zig_lib_directory = zig_lib_directory,
         .dir = template_dir,
         .buffer = std.ArrayList(u8).init(gpa),
+        .strip = strip,
     };
 }
 

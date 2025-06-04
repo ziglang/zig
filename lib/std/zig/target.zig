@@ -233,6 +233,25 @@ pub fn muslAbiNameHeaders(abi: std.Target.Abi) [:0]const u8 {
     };
 }
 
+pub fn glibcArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
+    return switch (arch) {
+        .aarch64, .aarch64_be => "aarch64",
+        .arm, .armeb => "arm",
+        .loongarch64 => "loongarch",
+        .mips, .mipsel, .mips64, .mips64el => "mips",
+        .powerpc, .powerpc64, .powerpc64le => "powerpc",
+        .riscv32, .riscv64 => "riscv",
+        .sparc, .sparc64 => "sparc",
+        .x86, .x86_64 => "x86",
+        else => @tagName(arch),
+    };
+}
+
+pub fn glibcAbiNameHeaders(abi: std.Target.Abi) [:0]const u8 {
+    _ = abi;
+    return "gnu";
+}
+
 pub fn freebsdArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
     return switch (arch) {
         .powerpc64le => "powerpc64",
@@ -247,6 +266,13 @@ pub fn netbsdArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
         .mipsel => "mips",
         .mips64el => "mips64",
         else => @tagName(arch),
+    };
+}
+
+pub fn netbsdAbiNameHeaders(abi: std.Target.Abi) [:0]const u8 {
+    return switch (abi) {
+        .eabi, .eabihf => "eabi",
+        else => "none",
     };
 }
 
