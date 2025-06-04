@@ -13,6 +13,7 @@ pub const Entry = struct {
 
 const IteratorError = error{
     AccessDenied,
+    PermissionDenied,
     SystemResources,
     /// WASI-only. The path of an entry could not be encoded as valid UTF-8.
     /// WASI is unable to handle paths that cannot be encoded as well-formed UTF-8.
@@ -287,7 +288,7 @@ pub const Iterator = switch (native_os) {
                     name,
                     false,
                     &stat_info,
-                    0,
+                    @sizeOf(posix.Stat),
                 )))) {
                     .SUCCESS => {},
                     .INVAL => unreachable,
