@@ -58,7 +58,9 @@ pub const Block = struct {
 pub const Error = error{
     NotPemData,
     PemDataEmpty,
-    PemHeaderHasColon,
+    PemHeaderKeyEmpty,
+    PemHeaderKeyHasColon,
+    PemHeaderValueHasColon,
 };
 
 const pem_start = "\n-----BEGIN ";
@@ -181,8 +183,15 @@ pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
 
     var headers_it = hc.iterator();
     while (headers_it.next()) |kv| {
+        if (kv.key_ptr.*.len == 0) {
+            return Error.PemHeaderKeyEmpty;
+        }
+        if (mem.indexOf(u8, kv.key_ptr.*, ":") != null) {
+            return Error.PemHeaderKeyHasColon;
+        }
+
         if (mem.indexOf(u8, kv.value_ptr.*, ":") != null) {
-            return Error.PemHeaderHasColon;
+            return Error.PemHeaderValueHasColon;
         }
     }
 
@@ -224,9 +233,9 @@ pub fn encode(allocator: Allocator, b: Block) ![:0]u8 {
             }
 
             // strings sort a to z
-            sort.block([]const u8, h[0..h.len-1], {}, stringSort([]const u8));
+            sort.block([]const u8, h[0 .. h.len - 1], {}, stringSort([]const u8));
 
-            for (h[0..h.len-1]) |k| {
+            for (h[0 .. h.len - 1]) |k| {
                 if (b.headers.get(k)) |val| {
                     try appendHeader(&buf, k, val);
                 }
@@ -290,12 +299,12 @@ pub fn stringSort(comptime T: type) fn (void, T, T) bool {
     }.inner;
 }
 
-const GetLineData = struct {
+const LineData = struct {
     line: []const u8,
     rest: []const u8,
 };
 
-fn getLine(data: []const u8) GetLineData {
+fn getLine(data: []const u8) LineData {
     var i = data.len;
     var j = i;
 
@@ -320,7 +329,7 @@ fn removeSpacesAndTabs(alloc: Allocator, data: []const u8) ![:0]u8 {
     defer buf.deinit();
 
     for (data) |b| {
-        if (b == ' ' or b == '\t' or b == '\n') {
+        if (b == ' ' or b == '\t' or b == '\n' or b == '\r') {
             continue;
         }
 
@@ -337,11 +346,10 @@ const CutData = struct {
 };
 
 fn cut(s: []const u8, sep: []const u8) CutData {
-    const i = mem.indexOf(u8, s, sep);
-    if (i) |j| {
+    if (mem.indexOf(u8, s, sep)) |i| {
         return .{
-            .before = s[0..j],
-            .after = s[j + sep.len ..],
+            .before = s[0..i],
+            .after = s[i + sep.len ..],
             .found = true,
         };
     }
