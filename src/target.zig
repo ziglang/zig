@@ -43,10 +43,6 @@ pub fn libCxxNeedsLibUnwind(target: std.Target) bool {
     };
 }
 
-pub fn requiresPIE(target: std.Target) bool {
-    return target.abi.isAndroid() or target.os.tag.isDarwin() or target.os.tag == .openbsd;
-}
-
 /// This function returns whether non-pic code is completely invalid on the given target.
 pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
     return target.abi.isAndroid() or
