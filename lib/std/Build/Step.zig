@@ -39,6 +39,7 @@ state: State,
 /// total system memory available.
 max_rss: usize,
 
+result_skip_reason: ?[]const u8 = null,
 result_error_msgs: std.ArrayListUnmanaged([]const u8),
 result_error_bundle: std.zig.ErrorBundle,
 result_stderr: []const u8,
