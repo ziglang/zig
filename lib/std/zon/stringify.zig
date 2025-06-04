@@ -664,11 +664,7 @@ pub fn Serializer(Writer: type) type {
             var buf: [8]u8 = undefined;
             const len = std.unicode.utf8Encode(val, &buf) catch return error.InvalidCodepoint;
             const str = buf[0..len];
-            if (len > 1) {
-                try std.fmt.format(self.writer, "\"{}\"", .{std.zig.fmtEscapes(str)});
-            } else {
-                try std.fmt.format(self.writer, "'{'}'", .{std.zig.fmtEscapes(str)});
-            }
+            try std.fmt.format(self.writer, "'{'}'", .{std.zig.fmtEscapes(str)});
         }
 
         /// Like `value`, but always serializes `val` as a tuple.
@@ -1621,11 +1617,11 @@ test "std.zon stringify utf8 codepoints" {
     buf.clearRetainingCapacity();
 
     try sz.codePoint('⚡');
-    try std.testing.expectEqualStrings("\"\\xe2\\x9a\\xa1\"", buf.items);
+    try std.testing.expectEqualStrings("'\\xe2\\x9a\\xa1'", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.value('⚡', .{ .emit_codepoint_literals = .always });
-    try std.testing.expectEqualStrings("\"\\xe2\\x9a\\xa1\"", buf.items);
+    try std.testing.expectEqualStrings("'\\xe2\\x9a\\xa1'", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.value('⚡', .{ .emit_codepoint_literals = .printable_ascii });
@@ -1670,7 +1666,7 @@ test "std.zon stringify utf8 codepoints" {
 
     // Make sure value options are passed to children
     try sz.value(.{ .c = '⚡' }, .{ .emit_codepoint_literals = .always });
-    try std.testing.expectEqualStrings(".{ .c = \"\\xe2\\x9a\\xa1\" }", buf.items);
+    try std.testing.expectEqualStrings(".{ .c = '\\xe2\\x9a\\xa1' }", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.value(.{ .c = '⚡' }, .{ .emit_codepoint_literals = .never });
