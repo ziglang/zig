@@ -32508,11 +32508,11 @@ fn analyzeSlice(
                     const actual_len = if (array_ty.zigTypeTag(zcu) == .array)
                         try pt.intRef(.usize, array_ty.arrayLenIncludingSentinel(zcu))
                     else if (slice_ty.isSlice(zcu)) l: {
-                        const slice_len_inst = try block.addTyOp(.slice_len, .usize, ptr_or_slice);
+                        const slice_len = try sema.analyzeSliceLen(block, src, ptr_or_slice);
                         break :l if (slice_ty.sentinel(zcu) == null)
-                            slice_len_inst
+                            slice_len
                         else
-                            try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src, true);
+                            try sema.analyzeArithmetic(block, .add, slice_len, .one, src, end_src, end_src, true);
                     } else break :bounds_check;
 
                     const actual_end = if (slice_sentinel != null)
