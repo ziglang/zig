@@ -84,7 +84,7 @@ pub fn defaultSingleThreaded(target: std.Target) bool {
     return false;
 }
 
-pub fn hasValgrindSupport(target: std.Target) bool {
+pub fn hasValgrindSupport(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     // We can't currently output the necessary Valgrind client request assembly when using the C
     // backend and compiling with an MSVC-like compiler.
     const ofmt_c_msvc = (target.abi == .msvc or target.abi == .itanium) and target.ofmt == .c;
@@ -103,7 +103,11 @@ pub fn hasValgrindSupport(target: std.Target) bool {
             else => false,
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (target.os.tag) {
-            .linux => true,
+            .linux => backend != .stage2_powerpc, // Insufficient inline assembly support in self-hosted.
+            else => false,
+        },
+        .riscv64 => switch (target.os.tag) {
+            .linux => backend != .stage2_riscv64, // Insufficient inline assembly support in self-hosted.
             else => false,
         },
         .s390x => switch (target.os.tag) {

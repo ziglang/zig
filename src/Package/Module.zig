@@ -113,8 +113,10 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         break :b options.global.root_strip;
     };
 
+    const zig_backend = target_util.zigBackend(target, options.global.use_llvm);
+
     const valgrind = b: {
-        if (!target_util.hasValgrindSupport(target)) {
+        if (!target_util.hasValgrindSupport(target, zig_backend)) {
             if (options.inherited.valgrind == true)
                 return error.ValgrindUnsupportedOnTarget;
             break :b false;
@@ -124,8 +126,6 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         if (strip) break :b false;
         break :b optimize_mode == .Debug;
     };
-
-    const zig_backend = target_util.zigBackend(target, options.global.use_llvm);
 
     const single_threaded = b: {
         if (target_util.alwaysSingleThreaded(target)) {

@@ -11604,7 +11604,7 @@ pub const FuncGen = struct {
         const pt = o.pt;
         const zcu = pt.zcu;
         const target = zcu.getTarget();
-        if (!target_util.hasValgrindSupport(target)) return default_value;
+        if (!target_util.hasValgrindSupport(target, .stage2_llvm)) return default_value;
 
         const llvm_usize = try o.lowerType(Type.usize);
         const usize_alignment = Type.usize.abiAlignment(zcu).toLlvm();
@@ -11677,6 +11677,19 @@ pub const FuncGen = struct {
                 \\ or     1, 1, 1
                 ,
                 .constraints = "={r3},{r4},{r3},~{cc},~{memory}",
+            },
+            .riscv64 => .{
+                .template =
+                \\ .option push
+                \\ .option norvc
+                \\ srli zero, zero, 3
+                \\ srli zero, zero, 13
+                \\ srli zero, zero, 51
+                \\ srli zero, zero, 61
+                \\ or   a0,   a0,   a0
+                \\ .option pop
+                ,
+                .constraints = "={a3},{a4},{a3},~{cc},~{memory}",
             },
             .s390x => .{
                 .template =
