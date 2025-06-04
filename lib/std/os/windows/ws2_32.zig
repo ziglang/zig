@@ -19,7 +19,7 @@ const ULONG = windows.ULONG;
 const LPARAM = windows.LPARAM;
 const FARPROC = windows.FARPROC;
 
-pub const SOCKET = *opaque {};
+pub const SOCKET = HANDLE;
 pub const INVALID_SOCKET = @as(SOCKET, @ptrFromInt(~@as(usize, 0)));
 
 pub const GROUP = u32;
