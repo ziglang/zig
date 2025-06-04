@@ -378,9 +378,9 @@ pub fn emitMir(emit: *Emit) Error!void {
                                     };
                                     break :stack_value &loc_buf[0];
                                 } } },
-                                .pseudo_dbg_local_as => .{ mir_inst.data.as.air_inst, .{ .addr = .{
-                                    .sym = mir_inst.data.as.sym_index,
-                                } } },
+                                .pseudo_dbg_local_as => .{ mir_inst.data.as.air_inst, .{
+                                    .addr_reloc = mir_inst.data.as.sym_index,
+                                } },
                                 .pseudo_dbg_local_aso => loc: {
                                     const sym_off = emit.lower.mir.extraData(
                                         bits.SymbolOffset,
@@ -388,7 +388,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                     ).data;
                                     break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
                                         sym: {
-                                            loc_buf[0] = .{ .addr = .{ .sym = sym_off.sym_index } };
+                                            loc_buf[0] = .{ .addr_reloc = sym_off.sym_index };
                                             break :sym &loc_buf[0];
                                         },
                                         off: {
@@ -437,7 +437,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                                 .none => .{ .constu = 0 },
                                                 .reg => |reg| .{ .breg = reg.dwarfNum() },
                                                 .frame, .table, .rip_inst => unreachable,
-                                                .reloc => |sym_index| .{ .addr = .{ .sym = sym_index } },
+                                                .reloc => |sym_index| .{ .addr_reloc = sym_index },
                                             };
                                             break :base &loc_buf[0];
                                         },

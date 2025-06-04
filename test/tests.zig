@@ -1113,8 +1113,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .none,
             },
-            .use_llvm = false,
-            .use_lld = false,
         },
         .{
             .target = .{
@@ -1123,8 +1121,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .none,
             },
-            .use_llvm = false,
-            .use_lld = false,
             .pic = true,
         },
         .{
@@ -1134,8 +1130,6 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .none,
             },
-            .use_llvm = false,
-            .use_lld = false,
             .strip = true,
         },
         .{
@@ -1144,6 +1138,8 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .none,
             },
+            .use_llvm = true,
+            .use_lld = true,
         },
         .{
             .target = .{

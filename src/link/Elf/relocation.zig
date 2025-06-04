@@ -108,12 +108,13 @@ pub const dwarf = struct {
 
     pub fn externalRelocType(
         target: Symbol,
+        is_got: bool,
         source_section: Dwarf.Section.Index,
         address_size: Dwarf.AddressSize,
         cpu_arch: std.Target.Cpu.Arch,
     ) u32 {
         return switch (cpu_arch) {
-            .x86_64 => @intFromEnum(@as(elf.R_X86_64, switch (source_section) {
+            .x86_64 => @intFromEnum(@as(elf.R_X86_64, if (is_got) .GOT32 else switch (source_section) {
                 else => switch (address_size) {
                     .@"32" => if (target.flags.is_tls) .DTPOFF32 else .@"32",
                     .@"64" => if (target.flags.is_tls) .DTPOFF64 else .@"64",

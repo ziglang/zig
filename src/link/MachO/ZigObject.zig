@@ -648,7 +648,7 @@ pub fn getNavVAddr(
             .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
                 .source_off = @intCast(reloc_info.offset),
                 .target_sym = sym_index,
-                .target_off = reloc_info.addend,
+                .target_off = .rel(reloc_info.addend),
             }),
             .plan9 => unreachable,
             .none => unreachable,
@@ -688,7 +688,7 @@ pub fn getUavVAddr(
             .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
                 .source_off = @intCast(reloc_info.offset),
                 .target_sym = sym_index,
-                .target_off = reloc_info.addend,
+                .target_off = .rel(reloc_info.addend),
             }),
             .plan9 => unreachable,
             .none => unreachable,

@@ -7225,7 +7225,7 @@ fn buildOutputFromZig(
     assert(out.* == null);
     out.* = crt_file;
 
-    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
+    comp.queueLinkTaskMode(crt_file.full_object_path, &config);
 }
 
 pub const CrtFileOptions = struct {
@@ -7349,7 +7349,7 @@ pub fn build_crt_file(
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
     const crt_file = try sub_compilation.toCrtFile();
-    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
+    comp.queueLinkTaskMode(crt_file.full_object_path, &config);
 
     {
         comp.mutex.lock();
@@ -7359,11 +7359,14 @@ pub fn build_crt_file(
     }
 }
 
-pub fn queueLinkTaskMode(comp: *Compilation, path: Cache.Path, output_mode: std.builtin.OutputMode) void {
-    comp.queueLinkTasks(switch (output_mode) {
+pub fn queueLinkTaskMode(comp: *Compilation, path: Cache.Path, config: *const Compilation.Config) void {
+    comp.queueLinkTasks(switch (config.output_mode) {
         .Exe => unreachable,
         .Obj => &.{.{ .load_object = path }},
-        .Lib => &.{.{ .load_archive = path }},
+        .Lib => &.{switch (config.link_mode) {
+            .static => .{ .load_archive = path },
+            .dynamic => .{ .load_dso = path },
+        }},
     });
 }
 
