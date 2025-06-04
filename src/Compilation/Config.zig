@@ -195,7 +195,7 @@ pub fn resolve(options: Options) ResolveError!Config {
     // Note that using the LLVM backend does not necessarily mean using LLVM libraries.
     // For example, Zig can emit .bc and .ll files directly, and this is still considered
     // using "the LLVM backend".
-    const can_use_llvm = b: {
+    const prefer_llvm = b: {
         // If emitting to LLVM bitcode object format, must use LLVM backend.
         if (options.emit_llvm_ir or options.emit_llvm_bc) {
             if (options.use_llvm == false)
@@ -238,7 +238,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         // If we have no zig code to compile, no need for LLVM.
         if (!options.have_zcu) break :b false;
 
-        break :b can_use_llvm;
+        break :b prefer_llvm;
     };
 
     if (options.emit_bin and options.have_zcu) {
@@ -277,7 +277,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         }
 
         if (options.use_lld) |x| break :b x;
-        break :b can_use_llvm;
+        break :b prefer_llvm;
     };
 
     // Make a decision on whether to use Clang or Aro for translate-c and compiling C files.
