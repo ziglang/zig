@@ -155,11 +155,7 @@ pub fn writeSplat(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     assert(data.len > 0);
     const buffer = w.buffer;
     const count = countSplat(0, data, splat);
-    if (w.end + count > buffer.len) {
-        const end = w.end;
-        const n = try w.vtable.drain(w, data, splat);
-        return n -| end;
-    }
+    if (w.end + count > buffer.len) return w.vtable.drain(w, data, splat);
     w.count += count;
     for (data) |bytes| {
         @memcpy(buffer[w.end..][0..bytes.len], bytes);
@@ -168,7 +164,6 @@ pub fn writeSplat(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     const pattern = data[data.len - 1];
     if (splat == 0) {
         @branchHint(.unlikely);
-        // It was added in the loop above; undo it here.
         w.end -= pattern.len;
         return count;
     }
@@ -245,24 +240,14 @@ pub fn writableSlice(w: *Writer, len: usize) Error![]u8 {
 /// If `minimum_length` is zero, this is equivalent to `unusedCapacitySlice`.
 pub fn writableSliceGreedy(w: *Writer, minimum_length: usize) Error![]u8 {
     assert(w.buffer.len >= minimum_length);
-    const cap_slice = w.buffer[w.end..];
-    if (cap_slice.len >= minimum_length) {
-        @branchHint(.likely);
-        return cap_slice;
+    while (true) {
+        const cap_slice = w.buffer[w.end..];
+        if (cap_slice.len >= minimum_length) {
+            @branchHint(.likely);
+            return cap_slice;
+        }
+        assert(0 == try w.vtable.drain(w, &.{""}, 1));
     }
-    const buffer = w.buffer[0..w.end];
-    const n = try w.unbuffered_writer.writeVec(&.{buffer});
-    if (n == buffer.len) {
-        @branchHint(.likely);
-        w.end = 0;
-        return w.buffer;
-    }
-    if (n > 0) {
-        const remainder = buffer[n..];
-        std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-        w.end = remainder.len;
-    }
-    return w.buffer[w.end..];
 }
 
 pub fn ensureUnusedCapacity(w: *Writer, n: usize) Error!void {
@@ -358,39 +343,17 @@ pub fn print(w: *Writer, comptime format: []const u8, args: anytype) Error!void 
 }
 
 pub fn writeByte(w: *Writer, byte: u8) Error!void {
-    const buffer = w.buffer[0..w.end];
-    if (buffer.len < w.buffer.len) {
+    while (w.buffer.len - w.end == 0) {
+        const n = try w.vtable.drain(w, &.{&.{byte}}, 1);
+        if (n > 0) {
+            w.count += 1;
+            return;
+        }
+    } else {
         @branchHint(.likely);
-        buffer.ptr[buffer.len] = byte;
-        w.end = buffer.len + 1;
+        w.buffer[w.end] = byte;
+        w.end += 1;
         w.count += 1;
-        return;
-    }
-    var buffers: [2][]const u8 = .{ buffer, &.{byte} };
-    while (true) {
-        const n = try w.unbuffered_writer.writeVec(&buffers);
-        if (n == 0) {
-            @branchHint(.unlikely);
-            continue;
-        }
-        w.count += 1;
-        if (n >= buffer.len) {
-            @branchHint(.likely);
-            if (n > buffer.len) {
-                @branchHint(.likely);
-                w.end = 0;
-                return;
-            } else {
-                buffer[0] = byte;
-                w.end = 1;
-                return;
-            }
-        }
-        const remainder = buffer[n..];
-        std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-        buffer[remainder.len] = byte;
-        w.end = remainder.len + 1;
-        return;
     }
 }
 

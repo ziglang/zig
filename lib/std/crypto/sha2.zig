@@ -383,22 +383,19 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
             for (&d.s, v) |*dv, vv| dv.* +%= vv;
         }
 
-        pub fn writable(this: *@This(), buffer: []u8) Writer {
+        pub fn writer(this: *@This(), buffer: []u8) Writer {
             return .{
-                .unbuffered_writer = .{
-                    .context = this,
-                    .vtable = &.{
-                        .writeSplat = writeSplat,
-                        .writeFile = Writer.unimplementedWriteFile,
-                    },
-                },
+                .context = this,
+                .vtable = &.{ .drain = drain },
                 .buffer = buffer,
             };
         }
 
-        fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Error!usize {
-            const this: *@This() = @ptrCast(@alignCast(context));
+        fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
+            const this: *@This() = @ptrCast(@alignCast(w.context));
             const start_total = this.total_len;
+            this.update(w.buffered());
+            w.end = 0;
             for (data[0 .. data.len - 1]) |slice| this.update(slice);
             for (0..splat) |_| this.update(data[data.len - 1]);
             return @intCast(this.total_len - start_total);
