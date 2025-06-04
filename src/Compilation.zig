@@ -4206,23 +4206,78 @@ fn performAllTheWorkInner(
         // compiler-rt due to LLD bugs as well, e.g.:
         //
         // https://github.com/llvm/llvm-project/issues/43698#issuecomment-2542660611
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", "compiler_rt", .compiler_rt, .Lib, false, &comp.compiler_rt_lib, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{
+            comp,
+            "compiler_rt.zig",
+            "compiler_rt",
+            .Lib,
+            .compiler_rt,
+            main_progress_node,
+            RtOptions{
+                .checks_valgrind = true,
+                .allow_lto = false,
+            },
+            &comp.compiler_rt_lib,
+        });
     }
 
     if (comp.queued_jobs.compiler_rt_obj and comp.compiler_rt_obj == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", "compiler_rt", .compiler_rt, .Obj, false, &comp.compiler_rt_obj, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{
+            comp,
+            "compiler_rt.zig",
+            "compiler_rt",
+            .Obj,
+            .compiler_rt,
+            main_progress_node,
+            RtOptions{
+                .checks_valgrind = true,
+                .allow_lto = false,
+            },
+            &comp.compiler_rt_obj,
+        });
     }
 
     if (comp.queued_jobs.fuzzer_lib and comp.fuzzer_lib == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", "fuzzer", .libfuzzer, .Lib, true, &comp.fuzzer_lib, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{
+            comp,
+            "fuzzer.zig",
+            "fuzzer",
+            .Lib,
+            .libfuzzer,
+            main_progress_node,
+            RtOptions{},
+            &comp.fuzzer_lib,
+        });
     }
 
     if (comp.queued_jobs.ubsan_rt_lib and comp.ubsan_rt_lib == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "ubsan_rt.zig", "ubsan_rt", .libubsan, .Lib, false, &comp.ubsan_rt_lib, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{
+            comp,
+            "ubsan_rt.zig",
+            "ubsan_rt",
+            .Lib,
+            .libubsan,
+            main_progress_node,
+            RtOptions{
+                .allow_lto = false,
+            },
+            &comp.ubsan_rt_lib,
+        });
     }
 
     if (comp.queued_jobs.ubsan_rt_obj and comp.ubsan_rt_obj == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "ubsan_rt.zig", "ubsan_rt", .libubsan, .Obj, false, &comp.ubsan_rt_obj, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{
+            comp,
+            "ubsan_rt.zig",
+            "ubsan_rt",
+            .Obj,
+            .libubsan,
+            main_progress_node,
+            RtOptions{
+                .allow_lto = false,
+            },
+            &comp.ubsan_rt_obj,
+        });
     }
 
     if (comp.queued_jobs.glibc_shared_objects) {
@@ -5201,24 +5256,29 @@ fn workerUpdateWin32Resource(
     };
 }
 
+pub const RtOptions = struct {
+    checks_valgrind: bool = false,
+    allow_lto: bool = true,
+};
+
 fn buildRt(
     comp: *Compilation,
     root_source_name: []const u8,
     root_name: []const u8,
-    misc_task: MiscTask,
     output_mode: std.builtin.OutputMode,
-    allow_lto: bool,
-    out: *?CrtFile,
+    misc_task: MiscTask,
     prog_node: std.Progress.Node,
+    options: RtOptions,
+    out: *?CrtFile,
 ) void {
     comp.buildOutputFromZig(
         root_source_name,
         root_name,
         output_mode,
-        allow_lto,
-        out,
         misc_task,
         prog_node,
+        options,
+        out,
     ) catch |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(misc_task, "unable to build {s}: {s}", .{
@@ -5370,10 +5430,10 @@ fn buildLibZigC(comp: *Compilation, prog_node: std.Progress.Node) void {
         "c.zig",
         "zigc",
         .Lib,
-        true,
-        &comp.zigc_static_lib,
         .libzigc,
         prog_node,
+        .{},
+        &comp.zigc_static_lib,
     ) catch |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.libzigc, "unable to build libzigc: {s}", .{@errorName(err)}),
@@ -7048,10 +7108,10 @@ fn buildOutputFromZig(
     src_basename: []const u8,
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
-    allow_lto: bool,
-    out: *?CrtFile,
     misc_task_tag: MiscTask,
     prog_node: std.Progress.Node,
+    options: RtOptions,
+    out: *?CrtFile,
 ) !void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
@@ -7079,7 +7139,7 @@ fn buildOutputFromZig(
         .any_unwind_tables = comp.root_mod.unwind_tables != .none,
         .any_error_tracing = false,
         .root_error_tracing = false,
-        .lto = if (allow_lto) comp.config.lto else .none,
+        .lto = if (options.allow_lto) comp.config.lto else .none,
     });
 
     const root_mod = try Package.Module.create(arena, .{
@@ -7102,6 +7162,7 @@ fn buildOutputFromZig(
             .no_builtin = true,
             .code_model = comp.root_mod.code_model,
             .error_tracing = false,
+            .valgrind = if (options.checks_valgrind) comp.root_mod.valgrind else null,
         },
         .global = config,
         .cc_argv = &.{},
