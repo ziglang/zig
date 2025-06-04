@@ -60,7 +60,12 @@ pub fn picLevel(target: std.Target) u32 {
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
 /// C compiler argument is valid to Clang.
 pub fn supports_fpic(target: std.Target) bool {
-    return target.os.tag != .windows and target.os.tag != .uefi;
+    return switch (target.os.tag) {
+        .windows,
+        .uefi,
+        => target.abi == .gnu or target.abi == .cygnus,
+        else => true,
+    };
 }
 
 pub fn alwaysSingleThreaded(target: std.Target) bool {
