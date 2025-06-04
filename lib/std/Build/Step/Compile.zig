@@ -378,14 +378,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         @panic("the root Module of a Compile step must be created with a known 'target' field");
     const target = resolved_target.result;
 
-    const step_name = owner.fmt("{s} {s}{s} {s}", .{
-        switch (options.kind) {
-            .exe => "zig build-exe",
-            .lib => "zig build-lib",
-            .obj => "zig build-obj",
-            .@"test" => "zig test",
-            .test_obj => "zig test-obj",
-        },
+    const step_name = owner.fmt("compile {s} {s}{s} {s}", .{
+        @tagName(options.kind),
         name_adjusted,
         @tagName(options.root_module.optimize orelse .Debug),
         resolved_target.query.zigTriple(owner.allocator) catch @panic("OOM"),
