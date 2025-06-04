@@ -135,6 +135,7 @@ pub const ResolveError = error{
     LibCppRequiresLibC,
     LibUnwindRequiresLibC,
     TargetCannotDynamicLink,
+    TargetCannotStaticLinkExecutables,
     LibCRequiresDynamicLinking,
     SharedLibrariesRequireDynamicLinking,
     ExportMemoryAndDynamicIncompatible,
@@ -359,6 +360,10 @@ pub fn resolve(options: Options) ResolveError!Config {
         if (target_util.cannotDynamicLink(target)) {
             if (options.link_mode == .dynamic) return error.TargetCannotDynamicLink;
             break :b .static;
+        }
+        if (target.os.tag == .fuchsia and options.output_mode == .Exe) {
+            if (options.link_mode == .static) return error.TargetCannotStaticLinkExecutables;
+            break :b .dynamic;
         }
         if (explicitly_exe_or_dyn_lib and link_libc and
             (target_util.osRequiresLibC(target) or
