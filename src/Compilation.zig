@@ -6228,6 +6228,9 @@ pub fn addCCArgs(
     }
 
     if (target_util.supports_fpic(target)) {
+        // PIE needs to go before PIC because Clang interprets `-fno-PIE` to imply `-fno-PIC`, which
+        // we don't necessarily want.
+        try argv.append(if (comp.config.pie) "-fPIE" else "-fno-PIE");
         try argv.append(if (mod.pic) "-fPIC" else "-fno-PIC");
     }
 

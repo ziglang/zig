@@ -43,10 +43,6 @@ pub fn libCxxNeedsLibUnwind(target: std.Target) bool {
     };
 }
 
-pub fn requiresPIE(target: std.Target) bool {
-    return target.abi.isAndroid() or target.os.tag.isDarwin() or target.os.tag == .openbsd;
-}
-
 /// This function returns whether non-pic code is completely invalid on the given target.
 pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
     return target.abi.isAndroid() or
@@ -64,7 +60,12 @@ pub fn picLevel(target: std.Target) u32 {
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
 /// C compiler argument is valid to Clang.
 pub fn supports_fpic(target: std.Target) bool {
-    return target.os.tag != .windows and target.os.tag != .uefi;
+    return switch (target.os.tag) {
+        .windows,
+        .uefi,
+        => target.abi == .gnu or target.abi == .cygnus,
+        else => true,
+    };
 }
 
 pub fn alwaysSingleThreaded(target: std.Target) bool {
