@@ -98,7 +98,7 @@ pub inline fn floatFromBigInt(comptime T: type, comptime signedness: std.builtin
         if (limb(x, limb_index) != 0) break true;
     } else limb(x, exponent_limb) & ((@as(u32, 1) << @truncate(exponent)) - 1) != 0;
     return math.ldexp(@as(T, @floatFromInt(
-        std.mem.readPackedIntNative(I, std.mem.sliceAsBytes(x), exponent) | @intFromBool(sticky),
+        std.mem.readPackedInt(I, std.mem.sliceAsBytes(x), exponent, .native) | @intFromBool(sticky),
     )), @intCast(exponent));
 }
 
