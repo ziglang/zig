@@ -463,11 +463,8 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
                     for (entry.external_relocs.items) |reloc| {
                         const target_sym = self.symbol(reloc.target_sym);
                         const r_offset = entry_off + reloc.source_off;
-                        const r_addend: i64 = switch (reloc.target_off) {
-                            .none, .got => 0,
-                            else => |off| @intCast(@intFromEnum(off)),
-                        };
-                        const r_type = relocation.dwarf.externalRelocType(target_sym.*, reloc.target_off == .got, sect_index, dwarf.address_size, cpu_arch);
+                        const r_addend: i64 = @intCast(reloc.target_off);
+                        const r_type = relocation.dwarf.externalRelocType(target_sym.*, sect_index, dwarf.address_size, cpu_arch);
                         atom_ptr.addRelocAssumeCapacity(.{
                             .r_offset = r_offset,
                             .r_addend = r_addend,
@@ -660,6 +657,7 @@ pub fn scanRelocs(self: *ZigObject, elf_file: *Elf, undefs: anytype) !void {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
+        if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
         if (atom_ptr.scanRelocsRequiresCode(elf_file)) {
             // TODO ideally we don't have to fetch the code here.
@@ -950,7 +948,7 @@ pub fn getNavVAddr(
             .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
                 .source_off = @intCast(reloc_info.offset),
                 .target_sym = this_sym_index,
-                .target_off = .rel(reloc_info.addend),
+                .target_off = reloc_info.addend,
             }),
             .plan9 => unreachable,
             .none => unreachable,
@@ -983,7 +981,7 @@ pub fn getUavVAddr(
             .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
                 .source_off = @intCast(reloc_info.offset),
                 .target_sym = sym_index,
-                .target_off = .rel(reloc_info.addend),
+                .target_off = reloc_info.addend,
             }),
             .plan9 => unreachable,
             .none => unreachable,

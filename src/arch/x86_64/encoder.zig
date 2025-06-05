@@ -138,7 +138,7 @@ pub const Instruction = struct {
                 .moffs => true,
                 .rip => false,
                 .sib => |s| switch (s.base) {
-                    .none, .frame, .table, .reloc, .rip_inst => false,
+                    .none, .frame, .table, .reloc, .pcrel, .rip_inst => false,
                     .reg => |reg| reg.isClass(.segment),
                 },
             };
@@ -211,7 +211,7 @@ pub const Instruction = struct {
                 .none, .imm => 0b00,
                 .reg => |reg| @truncate(reg.enc() >> 3),
                 .mem => |mem| switch (mem.base()) {
-                    .none, .frame, .table, .reloc, .rip_inst => 0b00, // rsp, rbp, and rip are not extended
+                    .none, .frame, .table, .reloc, .pcrel, .rip_inst => 0b00, // rsp, rbp, and rip are not extended
                     .reg => |reg| @truncate(reg.enc() >> 3),
                 },
                 .bytes => unreachable,
@@ -282,6 +282,7 @@ pub const Instruction = struct {
                             .frame => |frame_index| try writer.print("{}", .{frame_index}),
                             .table => try writer.print("Table", .{}),
                             .reloc => |sym_index| try writer.print("Symbol({d})", .{sym_index}),
+                            .pcrel => |sym_index| try writer.print("PcRelSymbol({d})", .{sym_index}),
                             .rip_inst => |inst_index| try writer.print("RipInst({d})", .{inst_index}),
                         }
                         if (mem.scaleIndex()) |si| {
@@ -721,7 +722,7 @@ pub const Instruction = struct {
                     try encoder.modRm_indirectDisp32(operand_enc, 0);
                     try encoder.disp32(undefined);
                 } else return error.CannotEncode,
-                .rip_inst => {
+                .pcrel, .rip_inst => {
                     try encoder.modRm_RIPDisp32(operand_enc);
                     try encoder.disp32(sib.disp);
                 },

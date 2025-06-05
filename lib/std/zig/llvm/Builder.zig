@@ -1823,6 +1823,14 @@ pub const Visibility = enum(u2) {
     hidden = 1,
     protected = 2,
 
+    pub fn fromSymbolVisibility(sv: std.builtin.SymbolVisibility) Visibility {
+        return switch (sv) {
+            .default => .default,
+            .hidden => .hidden,
+            .protected => .protected,
+        };
+    }
+
     pub fn format(
         self: Visibility,
         comptime _: []const u8,
@@ -2553,6 +2561,10 @@ pub const Variable = struct {
 
         pub fn setLinkage(self: Index, linkage: Linkage, builder: *Builder) void {
             return self.ptrConst(builder).global.setLinkage(linkage, builder);
+        }
+
+        pub fn setVisibility(self: Index, visibility: Visibility, builder: *Builder) void {
+            return self.ptrConst(builder).global.setVisibility(visibility, builder);
         }
 
         pub fn setDllStorageClass(self: Index, class: DllStorageClass, builder: *Builder) void {

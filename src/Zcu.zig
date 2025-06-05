@@ -2047,6 +2047,7 @@ pub const SrcLoc = struct {
             .init_field_library,
             .init_field_thread_local,
             .init_field_dll_import,
+            .init_field_relocation,
             => |builtin_call_node| {
                 const wanted = switch (src_loc.lazy) {
                     .init_field_name => "name",
@@ -2059,6 +2060,7 @@ pub const SrcLoc = struct {
                     .init_field_library => "library",
                     .init_field_thread_local => "thread_local",
                     .init_field_dll_import => "dll_import",
+                    .init_field_relocation => "relocation",
                     else => unreachable,
                 };
                 const tree = try src_loc.file_scope.getTree(zcu);
@@ -2506,6 +2508,7 @@ pub const LazySrcLoc = struct {
         init_field_library: Ast.Node.Offset,
         init_field_thread_local: Ast.Node.Offset,
         init_field_dll_import: Ast.Node.Offset,
+        init_field_relocation: Ast.Node.Offset,
         /// The source location points to the value of an item in a specific
         /// case of a `switch`.
         switch_case_item: SwitchItem,
@@ -4560,15 +4563,6 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
     };
     if (!backend_ok) return .{ .bad_backend = backend };
     return .ok;
-}
-
-/// Given that a `Nav` has value `val`, determine if a ref of that `Nav` gives a `const` pointer.
-pub fn navValIsConst(zcu: *const Zcu, val: InternPool.Index) bool {
-    return switch (zcu.intern_pool.indexToKey(val)) {
-        .variable => false,
-        .@"extern" => |e| e.is_const,
-        else => true,
-    };
 }
 
 pub const CodegenFailError = error{

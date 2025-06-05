@@ -63,7 +63,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .wasm_memory_size,
             .err_return_trace,
             .save_err_return_trace_index,
-            .tlv_dllimport_ptr,
+            .runtime_nav_ptr,
             .c_va_start,
             .work_item_id,
             .work_group_size,

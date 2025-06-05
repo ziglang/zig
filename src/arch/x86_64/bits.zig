@@ -762,6 +762,7 @@ pub const Memory = struct {
         frame: FrameIndex,
         table,
         reloc: u32,
+        pcrel: u32,
         rip_inst: Mir.Inst.Index,
 
         pub const Tag = @typeInfo(Base).@"union".tag_type.?;

@@ -26089,10 +26089,12 @@ fn resolveExternOptions(
     zir_ref: Zir.Inst.Ref,
 ) CompileError!struct {
     name: InternPool.NullTerminatedString,
-    library_name: InternPool.OptionalNullTerminatedString = .none,
-    linkage: std.builtin.GlobalLinkage = .strong,
-    is_thread_local: bool = false,
-    is_dll_import: bool = false,
+    library_name: InternPool.OptionalNullTerminatedString,
+    linkage: std.builtin.GlobalLinkage,
+    visibility: std.builtin.SymbolVisibility,
+    is_thread_local: bool,
+    is_dll_import: bool,
+    relocation: std.builtin.ExternOptions.Relocation,
 } {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -26105,8 +26107,10 @@ fn resolveExternOptions(
     const name_src = block.src(.{ .init_field_name = src.offset.node_offset_builtin_call_arg.builtin_call_node });
     const library_src = block.src(.{ .init_field_library = src.offset.node_offset_builtin_call_arg.builtin_call_node });
     const linkage_src = block.src(.{ .init_field_linkage = src.offset.node_offset_builtin_call_arg.builtin_call_node });
+    const visibility_src = block.src(.{ .init_field_visibility = src.offset.node_offset_builtin_call_arg.builtin_call_node });
     const thread_local_src = block.src(.{ .init_field_thread_local = src.offset.node_offset_builtin_call_arg.builtin_call_node });
     const dll_import_src = block.src(.{ .init_field_dll_import = src.offset.node_offset_builtin_call_arg.builtin_call_node });
+    const relocation_src = block.src(.{ .init_field_relocation = src.offset.node_offset_builtin_call_arg.builtin_call_node });
 
     const name_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "name", .no_embedded_nulls), name_src);
     const name = try sema.toConstString(block, name_src, name_ref, .{ .simple = .extern_options });
@@ -26117,6 +26121,10 @@ fn resolveExternOptions(
     const linkage_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "linkage", .no_embedded_nulls), linkage_src);
     const linkage_val = try sema.resolveConstDefinedValue(block, linkage_src, linkage_ref, .{ .simple = .extern_options });
     const linkage = try sema.interpretBuiltinType(block, linkage_src, linkage_val, std.builtin.GlobalLinkage);
+
+    const visibility_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "visibility", .no_embedded_nulls), visibility_src);
+    const visibility_val = try sema.resolveConstDefinedValue(block, visibility_src, visibility_ref, .{ .simple = .extern_options });
+    const visibility = try sema.interpretBuiltinType(block, visibility_src, visibility_val, std.builtin.SymbolVisibility);
 
     const is_thread_local = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "is_thread_local", .no_embedded_nulls), thread_local_src);
     const is_thread_local_val = try sema.resolveConstDefinedValue(block, thread_local_src, is_thread_local, .{ .simple = .extern_options });
@@ -26133,6 +26141,10 @@ fn resolveExternOptions(
     const is_dll_import_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "is_dll_import", .no_embedded_nulls), dll_import_src);
     const is_dll_import_val = try sema.resolveConstDefinedValue(block, dll_import_src, is_dll_import_ref, .{ .simple = .extern_options });
 
+    const relocation_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "relocation", .no_embedded_nulls), relocation_src);
+    const relocation_val = try sema.resolveConstDefinedValue(block, relocation_src, relocation_ref, .{ .simple = .extern_options });
+    const relocation = try sema.interpretBuiltinType(block, relocation_src, relocation_val, std.builtin.ExternOptions.Relocation);
+
     if (name.len == 0) {
         return sema.fail(block, name_src, "extern symbol name cannot be empty", .{});
     }
@@ -26145,8 +26157,10 @@ fn resolveExternOptions(
         .name = try ip.getOrPutString(gpa, pt.tid, name, .no_embedded_nulls),
         .library_name = try ip.getOrPutStringOpt(gpa, pt.tid, library_name, .no_embedded_nulls),
         .linkage = linkage,
+        .visibility = visibility,
         .is_thread_local = is_thread_local_val.toBool(),
         .is_dll_import = is_dll_import_val.toBool(),
+        .relocation = relocation,
     };
 }
 
@@ -26178,6 +26192,17 @@ fn zirBuiltinExtern(
     }
 
     const options = try sema.resolveExternOptions(block, options_src, extra.rhs);
+    switch (options.linkage) {
+        .internal => if (options.visibility != .default) {
+            return sema.fail(block, options_src, "internal symbol cannot have non-default visibility", .{});
+        },
+        .strong, .weak => {},
+        .link_once => return sema.fail(block, options_src, "external symbol cannot have link once linkage", .{}),
+    }
+    switch (options.relocation) {
+        .any => {},
+        .pcrel => if (options.visibility == .default) return sema.fail(block, options_src, "cannot require a pc-relative relocation to a symbol with default visibility", .{}),
+    }
 
     // TODO: error for threadlocal functions, non-const functions, etc
 
@@ -26190,10 +26215,12 @@ fn zirBuiltinExtern(
         .name = options.name,
         .ty = ptr_info.child,
         .lib_name = options.library_name,
-        .is_const = ptr_info.flags.is_const,
+        .linkage = options.linkage,
+        .visibility = options.visibility,
         .is_threadlocal = options.is_thread_local,
-        .is_weak_linkage = options.linkage == .weak,
         .is_dll_import = options.is_dll_import,
+        .relocation = options.relocation,
+        .is_const = ptr_info.flags.is_const,
         .alignment = ptr_info.flags.alignment,
         .@"addrspace" = ptr_info.flags.address_space,
         // This instruction is just for source locations.
@@ -31685,12 +31712,15 @@ fn analyzeNavRefInner(sema: *Sema, block: *Block, src: LazySrcLoc, orig_nav_inde
 
     const nav_status = ip.getNav(nav_index).status;
 
-    const is_tlv_or_dllimport = switch (nav_status) {
+    const is_runtime = switch (nav_status) {
         .unresolved => unreachable,
         // dllimports go straight to `fully_resolved`; the only option is threadlocal
         .type_resolved => |r| r.is_threadlocal,
         .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
-            .@"extern" => |e| e.is_threadlocal or e.is_dll_import,
+            .@"extern" => |e| e.is_threadlocal or e.is_dll_import or switch (e.relocation) {
+                .any => false,
+                .pcrel => true,
+            },
             .variable => |v| v.is_threadlocal,
             else => false,
         },
@@ -31699,7 +31729,7 @@ fn analyzeNavRefInner(sema: *Sema, block: *Block, src: LazySrcLoc, orig_nav_inde
     const ty, const alignment, const @"addrspace", const is_const = switch (nav_status) {
         .unresolved => unreachable,
         .type_resolved => |r| .{ r.type, r.alignment, r.@"addrspace", r.is_const },
-        .fully_resolved => |r| .{ ip.typeOf(r.val), r.alignment, r.@"addrspace", zcu.navValIsConst(r.val) },
+        .fully_resolved => |r| .{ ip.typeOf(r.val), r.alignment, r.@"addrspace", r.is_const },
     };
     const ptr_ty = try pt.ptrTypeSema(.{
         .child = ty,
@@ -31710,10 +31740,10 @@ fn analyzeNavRefInner(sema: *Sema, block: *Block, src: LazySrcLoc, orig_nav_inde
         },
     });
 
-    if (is_tlv_or_dllimport) {
+    if (is_runtime) {
         // This pointer is runtime-known; we need to emit an AIR instruction to create it.
         return block.addInst(.{
-            .tag = .tlv_dllimport_ptr,
+            .tag = .runtime_nav_ptr,
             .data = .{ .ty_nav = .{
                 .ty = ptr_ty.toIntern(),
                 .nav = nav_index,
@@ -36432,6 +36462,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .float_c_longdouble_f128,
             .float_comptime_float,
             .variable,
+            .threadlocal_variable,
             .@"extern",
             .func_decl,
             .func_instance,

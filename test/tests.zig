@@ -1598,7 +1598,9 @@ const c_abi_targets = blk: {
     break :blk [_]CAbiTarget{
         // Native Targets
 
-        .{},
+        .{
+            .use_llvm = true,
+        },
 
         // Linux Targets
 
@@ -1837,7 +1839,6 @@ const c_abi_targets = blk: {
                 .abi = .musl,
             },
             .use_llvm = false,
-            .use_lld = false,
             .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
         },
         .{
@@ -1848,7 +1849,6 @@ const c_abi_targets = blk: {
                 .abi = .musl,
             },
             .use_llvm = false,
-            .use_lld = false,
             .strip = true,
             .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
         },
@@ -1860,7 +1860,6 @@ const c_abi_targets = blk: {
                 .abi = .musl,
             },
             .use_llvm = false,
-            .use_lld = false,
             .pic = true,
             .c_defines = &.{"ZIG_BACKEND_STAGE2_X86_64"},
         },
@@ -1870,6 +1869,7 @@ const c_abi_targets = blk: {
                 .os_tag = .linux,
                 .abi = .musl,
             },
+            .use_llvm = true,
         },
         .{
             .target = .{
@@ -1877,6 +1877,7 @@ const c_abi_targets = blk: {
                 .os_tag = .linux,
                 .abi = .muslx32,
             },
+            .use_llvm = true,
         },
 
         // WASI Targets

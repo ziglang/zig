@@ -785,7 +785,6 @@ const Entry = struct {
     }
 
     const Index = enum(u32) {
-        //got_proc,
         _,
 
         const Optional = enum(u32) {
@@ -1041,7 +1040,7 @@ const Entry = struct {
                 const symbol = zo.symbol(reloc.target_sym);
                 try dwarf.resolveReloc(
                     entry_off + reloc.source_off,
-                    @bitCast(symbol.address(.{}, elf_file) + @as(i64, @intCast(@intFromEnum(reloc.target_off))) -
+                    @bitCast(symbol.address(.{}, elf_file) + @as(i64, @intCast(reloc.target_off)) -
                         if (symbol.flags.is_tls) elf_file.dtpAddress() else 0),
                     @intFromEnum(dwarf.address_size),
                 );
@@ -1052,7 +1051,7 @@ const Entry = struct {
                 const ref = zo.getSymbolRef(reloc.target_sym, macho_file);
                 try dwarf.resolveReloc(
                     entry_off + reloc.source_off,
-                    ref.getSymbol(macho_file).?.getAddress(.{}, macho_file) + @as(i64, @intCast(@intFromEnum(reloc.target_off))),
+                    ref.getSymbol(macho_file).?.getAddress(.{}, macho_file) + @as(i64, @intCast(reloc.target_off)),
                     @intFromEnum(dwarf.address_size),
                 );
             }
@@ -1081,27 +1080,12 @@ const CrossSectionReloc = struct {
 const ExternalReloc = struct {
     source_off: u32 = 0,
     target_sym: u32,
-    target_off: enum(u64) {
-        none = 0,
-        got = std.math.maxInt(i64) + 1,
-        _,
-
-        pub fn rel(off: u64) @This() {
-            const res: @This() = @enumFromInt(off);
-            switch (res) {
-                .none => {},
-                _ => {},
-                .got => unreachable, // assertion failure
-            }
-            return res;
-        }
-    } = .none,
+    target_off: u64 = 0,
 };
 
 pub const Loc = union(enum) {
     empty,
     addr_reloc: u32,
-    got_reloc: u32,
     deref: *const Loc,
     constu: u64,
     consts: i64,
@@ -1165,10 +1149,6 @@ pub const Loc = union(enum) {
             .deref => |addr| {
                 try addr.write(adapter);
                 try writer.writeByte(DW.OP.deref);
-            },
-            .got_reloc => |sym_index| {
-                try writer.writeByte(DW.OP.const4s);
-                try adapter.gotSym(sym_index);
             },
             .constu => |constu| if (std.math.cast(u5, constu)) |lit| {
                 try writer.writeByte(@as(u8, DW.OP.lit0) + lit);
@@ -1766,9 +1746,6 @@ pub const WipNav = struct {
         fn endian(_: ExprLocCounter) std.builtin.Endian {
             return @import("builtin").cpu.arch.endian();
         }
-        fn gotSym(counter: *ExprLocCounter, _: u32) error{}!void {
-            counter.stream.bytes_written += 4;
-        }
         fn addrSym(counter: *ExprLocCounter, _: u32) error{}!void {
             counter.stream.bytes_written += @intFromEnum(counter.address_size);
         }
@@ -1789,14 +1766,6 @@ pub const WipNav = struct {
             fn endian(ctx: @This()) std.builtin.Endian {
                 return ctx.wip_nav.dwarf.endian;
             }
-            fn gotSym(ctx: @This(), sym_index: u32) UpdateError!void {
-                try ctx.wip_nav.infoExternalReloc(.{
-                    .source_off = @intCast(ctx.wip_nav.debug_info.items.len),
-                    .target_sym = sym_index,
-                    .target_off = .got,
-                });
-                try ctx.wip_nav.debug_info.appendNTimes(ctx.wip_nav.dwarf.gpa, 0, 4);
-            }
             fn addrSym(ctx: @This(), sym_index: u32) UpdateError!void {
                 try ctx.wip_nav.infoAddrSym(sym_index, 0);
             }
@@ -1812,7 +1781,7 @@ pub const WipNav = struct {
         try wip_nav.infoExternalReloc(.{
             .source_off = @intCast(wip_nav.debug_info.items.len),
             .target_sym = sym_index,
-            .target_off = .rel(sym_off),
+            .target_off = sym_off,
         });
         try wip_nav.debug_info.appendNTimes(wip_nav.dwarf.gpa, 0, @intFromEnum(wip_nav.dwarf.address_size));
     }
@@ -1829,14 +1798,6 @@ pub const WipNav = struct {
             fn endian(ctx: @This()) std.builtin.Endian {
                 return ctx.wip_nav.dwarf.endian;
             }
-            fn gotSym(ctx: @This(), sym_index: u32) UpdateError!void {
-                try ctx.wip_nav.frameExternalReloc(.{
-                    .source_off = @intCast(ctx.wip_nav.debug_frame.items.len),
-                    .target_sym = sym_index,
-                    .target_off = .got,
-                });
-                try ctx.wip_nav.debug_frame.appendNTimes(ctx.wip_nav.dwarf.gpa, 0, 4);
-            }
             fn addrSym(ctx: @This(), sym_index: u32) UpdateError!void {
                 try ctx.wip_nav.frameAddrSym(sym_index, 0);
             }
@@ -1852,7 +1813,7 @@ pub const WipNav = struct {
         try wip_nav.frameExternalReloc(.{
             .source_off = @intCast(wip_nav.debug_frame.items.len),
             .target_sym = sym_index,
-            .target_off = .rel(sym_off),
+            .target_off = sym_off,
         });
         try wip_nav.debug_frame.appendNTimes(wip_nav.dwarf.gpa, 0, @intFromEnum(wip_nav.dwarf.address_size));
     }
@@ -2338,81 +2299,50 @@ fn getUnit(dwarf: *Dwarf, mod: *Module) !Unit.Index {
     const mod_gop = try dwarf.mods.getOrPut(dwarf.gpa, mod);
     const unit: Unit.Index = @enumFromInt(mod_gop.index);
     if (!mod_gop.found_existing) {
-        {
-            errdefer _ = dwarf.mods.pop();
-            mod_gop.value_ptr.* = .{
-                .root_dir_path = undefined,
-                .dirs = .empty,
-                .files = .empty,
-            };
-            errdefer mod_gop.value_ptr.dirs.deinit(dwarf.gpa);
-            try mod_gop.value_ptr.dirs.putNoClobber(dwarf.gpa, unit, {});
-            assert(try dwarf.debug_aranges.section.addUnit(
-                DebugAranges.headerBytes(dwarf),
-                DebugAranges.trailerBytes(dwarf),
-                dwarf,
-            ) == unit);
-            errdefer dwarf.debug_aranges.section.popUnit(dwarf.gpa);
-            assert(try dwarf.debug_frame.section.addUnit(
-                DebugFrame.headerBytes(dwarf),
-                DebugFrame.trailerBytes(dwarf),
-                dwarf,
-            ) == unit);
-            errdefer dwarf.debug_frame.section.popUnit(dwarf.gpa);
-            assert(try dwarf.debug_info.section.addUnit(
-                DebugInfo.headerBytes(dwarf),
-                DebugInfo.trailer_bytes,
-                dwarf,
-            ) == unit);
-            errdefer dwarf.debug_info.section.popUnit(dwarf.gpa);
-            assert(try dwarf.debug_line.section.addUnit(
-                DebugLine.headerBytes(dwarf, 5, 25),
-                DebugLine.trailer_bytes,
-                dwarf,
-            ) == unit);
-            errdefer dwarf.debug_line.section.popUnit(dwarf.gpa);
-            assert(try dwarf.debug_loclists.section.addUnit(
-                DebugLocLists.headerBytes(dwarf),
-                DebugLocLists.trailer_bytes,
-                dwarf,
-            ) == unit);
-            errdefer dwarf.debug_loclists.section.popUnit(dwarf.gpa);
-            assert(try dwarf.debug_rnglists.section.addUnit(
-                DebugRngLists.headerBytes(dwarf),
-                DebugRngLists.trailer_bytes,
-                dwarf,
-            ) == unit);
-            errdefer dwarf.debug_rnglists.section.popUnit(dwarf.gpa);
-        }
-        //if (dwarf.bin_file.cast(.elf)) |elf_file| {
-        //    if (unit == .main) assert(try dwarf.addCommonEntry(unit) == .got_proc);
-        //    if (mod.pic and dwarf.debug_info.section.getUnit(.main).getEntry(.got_proc).len == 0) {
-        //        var wip_nav: WipNav = .{
-        //            .dwarf = dwarf,
-        //            .pt = undefined,
-        //            .unit = .main,
-        //            .entry = .got_proc,
-        //            .any_children = false,
-        //            .func = .none,
-        //            .func_sym_index = undefined,
-        //            .func_high_pc = undefined,
-        //            .blocks = undefined,
-        //            .cfi = undefined,
-        //            .debug_frame = .empty,
-        //            .debug_info = .empty,
-        //            .debug_line = .empty,
-        //            .debug_loclists = .empty,
-        //            .pending_lazy = .empty,
-        //        };
-        //        defer wip_nav.deinit();
-        //        try wip_nav.abbrevCode(.proc);
-        //        try wip_nav.infoExprLoc(.{ .deref = &.{ .plus = .{
-        //            &.empty,
-        //            &.{ .addr_reloc = try elf_file.zigObjectPtr().?.getGlobalSymbol(elf_file, "_GLOBAL_OFFSET_TABLE_", null) },
-        //        } } });
-        //        try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
-        //    }
-        //}
+        errdefer _ = dwarf.mods.pop();
+        mod_gop.value_ptr.* = .{
+            .root_dir_path = undefined,
+            .dirs = .empty,
+            .files = .empty,
+        };
+        errdefer mod_gop.value_ptr.dirs.deinit(dwarf.gpa);
+        try mod_gop.value_ptr.dirs.putNoClobber(dwarf.gpa, unit, {});
+        assert(try dwarf.debug_aranges.section.addUnit(
+            DebugAranges.headerBytes(dwarf),
+            DebugAranges.trailerBytes(dwarf),
+            dwarf,
+        ) == unit);
+        errdefer dwarf.debug_aranges.section.popUnit(dwarf.gpa);
+        assert(try dwarf.debug_frame.section.addUnit(
+            DebugFrame.headerBytes(dwarf),
+            DebugFrame.trailerBytes(dwarf),
+            dwarf,
+        ) == unit);
+        errdefer dwarf.debug_frame.section.popUnit(dwarf.gpa);
+        assert(try dwarf.debug_info.section.addUnit(
+            DebugInfo.headerBytes(dwarf),
+            DebugInfo.trailer_bytes,
+            dwarf,
+        ) == unit);
+        errdefer dwarf.debug_info.section.popUnit(dwarf.gpa);
+        assert(try dwarf.debug_line.section.addUnit(
+            DebugLine.headerBytes(dwarf, 5, 25),
+            DebugLine.trailer_bytes,
+            dwarf,
+        ) == unit);
+        errdefer dwarf.debug_line.section.popUnit(dwarf.gpa);
+        assert(try dwarf.debug_loclists.section.addUnit(
+            DebugLocLists.headerBytes(dwarf),
+            DebugLocLists.trailer_bytes,
+            dwarf,
+        ) == unit);
+        errdefer dwarf.debug_loclists.section.popUnit(dwarf.gpa);
+        assert(try dwarf.debug_rnglists.section.addUnit(
+            DebugRngLists.headerBytes(dwarf),
+            DebugRngLists.trailer_bytes,
+            dwarf,
+        ) == unit);
+        errdefer dwarf.debug_rnglists.section.popUnit(dwarf.gpa);
     }
     return unit;
 }
@@ -2510,16 +2440,7 @@ fn initWipNavInner(
             try wip_nav.strp(nav.fqn.toSlice(ip));
             const ty: Type = nav_val.typeOf(zcu);
             const addr: Loc = .{ .addr_reloc = sym_index };
-            const loc: Loc = loc: {
-                if (dwarf.bin_file.cast(.elf)) |elf_file| if (decl.linkage == .@"extern" and mod.pic)
-                    // TODO: lldb doesn't support call :(
-                    //.{ .call = .{ .args = &.{.{ .got_reloc = sym_index }}, .unit = .main, .entry = .got_proc } }
-                    break :loc .{ .deref = &.{ .plus = .{
-                        &.{ .addr_reloc = try elf_file.zigObjectPtr().?.getGlobalSymbol(elf_file, "_GLOBAL_OFFSET_TABLE_", null) },
-                        &.{ .got_reloc = sym_index },
-                    } } };
-                break :loc if (decl.is_threadlocal) .{ .form_tls_address = &addr } else addr;
-            };
+            const loc: Loc = if (decl.is_threadlocal) .{ .form_tls_address = &addr } else addr;
             switch (decl.kind) {
                 .unnamed_test, .@"test", .decltest, .@"comptime", .@"usingnamespace" => unreachable,
                 .@"const" => {
@@ -2605,7 +2526,7 @@ fn initWipNavInner(
             try wip_nav.infoAddrSym(sym_index, 0);
             wip_nav.func_high_pc = @intCast(wip_nav.debug_info.items.len);
             try diw.writeInt(u32, 0, dwarf.endian);
-            const target = file.mod.?.resolved_target.result;
+            const target = mod.resolved_target.result;
             try uleb128(diw, switch (nav.status.fully_resolved.alignment) {
                 .none => target_info.defaultFunctionAlignment(target),
                 else => |a| a.maxStrict(target_info.minFunctionAlignment(target)),
@@ -2742,7 +2663,7 @@ pub fn finishWipNavFunc(
             .{
                 .source_off = 1 + @intFromEnum(dwarf.address_size),
                 .target_sym = wip_nav.func_sym_index,
-                .target_off = .rel(code_size),
+                .target_off = code_size,
             },
         });
         try dwarf.debug_rnglists.section.replaceEntry(
@@ -4981,7 +4902,6 @@ const AbbrevCode = enum {
     comptime_value_field_comptime_state,
     comptime_value_elem_runtime_bits,
     comptime_value_elem_comptime_state,
-    //proc,
 
     const decl_bytes = uleb128Bytes(@intFromEnum(AbbrevCode.decl_instance_func_generic));
     comptime {
@@ -5851,12 +5771,6 @@ const AbbrevCode = enum {
                 .{ .ZIG_comptime_value, .ref_addr },
             },
         },
-        //.proc = .{
-        //    .tag = .dwarf_procedure,
-        //    .attrs = &.{
-        //        .{ .location, .exprloc },
-        //    },
-        //},
         .null = undefined,
     });
 };

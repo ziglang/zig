@@ -345,11 +345,19 @@ pub fn resolve(options: Options) ResolveError!Config {
         } else false;
     };
 
+    const is_dyn_lib = switch (options.output_mode) {
+        .Obj, .Exe => false,
+        .Lib => link_mode == .dynamic,
+    };
+
     // Make a decision on whether to use LLVM backend for machine code generation.
     // Note that using the LLVM backend does not necessarily mean using LLVM libraries.
     // For example, Zig can emit .bc and .ll files directly, and this is still considered
     // using "the LLVM backend".
-    const prefer_llvm = b: {
+    const use_llvm = b: {
+        // If we have no zig code to compile, no need for LLVM.
+        if (!options.have_zcu) break :b false;
+
         // If emitting to LLVM bitcode object format, must use LLVM backend.
         if (options.emit_llvm_ir or options.emit_llvm_bc) {
             if (options.use_llvm == false)
@@ -382,21 +390,14 @@ pub fn resolve(options: Options) ResolveError!Config {
         // Prefer LLVM for release builds.
         if (root_optimize_mode != .Debug) break :b true;
 
-        // Self-hosted backends can't handle the inline assembly in std.pie yet
-        // https://github.com/ziglang/zig/issues/24046
-        if (pie) break :b true;
+        // load_dynamic_library standalone test not passing on this combination
+        // https://github.com/ziglang/zig/issues/24080
+        if (target.os.tag == .macos and is_dyn_lib) break :b true;
 
         // At this point we would prefer to use our own self-hosted backend,
         // because the compilation speed is better than LLVM. But only do it if
         // we are confident in the robustness of the backend.
         break :b !target_util.selfHostedBackendIsAsRobustAsLlvm(target);
-    };
-
-    const use_llvm = b: {
-        // If we have no zig code to compile, no need for LLVM.
-        if (!options.have_zcu) break :b false;
-
-        break :b prefer_llvm;
     };
 
     if (options.emit_bin and options.have_zcu) {
@@ -435,7 +436,13 @@ pub fn resolve(options: Options) ResolveError!Config {
         }
 
         if (options.use_lld) |x| break :b x;
-        break :b prefer_llvm;
+
+        // If we have no zig code to compile, no need for the self-hosted linker.
+        if (!options.have_zcu) break :b true;
+
+        // If we do have zig code, match the decision for whether to use the llvm backend,
+        // so that the llvm backend defaults to lld and the self-hosted backends do not.
+        break :b use_llvm;
     };
 
     const lto: std.zig.LtoMode = b: {
