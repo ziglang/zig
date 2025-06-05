@@ -52,7 +52,9 @@ ninja install
 stage3-debug/bin/zig build test docs \
   --maxrss 44918199637 \
   -Dstatic-llvm \
-  -Dskip-non-native \
+  -Dtest-target-filter=aarch64-linux \
+  -Dtest-target-filter=freebsd \
+  -Dtest-target-filter=netbsd \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
