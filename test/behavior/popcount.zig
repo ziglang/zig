@@ -75,6 +75,15 @@ fn testPopCountIntegers() !void {
     }
 }
 
+test "@popCount comptime_int" {
+    try expectEqual(0, @popCount(0));
+    try expectEqual(32, @popCount(0xffffffff));
+    try expectEqual(5, @popCount(0x1f));
+    try expectEqual(4, @popCount(0xaa));
+    try expectEqual(16, @popCount(0xaaaaaaaa));
+    try expectEqual(24, @popCount(0b11111111000110001100010000100001000011000011100101010001));
+}
+
 test "@popCount vectors" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
