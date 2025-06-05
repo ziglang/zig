@@ -515,13 +515,14 @@ pub fn lowerToTranslateCSteps(
     parent_step: *std.Build.Step,
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
+    test_target_filters_exclude: bool,
     target: std.Build.ResolvedTarget,
     translate_c_options: TranslateCOptions,
 ) void {
     const tests = @import("../tests.zig");
     const test_translate_c_step = b.step("test-translate-c", "Run the C translation tests");
     if (!translate_c_options.skip_translate_c) {
-        tests.addTranslateCTests(b, test_translate_c_step, test_filters, test_target_filters);
+        tests.addTranslateCTests(b, test_translate_c_step, test_filters, test_target_filters, test_target_filters_exclude);
         parent_step.dependOn(test_translate_c_step);
     }
 
@@ -600,12 +601,13 @@ pub fn lowerToBuildSteps(
     parent_step: *std.Build.Step,
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
+    test_target_filters_exclude: bool,
 ) void {
     const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
         std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
     const cases_dir_path = b.build_root.join(b.allocator, &.{ "test", "cases" }) catch @panic("OOM");
 
-    for (self.cases.items) |case| {
+    for_cases: for (self.cases.items) |case| {
         for (test_filters) |test_filter| {
             if (std.mem.indexOf(u8, case.name, test_filter)) |_| break;
         } else if (test_filters.len > 0) continue;
@@ -613,9 +615,15 @@ pub fn lowerToBuildSteps(
         const triple_txt = case.target.result.zigTriple(b.allocator) catch @panic("OOM");
 
         if (test_target_filters.len > 0) {
-            for (test_target_filters) |filter| {
-                if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
-            } else continue;
+            if (test_target_filters_exclude) {
+                for (test_target_filters) |filter| {
+                    if (std.mem.indexOf(u8, triple_txt, filter) != null) continue :for_cases;
+                }
+            } else {
+                for (test_target_filters) |filter| {
+                    if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+                } else continue :for_cases;
+            }
         }
 
         const writefiles = b.addWriteFiles();

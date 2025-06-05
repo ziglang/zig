@@ -6,6 +6,7 @@ pub const Options = struct {
     enable_llvm: bool,
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
+    test_target_filters_exclude: bool,
 };
 
 const TestCase = struct {
@@ -74,11 +75,18 @@ pub fn addExact(
 
 pub fn addCase(self: *LlvmIr, case: TestCase) void {
     const target = self.b.resolveTargetQuery(case.params.target);
+
     if (self.options.test_target_filters.len > 0) {
         const triple_txt = target.result.zigTriple(self.b.allocator) catch @panic("OOM");
-        for (self.options.test_target_filters) |filter| {
-            if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
-        } else return;
+        if (self.options.test_target_filters_exclude) {
+            for (self.options.test_target_filters) |filter| {
+                if (std.mem.indexOf(u8, triple_txt, filter) != null) return;
+            }
+        } else {
+            for (self.options.test_target_filters) |filter| {
+                if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+            } else return;
+        }
     }
 
     const name = std.fmt.allocPrint(self.b.allocator, "check llvm-ir {s}", .{case.name}) catch @panic("OOM");

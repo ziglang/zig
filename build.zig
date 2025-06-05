@@ -370,6 +370,7 @@ pub fn build(b: *std.Build) !void {
 
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
     const test_target_filters = b.option([]const []const u8, "test-target-filter", "Skip tests whose target triple do not match any filter") orelse &[0][]const u8{};
+    const test_target_filters_exclude = b.option(bool, "test-target-filter-exclude", "Invert the meaning of -Dtest-target-filter to exclude targets") orelse false;
     const test_extra_targets = b.option(bool, "test-extra-targets", "Enable running module tests for additional targets") orelse false;
 
     var chosen_opt_modes_buf: [4]builtin.OptimizeMode = undefined;
@@ -409,7 +410,7 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(check_fmt);
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
-    try tests.addCases(b, test_cases_step, test_filters, test_target_filters, target, .{
+    try tests.addCases(b, test_cases_step, test_filters, test_target_filters, test_target_filters_exclude, target, .{
         .skip_translate_c = skip_translate_c,
         .skip_run_translated_c = skip_run_translated_c,
     }, .{
@@ -427,6 +428,7 @@ pub fn build(b: *std.Build) !void {
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
+        .test_target_filters_exclude = test_target_filters_exclude,
         .test_extra_targets = test_extra_targets,
         .root_src = "test/behavior.zig",
         .name = "behavior",
@@ -444,6 +446,7 @@ pub fn build(b: *std.Build) !void {
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
+        .test_target_filters_exclude = test_target_filters_exclude,
         .test_extra_targets = test_extra_targets,
         .root_src = "test/c_import.zig",
         .name = "c-import",
@@ -459,6 +462,7 @@ pub fn build(b: *std.Build) !void {
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
+        .test_target_filters_exclude = test_target_filters_exclude,
         .test_extra_targets = test_extra_targets,
         .root_src = "lib/compiler_rt.zig",
         .name = "compiler-rt",
@@ -475,6 +479,7 @@ pub fn build(b: *std.Build) !void {
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
+        .test_target_filters_exclude = test_target_filters_exclude,
         .test_extra_targets = test_extra_targets,
         .root_src = "lib/c.zig",
         .name = "zigc",
@@ -491,6 +496,7 @@ pub fn build(b: *std.Build) !void {
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
+        .test_target_filters_exclude = test_target_filters_exclude,
         .test_extra_targets = test_extra_targets,
         .root_src = "lib/std/std.zig",
         .name = "std",
@@ -535,6 +541,7 @@ pub fn build(b: *std.Build) !void {
     ));
     test_step.dependOn(tests.addCAbiTests(b, .{
         .test_target_filters = test_target_filters,
+        .test_target_filters_exclude = test_target_filters_exclude,
         .skip_non_native = skip_non_native,
         .skip_release = skip_release,
     }));
@@ -545,6 +552,7 @@ pub fn build(b: *std.Build) !void {
     if (tests.addDebuggerTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
+        .test_target_filters_exclude = test_target_filters_exclude,
         .gdb = b.option([]const u8, "gdb", "path to gdb binary"),
         .lldb = b.option([]const u8, "lldb", "path to lldb binary"),
         .optimize_modes = optimization_modes,
@@ -556,6 +564,7 @@ pub fn build(b: *std.Build) !void {
         .enable_llvm = enable_llvm,
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
+        .test_target_filters_exclude = test_target_filters_exclude,
     })) |test_llvm_ir_step| test_step.dependOn(test_llvm_ir_step);
 
     try addWasiUpdateStep(b, version);
