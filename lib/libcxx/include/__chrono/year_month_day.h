@@ -19,8 +19,8 @@
 #include <__chrono/time_point.h>
 #include <__chrono/year.h>
 #include <__chrono/year_month.h>
+#include <__compare/ordering.h>
 #include <__config>
-#include <compare>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

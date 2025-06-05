@@ -98,7 +98,7 @@ pub fn syscall6(
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         r0,   r1,    r2,    r3,  +0,   +4,  +8
     //
@@ -134,7 +134,7 @@ pub fn clone() callconv(.Naked) usize {
     );
 }
 
-pub fn restore() callconv(.Naked) noreturn {
+pub fn restore() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ mov r7, %[number]
@@ -152,7 +152,7 @@ pub fn restore() callconv(.Naked) noreturn {
     }
 }
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ mov r7, %[number]
@@ -169,8 +169,6 @@ pub fn restore_rt() callconv(.Naked) noreturn {
         ),
     }
 }
-
-pub const MMAP2_UNIT = 4096;
 
 pub const F = struct {
     pub const DUPFD = 0;

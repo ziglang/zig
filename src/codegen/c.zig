@@ -3348,7 +3348,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .atomic_load      => try airAtomicLoad(f, inst),
             .memset           => try airMemset(f, inst, false),
             .memset_safe      => try airMemset(f, inst, true),
-            .memcpy           => try airMemcpy(f, inst),
+            .memcpy           => try airMemcpy(f, inst, "memcpy("),
+            .memmove          => try airMemcpy(f, inst, "memmove("),
             .set_union_tag    => try airSetUnionTag(f, inst),
             .get_union_tag    => try airGetUnionTag(f, inst),
             .clz              => try airUnBuiltinCall(f, inst, air_datas[@intFromEnum(inst)].ty_op.operand, "clz", .bits),
@@ -6975,7 +6976,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     return .none;
 }
 
-fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airMemcpy(f: *Function, inst: Air.Inst.Index, function_paren: []const u8) !CValue {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
     const bin_op = f.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
@@ -6990,7 +6991,7 @@ fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
         try writeArrayLen(f, writer, dest_ptr, dest_ty);
         try writer.writeAll(" != 0) ");
     }
-    try writer.writeAll("memcpy(");
+    try writer.writeAll(function_paren);
     try writeSliceOrPtr(f, writer, dest_ptr, dest_ty);
     try writer.writeAll(", ");
     try writeSliceOrPtr(f, writer, src_ptr, src_ty);
@@ -8175,7 +8176,7 @@ fn formatIntLiteral(
         try writer.writeAll(string);
     } else {
         try data.ctype.renderLiteralPrefix(writer, data.kind, ctype_pool);
-        wrap.convertToTwosComplement(int, data.int_info.signedness, c_bits);
+        wrap.truncate(int, .unsigned, c_bits);
         @memset(wrap.limbs[wrap.len..], 0);
         wrap.len = wrap.limbs.len;
         const limbs_per_c_limb = @divExact(wrap.len, c_limb_info.count);
@@ -8207,7 +8208,6 @@ fn formatIntLiteral(
                 c_limb_int_info.signedness = .signed;
                 c_limb_ctype = c_limb_info.ctype.toSigned();
 
-                c_limb_mut.positive = wrap.positive;
                 c_limb_mut.truncate(
                     c_limb_mut.toConst(),
                     .signed,

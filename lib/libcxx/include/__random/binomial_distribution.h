@@ -97,12 +97,13 @@ public:
   }
 };
 
-#ifndef _LIBCPP_MSVCRT_LIKE
+// The LLVM C library provides this with conflicting `noexcept` attributes.
+#if !defined(_LIBCPP_MSVCRT_LIKE) && !defined(__LLVM_LIBC__)
 extern "C" double lgamma_r(double, int*);
 #endif
 
 inline _LIBCPP_HIDE_FROM_ABI double __libcpp_lgamma(double __d) {
-#if defined(_LIBCPP_MSVCRT_LIKE)
+#if defined(_LIBCPP_MSVCRT_LIKE) || defined(__LLVM_LIBC__)
   return lgamma(__d);
 #else
   int __sign;

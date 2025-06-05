@@ -34,7 +34,7 @@ _LIBCPP_AVAILABILITY_FILESYSTEM_LIBRARY_PUSH
 template <class _InputIt, __enable_if_t<__is_pathable<_InputIt>::value, int> = 0>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_DEPRECATED_WITH_CHAR8_T path u8path(_InputIt __f, _InputIt __l) {
   static_assert(
-#  ifndef _LIBCPP_HAS_NO_CHAR8_T
+#  if _LIBCPP_HAS_CHAR8_T
       is_same<typename __is_pathable<_InputIt>::__char_type, char8_t>::value ||
 #  endif
           is_same<typename __is_pathable<_InputIt>::__char_type, char>::value,
@@ -56,7 +56,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_DEPRECATED_WITH_CHAR8_T path u8path(_InputIt __f, 
 template <class _InputIt, __enable_if_t<__is_pathable<_InputIt>::value, int> = 0>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_DEPRECATED_WITH_CHAR8_T path u8path(_InputIt __f, _NullSentinel) {
   static_assert(
-#    ifndef _LIBCPP_HAS_NO_CHAR8_T
+#    if _LIBCPP_HAS_CHAR8_T
       is_same<typename __is_pathable<_InputIt>::__char_type, char8_t>::value ||
 #    endif
           is_same<typename __is_pathable<_InputIt>::__char_type, char>::value,
@@ -77,7 +77,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_DEPRECATED_WITH_CHAR8_T path u8path(_InputIt __f, 
 template <class _Source, __enable_if_t<__is_pathable<_Source>::value, int> = 0>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_DEPRECATED_WITH_CHAR8_T path u8path(const _Source& __s) {
   static_assert(
-#  ifndef _LIBCPP_HAS_NO_CHAR8_T
+#  if _LIBCPP_HAS_CHAR8_T
       is_same<typename __is_pathable<_Source>::__char_type, char8_t>::value ||
 #  endif
           is_same<typename __is_pathable<_Source>::__char_type, char>::value,

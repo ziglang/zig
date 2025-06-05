@@ -453,7 +453,7 @@ export fn fuzzer_coverage_id() u64 {
     return fuzzer.coverage_id;
 }
 
-var fuzzer_one: *const fn (input_ptr: [*]const u8, input_len: usize) callconv(.C) void = undefined;
+var fuzzer_one: *const fn (input_ptr: [*]const u8, input_len: usize) callconv(.c) void = undefined;
 
 export fn fuzzer_start(testOne: @TypeOf(fuzzer_one)) void {
     fuzzer_one = testOne;
@@ -468,27 +468,42 @@ export fn fuzzer_init(cache_dir_struct: Fuzzer.Slice) void {
     // Linkers are expected to automatically add `__start_<section>` and
     // `__stop_<section>` symbols when section names are valid C identifiers.
 
-    const pc_counters_start = @extern([*]u8, .{
-        .name = "__start___sancov_cntrs",
-        .linkage = .weak,
-    }) orelse fatal("missing __start___sancov_cntrs symbol", .{});
+    const ofmt = builtin.object_format;
 
-    const pc_counters_end = @extern([*]u8, .{
-        .name = "__stop___sancov_cntrs",
+    const start_symbol_prefix: []const u8 = if (ofmt == .macho)
+        "\x01section$start$__DATA$__"
+    else
+        "__start___";
+    const end_symbol_prefix: []const u8 = if (ofmt == .macho)
+        "\x01section$end$__DATA$__"
+    else
+        "__stop___";
+
+    const pc_counters_start_name = start_symbol_prefix ++ "sancov_cntrs";
+    const pc_counters_start = @extern([*]u8, .{
+        .name = pc_counters_start_name,
         .linkage = .weak,
-    }) orelse fatal("missing __stop___sancov_cntrs symbol", .{});
+    }) orelse fatal("missing {s} symbol", .{pc_counters_start_name});
+
+    const pc_counters_end_name = end_symbol_prefix ++ "sancov_cntrs";
+    const pc_counters_end = @extern([*]u8, .{
+        .name = pc_counters_end_name,
+        .linkage = .weak,
+    }) orelse fatal("missing {s} symbol", .{pc_counters_end_name});
 
     const pc_counters = pc_counters_start[0 .. pc_counters_end - pc_counters_start];
 
+    const pcs_start_name = start_symbol_prefix ++ "sancov_pcs1";
     const pcs_start = @extern([*]usize, .{
-        .name = "__start___sancov_pcs1",
+        .name = pcs_start_name,
         .linkage = .weak,
-    }) orelse fatal("missing __start___sancov_pcs1 symbol", .{});
+    }) orelse fatal("missing {s} symbol", .{pcs_start_name});
 
+    const pcs_end_name = end_symbol_prefix ++ "sancov_pcs1";
     const pcs_end = @extern([*]usize, .{
-        .name = "__stop___sancov_pcs1",
+        .name = pcs_end_name,
         .linkage = .weak,
-    }) orelse fatal("missing __stop___sancov_pcs1 symbol", .{});
+    }) orelse fatal("missing {s} symbol", .{pcs_end_name});
 
     const pcs = pcs_start[0 .. pcs_end - pcs_start];
 

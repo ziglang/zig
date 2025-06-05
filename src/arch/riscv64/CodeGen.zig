@@ -1581,6 +1581,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .atomic_rmw      => try func.airAtomicRmw(inst),
             .atomic_load     => try func.airAtomicLoad(inst),
             .memcpy          => try func.airMemcpy(inst),
+            .memmove         => try func.airMemmove(inst),
             .memset          => try func.airMemset(inst, false),
             .memset_safe     => try func.airMemset(inst, true),
             .set_union_tag   => try func.airSetUnionTag(inst),
@@ -7917,6 +7918,11 @@ fn airMemcpy(func: *Func, inst: Air.Inst.Index) !void {
     try func.genInlineMemcpy(dst_ptr, src_ptr, len_mcv);
 
     return func.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airMemmove(func: *Func, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return func.fail("TODO implement airMemmove for riscv64", .{});
 }
 
 fn airTagName(func: *Func, inst: Air.Inst.Index) !void {

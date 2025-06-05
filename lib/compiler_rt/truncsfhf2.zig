@@ -12,14 +12,14 @@ comptime {
     @export(&__truncsfhf2, .{ .name = "__truncsfhf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __truncsfhf2(a: f32) callconv(.C) common.F16T(f32) {
+pub fn __truncsfhf2(a: f32) callconv(.c) common.F16T(f32) {
     return @bitCast(truncf(f16, f32, a));
 }
 
-fn __gnu_f2h_ieee(a: f32) callconv(.C) common.F16T(f32) {
+fn __gnu_f2h_ieee(a: f32) callconv(.c) common.F16T(f32) {
     return @bitCast(truncf(f16, f32, a));
 }
 
-fn __aeabi_f2h(a: f32) callconv(.AAPCS) u16 {
+fn __aeabi_f2h(a: f32) callconv(.{ .arm_aapcs = .{} }) u16 {
     return @bitCast(truncf(f16, f32, a));
 }

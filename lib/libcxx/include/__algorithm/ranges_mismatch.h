@@ -39,8 +39,7 @@ namespace ranges {
 template <class _I1, class _I2>
 using mismatch_result = in_in_result<_I1, _I2>;
 
-namespace __mismatch {
-struct __fn {
+struct __mismatch {
   template <class _I1, class _S1, class _I2, class _S2, class _Pred, class _Proj1, class _Proj2>
   static _LIBCPP_HIDE_FROM_ABI constexpr mismatch_result<_I1, _I2>
   __go(_I1 __first1, _S1 __last1, _I2 __first2, _S2 __last2, _Pred& __pred, _Proj1& __proj1, _Proj2& __proj2) {
@@ -84,10 +83,9 @@ struct __fn {
         ranges::begin(__r1), ranges::end(__r1), ranges::begin(__r2), ranges::end(__r2), __pred, __proj1, __proj2);
   }
 };
-} // namespace __mismatch
 
 inline namespace __cpo {
-constexpr inline auto mismatch = __mismatch::__fn{};
+constexpr inline auto mismatch = __mismatch{};
 } // namespace __cpo
 } // namespace ranges
 

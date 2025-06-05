@@ -55,7 +55,7 @@ pub fn values(comptime E: type) []const E {
 /// A safe alternative to @tagName() for non-exhaustive enums that doesn't
 /// panic when `e` has no tagged value.
 /// Returns the tag name for `e` or null if no tag exists.
-pub fn tagName(comptime E: type, e: E) ?[]const u8 {
+pub fn tagName(comptime E: type, e: E) ?[:0]const u8 {
     return inline for (@typeInfo(E).@"enum".fields) |f| {
         if (@intFromEnum(e) == f.value) break f.name;
     } else null;
@@ -197,8 +197,7 @@ test "directEnumArrayDefault slice" {
     try testing.expectEqualSlices(u8, "default", array[2]);
 }
 
-/// Cast an enum literal, value, or string to the enum value of type E
-/// with the same name.
+/// Deprecated: Use @field(E, @tagName(tag)) or @field(E, string)
 pub fn nameCast(comptime E: type, comptime value: anytype) E {
     return comptime blk: {
         const V = @TypeOf(value);

@@ -41,20 +41,6 @@ test {
     _ = windows;
 }
 
-/// See also `getenv`. Populated by startup code before main().
-/// TODO this is a footgun because the value will be undefined when using `zig build-lib`.
-/// https://github.com/ziglang/zig/issues/4524
-pub var environ: [][*:0]u8 = undefined;
-
-/// Populated by startup code before main().
-/// Not available on WASI or Windows without libc. See `std.process.argsAlloc`
-/// or `std.process.argsWithAllocator` for a cross-platform alternative.
-pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (native_os) {
-    .windows => @compileError("argv isn't supported on Windows: use std.process.argsAlloc instead"),
-    .wasi => @compileError("argv isn't supported on WASI: use std.process.argsAlloc instead"),
-    else => undefined,
-};
-
 /// Call from Windows-specific code if you already have a WTF-16LE encoded, null terminated string.
 /// Otherwise use `access` or `accessZ`.
 pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
@@ -65,7 +51,7 @@ pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
     switch (windows.GetLastError()) {
         .FILE_NOT_FOUND => return error.FileNotFound,
         .PATH_NOT_FOUND => return error.FileNotFound,
-        .ACCESS_DENIED => return error.PermissionDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
         else => |err| return windows.unexpectedError(err),
     }
 }
@@ -82,6 +68,7 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
         .solaris,
         .illumos,
         .freebsd,
+        .serenity,
         => true,
 
         .dragonfly => os.version_range.semver.max.order(.{ .major = 6, .minor = 0, .patch = 0 }) != .lt,
@@ -127,7 +114,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
             const len = mem.indexOfScalar(u8, out_buffer[0..], 0) orelse max_path_bytes;
             return out_buffer[0..len];
         },
-        .linux => {
+        .linux, .serenity => {
             var procfs_buf: ["/proc/self/fd/-2147483648\x00".len]u8 = undefined;
             const proc_path = std.fmt.bufPrintZ(procfs_buf[0..], "/proc/self/fd/{d}", .{fd}) catch unreachable;
 
@@ -157,57 +144,18 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
             return target;
         },
         .freebsd => {
-            if (builtin.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0, .patch = 0 }) orelse false) {
-                var kfile: std.c.kinfo_file = undefined;
-                kfile.structsize = std.c.KINFO_FILE_SIZE;
-                switch (posix.errno(std.c.fcntl(fd, std.c.F.KINFO, @intFromPtr(&kfile)))) {
-                    .SUCCESS => {},
-                    .BADF => return error.FileNotFound,
-                    else => |err| return posix.unexpectedErrno(err),
-                }
-                const len = mem.indexOfScalar(u8, &kfile.path, 0) orelse max_path_bytes;
-                if (len == 0) return error.NameTooLong;
-                const result = out_buffer[0..len];
-                @memcpy(result, kfile.path[0..len]);
-                return result;
-            } else {
-                // This fallback implementation reimplements libutil's `kinfo_getfile()`.
-                // The motivation is to avoid linking -lutil when building zig or general
-                // user executables.
-                var mib = [4]c_int{ posix.CTL.KERN, posix.KERN.PROC, posix.KERN.PROC_FILEDESC, std.c.getpid() };
-                var len: usize = undefined;
-                posix.sysctl(&mib, null, &len, null, 0) catch |err| switch (err) {
-                    error.PermissionDenied => unreachable,
-                    error.SystemResources => return error.SystemResources,
-                    error.NameTooLong => unreachable,
-                    error.UnknownName => unreachable,
-                    else => return error.Unexpected,
-                };
-                len = len * 4 / 3;
-                const buf = std.heap.c_allocator.alloc(u8, len) catch return error.SystemResources;
-                defer std.heap.c_allocator.free(buf);
-                len = buf.len;
-                posix.sysctl(&mib, &buf[0], &len, null, 0) catch |err| switch (err) {
-                    error.PermissionDenied => unreachable,
-                    error.SystemResources => return error.SystemResources,
-                    error.NameTooLong => unreachable,
-                    error.UnknownName => unreachable,
-                    else => return error.Unexpected,
-                };
-                var i: usize = 0;
-                while (i < len) {
-                    const kf: *align(1) std.c.kinfo_file = @ptrCast(&buf[i]);
-                    if (kf.fd == fd) {
-                        len = mem.indexOfScalar(u8, &kf.path, 0) orelse max_path_bytes;
-                        if (len == 0) return error.NameTooLong;
-                        const result = out_buffer[0..len];
-                        @memcpy(result, kf.path[0..len]);
-                        return result;
-                    }
-                    i += @intCast(kf.structsize);
-                }
-                return error.FileNotFound;
+            var kfile: std.c.kinfo_file = undefined;
+            kfile.structsize = std.c.KINFO_FILE_SIZE;
+            switch (posix.errno(std.c.fcntl(fd, std.c.F.KINFO, @intFromPtr(&kfile)))) {
+                .SUCCESS => {},
+                .BADF => return error.FileNotFound,
+                else => |err| return posix.unexpectedErrno(err),
             }
+            const len = mem.indexOfScalar(u8, &kfile.path, 0) orelse max_path_bytes;
+            if (len == 0) return error.NameTooLong;
+            const result = out_buffer[0..len];
+            @memcpy(result, kfile.path[0..len]);
+            return result;
         },
         .dragonfly => {
             @memset(out_buffer[0..max_path_bytes], 0);

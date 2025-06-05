@@ -204,7 +204,7 @@ pub fn unnamedFieldAffectsAlignment(target: std.Target) bool {
         },
         .armeb => {
             if (std.Target.arm.featureSetHas(target.cpu.features, .has_v7)) {
-                if (std.Target.Abi.default(target.cpu.arch, target.os) == .eabi) return true;
+                if (std.Target.Abi.default(target.cpu.arch, target.os.tag) == .eabi) return true;
             }
         },
         .arm => return true,
@@ -412,7 +412,7 @@ pub fn defaultFpEvalMethod(target: std.Target) LangOpts.FPEvalMethod {
 /// Value of the `-m` flag for `ld` for this target
 pub fn ldEmulationOption(target: std.Target, arm_endianness: ?std.builtin.Endian) ?[]const u8 {
     return switch (target.cpu.arch) {
-        .x86 => if (target.os.tag == .elfiamcu) "elf_iamcu" else "elf_i386",
+        .x86 => "elf_i386",
         .arm,
         .armeb,
         .thumb,
@@ -642,7 +642,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .amdhsa => "amdhsa",
         .ps4 => "ps4",
         .ps5 => "ps5",
-        .elfiamcu => "elfiamcu",
         .mesa3d => "mesa3d",
         .contiki => "contiki",
         .amdpal => "amdpal",
@@ -687,7 +686,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .gnuf32 => "gnuf32",
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
-        .gnuilp32 => "gnu_ilp32",
         .code16 => "code16",
         .eabi => "eabi",
         .eabihf => "eabihf",
@@ -698,6 +696,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .muslabi64 => "muslabi64",
         .musleabi => "musleabi",
         .musleabihf => "musleabihf",
+        .muslf32 => "muslf32",
+        .muslsf => "muslsf",
         .muslx32 => "muslx32",
         .msvc => "msvc",
         .itanium => "itanium",
@@ -716,7 +716,7 @@ test "alignment functions - smoke test" {
     const x86 = std.Target.Cpu.Arch.x86_64;
     target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86, .none);
     target.cpu = std.Target.Cpu.baseline(x86, target.os);
-    target.abi = std.Target.Abi.default(x86, target.os);
+    target.abi = std.Target.Abi.default(x86, target.os.tag);
 
     try std.testing.expect(isTlsSupported(target));
     try std.testing.expect(!ignoreNonZeroSizedBitfieldTypeAlignment(target));
@@ -729,7 +729,7 @@ test "alignment functions - smoke test" {
     const arm = std.Target.Cpu.Arch.arm;
     target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm, .none);
     target.cpu = std.Target.Cpu.baseline(arm, target.os);
-    target.abi = std.Target.Abi.default(arm, target.os);
+    target.abi = std.Target.Abi.default(arm, target.os.tag);
 
     try std.testing.expect(!isTlsSupported(target));
     try std.testing.expect(ignoreNonZeroSizedBitfieldTypeAlignment(target));

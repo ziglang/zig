@@ -7,6 +7,7 @@ pub const hii = @import("uefi/hii.zig");
 
 /// Status codes returned by EFI interfaces
 pub const Status = @import("uefi/status.zig").Status;
+pub const Error = UnexpectedError || Status.Error;
 pub const tables = @import("uefi/tables.zig");
 
 /// The memory type to allocate when using the pool.
@@ -41,6 +42,11 @@ pub const Ipv4Address = extern struct {
 
 pub const Ipv6Address = extern struct {
     address: [16]u8,
+};
+
+pub const IpAddress = extern union {
+    v4: Ipv4Address,
+    v6: Ipv6Address,
 };
 
 /// GUIDs are align(8) unless otherwise specified.
@@ -141,11 +147,10 @@ pub const Time = extern struct {
     pub const unspecified_timezone: i16 = 0x7ff;
 
     fn daysInYear(year: u16, max_month: u4) u9 {
-        const leap_year: std.time.epoch.YearLeapKind = if (std.time.epoch.isLeapYear(year)) .leap else .not_leap;
         var days: u9 = 0;
         var month: u4 = 0;
         while (month < max_month) : (month += 1) {
-            days += std.time.epoch.getDaysInMonth(leap_year, @enumFromInt(month + 1));
+            days += std.time.epoch.getDaysInMonth(year, @enumFromInt(month + 1));
         }
         return days;
     }
@@ -191,60 +196,15 @@ test "GUID formatting" {
     try std.testing.expect(std.mem.eql(u8, str, "32cb3c89-8080-427c-ba13-5049873bc287"));
 }
 
-pub const FileInfo = extern struct {
-    size: u64,
-    file_size: u64,
-    physical_size: u64,
-    create_time: Time,
-    last_access_time: Time,
-    modification_time: Time,
-    attribute: u64,
-
-    pub fn getFileName(self: *const FileInfo) [*:0]const u16 {
-        return @ptrCast(@alignCast(@as([*]const u8, @ptrCast(self)) + @sizeOf(FileInfo)));
-    }
-
-    pub const efi_file_read_only: u64 = 0x0000000000000001;
-    pub const efi_file_hidden: u64 = 0x0000000000000002;
-    pub const efi_file_system: u64 = 0x0000000000000004;
-    pub const efi_file_reserved: u64 = 0x0000000000000008;
-    pub const efi_file_directory: u64 = 0x0000000000000010;
-    pub const efi_file_archive: u64 = 0x0000000000000020;
-    pub const efi_file_valid_attr: u64 = 0x0000000000000037;
-
-    pub const guid align(8) = Guid{
-        .time_low = 0x09576e92,
-        .time_mid = 0x6d3f,
-        .time_high_and_version = 0x11d2,
-        .clock_seq_high_and_reserved = 0x8e,
-        .clock_seq_low = 0x39,
-        .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
-    };
-};
-
-pub const FileSystemInfo = extern struct {
-    size: u64,
-    read_only: bool,
-    volume_size: u64,
-    free_space: u64,
-    block_size: u32,
-    _volume_label: u16,
-
-    pub fn getVolumeLabel(self: *const FileSystemInfo) [*:0]const u16 {
-        return @as([*:0]const u16, @ptrCast(&self._volume_label));
-    }
-
-    pub const guid align(8) = Guid{
-        .time_low = 0x09576e93,
-        .time_mid = 0x6d3f,
-        .time_high_and_version = 0x11d2,
-        .clock_seq_high_and_reserved = 0x8e,
-        .clock_seq_low = 0x39,
-        .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
-    };
-};
-
 test {
     _ = tables;
     _ = protocol;
+}
+
+pub const UnexpectedError = error{Unexpected};
+
+pub fn unexpectedStatus(status: Status) UnexpectedError {
+    // TODO: debug printing the encountered error? maybe handle warnings?
+    _ = status;
+    return error.Unexpected;
 }

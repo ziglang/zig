@@ -7,7 +7,7 @@ comptime {
     @export(&__extendxftf2, .{ .name = "__extendxftf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-fn __extendxftf2(a: f80) callconv(.C) f128 {
+fn __extendxftf2(a: f80) callconv(.c) f128 {
     const src_int_bit: u64 = 0x8000000000000000;
     const src_sig_mask = ~src_int_bit;
     const src_sig_bits = std.math.floatMantissaBits(f80) - 1; // -1 for the integer bit

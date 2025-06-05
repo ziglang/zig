@@ -37,8 +37,8 @@ namespace ranges {
 template <class _Ip, class _Op>
 using copy_n_result = in_out_result<_Ip, _Op>;
 
-namespace __copy_n {
-struct __fn {
+// TODO: Merge this with copy_n
+struct __copy_n {
   template <class _InIter, class _DiffType, class _OutIter>
   _LIBCPP_HIDE_FROM_ABI constexpr static copy_n_result<_InIter, _OutIter>
   __go(_InIter __first, _DiffType __n, _OutIter __result) {
@@ -54,7 +54,7 @@ struct __fn {
   template <random_access_iterator _InIter, class _DiffType, random_access_iterator _OutIter>
   _LIBCPP_HIDE_FROM_ABI constexpr static copy_n_result<_InIter, _OutIter>
   __go(_InIter __first, _DiffType __n, _OutIter __result) {
-    auto __ret = std::__copy<_RangeAlgPolicy>(__first, __first + __n, __result);
+    auto __ret = std::__copy(__first, __first + __n, __result);
     return {__ret.first, __ret.second};
   }
 
@@ -65,10 +65,9 @@ struct __fn {
     return __go(std::move(__first), __n, std::move(__result));
   }
 };
-} // namespace __copy_n
 
 inline namespace __cpo {
-inline constexpr auto copy_n = __copy_n::__fn{};
+inline constexpr auto copy_n = __copy_n{};
 } // namespace __cpo
 } // namespace ranges
 

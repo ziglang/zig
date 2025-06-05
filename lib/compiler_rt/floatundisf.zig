@@ -12,10 +12,10 @@ comptime {
     }
 }
 
-pub fn __floatundisf(a: u64) callconv(.C) f32 {
+pub fn __floatundisf(a: u64) callconv(.c) f32 {
     return floatFromInt(f32, a);
 }
 
-fn __aeabi_ul2f(a: u64) callconv(.AAPCS) f32 {
+fn __aeabi_ul2f(a: u64) callconv(.{ .arm_aapcs = .{} }) f32 {
     return floatFromInt(f32, a);
 }

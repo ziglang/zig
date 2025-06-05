@@ -2,11 +2,15 @@ const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const linux = std.os.linux;
 const SYS = linux.SYS;
-const iovec = std.os.iovec;
+const iovec = std.posix.iovec;
+const iovec_const = std.posix.iovec_const;
 const uid_t = linux.uid_t;
 const gid_t = linux.gid_t;
 const stack_t = linux.stack_t;
 const sigset_t = linux.sigset_t;
+const sockaddr = linux.sockaddr;
+const socklen_t = linux.socklen_t;
+const timespec = linux.timespec;
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile (
@@ -100,7 +104,7 @@ pub fn syscall6(
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //           a0,    a1,    a2,  a3,   a4,  a5,   a6
     // sys_clone(flags, stack, ptid, ctid, tls)
@@ -140,7 +144,7 @@ pub fn clone() callconv(.Naked) usize {
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     asm volatile (
         \\ or $a7, $zero, %[number]
         \\ syscall 0
@@ -150,6 +154,30 @@ pub fn restore_rt() callconv(.Naked) noreturn {
     );
 }
 
+pub const msghdr = extern struct {
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: i32,
+    __pad1: i32 = 0,
+    control: ?*anyopaque,
+    controllen: socklen_t,
+    __pad2: socklen_t = 0,
+    flags: i32,
+};
+
+pub const msghdr_const = extern struct {
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]const iovec_const,
+    iovlen: i32,
+    __pad1: i32 = 0,
+    control: ?*const anyopaque,
+    controllen: socklen_t,
+    __pad2: socklen_t = 0,
+    flags: i32,
+};
+
 pub const blksize_t = i32;
 pub const nlink_t = u32;
 pub const time_t = i64;
@@ -158,6 +186,38 @@ pub const off_t = i64;
 pub const ino_t = u64;
 pub const dev_t = u32;
 pub const blkcnt_t = i64;
+
+// The `stat` definition used by the Linux kernel.
+pub const Stat = extern struct {
+    dev: dev_t,
+    ino: ino_t,
+    mode: mode_t,
+    nlink: nlink_t,
+    uid: uid_t,
+    gid: gid_t,
+    rdev: dev_t,
+    _pad1: u64,
+    size: off_t,
+    blksize: blksize_t,
+    _pad2: i32,
+    blocks: blkcnt_t,
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
+    _pad3: [2]u32,
+
+    pub fn atime(self: @This()) timespec {
+        return self.atim;
+    }
+
+    pub fn mtime(self: @This()) timespec {
+        return self.mtim;
+    }
+
+    pub fn ctime(self: @This()) timespec {
+        return self.ctim;
+    }
+};
 
 pub const timeval = extern struct {
     tv_sec: time_t,

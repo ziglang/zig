@@ -46,7 +46,9 @@ namespace std {
         using streambuf_type = basic_streambuf<charT, traits>;
 
         // [syncstream.syncbuf.cons], construction and destruction
-        explicit basic_syncbuf(streambuf_type* obuf = nullptr)
+        basic_syncbuf()
+          : basic_syncbuf(nullptr) {}
+        explicit basic_syncbuf(streambuf_type* obuf)
           : basic_syncbuf(obuf, Allocator()) {}
         basic_syncbuf(streambuf_type*, const Allocator&);
         basic_syncbuf(basic_syncbuf&&);
@@ -115,34 +117,40 @@ namespace std {
 
 */
 
-#include <__config>
-#include <__utility/move.h>
-#include <ios>
-#include <iosfwd> // required for declaration of default arguments
-#include <streambuf>
-#include <string>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/syncstream>
+#else
+#  include <__config>
 
-#ifndef _LIBCPP_HAS_NO_THREADS
-#  include <map>
-#  include <mutex>
-#  include <shared_mutex>
-#endif
+#  if _LIBCPP_HAS_LOCALIZATION
+
+#    include <__mutex/lock_guard.h>
+#    include <__utility/move.h>
+#    include <ios>
+#    include <iosfwd> // required for declaration of default arguments
+#    include <streambuf>
+#    include <string>
+
+#    if _LIBCPP_HAS_THREADS
+#      include <map>
+#      include <shared_mutex>
+#    endif
 
 // standard-mandated includes
 
 // [syncstream.syn]
-#include <ostream>
+#    include <ostream>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#    if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#      pragma GCC system_header
+#    endif
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#    include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_SYNCSTREAM)
+#    if _LIBCPP_STD_VER >= 20 && _LIBCPP_HAS_EXPERIMENTAL_SYNCSTREAM
 
 // [syncstream.syncbuf.overview]/1
 //   Class template basic_syncbuf stores character data written to it,
@@ -155,7 +163,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 //
 // This helper singleton is used to implement the required
 // synchronisation guarantees.
-#  ifndef _LIBCPP_HAS_NO_THREADS
+#      if _LIBCPP_HAS_THREADS
 class __wrapped_streambuf_mutex {
   _LIBCPP_HIDE_FROM_ABI __wrapped_streambuf_mutex() = default;
 
@@ -228,7 +236,7 @@ private:
     return __it;
   }
 };
-#  endif // _LIBCPP_HAS_NO_THREADS
+#      endif // _LIBCPP_HAS_THREADS
 
 // basic_syncbuf
 
@@ -253,8 +261,9 @@ public:
 
   // [syncstream.syncbuf.cons], construction and destruction
 
-  _LIBCPP_HIDE_FROM_ABI explicit basic_syncbuf(streambuf_type* __obuf = nullptr)
-      : basic_syncbuf(__obuf, _Allocator()) {}
+  _LIBCPP_HIDE_FROM_ABI basic_syncbuf() : basic_syncbuf(nullptr) {}
+
+  _LIBCPP_HIDE_FROM_ABI explicit basic_syncbuf(streambuf_type* __obuf) : basic_syncbuf(__obuf, _Allocator()) {}
 
   _LIBCPP_HIDE_FROM_ABI basic_syncbuf(streambuf_type* __obuf, _Allocator const& __alloc)
       : __wrapped_(__obuf), __str_(__alloc) {
@@ -267,14 +276,14 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI ~basic_syncbuf() {
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#      if _LIBCPP_HAS_EXCEPTIONS
     try {
-#  endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#      endif // _LIBCPP_HAS_EXCEPTIONS
       emit();
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#      if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
     }
-#  endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#      endif // _LIBCPP_HAS_EXCEPTIONS
     __dec_reference();
   }
 
@@ -331,9 +340,9 @@ protected:
       return traits_type::not_eof(__c);
 
     if (this->pptr() == this->epptr()) {
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#      if _LIBCPP_HAS_EXCEPTIONS
       try {
-#  endif
+#      endif
         size_t __size = __str_.size();
         __str_.resize(__str_.capacity() + 1);
         _LIBCPP_ASSERT_INTERNAL(__str_.size() > __size, "the buffer hasn't grown");
@@ -342,11 +351,11 @@ protected:
         this->setp(__p, __p + __str_.size());
         this->pbump(__size);
 
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#      if _LIBCPP_HAS_EXCEPTIONS
       } catch (...) {
         return traits_type::eof();
       }
-#  endif
+#      endif
     }
 
     return this->sputc(traits_type::to_char_type(__c));
@@ -358,7 +367,7 @@ private:
   // TODO Use a more generic buffer.
   // That buffer should be light with almost no additional headers. Then
   // it can be use here, the __retarget_buffer, and place that use
-  // the now deprecated get_temporary_buffer
+  // the now removed get_temporary_buffer
 
   basic_string<_CharT, _Traits, _Allocator> __str_;
   bool __emit_on_sync_{false};
@@ -367,9 +376,9 @@ private:
     if (!__wrapped_)
       return false;
 
-#  ifndef _LIBCPP_HAS_NO_THREADS
+#      if _LIBCPP_HAS_THREADS
     lock_guard<mutex> __lock = __wrapped_streambuf_mutex::__instance().__get_lock(__wrapped_);
-#  endif
+#      endif
 
     bool __result = true;
     if (this->pptr() != this->pbase()) {
@@ -401,24 +410,24 @@ private:
   }
 
   _LIBCPP_HIDE_FROM_ABI void __inc_reference() {
-#  ifndef _LIBCPP_HAS_NO_THREADS
+#      if _LIBCPP_HAS_THREADS
     if (__wrapped_)
       __wrapped_streambuf_mutex::__instance().__inc_reference(__wrapped_);
-#  endif
+#      endif
   }
 
   _LIBCPP_HIDE_FROM_ABI void __dec_reference() noexcept {
-#  ifndef _LIBCPP_HAS_NO_THREADS
+#      if _LIBCPP_HAS_THREADS
     if (__wrapped_)
       __wrapped_streambuf_mutex::__instance().__dec_reference(__wrapped_);
-#  endif
+#      endif
   }
 };
 
 using std::syncbuf;
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#      if _LIBCPP_HAS_WIDE_CHARACTERS
 using std::wsyncbuf;
-#  endif
+#      endif
 
 // [syncstream.syncbuf.special], specialized algorithms
 template <class _CharT, class _Traits, class _Allocator>
@@ -474,17 +483,17 @@ public:
     // TODO validate other unformatted output functions.
     typename basic_ostream<char_type, traits_type>::sentry __s(*this);
     if (__s) {
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#      if _LIBCPP_HAS_EXCEPTIONS
       try {
-#  endif
+#      endif
 
         if (__sb_.emit() == false)
           this->setstate(ios::badbit);
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#      if _LIBCPP_HAS_EXCEPTIONS
       } catch (...) {
         this->__set_badbit_and_consider_rethrow();
       }
-#  endif
+#      endif
     }
   }
 
@@ -499,14 +508,17 @@ private:
 };
 
 using std::osyncstream;
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#      if _LIBCPP_HAS_WIDE_CHARACTERS
 using std::wosyncstream;
-#  endif
+#      endif
 
-#endif // _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_SYNCSTREAM)
+#    endif // _LIBCPP_STD_VER >= 20 && _LIBCPP_HAS_EXPERIMENTAL_SYNCSTREAM
 
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
+
+#  endif // _LIBCPP_HAS_LOCALIZATION
+#endif   // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_SYNCSTREAM

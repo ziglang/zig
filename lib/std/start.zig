@@ -185,17 +185,13 @@ fn _DllMainCRTStartup(
 }
 
 fn wasm_freestanding_start() callconv(.c) void {
-    // This is marked inline because for some reason LLVM in
-    // release mode fails to inline it, and we want fewer call frames in stack traces.
-    _ = @call(.always_inline, callMain, .{});
+    _ = callMain(.void);
 }
 
 fn wasi_start() callconv(.c) void {
-    // The function call is marked inline because for some reason LLVM in
-    // release mode fails to inline it, and we want fewer call frames in stack traces.
     switch (builtin.wasi_exec_model) {
-        .reactor => _ = @call(.always_inline, callMain, .{}),
-        .command => std.os.wasi.proc_exit(@call(.always_inline, callMain, .{})),
+        .reactor => _ = callMain(.void),
+        .command => std.os.wasi.proc_exit(callMain(.void)),
     }
 }
 
@@ -211,13 +207,24 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
             root.main();
             return 0;
         },
-        usize => {
-            return root.main();
-        },
         uefi.Status => {
             return @intFromEnum(root.main());
         },
-        else => @compileError("expected return type of main to be 'void', 'noreturn', 'usize', or 'std.os.uefi.Status'"),
+        uefi.Error!void => {
+            root.main() catch |err| switch (err) {
+                error.Unexpected => @panic("EfiMain: unexpected error"),
+                else => {
+                    const status = uefi.Status.fromError(@errorCast(err));
+                    return @intFromEnum(status);
+                },
+            };
+
+            return 0;
+        },
+        else => @compileError(
+            "expected return type of main to be 'void', 'noreturn', " ++
+                "'uefi.Status', or 'uefi.Error!void'",
+        ),
     }
 }
 
@@ -239,7 +246,7 @@ fn _start() callconv(.naked) noreturn {
             .csky => ".cfi_undefined lr",
             .hexagon => ".cfi_undefined r31",
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
-            .m68k => ".cfi_undefined pc",
+            .m68k => ".cfi_undefined %%pc",
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
             .riscv32, .riscv64 => if (builtin.zig_backend == .stage2_riscv64)
@@ -332,7 +339,7 @@ fn _start() callconv(.naked) noreturn {
             \\ r30 = #0
             \\ r31 = #0
             \\ r0 = r29
-            \\ r29 = and(r29, #-16)
+            \\ r29 = and(r29, #-8)
             \\ memw(r29 + #-8) = r29
             \\ r29 = add(r29, #-8)
             \\ call %[posixCallMainAndExit]
@@ -355,7 +362,11 @@ fn _start() callconv(.naked) noreturn {
             // Note that the - 8 is needed because pc in the jsr instruction points into the middle
             // of the jsr instruction. (The lea is 6 bytes, the jsr is 4 bytes.)
             \\ suba.l %%fp, %%fp
-            \\ move.l %%sp, -(%%sp)
+            \\ move.l %%sp, %%a0
+            \\ move.l %%a0, %%d0
+            \\ and.l #-4, %%d0
+            \\ move.l %%d0, %%sp
+            \\ move.l %%a0, -(%%sp)
             \\ lea %[posixCallMainAndExit] - . - 8, %%a0
             \\ jsr (%%pc, %%a0)
             ,
@@ -472,7 +483,7 @@ fn WinStartup() callconv(.withStackAlign(.c, 1)) noreturn {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    std.os.windows.ntdll.RtlExitUserProcess(callMain());
+    std.os.windows.ntdll.RtlExitUserProcess(callMain(.void));
 }
 
 fn wWinMainCRTStartup() callconv(.withStackAlign(.c, 1)) noreturn {
@@ -499,7 +510,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
     const envp = @as([*][*:0]u8, @ptrCast(envp_optional))[0..envp_count];
 
-    if (native_os == .linux) {
+    const aux: std.process.Init.Aux = if (native_os == .linux) aux: {
         // Find the beginning of the auxiliary vector
         const auxv: [*]elf.Auxv = @ptrCast(@alignCast(envp.ptr + envp_count + 1));
 
@@ -566,9 +577,11 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
             const slice = init_array_start[0 .. init_array_end - init_array_start];
             for (slice) |func| func();
         }
-    }
 
-    std.posix.exit(callMainWithArgs(argc, argv, envp));
+        break :aux .{ .data = auxv };
+    } else .{ .data = {} };
+
+    std.posix.exit(callMainWithArgs(argc, argv, envp, aux));
 }
 
 fn expandStackSize(phdrs: []elf.Phdr) void {
@@ -606,14 +619,15 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
     }
 }
 
-inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
-    std.os.argv = argv[0..argc];
-    std.os.environ = envp;
-
+inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8, aux: std.process.Init.Aux) u8 {
     std.debug.maybeEnableSegfaultHandler();
     maybeIgnoreSigpipe();
 
-    return callMain();
+    return callMain(.{
+        .args = .{ .data = if (builtin.os.tag == .windows) {} else argv[0..argc] },
+        .env = .{ .data = if (builtin.os.tag == .windows) {} else envp },
+        .aux = aux,
+    });
 }
 
 fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.c) c_int {
@@ -628,21 +642,28 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
         expandStackSize(phdrs);
     }
 
-    return callMainWithArgs(@as(usize, @intCast(c_argc)), @as([*][*:0]u8, @ptrCast(c_argv)), envp);
+    return callMainWithArgs(@intCast(c_argc), @ptrCast(c_argv), envp, .{ .data = {} });
 }
 
 fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.c) c_int {
-    std.os.argv = @as([*][*:0]u8, @ptrCast(c_argv))[0..@as(usize, @intCast(c_argc))];
-    return callMain();
+    const args = @as([*][*:0]u8, @ptrCast(c_argv))[0..@as(usize, @intCast(c_argc))];
+    std.os.argv = args; // To be removed after 0.15.0 is tagged.
+    return callMain(.{
+        .args = .{ .data = args },
+        .env = .{ .data = {} },
+        .aux = .{ .data = {} },
+    });
 }
 
 // General error message for a malformed return type
 const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
 
-pub inline fn callMain() u8 {
-    const ReturnType = @typeInfo(@TypeOf(root.main)).@"fn".return_type.?;
+pub inline fn callMain(init: std.process.Init) u8 {
+    const func = @typeInfo(@TypeOf(root.main)).@"fn";
+    const ReturnType = func.return_type.?;
 
-    switch (ReturnType) {
+    // To be deleted after 0.15.0 is tagged.
+    if (func.params.len == 0) switch (ReturnType) {
         void => {
             root.main();
             return 0;
@@ -654,6 +675,37 @@ pub inline fn callMain() u8 {
             if (@typeInfo(ReturnType) != .error_union) @compileError(bad_main_ret);
 
             const result = root.main() catch |err| {
+                if (builtin.zig_backend == .stage2_riscv64) {
+                    std.debug.print("error: failed with error\n", .{});
+                    return 1;
+                }
+                std.log.err("{s}", .{@errorName(err)});
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
+                return 1;
+            };
+
+            return switch (@TypeOf(result)) {
+                void => 0,
+                u8 => result,
+                else => @compileError(bad_main_ret),
+            };
+        },
+    };
+
+    switch (ReturnType) {
+        void => {
+            root.main(init);
+            return 0;
+        },
+        noreturn, u8 => {
+            return root.main(init);
+        },
+        else => {
+            if (@typeInfo(ReturnType) != .error_union) @compileError(bad_main_ret);
+
+            const result = root.main(init) catch |err| {
                 if (builtin.zig_backend == .stage2_riscv64) {
                     std.debug.print("error: failed with error\n", .{});
                     return 1;

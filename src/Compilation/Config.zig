@@ -33,7 +33,7 @@ any_non_single_threaded: bool,
 any_error_tracing: bool,
 any_sanitize_thread: bool,
 any_sanitize_address: bool,
-any_sanitize_c: bool,
+any_sanitize_c: std.zig.SanitizeC,
 any_fuzz: bool,
 pie: bool,
 /// If this is true then linker code is responsible for making an LLVM IR
@@ -49,7 +49,7 @@ use_lib_llvm: bool,
 /// and updates the final binary.
 use_lld: bool,
 c_frontend: CFrontend,
-lto: LtoMode,
+lto: std.zig.LtoMode,
 /// WASI-only. Type of WASI execution model ("command" or "reactor").
 /// Always set to `command` for non-WASI targets.
 wasi_exec_model: std.builtin.WasiExecModel,
@@ -66,8 +66,6 @@ rdynamic: bool,
 san_cov_trace_pc_guard: bool,
 
 pub const CFrontend = enum { clang, aro };
-
-pub const LtoMode = enum { none, full, thin };
 
 pub const DebugFormat = union(enum) {
     strip,
@@ -90,7 +88,7 @@ pub const Options = struct {
     any_non_single_threaded: bool = false,
     any_sanitize_thread: bool = false,
     any_sanitize_address: bool = false,
-    any_sanitize_c: bool = false,
+    any_sanitize_c: std.zig.SanitizeC = .off,
     any_fuzz: bool = false,
     any_unwind_tables: bool = false,
     any_dyn_libs: bool = false,
@@ -107,7 +105,7 @@ pub const Options = struct {
     use_lib_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
-    lto: ?LtoMode = null,
+    lto: ?std.zig.LtoMode = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     import_memory: ?bool = null,
@@ -292,7 +290,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b .clang;
     };
 
-    const lto: LtoMode = b: {
+    const lto: std.zig.LtoMode = b: {
         if (!use_lld) {
             // zig ld LTO support is tracked by
             // https://github.com/ziglang/zig/issues/8680
