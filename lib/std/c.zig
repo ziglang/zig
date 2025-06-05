@@ -10828,8 +10828,7 @@ pub const getcontext = if (builtin.target.abi.isAndroid() or builtin.target.os.t
 {} // android bionic and openbsd libc does not implement getcontext
     else if (native_os == .linux and builtin.target.abi.isMusl())
         linux.getcontext
-    else
-        private.getcontext;
+    else if (native_os == .windows) {} else private.getcontext;
 
 pub const max_align_t = if (native_abi == .msvc or native_abi == .itanium)
     f64
