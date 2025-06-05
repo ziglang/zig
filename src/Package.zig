@@ -67,6 +67,7 @@ pub const Hash = struct {
     pub fn toSlice(ph: *const Hash) []const u8 {
         var end: usize = ph.bytes.len;
         while (true) {
+            if (end == 0) return &.{};
             end -= 1;
             if (ph.bytes[end] != 0) return ph.bytes[0 .. end + 1];
         }
@@ -193,6 +194,11 @@ test Hash {
     };
     const result: Hash = .init(example_digest, "nasm", "2.16.1-3", 0xcafebabe, 10 * 1024 * 1024);
     try std.testing.expectEqualStrings("nasm-2.16.1-3-vrr-ygAAoADH9XG3tOdvPNuHen_d-XeHndOG-nNXmved", result.toSlice());
+}
+
+test "EmptyHash" {
+    const hash = Hash.fromSlice("");
+    try std.testing.expectEqualStrings("", hash.toSlice());
 }
 
 test {
