@@ -116,7 +116,7 @@ pub const BootServices = extern struct {
     _startImage: *const fn (image_handle: Handle, exit_data_size: ?*usize, exit_data: ?*[*]u16) callconv(cc) Status,
 
     /// Terminates a loaded EFI image and returns control to boot services.
-    _exit: *const fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?*align(2) const u8) callconv(cc) Status,
+    _exit: *const fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?[*]align(2) const u8) callconv(cc) Status,
 
     /// Unloads an image.
     _unloadImage: *const fn (image_handle: Handle) callconv(cc) Status,
@@ -694,7 +694,7 @@ pub const BootServices = extern struct {
         switch (self._locateHandle(
             std.meta.activeTag(search),
             if (search == .by_protocol) search.by_protocol else null,
-            if (search == .by_register_notify) search.by_register_notify.toPtr() else null,
+            if (search == .by_register_notify) search.by_register_notify else null,
             &len,
             null,
         )) {
@@ -714,7 +714,7 @@ pub const BootServices = extern struct {
         switch (self._locateHandle(
             std.meta.activeTag(search),
             if (search == .by_protocol) search.by_protocol else null,
-            if (search == .by_register_notify) search.by_register_notify.toPtr() else null,
+            if (search == .by_register_notify) search.by_register_notify else null,
             &len,
             buffer.ptr,
         )) {
@@ -1096,7 +1096,7 @@ pub const BootServices = extern struct {
         switch (self._locateHandleBuffer(
             std.meta.activeTag(search),
             if (search == .by_protocol) search.by_protocol else null,
-            if (search == .by_register_notify) search.by_register_notify.toPtr() else null,
+            if (search == .by_register_notify) search.by_register_notify else null,
             &len,
             &handles,
         )) {
