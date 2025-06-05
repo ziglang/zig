@@ -149,7 +149,7 @@ pub fn decode(allocator: Allocator, data: []const u8) !Block {
             continue;
         }
 
-        const base64_data = try removeSpacesAndTabs(allocator, rest[0..end_index]);
+        const base64_data = try removeAllSpacesAndTabs(allocator, rest[0..end_index]);
         defer allocator.free(base64_data);
 
         const base64_decode_len = try base64.decodedLen(base64_data.len, .standard);
@@ -322,9 +322,9 @@ fn getLine(data: []const u8) LineData {
     };
 }
 
-/// removeSpacesAndTabs returns a copy of its input with all spaces and tabs
+/// removeAllSpacesAndTabs returns a copy of its input with all spaces and tabs
 /// removed, if there were any. Otherwise, the input is returned unchanged.
-fn removeSpacesAndTabs(alloc: Allocator, data: []const u8) ![:0]u8 {
+fn removeAllSpacesAndTabs(alloc: Allocator, data: []const u8) ![:0]u8 {
     var buf = ArraySlice.init(alloc);
     defer buf.deinit();
 
