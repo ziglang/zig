@@ -400,7 +400,7 @@ fn addFromDirInner(
                 for (targets) |target_query| {
                     const output = try manifest.trailingLinesSplit(ctx.arena);
                     try ctx.translate.append(.{
-                        .name = std.fs.path.stem(filename),
+                        .name = try caseNameFromPath(ctx.arena, filename),
                         .c_frontend = c_frontend,
                         .target = b.resolveTargetQuery(target_query),
                         .link_libc = link_libc,
@@ -416,7 +416,7 @@ fn addFromDirInner(
                 for (targets) |target_query| {
                     const output = try manifest.trailingSplit(ctx.arena);
                     try ctx.translate.append(.{
-                        .name = std.fs.path.stem(filename),
+                        .name = try caseNameFromPath(ctx.arena, filename),
                         .c_frontend = c_frontend,
                         .target = b.resolveTargetQuery(target_query),
                         .link_libc = link_libc,
@@ -454,7 +454,7 @@ fn addFromDirInner(
 
                 const next = ctx.cases.items.len;
                 try ctx.cases.append(.{
-                    .name = std.fs.path.stem(filename),
+                    .name = try caseNameFromPath(ctx.arena, filename),
                     .import_path = std.fs.path.dirname(filename),
                     .backend = backend,
                     .files = .init(ctx.arena),
@@ -856,7 +856,7 @@ const TestManifest = struct {
 
         fn next(self: *TrailingIterator) ?[]const u8 {
             const next_inner = self.inner.next() orelse return null;
-            return if (next_inner.len == 2) "" else std.mem.trimRight(u8, next_inner[3..], " \t");
+            return if (next_inner.len == 2) "" else std.mem.trimEnd(u8, next_inner[3..], " \t");
         }
     };
 
@@ -1137,4 +1137,18 @@ fn knownFileExtension(filename: []const u8) bool {
     if (n3) |x| _ = std.fmt.parseInt(u32, x, 10) catch return false;
     if (it.next() != null) return false;
     return false;
+}
+
+/// `path` is a path relative to the root case directory.
+///   e.g. `compile_errors/undeclared_identifier.zig`
+/// The case name is computed by removing the extension and substituting path separators for dots.
+///   e.g. `compile_errors.undeclared_identifier`
+/// Including the directory components makes `-Dtest-filter` more useful, because you can filter
+/// based on subdirectory; e.g. `-Dtest-filter=compile_errors` to run the compile error tets.
+fn caseNameFromPath(arena: Allocator, path: []const u8) Allocator.Error![]const u8 {
+    const ext_len = std.fs.path.extension(path).len;
+    const path_sans_ext = path[0 .. path.len - ext_len];
+    const result = try arena.dupe(u8, path_sans_ext);
+    std.mem.replaceScalar(u8, result, std.fs.path.sep, '.');
+    return result;
 }

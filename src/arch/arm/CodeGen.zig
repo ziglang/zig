@@ -7,7 +7,6 @@ const codegen = @import("../../codegen.zig");
 const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
-const Liveness = @import("../../Liveness.zig");
 const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
 const link = @import("../../link.zig");
@@ -42,10 +41,14 @@ const gp = abi.RegisterClass.gp;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
 
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
+}
+
 gpa: Allocator,
 pt: Zcu.PerThread,
 air: Air,
-liveness: Liveness,
+liveness: Air.Liveness,
 bin_file: *link.File,
 debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
@@ -72,7 +75,7 @@ end_di_column: u32,
 /// which is a relative jump, based on the address following the reloc.
 exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
 
-reused_operands: std.StaticBitSet(Liveness.bpi - 1) = undefined,
+reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 
 /// We postpone the creation of debug info for function args and locals
 /// until after all Mir instructions have been generated. Only then we
@@ -195,7 +198,7 @@ const BlockData = struct {
 const BigTomb = struct {
     function: *Self,
     inst: Air.Inst.Index,
-    lbt: Liveness.BigTomb,
+    lbt: Air.Liveness.BigTomb,
 
     fn feed(bt: *BigTomb, op_ref: Air.Inst.Ref) void {
         const dies = bt.lbt.feed();
@@ -333,7 +336,7 @@ pub fn generate(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!void {
@@ -342,7 +345,7 @@ pub fn generate(
     const func = zcu.funcInfo(func_index);
     const func_ty = Type.fromInterned(func.ty);
     const file_scope = zcu.navFileScope(func.owner_nav);
-    const target = &file_scope.mod.resolved_target.result;
+    const target = &file_scope.mod.?.resolved_target.result;
 
     var branch_stack = std.ArrayList(Branch).init(gpa);
     defer {
@@ -635,7 +638,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             continue;
 
         const old_air_bookkeeping = self.air_bookkeeping;
-        try self.ensureProcessDeathCapacity(Liveness.bpi);
+        try self.ensureProcessDeathCapacity(Air.Liveness.bpi);
 
         self.reused_operands = @TypeOf(self.reused_operands).initEmpty();
         switch (air_tags[@intFromEnum(inst)]) {
@@ -764,7 +767,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .error_name      => try self.airErrorName(inst),
             .splat           => try self.airSplat(inst),
             .select          => try self.airSelect(inst),
-            .shuffle         => try self.airShuffle(inst),
+            .shuffle_one     => try self.airShuffleOne(inst),
+            .shuffle_two     => try self.airShuffleTwo(inst),
             .reduce          => try self.airReduce(inst),
             .aggregate_init  => try self.airAggregateInit(inst),
             .union_init      => try self.airUnionInit(inst),
@@ -865,6 +869,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
             .error_set_has_value => return self.fail("TODO implement error_set_has_value", .{}),
             .vector_store_elem => return self.fail("TODO implement vector_store_elem", .{}),
+            .tlv_dllimport_ptr => return self.fail("TODO implement tlv_dllimport_ptr", .{}),
 
             .c_va_arg => return self.fail("TODO implement c_va_arg", .{}),
             .c_va_copy => return self.fail("TODO implement c_va_copy", .{}),
@@ -920,14 +925,14 @@ fn finishAirBookkeeping(self: *Self) void {
     }
 }
 
-fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Liveness.bpi - 1]Air.Inst.Ref) void {
+fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Air.Liveness.bpi - 1]Air.Inst.Ref) void {
     const tomb_bits = self.liveness.getTombBits(inst);
     for (0.., operands) |op_index, op| {
-        if (tomb_bits & @as(Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
+        if (tomb_bits & @as(Air.Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
         if (self.reused_operands.isSet(op_index)) continue;
         self.processDeath(op.toIndexAllowNone() orelse continue);
     }
-    if (tomb_bits & 1 << (Liveness.bpi - 1) == 0) {
+    if (tomb_bits & 1 << (Air.Liveness.bpi - 1) == 0) {
         log.debug("%{d} => {}", .{ inst, result });
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         branch.inst_table.putAssumeCapacityNoClobber(inst, result);
@@ -1857,7 +1862,10 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const overflow_bit_offset: u32 = @intCast(tuple_ty.structFieldOffset(1, zcu));
 
         switch (lhs_ty.zigTypeTag(zcu)) {
-            .vector => return self.fail("TODO implement shl_with_overflow for vectors", .{}),
+            .vector => if (!rhs_ty.isVector(zcu))
+                return self.fail("TODO implement vector shl_with_overflow with scalar rhs", .{})
+            else
+                return self.fail("TODO implement shl_with_overflow for vectors", .{}),
             .int => {
                 const int_info = lhs_ty.intInfo(zcu);
                 if (int_info.bits <= 32) {
@@ -1978,8 +1986,14 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
+    const zcu = self.pt.zcu;
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else if (self.typeOf(bin_op.lhs).isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+        return self.fail("TODO implement vector shl_sat with scalar rhs for {}", .{self.target.cpu.arch})
+    else
+        return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -2616,7 +2630,7 @@ fn reuseOperand(
     self: *Self,
     inst: Air.Inst.Index,
     operand: Air.Inst.Ref,
-    op_index: Liveness.OperandInt,
+    op_index: Air.Liveness.OperandInt,
     mcv: MCValue,
 ) bool {
     if (!self.liveness.operandDies(inst, op_index))
@@ -3093,7 +3107,7 @@ const ReuseMetadata = struct {
     /// inputs to the Air instruction are omitted (e.g. when they can
     /// be represented as immediates to the Mir instruction),
     /// operand_mapping should reflect that fact.
-    operand_mapping: []const Liveness.OperandInt,
+    operand_mapping: []const Air.Liveness.OperandInt,
 };
 
 /// Allocate a set of registers for use as arguments for a Mir
@@ -3341,7 +3355,7 @@ fn binOpImmediate(
     const write_args = [_]WriteArg{
         .{ .ty = lhs_ty, .bind = .none, .class = gp, .reg = &dest_reg },
     };
-    const operand_mapping: []const Liveness.OperandInt = if (lhs_and_rhs_swapped) &.{1} else &.{0};
+    const operand_mapping: []const Air.Liveness.OperandInt = if (lhs_and_rhs_swapped) &.{1} else &.{0};
     try self.allocRegs(
         &read_args,
         &write_args,
@@ -3788,7 +3802,10 @@ fn shiftExact(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+        .vector => if (!rhs_ty.isVector(zcu))
+            return self.fail("TODO ARM vector shift with scalar rhs", .{})
+        else
+            return self.fail("TODO ARM binary operations on vectors", .{}),
         .int => {
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 32) {
@@ -3828,7 +3845,10 @@ fn shiftNormal(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .vector => return self.fail("TODO ARM binary operations on vectors", .{}),
+        .vector => if (!rhs_ty.isVector(zcu))
+            return self.fail("TODO ARM vector shift with scalar rhs", .{})
+        else
+            return self.fail("TODO ARM binary operations on vectors", .{}),
         .int => {
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 32) {
@@ -4231,7 +4251,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const callee = pl_op.operand;
     const extra = self.air.extraData(Air.Call, pl_op.payload);
-    const args: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]);
+    const args: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.args_len]);
     const ty = self.typeOf(callee);
     const pt = self.pt;
     const zcu = pt.zcu;
@@ -4324,7 +4344,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
     // TODO: add Instruction.supportedOn
     // function for ARM
-    if (Target.arm.featureSetHas(self.target.cpu.features, .has_v5t)) {
+    if (self.target.cpu.has(.arm, .has_v5t)) {
         _ = try self.addInst(.{
             .tag = .blx,
             .data = .{ .reg = .lr },
@@ -4360,8 +4380,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         break :result info.return_value;
     };
 
-    if (args.len <= Liveness.bpi - 2) {
-        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+    if (args.len <= Air.Liveness.bpi - 2) {
+        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
         buf[0] = callee;
         @memcpy(buf[1..][0..args.len], args);
         return self.finishAir(inst, result, buf);
@@ -4584,7 +4604,7 @@ fn airDbgInlineBlock(self: *Self, inst: Air.Inst.Index) !void {
     const func = zcu.funcInfo(extra.data.func);
     // TODO emit debug info for function change
     _ = func;
-    try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+    try self.lowerBlock(inst, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
 }
 
 fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
@@ -4645,8 +4665,8 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const cond_inst = try self.resolveInst(pl_op.operand);
     const extra = self.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.then_body_len]);
-    const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.then_body_len]);
+    const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
     const liveness_condbr = self.liveness.getCondBr(inst);
 
     const reloc: Mir.Inst.Index = try self.condBr(cond_inst);
@@ -4965,7 +4985,7 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     // A loop is a setup to be able to jump back to the beginning.
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const loop = self.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(self.air.extra[loop.end..][0..loop.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[loop.end..][0..loop.data.body_len]);
     const start_index: Mir.Inst.Index = @intCast(self.mir_instructions.len);
 
     try self.genBody(body);
@@ -4985,7 +5005,7 @@ fn jump(self: *Self, inst: Mir.Inst.Index) !void {
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
-    try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+    try self.lowerBlock(inst, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
 }
 
 fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
@@ -5198,9 +5218,9 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
     const clobbers_len: u31 = @truncate(extra.data.flags);
     var extra_i: usize = extra.end;
-    const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]);
+    const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.outputs_len]);
     extra_i += outputs.len;
-    const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]);
+    const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]);
     extra_i += inputs.len;
 
     const dead = !is_volatile and self.liveness.isUnused(inst);
@@ -5213,8 +5233,8 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             if (output != .none) {
                 return self.fail("TODO implement codegen for non-expr asm", .{});
             }
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
             // for the string, we still use the next u32 for the null terminator.
@@ -5224,7 +5244,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         } else null;
 
         for (inputs) |input| {
-            const input_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+            const input_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
             const constraint = std.mem.sliceTo(input_bytes, 0);
             const name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
@@ -5246,7 +5266,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         {
             var clobber_i: u32 = 0;
             while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
                 // This equation accounts for the fact that even if we have exactly 4 bytes
                 // for the string, we still use the next u32 for the null terminator.
                 extra_i += clobber.len / 4 + 1;
@@ -5255,7 +5275,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             }
         }
 
-        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
+        const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
         if (mem.eql(u8, asm_source, "svc #0")) {
             _ = try self.addInst(.{
@@ -5281,7 +5301,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     };
 
     simple: {
-        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
         var buf_index: usize = 0;
         for (outputs) |output| {
             if (output == .none) continue;
@@ -5558,7 +5578,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     } },
                 });
             } else if (x <= math.maxInt(u16)) {
-                if (Target.arm.featureSetHas(self.target.cpu.features, .has_v7)) {
+                if (self.target.cpu.has(.arm, .has_v7)) {
                     _ = try self.addInst(.{
                         .tag = .movw,
                         .data = .{ .r_imm16 = .{
@@ -5586,7 +5606,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             } else {
                 // TODO write constant to code and load
                 // relative to pc
-                if (Target.arm.featureSetHas(self.target.cpu.features, .has_v7)) {
+                if (self.target.cpu.has(.arm, .has_v7)) {
                     // immediate: 0xaaaabbbb
                     // movw reg, #0xbbbb
                     // movt reg, #0xaaaa
@@ -6002,10 +6022,14 @@ fn airSelect(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ pl_op.operand, extra.lhs, extra.rhs });
 }
 
-fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airShuffle for arm", .{});
-    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+fn airShuffleOne(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airShuffleOne for arm", .{});
+}
+
+fn airShuffleTwo(self: *Self, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airShuffleTwo for arm", .{});
 }
 
 fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
@@ -6020,14 +6044,14 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
     const vector_ty = self.typeOfIndex(inst);
     const len = vector_ty.vectorLen(zcu);
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
+    const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[ty_pl.payload..][0..len]);
     const result: MCValue = res: {
         if (self.liveness.isUnused(inst)) break :res MCValue.dead;
         return self.fail("TODO implement airAggregateInit for arm", .{});
     };
 
-    if (elements.len <= Liveness.bpi - 1) {
-        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+    if (elements.len <= Air.Liveness.bpi - 1) {
+        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
         @memcpy(buf[0..elements.len], elements);
         return self.finishAir(inst, result, buf);
     }
@@ -6064,7 +6088,7 @@ fn airTry(self: *Self, inst: Air.Inst.Index) !void {
     const pt = self.pt;
     const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = self.air.extraData(Air.Try, pl_op.payload);
-    const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
     const result: MCValue = result: {
         const error_union_bind: ReadArg.Bind = .{ .inst = pl_op.operand };
         const error_union_ty = self.typeOf(pl_op.operand);
@@ -6091,7 +6115,7 @@ fn airTry(self: *Self, inst: Air.Inst.Index) !void {
 fn airTryPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.TryPtr, ty_pl.payload);
-    const body = self.air.extra[extra.end..][0..extra.data.body_len];
+    const body = self.air.extra.items[extra.end..][0..extra.data.body_len];
     _ = body;
     return self.fail("TODO implement airTryPtr for arm", .{});
     // return self.finishAir(inst, result, .{ extra.data.ptr, .none, .none });
@@ -6135,7 +6159,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .load_got, .load_symbol, .load_direct, .load_tlv, .lea_symbol, .lea_direct => unreachable, // TODO
+            .load_got, .load_symbol, .load_direct, .lea_symbol, .lea_direct => unreachable, // TODO
             .immediate => |imm| .{ .immediate = @truncate(imm) },
             .memory => |addr| .{ .memory = addr },
         },

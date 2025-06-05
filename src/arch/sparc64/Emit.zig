@@ -7,7 +7,6 @@ const assert = std.debug.assert;
 const link = @import("../../link.zig");
 const Zcu = @import("../../Zcu.zig");
 const ErrorMsg = Zcu.ErrorMsg;
-const Liveness = @import("../../Liveness.zig");
 const log = std.log.scoped(.sparcv9_emit);
 
 const Emit = @This();

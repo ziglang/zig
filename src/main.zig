@@ -28,11 +28,11 @@ const link = @import("link.zig");
 const Package = @import("Package.zig");
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
-const wasi_libc = @import("wasi_libc.zig");
+const wasi_libc = @import("libs/wasi_libc.zig");
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
 const Zcu = @import("Zcu.zig");
-const mingw = @import("mingw.zig");
+const mingw = @import("libs/mingw.zig");
 const dev = @import("dev.zig");
 
 test {
@@ -63,19 +63,7 @@ pub fn wasi_cwd() std.os.wasi.fd_t {
     return cwd_fd;
 }
 
-fn getWasiPreopen(name: []const u8) Directory {
-    return .{
-        .path = name,
-        .handle = .{
-            .fd = wasi_preopens.find(name) orelse fatal("WASI preopen not found: '{s}'", .{name}),
-        },
-    };
-}
-
-pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    std.log.err(format, args);
-    process.exit(1);
-}
+const fatal = std.process.fatal;
 
 /// Shaming all the locations that inappropriately use an O(N) search algorithm.
 /// Please delete this and fix the compilation errors!
@@ -136,7 +124,6 @@ const debug_usage = normal_usage ++
 ;
 
 const usage = if (build_options.enable_debug_extensions) debug_usage else normal_usage;
-const default_local_zig_cache_basename = ".zig-cache";
 
 var log_scopes: std.ArrayListUnmanaged([]const u8) = .empty;
 
@@ -377,13 +364,13 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         dev.check(.help_command);
         return io.getStdOut().writeAll(usage);
     } else if (mem.eql(u8, cmd, "ast-check")) {
-        return cmdAstCheck(gpa, arena, cmd_args);
+        return cmdAstCheck(arena, cmd_args);
     } else if (mem.eql(u8, cmd, "detect-cpu")) {
-        return cmdDetectCpu(gpa, arena, cmd_args);
+        return cmdDetectCpu(cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "changelist")) {
-        return cmdChangelist(gpa, arena, cmd_args);
+        return cmdChangelist(arena, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "dump-zir")) {
-        return cmdDumpZir(gpa, arena, cmd_args);
+        return cmdDumpZir(arena, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "llvm-ints")) {
         return cmdDumpLlvmInts(gpa, arena, cmd_args);
     } else {
@@ -471,8 +458,6 @@ const usage_build_generic =
     \\  -fno-dll-export-fns       Force-disable marking exported functions as DLL exports
     \\  -freference-trace[=num]   Show num lines of reference trace per compile error
     \\  -fno-reference-trace      Disable reference trace
-    \\  -fbuiltin                 Enable implicit builtin knowledge of functions
-    \\  -fno-builtin              Disable implicit builtin knowledge of functions
     \\  -ffunction-sections       Places each function in a separate section
     \\  -fno-function-sections    All functions go into same section
     \\  -fdata-sections           Places each data in a separate section
@@ -536,6 +521,8 @@ const usage_build_generic =
     \\  -fno-sanitize-address      Disable Address Sanitizer
     \\  -ffuzz                    Enable fuzz testing instrumentation
     \\  -fno-fuzz                 Disable fuzz testing instrumentation
+    \\  -fbuiltin                 Enable implicit builtin knowledge of functions
+    \\  -fno-builtin              Disable implicit builtin knowledge of functions
     \\  -funwind-tables           Always produce unwind table entries for all functions
     \\  -fasync-unwind-tables     Always produce asynchronous unwind table entries for all functions
     \\  -fno-unwind-tables        Never produce unwind table entries
@@ -692,6 +679,7 @@ const usage_build_generic =
     \\  --debug-compile-errors       Crash with helpful diagnostics at the first compile error
     \\  --debug-link-snapshot        Enable dumping of the linker's state in JSON format
     \\  --debug-rt                   Debug compiler runtime libraries
+    \\  --debug-incremental          Enable incremental compilation debug features
     \\
 ;
 
@@ -811,7 +799,8 @@ const Framework = struct {
 };
 
 const CliModule = struct {
-    paths: Package.Module.CreateOptions.Paths,
+    root_path: []const u8,
+    root_src_path: []const u8,
     cc_argv: []const []const u8,
     inherited: Package.Module.CreateOptions.Inherited,
     target_arch_os_abi: ?[]const u8,
@@ -846,6 +835,7 @@ fn buildOutputType(
     var data_sections = false;
     var listen: Listen = .none;
     var debug_compile_errors = false;
+    var debug_incremental = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
         EnvVar.ZIG_VERBOSE_LINK.isSet();
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
@@ -978,7 +968,7 @@ fn buildOutputType(
     // error output consistent. "root" is special.
     var create_module: CreateModule = .{
         // Populated just before the call to `createModule`.
-        .global_cache_directory = undefined,
+        .dirs = undefined,
         .object_format = null,
         .dynamic_linker = null,
         .modules = .{},
@@ -1397,6 +1387,12 @@ fn buildOutputType(
                         }
                     } else if (mem.eql(u8, arg, "--debug-rt")) {
                         debug_compiler_runtime_libs = true;
+                    } else if (mem.eql(u8, arg, "--debug-incremental")) {
+                        if (build_options.enable_debug_extensions) {
+                            debug_incremental = true;
+                        } else {
+                            warn("Zig was compiled without debug extensions. --debug-incremental has no effect.", .{});
+                        }
                     } else if (mem.eql(u8, arg, "-fincremental")) {
                         dev.check(.incremental);
                         opt_incremental = true;
@@ -1865,7 +1861,7 @@ fn buildOutputType(
                         } else root_src_file = arg;
                     },
                     .def, .unknown => {
-                        if (std.ascii.eqlIgnoreCase(".xml", std.fs.path.extension(arg))) {
+                        if (std.ascii.eqlIgnoreCase(".xml", fs.path.extension(arg))) {
                             warn("embedded manifest files must have the extension '.manifest'", .{});
                         }
                         fatal("unrecognized file extension of parameter '{s}'", .{arg});
@@ -2933,13 +2929,14 @@ fn buildOutputType(
     }
 
     implicit_root_mod: {
-        const unresolved_src_path = b: {
+        const src_path = b: {
             if (root_src_file) |src_path| {
                 if (create_module.modules.count() != 0) {
-                    fatal("main module provided both by '-M{s}={}{s}' and by positional argument '{s}'", .{
+                    fatal("main module provided both by '-M{s}={s}{c}{s}' and by positional argument '{s}'", .{
                         create_module.modules.keys()[0],
-                        create_module.modules.values()[0].paths.root,
-                        create_module.modules.values()[0].paths.root_src_path,
+                        create_module.modules.values()[0].root_path,
+                        fs.path.sep,
+                        create_module.modules.values()[0].root_src_path,
                         src_path,
                     });
                 }
@@ -2998,20 +2995,14 @@ fn buildOutputType(
         if (mod_opts.error_tracing == true)
             create_module.opts.any_error_tracing = true;
 
-        const src_path = try introspect.resolvePath(arena, unresolved_src_path);
         const name = switch (arg_mode) {
             .zig_test => "test",
             .build, .cc, .cpp, .translate_c, .zig_test_obj, .run => fs.path.stem(fs.path.basename(src_path)),
         };
 
         try create_module.modules.put(arena, name, .{
-            .paths = .{
-                .root = .{
-                    .root_dir = Cache.Directory.cwd(),
-                    .sub_path = fs.path.dirname(src_path) orelse "",
-                },
-                .root_src_path = fs.path.basename(src_path),
-            },
+            .root_path = fs.path.dirname(src_path) orelse ".",
+            .root_src_path = fs.path.basename(src_path),
             .cc_argv = try cc_argv.toOwnedSlice(arena),
             .inherited = mod_opts,
             .target_arch_os_abi = target_arch_os_abi,
@@ -3047,85 +3038,50 @@ fn buildOutputType(
         });
     }
 
-    const self_exe_path: ?[]const u8 = if (!process.can_spawn)
-        null
-    else
-        introspect.findZigExePath(arena) catch |err| {
+    const self_exe_path = switch (native_os) {
+        .wasi => {},
+        else => fs.selfExePathAlloc(arena) catch |err| {
             fatal("unable to find zig self exe path: {s}", .{@errorName(err)});
-        };
-
-    var zig_lib_directory: Directory = d: {
-        if (override_lib_dir) |unresolved_lib_dir| {
-            const lib_dir = try introspect.resolvePath(arena, unresolved_lib_dir);
-            break :d .{
-                .path = lib_dir,
-                .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-                    fatal("unable to open zig lib directory '{s}': {s}", .{ lib_dir, @errorName(err) });
-                },
-            };
-        } else if (native_os == .wasi) {
-            break :d getWasiPreopen("/lib");
-        } else if (self_exe_path) |p| {
-            break :d introspect.findZigLibDirFromSelfExe(arena, p) catch |err| {
-                fatal("unable to find zig installation directory '{s}': {s}", .{ p, @errorName(err) });
-            };
-        } else {
-            unreachable;
-        }
+        },
     };
-    defer zig_lib_directory.handle.close();
 
-    var global_cache_directory: Directory = l: {
-        if (override_global_cache_dir) |p| {
-            break :l .{
-                .handle = try fs.cwd().makeOpenPath(p, .{}),
-                .path = p,
+    // This `init` calls `fatal` on error.
+    var dirs: Compilation.Directories = .init(
+        arena,
+        override_lib_dir,
+        override_global_cache_dir,
+        s: {
+            if (override_local_cache_dir) |p| break :s .{ .override = p };
+            break :s switch (arg_mode) {
+                .run => .global,
+                else => .search,
             };
-        }
-        if (native_os == .wasi) {
-            break :l getWasiPreopen("/cache");
-        }
-        const p = try introspect.resolveGlobalCacheDir(arena);
-        break :l .{
-            .handle = try fs.cwd().makeOpenPath(p, .{}),
-            .path = p,
-        };
-    };
-    defer global_cache_directory.handle.close();
+        },
+        if (native_os == .wasi) wasi_preopens,
+        self_exe_path,
+    );
+    defer dirs.deinit();
 
     if (linker_optimization) |o| {
         warn("ignoring deprecated linker optimization setting '{s}'", .{o});
     }
 
-    create_module.global_cache_directory = global_cache_directory;
+    create_module.dirs = dirs;
     create_module.opts.emit_llvm_ir = emit_llvm_ir != .no;
     create_module.opts.emit_llvm_bc = emit_llvm_bc != .no;
     create_module.opts.emit_bin = emit_bin != .no;
     create_module.opts.any_c_source_files = create_module.c_source_files.items.len != 0;
 
-    var builtin_modules: std.StringHashMapUnmanaged(*Package.Module) = .empty;
-    // `builtin_modules` allocated into `arena`, so no deinit
-    const main_mod = try createModule(gpa, arena, &create_module, 0, null, zig_lib_directory, &builtin_modules, color);
+    const main_mod = try createModule(gpa, arena, &create_module, 0, null, color);
     for (create_module.modules.keys(), create_module.modules.values()) |key, cli_mod| {
         if (cli_mod.resolved == null)
             fatal("module '{s}' declared but not used", .{key});
     }
 
-    // When you're testing std, the main module is std. In that case,
-    // we'll just set the std module to the main one, since avoiding
-    // the errors caused by duplicating it is more effort than it's
-    // worth.
-    const main_mod_is_std = m: {
-        const std_path = try fs.path.resolve(arena, &.{
-            zig_lib_directory.path orelse ".", "std", "std.zig",
-        });
-        const main_path = try fs.path.resolve(arena, &.{
-            main_mod.root.root_dir.path orelse ".",
-            main_mod.root.sub_path,
-            main_mod.root_src_path,
-        });
-        break :m mem.eql(u8, main_path, std_path);
-    };
+    // When you're testing std, the main module is std, and we need to avoid duplicating the module.
+    const main_mod_is_std = main_mod.root.root == .zig_lib and
+        mem.eql(u8, main_mod.root.sub_path, "std") and
+        mem.eql(u8, main_mod.root_src_path, "std.zig");
 
     const std_mod = m: {
         if (main_mod_is_std) break :m main_mod;
@@ -3137,12 +3093,8 @@ fn buildOutputType(
         .zig_test, .zig_test_obj => root_mod: {
             const test_mod = if (test_runner_path) |test_runner| test_mod: {
                 const test_mod = try Package.Module.create(arena, .{
-                    .global_cache_directory = global_cache_directory,
                     .paths = .{
-                        .root = .{
-                            .root_dir = Cache.Directory.cwd(),
-                            .sub_path = fs.path.dirname(test_runner) orelse "",
-                        },
+                        .root = try .fromUnresolved(arena, dirs, &.{fs.path.dirname(test_runner) orelse "."}),
                         .root_src_path = fs.path.basename(test_runner),
                     },
                     .fully_qualified_name = "root",
@@ -3150,18 +3102,12 @@ fn buildOutputType(
                     .inherited = .{},
                     .global = create_module.resolved_options,
                     .parent = main_mod,
-                    .builtin_mod = main_mod.getBuiltinDependency(),
-                    .builtin_modules = null, // `builtin_mod` is specified
                 });
                 test_mod.deps = try main_mod.deps.clone(arena);
                 break :test_mod test_mod;
             } else try Package.Module.create(arena, .{
-                .global_cache_directory = global_cache_directory,
                 .paths = .{
-                    .root = .{
-                        .root_dir = zig_lib_directory,
-                        .sub_path = "compiler",
-                    },
+                    .root = try .fromRoot(arena, dirs, .zig_lib, "compiler"),
                     .root_src_path = "test_runner.zig",
                 },
                 .fully_qualified_name = "root",
@@ -3169,8 +3115,6 @@ fn buildOutputType(
                 .inherited = .{},
                 .global = create_module.resolved_options,
                 .parent = main_mod,
-                .builtin_mod = main_mod.getBuiltinDependency(),
-                .builtin_modules = null, // `builtin_mod` is specified
             });
 
             break :root_mod test_mod;
@@ -3480,50 +3424,6 @@ fn buildOutputType(
     });
     defer thread_pool.deinit();
 
-    var cleanup_local_cache_dir: ?fs.Dir = null;
-    defer if (cleanup_local_cache_dir) |*dir| dir.close();
-
-    var local_cache_directory: Directory = l: {
-        if (override_local_cache_dir) |local_cache_dir_path| {
-            const dir = try fs.cwd().makeOpenPath(local_cache_dir_path, .{});
-            cleanup_local_cache_dir = dir;
-            break :l .{
-                .handle = dir,
-                .path = local_cache_dir_path,
-            };
-        }
-        if (arg_mode == .run) {
-            break :l global_cache_directory;
-        }
-
-        // search upwards from cwd until we find directory with build.zig
-        const cwd_path = try process.getCwdAlloc(arena);
-        var dirname: []const u8 = cwd_path;
-        while (true) {
-            const joined_path = try fs.path.join(arena, &.{
-                dirname, Package.build_zig_basename,
-            });
-            if (fs.cwd().access(joined_path, .{})) |_| {
-                const cache_dir_path = try fs.path.join(arena, &.{ dirname, default_local_zig_cache_basename });
-                const dir = try fs.cwd().makeOpenPath(cache_dir_path, .{});
-                cleanup_local_cache_dir = dir;
-                break :l .{ .handle = dir, .path = cache_dir_path };
-            } else |err| switch (err) {
-                error.FileNotFound => {
-                    dirname = fs.path.dirname(dirname) orelse {
-                        break :l global_cache_directory;
-                    };
-                    continue;
-                },
-                else => break :l global_cache_directory,
-            }
-        }
-
-        // Otherwise we really don't have a reasonable place to put the local cache directory,
-        // so we utilize the global one.
-        break :l global_cache_directory;
-    };
-
     for (create_module.c_source_files.items) |*src| {
         if (!mem.eql(u8, src.src_path, "-")) continue;
 
@@ -3535,14 +3435,14 @@ fn buildOutputType(
         const dump_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-dump-stdin{s}", .{
             std.crypto.random.int(u64), ext.canonicalName(target),
         });
-        try local_cache_directory.handle.makePath("tmp");
+        try dirs.local_cache.handle.makePath("tmp");
 
         // Note that in one of the happy paths, execve() is used to switch to
         // clang in which case any cleanup logic that exists for this temporary
         // file will not run and this temp file will be leaked. The filename
         // will be a hash of its contents — so multiple invocations of
         // `zig cc -` will result in the same temp file name.
-        var f = try local_cache_directory.handle.createFile(dump_path, .{});
+        var f = try dirs.local_cache.handle.createFile(dump_path, .{});
         defer f.close();
 
         // Re-using the hasher from Cache, since the functional requirements
@@ -3561,10 +3461,10 @@ fn buildOutputType(
             std.fmt.fmtSliceHexLower(&bin_digest),
             ext.canonicalName(target),
         });
-        try local_cache_directory.handle.rename(dump_path, sub_path);
+        try dirs.local_cache.handle.rename(dump_path, sub_path);
 
         // Convert `sub_path` to be relative to current working directory.
-        src.src_path = try local_cache_directory.join(arena, &.{sub_path});
+        src.src_path = try dirs.local_cache.join(arena, &.{sub_path});
     }
 
     if (build_options.have_llvm and emit_asm != .no) {
@@ -3579,6 +3479,9 @@ fn buildOutputType(
     };
 
     const incremental = opt_incremental orelse false;
+    if (debug_incremental and !incremental) {
+        fatal("--debug-incremental requires -fincremental", .{});
+    }
 
     const disable_lld_caching = !output_to_cache;
 
@@ -3606,11 +3509,12 @@ fn buildOutputType(
     defer file_system_inputs.deinit(gpa);
 
     const comp = Compilation.create(gpa, arena, .{
-        .zig_lib_directory = zig_lib_directory,
-        .local_cache_directory = local_cache_directory,
-        .global_cache_directory = global_cache_directory,
+        .dirs = dirs,
         .thread_pool = &thread_pool,
-        .self_exe_path = self_exe_path,
+        .self_exe_path = switch (native_os) {
+            .wasi => null,
+            else => self_exe_path,
+        },
         .config = create_module.resolved_options,
         .root_name = root_name,
         .sysroot = create_module.sysroot,
@@ -3710,6 +3614,7 @@ fn buildOutputType(
         .cache_mode = cache_mode,
         .subsystem = subsystem,
         .debug_compile_errors = debug_compile_errors,
+        .debug_incremental = debug_incremental,
         .incremental = incremental,
         .enable_link_snapshots = enable_link_snapshots,
         .install_name = install_name,
@@ -3768,14 +3673,17 @@ fn buildOutputType(
         error.ExportTableAndImportTableConflict => {
             fatal("--import-table and --export-table may not be used together", .{});
         },
+        error.IllegalZigImport => {
+            fatal("this compiler implementation does not support importing the root source file of a provided module", .{});
+        },
         else => fatal("unable to create compilation: {s}", .{@errorName(err)}),
     };
     var comp_destroyed = false;
     defer if (!comp_destroyed) comp.destroy();
 
     if (show_builtin) {
-        const builtin_mod = comp.root_mod.getBuiltinDependency();
-        const source = builtin_mod.builtin_file.?.source.?;
+        const builtin_opts = comp.root_mod.getBuiltinOptions(comp.config);
+        const source = try builtin_opts.generate(arena);
         return std.io.getStdOut().writeAll(source);
     }
     switch (listen) {
@@ -3855,7 +3763,7 @@ fn buildOutputType(
                 c_code_directory.path orelse ".", c_code_loc.basename,
             });
             try test_exec_args.appendSlice(arena, &.{ self_exe_path, "run" });
-            if (zig_lib_directory.path) |p| {
+            if (dirs.zig_lib.path) |p| {
                 try test_exec_args.appendSlice(arena, &.{ "-I", p });
             }
 
@@ -3886,7 +3794,7 @@ fn buildOutputType(
             gpa,
             arena,
             test_exec_args.items,
-            self_exe_path.?,
+            self_exe_path,
             arg_mode,
             &target,
             &comp_destroyed,
@@ -3901,7 +3809,7 @@ fn buildOutputType(
 }
 
 const CreateModule = struct {
-    global_cache_directory: Cache.Directory,
+    dirs: Compilation.Directories,
     modules: std.StringArrayHashMapUnmanaged(CliModule),
     opts: Compilation.Config.Options,
     dynamic_linker: ?[]const u8,
@@ -3948,8 +3856,6 @@ fn createModule(
     create_module: *CreateModule,
     index: usize,
     parent: ?*Package.Module,
-    zig_lib_directory: Cache.Directory,
-    builtin_modules: *std.StringHashMapUnmanaged(*Package.Module),
     color: std.zig.Color,
 ) Allocator.Error!*Package.Module {
     const cli_mod = &create_module.modules.values()[index];
@@ -4027,6 +3933,7 @@ fn createModule(
             .result = target,
             .is_native_os = target_query.isNativeOs(),
             .is_native_abi = target_query.isNativeAbi(),
+            .is_explicit_dynamic_linker = !target_query.dynamic_linker.eql(.none),
         };
     };
 
@@ -4080,7 +3987,7 @@ fn createModule(
                 }
 
                 if (target.isMinGW()) {
-                    const exists = mingw.libExists(arena, target, zig_lib_directory, lib_name) catch |err| {
+                    const exists = mingw.libExists(arena, target, create_module.dirs.zig_lib, lib_name) catch |err| {
                         fatal("failed to check zig installation for DLL import libs: {s}", .{
                             @errorName(err),
                         });
@@ -4166,7 +4073,7 @@ fn createModule(
             };
         }
 
-        if (builtin.target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium) and
+        if (target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium) and
             any_name_queries_remaining)
         {
             if (create_module.libc_installation == null) {
@@ -4177,11 +4084,10 @@ fn createModule(
                 }) catch |err| {
                     fatal("unable to find native libc installation: {s}", .{@errorName(err)});
                 };
-
-                try create_module.lib_directories.ensureUnusedCapacity(arena, 2);
-                addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.msvc_lib_dir.?);
-                addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.kernel32_lib_dir.?);
             }
+            try create_module.lib_directories.ensureUnusedCapacity(arena, 2);
+            addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.msvc_lib_dir.?);
+            addLibDirectoryWarn(&create_module.lib_directories, create_module.libc_installation.?.kernel32_lib_dir.?);
         }
 
         // Destructively mutates but does not transfer ownership of `unresolved_link_inputs`.
@@ -4218,11 +4124,13 @@ fn createModule(
             error.LtoRequiresLld => fatal("LTO requires using LLD", .{}),
             error.SanitizeThreadRequiresLibCpp => fatal("thread sanitization is (for now) implemented in C++, so it requires linking libc++", .{}),
             error.SanitizeAddressRequiresLibCpp => fatal("address sanitization is (for now) implemented in C++, so it requires linking libc++", .{}),
+            error.LibCRequiresLibUnwind => fatal("libc of the specified target requires linking libunwind", .{}),
             error.LibCppRequiresLibUnwind => fatal("libc++ requires linking libunwind", .{}),
             error.OsRequiresLibC => fatal("the target OS requires using libc as the stable syscall interface", .{}),
             error.LibCppRequiresLibC => fatal("libc++ requires linking libc", .{}),
             error.LibUnwindRequiresLibC => fatal("libunwind requires linking libc", .{}),
             error.TargetCannotDynamicLink => fatal("dynamic linking unavailable on the specified target", .{}),
+            error.TargetCannotStaticLinkExecutables => fatal("static linking of executables unavailable on the specified target", .{}),
             error.LibCRequiresDynamicLinking => fatal("libc of the specified target requires dynamic linking", .{}),
             error.SharedLibrariesRequireDynamicLinking => fatal("using shared libraries requires dynamic linking", .{}),
             error.ExportMemoryAndDynamicIncompatible => fatal("exporting memory is incompatible with dynamic linking", .{}),
@@ -4238,17 +4146,19 @@ fn createModule(
         };
     }
 
+    const root: Compilation.Path = try .fromUnresolved(arena, create_module.dirs, &.{cli_mod.root_path});
+
     const mod = Package.Module.create(arena, .{
-        .global_cache_directory = create_module.global_cache_directory,
-        .paths = cli_mod.paths,
+        .paths = .{
+            .root = root,
+            .root_src_path = cli_mod.root_src_path,
+        },
         .fully_qualified_name = name,
 
         .cc_argv = cli_mod.cc_argv,
         .inherited = cli_mod.inherited,
         .global = create_module.resolved_options,
         .parent = parent,
-        .builtin_mod = null,
-        .builtin_modules = builtin_modules,
     }) catch |err| switch (err) {
         error.ValgrindUnsupportedOnTarget => fatal("unable to create module '{s}': valgrind does not support the selected target CPU architecture", .{name}),
         error.TargetRequiresSingleThreaded => fatal("unable to create module '{s}': the selected target does not support multithreading", .{name}),
@@ -4271,7 +4181,7 @@ fn createModule(
     for (cli_mod.deps) |dep| {
         const dep_index = create_module.modules.getIndex(dep.value) orelse
             fatal("module '{s}' depends on non-existent module '{s}'", .{ name, dep.key });
-        const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, zig_lib_directory, builtin_modules, color);
+        const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, color);
         try mod.deps.put(arena, dep.key, dep_mod);
     }
 
@@ -4311,8 +4221,24 @@ fn serve(
     const main_progress_node = std.Progress.start(.{});
     const file_system_inputs = comp.file_system_inputs.?;
 
+    const IncrementalDebugServer = if (build_options.enable_debug_extensions)
+        @import("IncrementalDebugServer.zig")
+    else
+        void;
+
+    var ids: IncrementalDebugServer = if (comp.debugIncremental()) ids: {
+        break :ids .init(comp.zcu orelse @panic("--debug-incremental requires a ZCU"));
+    } else undefined;
+    defer if (comp.debugIncremental()) ids.deinit();
+
+    if (comp.debugIncremental()) ids.spawn();
+
     while (true) {
         const hdr = try server.receiveMessage();
+
+        // Lock the debug server while hanling the message.
+        if (comp.debugIncremental()) ids.mutex.lock();
+        defer if (comp.debugIncremental()) ids.mutex.unlock();
 
         switch (hdr.tag) {
             .exit => return cleanExit(),
@@ -4557,15 +4483,13 @@ fn runOrTestHotSwap(
         // tmp zig-cache and use it to spawn the child process. This way we are free to update
         // the binary with each requested hot update.
         .windows => blk: {
-            try lf.emit.root_dir.handle.copyFile(lf.emit.sub_path, comp.local_cache_directory.handle, lf.emit.sub_path, .{});
-            break :blk try fs.path.join(gpa, &[_][]const u8{
-                comp.local_cache_directory.path orelse ".", lf.emit.sub_path,
-            });
+            try lf.emit.root_dir.handle.copyFile(lf.emit.sub_path, comp.dirs.local_cache.handle, lf.emit.sub_path, .{});
+            break :blk try fs.path.join(gpa, &.{ comp.dirs.local_cache.path orelse ".", lf.emit.sub_path });
         },
 
         // A naive `directory.join` here will indeed get the correct path to the binary,
         // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
-        else => try fs.path.join(gpa, &[_][]const u8{
+        else => try fs.path.join(gpa, &.{
             lf.emit.root_dir.path orelse ".", lf.emit.sub_path,
         }),
     };
@@ -4692,7 +4616,7 @@ fn cmdTranslateC(
             },
         }
 
-        var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
+        var zig_cache_tmp_dir = try comp.dirs.local_cache.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
         const ext = Compilation.classifyFileExt(c_source_file.src_path);
@@ -4748,7 +4672,7 @@ fn cmdTranslateC(
                     new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
                 }
 
-                const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
+                const c_headers_dir_path_z = try comp.dirs.zig_lib.joinZ(arena, &.{"include"});
                 var errors = std.zig.ErrorBundle.empty;
                 var tree = translate_c.translate(
                     comp.gpa,
@@ -4800,7 +4724,7 @@ fn cmdTranslateC(
 
         const o_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &hex_digest });
 
-        var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
+        var o_dir = try comp.dirs.local_cache.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
 
         var zig_file = try o_dir.createFile(translated_zig_basename, .{});
@@ -4821,9 +4745,9 @@ fn cmdTranslateC(
         p.digest = bin_digest;
         p.errors = std.zig.ErrorBundle.empty;
     } else {
-        const out_zig_path = try fs.path.join(arena, &[_][]const u8{ "o", &hex_digest, translated_zig_basename });
-        const zig_file = comp.local_cache_directory.handle.openFile(out_zig_path, .{}) catch |err| {
-            const path = comp.local_cache_directory.path orelse ".";
+        const out_zig_path = try fs.path.join(arena, &.{ "o", &hex_digest, translated_zig_basename });
+        const zig_file = comp.dirs.local_cache.handle.openFile(out_zig_path, .{}) catch |err| {
+            const path = comp.dirs.local_cache.path orelse ".";
             fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{ path, fs.path.sep_str, out_zig_path, @errorName(err) });
         };
         defer zig_file.close();
@@ -4839,6 +4763,7 @@ const usage_init =
     \\   directory.
     \\
     \\Options:
+    \\  -s, --strip            Generate files without comments
     \\  -h, --help             Print this help and exit
     \\
     \\
@@ -4847,12 +4772,15 @@ const usage_init =
 fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     dev.check(.init_command);
 
+    var strip = false;
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
-                if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
+                if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip")) {
+                    strip = true;
+                } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                     try io.getStdOut().writeAll(usage_init);
                     return cleanExit();
                 } else {
@@ -4864,10 +4792,10 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         }
     }
 
-    var templates = findTemplates(gpa, arena);
+    var templates = findTemplates(gpa, arena, strip);
     defer templates.deinit();
 
-    const cwd_path = try process.getCwdAlloc(arena);
+    const cwd_path = try introspect.getResolvedCwd(arena);
     const cwd_basename = fs.path.basename(cwd_path);
     const sanitized_root_name = try sanitizeExampleName(arena, cwd_basename);
 
@@ -4965,7 +4893,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const argv_index_exe = child_argv.items.len;
     _ = try child_argv.addOne();
 
-    const self_exe_path = try introspect.findZigExePath(arena);
+    const self_exe_path = try fs.selfExePathAlloc(arena);
     try child_argv.append(self_exe_path);
 
     const argv_index_zig_lib_dir = child_argv.items.len;
@@ -5160,6 +5088,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .result = std.zig.resolveTargetQueryOrFatal(target_query),
                     .is_native_os = false,
                     .is_native_abi = false,
+                    .is_explicit_dynamic_linker = false,
                 };
             }
         }
@@ -5167,6 +5096,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .result = std.zig.resolveTargetQueryOrFatal(.{}),
             .is_native_os = true,
             .is_native_abi = true,
+            .is_explicit_dynamic_linker = false,
         };
     };
 
@@ -5182,60 +5112,30 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     process.raiseFileDescriptorLimit();
 
-    var zig_lib_directory: Directory = if (override_lib_dir) |lib_dir| .{
-        .path = lib_dir,
-        .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-            fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
-        },
-    } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-        fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
-    };
-    defer zig_lib_directory.handle.close();
-
-    const cwd_path = try process.getCwdAlloc(arena);
-    child_argv.items[argv_index_zig_lib_dir] = zig_lib_directory.path orelse cwd_path;
-
+    const cwd_path = try introspect.getResolvedCwd(arena);
     const build_root = try findBuildRoot(arena, .{
         .cwd_path = cwd_path,
         .build_file = build_file,
     });
+
+    // This `init` calls `fatal` on error.
+    var dirs: Compilation.Directories = .init(
+        arena,
+        override_lib_dir,
+        override_global_cache_dir,
+        .{ .override = path: {
+            if (override_local_cache_dir) |d| break :path d;
+            break :path try build_root.directory.join(arena, &.{introspect.default_local_zig_cache_basename});
+        } },
+        {},
+        self_exe_path,
+    );
+    defer dirs.deinit();
+
+    child_argv.items[argv_index_zig_lib_dir] = dirs.zig_lib.path orelse cwd_path;
     child_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
-
-    var global_cache_directory: Directory = l: {
-        const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
-        const dir = fs.cwd().makeOpenPath(p, .{}) catch |err| {
-            const base_msg = "unable to open or create the global Zig cache at '{s}': {s}.{s}";
-            const extra = "\nIf this location is not writable then consider specifying an " ++
-                "alternative with the ZIG_GLOBAL_CACHE_DIR environment variable or the " ++
-                "--global-cache-dir option.";
-            const show_extra = err == error.AccessDenied or err == error.ReadOnlyFileSystem;
-            fatal(base_msg, .{ p, @errorName(err), if (show_extra) extra else "" });
-        };
-        break :l .{
-            .handle = dir,
-            .path = p,
-        };
-    };
-    defer global_cache_directory.handle.close();
-
-    child_argv.items[argv_index_global_cache_dir] = global_cache_directory.path orelse cwd_path;
-
-    var local_cache_directory: Directory = l: {
-        if (override_local_cache_dir) |local_cache_dir_path| {
-            break :l .{
-                .handle = try fs.cwd().makeOpenPath(local_cache_dir_path, .{}),
-                .path = local_cache_dir_path,
-            };
-        }
-        const cache_dir_path = try build_root.directory.join(arena, &.{default_local_zig_cache_basename});
-        break :l .{
-            .handle = try build_root.directory.handle.makeOpenPath(default_local_zig_cache_basename, .{}),
-            .path = cache_dir_path,
-        };
-    };
-    defer local_cache_directory.handle.close();
-
-    child_argv.items[argv_index_cache_dir] = local_cache_directory.path orelse cwd_path;
+    child_argv.items[argv_index_global_cache_dir] = dirs.global_cache.path orelse cwd_path;
+    child_argv.items[argv_index_cache_dir] = dirs.local_cache.path orelse cwd_path;
 
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{
@@ -5263,16 +5163,10 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         // big block here to ensure the cleanup gets run when we extract out our argv.
         {
             const main_mod_paths: Package.Module.CreateOptions.Paths = if (override_build_runner) |runner| .{
-                .root = .{
-                    .root_dir = Cache.Directory.cwd(),
-                    .sub_path = fs.path.dirname(runner) orelse "",
-                },
+                .root = try .fromUnresolved(arena, dirs, &.{fs.path.dirname(runner) orelse "."}),
                 .root_src_path = fs.path.basename(runner),
             } else .{
-                .root = .{
-                    .root_dir = zig_lib_directory,
-                    .sub_path = "compiler",
-                },
+                .root = try .fromRoot(arena, dirs, .zig_lib, "compiler"),
                 .root_src_path = "build_runner.zig",
             };
 
@@ -5285,7 +5179,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             });
 
             const root_mod = try Package.Module.create(arena, .{
-                .global_cache_directory = global_cache_directory,
                 .paths = main_mod_paths,
                 .fully_qualified_name = "root",
                 .cc_argv = &.{},
@@ -5294,16 +5187,11 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 },
                 .global = config,
                 .parent = null,
-                .builtin_mod = null,
-                .builtin_modules = null, // all modules will inherit this one's builtin
             });
 
-            const builtin_mod = root_mod.getBuiltinDependency();
-
             const build_mod = try Package.Module.create(arena, .{
-                .global_cache_directory = global_cache_directory,
                 .paths = .{
-                    .root = .{ .root_dir = build_root.directory },
+                    .root = try .fromUnresolved(arena, dirs, &.{build_root.directory.path orelse "."}),
                     .root_src_path = build_root.build_zig_basename,
                 },
                 .fully_qualified_name = "root.@build",
@@ -5311,8 +5199,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .inherited = .{},
                 .global = config,
                 .parent = root_mod,
-                .builtin_mod = builtin_mod,
-                .builtin_modules = null, // `builtin_mod` is specified
             });
 
             var cleanup_build_dir: ?fs.Dir = null;
@@ -5325,7 +5211,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 var job_queue: Package.Fetch.JobQueue = .{
                     .http_client = &http_client,
                     .thread_pool = &thread_pool,
-                    .global_cache = global_cache_directory,
+                    .global_cache = dirs.global_cache,
                     .read_only = false,
                     .recursive = true,
                     .debug_hash = false,
@@ -5353,14 +5239,16 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 try job_queue.all_fetches.ensureUnusedCapacity(gpa, 1);
                 try job_queue.table.ensureUnusedCapacity(gpa, 1);
 
+                const phantom_package_root: Cache.Path = .{ .root_dir = build_root.directory };
+
                 var fetch: Package.Fetch = .{
                     .arena = std.heap.ArenaAllocator.init(gpa),
-                    .location = .{ .relative_path = build_mod.root },
+                    .location = .{ .relative_path = phantom_package_root },
                     .location_tok = 0,
                     .hash_tok = .none,
                     .name_tok = 0,
                     .lazy_status = .eager,
-                    .parent_package_root = build_mod.root,
+                    .parent_package_root = phantom_package_root,
                     .parent_manifest_ast = null,
                     .prog_node = fetch_prog_node,
                     .job_queue = &job_queue,
@@ -5384,7 +5272,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 job_queue.all_fetches.appendAssumeCapacity(&fetch);
 
                 job_queue.table.putAssumeCapacityNoClobber(
-                    Package.Fetch.relativePathDigest(build_mod.root, global_cache_directory),
+                    Package.Fetch.relativePathDigest(phantom_package_root, dirs.global_cache),
                     &fetch,
                 );
 
@@ -5410,9 +5298,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     arena,
                     source_buf.items,
                     root_mod,
-                    global_cache_directory,
-                    local_cache_directory,
-                    builtin_mod,
+                    dirs,
                     config,
                 );
 
@@ -5429,10 +5315,10 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         if (!f.has_build_zig)
                             continue;
                         const hash_slice = hash.toSlice();
+                        const mod_root_path = try f.package_root.toString(arena);
                         const m = try Package.Module.create(arena, .{
-                            .global_cache_directory = global_cache_directory,
                             .paths = .{
-                                .root = try f.package_root.clone(arena),
+                                .root = try .fromUnresolved(arena, dirs, &.{mod_root_path}),
                                 .root_src_path = Package.build_zig_basename,
                             },
                             .fully_qualified_name = try std.fmt.allocPrint(
@@ -5444,8 +5330,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                             .inherited = .{},
                             .global = config,
                             .parent = root_mod,
-                            .builtin_mod = builtin_mod,
-                            .builtin_modules = null, // `builtin_mod` is specified
                         });
                         const hash_cloned = try arena.dupe(u8, hash_slice);
                         deps_mod.deps.putAssumeCapacityNoClobber(hash_cloned, m);
@@ -5462,7 +5346,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         for (dep_names, man.dependencies.values()) |name, dep| {
                             const dep_digest = Package.Fetch.depDigest(
                                 f.package_root,
-                                global_cache_directory,
+                                dirs.global_cache,
                                 dep,
                             ) orelse continue;
                             const dep_mod = job_queue.table.get(dep_digest).?.module orelse continue;
@@ -5474,18 +5358,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             } else try createEmptyDependenciesModule(
                 arena,
                 root_mod,
-                global_cache_directory,
-                local_cache_directory,
-                builtin_mod,
+                dirs,
                 config,
             );
 
             try root_mod.deps.put(arena, "@build", build_mod);
 
             const comp = Compilation.create(gpa, arena, .{
-                .zig_lib_directory = zig_lib_directory,
-                .local_cache_directory = local_cache_directory,
-                .global_cache_directory = global_cache_directory,
+                .dirs = dirs,
                 .root_name = "build",
                 .config = config,
                 .root_mod = root_mod,
@@ -5520,7 +5400,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             // above, and thus the output file is already closed.
             //try comp.makeBinFileExecutable();
             child_argv.items[argv_index_exe] =
-                try local_cache_directory.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
+                try dirs.local_cache.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
         }
 
         if (process.can_spawn) {
@@ -5552,12 +5432,12 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         // that are missing.
                         const s = fs.path.sep_str;
                         const tmp_sub_path = "tmp" ++ s ++ results_tmp_file_nonce;
-                        const stdout = local_cache_directory.handle.readFileAlloc(arena, tmp_sub_path, 50 * 1024 * 1024) catch |err| {
+                        const stdout = dirs.local_cache.handle.readFileAlloc(arena, tmp_sub_path, 50 * 1024 * 1024) catch |err| {
                             fatal("unable to read results of configure phase from '{}{s}': {s}", .{
-                                local_cache_directory, tmp_sub_path, @errorName(err),
+                                dirs.local_cache, tmp_sub_path, @errorName(err),
                             });
                         };
-                        local_cache_directory.handle.deleteFile(tmp_sub_path) catch {};
+                        dirs.local_cache.handle.deleteFile(tmp_sub_path) catch {};
 
                         var it = mem.splitScalar(u8, stdout, '\n');
                         var any_errors = false;
@@ -5634,6 +5514,7 @@ fn jitCmd(
         .result = std.zig.resolveTargetQueryOrFatal(target_query),
         .is_native_os = true,
         .is_native_abi = true,
+        .is_explicit_dynamic_linker = false,
     };
 
     const exe_basename = try std.zig.binNameAlloc(arena, .{
@@ -5646,7 +5527,7 @@ fn jitCmd(
         .basename = exe_basename,
     };
 
-    const self_exe_path = introspect.findZigExePath(arena) catch |err| {
+    const self_exe_path = fs.selfExePathAlloc(arena) catch |err| {
         fatal("unable to find self exe path: {s}", .{@errorName(err)});
     };
 
@@ -5658,24 +5539,16 @@ fn jitCmd(
     const override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     const override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
 
-    var zig_lib_directory: Directory = if (override_lib_dir) |lib_dir| .{
-        .path = lib_dir,
-        .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-            fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
-        },
-    } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-        fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
-    };
-    defer zig_lib_directory.handle.close();
-
-    var global_cache_directory: Directory = l: {
-        const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
-        break :l .{
-            .handle = try fs.cwd().makeOpenPath(p, .{}),
-            .path = p,
-        };
-    };
-    defer global_cache_directory.handle.close();
+    // This `init` calls `fatal` on error.
+    var dirs: Compilation.Directories = .init(
+        arena,
+        override_lib_dir,
+        override_global_cache_dir,
+        .global,
+        if (native_os == .wasi) wasi_preopens,
+        self_exe_path,
+    );
+    defer dirs.deinit();
 
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{
@@ -5693,10 +5566,7 @@ fn jitCmd(
     // big block here to ensure the cleanup gets run when we extract out our argv.
     {
         const main_mod_paths: Package.Module.CreateOptions.Paths = .{
-            .root = .{
-                .root_dir = zig_lib_directory,
-                .sub_path = "compiler",
-            },
+            .root = try .fromRoot(arena, dirs, .zig_lib, "compiler"),
             .root_src_path = options.root_src_path,
         };
 
@@ -5711,7 +5581,6 @@ fn jitCmd(
         });
 
         const root_mod = try Package.Module.create(arena, .{
-            .global_cache_directory = global_cache_directory,
             .paths = main_mod_paths,
             .fully_qualified_name = "root",
             .cc_argv = &.{},
@@ -5722,18 +5591,12 @@ fn jitCmd(
             },
             .global = config,
             .parent = null,
-            .builtin_mod = null,
-            .builtin_modules = null, // all modules will inherit this one's builtin
         });
 
         if (options.depend_on_aro) {
             const aro_mod = try Package.Module.create(arena, .{
-                .global_cache_directory = global_cache_directory,
                 .paths = .{
-                    .root = .{
-                        .root_dir = zig_lib_directory,
-                        .sub_path = "compiler/aro",
-                    },
+                    .root = try .fromRoot(arena, dirs, .zig_lib, "compiler/aro"),
                     .root_src_path = "aro.zig",
                 },
                 .fully_qualified_name = "aro",
@@ -5745,16 +5608,12 @@ fn jitCmd(
                 },
                 .global = config,
                 .parent = null,
-                .builtin_mod = root_mod.getBuiltinDependency(),
-                .builtin_modules = null, // `builtin_mod` is specified
             });
             try root_mod.deps.put(arena, "aro", aro_mod);
         }
 
         const comp = Compilation.create(gpa, arena, .{
-            .zig_lib_directory = zig_lib_directory,
-            .local_cache_directory = global_cache_directory,
-            .global_cache_directory = global_cache_directory,
+            .dirs = dirs,
             .root_name = options.cmd_name,
             .config = config,
             .root_mod = root_mod,
@@ -5791,16 +5650,16 @@ fn jitCmd(
             };
         }
 
-        const exe_path = try global_cache_directory.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
+        const exe_path = try dirs.global_cache.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
         child_argv.appendAssumeCapacity(exe_path);
     }
 
     if (options.prepend_zig_lib_dir_path)
-        child_argv.appendAssumeCapacity(zig_lib_directory.path.?);
+        child_argv.appendAssumeCapacity(dirs.zig_lib.path.?);
     if (options.prepend_zig_exe_path)
         child_argv.appendAssumeCapacity(self_exe_path);
     if (options.prepend_global_cache_path)
-        child_argv.appendAssumeCapacity(global_cache_directory.path.?);
+        child_argv.appendAssumeCapacity(dirs.global_cache.path.?);
 
     child_argv.appendSliceAssumeCapacity(args);
 
@@ -6283,7 +6142,6 @@ const usage_ast_check =
 ;
 
 fn cmdAstCheck(
-    gpa: Allocator,
     arena: Allocator,
     args: []const []const u8,
 ) !void {
@@ -6294,7 +6152,7 @@ fn cmdAstCheck(
     var color: Color = .auto;
     var want_output_text = false;
     var force_zon = false;
-    var zig_source_file: ?[]const u8 = null;
+    var zig_source_path: ?[]const u8 = null;
 
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -6319,96 +6177,55 @@ fn cmdAstCheck(
             } else {
                 fatal("unrecognized parameter: '{s}'", .{arg});
             }
-        } else if (zig_source_file == null) {
-            zig_source_file = arg;
+        } else if (zig_source_path == null) {
+            zig_source_path = arg;
         } else {
             fatal("extra positional parameter: '{s}'", .{arg});
         }
     }
 
-    var file: Zcu.File = .{
-        .status = .never_loaded,
-        .sub_file_path = undefined,
-        .stat = undefined,
-        .source = null,
-        .tree = null,
-        .zir = null,
-        .zoir = null,
-        .mod = undefined,
+    const display_path = zig_source_path orelse "<stdin>";
+    const source: [:0]const u8 = s: {
+        var f = if (zig_source_path) |p| file: {
+            break :file fs.cwd().openFile(p, .{}) catch |err| {
+                fatal("unable to open file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
+            };
+        } else io.getStdIn();
+        defer if (zig_source_path != null) f.close();
+        break :s std.zig.readSourceFileToEndAlloc(arena, f, null) catch |err| {
+            fatal("unable to load file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
+        };
     };
-    if (zig_source_file) |file_name| {
-        var f = fs.cwd().openFile(file_name, .{}) catch |err| {
-            fatal("unable to open file for ast-check '{s}': {s}", .{ file_name, @errorName(err) });
-        };
-        defer f.close();
-
-        const stat = try f.stat();
-
-        if (stat.size > std.zig.max_src_size)
-            return error.FileTooBig;
-
-        const source = try arena.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
-        const amt = try f.readAll(source);
-        if (amt != stat.size)
-            return error.UnexpectedEndOfFile;
-
-        file.sub_file_path = file_name;
-        file.source = source;
-        file.stat = .{
-            .size = stat.size,
-            .inode = stat.inode,
-            .mtime = stat.mtime,
-        };
-    } else {
-        const stdin = io.getStdIn();
-        const source = std.zig.readSourceFileToEndAlloc(arena, stdin, null) catch |err| {
-            fatal("unable to read stdin: {}", .{err});
-        };
-        file.sub_file_path = "<stdin>";
-        file.source = source;
-        file.stat.size = source.len;
-    }
 
     const mode: Ast.Mode = mode: {
         if (force_zon) break :mode .zon;
-        if (zig_source_file) |name| {
-            if (mem.endsWith(u8, name, ".zon")) {
+        if (zig_source_path) |path| {
+            if (mem.endsWith(u8, path, ".zon")) {
                 break :mode .zon;
             }
         }
         break :mode .zig;
     };
 
-    file.mod = try Package.Module.createLimited(arena, .{
-        .root = Path.cwd(),
-        .root_src_path = file.sub_file_path,
-        .fully_qualified_name = "root",
-    });
-
-    file.tree = try Ast.parse(gpa, file.source.?, mode);
-    defer file.tree.?.deinit(gpa);
+    const tree = try Ast.parse(arena, source, mode);
 
     switch (mode) {
         .zig => {
-            file.zir = try AstGen.generate(gpa, file.tree.?);
-            defer file.zir.?.deinit(gpa);
+            const zir = try AstGen.generate(arena, tree);
 
-            if (file.zir.?.hasCompileErrors()) {
+            if (zir.hasCompileErrors()) {
                 var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-                try wip_errors.init(gpa);
-                defer wip_errors.deinit();
-                try Compilation.addZirErrorMessages(&wip_errors, &file);
+                try wip_errors.init(arena);
+                try wip_errors.addZirErrorMessages(zir, tree, source, display_path);
                 var error_bundle = try wip_errors.toOwnedBundle("");
-                defer error_bundle.deinit(gpa);
                 error_bundle.renderToStdErr(color.renderOptions());
-
-                if (file.zir.?.loweringFailed()) {
+                if (zir.loweringFailed()) {
                     process.exit(1);
                 }
             }
 
             if (!want_output_text) {
-                if (file.zir.?.hasCompileErrors()) {
+                if (zir.hasCompileErrors()) {
                     process.exit(1);
                 } else {
                     return cleanExit();
@@ -6420,20 +6237,20 @@ fn cmdAstCheck(
 
             {
                 const token_bytes = @sizeOf(Ast.TokenList) +
-                    file.tree.?.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
-                const tree_bytes = @sizeOf(Ast) + file.tree.?.nodes.len *
+                    tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
+                const tree_bytes = @sizeOf(Ast) + tree.nodes.len *
                     (@sizeOf(Ast.Node.Tag) +
                         @sizeOf(Ast.TokenIndex) +
                         // Here we don't use @sizeOf(Ast.Node.Data) because it would include
                         // the debug safety tag but we want to measure release size.
                         8);
-                const instruction_bytes = file.zir.?.instructions.len *
+                const instruction_bytes = zir.instructions.len *
                     // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
                     // the debug safety tag but we want to measure release size.
                     (@sizeOf(Zir.Inst.Tag) + 8);
-                const extra_bytes = file.zir.?.extra.len * @sizeOf(u32);
+                const extra_bytes = zir.extra.len * @sizeOf(u32);
                 const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
-                    file.zir.?.string_bytes.len * @sizeOf(u8);
+                    zir.string_bytes.len * @sizeOf(u8);
                 const stdout = io.getStdOut();
                 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
                 // zig fmt: off
@@ -6447,44 +6264,33 @@ fn cmdAstCheck(
                     \\# Extra Data Items:   {d} ({})
                     \\
                 , .{
-                    fmtIntSizeBin(file.source.?.len),
-                    file.tree.?.tokens.len, fmtIntSizeBin(token_bytes),
-                    file.tree.?.nodes.len, fmtIntSizeBin(tree_bytes),
+                    fmtIntSizeBin(source.len),
+                    tree.tokens.len, fmtIntSizeBin(token_bytes),
+                    tree.nodes.len, fmtIntSizeBin(tree_bytes),
                     fmtIntSizeBin(total_bytes),
-                    file.zir.?.instructions.len, fmtIntSizeBin(instruction_bytes),
-                    fmtIntSizeBin(file.zir.?.string_bytes.len),
-                    file.zir.?.extra.len, fmtIntSizeBin(extra_bytes),
+                    zir.instructions.len, fmtIntSizeBin(instruction_bytes),
+                    fmtIntSizeBin(zir.string_bytes.len),
+                    zir.extra.len, fmtIntSizeBin(extra_bytes),
                 });
                 // zig fmt: on
             }
 
-            try @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+            try @import("print_zir.zig").renderAsTextToFile(arena, tree, zir, io.getStdOut());
 
-            if (file.zir.?.hasCompileErrors()) {
+            if (zir.hasCompileErrors()) {
                 process.exit(1);
             } else {
                 return cleanExit();
             }
         },
         .zon => {
-            const zoir = try ZonGen.generate(gpa, file.tree.?, .{});
-            defer zoir.deinit(gpa);
-
+            const zoir = try ZonGen.generate(arena, tree, .{});
             if (zoir.hasCompileErrors()) {
                 var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-                try wip_errors.init(gpa);
-                defer wip_errors.deinit();
-
-                {
-                    const src_path = try file.fullPath(gpa);
-                    defer gpa.free(src_path);
-                    try wip_errors.addZoirErrorMessages(zoir, file.tree.?, file.source.?, src_path);
-                }
-
+                try wip_errors.init(arena);
+                try wip_errors.addZoirErrorMessages(zoir, tree, source, display_path);
                 var error_bundle = try wip_errors.toOwnedBundle("");
-                defer error_bundle.deinit(gpa);
                 error_bundle.renderToStdErr(color.renderOptions());
-
                 process.exit(1);
             }
 
@@ -6502,15 +6308,8 @@ fn cmdAstCheck(
     }
 }
 
-fn cmdDetectCpu(
-    gpa: Allocator,
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+fn cmdDetectCpu(args: []const []const u8) !void {
     dev.check(.detect_cpu_command);
-
-    _ = gpa;
-    _ = arena;
 
     const detect_cpu_usage =
         \\Usage: zig detect-cpu [--llvm]
@@ -6689,13 +6488,11 @@ fn cmdDumpLlvmInts(
 
 /// This is only enabled for debug builds.
 fn cmdDumpZir(
-    gpa: Allocator,
     arena: Allocator,
     args: []const []const u8,
 ) !void {
     dev.check(.dump_zir_command);
 
-    _ = arena;
     const Zir = std.zig.Zir;
 
     const cache_file = args[0];
@@ -6705,26 +6502,16 @@ fn cmdDumpZir(
     };
     defer f.close();
 
-    var file: Zcu.File = .{
-        .status = .never_loaded,
-        .sub_file_path = undefined,
-        .stat = undefined,
-        .source = null,
-        .tree = null,
-        .zir = try Zcu.loadZirCache(gpa, f),
-        .zoir = null,
-        .mod = undefined,
-    };
-    defer file.zir.?.deinit(gpa);
+    const zir = try Zcu.loadZirCache(arena, f);
 
     {
-        const instruction_bytes = file.zir.?.instructions.len *
+        const instruction_bytes = zir.instructions.len *
             // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
             // the debug safety tag but we want to measure release size.
             (@sizeOf(Zir.Inst.Tag) + 8);
-        const extra_bytes = file.zir.?.extra.len * @sizeOf(u32);
+        const extra_bytes = zir.extra.len * @sizeOf(u32);
         const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
-            file.zir.?.string_bytes.len * @sizeOf(u8);
+            zir.string_bytes.len * @sizeOf(u8);
         const stdout = io.getStdOut();
         const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
         // zig fmt: off
@@ -6736,19 +6523,18 @@ fn cmdDumpZir(
             \\
         , .{
             fmtIntSizeBin(total_bytes),
-            file.zir.?.instructions.len, fmtIntSizeBin(instruction_bytes),
-            fmtIntSizeBin(file.zir.?.string_bytes.len),
-            file.zir.?.extra.len, fmtIntSizeBin(extra_bytes),
+            zir.instructions.len, fmtIntSizeBin(instruction_bytes),
+            fmtIntSizeBin(zir.string_bytes.len),
+            zir.extra.len, fmtIntSizeBin(extra_bytes),
         });
         // zig fmt: on
     }
 
-    return @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+    return @import("print_zir.zig").renderAsTextToFile(arena, null, zir, io.getStdOut());
 }
 
 /// This is only enabled for debug builds.
 fn cmdChangelist(
-    gpa: Allocator,
     arena: Allocator,
     args: []const []const u8,
 ) !void {
@@ -6757,101 +6543,50 @@ fn cmdChangelist(
     const color: Color = .auto;
     const Zir = std.zig.Zir;
 
-    const old_source_file = args[0];
-    const new_source_file = args[1];
+    const old_source_path = args[0];
+    const new_source_path = args[1];
 
-    var f = fs.cwd().openFile(old_source_file, .{}) catch |err| {
-        fatal("unable to open old source file for comparison '{s}': {s}", .{ old_source_file, @errorName(err) });
+    const old_source = source: {
+        var f = fs.cwd().openFile(old_source_path, .{}) catch |err|
+            fatal("unable to open old source file '{s}': {s}", .{ old_source_path, @errorName(err) });
+        defer f.close();
+        break :source std.zig.readSourceFileToEndAlloc(arena, f, std.zig.max_src_size) catch |err|
+            fatal("unable to read old source file '{s}': {s}", .{ old_source_path, @errorName(err) });
     };
-    defer f.close();
-
-    const stat = try f.stat();
-
-    if (stat.size > std.zig.max_src_size)
-        return error.FileTooBig;
-
-    var file: Zcu.File = .{
-        .status = .never_loaded,
-        .sub_file_path = old_source_file,
-        .stat = .{
-            .size = stat.size,
-            .inode = stat.inode,
-            .mtime = stat.mtime,
-        },
-        .source = null,
-        .tree = null,
-        .zir = null,
-        .zoir = null,
-        .mod = undefined,
+    const new_source = source: {
+        var f = fs.cwd().openFile(new_source_path, .{}) catch |err|
+            fatal("unable to open new source file '{s}': {s}", .{ new_source_path, @errorName(err) });
+        defer f.close();
+        break :source std.zig.readSourceFileToEndAlloc(arena, f, std.zig.max_src_size) catch |err|
+            fatal("unable to read new source file '{s}': {s}", .{ new_source_path, @errorName(err) });
     };
 
-    file.mod = try Package.Module.createLimited(arena, .{
-        .root = Path.cwd(),
-        .root_src_path = file.sub_file_path,
-        .fully_qualified_name = "root",
-    });
+    const old_tree = try Ast.parse(arena, old_source, .zig);
+    const old_zir = try AstGen.generate(arena, old_tree);
 
-    const source = try arena.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
-    const amt = try f.readAll(source);
-    if (amt != stat.size)
-        return error.UnexpectedEndOfFile;
-    file.source = source;
-
-    file.tree = try Ast.parse(gpa, file.source.?, .zig);
-    defer file.tree.?.deinit(gpa);
-
-    file.zir = try AstGen.generate(gpa, file.tree.?);
-    defer file.zir.?.deinit(gpa);
-
-    if (file.zir.?.loweringFailed()) {
+    if (old_zir.loweringFailed()) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-        try wip_errors.init(gpa);
-        defer wip_errors.deinit();
-        try Compilation.addZirErrorMessages(&wip_errors, &file);
+        try wip_errors.init(arena);
+        try wip_errors.addZirErrorMessages(old_zir, old_tree, old_source, old_source_path);
         var error_bundle = try wip_errors.toOwnedBundle("");
-        defer error_bundle.deinit(gpa);
         error_bundle.renderToStdErr(color.renderOptions());
         process.exit(1);
     }
 
-    var new_f = fs.cwd().openFile(new_source_file, .{}) catch |err| {
-        fatal("unable to open new source file for comparison '{s}': {s}", .{ new_source_file, @errorName(err) });
-    };
-    defer new_f.close();
+    const new_tree = try Ast.parse(arena, new_source, .zig);
+    const new_zir = try AstGen.generate(arena, new_tree);
 
-    const new_stat = try new_f.stat();
-
-    if (new_stat.size > std.zig.max_src_size)
-        return error.FileTooBig;
-
-    const new_source = try arena.allocSentinel(u8, @as(usize, @intCast(new_stat.size)), 0);
-    const new_amt = try new_f.readAll(new_source);
-    if (new_amt != new_stat.size)
-        return error.UnexpectedEndOfFile;
-
-    var new_tree = try Ast.parse(gpa, new_source, .zig);
-    defer new_tree.deinit(gpa);
-
-    var old_zir = file.zir.?;
-    defer old_zir.deinit(gpa);
-    file.zir = null;
-    file.zir = try AstGen.generate(gpa, new_tree);
-
-    if (file.zir.?.loweringFailed()) {
+    if (new_zir.loweringFailed()) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-        try wip_errors.init(gpa);
-        defer wip_errors.deinit();
-        try Compilation.addZirErrorMessages(&wip_errors, &file);
+        try wip_errors.init(arena);
+        try wip_errors.addZirErrorMessages(new_zir, new_tree, new_source, new_source_path);
         var error_bundle = try wip_errors.toOwnedBundle("");
-        defer error_bundle.deinit(gpa);
         error_bundle.renderToStdErr(color.renderOptions());
         process.exit(1);
     }
 
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty;
-    defer inst_map.deinit(gpa);
-
-    try Zcu.mapOldZirToNew(gpa, old_zir, file.zir.?, &inst_map);
+    try Zcu.mapOldZirToNew(arena, old_zir, new_zir, &inst_map);
 
     var bw = io.bufferedWriter(io.getStdOut().writer());
     const stdout = bw.writer();
@@ -7328,7 +7063,7 @@ fn cmdFetch(
         },
     };
 
-    const cwd_path = try process.getCwdAlloc(arena);
+    const cwd_path = try introspect.getResolvedCwd(arena);
 
     var build_root = try findBuildRoot(arena, .{
         .cwd_path = cwd_path,
@@ -7460,9 +7195,7 @@ fn cmdFetch(
 fn createEmptyDependenciesModule(
     arena: Allocator,
     main_mod: *Package.Module,
-    global_cache_directory: Cache.Directory,
-    local_cache_directory: Cache.Directory,
-    builtin_mod: *Package.Module,
+    dirs: Compilation.Directories,
     global_options: Compilation.Config,
 ) !void {
     var source = std.ArrayList(u8).init(arena);
@@ -7471,9 +7204,7 @@ fn createEmptyDependenciesModule(
         arena,
         source.items,
         main_mod,
-        global_cache_directory,
-        local_cache_directory,
-        builtin_mod,
+        dirs,
         global_options,
     );
 }
@@ -7484,9 +7215,7 @@ fn createDependenciesModule(
     arena: Allocator,
     source: []const u8,
     main_mod: *Package.Module,
-    global_cache_directory: Cache.Directory,
-    local_cache_directory: Cache.Directory,
-    builtin_mod: *Package.Module,
+    dirs: Compilation.Directories,
     global_options: Compilation.Config,
 ) !*Package.Module {
     // Atomically create the file in a directory named after the hash of its contents.
@@ -7494,7 +7223,7 @@ fn createDependenciesModule(
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
     {
-        var tmp_dir = try local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
+        var tmp_dir = try dirs.local_cache.handle.makeOpenPath(tmp_dir_sub_path, .{});
         defer tmp_dir.close();
         try tmp_dir.writeFile(.{ .sub_path = basename, .data = source });
     }
@@ -7506,18 +7235,14 @@ fn createDependenciesModule(
 
     const o_dir_sub_path = try arena.dupe(u8, "o" ++ fs.path.sep_str ++ hex_digest);
     try Package.Fetch.renameTmpIntoCache(
-        local_cache_directory.handle,
+        dirs.local_cache.handle,
         tmp_dir_sub_path,
         o_dir_sub_path,
     );
 
     const deps_mod = try Package.Module.create(arena, .{
-        .global_cache_directory = global_cache_directory,
         .paths = .{
-            .root = .{
-                .root_dir = local_cache_directory,
-                .sub_path = o_dir_sub_path,
-            },
+            .root = try .fromRoot(arena, dirs, .local_cache, o_dir_sub_path),
             .root_src_path = basename,
         },
         .fully_qualified_name = "root.@dependencies",
@@ -7525,8 +7250,6 @@ fn createDependenciesModule(
         .cc_argv = &.{},
         .inherited = .{},
         .global = global_options,
-        .builtin_mod = builtin_mod,
-        .builtin_modules = null, // `builtin_mod` is specified
     });
     try main_mod.deps.put(arena, "@dependencies", deps_mod);
     return deps_mod;
@@ -7549,7 +7272,7 @@ const FindBuildRootOptions = struct {
 };
 
 fn findBuildRoot(arena: Allocator, options: FindBuildRootOptions) !BuildRoot {
-    const cwd_path = options.cwd_path orelse try process.getCwdAlloc(arena);
+    const cwd_path = options.cwd_path orelse try introspect.getResolvedCwd(arena);
     const build_zig_basename = if (options.build_file) |bf|
         fs.path.basename(bf)
     else
@@ -7627,7 +7350,7 @@ fn loadManifest(
         ) catch |err| switch (err) {
             error.FileNotFound => {
                 const fingerprint: Package.Fingerprint = .generate(options.root_name);
-                var templates = findTemplates(gpa, arena);
+                var templates = findTemplates(gpa, arena, true);
                 defer templates.deinit();
                 templates.write(arena, options.dir, options.root_name, Package.Manifest.basename, fingerprint) catch |e| {
                     fatal("unable to write {s}: {s}", .{
@@ -7673,6 +7396,7 @@ const Templates = struct {
     zig_lib_directory: Cache.Directory,
     dir: fs.Dir,
     buffer: std.ArrayList(u8),
+    strip: bool,
 
     fn deinit(templates: *Templates) void {
         templates.zig_lib_directory.handle.close();
@@ -7701,9 +7425,28 @@ const Templates = struct {
         };
         templates.buffer.clearRetainingCapacity();
         try templates.buffer.ensureUnusedCapacity(contents.len);
+        var new_line = templates.strip;
         var i: usize = 0;
         while (i < contents.len) {
-            if (contents[i] == '.') {
+            if (new_line) {
+                const trimmed = std.mem.trimLeft(u8, contents[i..], " ");
+                if (std.mem.startsWith(u8, trimmed, "//")) {
+                    i += std.mem.indexOfScalar(u8, contents[i..], '\n') orelse break;
+                    i += 1;
+                    continue;
+                } else {
+                    new_line = false;
+                }
+            }
+            if (templates.strip and contents[i] == '\n') {
+                new_line = true;
+            } else if (contents[i] == '_') {
+                if (std.mem.startsWith(u8, contents[i..], "_LITNAME")) {
+                    try templates.buffer.appendSlice(root_name);
+                    i += "_LITNAME".len;
+                    continue;
+                }
+            } else if (contents[i] == '.') {
                 if (std.mem.startsWith(u8, contents[i..], ".LITNAME")) {
                     try templates.buffer.append('.');
                     try templates.buffer.appendSlice(root_name);
@@ -7735,11 +7478,14 @@ const Templates = struct {
     }
 };
 
-fn findTemplates(gpa: Allocator, arena: Allocator) Templates {
-    const self_exe_path = introspect.findZigExePath(arena) catch |err| {
+fn findTemplates(gpa: Allocator, arena: Allocator, strip: bool) Templates {
+    const cwd_path = introspect.getResolvedCwd(arena) catch |err| {
+        fatal("unable to get cwd: {s}", .{@errorName(err)});
+    };
+    const self_exe_path = fs.selfExePathAlloc(arena) catch |err| {
         fatal("unable to find self exe path: {s}", .{@errorName(err)});
     };
-    var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+    var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, cwd_path, self_exe_path) catch |err| {
         fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
     };
 
@@ -7756,6 +7502,7 @@ fn findTemplates(gpa: Allocator, arena: Allocator) Templates {
         .zig_lib_directory = zig_lib_directory,
         .dir = template_dir,
         .buffer = std.ArrayList(u8).init(gpa),
+        .strip = strip,
     };
 }
 
@@ -7796,8 +7543,8 @@ fn handleModArg(
     const gop = try create_module.modules.getOrPut(arena, mod_name);
 
     if (gop.found_existing) {
-        fatal("unable to add module '{s}': already exists as '{s}'", .{
-            mod_name, gop.value_ptr.paths.root_src_path,
+        fatal("unable to add module '{s}': already exists as '{s}{c}{s}'", .{
+            mod_name, gop.value_ptr.root_path, fs.path.sep, gop.value_ptr.root_src_path,
         });
     }
 
@@ -7826,24 +7573,14 @@ fn handleModArg(
     if (mod_opts.error_tracing == true)
         create_module.opts.any_error_tracing = true;
 
+    const root_path: []const u8, const root_src_path: []const u8 = if (opt_root_src_orig) |path| root: {
+        create_module.opts.have_zcu = true;
+        break :root .{ fs.path.dirname(path) orelse ".", fs.path.basename(path) };
+    } else .{ ".", "" };
+
     gop.value_ptr.* = .{
-        .paths = p: {
-            if (opt_root_src_orig) |root_src_orig| {
-                create_module.opts.have_zcu = true;
-                const root_src = try introspect.resolvePath(arena, root_src_orig);
-                break :p .{
-                    .root = .{
-                        .root_dir = Cache.Directory.cwd(),
-                        .sub_path = fs.path.dirname(root_src) orelse "",
-                    },
-                    .root_src_path = fs.path.basename(root_src),
-                };
-            }
-            break :p .{
-                .root = .{ .root_dir = Cache.Directory.cwd() },
-                .root_src_path = "",
-            };
-        },
+        .root_path = root_path,
+        .root_src_path = root_src_path,
         .cc_argv = try cc_argv.toOwnedSlice(arena),
         .inherited = mod_opts.*,
         .target_arch_os_abi = target_arch_os_abi.*,

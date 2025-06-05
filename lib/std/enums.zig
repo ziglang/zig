@@ -8,6 +8,25 @@ const EnumField = std.builtin.Type.EnumField;
 /// Increment this value when adding APIs that add single backwards branches.
 const eval_branch_quota_cushion = 10;
 
+pub fn fromInt(comptime E: type, integer: anytype) ?E {
+    const enum_info = @typeInfo(E).@"enum";
+    if (!enum_info.is_exhaustive) {
+        if (std.math.cast(enum_info.tag_type, integer)) |tag| {
+            return @enumFromInt(tag);
+        }
+        return null;
+    }
+    // We don't directly iterate over the fields of E, as that
+    // would require an inline loop. Instead, we create an array of
+    // values that is comptime-know, but can be iterated at runtime
+    // without requiring an inline loop.
+    // This generates better machine code.
+    for (values(E)) |value| {
+        if (@intFromEnum(value) == integer) return @enumFromInt(integer);
+    }
+    return null;
+}
+
 /// Returns a struct with a field matching each unique named enum element.
 /// If the enum is extern and has multiple names for the same value, only
 /// the first name is used.  Each field is of type Data and has the provided
@@ -17,7 +36,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
     var struct_fields: [@typeInfo(E).@"enum".fields.len]std.builtin.Type.StructField = undefined;
     for (&struct_fields, @typeInfo(E).@"enum".fields) |*struct_field, enum_field| {
         struct_field.* = .{
-            .name = enum_field.name ++ "",
+            .name = enum_field.name,
             .type = Data,
             .default_value_ptr = if (field_default) |d| @as(?*const anyopaque, @ptrCast(&d)) else null,
             .is_comptime = false,
@@ -237,6 +256,30 @@ test nameCast {
     try testing.expectEqual(B.b, nameCast(B, A.b));
     try testing.expectEqual(B.b, nameCast(B, B.b));
     try testing.expectEqual(B.b, nameCast(B, "b"));
+}
+
+test fromInt {
+    const E1 = enum {
+        A,
+    };
+    const E2 = enum {
+        A,
+        B,
+    };
+    const E3 = enum(i8) { A, _ };
+
+    var zero: u8 = 0;
+    var one: u16 = 1;
+    _ = &zero;
+    _ = &one;
+    try testing.expect(fromInt(E1, zero).? == E1.A);
+    try testing.expect(fromInt(E2, one).? == E2.B);
+    try testing.expect(fromInt(E3, zero).? == E3.A);
+    try testing.expect(fromInt(E3, 127).? == @as(E3, @enumFromInt(127)));
+    try testing.expect(fromInt(E3, -128).? == @as(E3, @enumFromInt(-128)));
+    try testing.expectEqual(null, fromInt(E1, one));
+    try testing.expectEqual(null, fromInt(E3, 128));
+    try testing.expectEqual(null, fromInt(E3, -129));
 }
 
 /// A set of enum elements, backed by a bitfield.  If the enum

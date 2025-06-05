@@ -25,5 +25,5 @@ fn Type(comptime n: usize) type {
 //
 // :21:16: error: evaluation exceeded 1001 backwards branches
 // :21:16: note: use @setEvalBranchQuota() to raise the branch limit from 1001
-// :16:34: note: called from here
-// :8:15: note: called from here
+// :16:34: note: called at comptime here
+// :8:15: note: generic function instantiated here

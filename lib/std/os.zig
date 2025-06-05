@@ -107,6 +107,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
                 .SUCCESS => {},
                 .INVAL, .BADF => return error.FileNotFound,
                 .NOSPC => return error.NameTooLong,
+                .NOENT => return error.FileNotFound,
                 // TODO man pages for fcntl on macOS don't really tell you what
                 // errno values to expect when command is F.GETPATH...
                 else => |err| return posix.unexpectedErrno(err),

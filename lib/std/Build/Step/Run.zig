@@ -1026,11 +1026,11 @@ fn runCommand(
             }
 
             const root_target = exe.rootModuleTarget();
-            const need_cross_glibc = root_target.isGnuLibC() and
-                exe.is_linking_libc;
+            const need_cross_libc = exe.is_linking_libc and
+                (root_target.isGnuLibC() or (root_target.isMuslLibC() and exe.linkage == .dynamic));
             const other_target = exe.root_module.resolved_target.?.result;
             switch (std.zig.system.getExternalExecutor(b.graph.host.result, &other_target, .{
-                .qemu_fixes_dl = need_cross_glibc and b.glibc_runtimes_dir != null,
+                .qemu_fixes_dl = need_cross_libc and b.libc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
                 .native, .rosetta => {
@@ -1047,31 +1047,29 @@ fn runCommand(
                 },
                 .qemu => |bin_name| {
                     if (b.enable_qemu) {
-                        const glibc_dir_arg = if (need_cross_glibc)
-                            b.glibc_runtimes_dir orelse
-                                return failForeign(run, "--glibc-runtimes", argv[0], exe)
-                        else
-                            null;
-
                         try interp_argv.append(bin_name);
 
-                        if (glibc_dir_arg) |dir| {
-                            try interp_argv.append("-L");
-                            try interp_argv.append(b.pathJoin(&.{
-                                dir,
-                                try std.zig.target.glibcRuntimeTriple(
-                                    b.allocator,
-                                    root_target.cpu.arch,
-                                    root_target.os.tag,
-                                    root_target.abi,
-                                ),
-                            }));
+                        if (need_cross_libc) {
+                            if (b.libc_runtimes_dir) |dir| {
+                                try interp_argv.append("-L");
+                                try interp_argv.append(b.pathJoin(&.{
+                                    dir,
+                                    try if (root_target.isGnuLibC()) std.zig.target.glibcRuntimeTriple(
+                                        b.allocator,
+                                        root_target.cpu.arch,
+                                        root_target.os.tag,
+                                        root_target.abi,
+                                    ) else if (root_target.isMuslLibC()) std.zig.target.muslRuntimeTriple(
+                                        b.allocator,
+                                        root_target.cpu.arch,
+                                        root_target.abi,
+                                    ) else unreachable,
+                                }));
+                            } else return failForeign(run, "--libc-runtimes", argv[0], exe);
                         }
 
                         try interp_argv.appendSlice(argv);
-                    } else {
-                        return failForeign(run, "-fqemu", argv[0], exe);
-                    }
+                    } else return failForeign(run, "-fqemu", argv[0], exe);
                 },
                 .darling => |bin_name| {
                     if (b.enable_darling) {
@@ -1336,9 +1334,6 @@ fn spawnChildAndCollect(
     var child = std.process.Child.init(argv, arena);
     if (run.cwd) |lazy_cwd| {
         child.cwd = lazy_cwd.getPath2(b, &run.step);
-    } else {
-        child.cwd = b.build_root.path;
-        child.cwd_dir = b.build_root.handle;
     }
     child.env_map = run.env_map orelse &b.graph.env_map;
     child.request_resource_usage_statistics = true;

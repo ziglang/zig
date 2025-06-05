@@ -403,6 +403,7 @@ typedef integer_t       cpu_threadtype_t;
 #define CPUFAMILY_ARM_COLL 0x2876f5b5
 #define CPUFAMILY_ARM_LOBOS 0x5f4dea93
 #define CPUFAMILY_ARM_DONAN 0x6f5129ac
+#define CPUFAMILY_ARM_BRAVA 0x17d5b93a
 #define CPUFAMILY_ARM_TAHITI 0x75d4acb9
 #define CPUFAMILY_ARM_TUPAI 0x204526d0
 

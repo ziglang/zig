@@ -7,8 +7,8 @@ test {
     if (builtin.object_format == .macho) return error.SkipZigTest;
     // COFF linker does not support the new backend.
     if (builtin.object_format == .coff) return error.SkipZigTest;
+    _ = @import("x86_64/access.zig");
     _ = @import("x86_64/binary.zig");
     _ = @import("x86_64/cast.zig");
-    _ = @import("x86_64/mem.zig");
     _ = @import("x86_64/unary.zig");
 }

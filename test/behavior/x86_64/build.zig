@@ -87,7 +87,7 @@ pub fn build(b: *std.Build) void {
         .{
             .cpu_arch = .x86_64,
             .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
-            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .gfni }),
+            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .fast_hops, .gfni, .pclmul, .slow_incdec }),
         },
         .{
             .cpu_arch = .x86_64,
@@ -97,6 +97,7 @@ pub fn build(b: *std.Build) void {
         .{
             .cpu_arch = .x86_64,
             .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
+            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .fast_hops, .gfni, .pclmul, .slow_incdec }),
             .cpu_features_sub = std.Target.x86.featureSet(&.{.avx2}),
         },
         .{
@@ -106,7 +107,7 @@ pub fn build(b: *std.Build) void {
         .{
             .cpu_arch = .x86_64,
             .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
-            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .gfni }),
+            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .fast_hops, .gfni, .slow_incdec, .vpclmulqdq }),
         },
         .{
             .cpu_arch = .x86_64,
@@ -116,9 +117,9 @@ pub fn build(b: *std.Build) void {
         const target = b.resolveTargetQuery(query);
         const cpu = query.serializeCpuAlloc(b.allocator) catch @panic("OOM");
         for ([_][]const u8{
+            "access.zig",
             "binary.zig",
             "cast.zig",
-            "mem.zig",
             "unary.zig",
         }) |path| {
             const test_mod = b.createModule(.{
@@ -132,7 +133,7 @@ pub fn build(b: *std.Build) void {
                 .use_lld = false,
                 .root_module = test_mod,
             });
-            if (!std.Target.x86.featureSetHas(target.result.cpu.features, .sse2)) {
+            if (!target.result.cpu.has(.x86, .sse2)) {
                 test_exe.bundle_compiler_rt = false;
                 test_mod.linkLibrary(compiler_rt_lib);
             }

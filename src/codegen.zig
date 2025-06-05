@@ -14,7 +14,6 @@ const Allocator = mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const ErrorMsg = Zcu.ErrorMsg;
 const InternPool = @import("InternPool.zig");
-const Liveness = @import("Liveness.zig");
 const Zcu = @import("Zcu.zig");
 
 const Type = @import("Type.zig");
@@ -28,20 +27,62 @@ pub const CodeGenError = GenerateSymbolError || error{
     CodegenFail,
 };
 
-fn devFeatureForBackend(comptime backend: std.builtin.CompilerBackend) dev.Feature {
-    comptime assert(mem.startsWith(u8, @tagName(backend), "stage2_"));
-    return @field(dev.Feature, @tagName(backend)["stage2_".len..] ++ "_backend");
+fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
+    return switch (backend) {
+        .other, .stage1 => unreachable,
+        .stage2_aarch64 => .aarch64_backend,
+        .stage2_arm => .arm_backend,
+        .stage2_c => .c_backend,
+        .stage2_llvm => .llvm_backend,
+        .stage2_powerpc => .powerpc_backend,
+        .stage2_riscv64 => .riscv64_backend,
+        .stage2_sparc64 => .sparc64_backend,
+        .stage2_spirv64 => .spirv64_backend,
+        .stage2_wasm => .wasm_backend,
+        .stage2_x86 => .x86_backend,
+        .stage2_x86_64 => .x86_64_backend,
+        _ => unreachable,
+    };
 }
 
 fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
     return switch (backend) {
+        .other, .stage1 => unreachable,
         .stage2_aarch64 => @import("arch/aarch64/CodeGen.zig"),
         .stage2_arm => @import("arch/arm/CodeGen.zig"),
+        .stage2_c => @import("codegen/c.zig"),
+        .stage2_llvm => @import("codegen/llvm.zig"),
+        .stage2_powerpc => @import("arch/powerpc/CodeGen.zig"),
         .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
         .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
-        .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
-        else => unreachable,
+        .stage2_spirv64 => @import("codegen/spirv.zig"),
+        .stage2_wasm => @import("arch/wasm/CodeGen.zig"),
+        .stage2_x86, .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
+        _ => unreachable,
     };
+}
+
+pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*const Air.Legalize.Features {
+    const zcu = pt.zcu;
+    const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
+    switch (target_util.zigBackend(target.*, zcu.comp.config.use_llvm)) {
+        else => unreachable,
+        inline .stage2_llvm,
+        .stage2_c,
+        .stage2_wasm,
+        .stage2_arm,
+        .stage2_x86_64,
+        .stage2_aarch64,
+        .stage2_x86,
+        .stage2_riscv64,
+        .stage2_sparc64,
+        .stage2_spirv64,
+        .stage2_powerpc,
+        => |backend| {
+            dev.check(devFeatureForBackend(backend));
+            return importBackend(backend).legalizeFeatures(target);
+        },
+    }
 }
 
 pub fn generateFunction(
@@ -50,17 +91,18 @@ pub fn generateFunction(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!void {
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
-    const target = zcu.navFileScope(func.owner_nav).mod.resolved_target.result;
-    switch (target_util.zigBackend(target, false)) {
+    const target = zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
+    switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
         inline .stage2_aarch64,
         .stage2_arm,
+        .stage2_powerpc,
         .stage2_riscv64,
         .stage2_sparc64,
         .stage2_x86_64,
@@ -81,12 +123,15 @@ pub fn generateLazyFunction(
 ) CodeGenError!void {
     const zcu = pt.zcu;
     const target = if (Type.fromInterned(lazy_sym.ty).typeDeclInstAllowGeneratedTag(zcu)) |inst_index|
-        zcu.fileByIndex(inst_index.resolveFile(&zcu.intern_pool)).mod.resolved_target.result
+        zcu.fileByIndex(inst_index.resolveFile(&zcu.intern_pool)).mod.?.resolved_target.result
     else
         zcu.getTarget();
-    switch (target_util.zigBackend(target, false)) {
+    switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
-        inline .stage2_x86_64, .stage2_riscv64 => |backend| {
+        inline .stage2_powerpc,
+        .stage2_riscv64,
+        .stage2_x86_64,
+        => |backend| {
             dev.check(devFeatureForBackend(backend));
             return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
         },
@@ -666,7 +711,6 @@ fn lowerUavRef(
     switch (lf.tag) {
         .c => unreachable,
         .spirv => unreachable,
-        .nvptx => unreachable,
         .wasm => {
             dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
@@ -723,7 +767,7 @@ fn lowerNavRef(
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
-    const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
+    const target = zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
     const is_obj = lf.comp.config.output_mode == .Obj;
     const nav_ty = Type.fromInterned(ip.getNav(nav_index).typeOf(ip));
@@ -739,7 +783,6 @@ fn lowerNavRef(
     switch (lf.tag) {
         .c => unreachable,
         .spirv => unreachable,
-        .nvptx => unreachable,
         .wasm => {
             dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
@@ -815,10 +858,6 @@ pub const GenResult = union(enum) {
         /// The bit-width of the immediate may be smaller than `u64`. For example, on 32-bit targets
         /// such as ARM, the immediate will never exceed 32-bits.
         immediate: u64,
-        /// Threadlocal variable with address deferred until the linker allocates
-        /// everything in virtual memory.
-        /// Payload is a symbol index.
-        load_tlv: u32,
         /// Decl with address deferred until the linker allocates everything in virtual memory.
         /// Payload is a symbol index.
         load_direct: u32,
@@ -880,13 +919,13 @@ fn genNavRef(
     }
 
     const nav = ip.getNav(nav_index);
+    assert(!nav.isThreadlocal(ip));
 
-    const is_extern, const lib_name, const is_threadlocal = if (nav.getExtern(ip)) |e|
-        .{ true, e.lib_name, e.is_threadlocal }
+    const is_extern, const lib_name = if (nav.getExtern(ip)) |e|
+        .{ true, e.lib_name }
     else
-        .{ false, .none, nav.isThreadlocal(ip) };
+        .{ false, .none };
 
-    const single_threaded = zcu.navFileScope(nav_index).mod.single_threaded;
     const name = nav.name;
     if (lf.cast(.elf)) |elf_file| {
         const zo = elf_file.zigObjectPtr().?;
@@ -896,9 +935,6 @@ fn genNavRef(
             return .{ .mcv = .{ .lea_symbol = sym_index } };
         }
         const sym_index = try zo.getOrCreateMetadataForNav(zcu, nav_index);
-        if (!single_threaded and is_threadlocal) {
-            return .{ .mcv = .{ .load_tlv = sym_index } };
-        }
         return .{ .mcv = .{ .lea_symbol = sym_index } };
     } else if (lf.cast(.macho)) |macho_file| {
         const zo = macho_file.getZigObject().?;
@@ -909,9 +945,6 @@ fn genNavRef(
         }
         const sym_index = try zo.getOrCreateMetadataForNav(macho_file, nav_index);
         const sym = zo.symbols.items[sym_index];
-        if (!single_threaded and is_threadlocal) {
-            return .{ .mcv = .{ .load_tlv = sym.nlist_idx } };
-        }
         return .{ .mcv = .{ .lea_symbol = sym.nlist_idx } };
     } else if (lf.cast(.coff)) |coff_file| {
         if (is_extern) {

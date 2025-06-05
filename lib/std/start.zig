@@ -14,12 +14,16 @@ const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 // The self-hosted compiler is not fully capable of handling all of this start.zig file.
 // Until then, we have simplified logic here for self-hosted. TODO remove this once
 // self-hosted is capable enough to handle all of the real start.zig logic.
-pub const simplified_logic =
-    builtin.zig_backend == .stage2_x86 or
-    builtin.zig_backend == .stage2_aarch64 or
-    builtin.zig_backend == .stage2_arm or
-    builtin.zig_backend == .stage2_sparc64 or
-    builtin.zig_backend == .stage2_spirv64;
+pub const simplified_logic = switch (builtin.zig_backend) {
+    .stage2_aarch64,
+    .stage2_arm,
+    .stage2_powerpc,
+    .stage2_sparc64,
+    .stage2_spirv64,
+    .stage2_x86,
+    => true,
+    else => false,
+};
 
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
@@ -321,7 +325,7 @@ fn _start() callconv(.naked) noreturn {
             ,
             .csky =>
             // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
-            // position-independent code to work. We depend on this in `std.os.linux.pie` to locate
+            // position-independent code to work. We depend on this in `std.pie` to locate
             // `_DYNAMIC` as well.
             // r8 = FP
             \\ grs t0, 1f
@@ -510,33 +514,33 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
     const envp = @as([*][*:0]u8, @ptrCast(envp_optional))[0..envp_count];
 
-    const aux: std.process.Init.Aux = if (native_os == .linux) aux: {
-        // Find the beginning of the auxiliary vector
-        const auxv: [*]elf.Auxv = @ptrCast(@alignCast(envp.ptr + envp_count + 1));
+    // Find the beginning of the auxiliary vector
+    const auxv: [*]elf.Auxv = @ptrCast(@alignCast(envp.ptr + envp_count + 1));
 
-        var at_hwcap: usize = 0;
-        const phdrs = init: {
-            var i: usize = 0;
-            var at_phdr: usize = 0;
-            var at_phnum: usize = 0;
-            while (auxv[i].a_type != elf.AT_NULL) : (i += 1) {
-                switch (auxv[i].a_type) {
-                    elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
-                    elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
-                    elf.AT_HWCAP => at_hwcap = auxv[i].a_un.a_val,
-                    else => continue,
-                }
+    var at_hwcap: usize = 0;
+    const phdrs = init: {
+        var i: usize = 0;
+        var at_phdr: usize = 0;
+        var at_phnum: usize = 0;
+        while (auxv[i].a_type != elf.AT_NULL) : (i += 1) {
+            switch (auxv[i].a_type) {
+                elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
+                elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
+                elf.AT_HWCAP => at_hwcap = auxv[i].a_un.a_val,
+                else => continue,
             }
-            break :init @as([*]elf.Phdr, @ptrFromInt(at_phdr))[0..at_phnum];
-        };
-
-        // Apply the initial relocations as early as possible in the startup process. We cannot
-        // make calls yet on some architectures (e.g. MIPS) *because* they haven't been applied yet,
-        // so this must be fully inlined.
-        if (builtin.position_independent_executable) {
-            @call(.always_inline, std.os.linux.pie.relocate, .{phdrs});
         }
+        break :init @as([*]elf.Phdr, @ptrFromInt(at_phdr))[0..at_phnum];
+    };
 
+    // Apply the initial relocations as early as possible in the startup process. We cannot
+    // make calls yet on some architectures (e.g. MIPS) *because* they haven't been applied yet,
+    // so this must be fully inlined.
+    if (builtin.position_independent_executable) {
+        @call(.always_inline, std.pie.relocate, .{phdrs});
+    }
+
+    if (native_os == .linux) {
         // This must be done after PIE relocations have been applied or we may crash
         // while trying to access the global variable (happens on MIPS at least).
         std.os.linux.elf_aux_maybe = auxv;
@@ -563,25 +567,23 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
         // Here we look for the stack size in our program headers and use setrlimit
         // to ask for more stack space.
         expandStackSize(phdrs);
+    }
 
-        const opt_init_array_start = @extern([*]*const fn () callconv(.c) void, .{
-            .name = "__init_array_start",
-            .linkage = .weak,
-        });
-        const opt_init_array_end = @extern([*]*const fn () callconv(.c) void, .{
-            .name = "__init_array_end",
-            .linkage = .weak,
-        });
-        if (opt_init_array_start) |init_array_start| {
-            const init_array_end = opt_init_array_end.?;
-            const slice = init_array_start[0 .. init_array_end - init_array_start];
-            for (slice) |func| func();
-        }
+    const opt_init_array_start = @extern([*]*const fn () callconv(.c) void, .{
+        .name = "__init_array_start",
+        .linkage = .weak,
+    });
+    const opt_init_array_end = @extern([*]*const fn () callconv(.c) void, .{
+        .name = "__init_array_end",
+        .linkage = .weak,
+    });
+    if (opt_init_array_start) |init_array_start| {
+        const init_array_end = opt_init_array_end.?;
+        const slice = init_array_start[0 .. init_array_end - init_array_start];
+        for (slice) |func| func();
+    }
 
-        break :aux .{ .data = auxv };
-    } else .{ .data = {} };
-
-    std.posix.exit(callMainWithArgs(argc, argv, envp, aux));
+    std.posix.exit(callMainWithArgs(argc, argv, envp));
 }
 
 fn expandStackSize(phdrs: []elf.Phdr) void {
@@ -675,9 +677,14 @@ pub inline fn callMain(init: std.process.Init) u8 {
             if (@typeInfo(ReturnType) != .error_union) @compileError(bad_main_ret);
 
             const result = root.main() catch |err| {
-                if (builtin.zig_backend == .stage2_riscv64) {
-                    std.debug.print("error: failed with error\n", .{});
-                    return 1;
+                switch (builtin.zig_backend) {
+                    .stage2_powerpc,
+                    .stage2_riscv64,
+                    => {
+                        std.debug.print("error: failed with error\n", .{});
+                        return 1;
+                    },
+                    else => {},
                 }
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
@@ -786,7 +793,7 @@ fn maybeIgnoreSigpipe() void {
             // Set handler to a noop function instead of `SIG.IGN` to prevent
             // leaking signal disposition to a child process.
             .handler = .{ .handler = noopSigHandler },
-            .mask = posix.empty_sigset,
+            .mask = posix.sigemptyset(),
             .flags = 0,
         };
         posix.sigaction(posix.SIG.PIPE, &act, null);

@@ -3,107 +3,99 @@ on:
   pull_request:
   push:
     branches:
-      - 014-dev
+      - master
+      - llvm19
 concurrency:
+  # Cancels pending runs when a PR gets updated.
   group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
   cancel-in-progress: true
 permissions:
+  # Sets permission policy for `GITHUB_TOKEN`
   contents: read
 jobs:
-  build:
-    runs-on: linux-arm64-gh
-    strategy:
-      matrix:
-        target:
-          - x86_64-macos-none
-          - x86_64-linux-musl
-          - x86_64-windows-gnu
-          - aarch64-macos-none
-          - aarch64-linux-musl
-        safe: ["false", "true"]
+  x86_64-linux-debug:
+    timeout-minutes: 420
+    runs-on: [self-hosted, Linux, x86_64]
     steps:
-      - run: sudo apt-get install -y ninja-build
-      - uses: actions/checkout@v4
-        with:
-          repository: ziglang/zig-bootstrap
-          ref: 50d8e88ba329b5d58a212f9fd2e9b1ad59a88e7d
-      - run: rm -rf zig
-      - uses: actions/checkout@v4
-        with:
-          path: zig
-      - run: sed -i 's/ZIG_VERSION="0.14.0-dev.2257+e6d2e1641"/ZIG_VERSION="0.15.0-dev.386+2e35fdd03"/' build
-      - run: sed -i 's/Doptimize=ReleaseFast/Doptimize=ReleaseSafe/' build
-        if: matrix.safe == 'true'
-      - run: sed -i 's/Dstrip/Ddebug-extensions/' build
-        if: matrix.safe == 'true'
-      - run: sed -i 's/max_rss = 7_800_000_000/max_rss = 9_000_000_000/' zig/build.zig
-        if: matrix.safe == 'true'
-      - run: cat build
-      - run: CMAKE_GENERATOR=Ninja ./build ${{ matrix.target }} baseline
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bootstrap-${{ matrix.target }}${{ matrix.safe == 'true' && '-ReleaseSafe' || '' }}
-          path: out/zig-${{ matrix.target }}-baseline
-  release:
-    needs: build
-    permissions:
-      contents: write
-    runs-on: linux-arm64-gh
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: sh ci/x86_64-linux-debug.sh
+  x86_64-linux-release:
+    timeout-minutes: 420
+    runs-on: [self-hosted, Linux, x86_64]
     steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: zigtools/zls
-          ref: 81407cd41b82a1a450315862897958e62e50e660
-      - uses: actions/download-artifact@v4
-      - name: chmod
-        run: |
-          chmod +x bootstrap-x86_64-macos-none/zig
-          chmod +x bootstrap-x86_64-linux-musl/zig
-          chmod +x bootstrap-x86_64-windows-gnu/zig.exe
-          chmod +x bootstrap-aarch64-macos-none/zig
-          chmod +x bootstrap-aarch64-macos-none-ReleaseSafe/zig
-          chmod +x bootstrap-aarch64-linux-musl/zig
-          chmod +x bootstrap-aarch64-linux-musl-ReleaseSafe/zig
-      - name: Build ZLS
-        run: |
-          ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos-none --prefix . --prefix-exe-dir ./bootstrap-x86_64-macos-none &
-          ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos-none --prefix . --prefix-exe-dir ./bootstrap-x86_64-macos-none-ReleaseSafe &
-          ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl --prefix . --prefix-exe-dir ./bootstrap-x86_64-linux-musl &
-          ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl --prefix . --prefix-exe-dir ./bootstrap-x86_64-linux-musl-ReleaseSafe &
-          ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows-gnu --prefix . --prefix-exe-dir ./bootstrap-x86_64-windows-gnu &
-          ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows-gnu --prefix . --prefix-exe-dir ./bootstrap-x86_64-windows-gnu-ReleaseSafe &
-          ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-macos-none --prefix . --prefix-exe-dir ./bootstrap-aarch64-macos-none &
-          ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-macos-none --prefix . --prefix-exe-dir ./bootstrap-aarch64-macos-none-ReleaseSafe &
-          ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix . --prefix-exe-dir ./bootstrap-aarch64-linux-musl &
-          ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix . --prefix-exe-dir ./bootstrap-aarch64-linux-musl-ReleaseSafe &
-          wait
-      - name: Compress artifacts
-        run: |
-          zip -r bootstrap-x86_64-macos-none.zip bootstrap-x86_64-macos-none &
-          zip -r bootstrap-x86_64-macos-none-ReleaseSafe.zip bootstrap-x86_64-macos-none-ReleaseSafe &
-          zip -r bootstrap-x86_64-linux-musl.zip bootstrap-x86_64-linux-musl &
-          zip -r bootstrap-x86_64-linux-musl-ReleaseSafe.zip bootstrap-x86_64-linux-musl-ReleaseSafe &
-          zip -r bootstrap-x86_64-windows-gnu.zip bootstrap-x86_64-windows-gnu &
-          zip -r bootstrap-x86_64-windows-gnu-ReleaseSafe.zip bootstrap-x86_64-windows-gnu-ReleaseSafe &
-          zip -r bootstrap-aarch64-macos-none.zip bootstrap-aarch64-macos-none &
-          zip -r bootstrap-aarch64-macos-none-ReleaseSafe.zip bootstrap-aarch64-macos-none-ReleaseSafe &
-          zip -r bootstrap-aarch64-linux-musl.zip bootstrap-aarch64-linux-musl &
-          zip -r bootstrap-aarch64-linux-musl-ReleaseSafe.zip bootstrap-aarch64-linux-musl-ReleaseSafe &
-          wait
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        id: release
-        with:
-          generate_release_notes: true
-          tag_name: "autobuild-${{github.sha}}"
-          files: |
-            bootstrap-x86_64-macos-none.zip
-            bootstrap-x86_64-macos-none-ReleaseSafe.zip
-            bootstrap-x86_64-linux-musl.zip
-            bootstrap-x86_64-linux-musl-ReleaseSafe.zip
-            bootstrap-x86_64-windows-gnu.zip
-            bootstrap-x86_64-windows-gnu-ReleaseSafe.zip
-            bootstrap-aarch64-macos-none.zip
-            bootstrap-aarch64-macos-none-ReleaseSafe.zip
-            bootstrap-aarch64-linux-musl.zip
-            bootstrap-aarch64-linux-musl-ReleaseSafe.zip
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: sh ci/x86_64-linux-release.sh
+  aarch64-linux-debug:
+    timeout-minutes: 480
+    runs-on: [self-hosted, Linux, aarch64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: sh ci/aarch64-linux-debug.sh
+  aarch64-linux-release:
+    timeout-minutes: 480
+    runs-on: [self-hosted, Linux, aarch64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: sh ci/aarch64-linux-release.sh
+  x86_64-macos-release:
+    runs-on: "macos-13"
+    env:
+      ARCH: "x86_64"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: ci/x86_64-macos-release.sh
+  aarch64-macos-debug:
+    runs-on: [self-hosted, macOS, aarch64]
+    env:
+      ARCH: "aarch64"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: ci/aarch64-macos-debug.sh
+  aarch64-macos-release:
+    runs-on: [self-hosted, macOS, aarch64]
+    env:
+      ARCH: "aarch64"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: ci/aarch64-macos-release.sh
+  x86_64-windows-debug:
+    runs-on: [self-hosted, Windows, x86_64]
+    env:
+      ARCH: "x86_64"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: ci/x86_64-windows-debug.ps1
+  x86_64-windows-release:
+    runs-on: [self-hosted, Windows, x86_64]
+    env:
+      ARCH: "x86_64"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: ci/x86_64-windows-release.ps1
+  aarch64-windows:
+    runs-on: [self-hosted, Windows, aarch64]
+    env:
+      ARCH: "aarch64"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: ci/aarch64-windows.ps1

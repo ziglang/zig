@@ -162,7 +162,7 @@ pub fn ignoreNonZeroSizedBitfieldTypeAlignment(target: std.Target) bool {
     switch (target.cpu.arch) {
         .avr => return true,
         .arm => {
-            if (std.Target.arm.featureSetHas(target.cpu.features, .has_v7)) {
+            if (target.cpu.has(.arm, .has_v7)) {
                 switch (target.os.tag) {
                     .ios => return true,
                     else => return false,
@@ -185,7 +185,7 @@ pub fn minZeroWidthBitfieldAlignment(target: std.Target) ?u29 {
     switch (target.cpu.arch) {
         .avr => return 8,
         .arm => {
-            if (std.Target.arm.featureSetHas(target.cpu.features, .has_v7)) {
+            if (target.cpu.has(.arm, .has_v7)) {
                 switch (target.os.tag) {
                     .ios => return 32,
                     else => return null,
@@ -203,7 +203,7 @@ pub fn unnamedFieldAffectsAlignment(target: std.Target) bool {
             return true;
         },
         .armeb => {
-            if (std.Target.arm.featureSetHas(target.cpu.features, .has_v7)) {
+            if (target.cpu.has(.arm, .has_v7)) {
                 if (std.Target.Abi.default(target.cpu.arch, target.os.tag) == .eabi) return true;
             }
         },
@@ -230,7 +230,7 @@ pub fn defaultAlignment(target: std.Target) u29 {
     switch (target.cpu.arch) {
         .avr => return 1,
         .arm => if (target.abi.isAndroid() or target.os.tag == .ios) return 16 else return 8,
-        .sparc => if (std.Target.sparc.featureSetHas(target.cpu.features, .v9)) return 16 else return 8,
+        .sparc => if (target.cpu.has(.sparc, .v9)) return 16 else return 8,
         .mips, .mipsel => switch (target.abi) {
             .none, .gnuabi64 => return 16,
             else => return 8,
@@ -268,7 +268,7 @@ pub fn systemCompiler(target: std.Target) LangOpts.Compiler {
 pub fn hasFloat128(target: std.Target) bool {
     if (target.cpu.arch.isWasm()) return true;
     if (target.os.tag.isDarwin()) return false;
-    if (target.cpu.arch.isPowerPC()) return std.Target.powerpc.featureSetHas(target.cpu.features, .float128);
+    if (target.cpu.arch.isPowerPC()) return target.cpu.has(.powerpc, .float128);
     return switch (target.os.tag) {
         .dragonfly,
         .haiku,
@@ -334,7 +334,7 @@ pub const FPSemantics = enum {
             .spirv32,
             .spirv64,
             => return .IEEEHalf,
-            .x86, .x86_64 => if (std.Target.x86.featureSetHas(target.cpu.features, .sse2)) return .IEEEHalf,
+            .x86, .x86_64 => if (target.cpu.has(.x86, .sse2)) return .IEEEHalf,
             else => {},
         }
         return null;
@@ -399,7 +399,7 @@ pub fn defaultFpEvalMethod(target: std.Target) LangOpts.FPEvalMethod {
                     return .double;
                 }
             }
-            if (std.Target.x86.featureSetHas(target.cpu.features, .sse)) {
+            if (target.cpu.has(.x86, .sse)) {
                 return .source;
             }
             return .extended;
@@ -765,7 +765,7 @@ test "target size/align tests" {
         .specifier = .char,
     };
 
-    try std.testing.expectEqual(true, std.Target.arm.featureSetHas(comp.target.cpu.features, .has_v7));
+    try std.testing.expectEqual(true, comp.target.cpu.has(.arm, .has_v7));
     try std.testing.expectEqual(@as(u64, 1), ct.sizeof(&comp).?);
     try std.testing.expectEqual(@as(u64, 1), ct.alignof(&comp));
     try std.testing.expectEqual(true, ignoreNonZeroSizedBitfieldTypeAlignment(comp.target));

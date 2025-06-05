@@ -10,7 +10,6 @@ const Decl = Zcu.Decl;
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Air = @import("../Air.zig");
-const Liveness = @import("../Liveness.zig");
 const InternPool = @import("../InternPool.zig");
 
 const spec = @import("spirv/spec.zig");
@@ -29,7 +28,17 @@ const SpvAssembler = @import("spirv/Assembler.zig");
 
 const InstMap = std.AutoHashMapUnmanaged(Air.Inst.Index, IdRef);
 
+pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initMany(&.{
+        .expand_intcast_safe,
+        .expand_add_safe,
+        .expand_sub_safe,
+        .expand_mul_safe,
+    });
+}
+
 pub const zig_call_abi_ver = 3;
+pub const big_int_bits = 32;
 
 const InternMap = std.AutoHashMapUnmanaged(struct { InternPool.Index, NavGen.Repr }, IdResult);
 const PtrTypeMap = std.AutoHashMapUnmanaged(
@@ -169,12 +178,10 @@ pub const Object = struct {
     ///   via the usual `intern_map` mechanism.
     ptr_types: PtrTypeMap = .{},
 
-    /// For test declarations for Vulkan, we have to add a push constant with a pointer to a
-    /// buffer that we can use. We only need to generate this once, this holds the link information
+    /// For test declarations for Vulkan, we have to add a buffer.
+    /// We only need to generate this once, this holds the link information
     /// related to that.
-    error_push_constant: ?struct {
-        push_constant_ptr: SpvModule.Decl.Index,
-    } = null,
+    error_buffer: ?SpvModule.Decl.Index = null,
 
     pub fn init(gpa: Allocator, target: std.Target) Object {
         return .{
@@ -196,12 +203,12 @@ pub const Object = struct {
         pt: Zcu.PerThread,
         nav_index: InternPool.Nav.Index,
         air: Air,
-        liveness: Liveness,
+        liveness: Air.Liveness,
         do_codegen: bool,
     ) !void {
         const zcu = pt.zcu;
         const gpa = zcu.gpa;
-        const structured_cfg = zcu.navFileScope(nav_index).mod.structured_cfg;
+        const structured_cfg = zcu.navFileScope(nav_index).mod.?.structured_cfg;
 
         var nav_gen = NavGen{
             .gpa = gpa,
@@ -243,7 +250,7 @@ pub const Object = struct {
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
         air: Air,
-        liveness: Liveness,
+        liveness: Air.Liveness,
     ) !void {
         const nav = pt.zcu.funcInfo(func_index).owner_nav;
         // TODO: Separate types for generating decls and functions?
@@ -304,7 +311,7 @@ const NavGen = struct {
 
     /// The liveness analysis of the intermediate code for the declaration we are currently generating.
     /// Note: If the declaration is not a function, this value will be undefined!
-    liveness: Liveness,
+    liveness: Air.Liveness,
 
     /// An array of function argument result-ids. Each index corresponds with the
     /// function argument of the same index.
@@ -344,8 +351,7 @@ const NavGen = struct {
 
     /// This structure is used to return information about a type typically used for
     /// arithmetic operations. These types may either be integers, floats, or a vector
-    /// of these. Most scalar operations also work on vectors, so we can easily represent
-    /// those as arithmetic types. If the type is a scalar, 'inner type' refers to the
+    /// of these. If the type is a scalar, 'inner type' refers to the
     /// scalar type. Otherwise, if its a vector, it refers to the vector's element type.
     const ArithmeticTypeInfo = struct {
         /// A classification of the inner type.
@@ -379,7 +385,7 @@ const NavGen = struct {
         /// The number of bits required to store the type.
         /// For `integer` and `float`, this is equal to `bits`.
         /// For `strange_integer` and `bool` this is the size of the backing integer.
-        /// For `composite_integer` this is 0 (TODO)
+        /// For `composite_integer` this is the elements count.
         backing_bits: u16,
 
         /// Null if this type is a scalar, or the length
@@ -582,11 +588,13 @@ const NavGen = struct {
     /// The backing type will be chosen as the smallest supported integer larger or equal to it in number of bits.
     /// The result is valid to be used with OpTypeInt.
     /// TODO: Should the result of this function be cached?
-    fn backingIntBits(self: *NavGen, bits: u16) ?u16 {
+    fn backingIntBits(self: *NavGen, bits: u16) struct { u16, bool } {
         // The backend will never be asked to compiler a 0-bit integer, so we won't have to handle those in this function.
         assert(bits != 0);
 
-        if (self.spv.hasFeature(.arbitrary_precision_integers) and bits <= 32) return bits;
+        if (self.spv.hasFeature(.arbitrary_precision_integers) and bits <= 32) {
+            return .{ bits, false };
+        }
 
         // We require Int8 and Int16 capabilities and benefit Int64 when available.
         // 32-bit integers are always supported (see spec, 2.16.1, Data rules).
@@ -599,10 +607,11 @@ const NavGen = struct {
 
         for (ints) |int| {
             const has_feature = if (int.feature) |feature| self.spv.hasFeature(feature) else true;
-            if (bits <= int.bits and has_feature) return int.bits;
+            if (bits <= int.bits and has_feature) return .{ int.bits, false };
         }
 
-        return null;
+        // Big int
+        return .{ std.mem.alignForward(u16, bits, big_int_bits), true };
     }
 
     /// Return the amount of bits in the largest supported integer type. This is either 32 (always supported), or 64 (if
@@ -615,11 +624,48 @@ const NavGen = struct {
         return if (self.spv.hasFeature(.int64)) 64 else 32;
     }
 
-    /// Checks whether the type is "composite int", an integer consisting of multiple native integers. These are represented by
-    /// arrays of largestSupportedIntBits().
-    /// Asserts `ty` is an integer.
-    fn isCompositeInt(self: *NavGen, ty: Type) bool {
-        return self.backingIntBits(ty) == null;
+    fn arithmeticTypeInfo(self: *NavGen, ty: Type) ArithmeticTypeInfo {
+        const zcu = self.pt.zcu;
+        const target = self.spv.target;
+        var scalar_ty = ty.scalarType(zcu);
+        if (scalar_ty.zigTypeTag(zcu) == .@"enum") {
+            scalar_ty = scalar_ty.intTagType(zcu);
+        }
+        const vector_len = if (ty.isVector(zcu)) ty.vectorLen(zcu) else null;
+        return switch (scalar_ty.zigTypeTag(zcu)) {
+            .bool => .{
+                .bits = 1, // Doesn't matter for this class.
+                .backing_bits = self.backingIntBits(1).@"0",
+                .vector_len = vector_len,
+                .signedness = .unsigned, // Technically, but doesn't matter for this class.
+                .class = .bool,
+            },
+            .float => .{
+                .bits = scalar_ty.floatBits(target),
+                .backing_bits = scalar_ty.floatBits(target), // TODO: F80?
+                .vector_len = vector_len,
+                .signedness = .signed, // Technically, but doesn't matter for this class.
+                .class = .float,
+            },
+            .int => blk: {
+                const int_info = scalar_ty.intInfo(zcu);
+                // TODO: Maybe it's useful to also return this value.
+                const backing_bits, const big_int = self.backingIntBits(int_info.bits);
+                break :blk .{
+                    .bits = int_info.bits,
+                    .backing_bits = backing_bits,
+                    .vector_len = vector_len,
+                    .signedness = int_info.signedness,
+                    .class = class: {
+                        if (big_int) break :class .composite_integer;
+                        break :class if (backing_bits == int_info.bits) .integer else .strange_integer;
+                    },
+                };
+            },
+            .@"enum" => unreachable,
+            .vector => unreachable,
+            else => unreachable, // Unhandled arithmetic type
+        };
     }
 
     /// Checks whether the type can be directly translated to SPIR-V vectors
@@ -650,53 +696,6 @@ const NavGen = struct {
         return false;
     }
 
-    fn arithmeticTypeInfo(self: *NavGen, ty: Type) ArithmeticTypeInfo {
-        const zcu = self.pt.zcu;
-        const target = self.spv.target;
-        var scalar_ty = ty.scalarType(zcu);
-        if (scalar_ty.zigTypeTag(zcu) == .@"enum") {
-            scalar_ty = scalar_ty.intTagType(zcu);
-        }
-        const vector_len = if (ty.isVector(zcu)) ty.vectorLen(zcu) else null;
-        return switch (scalar_ty.zigTypeTag(zcu)) {
-            .bool => ArithmeticTypeInfo{
-                .bits = 1, // Doesn't matter for this class.
-                .backing_bits = self.backingIntBits(1).?,
-                .vector_len = vector_len,
-                .signedness = .unsigned, // Technically, but doesn't matter for this class.
-                .class = .bool,
-            },
-            .float => ArithmeticTypeInfo{
-                .bits = scalar_ty.floatBits(target),
-                .backing_bits = scalar_ty.floatBits(target), // TODO: F80?
-                .vector_len = vector_len,
-                .signedness = .signed, // Technically, but doesn't matter for this class.
-                .class = .float,
-            },
-            .int => blk: {
-                const int_info = scalar_ty.intInfo(zcu);
-                // TODO: Maybe it's useful to also return this value.
-                const maybe_backing_bits = self.backingIntBits(int_info.bits);
-                break :blk ArithmeticTypeInfo{
-                    .bits = int_info.bits,
-                    .backing_bits = maybe_backing_bits orelse 0,
-                    .vector_len = vector_len,
-                    .signedness = int_info.signedness,
-                    .class = if (maybe_backing_bits) |backing_bits|
-                        if (backing_bits == int_info.bits)
-                            ArithmeticTypeInfo.Class.integer
-                        else
-                            ArithmeticTypeInfo.Class.strange_integer
-                    else
-                        .composite_integer,
-                };
-            },
-            .@"enum" => unreachable,
-            .vector => unreachable,
-            else => unreachable, // Unhandled arithmetic type
-        };
-    }
-
     /// Emits a bool constant in a particular representation.
     fn constBool(self: *NavGen, value: bool, repr: Repr) !IdRef {
         return switch (repr) {
@@ -713,14 +712,26 @@ const NavGen = struct {
         const scalar_ty = ty.scalarType(zcu);
         const int_info = scalar_ty.intInfo(zcu);
         // Use backing bits so that negatives are sign extended
-        const backing_bits = self.backingIntBits(int_info.bits).?; // Assertion failure means big int
+        const backing_bits, const big_int = self.backingIntBits(int_info.bits);
         assert(backing_bits != 0); // u0 is comptime
 
+        const result_ty_id = try self.resolveType(scalar_ty, .indirect);
         const signedness: Signedness = switch (@typeInfo(@TypeOf(value))) {
             .int => |int| int.signedness,
             .comptime_int => if (value < 0) .signed else .unsigned,
             else => unreachable,
         };
+        if (@sizeOf(@TypeOf(value)) >= 4 and big_int) {
+            const value64: u64 = switch (signedness) {
+                .signed => @bitCast(@as(i64, @intCast(value))),
+                .unsigned => @as(u64, @intCast(value)),
+            };
+            assert(backing_bits == 64);
+            return self.constructComposite(result_ty_id, &.{
+                try self.constInt(.u32, @as(u32, @truncate(value64))),
+                try self.constInt(.u32, @as(u32, @truncate(value64 << 32))),
+            });
+        }
 
         const final_value: spec.LiteralContextDependentNumber = blk: {
             if (self.spv.hasFeature(.kernel)) {
@@ -738,18 +749,17 @@ const NavGen = struct {
                 break :blk switch (backing_bits) {
                     1...32 => .{ .uint32 = @truncate(truncated_value) },
                     33...64 => .{ .uint64 = truncated_value },
-                    else => unreachable, // TODO: Large integer constants
+                    else => unreachable,
                 };
             }
 
             break :blk switch (backing_bits) {
                 1...32 => if (signedness == .signed) .{ .int32 = @intCast(value) } else .{ .uint32 = @intCast(value) },
                 33...64 => if (signedness == .signed) .{ .int64 = value } else .{ .uint64 = value },
-                else => unreachable, // TODO: Large integer constants
+                else => unreachable,
             };
         };
 
-        const result_ty_id = try self.resolveType(scalar_ty, .indirect);
         const result_id = try self.spv.constant(result_ty_id, final_value);
 
         if (!ty.isVector(zcu)) return result_id;
@@ -987,7 +997,7 @@ const NavGen = struct {
                             // TODO: composite int
                             // TODO: endianness
                             const bits: u16 = @intCast(ty.bitSize(zcu));
-                            const bytes = std.mem.alignForward(u16, self.backingIntBits(bits).?, 8) / 8;
+                            const bytes = std.mem.alignForward(u16, self.backingIntBits(bits).@"0", 8) / 8;
                             var limbs: [8]u8 = undefined;
                             @memset(&limbs, 0);
                             val.writeToPackedMemory(ty, pt, limbs[0..bytes], 0) catch unreachable;
@@ -1065,6 +1075,7 @@ const NavGen = struct {
 
     fn derivePtr(self: *NavGen, derivation: Value.PointerDeriveStep) Error!IdRef {
         const pt = self.pt;
+        const zcu = pt.zcu;
         switch (derivation) {
             .comptime_alloc_ptr, .comptime_field_ptr => unreachable,
             .int => |int| {
@@ -1104,11 +1115,22 @@ const NavGen = struct {
             .offset_and_cast => |oac| {
                 const parent_ptr_id = try self.derivePtr(oac.parent.*);
                 const parent_ptr_ty = try oac.parent.ptrType(pt);
-                disallow: {
-                    if (oac.byte_offset != 0) break :disallow;
+                const result_ty_id = try self.resolveType(oac.new_ptr_ty, .direct);
+                const child_size = oac.new_ptr_ty.childType(zcu).abiSize(zcu);
+
+                if (parent_ptr_ty.childType(zcu).isVector(zcu) and oac.byte_offset % child_size == 0) {
+                    // Vector element ptr accesses are derived as offset_and_cast.
+                    // We can just use OpAccessChain.
+                    return self.accessChain(
+                        result_ty_id,
+                        parent_ptr_id,
+                        &.{@intCast(@divExact(oac.byte_offset, child_size))},
+                    );
+                }
+
+                if (oac.byte_offset == 0) {
                     // Allow changing the pointer type child only to restructure arrays.
                     // e.g. [3][2]T to T is fine, as is [2]T -> [2][1]T.
-                    const result_ty_id = try self.resolveType(oac.new_ptr_ty, .direct);
                     const result_ptr_id = self.spv.allocId();
                     try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
                         .id_result_type = result_ty_id,
@@ -1117,6 +1139,7 @@ const NavGen = struct {
                     });
                     return result_ptr_id;
                 }
+
                 return self.fail("cannot perform pointer cast: '{}' to '{}'", .{
                     parent_ptr_ty.fmt(pt),
                     oac.new_ptr_ty.fmt(pt),
@@ -1241,11 +1264,14 @@ const NavGen = struct {
     /// actual operations (as well as store) a Zig type of a particular number of bits. To create
     /// a type with an exact size, use SpvModule.intType.
     fn intType(self: *NavGen, signedness: std.builtin.Signedness, bits: u16) !IdRef {
-        const backing_bits = self.backingIntBits(bits) orelse {
-            // TODO: Integers too big for any native type are represented as "composite integers":
-            // An array of largestSupportedIntBits.
-            return self.todo("Implement {s} composite int type of {} bits", .{ @tagName(signedness), bits });
-        };
+        const backing_bits, const big_int = self.backingIntBits(bits);
+        if (big_int) {
+            if (backing_bits > 64) {
+                return self.fail("composite integers larger than 64bit aren't supported", .{});
+            }
+            const int_ty = try self.resolveType(.u32, .direct);
+            return self.arrayType(backing_bits / big_int_bits, int_ty);
+        }
 
         // Kernel only supports unsigned ints.
         if (self.spv.hasFeature(.kernel)) {
@@ -1322,19 +1348,6 @@ const NavGen = struct {
         }
 
         return self.spv.functionType(return_ty_id, param_ids);
-    }
-
-    fn zigScalarOrVectorTypeLike(self: *NavGen, new_ty: Type, base_ty: Type) !Type {
-        const pt = self.pt;
-        const new_scalar_ty = new_ty.scalarType(pt.zcu);
-        if (!base_ty.isVector(pt.zcu)) {
-            return new_scalar_ty;
-        }
-
-        return try pt.vectorType(.{
-            .len = base_ty.vectorLen(pt.zcu),
-            .child = new_scalar_ty.toIntern(),
-        });
     }
 
     /// Generate a union type. Union types are always generated with the
@@ -1546,6 +1559,17 @@ const NavGen = struct {
                     return result_id;
                 }
             },
+            .vector => {
+                const elem_ty = ty.childType(zcu);
+                const elem_ty_id = try self.resolveType(elem_ty, repr);
+                const len = ty.vectorLen(zcu);
+
+                if (self.isSpvVector(ty)) {
+                    return try self.spv.vectorType(len, elem_ty_id);
+                } else {
+                    return try self.arrayType(len, elem_ty_id);
+                }
+            },
             .@"fn" => switch (repr) {
                 .direct => {
                     const fn_info = zcu.typeToFunc(ty).?;
@@ -1613,17 +1637,6 @@ const NavGen = struct {
                     &.{ "ptr", "len" },
                 );
                 return result_id;
-            },
-            .vector => {
-                const elem_ty = ty.childType(zcu);
-                const elem_ty_id = try self.resolveType(elem_ty, repr);
-                const len = ty.vectorLen(zcu);
-
-                if (self.isSpvVector(ty)) {
-                    return try self.spv.vectorType(len, elem_ty_id);
-                } else {
-                    return try self.arrayType(len, elem_ty_id);
-                }
             },
             .@"struct" => {
                 const struct_type = switch (ip.indexToKey(ty.toIntern())) {
@@ -1779,15 +1792,34 @@ const NavGen = struct {
     fn spvStorageClass(self: *NavGen, as: std.builtin.AddressSpace) StorageClass {
         return switch (as) {
             .generic => if (self.spv.hasFeature(.generic_pointer)) .Generic else .Function,
+            .global => {
+                if (self.spv.hasFeature(.kernel)) return .CrossWorkgroup;
+                return .StorageBuffer;
+            },
+            .push_constant => {
+                assert(self.spv.hasFeature(.shader));
+                return .PushConstant;
+            },
+            .output => {
+                assert(self.spv.hasFeature(.shader));
+                return .Output;
+            },
+            .uniform => {
+                assert(self.spv.hasFeature(.shader));
+                return .Uniform;
+            },
+            .storage_buffer => {
+                assert(self.spv.hasFeature(.shader));
+                return .StorageBuffer;
+            },
+            .physical_storage_buffer => {
+                assert(self.spv.hasFeature(.physical_storage_buffer));
+                return .PhysicalStorageBuffer;
+            },
+            .constant => .UniformConstant,
             .shared => .Workgroup,
             .local => .Function,
-            .global => if (self.spv.hasFeature(.shader)) .PhysicalStorageBuffer else .CrossWorkgroup,
-            .constant => .UniformConstant,
-            .push_constant => .PushConstant,
             .input => .Input,
-            .output => .Output,
-            .uniform => .Uniform,
-            .storage_buffer => .StorageBuffer,
             .gs,
             .fs,
             .ss,
@@ -2021,69 +2053,32 @@ const NavGen = struct {
     const Vectorization = union(enum) {
         /// This is an operation between scalars.
         scalar,
-        /// This is an operation between SPIR-V vectors.
-        /// Value is number of components.
-        spv_vectorized: u32,
         /// This operation is unrolled into separate operations.
         /// Inputs may still be SPIR-V vectors, for example,
         /// when the operation can't be vectorized in SPIR-V.
         /// Value is number of components.
         unrolled: u32,
 
-        /// Derive a vectorization from a particular type. This usually
-        /// only checks the size, but the source-of-truth is implemented
-        /// by `isSpvVector()`.
+        /// Derive a vectorization from a particular type
         fn fromType(ty: Type, ng: *NavGen) Vectorization {
             const zcu = ng.pt.zcu;
-            if (!ty.isVector(zcu)) {
-                return .scalar;
-            } else if (ng.isSpvVector(ty)) {
-                return .{ .spv_vectorized = ty.vectorLen(zcu) };
-            } else {
-                return .{ .unrolled = ty.vectorLen(zcu) };
-            }
+            if (!ty.isVector(zcu)) return .scalar;
+            return .{ .unrolled = ty.vectorLen(zcu) };
         }
 
         /// Given two vectorization methods, compute a "unification": a fallback
         /// that works for both, according to the following rules:
         /// - Scalars may broadcast
-        /// - SPIR-V vectorized operations may unroll
-        /// - Prefer scalar > SPIR-V vectorized > unrolled
+        /// - SPIR-V vectorized operations will unroll
+        /// - Prefer scalar > unrolled
         fn unify(a: Vectorization, b: Vectorization) Vectorization {
-            if (a == .scalar and b == .scalar) {
-                return .scalar;
-            } else if (a == .spv_vectorized and b == .spv_vectorized) {
-                assert(a.components() == b.components());
-                return .{ .spv_vectorized = a.components() };
-            } else if (a == .unrolled or b == .unrolled) {
-                if (a == .unrolled and b == .unrolled) {
-                    assert(a.components() == b.components());
-                    return .{ .unrolled = a.components() };
-                } else if (a == .unrolled) {
-                    return .{ .unrolled = a.components() };
-                } else if (b == .unrolled) {
-                    return .{ .unrolled = b.components() };
-                } else {
-                    unreachable;
-                }
-            } else {
-                if (a == .spv_vectorized) {
-                    return .{ .spv_vectorized = a.components() };
-                } else if (b == .spv_vectorized) {
-                    return .{ .spv_vectorized = b.components() };
-                } else {
-                    unreachable;
-                }
+            if (a == .scalar and b == .scalar) return .scalar;
+            if (a == .unrolled or b == .unrolled) {
+                if (a == .unrolled and b == .unrolled) assert(a.components() == b.components());
+                if (a == .unrolled) return .{ .unrolled = a.components() };
+                return .{ .unrolled = b.components() };
             }
-        }
-
-        /// Force this vectorization to be unrolled, if its
-        /// an operation involving vectors.
-        fn unroll(self: Vectorization) Vectorization {
-            return switch (self) {
-                .scalar, .unrolled => self,
-                .spv_vectorized => |n| .{ .unrolled = n },
-            };
+            unreachable;
         }
 
         /// Query the number of components that inputs of this operation have.
@@ -2092,32 +2087,7 @@ const NavGen = struct {
         fn components(self: Vectorization) u32 {
             return switch (self) {
                 .scalar => 1,
-                .spv_vectorized => |n| n,
                 .unrolled => |n| n,
-            };
-        }
-
-        /// Query the number of operations involving this vectorization.
-        /// This is basically the number of components, except that SPIR-V vectorized
-        /// operations only need a single SPIR-V instruction.
-        fn operations(self: Vectorization) u32 {
-            return switch (self) {
-                .scalar, .spv_vectorized => 1,
-                .unrolled => |n| n,
-            };
-        }
-
-        /// Turns `ty` into the result-type of an individual vector operation.
-        /// `ty` may be a scalar or vector, it doesn't matter.
-        fn operationType(self: Vectorization, ng: *NavGen, ty: Type) !Type {
-            const pt = ng.pt;
-            const scalar_ty = ty.scalarType(pt.zcu);
-            return switch (self) {
-                .scalar, .unrolled => scalar_ty,
-                .spv_vectorized => |n| try pt.vectorType(.{
-                    .len = n,
-                    .child = scalar_ty.toIntern(),
-                }),
             };
         }
 
@@ -2128,10 +2098,7 @@ const NavGen = struct {
             const scalar_ty = ty.scalarType(pt.zcu);
             return switch (self) {
                 .scalar => scalar_ty,
-                .unrolled, .spv_vectorized => |n| try pt.vectorType(.{
-                    .len = n,
-                    .child = scalar_ty.toIntern(),
-                }),
+                .unrolled => |n| try pt.vectorType(.{ .len = n, .child = scalar_ty.toIntern() }),
             };
         }
 
@@ -2141,51 +2108,19 @@ const NavGen = struct {
         fn prepare(self: Vectorization, ng: *NavGen, tmp: Temporary) !PreparedOperand {
             const pt = ng.pt;
             const is_vector = tmp.ty.isVector(pt.zcu);
-            const is_spv_vector = ng.isSpvVector(tmp.ty);
             const value: PreparedOperand.Value = switch (tmp.value) {
                 .singleton => |id| switch (self) {
                     .scalar => blk: {
                         assert(!is_vector);
                         break :blk .{ .scalar = id };
                     },
-                    .spv_vectorized => blk: {
-                        if (is_vector) {
-                            assert(is_spv_vector);
-                            break :blk .{ .spv_vectorwise = id };
-                        }
-
-                        // Broadcast scalar into vector.
-                        const vector_ty = try pt.vectorType(.{
-                            .len = self.components(),
-                            .child = tmp.ty.toIntern(),
-                        });
-
-                        const vector = try ng.constructCompositeSplat(vector_ty, id);
-                        return .{
-                            .ty = vector_ty,
-                            .value = .{ .spv_vectorwise = vector },
-                        };
-                    },
                     .unrolled => blk: {
-                        if (is_vector) {
-                            break :blk .{ .vector_exploded = try tmp.explode(ng) };
-                        } else {
-                            break :blk .{ .scalar_broadcast = id };
-                        }
+                        if (is_vector) break :blk .{ .vector_exploded = try tmp.explode(ng) };
+                        break :blk .{ .scalar_broadcast = id };
                     },
                 },
                 .exploded_vector => |range| switch (self) {
                     .scalar => unreachable,
-                    .spv_vectorized => |n| blk: {
-                        // We can vectorize this operation, but we have an exploded vector. This can happen
-                        // when a vectorizable operation succeeds a non-vectorizable operation. In this case,
-                        // pack up the IDs into a SPIR-V vector. This path should not be able to be hit with
-                        // a type that cannot do that.
-                        assert(is_spv_vector);
-                        assert(range.len == n);
-                        const vec = try tmp.materialize(ng);
-                        break :blk .{ .spv_vectorwise = vec };
-                    },
                     .unrolled => |n| blk: {
                         assert(range.len == n);
                         break :blk .{ .vector_exploded = range };
@@ -2202,17 +2137,14 @@ const NavGen = struct {
         /// Finalize the results of an operation back into a temporary. `results` is
         /// a list of result-ids of the operation.
         fn finalize(self: Vectorization, ty: Type, results: IdRange) Temporary {
-            assert(self.operations() == results.len);
-            const value: Temporary.Value = switch (self) {
-                .scalar, .spv_vectorized => blk: {
-                    break :blk .{ .singleton = results.at(0) };
-                },
-                .unrolled => blk: {
-                    break :blk .{ .exploded_vector = results };
+            assert(self.components() == results.len);
+            return .{
+                .ty = ty,
+                .value = switch (self) {
+                    .scalar => .{ .singleton = results.at(0) },
+                    .unrolled => .{ .exploded_vector = results },
                 },
             };
-
-            return .{ .ty = ty, .value = value };
         }
 
         /// This struct represents an operand that has gone through some setup, and is
@@ -2228,32 +2160,20 @@ const NavGen = struct {
                 scalar: IdResult,
                 /// A single scalar that is broadcasted in an unrolled operation.
                 scalar_broadcast: IdResult,
-                /// A SPIR-V vector that is used in SPIR-V vectorize operation.
-                spv_vectorwise: IdResult,
                 /// A vector represented by a consecutive list of IDs that is used in an unrolled operation.
                 vector_exploded: IdRange,
             };
 
             /// Query the value at a particular index of the operation. Note that
-            /// the index is *not* the component/lane, but the index of the *operation*. When
-            /// this operation is vectorized, the return value of this function is a SPIR-V vector.
-            /// See also `Vectorization.operations()`.
+            /// the index is *not* the component/lane, but the index of the *operation*.
             fn at(self: PreparedOperand, i: usize) IdResult {
                 switch (self.value) {
                     .scalar => |id| {
                         assert(i == 0);
                         return id;
                     },
-                    .scalar_broadcast => |id| {
-                        return id;
-                    },
-                    .spv_vectorwise => |id| {
-                        assert(i == 0);
-                        return id;
-                    },
-                    .vector_exploded => |range| {
-                        return range.at(i);
-                    },
+                    .scalar_broadcast => |id| return id,
+                    .vector_exploded => |range| return range.at(i),
                 }
             }
         };
@@ -2285,7 +2205,7 @@ const NavGen = struct {
 
     /// This function builds an OpSConvert of OpUConvert depending on the
     /// signedness of the types.
-    fn buildIntConvert(self: *NavGen, dst_ty: Type, src: Temporary) !Temporary {
+    fn buildConvert(self: *NavGen, dst_ty: Type, src: Temporary) !Temporary {
         const zcu = self.pt.zcu;
 
         const dst_ty_id = try self.resolveType(dst_ty.scalarType(zcu), .direct);
@@ -2304,13 +2224,17 @@ const NavGen = struct {
             return src.pun(result_ty);
         }
 
-        const ops = v.operations();
+        const ops = v.components();
         const results = self.spv.allocIds(ops);
 
-        const op_result_ty = try v.operationType(self, dst_ty);
+        const op_result_ty = dst_ty.scalarType(zcu);
         const op_result_ty_id = try self.resolveType(op_result_ty, .direct);
 
-        const opcode: Opcode = if (dst_ty.isSignedInt(zcu)) .OpSConvert else .OpUConvert;
+        const opcode: Opcode = blk: {
+            if (dst_ty.scalarType(zcu).isAnyFloat()) break :blk .OpFConvert;
+            if (dst_ty.scalarType(zcu).isSignedInt(zcu)) break :blk .OpSConvert;
+            break :blk .OpUConvert;
+        };
 
         const op_src = try v.prepare(self, src);
 
@@ -2325,13 +2249,14 @@ const NavGen = struct {
     }
 
     fn buildFma(self: *NavGen, a: Temporary, b: Temporary, c: Temporary) !Temporary {
+        const zcu = self.pt.zcu;
         const target = self.spv.target;
 
         const v = self.vectorization(.{ a, b, c });
-        const ops = v.operations();
+        const ops = v.components();
         const results = self.spv.allocIds(ops);
 
-        const op_result_ty = try v.operationType(self, a.ty);
+        const op_result_ty = a.ty.scalarType(zcu);
         const op_result_ty_id = try self.resolveType(op_result_ty, .direct);
         const result_ty = try v.resultType(self, a.ty);
 
@@ -2368,10 +2293,10 @@ const NavGen = struct {
         const zcu = self.pt.zcu;
 
         const v = self.vectorization(.{ condition, lhs, rhs });
-        const ops = v.operations();
+        const ops = v.components();
         const results = self.spv.allocIds(ops);
 
-        const op_result_ty = try v.operationType(self, lhs.ty);
+        const op_result_ty = lhs.ty.scalarType(zcu);
         const op_result_ty_id = try self.resolveType(op_result_ty, .direct);
         const result_ty = try v.resultType(self, lhs.ty);
 
@@ -2417,10 +2342,10 @@ const NavGen = struct {
 
     fn buildCmp(self: *NavGen, pred: CmpPredicate, lhs: Temporary, rhs: Temporary) !Temporary {
         const v = self.vectorization(.{ lhs, rhs });
-        const ops = v.operations();
+        const ops = v.components();
         const results = self.spv.allocIds(ops);
 
-        const op_result_ty = try v.operationType(self, Type.bool);
+        const op_result_ty: Type = .bool;
         const op_result_ty_id = try self.resolveType(op_result_ty, .direct);
         const result_ty = try v.resultType(self, Type.bool);
 
@@ -2484,22 +2409,12 @@ const NavGen = struct {
     };
 
     fn buildUnary(self: *NavGen, op: UnaryOp, operand: Temporary) !Temporary {
+        const zcu = self.pt.zcu;
         const target = self.spv.target;
-        const v = blk: {
-            const v = self.vectorization(.{operand});
-            break :blk switch (op) {
-                // TODO: These instructions don't seem to be working
-                // properly for LLVM-based backends on OpenCL for 8- and
-                // 16-component vectors.
-                .i_abs => if (self.spv.hasFeature(.vector16) and v.components() >= 8) v.unroll() else v,
-                else => v,
-            };
-        };
-
-        const ops = v.operations();
+        const v = self.vectorization(.{operand});
+        const ops = v.components();
         const results = self.spv.allocIds(ops);
-
-        const op_result_ty = try v.operationType(self, operand.ty);
+        const op_result_ty = operand.ty.scalarType(zcu);
         const op_result_ty_id = try self.resolveType(op_result_ty, .direct);
         const result_ty = try v.resultType(self, operand.ty);
 
@@ -2614,13 +2529,14 @@ const NavGen = struct {
     };
 
     fn buildBinary(self: *NavGen, op: BinaryOp, lhs: Temporary, rhs: Temporary) !Temporary {
+        const zcu = self.pt.zcu;
         const target = self.spv.target;
 
         const v = self.vectorization(.{ lhs, rhs });
-        const ops = v.operations();
+        const ops = v.components();
         const results = self.spv.allocIds(ops);
 
-        const op_result_ty = try v.operationType(self, lhs.ty);
+        const op_result_ty = lhs.ty.scalarType(zcu);
         const op_result_ty_id = try self.resolveType(op_result_ty, .direct);
         const result_ty = try v.resultType(self, lhs.ty);
 
@@ -2716,9 +2632,9 @@ const NavGen = struct {
         const ip = &zcu.intern_pool;
 
         const v = lhs.vectorization(self).unify(rhs.vectorization(self));
-        const ops = v.operations();
+        const ops = v.components();
 
-        const arith_op_ty = try v.operationType(self, lhs.ty);
+        const arith_op_ty = lhs.ty.scalarType(zcu);
         const arith_op_ty_id = try self.resolveType(arith_op_ty, .direct);
 
         const lhs_op = try v.prepare(self, lhs);
@@ -2869,38 +2785,32 @@ const NavGen = struct {
                 });
             },
             .vulkan, .opengl => {
-                const ptr_ptr_anyerror_ty_id = self.spv.allocId();
-                try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
-                    .id_result = ptr_ptr_anyerror_ty_id,
-                    .storage_class = .PushConstant,
-                    .type = ptr_anyerror_ty_id,
-                });
-
-                if (self.object.error_push_constant == null) {
+                if (self.object.error_buffer == null) {
                     const spv_err_decl_index = try self.spv.allocDecl(.global);
                     try self.spv.declareDeclDeps(spv_err_decl_index, &.{});
 
-                    const push_constant_struct_ty_id = self.spv.allocId();
-                    try self.spv.structType(push_constant_struct_ty_id, &.{ptr_anyerror_ty_id}, &.{"error_out_ptr"});
-                    try self.spv.decorate(push_constant_struct_ty_id, .Block);
-                    try self.spv.decorateMember(push_constant_struct_ty_id, 0, .{ .Offset = .{ .byte_offset = 0 } });
+                    const buffer_struct_ty_id = self.spv.allocId();
+                    try self.spv.structType(buffer_struct_ty_id, &.{anyerror_ty_id}, &.{"error_out"});
+                    try self.spv.decorate(buffer_struct_ty_id, .Block);
+                    try self.spv.decorateMember(buffer_struct_ty_id, 0, .{ .Offset = .{ .byte_offset = 0 } });
 
-                    const ptr_push_constant_struct_ty_id = self.spv.allocId();
+                    const ptr_buffer_struct_ty_id = self.spv.allocId();
                     try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
-                        .id_result = ptr_push_constant_struct_ty_id,
-                        .storage_class = .PushConstant,
-                        .type = push_constant_struct_ty_id,
+                        .id_result = ptr_buffer_struct_ty_id,
+                        .storage_class = self.spvStorageClass(.global),
+                        .type = buffer_struct_ty_id,
                     });
 
+                    const buffer_struct_id = self.spv.declPtr(spv_err_decl_index).result_id;
                     try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpVariable, .{
-                        .id_result_type = ptr_push_constant_struct_ty_id,
-                        .id_result = self.spv.declPtr(spv_err_decl_index).result_id,
-                        .storage_class = .PushConstant,
+                        .id_result_type = ptr_buffer_struct_ty_id,
+                        .id_result = buffer_struct_id,
+                        .storage_class = self.spvStorageClass(.global),
                     });
+                    try self.spv.decorate(buffer_struct_id, .{ .DescriptorSet = .{ .descriptor_set = 0 } });
+                    try self.spv.decorate(buffer_struct_id, .{ .Binding = .{ .binding_point = 0 } });
 
-                    self.object.error_push_constant = .{
-                        .push_constant_ptr = spv_err_decl_index,
-                    };
+                    self.object.error_buffer = spv_err_decl_index;
                 }
 
                 try self.spv.sections.execution_modes.emit(self.spv.gpa, .OpExecutionMode, .{
@@ -2923,24 +2833,16 @@ const NavGen = struct {
                     .id_result = self.spv.allocId(),
                 });
 
-                const spv_err_decl_index = self.object.error_push_constant.?.push_constant_ptr;
-                const push_constant_id = self.spv.declPtr(spv_err_decl_index).result_id;
+                const spv_err_decl_index = self.object.error_buffer.?;
+                const buffer_id = self.spv.declPtr(spv_err_decl_index).result_id;
                 try decl_deps.append(spv_err_decl_index);
 
                 const zero_id = try self.constInt(Type.u32, 0);
-                // We cannot use OpInBoundsAccessChain to dereference cross-storage class, so we have to use
-                // a load.
-                const tmp = self.spv.allocId();
                 try section.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
-                    .id_result_type = ptr_ptr_anyerror_ty_id,
-                    .id_result = tmp,
-                    .base = push_constant_id,
-                    .indexes = &.{zero_id},
-                });
-                try section.emit(self.spv.gpa, .OpLoad, .{
                     .id_result_type = ptr_anyerror_ty_id,
                     .id_result = p_error_id,
-                    .pointer = tmp,
+                    .base = buffer_id,
+                    .indexes = &.{zero_id},
                 });
             },
             else => unreachable,
@@ -2976,7 +2878,7 @@ const NavGen = struct {
         };
 
         try self.spv.declareDeclDeps(spv_decl_index, decl_deps.items);
-        try self.spv.declareEntryPoint(spv_decl_index, test_name, execution_mode);
+        try self.spv.declareEntryPoint(spv_decl_index, test_name, execution_mode, null);
     }
 
     fn genNav(self: *NavGen, do_codegen: bool) !void {
@@ -3078,6 +2980,40 @@ const NavGen = struct {
                     .storage_class = storage_class,
                 });
 
+                if (nav.fqn.eqlSlice("position", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .Position } });
+                } else if (nav.fqn.eqlSlice("point_size", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .PointSize } });
+                } else if (nav.fqn.eqlSlice("invocation_id", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .InvocationId } });
+                } else if (nav.fqn.eqlSlice("frag_coord", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .FragCoord } });
+                } else if (nav.fqn.eqlSlice("point_coord", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .PointCoord } });
+                } else if (nav.fqn.eqlSlice("front_facing", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .FrontFacing } });
+                } else if (nav.fqn.eqlSlice("sample_mask", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .SampleMask } });
+                } else if (nav.fqn.eqlSlice("frag_depth", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .FragDepth } });
+                } else if (nav.fqn.eqlSlice("num_workgroups", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .NumWorkgroups } });
+                } else if (nav.fqn.eqlSlice("workgroup_size", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .WorkgroupSize } });
+                } else if (nav.fqn.eqlSlice("workgroup_id", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .WorkgroupId } });
+                } else if (nav.fqn.eqlSlice("local_invocation_id", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .LocalInvocationId } });
+                } else if (nav.fqn.eqlSlice("global_invocation_id", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .GlobalInvocationId } });
+                } else if (nav.fqn.eqlSlice("local_invocation_index", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .LocalInvocationIndex } });
+                } else if (nav.fqn.eqlSlice("vertex_index", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .VertexIndex } });
+                } else if (nav.fqn.eqlSlice("instance_index", ip)) {
+                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .InstanceIndex } });
+                }
+
                 try self.spv.debugName(result_id, nav.fqn.toSlice(ip));
                 try self.spv.declareDeclDeps(spv_decl_index, &.{});
             },
@@ -3161,17 +3097,18 @@ const NavGen = struct {
     /// Convert representation from indirect (in memory) to direct (in 'register')
     /// This converts the argument type from resolveType(ty, .indirect) to resolveType(ty, .direct).
     fn convertToDirect(self: *NavGen, ty: Type, operand_id: IdRef) !IdRef {
-        const zcu = self.pt.zcu;
+        const pt = self.pt;
+        const zcu = pt.zcu;
         switch (ty.scalarType(zcu).zigTypeTag(zcu)) {
             .bool => {
                 const false_id = try self.constBool(false, .indirect);
-                // The operation below requires inputs in direct representation, but the operand
-                // is actually in indirect representation.
-                // Cheekily swap out the type to the direct equivalent of the indirect type here, they have the
-                // same representation when converted to SPIR-V.
-                const operand_ty = try self.zigScalarOrVectorTypeLike(Type.u1, ty);
-                // Note: We can guarantee that these are the same ID due to the SPIR-V Module's `vector_types` cache!
-                assert(try self.resolveType(operand_ty, .direct) == try self.resolveType(ty, .indirect));
+                const operand_ty = blk: {
+                    if (!ty.isVector(pt.zcu)) break :blk Type.u1;
+                    break :blk try pt.vectorType(.{
+                        .len = ty.vectorLen(pt.zcu),
+                        .child = Type.u1.toIntern(),
+                    });
+                };
 
                 const result = try self.buildCmp(
                     .i_ne,
@@ -3212,7 +3149,6 @@ const NavGen = struct {
     }
 
     fn extractVectorComponent(self: *NavGen, result_ty: Type, vector_id: IdRef, field: u32) !IdRef {
-        // Whether this is an OpTypeVector or OpTypeArray, we need to emit the same instruction regardless.
         const result_ty_id = try self.resolveType(result_ty, .direct);
         const result_id = self.spv.allocId();
         const indexes = [_]u32{field};
@@ -3316,7 +3252,8 @@ const NavGen = struct {
 
             .splat => try self.airSplat(inst),
             .reduce, .reduce_optimized => try self.airReduce(inst),
-            .shuffle                   => try self.airShuffle(inst),
+            .shuffle_one               => try self.airShuffleOne(inst),
+            .shuffle_two               => try self.airShuffleTwo(inst),
 
             .ptr_add => try self.airPtrAdd(inst),
             .ptr_sub => try self.airPtrSub(inst),
@@ -3453,6 +3390,10 @@ const NavGen = struct {
         const zcu = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
+        if (self.typeOf(bin_op.lhs).isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu)) {
+            return self.fail("vector shift with scalar rhs", .{});
+        }
+
         const base = try self.temporary(bin_op.lhs);
         const shift = try self.temporary(bin_op.rhs);
 
@@ -3471,7 +3412,7 @@ const NavGen = struct {
         // Note: The sign may differ here between the shift and the base type, in case
         // of an arithmetic right shift. SPIR-V still expects the same type,
         // so in that case we have to cast convert to signed.
-        const casted_shift = try self.buildIntConvert(base.ty.scalarType(zcu), shift);
+        const casted_shift = try self.buildConvert(base.ty.scalarType(zcu), shift);
 
         const shifted = switch (info.signedness) {
             .unsigned => try self.buildBinary(unsigned, base, casted_shift),
@@ -3531,8 +3472,7 @@ const NavGen = struct {
         const zcu = self.pt.zcu;
         const ty = value.ty;
         switch (info.class) {
-            .integer, .bool, .float => return value,
-            .composite_integer => unreachable, // TODO
+            .composite_integer, .integer, .bool, .float => return value,
             .strange_integer => switch (info.signedness) {
                 .unsigned => {
                     const mask_value = if (info.bits == 64) 0xFFFF_FFFF_FFFF_FFFF else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1;
@@ -3801,12 +3741,12 @@ const NavGen = struct {
             .unsigned => blk: {
                 if (maybe_op_ty_bits) |op_ty_bits| {
                     const op_ty = try pt.intType(.unsigned, op_ty_bits);
-                    const casted_lhs = try self.buildIntConvert(op_ty, lhs);
-                    const casted_rhs = try self.buildIntConvert(op_ty, rhs);
+                    const casted_lhs = try self.buildConvert(op_ty, lhs);
+                    const casted_rhs = try self.buildConvert(op_ty, rhs);
 
                     const full_result = try self.buildBinary(.i_mul, casted_lhs, casted_rhs);
 
-                    const low_bits = try self.buildIntConvert(lhs.ty, full_result);
+                    const low_bits = try self.buildConvert(lhs.ty, full_result);
                     const result = try self.normalize(low_bits, info);
 
                     // Shift the result bits away to get the overflow bits.
@@ -3832,9 +3772,7 @@ const NavGen = struct {
                 const high_overflowed = try self.buildCmp(.i_ne, zero, high_bits);
 
                 // If no overflow bits in low_bits, no extra work needs to be done.
-                if (info.backing_bits == info.bits) {
-                    break :blk .{ result, high_overflowed };
-                }
+                if (info.backing_bits == info.bits) break :blk .{ result, high_overflowed };
 
                 // Shift the result bits away to get the overflow bits.
                 const shift = Temporary.init(lhs.ty, try self.constInt(lhs.ty, info.bits));
@@ -3872,13 +3810,13 @@ const NavGen = struct {
                 if (maybe_op_ty_bits) |op_ty_bits| {
                     const op_ty = try pt.intType(.signed, op_ty_bits);
                     // Assume normalized; sign bit is set. We want a sign extend.
-                    const casted_lhs = try self.buildIntConvert(op_ty, lhs);
-                    const casted_rhs = try self.buildIntConvert(op_ty, rhs);
+                    const casted_lhs = try self.buildConvert(op_ty, lhs);
+                    const casted_rhs = try self.buildConvert(op_ty, rhs);
 
                     const full_result = try self.buildBinary(.i_mul, casted_lhs, casted_rhs);
 
                     // Truncate to the result type.
-                    const low_bits = try self.buildIntConvert(lhs.ty, full_result);
+                    const low_bits = try self.buildConvert(lhs.ty, full_result);
                     const result = try self.normalize(low_bits, info);
 
                     // Now, we need to check the overflow bits AND the sign
@@ -3915,9 +3853,7 @@ const NavGen = struct {
                 // If no overflow bits in low_bits, no extra work needs to be done.
                 // Careful, we still have to check the sign bit, so this branch
                 // only goes for i33 and such.
-                if (info.backing_bits == info.bits + 1) {
-                    break :blk .{ result, high_overflowed };
-                }
+                if (info.backing_bits == info.bits + 1) break :blk .{ result, high_overflowed };
 
                 // Shift the result bits away to get the overflow bits.
                 const shift = Temporary.init(lhs.ty, try self.constInt(lhs.ty, info.bits - 1));
@@ -3944,6 +3880,10 @@ const NavGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
 
+        if (self.typeOf(extra.lhs).isVector(zcu) and !self.typeOf(extra.rhs).isVector(zcu)) {
+            return self.fail("vector shift with scalar rhs", .{});
+        }
+
         const base = try self.temporary(extra.lhs);
         const shift = try self.temporary(extra.rhs);
 
@@ -3958,7 +3898,7 @@ const NavGen = struct {
 
         // Sometimes Zig doesn't make both of the arguments the same types here. SPIR-V expects that,
         // so just manually upcast it if required.
-        const casted_shift = try self.buildIntConvert(base.ty.scalarType(zcu), shift);
+        const casted_shift = try self.buildConvert(base.ty.scalarType(zcu), shift);
 
         const left = try self.buildBinary(.sll, base, casted_shift);
         const result = try self.normalize(left, info);
@@ -4012,7 +3952,7 @@ const NavGen = struct {
         // Result of OpenCL ctz/clz returns operand.ty, and we want result_ty.
         // result_ty is always large enough to hold the result, so we might have to down
         // cast it.
-        const result = try self.buildIntConvert(scalar_result_ty, count);
+        const result = try self.buildConvert(scalar_result_ty, count);
         return try result.materialize(self);
     }
 
@@ -4043,11 +3983,8 @@ const NavGen = struct {
         const operand_ty = self.typeOf(reduce.operand);
         const scalar_ty = operand_ty.scalarType(zcu);
         const scalar_ty_id = try self.resolveType(scalar_ty, .direct);
-
         const info = self.arithmeticTypeInfo(operand_ty);
-
         const len = operand_ty.vectorLen(zcu);
-
         const first = try self.extractVectorComponent(scalar_ty, operand, 0);
 
         switch (reduce.operation) {
@@ -4111,82 +4048,57 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn airShuffle(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
-        const pt = self.pt;
+    fn airShuffleOne(ng: *NavGen, inst: Air.Inst.Index) !?IdRef {
+        const pt = ng.pt;
         const zcu = pt.zcu;
-        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-        const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
-        const a = try self.resolve(extra.a);
-        const b = try self.resolve(extra.b);
-        const mask = Value.fromInterned(extra.mask);
+        const gpa = zcu.gpa;
 
-        // Note: number of components in the result, a, and b may differ.
-        const result_ty = self.typeOfIndex(inst);
-        const a_ty = self.typeOf(extra.a);
-        const b_ty = self.typeOf(extra.b);
+        const unwrapped = ng.air.unwrapShuffleOne(zcu, inst);
+        const mask = unwrapped.mask;
+        const result_ty = unwrapped.result_ty;
+        const elem_ty = result_ty.childType(zcu);
+        const operand = try ng.resolve(unwrapped.operand);
 
-        const scalar_ty = result_ty.scalarType(zcu);
-        const scalar_ty_id = try self.resolveType(scalar_ty, .direct);
+        const constituents = try gpa.alloc(IdRef, mask.len);
+        defer gpa.free(constituents);
 
-        // If all of the types are SPIR-V vectors, we can use OpVectorShuffle.
-        if (self.isSpvVector(result_ty) and self.isSpvVector(a_ty) and self.isSpvVector(b_ty)) {
-            // The SPIR-V shuffle instruction is similar to the Air instruction, except that the elements are
-            // numbered consecutively instead of using negatives.
-
-            const components = try self.gpa.alloc(Word, result_ty.vectorLen(zcu));
-            defer self.gpa.free(components);
-
-            const a_len = a_ty.vectorLen(zcu);
-
-            for (components, 0..) |*component, i| {
-                const elem = try mask.elemValue(pt, i);
-                if (elem.isUndef(zcu)) {
-                    // This is explicitly valid for OpVectorShuffle, it indicates undefined.
-                    component.* = 0xFFFF_FFFF;
-                    continue;
-                }
-
-                const index = elem.toSignedInt(zcu);
-                if (index >= 0) {
-                    component.* = @intCast(index);
-                } else {
-                    component.* = @intCast(~index + a_len);
-                }
-            }
-
-            const result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpVectorShuffle, .{
-                .id_result_type = try self.resolveType(result_ty, .direct),
-                .id_result = result_id,
-                .vector_1 = a,
-                .vector_2 = b,
-                .components = components,
-            });
-            return result_id;
+        for (constituents, mask) |*id, mask_elem| {
+            id.* = switch (mask_elem.unwrap()) {
+                .elem => |idx| try ng.extractVectorComponent(elem_ty, operand, idx),
+                .value => |val| try ng.constant(elem_ty, .fromInterned(val), .direct),
+            };
         }
 
-        // Fall back to manually extracting and inserting components.
+        const result_ty_id = try ng.resolveType(result_ty, .direct);
+        return try ng.constructComposite(result_ty_id, constituents);
+    }
 
-        const constituents = try self.gpa.alloc(IdRef, result_ty.vectorLen(zcu));
-        defer self.gpa.free(constituents);
+    fn airShuffleTwo(ng: *NavGen, inst: Air.Inst.Index) !?IdRef {
+        const pt = ng.pt;
+        const zcu = pt.zcu;
+        const gpa = zcu.gpa;
 
-        for (constituents, 0..) |*id, i| {
-            const elem = try mask.elemValue(pt, i);
-            if (elem.isUndef(zcu)) {
-                id.* = try self.spv.constUndef(scalar_ty_id);
-                continue;
-            }
+        const unwrapped = ng.air.unwrapShuffleTwo(zcu, inst);
+        const mask = unwrapped.mask;
+        const result_ty = unwrapped.result_ty;
+        const elem_ty = result_ty.childType(zcu);
+        const elem_ty_id = try ng.resolveType(elem_ty, .direct);
+        const operand_a = try ng.resolve(unwrapped.operand_a);
+        const operand_b = try ng.resolve(unwrapped.operand_b);
 
-            const index = elem.toSignedInt(zcu);
-            if (index >= 0) {
-                id.* = try self.extractVectorComponent(scalar_ty, a, @intCast(index));
-            } else {
-                id.* = try self.extractVectorComponent(scalar_ty, b, @intCast(~index));
-            }
+        const constituents = try gpa.alloc(IdRef, mask.len);
+        defer gpa.free(constituents);
+
+        for (constituents, mask) |*id, mask_elem| {
+            id.* = switch (mask_elem.unwrap()) {
+                .a_elem => |idx| try ng.extractVectorComponent(elem_ty, operand_a, idx),
+                .b_elem => |idx| try ng.extractVectorComponent(elem_ty, operand_b, idx),
+                .undef => try ng.spv.constUndef(elem_ty_id),
+            };
         }
 
-        const result_ty_id = try self.resolveType(result_ty, .direct);
-        return try self.constructComposite(result_ty_id, constituents);
+        const result_ty_id = try ng.resolveType(result_ty, .direct);
+        return try ng.constructComposite(result_ty_id, constituents);
     }
 
     fn indicesToIds(self: *NavGen, indices: []const u32) ![]IdRef {
@@ -4521,9 +4433,7 @@ const NavGen = struct {
         const dst_ty_id = try self.resolveType(dst_ty, .direct);
 
         const result_id = blk: {
-            if (src_ty_id == dst_ty_id) {
-                break :blk src_id;
-            }
+            if (src_ty_id == dst_ty_id) break :blk src_id;
 
             // TODO: Some more cases are missing here
             //   See fn bitCast in llvm.zig
@@ -4604,7 +4514,7 @@ const NavGen = struct {
             return try src.materialize(self);
         }
 
-        const converted = try self.buildIntConvert(dst_ty, src);
+        const converted = try self.buildConvert(dst_ty, src);
 
         // Make sure to normalize the result if shrinking.
         // Because strange ints are sign extended in their backing
@@ -4684,17 +4594,10 @@ const NavGen = struct {
 
     fn airFloatCast(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-        const operand_id = try self.resolve(ty_op.operand);
+        const operand = try self.temporary(ty_op.operand);
         const dest_ty = self.typeOfIndex(inst);
-        const dest_ty_id = try self.resolveType(dest_ty, .direct);
-
-        const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpFConvert, .{
-            .id_result_type = dest_ty_id,
-            .id_result = result_id,
-            .float_value = operand_id,
-        });
-        return result_id;
+        const result = try self.buildConvert(dest_ty, operand);
+        return try result.materialize(self);
     }
 
     fn airNot(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
@@ -4758,7 +4661,7 @@ const NavGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const result_ty = self.typeOfIndex(inst);
         const len: usize = @intCast(result_ty.arrayLen(zcu));
-        const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
+        const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[ty_pl.payload..][0..len]);
 
         switch (result_ty.zigTypeTag(zcu)) {
             .@"struct" => {
@@ -4776,13 +4679,14 @@ const NavGen = struct {
                         const field_int_id = blk: {
                             if (field_ty.isPtrAtRuntime(zcu)) {
                                 assert(self.spv.hasFeature(.addresses) or
-                                    (self.spv.hasFeature(.physical_storage_buffer) and field_ty.ptrAddressSpace(zcu) == .storage_buffer));
+                                    (self.spv.hasFeature(.physical_storage_buffer) and
+                                        field_ty.ptrAddressSpace(zcu) == .storage_buffer));
                                 break :blk try self.intFromPtr(field_id);
                             }
                             break :blk try self.bitCast(field_int_ty, field_ty, field_id);
                         };
                         const shift_rhs = try self.constInt(backing_int_ty, running_bits);
-                        const extended_int_conv = try self.buildIntConvert(backing_int_ty, .{
+                        const extended_int_conv = try self.buildConvert(backing_int_ty, .{
                             .ty = field_int_ty,
                             .value = .{ .singleton = field_int_id },
                         });
@@ -5002,17 +4906,6 @@ const NavGen = struct {
         const array_id = try self.resolve(bin_op.lhs);
         const index_id = try self.resolve(bin_op.rhs);
 
-        if (self.isSpvVector(array_ty)) {
-            const result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpVectorExtractDynamic, .{
-                .id_result_type = try self.resolveType(elem_ty, .direct),
-                .id_result = result_id,
-                .vector = array_id,
-                .index = index_id,
-            });
-            return result_id;
-        }
-
         // SPIR-V doesn't have an array indexing function for some damn reason.
         // For now, just generate a temporary and use that.
         // TODO: This backend probably also should use isByRef from llvm...
@@ -5159,7 +5052,7 @@ const NavGen = struct {
                     return self.bitCast(ty, payload_ty, payload.?);
                 }
 
-                const trunc = try self.buildIntConvert(ty, .{ .ty = payload_ty, .value = .{ .singleton = payload.? } });
+                const trunc = try self.buildConvert(ty, .{ .ty = payload_ty, .value = .{ .singleton = payload.? } });
                 return try trunc.materialize(self);
             }
 
@@ -5168,7 +5061,7 @@ const NavGen = struct {
                 try self.convertToIndirect(payload_ty, payload.?)
             else
                 try self.bitCast(payload_int_ty, payload_ty, payload.?);
-            const trunc = try self.buildIntConvert(ty, .{ .ty = payload_int_ty, .value = .{ .singleton = payload_int } });
+            const trunc = try self.buildConvert(ty, .{ .ty = payload_int_ty, .value = .{ .singleton = payload_int } });
             return try trunc.materialize(self);
         }
 
@@ -5194,13 +5087,16 @@ const NavGen = struct {
         if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .Function, .indirect);
             const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, tmp_id, &.{layout.payload_index});
-            const active_pl_ptr_ty_id = try self.ptrType(payload_ty, .Function, .indirect);
-            const active_pl_ptr_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
-                .id_result_type = active_pl_ptr_ty_id,
-                .id_result = active_pl_ptr_id,
-                .operand = pl_ptr_id,
-            });
+            const active_pl_ptr_id = if (!layout.payload_ty.eql(payload_ty, zcu)) blk: {
+                const active_pl_ptr_ty_id = try self.ptrType(payload_ty, .Function, .indirect);
+                const active_pl_ptr_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                    .id_result_type = active_pl_ptr_ty_id,
+                    .id_result = active_pl_ptr_id,
+                    .operand = pl_ptr_id,
+                });
+                break :blk active_pl_ptr_id;
+            } else pl_ptr_id;
 
             try self.store(payload_ty, active_pl_ptr_id, payload.?, .{});
         } else {
@@ -5257,9 +5153,9 @@ const NavGen = struct {
                     const mask_id = try self.constInt(object_ty, (@as(u64, 1) << @as(u6, @intCast(field_bit_size))) - 1);
                     const masked = try self.buildBinary(.bit_and, shift, .{ .ty = object_ty, .value = .{ .singleton = mask_id } });
                     const result_id = blk: {
-                        if (self.backingIntBits(field_bit_size).? == self.backingIntBits(@intCast(object_ty.bitSize(zcu))).?)
+                        if (self.backingIntBits(field_bit_size).@"0" == self.backingIntBits(@intCast(object_ty.bitSize(zcu))).@"0")
                             break :blk try self.bitCast(field_int_ty, object_ty, try masked.materialize(self));
-                        const trunc = try self.buildIntConvert(field_int_ty, masked);
+                        const trunc = try self.buildConvert(field_int_ty, masked);
                         break :blk try trunc.materialize(self);
                     };
                     if (field_ty.ip_index == .bool_type) return try self.convertToDirect(.bool, result_id);
@@ -5281,9 +5177,9 @@ const NavGen = struct {
                         .{ .ty = backing_int_ty, .value = .{ .singleton = mask_id } },
                     );
                     const result_id = blk: {
-                        if (self.backingIntBits(field_bit_size).? == self.backingIntBits(@intCast(backing_int_ty.bitSize(zcu))).?)
+                        if (self.backingIntBits(field_bit_size).@"0" == self.backingIntBits(@intCast(backing_int_ty.bitSize(zcu))).@"0")
                             break :blk try self.bitCast(int_ty, backing_int_ty, try masked.materialize(self));
-                        const trunc = try self.buildIntConvert(int_ty, masked);
+                        const trunc = try self.buildConvert(int_ty, masked);
                         break :blk try trunc.materialize(self);
                     };
                     if (field_ty.ip_index == .bool_type) return try self.convertToDirect(.bool, result_id);
@@ -5612,7 +5508,7 @@ const NavGen = struct {
     fn airBlock(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
         const inst_datas = self.air.instructions.items(.data);
         const extra = self.air.extraData(Air.Block, inst_datas[@intFromEnum(inst)].ty_pl.payload);
-        return self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+        return self.lowerBlock(inst, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
     }
 
     fn lowerBlock(self: *NavGen, inst: Air.Inst.Index, body: []const Air.Inst.Index) !?IdRef {
@@ -5795,8 +5691,8 @@ const NavGen = struct {
     fn airCondBr(self: *NavGen, inst: Air.Inst.Index) !void {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const cond_br = self.air.extraData(Air.CondBr, pl_op.payload);
-        const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra[cond_br.end..][0..cond_br.data.then_body_len]);
-        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[cond_br.end + then_body.len ..][0..cond_br.data.else_body_len]);
+        const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[cond_br.end..][0..cond_br.data.then_body_len]);
+        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[cond_br.end + then_body.len ..][0..cond_br.data.else_body_len]);
         const condition_id = try self.resolve(pl_op.operand);
 
         const then_label = self.spv.allocId();
@@ -5855,7 +5751,7 @@ const NavGen = struct {
     fn airLoop(self: *NavGen, inst: Air.Inst.Index) !void {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[loop.end..][0..loop.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[loop.end..][0..loop.data.body_len]);
 
         const body_label = self.spv.allocId();
 
@@ -5975,7 +5871,7 @@ const NavGen = struct {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const err_union_id = try self.resolve(pl_op.operand);
         const extra = self.air.extraData(Air.Try, pl_op.payload);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
 
         const err_union_ty = self.typeOf(pl_op.operand);
         const payload_ty = self.typeOfIndex(inst);
@@ -6318,17 +6214,15 @@ const NavGen = struct {
             .bool, .error_set => 1,
             .int => blk: {
                 const bits = cond_ty.intInfo(zcu).bits;
-                const backing_bits = self.backingIntBits(bits) orelse {
-                    return self.todo("implement composite int switch", .{});
-                };
+                const backing_bits, const big_int = self.backingIntBits(bits);
+                if (big_int) return self.todo("implement composite int switch", .{});
                 break :blk if (backing_bits <= 32) 1 else 2;
             },
             .@"enum" => blk: {
                 const int_ty = cond_ty.intTagType(zcu);
                 const int_info = int_ty.intInfo(zcu);
-                const backing_bits = self.backingIntBits(int_info.bits) orelse {
-                    return self.todo("implement composite int switch", .{});
-                };
+                const backing_bits, const big_int = self.backingIntBits(int_info.bits);
+                if (big_int) return self.todo("implement composite int switch", .{});
                 break :blk if (backing_bits <= 32) 1 else 2;
             },
             .pointer => blk: {
@@ -6484,7 +6378,7 @@ const NavGen = struct {
         const old_base_line = self.base_line;
         defer self.base_line = old_base_line;
         self.base_line = zcu.navSrcLine(zcu.funcInfo(extra.data.func).owner_nav);
-        return self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+        return self.lowerBlock(inst, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
     }
 
     fn airDbgVar(self: *NavGen, inst: Air.Inst.Index) !void {
@@ -6505,9 +6399,9 @@ const NavGen = struct {
         if (!is_volatile and self.liveness.isUnused(inst)) return null;
 
         var extra_i: usize = extra.end;
-        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]);
+        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.outputs_len]);
         extra_i += outputs.len;
-        const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]);
+        const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
         if (outputs.len > 1) {
@@ -6526,15 +6420,15 @@ const NavGen = struct {
             if (output != .none) {
                 return self.todo("implement inline asm with non-returned output", .{});
             }
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
             // TODO: Record output and use it somewhere.
         }
 
         for (inputs) |input| {
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
             const constraint = std.mem.sliceTo(extra_bytes, 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
@@ -6601,13 +6495,13 @@ const NavGen = struct {
         {
             var clobber_i: u32 = 0;
             while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
                 extra_i += clobber.len / 4 + 1;
                 // TODO: Record clobber and use it somewhere.
             }
         }
 
-        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
+        const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
         as.assemble(asm_source) catch |err| switch (err) {
             error.AssembleFail => {
@@ -6641,8 +6535,8 @@ const NavGen = struct {
 
         for (outputs) |output| {
             _ = output;
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[output_extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[output_extra_i..]), 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[output_extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[output_extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             output_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
@@ -6671,7 +6565,7 @@ const NavGen = struct {
         const zcu = pt.zcu;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
-        const args: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]);
+        const args: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.args_len]);
         const callee_ty = self.typeOf(pl_op.operand);
         const zig_fn_ty = switch (callee_ty.zigTypeTag(zcu)) {
             .@"fn" => callee_ty,
@@ -6738,7 +6632,7 @@ const NavGen = struct {
         // TODO: Should we make these builtins return usize?
         const result_id = try self.builtin3D(Type.u64, .LocalInvocationId, dimension, 0);
         const tmp = Temporary.init(Type.u64, result_id);
-        const result = try self.buildIntConvert(Type.u32, tmp);
+        const result = try self.buildConvert(Type.u32, tmp);
         return try result.materialize(self);
     }
 
@@ -6749,7 +6643,7 @@ const NavGen = struct {
         // TODO: Should we make these builtins return usize?
         const result_id = try self.builtin3D(Type.u64, .WorkgroupSize, dimension, 0);
         const tmp = Temporary.init(Type.u64, result_id);
-        const result = try self.buildIntConvert(Type.u32, tmp);
+        const result = try self.buildConvert(Type.u32, tmp);
         return try result.materialize(self);
     }
 
@@ -6760,7 +6654,7 @@ const NavGen = struct {
         // TODO: Should we make these builtins return usize?
         const result_id = try self.builtin3D(Type.u64, .WorkgroupId, dimension, 0);
         const tmp = Temporary.init(Type.u64, result_id);
-        const result = try self.buildIntConvert(Type.u32, tmp);
+        const result = try self.buildConvert(Type.u32, tmp);
         return try result.materialize(self);
     }
 

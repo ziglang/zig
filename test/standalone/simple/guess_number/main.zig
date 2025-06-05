@@ -20,7 +20,7 @@ pub fn main() !void {
             try stdout.print("Input too long.\n", .{});
             continue;
         }
-        const line = std.mem.trimRight(u8, line_buf[0..amt], "\r\n");
+        const line = std.mem.trimEnd(u8, line_buf[0..amt], "\r\n");
 
         const guess = fmt.parseUnsigned(u8, line, 10) catch {
             try stdout.print("Invalid number.\n", .{});

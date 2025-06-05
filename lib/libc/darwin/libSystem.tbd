@@ -399,7 +399,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libcorecrypto.dylib'
-current-version: 1736.40.7
+current-version: 1736.120.5
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -715,11 +715,12 @@ exports:
                        _ccspake_mac_hkdf_cmac_aes128_sha256, _ccspake_mac_hkdf_hmac_sha256, 
                        _ccspake_mac_hkdf_hmac_sha512, _ccspake_mac_verify_and_get_session_key, 
                        _ccspake_prover_init, _ccspake_prover_initialize, _ccspake_reduce_w, 
-                       _ccspake_sizeof_ctx, _ccspake_sizeof_point, _ccspake_sizeof_w, 
-                       _ccspake_verifier_init, _ccspake_verifier_initialize, _ccsrp_client_process_challenge, 
-                       _ccsrp_client_set_noUsernameInX, _ccsrp_client_start_authentication, 
-                       _ccsrp_client_verify_session, _ccsrp_ctx_init, _ccsrp_ctx_init_option, 
-                       _ccsrp_ctx_init_with_size_option, _ccsrp_exchange_size, _ccsrp_generate_salt_and_verification, 
+                       _ccspake_reduce_w_RFC9383, _ccspake_sizeof_ctx, _ccspake_sizeof_point, 
+                       _ccspake_sizeof_w, _ccspake_verifier_init, _ccspake_verifier_initialize, 
+                       _ccsrp_client_process_challenge, _ccsrp_client_set_noUsernameInX, 
+                       _ccsrp_client_start_authentication, _ccsrp_client_verify_session, 
+                       _ccsrp_ctx_init, _ccsrp_ctx_init_option, _ccsrp_ctx_init_with_size_option, 
+                       _ccsrp_exchange_size, _ccsrp_generate_salt_and_verification, 
                        _ccsrp_generate_verifier, _ccsrp_get_premaster_secret, _ccsrp_get_session_key, 
                        _ccsrp_get_session_key_length, _ccsrp_gp_rfc5054_1024, _ccsrp_gp_rfc5054_2048, 
                        _ccsrp_gp_rfc5054_3072, _ccsrp_gp_rfc5054_4096, _ccsrp_gp_rfc5054_8192, 
@@ -769,7 +770,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libdispatch.dylib'
-current-version: 1502.0.1
+current-version: 1521.120.4
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -951,43 +952,42 @@ exports:
                        __dyld_find_foreign_type_protocol_conformance_on_disk, __dyld_find_pointer_hash_table_entry, 
                        __dyld_find_protocol_conformance, __dyld_find_protocol_conformance_on_disk, 
                        __dyld_find_unwind_sections, __dyld_for_each_objc_class, __dyld_for_each_objc_protocol, 
-                       __dyld_for_objc_header_opt_ro, __dyld_for_objc_header_opt_rw, 
-                       __dyld_fork_child, __dyld_get_dlopen_image_header, __dyld_get_image_header, 
-                       __dyld_get_image_name, __dyld_get_image_slide, __dyld_get_image_uuid, 
-                       __dyld_get_image_vmaddr_slide, __dyld_get_objc_selector, __dyld_get_prog_image_header, 
-                       __dyld_get_shared_cache_range, __dyld_get_shared_cache_uuid, 
-                       __dyld_get_swift_prespecialized_data, __dyld_has_fix_for_radar, 
-                       __dyld_has_preoptimized_swift_protocol_conformances, __dyld_image_count, 
-                       __dyld_images_for_addresses, __dyld_initializer, __dyld_is_memory_immutable, 
-                       __dyld_is_objc_constant, __dyld_is_preoptimized_objc_image_loaded, 
+                       __dyld_for_each_prewarming_range, __dyld_for_objc_header_opt_ro, 
+                       __dyld_for_objc_header_opt_rw, __dyld_fork_child, __dyld_get_dlopen_image_header, 
+                       __dyld_get_image_header, __dyld_get_image_name, __dyld_get_image_slide, 
+                       __dyld_get_image_uuid, __dyld_get_image_vmaddr_slide, __dyld_get_objc_selector, 
+                       __dyld_get_prog_image_header, __dyld_get_shared_cache_range, 
+                       __dyld_get_shared_cache_uuid, __dyld_get_swift_prespecialized_data, 
+                       __dyld_has_fix_for_radar, __dyld_has_preoptimized_swift_protocol_conformances, 
+                       __dyld_image_count, __dyld_images_for_addresses, __dyld_initializer, 
+                       __dyld_is_memory_immutable, __dyld_is_objc_constant, __dyld_is_preoptimized_objc_image_loaded, 
                        __dyld_is_pseudodylib, __dyld_launch_mode, __dyld_lookup_section_info, 
-                       __dyld_missing_symbol_abort, __dyld_objc_class_count, __dyld_objc_notify_register, 
-                       __dyld_objc_register_callbacks, __dyld_objc_uses_large_shared_cache, 
-                       __dyld_process_info_create, __dyld_process_info_for_each_image, 
-                       __dyld_process_info_for_each_segment, __dyld_process_info_get_aot_cache, 
-                       __dyld_process_info_get_cache, __dyld_process_info_get_platform, 
-                       __dyld_process_info_get_state, __dyld_process_info_notify, 
-                       __dyld_process_info_notify_main, __dyld_process_info_notify_release, 
-                       __dyld_process_info_notify_retain, __dyld_process_info_release, 
-                       __dyld_process_info_retain, __dyld_pseudodylib_deregister, 
+                       __dyld_objc_class_count, __dyld_objc_notify_register, __dyld_objc_register_callbacks, 
+                       __dyld_objc_uses_large_shared_cache, __dyld_process_info_create, 
+                       __dyld_process_info_for_each_image, __dyld_process_info_for_each_segment, 
+                       __dyld_process_info_get_aot_cache, __dyld_process_info_get_cache, 
+                       __dyld_process_info_get_platform, __dyld_process_info_get_state, 
+                       __dyld_process_info_notify, __dyld_process_info_notify_main, 
+                       __dyld_process_info_notify_release, __dyld_process_info_notify_retain, 
+                       __dyld_process_info_release, __dyld_process_info_retain, __dyld_pseudodylib_deregister, 
                        __dyld_pseudodylib_deregister_callbacks, __dyld_pseudodylib_register, 
                        __dyld_pseudodylib_register_callbacks, __dyld_register_dlsym_notifier, 
                        __dyld_register_driverkit_main, __dyld_register_for_bulk_image_loads, 
                        __dyld_register_for_image_loads, __dyld_register_func_for_add_image, 
                        __dyld_register_func_for_remove_image, __dyld_shared_cache_contains_path, 
                        __dyld_shared_cache_is_locally_built, __dyld_shared_cache_optimized, 
-                       __dyld_shared_cache_real_path, __dyld_swift_optimizations_version, 
-                       __dyld_visit_objc_classes, __tlv_atexit, __tlv_bootstrap, 
-                       __tlv_exit, _dladdr, _dlclose, _dlerror, _dlopen, _dlopen_audited, 
-                       _dlopen_from, _dlopen_preflight, _dlsym, _dyldVersionNumber, 
-                       _dyldVersionString, _dyld_dynamic_interpose, _dyld_for_each_installed_shared_cache, 
-                       _dyld_for_each_installed_shared_cache_with_system_path, _dyld_get_active_platform, 
-                       _dyld_get_base_platform, _dyld_get_image_versions, _dyld_get_min_os_version, 
-                       _dyld_get_program_min_os_version, _dyld_get_program_minos_version_token, 
-                       _dyld_get_program_sdk_version, _dyld_get_program_sdk_version_token, 
-                       _dyld_get_sdk_version, _dyld_has_inserted_or_interposing_libraries, 
-                       _dyld_image_content_for_section, _dyld_image_content_for_segment, 
-                       _dyld_image_copy_uuid, _dyld_image_for_each_section_info, 
+                       __dyld_shared_cache_real_path, __dyld_stack_bottom, __dyld_stack_range, 
+                       __dyld_stack_top, __dyld_swift_optimizations_version, __dyld_visit_objc_classes, 
+                       __tlv_atexit, __tlv_bootstrap, __tlv_exit, _dladdr, _dlclose, 
+                       _dlerror, _dlopen, _dlopen_audited, _dlopen_from, _dlopen_preflight, 
+                       _dlsym, _dyldVersionNumber, _dyldVersionString, _dyld_dynamic_interpose, 
+                       _dyld_for_each_installed_shared_cache, _dyld_for_each_installed_shared_cache_with_system_path, 
+                       _dyld_get_active_platform, _dyld_get_base_platform, _dyld_get_image_versions, 
+                       _dyld_get_min_os_version, _dyld_get_program_min_os_version, 
+                       _dyld_get_program_minos_version_token, _dyld_get_program_sdk_version, 
+                       _dyld_get_program_sdk_version_token, _dyld_get_sdk_version, 
+                       _dyld_has_inserted_or_interposing_libraries, _dyld_image_content_for_section, 
+                       _dyld_image_content_for_segment, _dyld_image_copy_uuid, _dyld_image_for_each_section_info, 
                        _dyld_image_for_each_segment_info, _dyld_image_get_file_path, 
                        _dyld_image_get_installname, _dyld_image_header_containing_address, 
                        _dyld_image_local_nlist_content_4Symbolication, _dyld_image_path_containing_address, 
@@ -1011,7 +1011,8 @@ exports:
                        _macho_cpu_type_for_arch_name, _macho_dylib_install_name, 
                        _macho_for_each_defined_rpath, _macho_for_each_dependent_dylib, 
                        _macho_for_each_exported_symbol, _macho_for_each_imported_symbol, 
-                       _macho_for_each_slice, _macho_for_each_slice_in_fd, dyld_stub_binder ]
+                       _macho_for_each_slice, _macho_for_each_slice_in_fd, _macho_source_version, 
+                       dyld_stub_binder ]
   - targets:         [ x86_64-macos, arm64-macos, arm64e-macos ]
     symbols:         [ _NSAddImage, _NSAddLibrary, _NSAddLibraryWithSearching, _NSAddressOfSymbol, 
                        _NSCreateObjectFileImageFromFile, _NSCreateObjectFileImageFromMemory, 
@@ -1051,7 +1052,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, arm64-macos, arm64e-macos ]
 install-name:    '/usr/lib/system/libmacho.dylib'
-current-version: 1021.4
+current-version: 1024.3
 parent-umbrella:
   - targets:         [ x86_64-macos, arm64-macos, arm64e-macos ]
     umbrella:        System
@@ -1070,35 +1071,28 @@ exports:
                        _swap_dylinker_command, _swap_dysymtab_command, _swap_encryption_command, 
                        _swap_encryption_command_64, _swap_entry_point_command, _swap_fat_arch, 
                        _swap_fat_arch_64, _swap_fat_header, _swap_fileset_entry_command, 
-                       _swap_fvmfile_command, _swap_fvmlib_command, _swap_hppa_fp_thread_state, 
-                       _swap_hppa_frame_thread_state, _swap_hppa_integer_thread_state, 
-                       _swap_i386_exception_state, _swap_i386_float_state, _swap_i386_thread_state, 
-                       _swap_i860_thread_state_regs, _swap_ident_command, _swap_indirect_symbols, 
-                       _swap_linkedit_data_command, _swap_linker_option_command, 
-                       _swap_load_command, _swap_m68k_thread_state_68882, _swap_m68k_thread_state_regs, 
-                       _swap_m68k_thread_state_user_reg, _swap_m88110_thread_state_impl_t, 
-                       _swap_m88k_thread_state_grf_t, _swap_m88k_thread_state_user_t, 
-                       _swap_m88k_thread_state_xrf_t, _swap_mach_header, _swap_mach_header_64, 
-                       _swap_nlist, _swap_nlist_64, _swap_note_command, _swap_ppc_exception_state_t, 
-                       _swap_ppc_float_state_t, _swap_ppc_thread_state_t, _swap_prebind_cksum_command, 
+                       _swap_fvmfile_command, _swap_fvmlib_command, _swap_i386_exception_state, 
+                       _swap_i386_float_state, _swap_i386_thread_state, _swap_ident_command, 
+                       _swap_indirect_symbols, _swap_linkedit_data_command, _swap_linker_option_command, 
+                       _swap_load_command, _swap_mach_header, _swap_mach_header_64, 
+                       _swap_nlist, _swap_nlist_64, _swap_note_command, _swap_prebind_cksum_command, 
                        _swap_prebound_dylib_command, _swap_ranlib, _swap_ranlib_64, 
                        _swap_relocation_info, _swap_routines_command, _swap_routines_command_64, 
                        _swap_rpath_command, _swap_section, _swap_section_64, _swap_segment_command, 
-                       _swap_segment_command_64, _swap_source_version_command, _swap_sparc_thread_state_fpu, 
-                       _swap_sparc_thread_state_regs, _swap_sub_client_command, _swap_sub_framework_command, 
-                       _swap_sub_library_command, _swap_sub_umbrella_command, _swap_symseg_command, 
-                       _swap_symtab_command, _swap_thread_command, _swap_twolevel_hint, 
-                       _swap_twolevel_hints_command, _swap_uuid_command, _swap_version_min_command, 
-                       _swap_x86_debug_state, _swap_x86_debug_state32, _swap_x86_debug_state64, 
-                       _swap_x86_exception_state, _swap_x86_exception_state64, _swap_x86_float_state, 
-                       _swap_x86_float_state64, _swap_x86_state_hdr, _swap_x86_thread_state, 
-                       _swap_x86_thread_state64 ]
+                       _swap_segment_command_64, _swap_source_version_command, _swap_sub_client_command, 
+                       _swap_sub_framework_command, _swap_sub_library_command, _swap_sub_umbrella_command, 
+                       _swap_symseg_command, _swap_symtab_command, _swap_thread_command, 
+                       _swap_twolevel_hint, _swap_twolevel_hints_command, _swap_uuid_command, 
+                       _swap_version_min_command, _swap_x86_debug_state, _swap_x86_debug_state32, 
+                       _swap_x86_debug_state64, _swap_x86_exception_state, _swap_x86_exception_state64, 
+                       _swap_x86_float_state, _swap_x86_float_state64, _swap_x86_state_hdr, 
+                       _swap_x86_thread_state, _swap_x86_thread_state64 ]
 --- !tapi-tbd
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libquarantine.dylib'
-current-version: 181.0.7
+current-version: 181.120.2
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -1144,7 +1138,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libremovefile.dylib'
-current-version: 75
+current-version: 81
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -1154,9 +1148,9 @@ exports:
                        arm64e-macos, arm64e-maccatalyst ]
     symbols:         [ ___removefile_init_random, ___removefile_random_char, ___removefile_randomize_buffer, 
                        ___removefile_rename_unlink, ___removefile_sunlink, ___removefile_tree_walker, 
-                       _removefile, _removefile_cancel, _removefile_state_alloc, 
-                       _removefile_state_free, _removefile_state_get, _removefile_state_set, 
-                       _removefileat ]
+                       ___removefile_tree_walker_slim, _removefile, _removefile_cancel, 
+                       _removefile_state_alloc, _removefile_state_free, _removefile_state_get, 
+                       _removefile_state_set, _removefileat ]
 --- !tapi-tbd
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
@@ -1243,7 +1237,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_blocks.dylib'
-current-version: 94
+current-version: 96
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -1262,7 +1256,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_c.dylib'
-current-version: 1669.40.2
+current-version: 1698.100.8
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -1331,7 +1325,7 @@ exports:
                        ___toupper_l, ___trailz_D2A, ___ulp_D2A, ___ungetc, ___ungetwc, 
                        ___vsnprintf_chk, ___vsprintf_chk, ___wcwidth, ___wcwidth_l, 
                        ___xlocale_C_collate, __allocenvstate, __atexit_receipt, __c_locale, 
-                       __cleanup, __closeutx, __copyenv, __cthread_init_routine, 
+                       __cleanup, __closeutx, __collate_lookup, __copyenv, __cthread_init_routine, 
                        __deallocenvstate, __endutxent, __flockfile_debug_stub, __fseeko, 
                        __ftello, __fwalk, __getenvp, __getutxent, __getutxid, __getutxline, 
                        __inet_aton_check, __init_clock_port, __int_to_time, __libc_fork_child, 
@@ -1483,51 +1477,52 @@ exports:
                        _sradixsort, _srand, _srand48, _sranddev, _srandom, _srandomdev, 
                        _sscanf, _sscanf_l, _stat_with_subsystem, _statvfs, _statx_np, 
                        _stpcpy, _stpncpy, _stravis, _strcasecmp, _strcasecmp_l, _strcasestr, 
-                       _strcasestr_l, _strcat, _strcoll, _strcoll_l, _strcspn, _strdup, 
-                       _strenvisx, _strerror, _strerror_r, _strfmon, _strfmon_l, 
-                       _strftime, _strftime_l, _strmode, _strncasecmp, _strncasecmp_l, 
-                       _strncat, _strndup, _strnstr, _strnunvis, _strnunvisx, _strnvis, 
-                       _strnvisx, _strpbrk, _strptime, _strptime_l, _strrchr, _strsenvisx, 
-                       _strsep, _strsignal, _strsignal_r, _strsnvis, _strsnvisx, 
-                       _strspn, _strsvis, _strsvisx, _strtod, _strtod_l, _strtoencf16, 
-                       _strtoencf32, _strtoencf64, _strtoencf64x, _strtof, _strtof_l, 
-                       _strtofflags, _strtoimax, _strtoimax_l, _strtok, _strtok_r, 
-                       _strtol, _strtol_l, _strtold, _strtold_l, _strtoll, _strtoll_l, 
-                       _strtonum, _strtoq, _strtoq_l, _strtoul, _strtoul_l, _strtoull, 
-                       _strtoull_l, _strtoumax, _strtoumax_l, _strtouq, _strtouq_l, 
-                       _strunvis, _strunvisx, _strvis, _strvisx, _strxfrm, _strxfrm_l, 
-                       _suboptarg, _svis, _swab, _swprintf, _swprintf_l, _swscanf, 
-                       _swscanf_l, _sxprintf, _sxprintf_exec, _sync_volume_np, _sys_errlist, 
-                       _sys_nerr, _sys_siglist, _sys_signame, _sysconf, _sysctl, 
-                       _sysctlbyname, _sysctlnametomib, _system, '_system$NOCANCEL', 
-                       _tcdrain, '_tcdrain$NOCANCEL', _tcflow, _tcflush, _tcgetattr, 
-                       _tcgetpgrp, _tcgetsid, _tcsendbreak, _tcsetattr, _tcsetpgrp, 
-                       _tdelete, _telldir, _tempnam, _tfind, _thread_stack_async_pcs, 
-                       _thread_stack_pcs, _time, _time2posix, _timegm, _timelocal, 
-                       _timeoff, _times, _timespec_get, _timezone, _timingsafe_bcmp, 
-                       _tmpfile, _tmpnam, _toascii, _tolower, _tolower_l, _toupper, 
-                       _toupper_l, _towctrans, _towctrans_l, _towlower, _towlower_l, 
-                       _towupper, _towupper_l, _tre_ast_new_catenation, _tre_ast_new_iter, 
-                       _tre_ast_new_literal, _tre_ast_new_node, _tre_ast_new_union, 
-                       _tre_compile, _tre_fill_pmatch, _tre_free, _tre_mem_alloc_impl, 
-                       _tre_mem_destroy, _tre_mem_new_impl, _tre_parse, _tre_stack_destroy, 
-                       _tre_stack_new, _tre_stack_num_objects, _tre_tnfa_run_backtrack, 
-                       _tre_tnfa_run_parallel, _tsearch, _ttyname, _ttyname_r, _ttyslot, 
-                       _twalk, _tzname, _tzset, _tzsetwall, _ualarm, _ulimit, _umaskx_np, 
-                       _uname, _ungetc, _ungetwc, _ungetwc_l, _unlockpt, _unsetenv, 
-                       _unvis, _uselocale, _usleep, '_usleep$NOCANCEL', _utime, _utmpxname, 
-                       _uuid_clear, _uuid_compare, _uuid_copy, _uuid_generate, _uuid_generate_random, 
-                       _uuid_generate_time, _uuid_is_null, _uuid_pack, _uuid_parse, 
-                       _uuid_unpack, _uuid_unparse, _uuid_unparse_lower, _uuid_unparse_upper, 
-                       _vasprintf, _vasprintf_l, _vasxprintf, _vasxprintf_exec, _vdprintf, 
-                       _vdprintf_l, _vdxprintf, _vdxprintf_exec, _verr, _verrc, _verrx, 
-                       _vfork, _vfprintf, _vfprintf_l, _vfscanf, _vfscanf_l, _vfwprintf, 
-                       _vfwprintf_l, _vfwscanf, _vfwscanf_l, _vfxprintf, _vfxprintf_exec, 
-                       _vis, _vprintf, _vprintf_l, _vscanf, _vscanf_l, _vsnprintf, 
-                       _vsnprintf_l, _vsprintf, _vsprintf_l, _vsscanf, _vsscanf_l, 
-                       _vswprintf, _vswprintf_l, _vswscanf, _vswscanf_l, _vsxprintf, 
-                       _vsxprintf_exec, _vwarn, _vwarnc, _vwarnx, _vwprintf, _vwprintf_l, 
-                       _vwscanf, _vwscanf_l, _vxprintf, _vxprintf_exec, _wait, '_wait$NOCANCEL', 
+                       _strcasestr_l, _strcat, _strchrnul, _strcoll, _strcoll_l, 
+                       _strcspn, _strdup, _strenvisx, _strerror, _strerror_r, _strfmon, 
+                       _strfmon_l, _strftime, _strftime_l, _strmode, _strncasecmp, 
+                       _strncasecmp_l, _strncat, _strndup, _strnstr, _strnunvis, 
+                       _strnunvisx, _strnvis, _strnvisx, _strpbrk, _strptime, _strptime_l, 
+                       _strrchr, _strsenvisx, _strsep, _strsignal, _strsignal_r, 
+                       _strsnvis, _strsnvisx, _strspn, _strsvis, _strsvisx, _strtod, 
+                       _strtod_l, _strtoencf16, _strtoencf32, _strtoencf64, _strtoencf64x, 
+                       _strtof, _strtof_l, _strtofflags, _strtoimax, _strtoimax_l, 
+                       _strtok, _strtok_r, _strtol, _strtol_l, _strtold, _strtold_l, 
+                       _strtoll, _strtoll_l, _strtonum, _strtoq, _strtoq_l, _strtoul, 
+                       _strtoul_l, _strtoull, _strtoull_l, _strtoumax, _strtoumax_l, 
+                       _strtouq, _strtouq_l, _strunvis, _strunvisx, _strvis, _strvisx, 
+                       _strxfrm, _strxfrm_l, _suboptarg, _svis, _swab, _swprintf, 
+                       _swprintf_l, _swscanf, _swscanf_l, _sxprintf, _sxprintf_exec, 
+                       _sync_volume_np, _sys_errlist, _sys_nerr, _sys_siglist, _sys_signame, 
+                       _sysconf, _sysctl, _sysctlbyname, _sysctlnametomib, _system, 
+                       '_system$NOCANCEL', _tcdrain, '_tcdrain$NOCANCEL', _tcflow, 
+                       _tcflush, _tcgetattr, _tcgetpgrp, _tcgetsid, _tcsendbreak, 
+                       _tcsetattr, _tcsetpgrp, _tdelete, _telldir, _tempnam, _tfind, 
+                       _thread_stack_async_pcs, _thread_stack_pcs, _time, _time2posix, 
+                       _timegm, _timelocal, _timeoff, _times, _timespec_get, _timezone, 
+                       _timingsafe_bcmp, _tmpfile, _tmpnam, _toascii, _tolower, _tolower_l, 
+                       _toupper, _toupper_l, _towctrans, _towctrans_l, _towlower, 
+                       _towlower_l, _towupper, _towupper_l, _tre_ast_new_catenation, 
+                       _tre_ast_new_iter, _tre_ast_new_literal, _tre_ast_new_node, 
+                       _tre_ast_new_union, _tre_compile, _tre_fill_pmatch, _tre_free, 
+                       _tre_mem_alloc_impl, _tre_mem_destroy, _tre_mem_new_impl, 
+                       _tre_parse, _tre_stack_destroy, _tre_stack_new, _tre_stack_num_objects, 
+                       _tre_tnfa_run_backtrack, _tre_tnfa_run_parallel, _tsearch, 
+                       _ttyname, _ttyname_r, _ttyslot, _twalk, _tzname, _tzset, _tzsetwall, 
+                       _ualarm, _ulimit, _umaskx_np, _uname, _ungetc, _ungetwc, _ungetwc_l, 
+                       _unlockpt, _unsetenv, _unvis, _uselocale, _usleep, '_usleep$NOCANCEL', 
+                       _utime, _utmpxname, _uuid_clear, _uuid_compare, _uuid_copy, 
+                       _uuid_generate, _uuid_generate_random, _uuid_generate_time, 
+                       _uuid_is_null, _uuid_pack, _uuid_parse, _uuid_unpack, _uuid_unparse, 
+                       _uuid_unparse_lower, _uuid_unparse_upper, _vasprintf, _vasprintf_l, 
+                       _vasxprintf, _vasxprintf_exec, _vdprintf, _vdprintf_l, _vdxprintf, 
+                       _vdxprintf_exec, _verr, _verrc, _verrx, _vfork, _vfprintf, 
+                       _vfprintf_l, _vfscanf, _vfscanf_l, _vfwprintf, _vfwprintf_l, 
+                       _vfwscanf, _vfwscanf_l, _vfxprintf, _vfxprintf_exec, _vis, 
+                       _vprintf, _vprintf_l, _vscanf, _vscanf_l, _vsnprintf, _vsnprintf_l, 
+                       _vsprintf, _vsprintf_l, _vsscanf, _vsscanf_l, _vswprintf, 
+                       _vswprintf_l, _vswscanf, _vswscanf_l, _vsxprintf, _vsxprintf_exec, 
+                       _vwarn, _vwarnc, _vwarnx, _vwprintf, _vwprintf_l, _vwscanf, 
+                       _vwscanf_l, _vxprintf, _vxprintf_exec, _wait, '_wait$NOCANCEL', 
                        _wait3, _waitpid, '_waitpid$NOCANCEL', _warn, _warnc, _warnx, 
                        _wcpcpy, _wcpncpy, _wcrtomb, _wcrtomb_l, _wcscasecmp, _wcscasecmp_l, 
                        _wcscat, _wcschr, _wcscmp, _wcscoll, _wcscoll_l, _wcscpy, 
@@ -1557,7 +1552,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_collections.dylib'
-current-version: 1669.40.2
+current-version: 1698.100.8
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -1587,7 +1582,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_configuration.dylib'
-current-version: 1347.40.1
+current-version: 1351.120.3
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -1621,7 +1616,8 @@ parent-umbrella:
 exports:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
-    symbols:         [ _CMFSSEAM_DEFAULT, _CONTAINER_NOTIFY_USER_INVALIDATED, _CONTAINER_PERSONA_CURRENT, 
+    symbols:         [ _CMCONTAINERSEAM_DEFAULT, _CMFSSEAM_DEFAULT, _CMPWDSEAM_DEFAULT, 
+                       _CONTAINER_NOTIFY_USER_INVALIDATED, _CONTAINER_PERSONA_CURRENT, 
                        _CONTAINER_PERSONA_PRIMARY, __container_init, __container_query_get_servicing_pid, 
                        __container_references_get_servicing_pid, __container_traverse_continuation_create, 
                        __container_traverse_continuation_free, __container_traverse_continuation_pop, 
@@ -1698,6 +1694,7 @@ exports:
                        _container_get_path, _container_get_persona_unique_string, 
                        _container_get_uid, _container_get_unique_path_component, 
                        _container_get_user_managed_assets_relative_path, _container_group_container_identifiers_for_current_user, 
+                       _container_info_delete, _container_info_modify, _container_info_put, 
                        _container_internal_get_first_boot_uuid, _container_invalidate_code_signing_cache, 
                        _container_is_equal, _container_is_new, _container_is_transient, 
                        _container_log_client_fault_logging_is_enabled, _container_log_error, 
@@ -1735,8 +1732,9 @@ exports:
                        _container_persona_collect_all_ids, _container_persona_convert_unique_string_to_persona_uid, 
                        _container_persona_foreach, _container_process_restored_container, 
                        _container_pwd_copy_user_home_path, _container_pwd_for_name, 
-                       _container_pwd_for_uid, _container_query_copy, _container_query_count_results, 
-                       _container_query_create, _container_query_create_from_container, 
+                       _container_pwd_for_uid, _container_pwd_get_cached_current_user_home_path, 
+                       _container_pwd_get_mobile_user_uid, _container_query_copy, 
+                       _container_query_count_results, _container_query_create, _container_query_create_from_container, 
                        _container_query_free, _container_query_get_last_error, _container_query_get_single_result, 
                        _container_query_iterate_results_sync, _container_query_iterate_results_with_identifier_sync, 
                        _container_query_iterate_results_with_subquery_sync, _container_query_operation_set_client, 
@@ -1749,8 +1747,10 @@ exports:
                        _container_regenerate_uuid, _container_repair_user_data, _container_replace, 
                        _container_retry_test, _container_sandbox_extension_consume, 
                        _container_sandbox_extension_revoke, _container_sandbox_issue_custom_extension, 
-                       _container_sandbox_issue_extension, _container_seam_fs_ensure_lazy_loaded, 
-                       _container_seam_fs_reset, _container_seam_fs_set_common, _container_serialize_copy_deserialized_reference, 
+                       _container_sandbox_issue_extension, _container_seam_container_reset, 
+                       _container_seam_container_set_common, _container_seam_fs_ensure_lazy_loaded, 
+                       _container_seam_fs_reset, _container_seam_fs_set_common, _container_seam_pwd_reset, 
+                       _container_seam_pwd_set_common, _container_serialize_copy_deserialized_reference, 
                        _container_serialize_copy_serialized_reference, _container_set_code_signing_info_for_identifier, 
                        _container_set_data_protection_for_current_user, _container_set_info_value, 
                        _container_set_test_lock, _container_stage_shared_system_content, 
@@ -1784,7 +1784,8 @@ exports:
                        _container_xpc_send_sync_message_with_object, _container_xpc_set_client_context_during_block, 
                        _container_xpc_set_incoming_reply_preprocess_block, _container_xpc_set_outgoing_message_postprocess_block, 
                        _container_xpc_set_outgoing_message_send_block, _container_xpc_set_use_shared_connection, 
-                       _container_xpc_shared_copy_connection, _gCMFSSeam ]
+                       _container_xpc_shared_copy_connection, _gCMContainerSeam, 
+                       _gCMFSSeam, _gCMPWDSeam ]
   - targets:         [ x86_64-maccatalyst, arm64-maccatalyst, arm64e-maccatalyst ]
     symbols:         [ _CONTAINER_CURRENT_MOBILE_UID, _CONTAINER_INSTALLATION_UID, 
                        _CONTAINER_SYSTEM_UID, _container_create_or_lookup, _container_create_or_lookup_app_group_paths, 
@@ -1878,7 +1879,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_dnssd.dylib'
-current-version: 2559.40.32
+current-version: 2600.120.12
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -1915,17 +1916,17 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, arm64-macos, arm64e-macos ]
 install-name:    '/usr/lib/system/libsystem_eligibility.dylib'
-current-version: 129.40.7
+current-version: 181.120.32
 parent-umbrella:
   - targets:         [ x86_64-macos, arm64-macos, arm64e-macos ]
     umbrella:        System
 exports:
   - targets:         [ x86_64-macos, arm64-macos, arm64e-macos ]
-    symbols:         [ _load_eligibility_plist, _os_eligibility_domain_for_name, 
-                       _os_eligibility_dump_sysdiagnose_data_to_dir, _os_eligibility_force_domain_answer, 
-                       _os_eligibility_force_domain_set_answers, _os_eligibility_get_all_domain_answers, 
-                       _os_eligibility_get_domain_answer, _os_eligibility_get_domain_notification_name, 
-                       _os_eligibility_get_internal_state, _os_eligibility_get_state_dump, 
+    symbols:         [ _os_eligibility_domain_for_name, _os_eligibility_dump_sysdiagnose_data_to_dir, 
+                       _os_eligibility_force_domain_answer, _os_eligibility_force_domain_set_answers, 
+                       _os_eligibility_get_all_domain_answers, _os_eligibility_get_domain_answer, 
+                       _os_eligibility_get_domain_notification_name, _os_eligibility_get_internal_state, 
+                       _os_eligibility_get_state_dump, _os_eligibility_precise_locations, 
                        _os_eligibility_reset_all_domains, _os_eligibility_reset_domain, 
                        _os_eligibility_set_input, _os_eligibility_set_test_mode ]
 --- !tapi-tbd
@@ -1933,7 +1934,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_featureflags.dylib'
-current-version: 94
+current-version: 97
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -2071,7 +2072,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_kernel.dylib'
-current-version: 11215.41.2
+current-version: 11417.121.6
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -2121,20 +2122,21 @@ exports:
                        ___open_extended, ___open_nocancel, ___openat, ___openat_dprotected_np, 
                        ___openat_nocancel, ___os_nexus_flow_add, ___os_nexus_flow_del, 
                        ___os_nexus_get_llink_info, ___os_nexus_ifattach, ___os_nexus_ifdetach, 
-                       ___persona, ___pipe, ___poll_nocancel, ___posix_spawn, ___pread_nocancel, 
-                       ___preadv_nocancel, ___proc_info, ___proc_info_extended_id, 
-                       ___process_policy, ___pselect, ___pselect_nocancel, ___psynch_cvbroad, 
-                       ___psynch_cvclrprepost, ___psynch_cvsignal, ___psynch_cvwait, 
-                       ___psynch_mutexdrop, ___psynch_mutexwait, ___psynch_rw_downgrade, 
-                       ___psynch_rw_longrdlock, ___psynch_rw_rdlock, ___psynch_rw_unlock, 
-                       ___psynch_rw_unlock2, ___psynch_rw_upgrade, ___psynch_rw_wrlock, 
-                       ___psynch_rw_yieldwrlock, ___pthread_canceled, ___pthread_chdir, 
-                       ___pthread_fchdir, ___pthread_kill, ___pthread_markcancel, 
-                       ___pthread_sigmask, ___ptrace, ___pwrite_nocancel, ___pwritev_nocancel, 
-                       ___read_nocancel, ___readv_nocancel, ___reboot, ___record_system_event, 
-                       ___recvfrom, ___recvfrom_nocancel, ___recvmsg, ___recvmsg_nocancel, 
-                       ___rename, ___renameat, ___renameatx_np, ___rmdir, ___sandbox_me, 
-                       ___sandbox_mm, ___sandbox_ms, ___sandbox_msp, ___select, ___select_nocancel, 
+                       ___oslog_coproc, ___oslog_coproc_reg, ___persona, ___pipe, 
+                       ___poll_nocancel, ___posix_spawn, ___pread_nocancel, ___preadv_nocancel, 
+                       ___proc_info, ___proc_info_extended_id, ___process_policy, 
+                       ___pselect, ___pselect_nocancel, ___psynch_cvbroad, ___psynch_cvclrprepost, 
+                       ___psynch_cvsignal, ___psynch_cvwait, ___psynch_mutexdrop, 
+                       ___psynch_mutexwait, ___psynch_rw_downgrade, ___psynch_rw_longrdlock, 
+                       ___psynch_rw_rdlock, ___psynch_rw_unlock, ___psynch_rw_unlock2, 
+                       ___psynch_rw_upgrade, ___psynch_rw_wrlock, ___psynch_rw_yieldwrlock, 
+                       ___pthread_canceled, ___pthread_chdir, ___pthread_fchdir, 
+                       ___pthread_kill, ___pthread_markcancel, ___pthread_sigmask, 
+                       ___ptrace, ___pwrite_nocancel, ___pwritev_nocancel, ___read_nocancel, 
+                       ___readv_nocancel, ___reboot, ___record_system_event, ___recvfrom, 
+                       ___recvfrom_nocancel, ___recvmsg, ___recvmsg_nocancel, ___rename, 
+                       ___renameat, ___renameatx_np, ___rmdir, ___sandbox_me, ___sandbox_mm, 
+                       ___sandbox_ms, ___sandbox_msp, ___select, ___select_nocancel, 
                        ___sem_open, ___sem_wait_nocancel, ___semctl, ___semsys, ___semwait_signal, 
                        ___semwait_signal_nocancel, ___sendmsg, ___sendmsg_nocancel, 
                        ___sendto, ___sendto_nocancel, ___setattrlist, ___setlogin, 
@@ -2189,23 +2191,23 @@ exports:
                        __kernelrpc_mach_vm_protect_trap, __kernelrpc_mach_vm_purgable_control, 
                        __kernelrpc_mach_vm_purgable_control_trap, __kernelrpc_mach_vm_read, 
                        __kernelrpc_mach_vm_remap, __kernelrpc_mach_vm_remap_new, 
-                       __kernelrpc_mach_voucher_extract_attr_recipe, __kernelrpc_task_set_port_space, 
-                       __kernelrpc_thread_policy, __kernelrpc_thread_policy_set, 
-                       __kernelrpc_thread_set_policy, __kernelrpc_vm_map, __kernelrpc_vm_purgable_control, 
-                       __kernelrpc_vm_read, __kernelrpc_vm_remap, __kernelrpc_vm_remap_new, 
-                       __mach_errors, __mach_fork_child, __mach_snprintf, __mach_vsnprintf, 
-                       __os_alloc_once_table, __os_xbs_chrooted, __register_gethostuuid_callback, 
-                       __thread_set_tsd_base, _abort_with_payload, _abort_with_reason, 
-                       _accept, '_accept$NOCANCEL', _access, _accessx_np, _acct, 
-                       _act_get_state, _act_set_state, _adjtime, _aio_cancel, _aio_error, 
-                       _aio_fsync, _aio_read, _aio_return, _aio_suspend, '_aio_suspend$NOCANCEL', 
-                       _aio_write, _audit, _audit_session_join, _audit_session_port, 
-                       _audit_session_self, _auditctl, _auditon, _bind, _bootstrap_port, 
-                       _cerror, _cerror_nocancel, _change_fdguard_np, _chdir, _chflags, 
-                       _chmod, _chown, _chroot, _clock_alarm, _clock_alarm_reply, 
-                       _clock_get_attributes, _clock_get_time, _clock_set_attributes, 
-                       _clock_set_time, _clock_sleep, _clock_sleep_trap, _clonefile, 
-                       _clonefileat, _close, '_close$NOCANCEL', _coalition_create, 
+                       __kernelrpc_mach_vm_update_pointers_with_remote_tags, __kernelrpc_mach_voucher_extract_attr_recipe, 
+                       __kernelrpc_task_set_port_space, __kernelrpc_thread_policy, 
+                       __kernelrpc_thread_policy_set, __kernelrpc_thread_set_policy, 
+                       __kernelrpc_vm_map, __kernelrpc_vm_purgable_control, __kernelrpc_vm_read, 
+                       __kernelrpc_vm_remap, __kernelrpc_vm_remap_new, __mach_errors, 
+                       __mach_fork_child, __mach_snprintf, __mach_vsnprintf, __os_alloc_once_table, 
+                       __os_xbs_chrooted, __register_gethostuuid_callback, __thread_set_tsd_base, 
+                       _abort_with_payload, _abort_with_reason, _accept, '_accept$NOCANCEL', 
+                       _access, _accessx_np, _acct, _act_get_state, _act_set_state, 
+                       _adjtime, _aio_cancel, _aio_error, _aio_fsync, _aio_read, 
+                       _aio_return, _aio_suspend, '_aio_suspend$NOCANCEL', _aio_write, 
+                       _audit, _audit_session_join, _audit_session_port, _audit_session_self, 
+                       _auditctl, _auditon, _bind, _bootstrap_port, _cerror, _cerror_nocancel, 
+                       _change_fdguard_np, _chdir, _chflags, _chmod, _chown, _chroot, 
+                       _clock_alarm, _clock_alarm_reply, _clock_get_attributes, _clock_get_time, 
+                       _clock_set_attributes, _clock_set_time, _clock_sleep, _clock_sleep_trap, 
+                       _clonefile, _clonefileat, _close, '_close$NOCANCEL', _coalition_create, 
                        _coalition_info_debug_info, _coalition_info_resource_usage, 
                        _coalition_info_set_efficiency, _coalition_info_set_name, 
                        _coalition_ledger_set_logical_writes_limit, _coalition_policy_get, 
@@ -2216,8 +2218,9 @@ exports:
                        _disconnectx, _dup, _dup2, _errno, _etap_trace_thread, _exc_server, 
                        _exc_server_routine, _exception_raise, _exception_raise_state, 
                        _exception_raise_state_identity, _exchangedata, _exclaves_audio_buffer_copyout, 
-                       _exclaves_audio_buffer_create, _exclaves_boot, _exclaves_endpoint_call, 
-                       _exclaves_inbound_buffer_copyin, _exclaves_inbound_buffer_create, 
+                       _exclaves_audio_buffer_copyout_with_status, _exclaves_audio_buffer_create, 
+                       _exclaves_boot, _exclaves_endpoint_call, _exclaves_inbound_buffer_copyin, 
+                       _exclaves_inbound_buffer_create, _exclaves_indicator_min_on_time, 
                        _exclaves_launch_conclave, _exclaves_lookup_service, _exclaves_named_buffer_copyin, 
                        _exclaves_named_buffer_copyout, _exclaves_named_buffer_create, 
                        _exclaves_notification_create, _exclaves_outbound_buffer_copyout, 
@@ -2231,18 +2234,19 @@ exports:
                        _fs_snapshot_list, _fs_snapshot_mount, _fs_snapshot_rename, 
                        _fs_snapshot_revert, _fs_snapshot_root, _fsctl, _fsetattrlist, 
                        _fsetxattr, _fsgetpath, _fsgetpath_ext, _fstat, _fstat64, 
-                       _fstatat, _fstatat64, _fstatfs, _fstatfs64, _fsync, '_fsync$NOCANCEL', 
-                       _ftruncate, _futimens, _futimes, _getattrlist, _getattrlistat, 
-                       _getattrlistbulk, _getaudit, _getaudit_addr, _getauid, _getdirentries, 
-                       _getdirentriesattr, _getdtablesize, _getegid, _getentropy, 
-                       _geteuid, _getfh, _getfsstat, _getfsstat64, _getgid, _getgroups, 
-                       _gethostuuid, _getiopolicy_np, _getitimer, _getpeername, _getpgid, 
-                       _getpgrp, _getpid, _getppid, _getpriority, _getrlimit, _getrusage, 
-                       _getsgroups_np, _getsid, _getsockname, _getsockopt, _getuid, 
-                       _getwgroups_np, _getxattr, _grab_pgo_data, _graftdmg, _guarded_close_np, 
-                       _guarded_kqueue_np, _guarded_open_dprotected_np, _guarded_open_np, 
-                       _guarded_pwrite_np, _guarded_write_np, _guarded_writev_np, 
-                       _host_check_multiuser_mode, _host_create_mach_voucher, _host_create_mach_voucher_trap, 
+                       _fstatat, _fstatat64, _fstatfs, _fstatfs64, _fstatfs_ext, 
+                       _fsync, '_fsync$NOCANCEL', _ftruncate, _futimens, _futimes, 
+                       _getattrlist, _getattrlistat, _getattrlistbulk, _getaudit, 
+                       _getaudit_addr, _getauid, _getdirentries, _getdirentriesattr, 
+                       _getdtablesize, _getegid, _getentropy, _geteuid, _getfh, _getfsstat, 
+                       _getfsstat64, _getgid, _getgroups, _gethostuuid, _getiopolicy_np, 
+                       _getitimer, _getpeername, _getpgid, _getpgrp, _getpid, _getppid, 
+                       _getpriority, _getrlimit, _getrusage, _getsgroups_np, _getsid, 
+                       _getsockname, _getsockopt, _getuid, _getwgroups_np, _getxattr, 
+                       _grab_pgo_data, _graftdmg, _guarded_close_np, _guarded_kqueue_np, 
+                       _guarded_open_dprotected_np, _guarded_open_np, _guarded_pwrite_np, 
+                       _guarded_write_np, _guarded_writev_np, _host_check_multiuser_mode, 
+                       _host_create_mach_voucher, _host_create_mach_voucher_trap, 
                        _host_default_memory_manager, _host_get_UNDServer, _host_get_atm_diagnostic_flag, 
                        _host_get_boot_info, _host_get_clock_control, _host_get_clock_service, 
                        _host_get_exception_ports, _host_get_io_main, _host_get_io_master, 
@@ -2308,18 +2312,20 @@ exports:
                        _mach_thread_self, _mach_thread_special_port_description, 
                        _mach_thread_special_port_for_id, _mach_timebase_info, _mach_timebase_info_trap, 
                        _mach_vm_allocate, _mach_vm_behavior_set, _mach_vm_copy, _mach_vm_deallocate, 
-                       _mach_vm_deferred_reclamation_buffer_init, _mach_vm_deferred_reclamation_buffer_synchronize, 
-                       _mach_vm_deferred_reclamation_buffer_update_reclaimable_bytes, 
+                       _mach_vm_deferred_reclamation_buffer_allocate, _mach_vm_deferred_reclamation_buffer_flush, 
+                       _mach_vm_deferred_reclamation_buffer_resize, _mach_vm_deferred_reclamation_buffer_update_reclaimable_bytes, 
                        _mach_vm_inherit, _mach_vm_machine_attribute, _mach_vm_map, 
                        _mach_vm_msync, _mach_vm_page_info, _mach_vm_page_query, _mach_vm_page_range_query, 
                        _mach_vm_protect, _mach_vm_purgable_control, _mach_vm_range_create, 
                        _mach_vm_read, _mach_vm_read_list, _mach_vm_read_overwrite, 
-                       _mach_vm_reclaim_is_available, _mach_vm_reclaim_is_reclaimed, 
-                       _mach_vm_reclaim_mark_free, _mach_vm_reclaim_mark_free_with_id, 
-                       _mach_vm_reclaim_mark_used, _mach_vm_reclaim_ringbuffer_init, 
-                       _mach_vm_reclaim_synchronize, _mach_vm_reclaim_update_kernel_accounting, 
+                       _mach_vm_reclaim_is_reusable, _mach_vm_reclaim_query_state, 
+                       _mach_vm_reclaim_ring_allocate, _mach_vm_reclaim_ring_capacity, 
+                       _mach_vm_reclaim_ring_flush, _mach_vm_reclaim_ring_resize, 
+                       _mach_vm_reclaim_round_capacity, _mach_vm_reclaim_try_cancel, 
+                       _mach_vm_reclaim_try_enter, _mach_vm_reclaim_update_kernel_accounting, 
                        _mach_vm_region, _mach_vm_region_recurse, _mach_vm_remap, 
-                       _mach_vm_remap_new, _mach_vm_wire, _mach_vm_write, _mach_voucher_attr_command, 
+                       _mach_vm_remap_new, _mach_vm_update_pointers_with_remote_tags, 
+                       _mach_vm_wire, _mach_vm_write, _mach_voucher_attr_command, 
                        _mach_voucher_deallocate, _mach_voucher_debug_info, _mach_voucher_extract_all_attr_recipes, 
                        _mach_voucher_extract_attr_content, _mach_voucher_extract_attr_recipe, 
                        _mach_voucher_extract_attr_recipe_trap, _mach_wait_until, 
@@ -2366,6 +2372,7 @@ exports:
                        _os_channel_sync, _os_channel_tx_ring, _os_channel_write_attr, 
                        _os_copy_and_inet_checksum, _os_cpu_copy_in_cksum, _os_cpu_in_cksum, 
                        _os_cpu_in_cksum_mbuf, _os_fault_with_payload, _os_inet_checksum, 
+                       _os_log_coprocessor_as_kernel, _os_log_coprocessor_register_as_kernel, 
                        _os_nexus_attr_clone, _os_nexus_attr_create, _os_nexus_attr_destroy, 
                        _os_nexus_attr_get, _os_nexus_attr_set, _os_nexus_controller_add_traffic_rule, 
                        _os_nexus_controller_alloc_provider_instance, _os_nexus_controller_bind_provider_instance, 
@@ -2504,8 +2511,8 @@ exports:
                        _stackshot_config_set_delta_timestamp, _stackshot_config_set_flags, 
                        _stackshot_config_set_pagetable_mask, _stackshot_config_set_pid, 
                        _stackshot_config_set_size_hint, _stat, _stat64, _statfs, 
-                       _statfs64, _swapon, _swtch, _swtch_pri, _symlink, _symlinkat, 
-                       _sync, _syscall, _syscall_thread_switch, _system_get_sfi_window, 
+                       _statfs64, _statfs_ext, _swapon, _swtch, _swtch_pri, _symlink, 
+                       _symlinkat, _sync, _syscall, _syscall_thread_switch, _system_get_sfi_window, 
                        _system_override, _system_set_sfi_window, _system_version_compat_mode, 
                        _task_assign, _task_assign_default, _task_create, _task_create_identity_token, 
                        _task_dyld_process_info_notify_deregister, _task_dyld_process_info_notify_get, 
@@ -2575,7 +2582,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, x86_64h-macos, x86_64h-maccatalyst, 
                    arm64-macos, arm64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_m.dylib'
-current-version: 3289
+current-version: 3291.100.4
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, x86_64h-macos, x86_64h-maccatalyst, 
                        arm64-macos, arm64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
@@ -2797,7 +2804,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_malloc.dylib'
-current-version: 646.40.3
+current-version: 715.120.13
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -2809,11 +2816,11 @@ exports:
                        ___malloc_late_init, __malloc_fork_child, __malloc_fork_parent, 
                        __malloc_fork_prepare, __malloc_no_asl_log, __os_cpu_number_override, 
                        _aligned_alloc, _calloc, _free, _mag_set_thread_index, _malloc, 
-                       _malloc_check_counter, _malloc_check_each, _malloc_check_start, 
-                       _malloc_claimed_address, _malloc_create_legacy_default_zone, 
-                       _malloc_create_zone, _malloc_debug, _malloc_default_purgeable_zone, 
-                       _malloc_default_zone, _malloc_destroy_zone, _malloc_engaged_nano, 
-                       _malloc_engaged_secure_allocator, _malloc_enter_process_memory_limit_warn_mode, 
+                       _malloc_allows_internal_security_4test, _malloc_check_counter, 
+                       _malloc_check_each, _malloc_check_start, _malloc_claimed_address, 
+                       _malloc_create_legacy_default_zone, _malloc_create_zone, _malloc_debug, 
+                       _malloc_default_purgeable_zone, _malloc_default_zone, _malloc_destroy_zone, 
+                       _malloc_engaged_nano, _malloc_engaged_secure_allocator, _malloc_enter_process_memory_limit_warn_mode, 
                        _malloc_error, _malloc_freezedry, _malloc_get_all_zones, _malloc_get_thread_options, 
                        _malloc_get_wrapped_zone, _malloc_get_zone_name, _malloc_good_size, 
                        _malloc_jumpstart, _malloc_logger, _malloc_make_nonpurgeable, 
@@ -2868,9 +2875,10 @@ exports:
                        _NEHelperCopyAppInfo, _NEHelperCopyCurrentNetworkAsync, _NEHelperCopyCurrentNetworkInfo, 
                        _NEHelperCopyDataForCertificate, _NEHelperCopyPerAppDomains, 
                        _NEHelperCopyResponse, _NEHelperCopyXPCEndpointForIdentityProxy, 
-                       _NEHelperGetAppTrackerDomains, _NEHelperGetIKESocket, _NEHelperGetIKESocketWithResult, 
-                       _NEHelperGetKernelControlSocket, _NEHelperGetKernelControlSocketExtended, 
-                       _NEHelperGetNECPSessionFD, _NEHelperGetPFKeySocket, _NEHelperHandleConfigurationsChangedBySC, 
+                       _NEHelperCopyXPCEndpointForIdentityProxyExtended, _NEHelperGetAppTrackerDomains, 
+                       _NEHelperGetIKESocket, _NEHelperGetIKESocketWithResult, _NEHelperGetKernelControlSocket, 
+                       _NEHelperGetKernelControlSocketExtended, _NEHelperGetNECPSessionFD, 
+                       _NEHelperGetPFKeySocket, _NEHelperGetPid, _NEHelperHandleConfigurationsChangedBySC, 
                        _NEHelperInit, _NEHelperInterfaceCreate, _NEHelperInterfaceDestroy, 
                        _NEHelperInterfaceRemoveAddress, _NEHelperInterfaceSetAddress, 
                        _NEHelperInterfaceSetAddressWithLifetime, _NEHelperInterfaceSetDelegate, 
@@ -2941,7 +2949,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_notify.dylib'
-current-version: 327.0.5
+current-version: 342
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -2961,7 +2969,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_platform.dylib'
-current-version: 340
+current-version: 349
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3016,6 +3024,7 @@ exports:
                        __simple_vdprintf, __simple_vesprintf, __simple_vsprintf, 
                        __spin_lock, __spin_lock_try, __spin_unlock, _ffs, _ffsl, 
                        _ffsll, _fls, _flsl, _flsll, _getcontext, _longjmp, _makecontext, 
+                       _os_apt_msg_async_task_running_4swift, _os_apt_msg_async_task_waiting_on_4swift, 
                        _os_lock_lock, _os_lock_trylock, _os_lock_unlock, _os_log_simple_now, 
                        _os_log_simple_type_from_asl, _os_sync_wait_on_address, _os_sync_wait_on_address_with_deadline, 
                        _os_sync_wait_on_address_with_timeout, _os_sync_wake_by_address_all, 
@@ -3029,15 +3038,16 @@ exports:
                        _os_unfair_recursive_lock_unlock_forked_child, _setcontext, 
                        _setjmp, _siglongjmp, _sigsetjmp, _spin_lock, _spin_lock_try, 
                        _spin_unlock, _swapcontext, _sys_cache_control, _sys_dcache_flush, 
-                       _sys_icache_invalidate ]
+                       _sys_icache_invalidate, _timingsafe_enable_if_supported, _timingsafe_restore_if_supported ]
   - targets:         [ arm64-macos, arm64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
-    symbols:         [ __ctx_done ]
+    symbols:         [ ___sme_memchr, ___sme_memcpy, ___sme_memmove, ___sme_memset, 
+                       __ctx_done ]
 --- !tapi-tbd
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_pthread.dylib'
-current-version: 535
+current-version: 536
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3133,7 +3143,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_sandbox.dylib'
-current-version: 2401.40.25
+current-version: 2401.121.3
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3146,10 +3156,9 @@ exports:
                        _SANDBOX_CHECK_ALLOW_APPROVAL, _SANDBOX_CHECK_CANONICAL, _SANDBOX_CHECK_NOFOLLOW, 
                        _SANDBOX_CHECK_NO_APPROVAL, _SANDBOX_CHECK_NO_REPORT, _SANDBOX_CHECK_POSIX_READABLE, 
                        _SANDBOX_CHECK_POSIX_WRITEABLE, _SANDBOX_EXTENSION_CANONICAL, 
-                       _SANDBOX_EXTENSION_DEFAULT, _SANDBOX_EXTENSION_MAGIC, _SANDBOX_EXTENSION_NOFOLLOW, 
-                       _SANDBOX_EXTENSION_NOFOLLOW_ANY, _SANDBOX_EXTENSION_NO_REPORT, 
-                       _SANDBOX_EXTENSION_NO_STORAGE_CLASS, _SANDBOX_EXTENSION_PREFIXMATCH, 
-                       _SANDBOX_EXTENSION_UNRESOLVED, __amkrtemp, __sandbox_enter_notify_libxpc, 
+                       _SANDBOX_EXTENSION_DEFAULT, _SANDBOX_EXTENSION_NOFOLLOW, _SANDBOX_EXTENSION_NOFOLLOW_ANY, 
+                       _SANDBOX_EXTENSION_NO_REPORT, _SANDBOX_EXTENSION_NO_STORAGE_CLASS, 
+                       _SANDBOX_EXTENSION_PREFIXMATCH, __amkrtemp, __sandbox_enter_notify_libxpc, 
                        __sandbox_in_a_container, __sandbox_register_app_bundle_0, 
                        __sandbox_register_app_bundle_1, _kSBXProfileNoInternet, _kSBXProfileNoNetwork, 
                        _kSBXProfileNoWrite, _kSBXProfileNoWriteExceptTemporary, _kSBXProfilePureComputation, 
@@ -3167,28 +3176,26 @@ exports:
                        _rootless_verify_trusted_by_self_token, _sandbox_apply_bytecode, 
                        _sandbox_builtin_query, _sandbox_check, _sandbox_check_bulk, 
                        _sandbox_check_by_audit_token, _sandbox_check_by_reference, 
-                       _sandbox_check_by_uniqueid, _sandbox_check_message_filter_integer, 
-                       _sandbox_check_message_filter_string, _sandbox_check_process_signal_target, 
-                       _sandbox_check_protected_app_container, _sandbox_check_self_signal_target, 
-                       _sandbox_consume_extension, _sandbox_consume_fs_extension, 
-                       _sandbox_consume_mach_extension, _sandbox_container_path_for_audit_token, 
-                       _sandbox_container_path_for_pid, _sandbox_enable_local_state_flag, 
-                       _sandbox_enable_root_translation, _sandbox_enable_state_flag, 
-                       _sandbox_extension_consume, _sandbox_extension_issue_file, 
+                       _sandbox_check_by_uniqueid, _sandbox_check_finder_automation_for_path, 
+                       _sandbox_check_message_filter_integer, _sandbox_check_message_filter_string, 
+                       _sandbox_check_process_signal_target, _sandbox_check_protected_app_container, 
+                       _sandbox_check_self_signal_target, _sandbox_consume_extension, 
+                       _sandbox_consume_fs_extension, _sandbox_consume_mach_extension, 
+                       _sandbox_container_path_for_audit_token, _sandbox_container_path_for_pid, 
+                       _sandbox_enable_local_state_flag, _sandbox_enable_root_translation, 
+                       _sandbox_enable_state_flag, _sandbox_extension_consume, _sandbox_extension_issue_file, 
                        _sandbox_extension_issue_file_to_process, _sandbox_extension_issue_file_to_process_by_pid, 
                        _sandbox_extension_issue_file_to_self, _sandbox_extension_issue_generic, 
                        _sandbox_extension_issue_generic_to_process, _sandbox_extension_issue_generic_to_process_by_pid, 
                        _sandbox_extension_issue_iokit_registry_entry_class, _sandbox_extension_issue_iokit_registry_entry_class_to_process, 
                        _sandbox_extension_issue_iokit_registry_entry_class_to_process_by_pid, 
-                       _sandbox_extension_issue_iokit_user_client_class, _sandbox_extension_issue_mach, 
-                       _sandbox_extension_issue_mach_to_process, _sandbox_extension_issue_mach_to_process_by_pid, 
-                       _sandbox_extension_issue_posix_ipc, _sandbox_extension_issue_related_file_to_process, 
+                       _sandbox_extension_issue_mach, _sandbox_extension_issue_mach_to_process, 
+                       _sandbox_extension_issue_mach_to_process_by_pid, _sandbox_extension_issue_related_file_to_process, 
                        _sandbox_extension_reap, _sandbox_extension_release, _sandbox_extension_release_and_detect_last_reference, 
                        _sandbox_extension_release_file, _sandbox_extension_update_file, 
                        _sandbox_extension_update_file_by_fileid, _sandbox_free_error, 
                        _sandbox_get_container_expected, _sandbox_init, _sandbox_init_from_pid, 
-                       _sandbox_init_with_extensions, _sandbox_init_with_parameters, 
-                       _sandbox_issue_extension, _sandbox_issue_fs_extension, _sandbox_issue_fs_rw_extension, 
+                       _sandbox_init_with_parameters, _sandbox_issue_fs_extension, 
                        _sandbox_issue_mach_extension, _sandbox_message_filter_query, 
                        _sandbox_message_filter_release, _sandbox_message_filter_retain, 
                        _sandbox_note, _sandbox_passthrough_access, _sandbox_proc_getcontainer, 
@@ -3243,13 +3250,14 @@ exports:
                        ___asan_get_report_pc, ___asan_get_report_sp, ___asan_get_shadow_mapping, 
                        ___asan_locate_address, ___asan_report_present, __sanitizers_init, 
                        _sanitizers_address_on_report, _sanitizers_diagnose_memory_error, 
-                       _sanitizers_report_globals ]
+                       _sanitizers_report_globals, _sanitizers_testonly_diagnose_error, 
+                       _sanitizers_testonly_get_shadow_address ]
 --- !tapi-tbd
 tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_secinit.dylib'
-current-version: 153.0.6
+current-version: 153.100.10
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3282,7 +3290,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_trace.dylib'
-current-version: 1612.40.4
+current-version: 1643.120.5
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3319,10 +3327,10 @@ exports:
                        __os_trace_set_mode_for_pid, __os_trace_strdup, __os_trace_sysprefsdir_path, 
                        __os_trace_update_with_datavolume_4launchd, __os_trace_with_buffer, 
                        __os_trace_write, __os_trace_writev, __os_trace_zalloc, _amfi_check_dyld_policy_for_pid, 
-                       _amfi_check_dyld_policy_self, _amfi_load_trust_cache, _os_activity_apply, 
-                       _os_activity_apply_f, _os_activity_diagnostic_for_pid, _os_activity_end, 
-                       _os_activity_for_task_thread, _os_activity_for_thread, _os_activity_get_active, 
-                       _os_activity_get_identifier, _os_activity_iterate_activities, 
+                       _amfi_check_dyld_policy_self, _amfi_load_trust_cache, _amfi_unload_trust_cache, 
+                       _os_activity_apply, _os_activity_apply_f, _os_activity_diagnostic_for_pid, 
+                       _os_activity_end, _os_activity_for_task_thread, _os_activity_for_thread, 
+                       _os_activity_get_active, _os_activity_get_identifier, _os_activity_iterate_activities, 
                        _os_activity_iterate_breadcrumbs, _os_activity_iterate_messages, 
                        _os_activity_iterate_processes, _os_activity_messages_for_thread, 
                        _os_activity_scope_enter, _os_activity_scope_leave, _os_log_backtrace_copy_description, 
@@ -3352,7 +3360,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libunwind.dylib'
-current-version: 1800.85
+current-version: 1900.125
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3373,8 +3381,8 @@ exports:
                        ___unw_remove_find_dynamic_unwind_sections, _unw_get_fpreg, 
                        _unw_get_proc_info, _unw_get_proc_name, _unw_get_reg, _unw_getcontext, 
                        _unw_init_local, _unw_is_fpreg, _unw_is_signal_frame, _unw_iterate_dwarf_unwind_cache, 
-                       _unw_local_addr_space, _unw_regname, _unw_resume, _unw_set_fpreg, 
-                       _unw_set_reg, _unw_step ]
+                       _unw_local_addr_space, _unw_regname, _unw_resume, _unw_resume_with_frames_walked, 
+                       _unw_set_fpreg, _unw_set_reg, _unw_step ]
   - targets:         [ arm64-macos, arm64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
     symbols:         [ ___unw_is_pointer_auth_enabled ]
 --- !tapi-tbd
@@ -3382,7 +3390,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libxpc.dylib'
-current-version: 2866.40.11
+current-version: 2894.121.3
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3430,13 +3438,14 @@ exports:
                        __availability_version_check, __launch_job_query_routine, 
                        __launch_job_routine, __launch_job_routine_async, __launch_msg2, 
                        __launch_server_test_routine, __launch_service_stats_copy_4ppse_impl, 
-                       __launch_service_stats_copy_impl, __libxpc_initializer, __spawn_via_launchd, 
-                       __system_ios_support_version_copy_string_sysctl, __system_version_copy_string_plist, 
-                       __system_version_copy_string_sysctl, __system_version_fallback, 
-                       __system_version_parse_string, __system_version_plist_path, 
-                       __vproc_get_last_exit_status, __vproc_grab_subset, __vproc_kickstart_by_label, 
-                       __vproc_log, __vproc_log_error, __vproc_logv, __vproc_pid_is_managed, 
-                       __vproc_post_fork_ping, __vproc_send_signal_by_label, __vproc_set_global_on_demand, 
+                       __launch_service_stats_copy_impl, __launch_trial_factors_routine, 
+                       __libxpc_initializer, __spawn_via_launchd, __system_ios_support_version_copy_string_sysctl, 
+                       __system_version_copy_string_plist, __system_version_copy_string_sysctl, 
+                       __system_version_fallback, __system_version_parse_string, 
+                       __system_version_plist_path, __vproc_get_last_exit_status, 
+                       __vproc_grab_subset, __vproc_kickstart_by_label, __vproc_log, 
+                       __vproc_log_error, __vproc_logv, __vproc_pid_is_managed, __vproc_post_fork_ping, 
+                       __vproc_send_signal_by_label, __vproc_set_global_on_demand, 
                        __vproc_standby_begin, __vproc_standby_count, __vproc_standby_end, 
                        __vproc_standby_timeout, __vproc_transaction_begin, __vproc_transaction_count, 
                        __vproc_transaction_count_for_pid, __vproc_transaction_end, 
@@ -3525,7 +3534,8 @@ exports:
                        _launch_service_stats_enable, _launch_service_stats_enable_4ppse, 
                        _launch_service_stats_is_enabled, _launch_service_stats_is_enabled_4ppse, 
                        _launch_set_service_enabled, _launch_set_system_service_enabled, 
-                       _launch_socket_service_check_in, _launch_userspace_reboot_with_purpose, 
+                       _launch_socket_service_check_in, _launch_trial_factors_active_reload, 
+                       _launch_urgent_log_submission_completed, _launch_userspace_reboot_with_purpose, 
                        _launch_version_for_user_service_4coresim, _launch_wait, _launchd_close, 
                        _launchd_fdopen, _launchd_getfd, _launchd_msg_recv, _launchd_msg_send, 
                        _load_launchd_jobs_at_loginwindow_prompt, _mpm_uncork_fork, 
@@ -3545,41 +3555,41 @@ exports:
                        _xpc_activity_set_completion_status, _xpc_activity_set_criteria, 
                        _xpc_activity_set_network_threshold, _xpc_activity_set_state, 
                        _xpc_activity_should_be_data_budgeted, _xpc_activity_should_defer, 
-                       _xpc_activity_unregister, _xpc_add_bundle, _xpc_add_bundles_for_domain, 
-                       _xpc_array_append_value, _xpc_array_apply, _xpc_array_apply_f, 
-                       _xpc_array_copy_mach_send, _xpc_array_create, _xpc_array_create_connection, 
-                       _xpc_array_create_empty, _xpc_array_dup_fd, _xpc_array_get_array, 
-                       _xpc_array_get_bool, _xpc_array_get_count, _xpc_array_get_data, 
-                       _xpc_array_get_date, _xpc_array_get_dictionary, _xpc_array_get_double, 
-                       _xpc_array_get_int64, _xpc_array_get_pointer, _xpc_array_get_string, 
-                       _xpc_array_get_uint64, _xpc_array_get_uuid, _xpc_array_get_value, 
-                       _xpc_array_set_bool, _xpc_array_set_connection, _xpc_array_set_data, 
-                       _xpc_array_set_date, _xpc_array_set_double, _xpc_array_set_fd, 
-                       _xpc_array_set_int64, _xpc_array_set_mach_send, _xpc_array_set_pointer, 
-                       _xpc_array_set_string, _xpc_array_set_uint64, _xpc_array_set_uuid, 
-                       _xpc_array_set_value, _xpc_atfork_child, _xpc_atfork_parent, 
-                       _xpc_atfork_prepare, _xpc_binprefs_add, _xpc_binprefs_alloc, 
-                       _xpc_binprefs_copy, _xpc_binprefs_copy_description, _xpc_binprefs_count, 
-                       _xpc_binprefs_cpu_subtype, _xpc_binprefs_cpu_type, _xpc_binprefs_equal, 
-                       _xpc_binprefs_init, _xpc_binprefs_is_noop, _xpc_binprefs_set_psattr, 
-                       _xpc_bool_create, _xpc_bool_get_value, _xpc_bs_main, _xpc_bundle_copy_info_dictionary, 
-                       _xpc_bundle_copy_normalized_cryptex_path, _xpc_bundle_copy_resource_path, 
-                       _xpc_bundle_copy_services, _xpc_bundle_create, _xpc_bundle_create_from_origin, 
-                       _xpc_bundle_create_main, _xpc_bundle_get_error, _xpc_bundle_get_executable_path, 
-                       _xpc_bundle_get_info_dictionary, _xpc_bundle_get_path, _xpc_bundle_get_property, 
-                       _xpc_bundle_get_xpcservice_dictionary, _xpc_bundle_populate, 
-                       _xpc_bundle_resolve, _xpc_bundle_resolve_on_queue, _xpc_bundle_resolve_sync, 
-                       _xpc_coalition_copy_info, _xpc_coalition_history_pipe_async, 
-                       _xpc_connection_activate, _xpc_connection_cancel, _xpc_connection_copy_bundle_id, 
-                       _xpc_connection_copy_entitlement_value, _xpc_connection_copy_invalidation_reason, 
-                       _xpc_connection_create, _xpc_connection_create_bs_service_listener, 
-                       _xpc_connection_create_from_endpoint, _xpc_connection_create_listener, 
-                       _xpc_connection_create_mach_service, _xpc_connection_enable_sim2host_4sim, 
-                       _xpc_connection_enable_termination_imminent_event, _xpc_connection_get_asid, 
-                       _xpc_connection_get_audit_token, _xpc_connection_get_bs_type, 
-                       _xpc_connection_get_context, _xpc_connection_get_egid, _xpc_connection_get_euid, 
-                       _xpc_connection_get_filter_policy_id_4test, _xpc_connection_get_instance, 
-                       _xpc_connection_get_name, _xpc_connection_get_peer_instance, 
+                       _xpc_activity_unregister, _xpc_add_bundle, _xpc_add_bundle_with_lwcr, 
+                       _xpc_add_bundles_for_domain, _xpc_array_append_value, _xpc_array_apply, 
+                       _xpc_array_apply_f, _xpc_array_copy_mach_send, _xpc_array_create, 
+                       _xpc_array_create_connection, _xpc_array_create_empty, _xpc_array_dup_fd, 
+                       _xpc_array_get_array, _xpc_array_get_bool, _xpc_array_get_count, 
+                       _xpc_array_get_data, _xpc_array_get_date, _xpc_array_get_dictionary, 
+                       _xpc_array_get_double, _xpc_array_get_int64, _xpc_array_get_pointer, 
+                       _xpc_array_get_string, _xpc_array_get_uint64, _xpc_array_get_uuid, 
+                       _xpc_array_get_value, _xpc_array_set_bool, _xpc_array_set_connection, 
+                       _xpc_array_set_data, _xpc_array_set_date, _xpc_array_set_double, 
+                       _xpc_array_set_fd, _xpc_array_set_int64, _xpc_array_set_mach_send, 
+                       _xpc_array_set_pointer, _xpc_array_set_string, _xpc_array_set_uint64, 
+                       _xpc_array_set_uuid, _xpc_array_set_value, _xpc_atfork_child, 
+                       _xpc_atfork_parent, _xpc_atfork_prepare, _xpc_binprefs_add, 
+                       _xpc_binprefs_alloc, _xpc_binprefs_copy, _xpc_binprefs_copy_description, 
+                       _xpc_binprefs_count, _xpc_binprefs_cpu_subtype, _xpc_binprefs_cpu_type, 
+                       _xpc_binprefs_equal, _xpc_binprefs_init, _xpc_binprefs_is_noop, 
+                       _xpc_binprefs_set_psattr, _xpc_bool_create, _xpc_bool_get_value, 
+                       _xpc_bs_main, _xpc_bundle_copy_info_dictionary, _xpc_bundle_copy_normalized_cryptex_path, 
+                       _xpc_bundle_copy_resource_path, _xpc_bundle_copy_services, 
+                       _xpc_bundle_create, _xpc_bundle_create_from_origin, _xpc_bundle_create_main, 
+                       _xpc_bundle_get_error, _xpc_bundle_get_executable_path, _xpc_bundle_get_info_dictionary, 
+                       _xpc_bundle_get_path, _xpc_bundle_get_property, _xpc_bundle_get_xpcservice_dictionary, 
+                       _xpc_bundle_populate, _xpc_bundle_resolve, _xpc_bundle_resolve_on_queue, 
+                       _xpc_bundle_resolve_sync, _xpc_coalition_copy_info, _xpc_coalition_history_pipe_async, 
+                       _xpc_connection_activate, _xpc_connection_bs_seal_listener, 
+                       _xpc_connection_cancel, _xpc_connection_copy_bundle_id, _xpc_connection_copy_entitlement_value, 
+                       _xpc_connection_copy_invalidation_reason, _xpc_connection_create, 
+                       _xpc_connection_create_bs_service_listener, _xpc_connection_create_from_endpoint, 
+                       _xpc_connection_create_listener, _xpc_connection_create_mach_service, 
+                       _xpc_connection_enable_sim2host_4sim, _xpc_connection_enable_termination_imminent_event, 
+                       _xpc_connection_get_asid, _xpc_connection_get_audit_token, 
+                       _xpc_connection_get_bs_type, _xpc_connection_get_context, 
+                       _xpc_connection_get_egid, _xpc_connection_get_euid, _xpc_connection_get_filter_policy_id_4test, 
+                       _xpc_connection_get_instance, _xpc_connection_get_name, _xpc_connection_get_peer_instance, 
                        _xpc_connection_get_pid, _xpc_connection_is_extension, _xpc_connection_kill, 
                        _xpc_connection_resume, _xpc_connection_send_barrier, _xpc_connection_send_message, 
                        _xpc_connection_send_message_with_reply, _xpc_connection_send_message_with_reply_sync, 
@@ -3684,26 +3694,26 @@ exports:
                        _xpc_service_instance_set_endpoint, _xpc_service_instance_set_environment, 
                        _xpc_service_instance_set_finalizer_f, _xpc_service_instance_set_jetsam_properties, 
                        _xpc_service_instance_set_path, _xpc_service_instance_set_start_suspended, 
-                       _xpc_service_kickstart, _xpc_service_kickstart_with_flags, 
-                       _xpc_service_set_attach_handler, _xpc_session_activate, _xpc_session_cancel, 
-                       _xpc_session_copy_description, _xpc_session_create_mach_service, 
-                       _xpc_session_create_xpc_endpoint, _xpc_session_create_xpc_service, 
-                       _xpc_session_send_message, _xpc_session_send_message_with_reply_async, 
-                       _xpc_session_send_message_with_reply_sync, _xpc_session_set_cancel_handler, 
-                       _xpc_session_set_incoming_message_handler, _xpc_session_set_instance, 
-                       _xpc_session_set_peer_code_signing_requirement, _xpc_session_set_target_queue, 
-                       _xpc_session_set_target_user_session_uid, _xpc_set_event, 
-                       _xpc_set_event_state, _xpc_set_event_stream_handler, _xpc_set_event_with_flags, 
-                       _xpc_set_idle_handler, _xpc_shmem_create, _xpc_shmem_create_readonly, 
-                       _xpc_shmem_get_length, _xpc_shmem_map, _xpc_strerror, _xpc_string_create, 
-                       _xpc_string_create_no_copy, _xpc_string_create_with_format, 
-                       _xpc_string_create_with_format_and_arguments, _xpc_string_get_length, 
-                       _xpc_string_get_string_ptr, _xpc_test_symbols_exported, _xpc_track_activity, 
-                       _xpc_transaction_begin, _xpc_transaction_end, _xpc_transaction_exit_clean, 
-                       _xpc_transaction_interrupt_clean_exit, _xpc_transaction_try_exit_clean, 
-                       _xpc_transactions_enable, _xpc_traverse_serialized_data, _xpc_type_get_name, 
-                       _xpc_uint64_create, _xpc_uint64_get_value, _xpc_user_sessions_enabled, 
-                       _xpc_user_sessions_get_foreground_uid, _xpc_user_sessions_get_session_uid, 
-                       _xpc_uuid_create, _xpc_uuid_get_bytes ]
+                       _xpc_service_instance_set_use_sec_transition_shims, _xpc_service_kickstart, 
+                       _xpc_service_kickstart_with_flags, _xpc_service_set_attach_handler, 
+                       _xpc_session_activate, _xpc_session_cancel, _xpc_session_copy_description, 
+                       _xpc_session_create_mach_service, _xpc_session_create_xpc_endpoint, 
+                       _xpc_session_create_xpc_service, _xpc_session_send_message, 
+                       _xpc_session_send_message_with_reply_async, _xpc_session_send_message_with_reply_sync, 
+                       _xpc_session_set_cancel_handler, _xpc_session_set_incoming_message_handler, 
+                       _xpc_session_set_instance, _xpc_session_set_peer_code_signing_requirement, 
+                       _xpc_session_set_target_queue, _xpc_session_set_target_user_session_uid, 
+                       _xpc_set_event, _xpc_set_event_state, _xpc_set_event_stream_handler, 
+                       _xpc_set_event_with_flags, _xpc_set_idle_handler, _xpc_shmem_create, 
+                       _xpc_shmem_create_readonly, _xpc_shmem_get_length, _xpc_shmem_map, 
+                       _xpc_strerror, _xpc_string_create, _xpc_string_create_no_copy, 
+                       _xpc_string_create_with_format, _xpc_string_create_with_format_and_arguments, 
+                       _xpc_string_get_length, _xpc_string_get_string_ptr, _xpc_test_symbols_exported, 
+                       _xpc_track_activity, _xpc_transaction_begin, _xpc_transaction_end, 
+                       _xpc_transaction_exit_clean, _xpc_transaction_interrupt_clean_exit, 
+                       _xpc_transaction_try_exit_clean, _xpc_transactions_enable, 
+                       _xpc_traverse_serialized_data, _xpc_type_get_name, _xpc_uint64_create, 
+                       _xpc_uint64_get_value, _xpc_user_sessions_enabled, _xpc_user_sessions_get_foreground_uid, 
+                       _xpc_user_sessions_get_session_uid, _xpc_uuid_create, _xpc_uuid_get_bytes ]
     objc-classes:    [ OS_xpc_object ]
 ...

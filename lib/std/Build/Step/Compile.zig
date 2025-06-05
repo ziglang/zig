@@ -229,8 +229,6 @@ is_linking_libc: bool = false,
 /// Computed during make().
 is_linking_libcpp: bool = false,
 
-no_builtin: bool = false,
-
 /// Populated during the make phase when there is a long-lived compiler process.
 /// Managed by the build runner, not user build script.
 zig_process: ?*Step.ZigProcess,
@@ -380,14 +378,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         @panic("the root Module of a Compile step must be created with a known 'target' field");
     const target = resolved_target.result;
 
-    const step_name = owner.fmt("{s} {s}{s} {s}", .{
-        switch (options.kind) {
-            .exe => "zig build-exe",
-            .lib => "zig build-lib",
-            .obj => "zig build-obj",
-            .@"test" => "zig test",
-            .test_obj => "zig test-obj",
-        },
+    const step_name = owner.fmt("compile {s} {s}{s} {s}", .{
+        @tagName(options.kind),
         name_adjusted,
         @tagName(options.root_module.optimize orelse .Debug),
         resolved_target.query.zigTriple(owner.allocator) catch @panic("OOM"),
@@ -1449,6 +1441,10 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         try zig_args.append("--debug-compile-errors");
     }
 
+    if (b.debug_incremental) {
+        try zig_args.append("--debug-incremental");
+    }
+
     if (b.verbose_cimport) try zig_args.append("--verbose-cimport");
     if (b.verbose_air) try zig_args.append("--verbose-air");
     if (b.verbose_llvm_ir) |path| try zig_args.append(b.fmt("--verbose-llvm-ir={s}", .{path}));
@@ -1644,10 +1640,6 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                 }
             }
         }
-    }
-
-    if (compile.no_builtin) {
-        try zig_args.append("-fno-builtin");
     }
 
     if (b.sysroot) |sysroot| {

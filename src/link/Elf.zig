@@ -1533,8 +1533,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
     const link_mode = comp.config.link_mode;
     const is_dyn_lib = link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
-    const have_dynamic_linker = comp.config.link_libc and
-        link_mode == .dynamic and is_exe_or_dyn_lib;
+    const have_dynamic_linker = link_mode == .dynamic and is_exe_or_dyn_lib;
     const target = self.getTarget();
     const compiler_rt_path: ?Path = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
@@ -1617,9 +1616,9 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             if (comp.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
             }
-            if (have_dynamic_linker) {
-                man.hash.addOptionalBytes(target.dynamic_linker.get());
-            }
+        }
+        if (have_dynamic_linker) {
+            man.hash.addOptionalBytes(target.dynamic_linker.get());
         }
         man.hash.addOptionalBytes(self.soname);
         man.hash.addOptional(comp.version);
@@ -1910,12 +1909,14 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                 try argv.append("-L");
                 try argv.append(libc_installation.crt_dir.?);
             }
+        }
 
-            if (have_dynamic_linker) {
-                if (target.dynamic_linker.get()) |dynamic_linker| {
-                    try argv.append("-dynamic-linker");
-                    try argv.append(dynamic_linker);
-                }
+        if (have_dynamic_linker and
+            (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker))
+        {
+            if (target.dynamic_linker.get()) |dynamic_linker| {
+                try argv.append("-dynamic-linker");
+                try argv.append(dynamic_linker);
             }
         }
 
@@ -2065,11 +2066,25 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                         try argv.append(lib_path);
                     }
                     try argv.append(try comp.crtFileAsString(arena, "libc_nonshared.a"));
-                } else if (target.abi.isMusl()) {
+                } else if (target.isMuslLibC()) {
                     try argv.append(try comp.crtFileAsString(arena, switch (link_mode) {
                         .static => "libc.a",
                         .dynamic => "libc.so",
                     }));
+                } else if (target.isFreeBSDLibC()) {
+                    for (freebsd.libs) |lib| {
+                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                            comp.freebsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
+                        });
+                        try argv.append(lib_path);
+                    }
+                } else if (target.isNetBSDLibC()) {
+                    for (netbsd.libs) |lib| {
+                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                            comp.netbsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
+                        });
+                        try argv.append(lib_path);
+                    }
                 } else {
                     diags.flags.missing_libc = true;
                 }
@@ -2377,7 +2392,7 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
 ) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -5286,9 +5301,11 @@ const codegen = @import("../codegen.zig");
 const dev = @import("../dev.zig");
 const eh_frame = @import("Elf/eh_frame.zig");
 const gc = @import("Elf/gc.zig");
-const glibc = @import("../glibc.zig");
+const glibc = @import("../libs/glibc.zig");
+const musl = @import("../libs/musl.zig");
+const freebsd = @import("../libs/freebsd.zig");
+const netbsd = @import("../libs/netbsd.zig");
 const link = @import("../link.zig");
-const musl = @import("../musl.zig");
 const relocatable = @import("Elf/relocatable.zig");
 const relocation = @import("Elf/relocation.zig");
 const target_util = @import("../target.zig");
@@ -5313,7 +5330,6 @@ const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
 const HashSection = synthetic_sections.HashSection;
 const LinkerDefined = @import("Elf/LinkerDefined.zig");
-const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
 const Object = @import("Elf/Object.zig");

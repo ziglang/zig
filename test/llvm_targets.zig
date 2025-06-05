@@ -48,7 +48,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .none },
 
-    .{ .cpu_arch = .arm, .os_tag = .freebsd, .abi = .eabi },
     .{ .cpu_arch = .arm, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabihf },
@@ -157,7 +156,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .mips64, .os_tag = .linux, .abi = .muslabi64 },
     .{ .cpu_arch = .mips64, .os_tag = .linux, .abi = .muslabin32 },
     .{ .cpu_arch = .mips64, .os_tag = .linux, .abi = .none },
-    .{ .cpu_arch = .mips64, .os_tag = .netbsd, .abi = .none },
     .{ .cpu_arch = .mips64, .os_tag = .openbsd, .abi = .none },
 
     .{ .cpu_arch = .mips64el, .os_tag = .freestanding, .abi = .none },
@@ -166,7 +164,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .mips64el, .os_tag = .linux, .abi = .muslabi64 },
     .{ .cpu_arch = .mips64el, .os_tag = .linux, .abi = .muslabin32 },
     .{ .cpu_arch = .mips64el, .os_tag = .linux, .abi = .none },
-    .{ .cpu_arch = .mips64el, .os_tag = .netbsd, .abi = .none },
     .{ .cpu_arch = .mips64el, .os_tag = .openbsd, .abi = .none },
 
     .{ .cpu_arch = .msp430, .os_tag = .freestanding, .abi = .none },
@@ -177,8 +174,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .nvptx64, .os_tag = .nvcl, .abi = .none },
 
     .{ .cpu_arch = .powerpc, .os_tag = .aix, .abi = .eabihf },
-    .{ .cpu_arch = .powerpc, .os_tag = .freebsd, .abi = .eabi },
-    .{ .cpu_arch = .powerpc, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .powerpc, .os_tag = .freestanding, .abi = .eabihf },
     .{ .cpu_arch = .powerpc, .os_tag = .haiku, .abi = .eabi },
@@ -230,7 +225,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .riscv64, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .riscv64, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .riscv64, .os_tag = .linux, .abi = .none },
-    .{ .cpu_arch = .riscv64, .os_tag = .netbsd, .abi = .none },
     .{ .cpu_arch = .riscv64, .os_tag = .openbsd, .abi = .none },
     .{ .cpu_arch = .riscv64, .os_tag = .rtems, .abi = .none },
     .{ .cpu_arch = .riscv64, .os_tag = .serenity, .abi = .none },
@@ -256,8 +250,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .sparc64, .os_tag = .rtems, .abi = .none },
     .{ .cpu_arch = .sparc64, .os_tag = .solaris, .abi = .none },
 
-    .{ .cpu_arch = .thumb, .os_tag = .freebsd, .abi = .eabi },
-    .{ .cpu_arch = .thumb, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .thumb, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .thumb, .os_tag = .freestanding, .abi = .eabihf },
     .{ .cpu_arch = .thumb, .os_tag = .linux, .abi = .eabi },
@@ -292,7 +284,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .wasm64, .os_tag = .wasi, .abi = .musl },
     .{ .cpu_arch = .wasm64, .os_tag = .wasi, .abi = .none },
 
-    .{ .cpu_arch = .x86, .os_tag = .freebsd, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .haiku, .abi = .none },
     .{ .cpu_arch = .x86, .os_tag = .hurd, .abi = .gnu },

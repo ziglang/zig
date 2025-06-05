@@ -23,10 +23,13 @@
 #ifndef __TERMIOS_H__
 #define __TERMIOS_H__
 
+#include <_bounds.h>
 #include <sys/cdefs.h>
 #include <sys/termios.h>
 #include <_types.h>
 #include <sys/_types/_pid_t.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
 pid_t	tcgetsid(int);

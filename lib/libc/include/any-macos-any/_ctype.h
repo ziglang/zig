@@ -68,7 +68,10 @@
 #define __CTYPE_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <runetype.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #define	_CTYPE_A	0x00000100L		/* Alpha */
 #define	_CTYPE_C	0x00000200L		/* Control */

@@ -415,12 +415,12 @@ pub const Mutable = struct {
         // in the case that scalar happens to be small in magnitude within its type, but it
         // is well worth being able to use the stack and not needing an allocator passed in.
         // Note that Mutable.init still sets len to calcLimbLen(scalar) in any case.
-        const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
+        const limbs_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
             .comptime_int => calcLimbLen(scalar),
             .int => |info| calcTwosCompLimbCount(info.bits),
             else => @compileError("expected scalar to be an int"),
         };
-        var limbs: [limb_len]Limb = undefined;
+        var limbs: [limbs_len]Limb = undefined;
         const operand = init(&limbs, scalar).toConst();
         return add(r, a, operand);
     }
@@ -2454,12 +2454,12 @@ pub const Const = struct {
         // in the case that scalar happens to be small in magnitude within its type, but it
         // is well worth being able to use the stack and not needing an allocator passed in.
         // Note that Mutable.init still sets len to calcLimbLen(scalar) in any case.
-        const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
+        const limbs_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
             .comptime_int => calcLimbLen(scalar),
             .int => |info| calcTwosCompLimbCount(info.bits),
             else => @compileError("expected scalar to be an int"),
         };
-        var limbs: [limb_len]Limb = undefined;
+        var limbs: [limbs_len]Limb = undefined;
         const rhs = Mutable.init(&limbs, scalar);
         return order(lhs, rhs.toConst());
     }

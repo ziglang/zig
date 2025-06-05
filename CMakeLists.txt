@@ -205,6 +205,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/addo.zig
     lib/compiler_rt/addsf3.zig
     lib/compiler_rt/addtf3.zig
+    lib/compiler_rt/addvsi3.zig
     lib/compiler_rt/addxf3.zig
     lib/compiler_rt/arm.zig
     lib/compiler_rt/atomics.zig
@@ -323,6 +324,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/mulo.zig
     lib/compiler_rt/mulsf3.zig
     lib/compiler_rt/multf3.zig
+    lib/compiler_rt/mulvsi3.zig
     lib/compiler_rt/mulxf3.zig
     lib/compiler_rt/negXi2.zig
     lib/compiler_rt/negdf2.zig
@@ -346,6 +348,8 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/subo.zig
     lib/compiler_rt/subsf3.zig
     lib/compiler_rt/subtf3.zig
+    lib/compiler_rt/subvdi3.zig
+    lib/compiler_rt/subvsi3.zig
     lib/compiler_rt/subxf3.zig
     lib/compiler_rt/tan.zig
     lib/compiler_rt/trig.zig
@@ -512,13 +516,15 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/llvm/bitcode_writer.zig
     lib/std/zig/llvm/ir.zig
     src/Air.zig
+    src/Air/Legalize.zig
+    src/Air/Liveness.zig
+    src/Air/Liveness/Verify.zig
+    src/Air/types_resolved.zig
     src/Builtin.zig
     src/Compilation.zig
     src/Compilation/Config.zig
     src/DarwinPosixSpawn.zig
     src/InternPool.zig
-    src/Liveness.zig
-    src/Liveness/Verify.zig
     src/Package.zig
     src/Package/Fetch.zig
     src/Package/Fetch/git.zig
@@ -543,6 +549,7 @@ set(ZIG_STAGE2_SOURCES
     src/arch/arm/Mir.zig
     src/arch/arm/abi.zig
     src/arch/arm/bits.zig
+    src/arch/powerpc/CodeGen.zig
     src/arch/riscv64/abi.zig
     src/arch/riscv64/bits.zig
     src/arch/riscv64/CodeGen.zig
@@ -586,11 +593,13 @@ set(ZIG_STAGE2_SOURCES
     src/codegen/spirv/spec.zig
     src/crash_report.zig
     src/dev.zig
-    src/glibc.zig
+    src/libs/freebsd.zig
+    src/libs/glibc.zig
+    src/libs/netbsd.zig
     src/introspect.zig
-    src/libcxx.zig
-    src/libtsan.zig
-    src/libunwind.zig
+    src/libs/libcxx.zig
+    src/libs/libtsan.zig
+    src/libs/libunwind.zig
     src/link.zig
     src/link/C.zig
     src/link/Coff.zig
@@ -640,7 +649,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/synthetic.zig
     src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
-    src/link/NvPtx.zig
     src/link/Plan9.zig
     src/link/Plan9/aout.zig
     src/link/SpirV.zig
@@ -664,8 +672,8 @@ set(ZIG_STAGE2_SOURCES
     src/link/tapi/yaml.zig
     src/link/tapi/yaml/test.zig
     src/main.zig
-    src/mingw.zig
-    src/musl.zig
+    src/libs/mingw.zig
+    src/libs/musl.zig
     src/mutable_value.zig
     src/print_air.zig
     src/print_env.zig
@@ -676,7 +684,7 @@ set(ZIG_STAGE2_SOURCES
     src/target.zig
     src/tracy.zig
     src/translate_c.zig
-    src/wasi_libc.zig
+    src/libs/wasi_libc.zig
 )
 
 if(MSVC)
@@ -991,10 +999,6 @@ endif()
 
 if(NOT "${ZIG_TARGET_DYNAMIC_LINKER}" STREQUAL "")
   list(APPEND ZIG_BUILD_ARGS "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
-endif()
-
-if(MINGW AND "${ZIG_HOST_TARGET_ARCH}" STREQUAL "x86")
-  list(APPEND ZIG_BUILD_ARGS --maxrss 7000000000)
 endif()
 
 

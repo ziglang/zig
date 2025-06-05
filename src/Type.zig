@@ -993,8 +993,8 @@ pub fn abiAlignmentInner(
                     },
                     .stage2_x86_64 => {
                         if (vector_type.child == .bool_type) {
-                            if (vector_type.len > 256 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
-                            if (vector_type.len > 128 and std.Target.x86.featureSetHas(target.cpu.features, .avx2)) return .{ .scalar = .@"32" };
+                            if (vector_type.len > 256 and target.cpu.has(.x86, .avx512f)) return .{ .scalar = .@"64" };
+                            if (vector_type.len > 128 and target.cpu.has(.x86, .avx)) return .{ .scalar = .@"32" };
                             if (vector_type.len > 64) return .{ .scalar = .@"16" };
                             const bytes = std.math.divCeil(u32, vector_type.len, 8) catch unreachable;
                             const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
@@ -1003,8 +1003,8 @@ pub fn abiAlignmentInner(
                         const elem_bytes: u32 = @intCast((try Type.fromInterned(vector_type.child).abiSizeInner(strat, zcu, tid)).scalar);
                         if (elem_bytes == 0) return .{ .scalar = .@"1" };
                         const bytes = elem_bytes * vector_type.len;
-                        if (bytes > 32 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
-                        if (bytes > 16 and std.Target.x86.featureSetHas(target.cpu.features, .avx)) return .{ .scalar = .@"32" };
+                        if (bytes > 32 and target.cpu.has(.x86, .avx512f)) return .{ .scalar = .@"64" };
+                        if (bytes > 16 and target.cpu.has(.x86, .avx)) return .{ .scalar = .@"32" };
                         return .{ .scalar = .@"16" };
                     },
                 }
@@ -1636,17 +1636,22 @@ pub fn bitSizeInner(
         .array_type => |array_type| {
             const len = array_type.lenIncludingSentinel();
             if (len == 0) return 0;
-            const elem_ty = Type.fromInterned(array_type.child);
-            const elem_size = @max(
-                (try elem_ty.abiAlignmentInner(strat_lazy, zcu, tid)).scalar.toByteUnits() orelse 0,
-                (try elem_ty.abiSizeInner(strat_lazy, zcu, tid)).scalar,
-            );
-            if (elem_size == 0) return 0;
-            const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
-            return (len - 1) * 8 * elem_size + elem_bit_size;
+            const elem_ty: Type = .fromInterned(array_type.child);
+            switch (zcu.comp.getZigBackend()) {
+                else => {
+                    const elem_size = (try elem_ty.abiSizeInner(strat_lazy, zcu, tid)).scalar;
+                    if (elem_size == 0) return 0;
+                    const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
+                    return (len - 1) * 8 * elem_size + elem_bit_size;
+                },
+                .stage2_x86_64 => {
+                    const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
+                    return elem_bit_size * len;
+                },
+            }
         },
         .vector_type => |vector_type| {
-            const child_ty = Type.fromInterned(vector_type.child);
+            const child_ty: Type = .fromInterned(vector_type.child);
             const elem_bit_size = try child_ty.bitSizeInner(strat, zcu, tid);
             return elem_bit_size * vector_type.len;
         },
@@ -2644,10 +2649,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
                                 if (enum_type.values.len == 0) {
                                     const only = try pt.intern(.{ .enum_tag = .{
                                         .ty = ty.toIntern(),
-                                        .int = try pt.intern(.{ .int = .{
-                                            .ty = enum_type.tag_ty,
-                                            .storage = .{ .u64 = 0 },
-                                        } }),
+                                        .int = (try pt.intValue(.fromInterned(enum_type.tag_ty), 0)).toIntern(),
                                     } });
                                     return Value.fromInterned(only);
                                 } else {
@@ -3555,10 +3557,16 @@ pub fn packedStructFieldPtrInfo(struct_ty: Type, parent_ptr_ty: Type, field_idx:
         running_bits += @intCast(f_ty.bitSize(zcu));
     }
 
-    const res_host_size: u16, const res_bit_offset: u16 = if (parent_ptr_info.packed_offset.host_size != 0)
-        .{ parent_ptr_info.packed_offset.host_size, parent_ptr_info.packed_offset.bit_offset + bit_offset }
-    else
-        .{ (running_bits + 7) / 8, bit_offset };
+    const res_host_size: u16, const res_bit_offset: u16 = if (parent_ptr_info.packed_offset.host_size != 0) .{
+        parent_ptr_info.packed_offset.host_size,
+        parent_ptr_info.packed_offset.bit_offset + bit_offset,
+    } else .{
+        switch (zcu.comp.getZigBackend()) {
+            else => (running_bits + 7) / 8,
+            .stage2_x86_64 => @intCast(struct_ty.abiSize(zcu)),
+        },
+        bit_offset,
+    };
 
     // If the field happens to be byte-aligned, simplify the pointer type.
     // We can only do this if the pointee's bit size matches its ABI byte size,
@@ -3679,10 +3687,11 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .null_type,
         .undefined_type,
         .enum_literal_type,
+        .ptr_usize_type,
+        .ptr_const_comptime_int_type,
         .manyptr_u8_type,
         .manyptr_const_u8_type,
         .manyptr_const_u8_sentinel_0_type,
-        .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
         .optional_noreturn_type,
@@ -3694,9 +3703,11 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .undef => unreachable,
         .zero => unreachable,
         .zero_usize => unreachable,
+        .zero_u1 => unreachable,
         .zero_u8 => unreachable,
         .one => unreachable,
         .one_usize => unreachable,
+        .one_u1 => unreachable,
         .one_u8 => unreachable,
         .four_u8 => unreachable,
         .negative_one => unreachable,
@@ -3800,6 +3811,11 @@ fn resolveStructInner(
         return error.AnalysisFail;
     }
 
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, owner);
+        info.last_update_gen = zcu.generation;
+    }
+
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
@@ -3852,6 +3868,11 @@ fn resolveUnionInner(
 
     if (zcu.failed_analysis.contains(owner) or zcu.transitive_failed_analysis.contains(owner)) {
         return error.AnalysisFail;
+    }
+
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, owner);
+        info.last_update_gen = zcu.generation;
     }
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
@@ -4053,6 +4074,7 @@ pub const @"u32": Type = .{ .ip_index = .u32_type };
 pub const @"u64": Type = .{ .ip_index = .u64_type };
 pub const @"u80": Type = .{ .ip_index = .u80_type };
 pub const @"u128": Type = .{ .ip_index = .u128_type };
+pub const @"u256": Type = .{ .ip_index = .u256_type };
 
 pub const @"i8": Type = .{ .ip_index = .i8_type };
 pub const @"i16": Type = .{ .ip_index = .i16_type };
@@ -4092,50 +4114,71 @@ pub const @"c_longlong": Type = .{ .ip_index = .c_longlong_type };
 pub const @"c_ulonglong": Type = .{ .ip_index = .c_ulonglong_type };
 pub const @"c_longdouble": Type = .{ .ip_index = .c_longdouble_type };
 
+pub const ptr_usize: Type = .{ .ip_index = .ptr_usize_type };
+pub const ptr_const_comptime_int: Type = .{ .ip_index = .ptr_const_comptime_int_type };
 pub const manyptr_u8: Type = .{ .ip_index = .manyptr_u8_type };
 pub const manyptr_const_u8: Type = .{ .ip_index = .manyptr_const_u8_type };
 pub const manyptr_const_u8_sentinel_0: Type = .{ .ip_index = .manyptr_const_u8_sentinel_0_type };
-pub const single_const_pointer_to_comptime_int: Type = .{ .ip_index = .single_const_pointer_to_comptime_int_type };
 pub const slice_const_u8: Type = .{ .ip_index = .slice_const_u8_type };
 pub const slice_const_u8_sentinel_0: Type = .{ .ip_index = .slice_const_u8_sentinel_0_type };
 
+pub const vector_8_i8: Type = .{ .ip_index = .vector_8_i8_type };
 pub const vector_16_i8: Type = .{ .ip_index = .vector_16_i8_type };
 pub const vector_32_i8: Type = .{ .ip_index = .vector_32_i8_type };
+pub const vector_64_i8: Type = .{ .ip_index = .vector_64_i8_type };
 pub const vector_1_u8: Type = .{ .ip_index = .vector_1_u8_type };
 pub const vector_2_u8: Type = .{ .ip_index = .vector_2_u8_type };
 pub const vector_4_u8: Type = .{ .ip_index = .vector_4_u8_type };
 pub const vector_8_u8: Type = .{ .ip_index = .vector_8_u8_type };
 pub const vector_16_u8: Type = .{ .ip_index = .vector_16_u8_type };
 pub const vector_32_u8: Type = .{ .ip_index = .vector_32_u8_type };
+pub const vector_64_u8: Type = .{ .ip_index = .vector_64_u8_type };
+pub const vector_2_i16: Type = .{ .ip_index = .vector_2_i16_type };
+pub const vector_4_i16: Type = .{ .ip_index = .vector_4_i16_type };
 pub const vector_8_i16: Type = .{ .ip_index = .vector_8_i16_type };
 pub const vector_16_i16: Type = .{ .ip_index = .vector_16_i16_type };
+pub const vector_32_i16: Type = .{ .ip_index = .vector_32_i16_type };
+pub const vector_4_u16: Type = .{ .ip_index = .vector_4_u16_type };
 pub const vector_8_u16: Type = .{ .ip_index = .vector_8_u16_type };
 pub const vector_16_u16: Type = .{ .ip_index = .vector_16_u16_type };
+pub const vector_32_u16: Type = .{ .ip_index = .vector_32_u16_type };
+pub const vector_2_i32: Type = .{ .ip_index = .vector_2_i32_type };
 pub const vector_4_i32: Type = .{ .ip_index = .vector_4_i32_type };
 pub const vector_8_i32: Type = .{ .ip_index = .vector_8_i32_type };
+pub const vector_16_i32: Type = .{ .ip_index = .vector_16_i32_type };
 pub const vector_4_u32: Type = .{ .ip_index = .vector_4_u32_type };
 pub const vector_8_u32: Type = .{ .ip_index = .vector_8_u32_type };
+pub const vector_16_u32: Type = .{ .ip_index = .vector_16_u32_type };
 pub const vector_2_i64: Type = .{ .ip_index = .vector_2_i64_type };
 pub const vector_4_i64: Type = .{ .ip_index = .vector_4_i64_type };
+pub const vector_8_i64: Type = .{ .ip_index = .vector_8_i64_type };
 pub const vector_2_u64: Type = .{ .ip_index = .vector_2_u64_type };
 pub const vector_4_u64: Type = .{ .ip_index = .vector_4_u64_type };
+pub const vector_8_u64: Type = .{ .ip_index = .vector_8_u64_type };
+pub const vector_1_u128: Type = .{ .ip_index = .vector_1_u128_type };
+pub const vector_2_u128: Type = .{ .ip_index = .vector_2_u128_type };
+pub const vector_1_u256: Type = .{ .ip_index = .vector_1_u256_type };
 pub const vector_4_f16: Type = .{ .ip_index = .vector_4_f16_type };
 pub const vector_8_f16: Type = .{ .ip_index = .vector_8_f16_type };
+pub const vector_16_f16: Type = .{ .ip_index = .vector_16_f16_type };
+pub const vector_32_f16: Type = .{ .ip_index = .vector_32_f16_type };
 pub const vector_2_f32: Type = .{ .ip_index = .vector_2_f32_type };
 pub const vector_4_f32: Type = .{ .ip_index = .vector_4_f32_type };
 pub const vector_8_f32: Type = .{ .ip_index = .vector_8_f32_type };
+pub const vector_16_f32: Type = .{ .ip_index = .vector_16_f32_type };
 pub const vector_2_f64: Type = .{ .ip_index = .vector_2_f64_type };
 pub const vector_4_f64: Type = .{ .ip_index = .vector_4_f64_type };
+pub const vector_8_f64: Type = .{ .ip_index = .vector_8_f64_type };
 
 pub const empty_tuple: Type = .{ .ip_index = .empty_tuple_type };
 
 pub const generic_poison: Type = .{ .ip_index = .generic_poison_type };
 
 pub fn smallestUnsignedBits(max: u64) u16 {
-    if (max == 0) return 0;
-    const base = std.math.log2(max);
-    const upper = (@as(u64, 1) << @as(u6, @intCast(base))) - 1;
-    return @as(u16, @intCast(base + @intFromBool(upper < max)));
+    return switch (max) {
+        0 => 0,
+        else => 1 + std.math.log2_int(u64, max),
+    };
 }
 
 /// This is only used for comptime asserts. Bump this number when you make a change

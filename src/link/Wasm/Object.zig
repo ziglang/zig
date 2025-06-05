@@ -917,12 +917,12 @@ pub fn parse(
     }
     if (!saw_linking_section) return error.MissingLinkingSection;
 
-    const target_features = comp.root_mod.resolved_target.result.cpu.features;
+    const cpu = comp.root_mod.resolved_target.result.cpu;
 
     if (has_tls) {
-        if (!std.Target.wasm.featureSetHas(target_features, .atomics))
+        if (!cpu.has(.wasm, .atomics))
             return diags.failParse(path, "object has TLS segment but target CPU feature atomics is disabled", .{});
-        if (!std.Target.wasm.featureSetHas(target_features, .bulk_memory))
+        if (!cpu.has(.wasm, .bulk_memory))
             return diags.failParse(path, "object has TLS segment but target CPU feature bulk_memory is disabled", .{});
     }
 
@@ -937,7 +937,7 @@ pub fn parse(
                 },
                 else => {
                     const f = feat.tag.toCpuFeature().?;
-                    if (std.Target.wasm.featureSetHas(target_features, f)) {
+                    if (cpu.has(.wasm, f)) {
                         return diags.failParse(
                             path,
                             "object forbids {s} but specified target features include {s}",
@@ -952,7 +952,7 @@ pub fn parse(
                 },
                 else => {
                     const f = feat.tag.toCpuFeature().?;
-                    if (!std.Target.wasm.featureSetHas(target_features, f)) {
+                    if (!cpu.has(.wasm, f)) {
                         return diags.failParse(
                             path,
                             "object requires {s} but specified target features exclude {s}",

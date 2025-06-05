@@ -429,6 +429,16 @@ pub const Register = enum(u8) {
         };
     }
 
+    pub inline fn isClass(reg: Register, rc: Class) bool {
+        switch (rc) {
+            else => return reg.class() == rc,
+            .gphi => {
+                const reg_id = reg.id();
+                return (reg_id >= comptime Register.ah.id()) and reg_id <= comptime Register.bh.id();
+            },
+        }
+    }
+
     pub fn id(reg: Register) u7 {
         const base = switch (@intFromEnum(reg)) {
             // zig fmt: off
@@ -529,9 +539,33 @@ pub const Register = enum(u8) {
             16 => reg.to16(),
             32 => reg.to32(),
             64 => reg.to64(),
+            80 => reg.to80(),
             128 => reg.to128(),
             256 => reg.to256(),
+            512 => reg.to512(),
             else => unreachable,
+        };
+    }
+
+    pub fn toSize(reg: Register, size: Memory.Size, target: *const std.Target) Register {
+        return switch (size) {
+            .none => unreachable,
+            .ptr => reg.toBitSize(target.ptrBitWidth()),
+            .gpr => switch (target.cpu.arch) {
+                else => unreachable,
+                .x86 => reg.to32(),
+                .x86_64 => reg.to64(),
+            },
+            .low_byte => reg.toLo8(),
+            .high_byte => reg.toHi8(),
+            .byte => reg.to8(),
+            .word => reg.to16(),
+            .dword => reg.to32(),
+            .qword => reg.to64(),
+            .tbyte => reg.to80(),
+            .xword => reg.to128(),
+            .yword => reg.to256(),
+            .zword => reg.to512(),
         };
     }
 
@@ -549,32 +583,69 @@ pub const Register = enum(u8) {
     }
 
     pub fn to64(reg: Register) Register {
-        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.rax));
-    }
-
-    pub fn to32(reg: Register) Register {
-        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.eax));
-    }
-
-    pub fn to16(reg: Register) Register {
-        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.ax));
-    }
-
-    pub fn to8(reg: Register) Register {
-        return switch (@intFromEnum(reg)) {
-            else => @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.al)),
-            @intFromEnum(Register.ah)...@intFromEnum(Register.bh) => reg,
+        return switch (reg.class()) {
+            .general_purpose, .gphi => @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.rax)),
+            .segment => unreachable,
+            .x87, .mmx, .cr, .dr => reg,
+            .sse => reg.to128(),
+            .ip => .rip,
         };
     }
 
+    pub fn to32(reg: Register) Register {
+        return switch (reg.class()) {
+            .general_purpose, .gphi => @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.eax)),
+            .segment => unreachable,
+            .x87, .mmx, .cr, .dr => reg,
+            .sse => reg.to128(),
+            .ip => .eip,
+        };
+    }
+
+    pub fn to16(reg: Register) Register {
+        return switch (reg.class()) {
+            .general_purpose, .gphi => @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.ax)),
+            .segment, .x87, .mmx, .cr, .dr => reg,
+            .sse => reg.to128(),
+            .ip => .ip,
+        };
+    }
+
+    pub fn to8(reg: Register) Register {
+        return switch (reg.class()) {
+            .general_purpose => reg.toLo8(),
+            .gphi, .segment, .x87, .mmx, .cr, .dr => reg,
+            .sse => reg.to128(),
+            .ip => .ip,
+        };
+    }
+
+    pub fn toLo8(reg: Register) Register {
+        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.al));
+    }
+
+    pub fn toHi8(reg: Register) Register {
+        assert(reg.isClass(.gphi));
+        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.ah));
+    }
+
+    pub fn to80(reg: Register) Register {
+        assert(reg.isClass(.x87));
+        return reg;
+    }
+
     fn sseBase(reg: Register) u8 {
-        assert(reg.class() == .sse);
+        assert(reg.isClass(.sse));
         return switch (@intFromEnum(reg)) {
             @intFromEnum(Register.zmm0)...@intFromEnum(Register.zmm31) => @intFromEnum(Register.zmm0),
             @intFromEnum(Register.ymm0)...@intFromEnum(Register.ymm31) => @intFromEnum(Register.ymm0),
             @intFromEnum(Register.xmm0)...@intFromEnum(Register.xmm31) => @intFromEnum(Register.xmm0),
             else => unreachable,
         };
+    }
+
+    pub fn to512(reg: Register) Register {
+        return @enumFromInt(@intFromEnum(reg) - reg.sseBase() + @intFromEnum(Register.zmm0));
     }
 
     pub fn to256(reg: Register) Register {
@@ -628,11 +699,13 @@ test "Register enc - different classes" {
 }
 
 test "Register classes" {
-    try expect(Register.r11.class() == .general_purpose);
-    try expect(Register.ymm11.class() == .sse);
-    try expect(Register.mm3.class() == .mmx);
-    try expect(Register.st3.class() == .x87);
-    try expect(Register.fs.class() == .segment);
+    try expect(Register.r11.isClass(.general_purpose));
+    try expect(Register.rdx.isClass(.gphi));
+    try expect(!Register.dil.isClass(.gphi));
+    try expect(Register.ymm11.isClass(.sse));
+    try expect(Register.mm3.isClass(.mmx));
+    try expect(Register.st3.isClass(.x87));
+    try expect(Register.fs.isClass(.segment));
 }
 
 pub const FrameIndex = enum(u32) {
@@ -710,6 +783,8 @@ pub const Memory = struct {
         none,
         ptr,
         gpr,
+        low_byte,
+        high_byte,
         byte,
         word,
         dword,
@@ -755,7 +830,7 @@ pub const Memory = struct {
                     .x86 => 32,
                     .x86_64 => 64,
                 },
-                .byte => 8,
+                .low_byte, .high_byte, .byte => 8,
                 .word => 16,
                 .dword => 32,
                 .qword => 64,

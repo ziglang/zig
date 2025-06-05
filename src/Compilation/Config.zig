@@ -132,11 +132,13 @@ pub const ResolveError = error{
     LtoRequiresLld,
     SanitizeThreadRequiresLibCpp,
     SanitizeAddressRequiresLibCpp,
+    LibCRequiresLibUnwind,
     LibCppRequiresLibUnwind,
     OsRequiresLibC,
     LibCppRequiresLibC,
     LibUnwindRequiresLibC,
     TargetCannotDynamicLink,
+    TargetCannotStaticLinkExecutables,
     LibCRequiresDynamicLinking,
     SharedLibrariesRequireDynamicLinking,
     ExportMemoryAndDynamicIncompatible,
@@ -168,7 +170,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.shared_memory == true) return error.ObjectFilesCannotShareMemory;
             break :b false;
         }
-        if (!std.Target.wasm.featureSetHasAll(target.cpu.features, .{ .atomics, .bulk_memory })) {
+        if (!target.cpu.hasAll(.wasm, &.{ .atomics, .bulk_memory })) {
             if (options.shared_memory == true)
                 return error.SharedMemoryRequiresAtomicsAndBulkMemory;
             break :b false;
@@ -321,8 +323,8 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const link_libunwind = b: {
-        if (link_libcpp and target_util.libcNeedsLibUnwind(target)) {
+    var link_libunwind = b: {
+        if (link_libcpp and target_util.libCxxNeedsLibUnwind(target)) {
             if (options.link_libunwind == false) return error.LibCppRequiresLibUnwind;
             break :b true;
         }
@@ -343,6 +345,14 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b true;
         }
         if (options.link_libc) |x| break :b x;
+        switch (target.os.tag) {
+            // These targets don't require libc, but we don't yet have a syscall layer for them,
+            // so we default to linking libc for now.
+            .freebsd,
+            .netbsd,
+            => break :b true,
+            else => {},
+        }
         if (options.ensure_libc_on_non_freestanding and target.os.tag != .freestanding)
             break :b true;
 
@@ -360,8 +370,15 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.link_mode == .dynamic) return error.TargetCannotDynamicLink;
             break :b .static;
         }
+        if (target.os.tag == .fuchsia and options.output_mode == .Exe) {
+            if (options.link_mode == .static) return error.TargetCannotStaticLinkExecutables;
+            break :b .dynamic;
+        }
         if (explicitly_exe_or_dyn_lib and link_libc and
-            (target.isGnuLibC() or target_util.osRequiresLibC(target)))
+            (target_util.osRequiresLibC(target) or
+                // For these libcs, Zig can only provide dynamic libc when cross-compiling.
+                ((target.isGnuLibC() or target.isFreeBSDLibC() or target.isNetBSDLibC()) and
+                    !options.resolved_target.is_native_abi)))
         {
             if (options.link_mode == .static) return error.LibCRequiresDynamicLinking;
             break :b .dynamic;
@@ -376,17 +393,30 @@ pub fn resolve(options: Options) ResolveError!Config {
 
         if (options.link_mode) |link_mode| break :b link_mode;
 
-        if (explicitly_exe_or_dyn_lib and link_libc and
-            options.resolved_target.is_native_abi and target.abi.isMusl())
-        {
-            // If targeting the system's native ABI and the system's libc is
-            // musl, link dynamically by default.
-            break :b .dynamic;
+        if (explicitly_exe_or_dyn_lib and link_libc) {
+            // When using the native glibc/musl ABI, dynamic linking is usually what people want.
+            if (options.resolved_target.is_native_abi and (target.isGnuLibC() or target.isMuslLibC())) {
+                break :b .dynamic;
+            }
+
+            // When targeting systems where the kernel and libc are developed alongside each other,
+            // dynamic linking is the better default; static libc may contain code that requires
+            // the very latest kernel version.
+            if (target.isFreeBSDLibC() or target.isNetBSDLibC()) {
+                break :b .dynamic;
+            }
         }
 
         // Static is generally a better default. Fight me.
         break :b .static;
     };
+
+    // This is done here to avoid excessive duplicated logic due to the complex dependencies between these options.
+    if (options.output_mode == .Exe and link_libc and target_util.libCNeedsLibUnwind(target, link_mode)) {
+        if (options.link_libunwind == false) return error.LibCRequiresLibUnwind;
+
+        link_libunwind = true;
+    }
 
     const import_memory = options.import_memory orelse (options.output_mode == .Obj);
     const export_memory = b: {
@@ -400,15 +430,17 @@ pub fn resolve(options: Options) ResolveError!Config {
 
     const pie: bool = b: {
         switch (options.output_mode) {
-            .Obj, .Exe => {},
+            .Exe => if (target.os.tag == .fuchsia or
+                (target.abi.isAndroid() and link_mode == .dynamic))
+            {
+                if (options.pie == false) return error.TargetRequiresPie;
+                break :b true;
+            },
             .Lib => if (link_mode == .dynamic) {
                 if (options.pie == true) return error.DynamicLibraryPrecludesPie;
                 break :b false;
             },
-        }
-        if (target_util.requiresPIE(target)) {
-            if (options.pie == false) return error.TargetRequiresPie;
-            break :b true;
+            .Obj => {},
         }
         if (options.any_sanitize_thread) {
             if (options.pie == false) return error.SanitizeThreadRequiresPie;
@@ -419,7 +451,12 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b true;
         }
         if (options.pie) |pie| break :b pie;
-        break :b false;
+        break :b if (options.output_mode == .Exe) switch (target.os.tag) {
+            .fuchsia,
+            .openbsd,
+            => true,
+            else => target.os.tag.isDarwin(),
+        } else false;
     };
 
     const root_strip = b: {
@@ -439,7 +476,7 @@ pub fn resolve(options: Options) ResolveError!Config {
                 .windows, .uefi => .code_view,
                 else => .{ .dwarf = .@"32" },
             },
-            .spirv, .nvptx, .hex, .raw, .plan9 => .strip,
+            .spirv, .hex, .raw, .plan9 => .strip,
         };
     };
 

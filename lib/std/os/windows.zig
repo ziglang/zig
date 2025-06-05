@@ -594,6 +594,7 @@ pub const ReadFileError = error{
     /// Known to be possible when:
     /// - Unable to read from disconnected virtual com port (Windows)
     AccessDenied,
+    NotOpenForReading,
     Unexpected,
 };
 
@@ -627,6 +628,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
                 .NETNAME_DELETED => return error.ConnectionResetByPeer,
                 .LOCK_VIOLATION => return error.LockViolation,
                 .ACCESS_DENIED => return error.AccessDenied,
+                .INVALID_HANDLE => return error.NotOpenForReading,
                 else => |err| return unexpectedError(err),
             }
         }
@@ -684,6 +686,7 @@ pub fn WriteFile(
             .LOCK_VIOLATION => return error.LockViolation,
             .NETNAME_DELETED => return error.ConnectionResetByPeer,
             .ACCESS_DENIED => return error.AccessDenied,
+            .WORKING_SET_QUOTA => return error.SystemResources,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1138,7 +1141,10 @@ pub fn GetStdHandle(handle_id: DWORD) GetStdHandleError!HANDLE {
     return handle;
 }
 
-pub const SetFilePointerError = error{Unexpected};
+pub const SetFilePointerError = error{
+    Unseekable,
+    Unexpected,
+};
 
 /// The SetFilePointerEx function with the `dwMoveMethod` parameter set to `FILE_BEGIN`.
 pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!void {
@@ -1148,6 +1154,9 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
     const ipos = @as(LARGE_INTEGER, @bitCast(offset));
     if (kernel32.SetFilePointerEx(handle, ipos, null, FILE_BEGIN) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
+            // .INVALID_PARAMETER => unreachable,
             // .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
         }
@@ -1158,6 +1167,9 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
 pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_CURRENT) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
+            // .INVALID_PARAMETER => unreachable,
             // .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
         }
@@ -1168,6 +1180,9 @@ pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError
 pub fn SetFilePointerEx_END(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_END) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
+            // .INVALID_PARAMETER => unreachable,
             // .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
         }
@@ -1179,6 +1194,9 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     var result: LARGE_INTEGER = undefined;
     if (kernel32.SetFilePointerEx(handle, 0, &result, FILE_CURRENT) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
+            // .INVALID_PARAMETER => unreachable,
             // .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
         }
@@ -1874,38 +1892,13 @@ pub fn SetFileCompletionNotificationModes(handle: HANDLE, flags: UCHAR) !void {
     }
 }
 
-pub const GetEnvironmentStringsError = error{OutOfMemory};
-
-pub fn GetEnvironmentStringsW() GetEnvironmentStringsError![*:0]u16 {
-    return kernel32.GetEnvironmentStringsW() orelse return error.OutOfMemory;
-}
-
-pub fn FreeEnvironmentStringsW(penv: [*:0]u16) void {
-    assert(kernel32.FreeEnvironmentStringsW(penv) != 0);
-}
-
-pub const GetEnvironmentVariableError = error{
-    EnvironmentVariableNotFound,
-    Unexpected,
-};
-
-pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) GetEnvironmentVariableError!DWORD {
-    const rc = kernel32.GetEnvironmentVariableW(lpName, lpBuffer, nSize);
-    if (rc == 0) {
-        switch (GetLastError()) {
-            .ENVVAR_NOT_FOUND => return error.EnvironmentVariableNotFound,
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return rc;
-}
-
 pub const CreateProcessError = error{
     FileNotFound,
     AccessDenied,
     InvalidName,
     NameTooLong,
     InvalidExe,
+    SystemResources,
     Unexpected,
     BadPathName,
 };
@@ -2001,6 +1994,7 @@ pub fn CreateProcessW(
             // when calling CreateProcessW on a plain text file with a .exe extension
             .EXE_MACHINE_TYPE_MISMATCH,
             => return error.InvalidExe,
+            .COMMITMENT_LIMIT => return error.SystemResources,
             else => |err| return unexpectedError(err),
         }
     }

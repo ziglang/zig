@@ -24,7 +24,7 @@ pub const Iterator = switch (native_os) {
     .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => struct {
         dir: Dir,
         seek: i64,
-        buf: [1024]u8, // TODO align(@alignOf(posix.system.dirent)),
+        buf: [1024]u8 align(@alignOf(posix.system.dirent)),
         index: usize,
         end_index: usize,
         first_iter: bool,
@@ -328,8 +328,6 @@ pub const Iterator = switch (native_os) {
     },
     .linux => struct {
         dir: Dir,
-        // The if guard is solely there to prevent compile errors from missing `linux.dirent64`
-        // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
         buf: [1024]u8 align(@alignOf(linux.dirent64)),
         index: usize,
         end_index: usize,
@@ -490,7 +488,7 @@ pub const Iterator = switch (native_os) {
     },
     .wasi => struct {
         dir: Dir,
-        buf: [1024]u8, // TODO align(@alignOf(posix.wasi.dirent_t)),
+        buf: [1024]u8 align(@alignOf(std.os.wasi.dirent_t)),
         cookie: u64,
         index: usize,
         end_index: usize,
