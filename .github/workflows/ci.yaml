@@ -11,7 +11,7 @@ permissions:
   contents: read
 jobs:
   build:
-    runs-on: linux-x64-gh
+    runs-on: linux-arm64-gh
     strategy:
       matrix:
         target:
@@ -48,7 +48,7 @@ jobs:
     needs: build
     permissions:
       contents: write
-    runs-on: linux-x64-gh
+    runs-on: linux-arm64-gh
     steps:
       - uses: actions/checkout@v4
         with:
