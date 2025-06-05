@@ -46,13 +46,16 @@
 
 // @ substition
 
-// no substition
+// // undefined key, removed
+// @undefvalue@
+
+// no value, removed
 // @noval@
 
-// no substition
+// no value, removed
 // @noval@@noval@
 
-// no substition
+// no value, removed
 // @noval@.@noval@
 
 // 1
@@ -94,13 +97,16 @@
 // test10
 // @noval@@stringval@@trueval@@zeroval@
 
-// no substition
+// undefined key, removed
+// ${undefvalue}
+
+// no value, removed
 // ${noval}
 
-// no substition
+// no value, removed
 // ${noval}${noval}
 
-// no substition
+// no value, removed
 // ${noval}.${noval}
 
 // 1
