@@ -29,6 +29,8 @@ pub const Error = Lower.Error || error{
 pub fn emitMir(emit: *Emit) Error!void {
     const gpa = emit.lower.bin_file.comp.gpa;
 
+    const code_offset_mapping = try emit.lower.allocator.alloc(u32, emit.lower.mir.instructions.len);
+    defer emit.lower.allocator.free(code_offset_mapping);
     var relocs: std.ArrayListUnmanaged(Reloc) = .empty;
     defer relocs.deinit(emit.lower.allocator);
 
@@ -107,6 +109,8 @@ pub fn emitMir(emit: *Emit) Error!void {
             .b26 => inst_u32 = inst_u32 |
                 (@as(u32, @as(u16, @intCast((offset_u32 >> 2) & 0xffff))) << 10) |
                 @as(u32, @as(u10, @intCast((offset_u32 >> 2) >> 16))),
+            .k16 => inst_u32 = inst_u32 |
+                (@as(u32, @as(u16, @intCast((offset_u32 >> 2) & 0xffff))) << 10),
         }
 
         std.mem.writeInt(u32, inst_bytes, inst_u32, .little);

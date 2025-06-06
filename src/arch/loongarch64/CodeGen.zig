@@ -783,6 +783,33 @@ fn asmInst(cg: *CodeGen, opcode: encoding.OpCode, ops: encoding.Data) error{OutO
     _ = try cg.addInst(.initInst(opcode, ops));
 }
 
+fn asmBr(cg: *CodeGen, target: ?Mir.Inst.Index, cond: Mir.BranchCondition) InnerError!Mir.Inst.Index {
+    return cg.addInst(.{
+        .tag = .fromPseudo(.branch),
+        .data = .{
+            .br = .{
+                .inst = target orelse 0, // use zero instead of undefined to make debugging easier
+                .cond = cond,
+            },
+        },
+    });
+}
+
+fn performReloc(cg: *CodeGen, reloc: Mir.Inst.Index) void {
+    cg_mir_log.debug("  | <-- reloc {}", .{reloc});
+
+    const next_inst: u32 = @intCast(cg.mir_instructions.len);
+    switch (cg.mir_instructions.items(.tag)[reloc].unwrap()) {
+        .inst => unreachable,
+        .pseudo => |tag| {
+            switch (tag) {
+                .branch => cg.mir_instructions.items(.data)[reloc].br.inst = next_inst,
+                else => unreachable,
+            }
+        },
+    }
+}
+
 /// A temporary operand.
 /// Either a allocated temp or a Air.Inst.Ref (ref to a AIR inst or a interned val) or error return trace.
 const Temp = struct {

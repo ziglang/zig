@@ -54,6 +54,8 @@ pub const Reloc = struct {
     pub const Type = enum {
         /// Immediate slot of Sd10k16ps2, right shift 2, relative to PC
         b26,
+        /// Immediate slot of JDSk16ps2ps2, right shift 2, relative to PC
+        k16,
     };
 };
 
@@ -97,6 +99,38 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     }
                 },
                 .dbg_line_line_column, .dbg_line_stmt_line_column => {},
+                .branch => {
+                    switch (inst.data.br.cond) {
+                        .none => {
+                            lower.emit(.b, .{ .Sd10Sk16 = .{ 0, 0 } });
+                            lower.reloc(.b26, .{ .inst = inst.data.br.inst }, 0);
+                        },
+                        .eq => |regs| {
+                            lower.emit(.beq, .{ .DJSk16 = .{ regs[0], regs[1], 0 } });
+                            lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
+                        },
+                        .ne => |regs| {
+                            lower.emit(.bne, .{ .DJSk16 = .{ regs[0], regs[1], 0 } });
+                            lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
+                        },
+                        .lt => |regs| {
+                            lower.emit(.ble, .{ .DJSk16 = .{ regs[0], regs[1], 0 } });
+                            lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
+                        },
+                        .ge => |regs| {
+                            lower.emit(.bgt, .{ .DJSk16 = .{ regs[0], regs[1], 0 } });
+                            lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
+                        },
+                        .ltu => |regs| {
+                            lower.emit(.bleu, .{ .DJSk16 = .{ regs[0], regs[1], 0 } });
+                            lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
+                        },
+                        .geu => |regs| {
+                            lower.emit(.bgtu, .{ .DJSk16 = .{ regs[0], regs[1], 0 } });
+                            lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
+                        },
+                    }
+                },
                 else => unreachable,
             }
         },

@@ -42,6 +42,9 @@ pub const Inst = struct {
     };
 
     pub const PseudoTag = enum {
+        /// Branch instructions, uses `br` payload.
+        branch,
+
         /// Prologue of a function, uses `none` payload.
         func_prologue,
         /// Epilogue of a function, uses `none` payload.
@@ -71,6 +74,11 @@ pub const Inst = struct {
             line: u32,
             column: u32,
         },
+        /// Branches.
+        br: struct {
+            inst: Index,
+            cond: BranchCondition,
+        },
     };
 
     pub fn initInst(opcode: encoding.OpCode, data: encoding.Data) Inst {
@@ -91,6 +99,7 @@ pub const Inst = struct {
                         inst.data.line_column.line,
                         inst.data.line_column.column,
                     }),
+                    .branch => try writer.print(".branch {} => {}", .{ inst.data.br.cond, inst.data.br.inst }),
                     else => try writer.print(".pseudo.{s}", .{@tagName(tag)}),
                 }
             },
@@ -152,5 +161,38 @@ pub const RegisterList = struct {
             .loongarch32 => 4,
             .loongarch64 => 8,
         }));
+    }
+};
+
+pub const BranchCondition = union(enum) {
+    none,
+    eq: struct { Register, Register },
+    ne: struct { Register, Register },
+    lt: struct { Register, Register },
+    ge: struct { Register, Register },
+    ltu: struct { Register, Register },
+    geu: struct { Register, Register },
+
+    pub fn format(
+        inst: BranchCondition,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        switch (inst) {
+            .none => try writer.print("(unconditionally)", .{}),
+            inline .eq, .ne, .lt, .ge, .ltu, .geu => |regs| {
+                const op = switch (inst) {
+                    .eq => "==",
+                    .ne => "!=",
+                    .lt => "<",
+                    .ge => ">=",
+                    .ltu => "< (unsigned)",
+                    .geu => ">= (unsigned)",
+                    else => unreachable,
+                };
+                try writer.print("{s} {s} {s}", .{ @tagName(regs[0]), op, @tagName(regs[1]) });
+            },
+        }
     }
 };
