@@ -39,7 +39,7 @@ test {
     _ = Package;
 }
 
-const thread_stack_size = 50 << 20;
+const thread_stack_size = 60 << 20;
 
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
@@ -4208,7 +4208,7 @@ fn serve(
     const main_progress_node = std.Progress.start(.{});
     const file_system_inputs = comp.file_system_inputs.?;
 
-    const IncrementalDebugServer = if (build_options.enable_debug_extensions)
+    const IncrementalDebugServer = if (build_options.enable_debug_extensions and !builtin.single_threaded)
         @import("IncrementalDebugServer.zig")
     else
         void;

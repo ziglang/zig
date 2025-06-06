@@ -774,7 +774,7 @@ pub const Directories = struct {
 /// `comp.debug_incremental`. It is inline so that comptime-known `false` propagates to the caller,
 /// preventing debugging features from making it into release builds of the compiler.
 pub inline fn debugIncremental(comp: *const Compilation) bool {
-    if (!build_options.enable_debug_extensions) return false;
+    if (!build_options.enable_debug_extensions or builtin.single_threaded) return false;
     return comp.debug_incremental;
 }
 
