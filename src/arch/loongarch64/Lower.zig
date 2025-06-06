@@ -39,6 +39,8 @@ pub const Error = error{
     LowerFail,
 };
 
+/// Lowered relocation.
+/// The fields in instructions to be relocated must be lowered to zero.
 pub const Reloc = struct {
     lir_index: u8,
     loc: Type,
@@ -50,7 +52,7 @@ pub const Reloc = struct {
     };
 
     pub const Type = enum {
-        /// Immediate slot of Sd10k16ps2
+        /// Immediate slot of Sd10k16ps2, right shift 2, relative to PC
         b26,
     };
 };

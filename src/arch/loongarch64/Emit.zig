@@ -35,6 +35,7 @@ pub fn emitMir(emit: *Emit) Error!void {
     for (0..emit.lower.mir.instructions.len) |mir_i| {
         const mir_index: Mir.Inst.Index = @intCast(mir_i);
         const mir_inst = emit.lower.mir.instructions.get(mir_index);
+        code_offset_mapping[mir_index] = @intCast(emit.code.items.len);
 
         const lowered = try emit.lower.lowerMir(mir_index);
         var lir_relocs = lowered.relocs;
@@ -92,7 +93,24 @@ pub fn emitMir(emit: *Emit) Error!void {
             },
         }
     }
-    // TODO: emit relocs
+
+    for (relocs.items) |reloc| {
+        const target = @as(i32, @intCast(code_offset_mapping[reloc.target])) + reloc.off;
+        const target_u32 = @as(u32, @intCast(target));
+        const offset = @as(i32, @intCast(@as(usize, target_u32) - reloc.source));
+        const offset_u32 = @as(u32, @intCast(offset));
+
+        const inst_bytes = emit.code.items[reloc.source..][0..4];
+        var inst_u32 = std.mem.readInt(u32, inst_bytes, .little);
+
+        switch (reloc.loc) {
+            .b26 => inst_u32 = inst_u32 |
+                (@as(u32, @as(u16, @intCast((offset_u32 >> 2) & 0xffff))) << 10) |
+                @as(u32, @as(u10, @intCast((offset_u32 >> 2) >> 16))),
+        }
+
+        std.mem.writeInt(u32, inst_bytes, inst_u32, .little);
+    }
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) Error {
