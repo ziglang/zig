@@ -205,7 +205,15 @@ pub const MCValue = union(enum) {
         };
     }
 
-    fn isRegisterOffset(mcv: MCValue) bool {
+    fn isRegisterOf(mcv: MCValue, rc: Register.Class) bool {
+        return switch (mcv) {
+            .register => |reg| reg.class() == rc,
+            .register_bias => |reg_off| reg_off.off == 0 and reg_off.reg.class() == rc,
+            else => false,
+        };
+    }
+
+    fn isRegisterBias(mcv: MCValue) bool {
         return switch (mcv) {
             .register, .register_bias => true,
             else => false,
@@ -870,6 +878,13 @@ const Temp = struct {
         return cg.inst_tracking.get(temp.index).?;
     }
 
+    fn isMut(temp: Temp, cg: *CodeGen) bool {
+        return switch (temp.unwrap(cg)) {
+            .ref, .err_ret_trace => false,
+            .temp => |_| temp.tracking(cg).short.isModifiable(),
+        };
+    }
+
     fn toLea(temp: *Temp, cg: *CodeGen) InnerError!bool {
         switch (temp.tracking(cg).short) {
             .none,
@@ -894,6 +909,7 @@ const Temp = struct {
             .load_symbol,
             .load_frame,
             => {
+                try temp.die(cg);
                 temp.* = try cg.tempInit(temp.typeOf(cg), temp.tracking(cg).short.address());
                 return true;
             },
@@ -918,6 +934,7 @@ const Temp = struct {
             .lea_frame,
             .lea_symbol,
             => {
+                try temp.die(cg);
                 temp.* = try cg.tempInit(temp.typeOf(cg), temp.tracking(cg).short.deref());
                 return true;
             },
@@ -927,6 +944,33 @@ const Temp = struct {
             .load_frame,
             .register_frame,
             => return false,
+        }
+    }
+
+    fn moveToMemory(temp: *Temp, cg: *CodeGen, mut: bool) InnerError!bool {
+        const temp_mcv = temp.tracking(cg).short;
+        if (temp_mcv.isMemory() and (temp_mcv.isModifiable() or !mut)) {
+            return false;
+        } else {
+            const temp_ty = temp.typeOf(cg);
+            try temp.die(cg);
+            temp.* = try cg.tempAllocMem(temp_ty);
+            try cg.genCopy(temp_ty, temp.tracking(cg).short, temp_mcv, .{});
+            return true;
+        }
+    }
+
+    fn moveToRegister(temp: *Temp, cg: *CodeGen, rc: Register.Class, mut: bool) InnerError!bool {
+        const temp_mcv = temp.tracking(cg).short;
+        if (temp.tracking(cg).short.isRegister() and (temp_mcv.isModifiable() or !mut)) {
+            return false;
+        } else {
+            const old_mcv = temp.tracking(cg).short;
+            const temp_ty = temp.typeOf(cg);
+            try temp.die(cg);
+            temp.* = try cg.tempAllocReg(temp_ty, abi.getAllocatableRegSet(rc));
+            try cg.genCopy(temp_ty, temp.tracking(cg).short, old_mcv, .{});
+            return true;
         }
     }
 
@@ -1475,6 +1519,166 @@ fn genCopy(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: Cop
 
     return cg.fail("TODO: genCopy {s} => {s}", .{ @tagName(src_mcv), @tagName(dst_mcv) });
 }
+
+/// Pattern matching framework.
+const Select = struct {
+    cg: *CodeGen,
+    inst: ?Air.Inst.Index,
+
+    ops: [Air.Liveness.bpi]Temp = undefined,
+    op_types: [Air.Liveness.bpi]Type = undefined,
+    ops_count: usize = 0,
+    temps: [8]Temp = undefined,
+    temps_count: usize = 0,
+
+    const Error = InnerError || error{SelectFailed};
+
+    fn init(cg: *CodeGen, inst: ?Air.Inst.Index, ops: []const Temp) Select {
+        var sel = Select{ .cg = cg, .inst = inst };
+        sel.ops_count = ops.len;
+        for (ops, 0..) |op, op_i| {
+            sel.ops[op_i] = op;
+            sel.op_types[op_i] = op.typeOf(cg);
+        }
+        return sel;
+    }
+
+    fn finish(sel: *Select, result: Temp) !void {
+        if (sel.inst) |inst| {
+            try result.finish(inst, sel.ops[0..sel.ops_count], sel.cg);
+        }
+        for (sel.temps[0..sel.temps_count]) |temp| {
+            if (temp.index == result.index) continue;
+            try temp.die(sel.cg);
+        }
+    }
+
+    inline fn match(sel: *Select, case: Case) !bool {
+        for (case.requires) |requires|
+            if (!requires) return false;
+        for (case.patterns, 0..) |pattern, pat_i|
+            if (!pattern.matches(sel.ops[pat_i], sel.cg)) return false;
+
+        inline for (case.patterns, 0..) |pattern, pat_i| {
+            while (try pattern.convert(&sel.ops[pat_i], sel.cg)) {}
+        }
+
+        sel.temps_count = case.temps.len;
+        inline for (case.temps, 0..) |temp, temp_i| {
+            sel.temps[temp_i] = try temp.create(sel.cg, sel);
+        }
+
+        return true;
+    }
+
+    pub const Case = struct {
+        requires: []const bool = &[_]bool{},
+        patterns: []const SrcPattern,
+        temps: []const TempSpec = &[_]TempSpec{},
+    };
+
+    pub const SrcPattern = union(enum) {
+        none,
+        any,
+        imm_val: i32,
+        imm_fit: u5,
+        mem,
+        to_mem,
+        mut_mem,
+        to_mut_mem,
+        reg: Register.Class,
+        to_reg: Register.Class,
+        mut_reg: Register.Class,
+        to_mut_reg: Register.Class,
+
+        fn matches(pat: SrcPattern, temp: Temp, cg: *CodeGen) bool {
+            return switch (pat) {
+                .none => temp.tracking(cg).short == .none,
+                .any => true,
+                .imm_val => |val| switch (temp.tracking(cg).short) {
+                    .immediate => |imm| @as(i32, @intCast(imm)) == val,
+                    else => false,
+                },
+                .imm_fit => |max_size| switch (temp.tracking(cg).short) {
+                    .immediate => |imm| (imm >> max_size) == 0,
+                    else => false,
+                },
+                .mem => temp.tracking(cg).short.isMemory(),
+                .mut_mem => temp.isMut(cg) and temp.tracking(cg).short.isMemory(),
+                .to_mem, .to_mut_mem => true,
+                .reg => |rc| temp.tracking(cg).short.isRegisterOf(rc),
+                .to_reg => |_| temp.typeOf(cg).abiSize(cg.pt.zcu) <= 8,
+                .mut_reg => |rc| temp.isMut(cg) and temp.tracking(cg).short.isRegisterOf(rc),
+                .to_mut_reg => |_| temp.typeOf(cg).abiSize(cg.pt.zcu) <= 8,
+            };
+        }
+
+        fn convert(pat: SrcPattern, temp: *Temp, cg: *CodeGen) InnerError!bool {
+            return switch (pat) {
+                .none, .any, .imm_val, .imm_fit => false,
+                .mem, .to_mem => try temp.moveToMemory(cg, false),
+                .mut_mem, .to_mut_mem => try temp.moveToMemory(cg, true),
+                .reg, .to_reg => |rc| try temp.moveToRegister(cg, rc, false),
+                .mut_reg, .to_mut_reg => |rc| try temp.moveToRegister(cg, rc, true),
+            };
+        }
+    };
+
+    pub const TempSpec = struct {
+        type: Type = .noreturn,
+        kind: Kind,
+
+        pub const Kind = union(enum) {
+            any,
+            mcv: MCValue,
+            constant: Value,
+            lazy_symbol: struct { kind: link.File.LazySymbol.Kind },
+            symbol: *const struct { lib: ?[]const u8 = null, name: []const u8 },
+
+            pub const none = .{ .mcv = .none };
+            pub const undef = .{ .mcv = .undef };
+        };
+
+        fn create(spec: TempSpec, sel: *const Select) InnerError!Temp {
+            const cg = sel.cg;
+            const pt = cg.pt;
+            const zcu = pt.zcu;
+
+            return switch (spec.kind) {
+                .any => try cg.tempAlloc(spec.type),
+                .mcv => |mcv| try cg.tempInit(spec.type, mcv),
+                .constant => |constant| try cg.tempInit(constant.typeOf(zcu), try cg.genTypedValue(constant)),
+                .lazy_symbol => |lazy_symbol_spec| {
+                    const ip = &pt.zcu.intern_pool;
+                    const ty = spec.type;
+                    const lazy_symbol: link.File.LazySymbol = .{
+                        .kind = lazy_symbol_spec.kind,
+                        .ty = switch (ip.indexToKey(ty.toIntern())) {
+                            .inferred_error_set_type => |func_index| switch (ip.funcIesResolvedUnordered(func_index)) {
+                                .none => unreachable, // unresolved inferred error set
+                                else => |ty_index| ty_index,
+                            },
+                            else => ty.toIntern(),
+                        },
+                    };
+                    return .{ try cg.tempInit(.usize, .{ .lea_symbol = .{
+                        .sym_index = if (cg.bin_file.cast(.elf)) |elf_file|
+                            elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_symbol) catch |err|
+                                return cg.fail("{s} creating lazy symbol", .{@errorName(err)})
+                        else
+                            return cg.fail("external symbols unimplemented for {s}", .{@tagName(cg.bin_file.tag)}),
+                    } }), true };
+                },
+                .symbol => |symbol_spec| .{ try cg.tempInit(spec.type, .{ .lea_symbol = .{
+                    .sym_index = if (cg.bin_file.cast(.elf)) |elf_file|
+                        try elf_file.getGlobalSymbol(symbol_spec.name, symbol_spec.lib)
+                    else
+                        return cg.fail("external symbols unimplemented for {s}", .{@tagName(cg.bin_file.tag)}),
+                } }), true },
+            };
+        }
+    };
+};
 
 fn airArg(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const arg_ty = cg.typeOfIndex(inst);
