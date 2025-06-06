@@ -92,6 +92,11 @@ pub fn build(b: *std.Build) !void {
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
     const skip_translate_c = b.option(bool, "skip-translate-c", "Main test suite skips translate-c tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
+    const skip_freebsd = b.option(bool, "skip-freebsd", "Main test suite skips targets with freebsd OS") orelse false;
+    const skip_netbsd = b.option(bool, "skip-netbsd", "Main test suite skips targets with netbsd OS") orelse false;
+    const skip_windows = b.option(bool, "skip-windows", "Main test suite skips targets with windows OS") orelse false;
+    const skip_macos = b.option(bool, "skip-macos", "Main test suite skips targets with macos OS") orelse false;
+    const skip_linux = b.option(bool, "skip-linux", "Main test suite skips targets with linux OS") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
@@ -435,6 +440,11 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
         .skip_libc = skip_libc,
         .use_llvm = use_llvm,
         // 2923515904 was observed on an x86_64-linux-gnu host.
@@ -452,6 +462,11 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{"test/c_import"},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
         .skip_libc = skip_libc,
         .use_llvm = use_llvm,
     }));
@@ -467,6 +482,11 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
         .skip_libc = true,
         .use_llvm = use_llvm,
         .no_builtin = true,
@@ -483,6 +503,11 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
         .skip_libc = true,
         .use_llvm = use_llvm,
         .no_builtin = true,
@@ -499,6 +524,11 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
         .skip_libc = skip_libc,
         .use_llvm = use_llvm,
         // I observed a value of 5605064704 on the M2 CI.
@@ -536,6 +566,11 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(tests.addCAbiTests(b, .{
         .test_target_filters = test_target_filters,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
         .skip_release = skip_release,
     }));
     test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
@@ -549,7 +584,6 @@ pub fn build(b: *std.Build) !void {
         .lldb = b.option([]const u8, "lldb", "path to lldb binary"),
         .optimize_modes = optimization_modes,
         .skip_single_threaded = skip_single_threaded,
-        .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
     })) |test_debugger_step| test_step.dependOn(test_debugger_step);
     if (tests.addLlvmIrTests(b, .{

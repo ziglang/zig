@@ -2273,6 +2273,11 @@ const ModuleTestOptions = struct {
     include_paths: []const []const u8,
     skip_single_threaded: bool,
     skip_non_native: bool,
+    skip_freebsd: bool,
+    skip_netbsd: bool,
+    skip_windows: bool,
+    skip_macos: bool,
+    skip_linux: bool,
     skip_libc: bool,
     use_llvm: ?bool = null,
     max_rss: usize = 0,
@@ -2294,6 +2299,12 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         if (options.skip_non_native and !test_target.target.isNative())
             continue;
+
+        if (options.skip_freebsd and test_target.target.os_tag == .freebsd) continue;
+        if (options.skip_netbsd and test_target.target.os_tag == .netbsd) continue;
+        if (options.skip_windows and test_target.target.os_tag == .windows) continue;
+        if (options.skip_macos and test_target.target.os_tag == .macos) continue;
+        if (options.skip_linux and test_target.target.os_tag == .linux) continue;
 
         const resolved_target = b.resolveTargetQuery(test_target.target);
         const target = resolved_target.result;
@@ -2501,6 +2512,11 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 const CAbiTestOptions = struct {
     test_target_filters: []const []const u8,
     skip_non_native: bool,
+    skip_freebsd: bool,
+    skip_netbsd: bool,
+    skip_windows: bool,
+    skip_macos: bool,
+    skip_linux: bool,
     skip_release: bool,
 };
 
@@ -2514,6 +2530,11 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
 
         for (c_abi_targets) |c_abi_target| {
             if (options.skip_non_native and !c_abi_target.target.isNative()) continue;
+            if (options.skip_freebsd and c_abi_target.target.os_tag == .freebsd) continue;
+            if (options.skip_netbsd and c_abi_target.target.os_tag == .netbsd) continue;
+            if (options.skip_windows and c_abi_target.target.os_tag == .windows) continue;
+            if (options.skip_macos and c_abi_target.target.os_tag == .macos) continue;
+            if (options.skip_linux and c_abi_target.target.os_tag == .linux) continue;
 
             const resolved_target = b.resolveTargetQuery(c_abi_target.target);
             const target = resolved_target.result;
