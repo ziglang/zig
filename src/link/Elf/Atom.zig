@@ -539,8 +539,9 @@ fn reportTextRelocError(
 ) RelocError!void {
     const diags = &elf_file.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(1);
-    try err.addMsg("relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
+    try err.addMsg("relocation at offset 0x{x} with type {f} against symbol '{s}' cannot be used", .{
         rel.r_offset,
+        relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         symbol.name(elf_file),
     });
     err.addNote("in {f}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
@@ -555,8 +556,9 @@ fn reportPicError(
 ) RelocError!void {
     const diags = &elf_file.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(2);
-    try err.addMsg("relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
+    try err.addMsg("relocation at offset 0x{x} with type {f} against symbol '{s}' cannot be used", .{
         rel.r_offset,
+        relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         symbol.name(elf_file),
     });
     err.addNote("in {f}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
@@ -572,8 +574,9 @@ fn reportNoPicError(
 ) RelocError!void {
     const diags = &elf_file.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(2);
-    try err.addMsg("relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
+    try err.addMsg("relocation at offset 0x{x} with type {f} against symbol '{s}' cannot be used", .{
         rel.r_offset,
+        relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         symbol.name(elf_file),
     });
     err.addNote("in {f}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
