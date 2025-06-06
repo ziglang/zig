@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP___LOCALE_DIR_SUPPORT_APPLE_H
-#define _LIBCPP___LOCALE_DIR_SUPPORT_APPLE_H
+#ifndef _LIBCPP___LOCALE_DIR_SUPPORT_NETBSD_H
+#define _LIBCPP___LOCALE_DIR_SUPPORT_NETBSD_H
 
 #include <__config>
 
@@ -15,8 +15,6 @@
 #  pragma GCC system_header
 #endif
 
-#include <xlocale.h>
-
 #include <__locale_dir/support/bsd_like.h>
 
-#endif // _LIBCPP___LOCALE_DIR_SUPPORT_APPLE_H
+#endif // _LIBCPP___LOCALE_DIR_SUPPORT_NETBSD_H
