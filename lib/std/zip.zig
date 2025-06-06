@@ -8,6 +8,7 @@ const std = @import("std");
 const File = std.fs.File;
 const is_le = builtin.target.cpu.arch.endian() == .little;
 const Writer = std.io.Writer;
+const Reader = std.io.Reader;
 
 pub const CompressionMethod = enum(u16) {
     store = 0,
@@ -160,61 +161,47 @@ pub const EndRecord = extern struct {
     }
 };
 
-pub const Decompress = union {
-    inflate: std.compress.flate.Decompress,
-    store: *std.io.Reader,
+pub const Decompress = struct {
+    interface: Reader,
+    state: union {
+        inflate: std.compress.flate.Decompress,
+        store: *Reader,
+    },
 
-    fn readable(
-        d: *Decompress,
-        reader: *std.io.Reader,
-        method: CompressionMethod,
-        buffer: []u8,
-    ) std.io.Reader {
-        switch (method) {
-            .store => {
-                d.* = .{ .store = reader };
-                return .{
-                    .unbuffered_reader = .{
-                        .context = d,
-                        .vtable = &.{ .read = readStore },
-                    },
+    pub fn init(reader: *Reader, method: CompressionMethod, buffer: []u8) Reader {
+        return switch (method) {
+            .store => .{
+                .state = .{ .store = reader },
+                .interface = .{
+                    .context = undefined,
+                    .vtable = &.{ .stream = streamStore },
                     .buffer = buffer,
                     .end = 0,
                     .seek = 0,
-                };
+                },
             },
-            .deflate => {
-                d.* = .{ .inflate = .init(reader, .raw) };
-                return .{
-                    .unbuffered_reader = .{
-                        .context = d,
-                        .vtable = &.{ .read = readDeflate },
-                    },
+            .deflate => .{
+                .state = .{ .inflate = .init(reader, .raw) },
+                .interface = .{
+                    .context = undefined,
+                    .vtable = &.{ .stream = streamDeflate },
                     .buffer = buffer,
                     .end = 0,
                     .seek = 0,
-                };
+                },
             },
             else => unreachable,
-        }
+        };
     }
 
-    fn readStore(
-        context: ?*anyopaque,
-        writer: *Writer,
-        limit: std.io.Limit,
-    ) std.io.Reader.StreamError!usize {
-        const d: *Decompress = @ptrCast(@alignCast(context));
-        return d.store.read(writer, limit);
+    fn streamStore(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
+        const d: *Decompress = @fieldParentPtr("interface", r);
+        return d.store.read(w, limit);
     }
 
-    fn readDeflate(
-        context: ?*anyopaque,
-        writer: *Writer,
-        limit: std.io.Limit,
-    ) std.io.Reader.StreamError!usize {
-        const d: *Decompress = @ptrCast(@alignCast(context));
-        return std.compress.flate.Decompress.read(&d.inflate, writer, limit);
+    fn streamDeflate(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
+        const d: *Decompress = @fieldParentPtr("interface", r);
+        return std.compress.flate.Decompress.read(&d.inflate, w, limit);
     }
 };
 

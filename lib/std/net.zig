@@ -1912,10 +1912,7 @@ pub const Stream = struct {
                 return .{
                     .interface_state = .{
                         .context = undefined,
-                        .vtable = &.{
-                            .stream = stream,
-                            .discard = discard,
-                        },
+                        .vtable = &.{ .stream = stream },
                         .buffer = buffer,
                     },
                     .net_stream = net_stream,
@@ -1924,19 +1921,9 @@ pub const Stream = struct {
 
             fn stream(io_r: *io.Reader, io_w: *io.Writer, limit: io.Limit) io.Reader.StreamError!usize {
                 const r: *Reader = @fieldParentPtr("interface", io_r);
-                const data = io_w.writableVector(limit);
                 var iovecs: [max_buffers_len]windows.WSABUF = undefined;
-                var iovecs_i: usize = 0;
-                for (data) |d| {
-                    // In case Windows checks pointer address before length, we must omit
-                    // length-zero vectors.
-                    if (d.len == 0) continue;
-                    iovecs[iovecs_i] = .{ .buf = d.ptr, .len = d.len };
-                    iovecs_i += 1;
-                    if (iovecs_i >= iovecs.len) break;
-                }
-                const bufs = iovecs[0..iovecs_i];
-                if (bufs.len == 0) return .{}; // Prevent false positive end detection on empty `data`.
+                const bufs = io_w.writableVectorWsa(&iovecs, limit);
+                assert(bufs[0].len > 0);
                 var n: u32 = undefined;
                 var flags: u32 = 0;
                 const rc = windows.ws2_32.WSARecvFrom(r.net_stream.handle, bufs.ptr, bufs.len, &n, &flags, null, null, null, null);
@@ -1957,13 +1944,6 @@ pub const Stream = struct {
                 };
                 if (n == 0) return error.EndOfStream;
                 return io_w.advanceVector(n);
-            }
-
-            fn discard(io_r: *io.Reader, limit: io.Limit) io.Reader.Error!usize {
-                const r: *Reader = @fieldParentPtr("interface", io_r);
-                _ = r;
-                _ = limit;
-                @panic("TODO");
             }
         },
         else => struct {
