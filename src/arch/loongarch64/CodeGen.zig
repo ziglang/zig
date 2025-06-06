@@ -15,6 +15,7 @@ const abi = @import("./abi.zig");
 const bits = @import("./bits.zig");
 const Mir = @import("./Mir.zig");
 const Lir = @import("./Lir.zig");
+const Emit = @import("./Emit.zig");
 const encoding = @import("./encoding.zig");
 const RegisterManager = abi.RegisterManager;
 const Register = bits.Register;
@@ -545,8 +546,6 @@ pub fn generate(
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
 ) codegen.CodeGenError!void {
-    _ = code;
-
     const zcu = pt.zcu;
     const comp = zcu.comp;
     const gpa = zcu.gpa;
@@ -554,8 +553,6 @@ pub fn generate(
     const func = zcu.funcInfo(func_index);
     const fn_type: Type = .fromInterned(func.ty);
     const mod = zcu.navFileScope(func.owner_nav).mod.?;
-
-    _ = comp;
 
     // initialize CG
     var cg: CodeGen = .{
@@ -686,8 +683,40 @@ pub fn generate(
     };
     defer mir.deinit(gpa);
 
-    // TODO: implement code emission
-    return cg.fail("code emit is not implemented yet", .{});
+    var emit: Emit = .{
+        .air = cg.air,
+        .lower = .{
+            .bin_file = bin_file,
+            .target = cg.target,
+            .allocator = gpa,
+            .mir = mir,
+            .cc = cg.fn_type.fnCallingConvention(zcu),
+            .src_loc = src_loc,
+            .output_mode = comp.config.output_mode,
+            .link_mode = comp.config.link_mode,
+            .pic = mod.pic,
+        },
+        .atom_index = cg.owner.getSymbolIndex(&cg) catch |err| switch (err) {
+            error.CodegenFail => return error.CodegenFail,
+            else => |e| return e,
+        },
+        .debug_output = debug_output,
+        .code = code,
+        .prev_di_loc = .{
+            .line = func.lbrace_line,
+            .column = func.lbrace_column,
+            .is_stmt = switch (debug_output) {
+                .dwarf => |dwarf| dwarf.dwarf.debug_line.header.default_is_stmt,
+                .plan9 => undefined,
+                .none => undefined,
+            },
+        },
+        .prev_di_pc = 0,
+    };
+    emit.emitMir() catch |err| switch (err) {
+        error.LowerFail, error.EmitFail => return cg.failMsg(emit.lower.err_msg.?),
+        else => |e| return cg.fail("emit MIR failed: {s} (Zig compiler bug)", .{@errorName(e)}),
+    };
 }
 
 pub fn generateLazy(
