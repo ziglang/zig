@@ -115,6 +115,8 @@
 #  include <__locale_dir/support/apple.h>
 #elif defined(__FreeBSD__)
 #  include <__locale_dir/support/freebsd.h>
+#elif defined(__NetBSD__)
+#  include <__locale_dir/support/netbsd.h>
 #elif defined(_LIBCPP_MSVCRT_LIKE)
 #  include <__locale_dir/support/windows.h>
 #elif defined(__Fuchsia__)
