@@ -535,7 +535,6 @@ set(ZIG_STAGE2_SOURCES
     src/Sema.zig
     src/Sema/bitcast.zig
     src/Sema/comptime_ptr_access.zig
-    src/ThreadSafeQueue.zig
     src/Type.zig
     src/Value.zig
     src/Zcu.zig
@@ -624,6 +623,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/synthetic_sections.zig
     src/link/Goff.zig
     src/link/LdScript.zig
+    src/link/Lld.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
     src/link/MachO/Atom.zig
@@ -652,6 +652,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/uuid.zig
     src/link/Plan9.zig
     src/link/Plan9/aout.zig
+    src/link/Queue.zig
     src/link/SpirV.zig
     src/link/SpirV/BinaryModule.zig
     src/link/SpirV/deduplicate.zig
