@@ -1821,6 +1821,8 @@ pub const Input = union(enum) {
         needed: bool,
         weak: bool,
         reexport: bool,
+        name: ?[]const u8,
+        lib_directory: Directory,
     };
 
     pub const DsoExact = struct {
@@ -1873,6 +1875,8 @@ pub fn hashInputs(man: *Cache.Manifest, link_inputs: []const Input) !void {
                 man.hash.add(dso.needed);
                 man.hash.add(dso.weak);
                 man.hash.add(dso.reexport);
+                man.hash.addOptionalBytes(dso.name);
+                man.hash.addOptionalBytes(dso.lib_directory.path);
             },
             .dso_exact => |dso_exact| {
                 man.hash.addBytes(dso_exact.name);
@@ -2148,7 +2152,7 @@ fn resolveLibInput(
             else => |e| fatal("unable to search for tbd library '{}': {s}", .{ test_path, @errorName(e) }),
         };
         errdefer file.close();
-        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
+        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query, name_query.name, lib_directory);
     }
 
     {
@@ -2162,10 +2166,10 @@ fn resolveLibInput(
             }),
         };
         try checked_paths.writer(gpa).print("\n  {}", .{test_path});
-        switch (try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, .{
+        switch (try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, lib_directory, target, .{
             .path = test_path,
             .query = name_query.query,
-        }, link_mode, color)) {
+        }, link_mode, color, name_query.name)) {
             .no_match => {},
             .ok => return .ok,
         }
@@ -2186,7 +2190,7 @@ fn resolveLibInput(
             }),
         };
         errdefer file.close();
-        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
+        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query, name_query.name, lib_directory);
     }
 
     // In the case of MinGW, the main check will be .lib but we also need to
@@ -2202,7 +2206,7 @@ fn resolveLibInput(
             else => |e| fatal("unable to search for static library '{}': {s}", .{ test_path, @errorName(e) }),
         };
         errdefer file.close();
-        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
+        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query, name_query.name, lib_directory);
     }
 
     return .no_match;
@@ -2214,6 +2218,8 @@ fn finishResolveLibInput(
     file: std.fs.File,
     link_mode: std.builtin.LinkMode,
     query: UnresolvedInput.Query,
+    name: ?[]const u8,
+    lib_directory: Directory,
 ) ResolveLibInputResult {
     switch (link_mode) {
         .static => resolved_inputs.appendAssumeCapacity(.{ .archive = .{
@@ -2228,6 +2234,8 @@ fn finishResolveLibInput(
             .needed = query.needed,
             .weak = query.weak,
             .reexport = query.reexport,
+            .name = name,
+            .lib_directory = lib_directory,
         } }),
     }
     return .ok;
@@ -2247,8 +2255,8 @@ fn resolvePathInput(
     color: std.zig.Color,
 ) Allocator.Error!?ResolveLibInputResult {
     switch (Compilation.classifyFileExt(pq.path.sub_path)) {
-        .static_library => return try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, pq, .static, color),
-        .shared_library => return try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, pq, .dynamic, color),
+        .static_library => return try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, Directory.cwd(), target, pq, .static, color, null),
+        .shared_library => return try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, Directory.cwd(), target, pq, .dynamic, color, null),
         .object => {
             var file = pq.path.root_dir.handle.openFile(pq.path.sub_path, .{}) catch |err|
                 fatal("failed to open object {}: {s}", .{ pq.path, @errorName(err) });
@@ -2284,10 +2292,12 @@ fn resolvePathInputLib(
     resolved_inputs: *std.ArrayListUnmanaged(Input),
     /// Allocated via `gpa`.
     ld_script_bytes: *std.ArrayListUnmanaged(u8),
+    lib_directory: Directory,
     target: std.Target,
     pq: UnresolvedInput.PathQuery,
     link_mode: std.builtin.LinkMode,
     color: std.zig.Color,
+    name: ?[]const u8,
 ) Allocator.Error!ResolveLibInputResult {
     try resolved_inputs.ensureUnusedCapacity(gpa, 1);
 
@@ -2312,7 +2322,7 @@ fn resolvePathInputLib(
             if (n != ld_script_bytes.items.len) break :elf_file;
             if (!mem.eql(u8, ld_script_bytes.items[0..4], "\x7fELF")) break :elf_file;
             // Appears to be an ELF file.
-            return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query);
+            return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query, name, lib_directory);
         }
         const stat = file.stat() catch |err|
             fatal("failed to stat {}: {s}", .{ test_path, @errorName(err) });
@@ -2378,7 +2388,7 @@ fn resolvePathInputLib(
         }),
     };
     errdefer file.close();
-    return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query);
+    return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query, name, lib_directory);
 }
 
 pub fn openObject(path: Path, must_link: bool, hidden: bool) !Input.Object {
@@ -2401,6 +2411,8 @@ pub fn openDso(path: Path, needed: bool, weak: bool, reexport: bool) !Input.Dso 
         .needed = needed,
         .weak = weak,
         .reexport = reexport,
+        .name = null,
+        .lib_directory = Directory.cwd(),
     };
 }
 
