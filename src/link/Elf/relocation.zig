@@ -189,6 +189,7 @@ fn formatRelocType(
         .x86_64 => try writer.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),
         .aarch64 => try writer.print("R_AARCH64_{s}", .{@tagName(@as(elf.R_AARCH64, @enumFromInt(r_type)))}),
         .riscv64 => try writer.print("R_RISCV_{s}", .{@tagName(@as(elf.R_RISCV, @enumFromInt(r_type)))}),
+        .loongarch64 => try writer.print("R_LARCH_{s}", .{@tagName(@as(elf.R_LARCH, @enumFromInt(r_type)))}),
         else => unreachable,
     }
 }
