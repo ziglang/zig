@@ -867,3 +867,1600 @@ pub const Data = union(enum) {
 };
 
 pub const Format = @import("std").meta.Tag(Data);
+
+pub const Inst = struct {
+    opcode: OpCode,
+    data: Data,
+
+    pub inline fn add_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .add_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn add_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .add_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn addi_d(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .addi_d, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn addi_w(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .addi_w, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn addu16i_d(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .addu16i_d, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amadd_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amadd_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amadd_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amadd_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amadd_db_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_db_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amadd_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amadd_db_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_db_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amadd_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amand_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amand_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amand_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amand_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amand_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amand_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amand_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amand_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amcas_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amcas_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amcas_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amcas_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amcas_db_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_db_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amcas_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amcas_db_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_db_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amcas_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammax_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammax_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammax_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammax_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammax_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammax_db_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_db_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammax_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammax_db_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_db_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammin_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammin_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammin_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammin_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammin_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammin_db_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_db_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammin_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ammin_db_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_db_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amor_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amor_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amor_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amor_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amor_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amor_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amor_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amor_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amswap_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amswap_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amswap_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amswap_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amswap_db_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_db_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amswap_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amswap_db_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_db_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amswap_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amxor_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amxor_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amxor_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amxor_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amxor_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amxor_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn amxor_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amxor_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn @"and"(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .@"and", .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn andi(f0: Register, f1: Register, f2: u12) Inst {
+        return .{ .opcode = .andi, .data = .{ .DJUk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn andn(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .andn, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn asrtgt(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .asrtgt, .data = .{ .JK = .{ f0, f1 } } };
+    }
+
+    pub inline fn asrtle(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .asrtle, .data = .{ .JK = .{ f0, f1 } } };
+    }
+
+    pub inline fn b(f0: i10, f1: i16) Inst {
+        return .{ .opcode = .b, .data = .{ .Sd10Sk16 = .{ f0, f1 } } };
+    }
+
+    pub inline fn bceqz(f0: Register, f1: i5, f2: i16) Inst {
+        return .{ .opcode = .bceqz, .data = .{ .JSd5Sk16 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn bcnez(f0: Register, f1: i5, f2: i16) Inst {
+        return .{ .opcode = .bcnez, .data = .{ .JSd5Sk16 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn beq(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .beq, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn beqz(f0: Register, f1: i5, f2: i16) Inst {
+        return .{ .opcode = .beqz, .data = .{ .JSd5Sk16 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn bgt(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .bgt, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn bgtu(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .bgtu, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn bl(f0: i10, f1: i16) Inst {
+        return .{ .opcode = .bl, .data = .{ .Sd10Sk16 = .{ f0, f1 } } };
+    }
+
+    pub inline fn ble(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .ble, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn bleu(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .bleu, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn bne(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .bne, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn bnez(f0: Register, f1: i5, f2: i16) Inst {
+        return .{ .opcode = .bnez, .data = .{ .JSd5Sk16 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn @"break"(f0: u15) Inst {
+        return .{ .opcode = .@"break", .data = .{ .Ud15 = .{f0} } };
+    }
+
+    pub inline fn bstrins_d(f0: Register, f1: Register, f2: u6, f3: u6) Inst {
+        return .{ .opcode = .bstrins_d, .data = .{ .DJUk6Um6 = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn bstrins_w(f0: Register, f1: Register, f2: u5, f3: u5) Inst {
+        return .{ .opcode = .bstrins_w, .data = .{ .DJUk5Um5 = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn bstrpick_d(f0: Register, f1: Register, f2: u6, f3: u6) Inst {
+        return .{ .opcode = .bstrpick_d, .data = .{ .DJUk6Um6 = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn bstrpick_w(f0: Register, f1: Register, f2: u5, f3: u5) Inst {
+        return .{ .opcode = .bstrpick_w, .data = .{ .DJUk5Um5 = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn cacop(f0: Register, f1: u5, f2: i12) Inst {
+        return .{ .opcode = .cacop, .data = .{ .JUd5Sk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn catpick_d(f0: Register, f1: Register, f2: Register, f3: u3) Inst {
+        return .{ .opcode = .catpick_d, .data = .{ .DJKUa3 = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn catpick_w(f0: Register, f1: Register, f2: Register, f3: u2) Inst {
+        return .{ .opcode = .catpick_w, .data = .{ .DJKUa2 = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn clo_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .clo_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn clo_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .clo_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn clz_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .clz_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn clz_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .clz_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn cpucfg(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .cpucfg, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn crc_w_b_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crc_w_b_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn crc_w_d_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crc_w_d_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn crc_w_h_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crc_w_h_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn crc_w_w_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crc_w_w_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn crcc_w_b_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crcc_w_b_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn crcc_w_d_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crcc_w_d_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn crcc_w_h_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crcc_w_h_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn crcc_w_w_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crcc_w_w_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn csrxchg(f0: Register, f1: Register, f2: u14) Inst {
+        return .{ .opcode = .csrxchg, .data = .{ .DJUk14 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn cto_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .cto_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn cto_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .cto_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ctz_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ctz_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ctz_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ctz_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn cu32i_d(f0: Register, f1: i20) Inst {
+        return .{ .opcode = .cu32i_d, .data = .{ .DSj20 = .{ f0, f1 } } };
+    }
+
+    pub inline fn cu52i_d(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .cu52i_d, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn dbar(f0: u15) Inst {
+        return .{ .opcode = .dbar, .data = .{ .Ud15 = .{f0} } };
+    }
+
+    pub inline fn dbgcall(f0: u15) Inst {
+        return .{ .opcode = .dbgcall, .data = .{ .Ud15 = .{f0} } };
+    }
+
+    pub inline fn div_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .div_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn div_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .div_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn div_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .div_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn div_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .div_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn eret() Inst {
+        return .{ .opcode = .eret, .data = .EMPTY };
+    }
+
+    pub inline fn fabs_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fabs_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fabs_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fabs_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fadd_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fadd_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fadd_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fadd_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fclass_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fclass_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fclass_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fclass_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fcmp_caf_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_caf_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_caf_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_caf_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_ceq_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_ceq_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_ceq_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_ceq_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cle_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cle_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cle_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cle_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_clt_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_clt_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_clt_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_clt_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cne_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cne_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cne_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cne_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cor_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cor_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cor_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cor_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cueq_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cueq_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cueq_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cueq_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cule_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cule_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cule_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cule_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cult_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cult_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cult_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cult_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cun_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cun_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cun_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cun_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cune_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cune_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_cune_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cune_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_saf_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_saf_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_saf_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_saf_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_seq_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_seq_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_seq_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_seq_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sle_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sle_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sle_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sle_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_slt_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_slt_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_slt_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_slt_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sne_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sne_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sne_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sne_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sor_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sor_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sor_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sor_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sueq_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sueq_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sueq_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sueq_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sule_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sule_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sule_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sule_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sult_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sult_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sult_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sult_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sun_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sun_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sun_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sun_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sune_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sune_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcmp_sune_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sune_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcopysign_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcopysign_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcopysign_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcopysign_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fcsrrd(f0: Register, f1: u5) Inst {
+        return .{ .opcode = .fcsrrd, .data = .{ .DUj5 = .{ f0, f1 } } };
+    }
+
+    pub inline fn fcsrwr(f0: Register, f1: u5) Inst {
+        return .{ .opcode = .fcsrwr, .data = .{ .JUd5 = .{ f0, f1 } } };
+    }
+
+    pub inline fn fcvt_d_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fcvt_d_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fcvt_s_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fcvt_s_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fdiv_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fdiv_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fdiv_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fdiv_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ffint_d_l(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ffint_d_l, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ffint_d_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ffint_d_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ffint_s_l(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ffint_s_l, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ffint_s_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ffint_s_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fld_d(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .fld_d, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fld_s(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .fld_s, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fldgt_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fldgt_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fldgt_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fldgt_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fldle_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fldle_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fldle_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fldle_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fldx_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fldx_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fldx_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fldx_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn flogb_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .flogb_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn flogb_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .flogb_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fmadd_d(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fmadd_d, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn fmadd_s(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fmadd_s, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn fmax_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmax_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fmax_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmax_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fmaxa_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmaxa_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fmaxa_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmaxa_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fmin_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmin_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fmin_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmin_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fmina_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmina_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fmina_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmina_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fmov_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fmov_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fmov_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fmov_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fmsub_d(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fmsub_d, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn fmsub_s(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fmsub_s, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn fmul_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmul_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fmul_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmul_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fneg_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fneg_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fneg_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fneg_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fnmadd_d(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fnmadd_d, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn fnmadd_s(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fnmadd_s, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn fnmsub_d(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fnmsub_d, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn fnmsub_s(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fnmsub_s, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn frecip_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frecip_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn frecip_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frecip_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn frecipe_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frecipe_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn frecipe_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frecipe_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn frint_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frint_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn frint_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frint_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn frsqrt_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frsqrt_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn frsqrt_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frsqrt_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn frsqrte_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frsqrte_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn frsqrte_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frsqrte_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fscaleb_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fscaleb_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fscaleb_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fscaleb_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fsel(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fsel, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn fsqrt_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fsqrt_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fsqrt_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fsqrt_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn fst_d(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .fst_d, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fst_s(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .fst_s, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fstgt_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fstgt_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fstgt_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fstgt_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fstle_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fstle_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fstle_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fstle_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fstx_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fstx_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fstx_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fstx_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fsub_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fsub_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn fsub_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fsub_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ftint_l_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftint_l_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftint_l_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftint_l_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftint_w_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftint_w_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftint_w_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftint_w_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrm_l_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrm_l_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrm_l_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrm_l_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrm_w_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrm_w_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrm_w_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrm_w_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrne_l_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrne_l_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrne_l_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrne_l_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrne_w_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrne_w_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrne_w_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrne_w_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrp_l_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrp_l_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrp_l_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrp_l_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrp_w_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrp_w_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrp_w_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrp_w_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrz_l_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrz_l_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrz_l_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrz_l_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrz_w_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrz_w_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ftintrz_w_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrz_w_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn ibar(f0: u15) Inst {
+        return .{ .opcode = .ibar, .data = .{ .Ud15 = .{f0} } };
+    }
+
+    pub inline fn idle(f0: u15) Inst {
+        return .{ .opcode = .idle, .data = .{ .Ud15 = .{f0} } };
+    }
+
+    pub inline fn iocsrrd_b(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrrd_b, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn iocsrrd_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrrd_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn iocsrrd_h(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrrd_h, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn iocsrrd_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrrd_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn iocsrwr_b(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrwr_b, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn iocsrwr_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrwr_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn iocsrwr_h(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrwr_h, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn iocsrwr_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrwr_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn jirl(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .jirl, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ld_b(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_b, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ld_bu(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_bu, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ld_d(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_d, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ld_h(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_h, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ld_hu(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_hu, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ld_w(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_w, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ld_wu(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_wu, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn lddir(f0: Register, f1: Register, f2: u8) Inst {
+        return .{ .opcode = .lddir, .data = .{ .DJUk8 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldgt_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldgt_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldgt_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldgt_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldgt_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldgt_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldgt_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldgt_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldle_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldle_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldle_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldle_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldle_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldle_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldle_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldle_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldox4_d(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .ldox4_d, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldox4_w(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .ldox4_w, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldpte(f0: Register, f1: u8) Inst {
+        return .{ .opcode = .ldpte, .data = .{ .JUk8 = .{ f0, f1 } } };
+    }
+
+    pub inline fn ldx_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldx_bu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_bu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldx_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldx_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldx_hu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_hu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldx_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ldx_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ll_d(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .ll_d, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ll_w(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .ll_w, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn llacq_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .llacq_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn llacq_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .llacq_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn lu12i_w(f0: Register, f1: i20) Inst {
+        return .{ .opcode = .lu12i_w, .data = .{ .DSj20 = .{ f0, f1 } } };
+    }
+
+    pub inline fn maskeqz(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .maskeqz, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn masknez(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .masknez, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn mod_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mod_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn mod_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mod_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn mod_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mod_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn mod_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mod_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn movfcc2fr(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movfcc2fr, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn movfcc2gr(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movfcc2gr, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn movfr2fcc(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movfr2fcc, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn movfr2gr_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movfr2gr_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn movfr2gr_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movfr2gr_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn movfrh2gr_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movfrh2gr_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn movgr2fcc(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movgr2fcc, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn movgr2fr_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movgr2fr_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn movgr2fr_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movgr2fr_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn movgr2frh_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movgr2frh_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn mul_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mul_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn mul_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mul_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn mulh_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mulh_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn mulh_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mulh_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn mulh_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mulh_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn mulh_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mulh_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn mulw_d_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mulw_d_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn mulw_d_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mulw_d_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn nor(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .nor, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn @"or"(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .@"or", .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn ori(f0: Register, f1: Register, f2: u12) Inst {
+        return .{ .opcode = .ori, .data = .{ .DJUk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn orn(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .orn, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn pcaddu12i(f0: Register, f1: i20) Inst {
+        return .{ .opcode = .pcaddu12i, .data = .{ .DSj20 = .{ f0, f1 } } };
+    }
+
+    pub inline fn pcaddu18i(f0: Register, f1: i20) Inst {
+        return .{ .opcode = .pcaddu18i, .data = .{ .DSj20 = .{ f0, f1 } } };
+    }
+
+    pub inline fn pcaddu2i(f0: Register, f1: i20) Inst {
+        return .{ .opcode = .pcaddu2i, .data = .{ .DSj20 = .{ f0, f1 } } };
+    }
+
+    pub inline fn pcalau12i(f0: Register, f1: i20) Inst {
+        return .{ .opcode = .pcalau12i, .data = .{ .DSj20 = .{ f0, f1 } } };
+    }
+
+    pub inline fn preld(f0: Register, f1: u5, f2: i12) Inst {
+        return .{ .opcode = .preld, .data = .{ .JUd5Sk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn preldx(f0: Register, f1: Register, f2: u5) Inst {
+        return .{ .opcode = .preldx, .data = .{ .JKUd5 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn rdtime_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .rdtime_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn rdtimeh_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .rdtimeh_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn rdtimel_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .rdtimel_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn revb_2h(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revb_2h, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn revb_2w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revb_2w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn revb_4h(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revb_4h, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn revb_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revb_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn revbit_4b(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revbit_4b, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn revbit_8b(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revbit_8b, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn revbit_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revbit_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn revbit_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revbit_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn revh_2w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revh_2w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn revh_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revh_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn rotr_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .rotr_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn rotr_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .rotr_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn rotri_d(f0: Register, f1: Register, f2: u6) Inst {
+        return .{ .opcode = .rotri_d, .data = .{ .DJUk6 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn rotri_w(f0: Register, f1: Register, f2: u5) Inst {
+        return .{ .opcode = .rotri_w, .data = .{ .DJUk5 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn sc_d(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .sc_d, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn sc_q(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sc_q, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn sc_w(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .sc_w, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn screl_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .screl_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn screl_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .screl_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn sext_b(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .sext_b, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn sext_h(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .sext_h, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    pub inline fn sladd_d(f0: Register, f1: Register, f2: Register, f3: u2) Inst {
+        return .{ .opcode = .sladd_d, .data = .{ .DJKUa2 = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn sladd_w(f0: Register, f1: Register, f2: Register, f3: u2) Inst {
+        return .{ .opcode = .sladd_w, .data = .{ .DJKUa2 = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn sladd_wu(f0: Register, f1: Register, f2: Register, f3: u2) Inst {
+        return .{ .opcode = .sladd_wu, .data = .{ .DJKUa2 = .{ f0, f1, f2, f3 } } };
+    }
+
+    pub inline fn sll_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sll_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn sll_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sll_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn slli_d(f0: Register, f1: Register, f2: u6) Inst {
+        return .{ .opcode = .slli_d, .data = .{ .DJUk6 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn slli_w(f0: Register, f1: Register, f2: u5) Inst {
+        return .{ .opcode = .slli_w, .data = .{ .DJUk5 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn slt(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .slt, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn slti(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .slti, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn sltu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sltu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn sltui(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .sltui, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn sra_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sra_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn sra_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sra_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn srai_d(f0: Register, f1: Register, f2: u6) Inst {
+        return .{ .opcode = .srai_d, .data = .{ .DJUk6 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn srai_w(f0: Register, f1: Register, f2: u5) Inst {
+        return .{ .opcode = .srai_w, .data = .{ .DJUk5 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn srl_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .srl_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn srl_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .srl_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn srli_d(f0: Register, f1: Register, f2: u6) Inst {
+        return .{ .opcode = .srli_d, .data = .{ .DJUk6 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn srli_w(f0: Register, f1: Register, f2: u5) Inst {
+        return .{ .opcode = .srli_w, .data = .{ .DJUk5 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn st_b(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .st_b, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn st_d(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .st_d, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn st_h(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .st_h, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn st_w(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .st_w, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stgt_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stgt_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stgt_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stgt_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stgt_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stgt_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stgt_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stgt_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stle_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stle_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stle_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stle_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stle_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stle_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stle_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stle_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stox4_d(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .stox4_d, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stox4_w(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .stox4_w, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stx_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stx_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stx_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stx_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stx_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stx_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn stx_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stx_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn sub_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sub_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn sub_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sub_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn syscall(f0: u15) Inst {
+        return .{ .opcode = .syscall, .data = .{ .Ud15 = .{f0} } };
+    }
+
+    pub inline fn tlbclr() Inst {
+        return .{ .opcode = .tlbclr, .data = .EMPTY };
+    }
+
+    pub inline fn tlbfill() Inst {
+        return .{ .opcode = .tlbfill, .data = .EMPTY };
+    }
+
+    pub inline fn tlbflush() Inst {
+        return .{ .opcode = .tlbflush, .data = .EMPTY };
+    }
+
+    pub inline fn tlbinv(f0: Register, f1: Register, f2: u5) Inst {
+        return .{ .opcode = .tlbinv, .data = .{ .JKUd5 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn tlbrd() Inst {
+        return .{ .opcode = .tlbrd, .data = .EMPTY };
+    }
+
+    pub inline fn tlbsrch() Inst {
+        return .{ .opcode = .tlbsrch, .data = .EMPTY };
+    }
+
+    pub inline fn tlbwr() Inst {
+        return .{ .opcode = .tlbwr, .data = .EMPTY };
+    }
+
+    pub inline fn xor(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .xor, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn xori(f0: Register, f1: Register, f2: u12) Inst {
+        return .{ .opcode = .xori, .data = .{ .DJUk12 = .{ f0, f1, f2 } } };
+    }
+
+    pub inline fn xxx_unknown_1() Inst {
+        return .{ .opcode = .xxx_unknown_1, .data = .EMPTY };
+    }
+};

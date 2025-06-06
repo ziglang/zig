@@ -81,8 +81,9 @@ pub const Inst = struct {
         },
     };
 
-    pub fn initInst(opcode: encoding.OpCode, data: encoding.Data) Inst {
-        return .{ .tag = .fromInst(opcode), .data = .{ .op = data } };
+    pub inline fn initInst(inst: encoding.Inst) Inst {
+        const lir_inst = Lir.Inst.fromInst(inst);
+        return .{ .tag = .fromInst(lir_inst.opcode), .data = .{ .op = lir_inst.data } };
     }
 
     pub fn format(
@@ -168,10 +169,10 @@ pub const BranchCondition = union(enum) {
     none,
     eq: struct { Register, Register },
     ne: struct { Register, Register },
-    lt: struct { Register, Register },
-    ge: struct { Register, Register },
-    ltu: struct { Register, Register },
-    geu: struct { Register, Register },
+    le: struct { Register, Register },
+    gt: struct { Register, Register },
+    leu: struct { Register, Register },
+    gtu: struct { Register, Register },
 
     pub fn format(
         inst: BranchCondition,
@@ -181,14 +182,14 @@ pub const BranchCondition = union(enum) {
     ) @TypeOf(writer).Error!void {
         switch (inst) {
             .none => try writer.print("(unconditionally)", .{}),
-            inline .eq, .ne, .lt, .ge, .ltu, .geu => |regs| {
+            inline .eq, .ne, .le, .gt, .leu, .gtu => |regs| {
                 const op = switch (inst) {
                     .eq => "==",
                     .ne => "!=",
-                    .lt => "<",
-                    .ge => ">=",
-                    .ltu => "< (unsigned)",
-                    .geu => ">= (unsigned)",
+                    .le => "<=",
+                    .gt => ">",
+                    .leu => "<= (unsigned)",
+                    .gtu => "> (unsigned)",
                     else => unreachable,
                 };
                 try writer.print("{s} {s} {s}", .{ @tagName(regs[0]), op, @tagName(regs[1]) });

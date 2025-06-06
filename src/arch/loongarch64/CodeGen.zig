@@ -779,8 +779,8 @@ fn asmPseudo(cg: *CodeGen, tag: Mir.Inst.PseudoTag, data: Mir.Inst.Data) error{O
     _ = try cg.addInst(.{ .tag = .fromPseudo(tag), .data = data });
 }
 
-fn asmInst(cg: *CodeGen, opcode: encoding.OpCode, ops: encoding.Data) error{OutOfMemory}!void {
-    _ = try cg.addInst(.initInst(opcode, ops));
+fn asmInst(cg: *CodeGen, inst: encoding.Inst) error{OutOfMemory}!void {
+    _ = try cg.addInst(.initInst(inst));
 }
 
 fn asmBr(cg: *CodeGen, target: ?Mir.Inst.Index, cond: Mir.BranchCondition) InnerError!Mir.Inst.Index {
@@ -1211,7 +1211,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     if (prev_mir_tag.* == Mir.Inst.Tag.fromPseudo(.dbg_line_line_column))
                         prev_mir_tag.* = Mir.Inst.Tag.fromPseudo(.dbg_line_stmt_line_column);
                 }
-                try cg.asmInst(.ori, .{ .DJUk12 = .{ .zero, .zero, 0 } });
+                try cg.asmInst(.ori(.zero, .zero, 0));
             },
             // TODO: emit debug info
             .dbg_inline_block => {},

@@ -51,6 +51,10 @@ pub const Inst = struct {
             }
         }
     }
+
+    pub fn fromInst(inst: encoding.Inst) Inst {
+        return .{ .opcode = inst.opcode, .data = inst.data };
+    }
 };
 
 test "instruction encoding" {
@@ -69,6 +73,8 @@ test "instruction encoding" {
     try expectEqual(0x0c100820, (Inst{ .opcode = .fcmp_caf_s, .data = .{
         .DJK = .{ .fcc0, .f1, .f2 },
     } }).encode());
+    try expectEqual(0x0c100820, Inst.fromInst(.fcmp_caf_s(.fcc0, .f1, .f2)).encode());
+    try expectEqual(0x06483800, Inst.fromInst(.eret()).encode());
 }
 
 test "instruction formatting" {

@@ -80,13 +80,13 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
     log.debug("lowering: {}", .{inst});
 
     switch (inst.tag.unwrap()) {
-        .inst => |opcode| lower.emit(opcode, inst.data.op),
+        .inst => |opcode| lower.emitLir(.{ .opcode = opcode, .data = inst.data.op }),
         .pseudo => |tag| {
             switch (tag) {
                 // TODO: impl func prolugue
                 .func_prologue => {},
                 .func_epilogue => {
-                    lower.emit(.jirl, .{ .DJSk16 = .{ .ra, .ra, 0 } });
+                    lower.emit(.jirl(.ra, .ra, 0));
                 },
                 .jump_to_epilogue => {
                     if (index + 1 < lower.mir.instructions.len and
@@ -94,7 +94,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     {
                         log.debug("omit jump_to_epilogue", .{});
                     } else {
-                        lower.emit(.b, .{ .Sd10Sk16 = .{ 0, 0 } });
+                        lower.emit(.b(0, 0));
                         lower.reloc(.b26, .{ .inst = @intCast(lower.mir.instructions.len - 1) }, 0);
                     }
                 },
@@ -102,31 +102,31 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 .branch => {
                     switch (inst.data.br.cond) {
                         .none => {
-                            lower.emit(.b, .{ .Sd10Sk16 = .{ 0, 0 } });
+                            lower.emit(.b(0, 0));
                             lower.reloc(.b26, .{ .inst = inst.data.br.inst }, 0);
                         },
                         .eq => |regs| {
-                            lower.emit(.beq, .{ .DJSk16 = .{ regs[0], regs[1], 0 } });
+                            lower.emit(.beq(regs[0], regs[1], 0));
                             lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
                         },
                         .ne => |regs| {
-                            lower.emit(.bne, .{ .DJSk16 = .{ regs[0], regs[1], 0 } });
+                            lower.emit(.bne(regs[0], regs[1], 0));
                             lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
                         },
-                        .lt => |regs| {
-                            lower.emit(.ble, .{ .DJSk16 = .{ regs[0], regs[1], 0 } });
+                        .le => |regs| {
+                            lower.emit(.ble(regs[0], regs[1], 0));
                             lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
                         },
-                        .ge => |regs| {
-                            lower.emit(.bgt, .{ .DJSk16 = .{ regs[0], regs[1], 0 } });
+                        .gt => |regs| {
+                            lower.emit(.bgt(regs[0], regs[1], 0));
                             lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
                         },
-                        .ltu => |regs| {
-                            lower.emit(.bleu, .{ .DJSk16 = .{ regs[0], regs[1], 0 } });
+                        .leu => |regs| {
+                            lower.emit(.bleu(regs[0], regs[1], 0));
                             lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
                         },
-                        .geu => |regs| {
-                            lower.emit(.bgtu, .{ .DJSk16 = .{ regs[0], regs[1], 0 } });
+                        .gtu => |regs| {
+                            lower.emit(.bgtu(regs[0], regs[1], 0));
                             lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
                         },
                     }
@@ -142,8 +142,11 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
     };
 }
 
-fn emit(lower: *Lower, opcode: encoding.OpCode, data: encoding.Data) void {
-    const inst: Lir.Inst = .{ .opcode = opcode, .data = data };
+fn emit(lower: *Lower, inst: encoding.Inst) void {
+    lower.emitLir(.fromInst(inst));
+}
+
+fn emitLir(lower: *Lower, inst: Lir.Inst) void {
     log.debug("  | {}", .{inst});
     lower.result_insts[lower.result_insts_len] = inst;
     lower.result_insts_len += 1;
