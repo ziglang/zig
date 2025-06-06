@@ -85,8 +85,14 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     lower.emit(.jirl, .{ .DJSk16 = .{ .ra, .ra, 0 } });
                 },
                 .jump_to_epilogue => {
-                    lower.emit(.b, .{ .Sd10Sk16 = .{ 0, 0 } });
-                    lower.reloc(.b26, .{ .inst = @intCast(lower.mir.instructions.len - 1) }, 0);
+                    if (index + 1 < lower.mir.instructions.len and
+                        lower.mir.instructions.get(index + 1).tag == Mir.Inst.Tag.fromPseudo(.func_epilogue))
+                    {
+                        log.debug("omit jump_to_epilogue", .{});
+                    } else {
+                        lower.emit(.b, .{ .Sd10Sk16 = .{ 0, 0 } });
+                        lower.reloc(.b26, .{ .inst = @intCast(lower.mir.instructions.len - 1) }, 0);
+                    }
                 },
                 else => unreachable,
             }

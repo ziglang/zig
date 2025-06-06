@@ -64,6 +64,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 else => unreachable,
                 .pseudo => |tag| switch (tag) {
                     .func_prologue => {}, // TODO: func_prologue current does not lower to any instructions
+                    .jump_to_epilogue => {}, // jump_to_epilogue may be optimized out
                     else => unreachable,
                 },
             }
