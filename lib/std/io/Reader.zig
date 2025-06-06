@@ -392,7 +392,7 @@ pub fn readAll(r: *Reader, w: *Writer, limit: Limit) StreamError!void {
     }
 }
 
-/// Returns the next `len` bytes from `unbuffered_reader`, filling the buffer as
+/// Returns the next `len` bytes from the stream, filling the buffer as
 /// necessary.
 ///
 /// Invalidates previously returned values from `peek`.
@@ -411,8 +411,8 @@ pub fn peek(r: *Reader, n: usize) Error![]u8 {
     return r.buffer[r.seek..][0..n];
 }
 
-/// Returns all the next buffered bytes from `unbuffered_reader`, after filling
-/// the buffer to ensure it contains at least `n` bytes.
+/// Returns all the next buffered bytes, after filling the buffer to ensure it
+/// contains at least `n` bytes.
 ///
 /// Invalidates previously returned values from `peek` and `peekGreedy`.
 ///
@@ -461,8 +461,8 @@ pub fn take(r: *Reader, n: usize) Error![]u8 {
     return result;
 }
 
-/// Returns the next `n` bytes from `unbuffered_reader` as an array, filling
-/// the buffer as necessary and advancing the seek position `n` bytes.
+/// Returns the next `n` bytes from the stream as an array, filling the buffer
+/// as necessary and advancing the seek position `n` bytes.
 ///
 /// Asserts that the `Reader` was initialized with a buffer capacity at
 /// least as big as `n`.
@@ -476,8 +476,8 @@ pub fn takeArray(r: *Reader, comptime n: usize) Error!*[n]u8 {
     return (try r.take(n))[0..n];
 }
 
-/// Returns the next `n` bytes from `unbuffered_reader` as an array, filling
-/// the buffer as necessary, without advancing the seek position.
+/// Returns the next `n` bytes from the stream as an array, filling the buffer
+/// as necessary, without advancing the seek position.
 ///
 /// Asserts that the `Reader` was initialized with a buffer capacity at
 /// least as big as `n`.
@@ -538,7 +538,7 @@ pub fn discardShort(r: *Reader, n: usize) ShortError!usize {
     r.end = 0;
     r.seek = 0;
     while (true) {
-        const discard_len = r.unbuffered_reader.discard(.limited(remaining)) catch |err| switch (err) {
+        const discard_len = r.vtable.discard(r, .limited(remaining)) catch |err| switch (err) {
             error.EndOfStream => return n - remaining,
             error.ReadFailed => return error.ReadFailed,
         };
@@ -586,7 +586,28 @@ pub fn readSliceShort(r: *Reader, buffer: []u8) ShortError!usize {
     r.seek = 0;
     while (true) {
         const remaining = buffer[i..];
-        const n = r.unbuffered_reader.readVec(&.{ remaining, r.buffer }) catch |err| switch (err) {
+        var wrapper: Writer.VectorWrapper = .{
+            .it = .{
+                .first = remaining,
+                .last = r.buffer,
+            },
+            .writer = .{
+                .context = &Writer.VectorWrapper.unique_address,
+                .buffer = if (remaining.len >= r.buffer.len) remaining else r.buffer,
+                .vtable = &.{ .drain = Writer.fixedDrain },
+            },
+        };
+        const n = r.vtable.stream(r, &wrapper.writer, .unlimited) catch |err| switch (err) {
+            error.WriteFailed => {
+                if (wrapper.writer.buffer.ptr != remaining.ptr) {
+                    assert(r.seek == 0);
+                    r.seek = remaining.len;
+                    r.end = wrapper.writer.end;
+                    @memcpy(remaining, r.buffer[0..remaining.len]);
+                    return buffer.len;
+                }
+                return buffer.len;
+            },
             error.EndOfStream => return i,
             error.ReadFailed => return error.ReadFailed,
         };
