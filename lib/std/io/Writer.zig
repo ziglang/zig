@@ -256,6 +256,49 @@ pub fn writableSliceGreedy(w: *Writer, minimum_length: usize) Error![]u8 {
     }
 }
 
+pub const WritableVectorIterator = struct {
+    first: []u8,
+    middle: []const []u8 = &.{},
+    last: []u8 = &.{},
+    index: usize = 0,
+
+    pub fn next(it: *WritableVectorIterator) ?[]u8 {
+        while (true) {
+            const i = it.index;
+            it.index += 1;
+            if (i == 0) {
+                if (it.first.len == 0) continue;
+                return it.first;
+            }
+            const middle_index = i - 1;
+            if (middle_index < it.middle.len) {
+                const middle = it.middle[middle_index];
+                if (middle.len == 0) continue;
+                return middle;
+            }
+            if (middle_index == it.middle.len) {
+                if (it.last.len == 0) continue;
+                return it.last;
+            }
+            return null;
+        }
+    }
+};
+
+pub const VectorWrapper = struct {
+    writer: Writer,
+    it: WritableVectorIterator,
+    pub var unique_address: u8 = undefined;
+};
+
+pub fn writableVectorIterator(w: *Writer) Error!WritableVectorIterator {
+    if (w.context == &VectorWrapper.unique_address) {
+        const wrapper: *VectorWrapper = @fieldParentPtr("writer", w);
+        return wrapper.it;
+    }
+    return .{ .first = try writableSliceGreedy(w, 1) };
+}
+
 pub fn ensureUnusedCapacity(w: *Writer, n: usize) Error!void {
     _ = try writableSliceGreedy(w, n);
 }

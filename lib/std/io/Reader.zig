@@ -279,14 +279,6 @@ pub fn readVec(r: *Reader, data: []const []u8) Error!usize {
     return readVec(r, data, .unlimited);
 }
 
-const VectorWrapped = struct {
-    writer: Writer,
-    first: []u8,
-    middle: []const []u8,
-    last: []u8,
-    var unique_address: u8 = undefined;
-};
-
 /// Equivalent to `readVec` but reads at most `limit` bytes.
 ///
 /// This ultimately will lower to a call to `stream`, but it must ensure
@@ -313,29 +305,32 @@ pub fn readVecLimit(r: *Reader, data: []const []u8, limit: Limit) Error!usize {
         r.seek = 0;
         r.end = 0;
         const first = buf[copy_len..];
-        var wrapped: VectorWrapped = .{
-            .first = first,
-            .middle = data[i + 1 ..],
-            .last = r.buffer,
+        const middle = data[i + 1 ..];
+        var wrapper: Writer.VectorWrapper = .{
+            .it = .{
+                .first = first,
+                .middle = middle,
+                .last = r.buffer,
+            },
             .writer = .{
-                .context = &VectorWrapped.unique_address,
+                .context = &Writer.VectorWrapper.unique_address,
                 .buffer = if (first.len >= r.buffer.len) first else r.buffer,
                 .vtable = &.{ .drain = Writer.fixedDrain },
             },
         };
-        var n = r.vtable.stream(r, &wrapped.writer, .limited(remaining)) catch |err| switch (err) {
+        var n = r.vtable.stream(r, &wrapper.writer, .limited(remaining)) catch |err| switch (err) {
             error.WriteFailed => {
-                if (wrapped.writer.buffer.ptr == first.ptr) {
-                    remaining -= wrapped.writer.end;
+                if (wrapper.writer.buffer.ptr == first.ptr) {
+                    remaining -= wrapper.writer.end;
                 } else {
-                    r.end = wrapped.writer.end;
+                    r.end = wrapper.writer.end;
                 }
                 break;
             },
             else => |e| return e,
         };
-        assert(n == wrapped.writer.end);
-        if (wrapped.writer.buffer.ptr != first.ptr) {
+        assert(n == wrapper.writer.end);
+        if (wrapper.writer.buffer.ptr != first.ptr) {
             r.end = n;
             break;
         }
@@ -345,13 +340,13 @@ pub fn readVecLimit(r: *Reader, data: []const []u8, limit: Limit) Error!usize {
         }
         remaining -= first.len;
         n -= first.len;
-        for (wrapped.middle) |middle| {
-            if (n < middle.len) {
+        for (middle) |mid| {
+            if (n < mid.len) {
                 remaining -= n;
                 break;
             }
-            remaining -= middle.len;
-            n -= middle.len;
+            remaining -= mid.len;
+            n -= mid.len;
         }
         r.end = n;
         break;
