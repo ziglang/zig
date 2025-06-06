@@ -870,7 +870,7 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
         },
         .separate_thread => switch (backend) {
             .stage2_llvm => false,
-            .stage2_c, .stage2_wasm, .stage2_x86_64 => true,
+            .stage2_c, .stage2_wasm, .stage2_x86_64, .stage2_loongarch => true,
             // TODO: most self-hosted backends should be able to support this without too much work.
             else => false,
         },

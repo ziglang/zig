@@ -125,7 +125,6 @@ pub fn main() anyerror!void {
         } else {
             try out_writer.print("    {s}: struct {{", .{format_str});
             if (format.len != 1) try out_writer.writeAll(" ");
-            var imm_i: usize = 0;
             for (format, 0..) |slot, slot_i| {
                 if (slot == .none) continue;
                 if (slot_i != 0) try out_writer.writeAll(", ");
@@ -135,14 +134,7 @@ pub fn main() anyerror!void {
                         try out_writer.writeAll("Register");
                     },
                     .imm => |imm| {
-                        try out_writer.print("{c}{}", .{
-                            @as(u8, switch (imm.sign) {
-                                .signed => 'i',
-                                .unsigned => 'u',
-                            }),
-                            imm.length,
-                        });
-                        imm_i += 1;
+                        try out_writer.print("{}", .{imm});
                     },
                 }
             }
@@ -201,6 +193,67 @@ pub fn main() anyerror!void {
         \\};
         \\
         \\pub const Format = @import("std").meta.Tag(Data);
+        \\
+        \\pub const Inst = struct {
+        \\    opcode: OpCode,
+        \\    data: Data,
+        \\
+    );
+    for (descs.items) |*desc| {
+        try out_writer.writeAll("\n");
+        const name_buf = try arena.dupe(u8, desc.name);
+        defer arena.free(name_buf);
+        std.mem.replaceScalar(u8, name_buf, '.', '_');
+
+        try out_writer.writeAll("    // Workaround https://github.com/ziglang/zig/issues/24127\n");
+        if (std.zig.isValidId(name_buf)) {
+            try out_writer.print("    pub noinline fn {s}(", .{name_buf});
+        } else {
+            try out_writer.print("    pub noinline fn @\"{s}\"(", .{name_buf});
+        }
+        for (desc.format, 0..) |slot, slot_i| {
+            if (slot == .none) continue;
+            if (slot_i != 0) try out_writer.writeAll(", ");
+            switch (slot) {
+                .none => unreachable,
+                .reg => |_| {
+                    try out_writer.print("f{}: Register", .{slot_i});
+                },
+                .imm => |imm| {
+                    try out_writer.print("f{}: {}", .{ slot_i, imm });
+                },
+            }
+        }
+        try out_writer.writeAll(") Inst {\n        return .{ .opcode = ");
+        if (std.zig.isValidId(name_buf)) {
+            try out_writer.print(".{s}", .{name_buf});
+        } else {
+            try out_writer.print(".@\"{s}\"", .{name_buf});
+        }
+
+        var format_buf = std.ArrayList(u8).init(arena);
+        defer format_buf.deinit();
+        try OpcodeDesc.stringifyFormat(&desc.format, format_buf.writer());
+        const format_str = format_buf.items;
+
+        try out_writer.writeAll(", .data = ");
+        if (std.mem.eql(u8, format_str, "EMPTY")) {
+            try out_writer.writeAll(".EMPTY");
+        } else {
+            try out_writer.print(".{{ .{s} = .{{", .{format_str});
+            if (desc.format[1] != .none) try out_writer.writeAll(" ");
+            for (desc.format, 0..) |slot, slot_i| {
+                if (slot == .none) continue;
+                if (slot_i != 0) try out_writer.writeAll(", ");
+                try out_writer.print("f{}", .{slot_i});
+            }
+            if (desc.format[1] != .none) try out_writer.writeAll(" ");
+            try out_writer.writeAll("} }");
+        }
+        try out_writer.writeAll(" };\n    }\n");
+    }
+    try out_writer.writeAll(
+        \\};
         \\
     );
 }
@@ -262,6 +315,16 @@ const OpcodeDesc = struct {
             sign: std.builtin.Signedness,
             index: Index,
             length: u5,
+
+            pub fn format(imm: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+                try writer.print("{c}{}", .{
+                    @as(u8, switch (imm.sign) {
+                        .signed => 'i',
+                        .unsigned => 'u',
+                    }),
+                    imm.length,
+                });
+            }
         },
         none,
 

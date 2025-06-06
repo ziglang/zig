@@ -906,8 +906,8 @@ pub const PltSection = struct {
             }
         }
 
-        const la_utils = @import("../loongarch.zig");
-        const Lir = @import("../../arch/loongarch64/Lir.zig");
+        const la_utils = @import("../../arch/loongarch/utils.zig");
+        const Lir = @import("../../arch/loongarch/Lir.zig");
     };
 };
 
@@ -1071,8 +1071,8 @@ pub const PltGotSection = struct {
             }
         }
 
-        const la_utils = @import("../loongarch.zig");
-        const Lir = @import("../../arch/loongarch64/Lir.zig");
+        const la_utils = @import("../../arch/loongarch/utils.zig");
+        const Lir = @import("../../arch/loongarch/Lir.zig");
     };
 };
 

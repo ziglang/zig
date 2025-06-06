@@ -4,6 +4,7 @@
 //! The purpose is to keep the lowering process unaware of instruction format.
 
 const std = @import("std");
+const Writer = std.Io.Writer;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
@@ -20,12 +21,7 @@ pub const Inst = struct {
         return opcode | inst.data.enc();
     }
 
-    pub fn format(
-        inst: Inst,
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
+    pub fn format(inst: Inst, writer: *Writer) Writer.Error!void {
         try writer.print("{s}", .{@tagName(inst.opcode)});
         inline for (@typeInfo(encoding.Format).@"enum".fields) |enum_field| {
             if (enum_field.value == @intFromEnum(std.meta.activeTag(inst.data))) {
@@ -51,6 +47,10 @@ pub const Inst = struct {
             }
         }
     }
+
+    pub fn fromInst(inst: encoding.Inst) Inst {
+        return .{ .opcode = inst.opcode, .data = inst.data };
+    }
 };
 
 test "instruction encoding" {
@@ -69,6 +69,8 @@ test "instruction encoding" {
     try expectEqual(0x0c100820, (Inst{ .opcode = .fcmp_caf_s, .data = .{
         .DJK = .{ .fcc0, .f1, .f2 },
     } }).encode());
+    try expectEqual(0x0c100820, Inst.fromInst(.fcmp_caf_s(.fcc0, .f1, .f2)).encode());
+    try expectEqual(0x06483800, Inst.fromInst(.eret()).encode());
 }
 
 test "instruction formatting" {
@@ -85,3 +87,67 @@ test "instruction formatting" {
         .DJK = .{ .fcc0, .f1, .f2 },
     } }}));
 }
+
+pub const MemOp = enum { store, load };
+
+pub const SizedMemOp = struct {
+    op: MemOp,
+    size: bits.Memory.Size,
+    signedness: std.builtin.Signedness,
+
+    pub fn toOpCodeRI(op: SizedMemOp) encoding.OpCode {
+        return switch (op.op) {
+            .store => switch (op.size) {
+                .byte => .st_b,
+                .hword => .st_h,
+                .word => .st_w,
+                .dword => .st_d,
+            },
+            .load => switch (op.size) {
+                .byte => switch (op.signedness) {
+                    .signed => .ld_b,
+                    .unsigned => .ld_bu,
+                },
+                .hword => switch (op.signedness) {
+                    .signed => .ld_h,
+                    .unsigned => .ld_hu,
+                },
+                .word => switch (op.signedness) {
+                    .signed => .ld_w,
+                    .unsigned => .ld_wu,
+                },
+                .dword => .ld_d,
+            },
+        };
+    }
+
+    pub fn toOpCodeRR(op: SizedMemOp) encoding.OpCode {
+        return switch (op.op) {
+            .store => switch (op.size) {
+                .byte => .stx_b,
+                .hword => .stx_h,
+                .word => .stx_w,
+                .dword => .stx_d,
+            },
+            .load => switch (op.size) {
+                .byte => switch (op.signedness) {
+                    .signed => .ldx_b,
+                    .unsigned => .ldx_bu,
+                },
+                .hword => switch (op.signedness) {
+                    .signed => .ldx_h,
+                    .unsigned => .ldx_hu,
+                },
+                .word => switch (op.signedness) {
+                    .signed => .ldx_w,
+                    .unsigned => .ldx_wu,
+                },
+                .dword => .ldx_d,
+            },
+        };
+    }
+
+    pub fn format(op: SizedMemOp, writer: *Writer) Writer.Error!void {
+        try writer.print("{s}", .{@tagName(op.toOpCodeRI())});
+    }
+};

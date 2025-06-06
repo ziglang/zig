@@ -867,3 +867,1998 @@ pub const Data = union(enum) {
 };
 
 pub const Format = @import("std").meta.Tag(Data);
+
+pub const Inst = struct {
+    opcode: OpCode,
+    data: Data,
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn add_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .add_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn add_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .add_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn addi_d(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .addi_d, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn addi_w(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .addi_w, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn addu16i_d(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .addu16i_d, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amadd_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amadd_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amadd_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amadd_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amadd_db_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_db_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amadd_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amadd_db_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_db_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amadd_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amadd_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amand_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amand_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amand_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amand_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amand_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amand_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amand_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amand_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amcas_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amcas_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amcas_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amcas_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amcas_db_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_db_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amcas_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amcas_db_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_db_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amcas_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amcas_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammax_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammax_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammax_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammax_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammax_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammax_db_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_db_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammax_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammax_db_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammax_db_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammin_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammin_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammin_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammin_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammin_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammin_db_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_db_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammin_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ammin_db_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ammin_db_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amor_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amor_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amor_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amor_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amor_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amor_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amor_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amor_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amswap_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amswap_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amswap_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amswap_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amswap_db_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_db_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amswap_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amswap_db_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_db_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amswap_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amswap_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amxor_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amxor_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amxor_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amxor_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amxor_db_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amxor_db_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn amxor_db_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .amxor_db_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn @"and"(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .@"and", .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn andi(f0: Register, f1: Register, f2: u12) Inst {
+        return .{ .opcode = .andi, .data = .{ .DJUk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn andn(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .andn, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn asrtgt(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .asrtgt, .data = .{ .JK = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn asrtle(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .asrtle, .data = .{ .JK = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn b(f0: i10, f1: i16) Inst {
+        return .{ .opcode = .b, .data = .{ .Sd10Sk16 = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn bceqz(f0: Register, f1: i5, f2: i16) Inst {
+        return .{ .opcode = .bceqz, .data = .{ .JSd5Sk16 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn bcnez(f0: Register, f1: i5, f2: i16) Inst {
+        return .{ .opcode = .bcnez, .data = .{ .JSd5Sk16 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn beq(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .beq, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn beqz(f0: Register, f1: i5, f2: i16) Inst {
+        return .{ .opcode = .beqz, .data = .{ .JSd5Sk16 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn bgt(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .bgt, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn bgtu(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .bgtu, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn bl(f0: i10, f1: i16) Inst {
+        return .{ .opcode = .bl, .data = .{ .Sd10Sk16 = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ble(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .ble, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn bleu(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .bleu, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn bne(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .bne, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn bnez(f0: Register, f1: i5, f2: i16) Inst {
+        return .{ .opcode = .bnez, .data = .{ .JSd5Sk16 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn @"break"(f0: u15) Inst {
+        return .{ .opcode = .@"break", .data = .{ .Ud15 = .{f0} } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn bstrins_d(f0: Register, f1: Register, f2: u6, f3: u6) Inst {
+        return .{ .opcode = .bstrins_d, .data = .{ .DJUk6Um6 = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn bstrins_w(f0: Register, f1: Register, f2: u5, f3: u5) Inst {
+        return .{ .opcode = .bstrins_w, .data = .{ .DJUk5Um5 = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn bstrpick_d(f0: Register, f1: Register, f2: u6, f3: u6) Inst {
+        return .{ .opcode = .bstrpick_d, .data = .{ .DJUk6Um6 = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn bstrpick_w(f0: Register, f1: Register, f2: u5, f3: u5) Inst {
+        return .{ .opcode = .bstrpick_w, .data = .{ .DJUk5Um5 = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn cacop(f0: Register, f1: u5, f2: i12) Inst {
+        return .{ .opcode = .cacop, .data = .{ .JUd5Sk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn catpick_d(f0: Register, f1: Register, f2: Register, f3: u3) Inst {
+        return .{ .opcode = .catpick_d, .data = .{ .DJKUa3 = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn catpick_w(f0: Register, f1: Register, f2: Register, f3: u2) Inst {
+        return .{ .opcode = .catpick_w, .data = .{ .DJKUa2 = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn clo_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .clo_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn clo_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .clo_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn clz_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .clz_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn clz_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .clz_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn cpucfg(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .cpucfg, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn crc_w_b_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crc_w_b_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn crc_w_d_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crc_w_d_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn crc_w_h_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crc_w_h_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn crc_w_w_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crc_w_w_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn crcc_w_b_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crcc_w_b_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn crcc_w_d_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crcc_w_d_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn crcc_w_h_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crcc_w_h_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn crcc_w_w_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .crcc_w_w_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn csrxchg(f0: Register, f1: Register, f2: u14) Inst {
+        return .{ .opcode = .csrxchg, .data = .{ .DJUk14 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn cto_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .cto_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn cto_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .cto_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ctz_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ctz_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ctz_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ctz_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn cu32i_d(f0: Register, f1: i20) Inst {
+        return .{ .opcode = .cu32i_d, .data = .{ .DSj20 = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn cu52i_d(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .cu52i_d, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn dbar(f0: u15) Inst {
+        return .{ .opcode = .dbar, .data = .{ .Ud15 = .{f0} } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn dbgcall(f0: u15) Inst {
+        return .{ .opcode = .dbgcall, .data = .{ .Ud15 = .{f0} } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn div_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .div_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn div_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .div_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn div_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .div_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn div_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .div_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn eret() Inst {
+        return .{ .opcode = .eret, .data = .EMPTY };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fabs_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fabs_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fabs_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fabs_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fadd_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fadd_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fadd_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fadd_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fclass_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fclass_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fclass_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fclass_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_caf_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_caf_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_caf_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_caf_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_ceq_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_ceq_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_ceq_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_ceq_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cle_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cle_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cle_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cle_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_clt_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_clt_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_clt_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_clt_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cne_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cne_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cne_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cne_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cor_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cor_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cor_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cor_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cueq_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cueq_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cueq_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cueq_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cule_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cule_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cule_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cule_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cult_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cult_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cult_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cult_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cun_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cun_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cun_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cun_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cune_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cune_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_cune_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_cune_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_saf_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_saf_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_saf_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_saf_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_seq_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_seq_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_seq_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_seq_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sle_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sle_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sle_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sle_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_slt_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_slt_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_slt_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_slt_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sne_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sne_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sne_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sne_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sor_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sor_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sor_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sor_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sueq_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sueq_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sueq_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sueq_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sule_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sule_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sule_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sule_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sult_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sult_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sult_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sult_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sun_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sun_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sun_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sun_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sune_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sune_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcmp_sune_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcmp_sune_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcopysign_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcopysign_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcopysign_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fcopysign_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcsrrd(f0: Register, f1: u5) Inst {
+        return .{ .opcode = .fcsrrd, .data = .{ .DUj5 = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcsrwr(f0: Register, f1: u5) Inst {
+        return .{ .opcode = .fcsrwr, .data = .{ .JUd5 = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcvt_d_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fcvt_d_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fcvt_s_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fcvt_s_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fdiv_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fdiv_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fdiv_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fdiv_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ffint_d_l(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ffint_d_l, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ffint_d_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ffint_d_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ffint_s_l(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ffint_s_l, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ffint_s_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ffint_s_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fld_d(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .fld_d, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fld_s(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .fld_s, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fldgt_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fldgt_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fldgt_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fldgt_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fldle_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fldle_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fldle_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fldle_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fldx_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fldx_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fldx_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fldx_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn flogb_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .flogb_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn flogb_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .flogb_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmadd_d(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fmadd_d, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmadd_s(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fmadd_s, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmax_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmax_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmax_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmax_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmaxa_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmaxa_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmaxa_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmaxa_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmin_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmin_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmin_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmin_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmina_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmina_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmina_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmina_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmov_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fmov_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmov_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fmov_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmsub_d(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fmsub_d, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmsub_s(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fmsub_s, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmul_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmul_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fmul_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fmul_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fneg_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fneg_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fneg_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fneg_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fnmadd_d(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fnmadd_d, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fnmadd_s(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fnmadd_s, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fnmsub_d(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fnmsub_d, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fnmsub_s(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fnmsub_s, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn frecip_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frecip_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn frecip_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frecip_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn frecipe_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frecipe_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn frecipe_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frecipe_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn frint_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frint_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn frint_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frint_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn frsqrt_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frsqrt_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn frsqrt_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frsqrt_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn frsqrte_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frsqrte_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn frsqrte_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .frsqrte_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fscaleb_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fscaleb_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fscaleb_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fscaleb_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fsel(f0: Register, f1: Register, f2: Register, f3: Register) Inst {
+        return .{ .opcode = .fsel, .data = .{ .DJKA = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fsqrt_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fsqrt_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fsqrt_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .fsqrt_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fst_d(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .fst_d, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fst_s(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .fst_s, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fstgt_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fstgt_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fstgt_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fstgt_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fstle_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fstle_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fstle_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fstle_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fstx_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fstx_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fstx_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fstx_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fsub_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fsub_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn fsub_s(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .fsub_s, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftint_l_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftint_l_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftint_l_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftint_l_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftint_w_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftint_w_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftint_w_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftint_w_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrm_l_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrm_l_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrm_l_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrm_l_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrm_w_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrm_w_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrm_w_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrm_w_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrne_l_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrne_l_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrne_l_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrne_l_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrne_w_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrne_w_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrne_w_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrne_w_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrp_l_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrp_l_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrp_l_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrp_l_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrp_w_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrp_w_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrp_w_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrp_w_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrz_l_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrz_l_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrz_l_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrz_l_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrz_w_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrz_w_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ftintrz_w_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .ftintrz_w_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ibar(f0: u15) Inst {
+        return .{ .opcode = .ibar, .data = .{ .Ud15 = .{f0} } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn idle(f0: u15) Inst {
+        return .{ .opcode = .idle, .data = .{ .Ud15 = .{f0} } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn iocsrrd_b(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrrd_b, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn iocsrrd_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrrd_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn iocsrrd_h(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrrd_h, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn iocsrrd_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrrd_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn iocsrwr_b(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrwr_b, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn iocsrwr_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrwr_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn iocsrwr_h(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrwr_h, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn iocsrwr_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .iocsrwr_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn jirl(f0: Register, f1: Register, f2: i16) Inst {
+        return .{ .opcode = .jirl, .data = .{ .DJSk16 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ld_b(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_b, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ld_bu(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_bu, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ld_d(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_d, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ld_h(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_h, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ld_hu(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_hu, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ld_w(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_w, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ld_wu(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .ld_wu, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn lddir(f0: Register, f1: Register, f2: u8) Inst {
+        return .{ .opcode = .lddir, .data = .{ .DJUk8 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldgt_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldgt_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldgt_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldgt_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldgt_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldgt_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldgt_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldgt_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldle_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldle_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldle_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldle_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldle_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldle_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldle_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldle_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldox4_d(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .ldox4_d, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldox4_w(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .ldox4_w, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldpte(f0: Register, f1: u8) Inst {
+        return .{ .opcode = .ldpte, .data = .{ .JUk8 = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldx_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldx_bu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_bu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldx_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldx_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldx_hu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_hu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldx_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ldx_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .ldx_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ll_d(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .ll_d, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ll_w(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .ll_w, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn llacq_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .llacq_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn llacq_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .llacq_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn lu12i_w(f0: Register, f1: i20) Inst {
+        return .{ .opcode = .lu12i_w, .data = .{ .DSj20 = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn maskeqz(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .maskeqz, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn masknez(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .masknez, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn mod_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mod_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn mod_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mod_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn mod_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mod_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn mod_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mod_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn movfcc2fr(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movfcc2fr, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn movfcc2gr(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movfcc2gr, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn movfr2fcc(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movfr2fcc, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn movfr2gr_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movfr2gr_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn movfr2gr_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movfr2gr_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn movfrh2gr_s(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movfrh2gr_s, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn movgr2fcc(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movgr2fcc, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn movgr2fr_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movgr2fr_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn movgr2fr_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movgr2fr_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn movgr2frh_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .movgr2frh_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn mul_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mul_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn mul_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mul_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn mulh_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mulh_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn mulh_du(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mulh_du, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn mulh_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mulh_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn mulh_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mulh_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn mulw_d_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mulw_d_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn mulw_d_wu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .mulw_d_wu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn nor(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .nor, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn @"or"(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .@"or", .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn ori(f0: Register, f1: Register, f2: u12) Inst {
+        return .{ .opcode = .ori, .data = .{ .DJUk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn orn(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .orn, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn pcaddu12i(f0: Register, f1: i20) Inst {
+        return .{ .opcode = .pcaddu12i, .data = .{ .DSj20 = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn pcaddu18i(f0: Register, f1: i20) Inst {
+        return .{ .opcode = .pcaddu18i, .data = .{ .DSj20 = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn pcaddu2i(f0: Register, f1: i20) Inst {
+        return .{ .opcode = .pcaddu2i, .data = .{ .DSj20 = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn pcalau12i(f0: Register, f1: i20) Inst {
+        return .{ .opcode = .pcalau12i, .data = .{ .DSj20 = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn preld(f0: Register, f1: u5, f2: i12) Inst {
+        return .{ .opcode = .preld, .data = .{ .JUd5Sk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn preldx(f0: Register, f1: Register, f2: u5) Inst {
+        return .{ .opcode = .preldx, .data = .{ .JKUd5 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn rdtime_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .rdtime_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn rdtimeh_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .rdtimeh_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn rdtimel_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .rdtimel_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn revb_2h(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revb_2h, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn revb_2w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revb_2w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn revb_4h(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revb_4h, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn revb_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revb_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn revbit_4b(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revbit_4b, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn revbit_8b(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revbit_8b, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn revbit_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revbit_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn revbit_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revbit_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn revh_2w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revh_2w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn revh_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .revh_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn rotr_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .rotr_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn rotr_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .rotr_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn rotri_d(f0: Register, f1: Register, f2: u6) Inst {
+        return .{ .opcode = .rotri_d, .data = .{ .DJUk6 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn rotri_w(f0: Register, f1: Register, f2: u5) Inst {
+        return .{ .opcode = .rotri_w, .data = .{ .DJUk5 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sc_d(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .sc_d, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sc_q(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sc_q, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sc_w(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .sc_w, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn screl_d(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .screl_d, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn screl_w(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .screl_w, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sext_b(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .sext_b, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sext_h(f0: Register, f1: Register) Inst {
+        return .{ .opcode = .sext_h, .data = .{ .DJ = .{ f0, f1 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sladd_d(f0: Register, f1: Register, f2: Register, f3: u2) Inst {
+        return .{ .opcode = .sladd_d, .data = .{ .DJKUa2 = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sladd_w(f0: Register, f1: Register, f2: Register, f3: u2) Inst {
+        return .{ .opcode = .sladd_w, .data = .{ .DJKUa2 = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sladd_wu(f0: Register, f1: Register, f2: Register, f3: u2) Inst {
+        return .{ .opcode = .sladd_wu, .data = .{ .DJKUa2 = .{ f0, f1, f2, f3 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sll_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sll_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sll_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sll_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn slli_d(f0: Register, f1: Register, f2: u6) Inst {
+        return .{ .opcode = .slli_d, .data = .{ .DJUk6 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn slli_w(f0: Register, f1: Register, f2: u5) Inst {
+        return .{ .opcode = .slli_w, .data = .{ .DJUk5 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn slt(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .slt, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn slti(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .slti, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sltu(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sltu, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sltui(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .sltui, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sra_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sra_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sra_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sra_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn srai_d(f0: Register, f1: Register, f2: u6) Inst {
+        return .{ .opcode = .srai_d, .data = .{ .DJUk6 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn srai_w(f0: Register, f1: Register, f2: u5) Inst {
+        return .{ .opcode = .srai_w, .data = .{ .DJUk5 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn srl_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .srl_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn srl_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .srl_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn srli_d(f0: Register, f1: Register, f2: u6) Inst {
+        return .{ .opcode = .srli_d, .data = .{ .DJUk6 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn srli_w(f0: Register, f1: Register, f2: u5) Inst {
+        return .{ .opcode = .srli_w, .data = .{ .DJUk5 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn st_b(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .st_b, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn st_d(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .st_d, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn st_h(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .st_h, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn st_w(f0: Register, f1: Register, f2: i12) Inst {
+        return .{ .opcode = .st_w, .data = .{ .DJSk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stgt_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stgt_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stgt_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stgt_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stgt_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stgt_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stgt_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stgt_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stle_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stle_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stle_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stle_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stle_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stle_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stle_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stle_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stox4_d(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .stox4_d, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stox4_w(f0: Register, f1: Register, f2: i14) Inst {
+        return .{ .opcode = .stox4_w, .data = .{ .DJSk14 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stx_b(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stx_b, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stx_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stx_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stx_h(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stx_h, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn stx_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .stx_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sub_d(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sub_d, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn sub_w(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .sub_w, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn syscall(f0: u15) Inst {
+        return .{ .opcode = .syscall, .data = .{ .Ud15 = .{f0} } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn tlbclr() Inst {
+        return .{ .opcode = .tlbclr, .data = .EMPTY };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn tlbfill() Inst {
+        return .{ .opcode = .tlbfill, .data = .EMPTY };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn tlbflush() Inst {
+        return .{ .opcode = .tlbflush, .data = .EMPTY };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn tlbinv(f0: Register, f1: Register, f2: u5) Inst {
+        return .{ .opcode = .tlbinv, .data = .{ .JKUd5 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn tlbrd() Inst {
+        return .{ .opcode = .tlbrd, .data = .EMPTY };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn tlbsrch() Inst {
+        return .{ .opcode = .tlbsrch, .data = .EMPTY };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn tlbwr() Inst {
+        return .{ .opcode = .tlbwr, .data = .EMPTY };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn xor(f0: Register, f1: Register, f2: Register) Inst {
+        return .{ .opcode = .xor, .data = .{ .DJK = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn xori(f0: Register, f1: Register, f2: u12) Inst {
+        return .{ .opcode = .xori, .data = .{ .DJUk12 = .{ f0, f1, f2 } } };
+    }
+
+    // Workaround https://github.com/ziglang/zig/issues/24127
+    pub noinline fn xxx_unknown_1() Inst {
+        return .{ .opcode = .xxx_unknown_1, .data = .EMPTY };
+    }
+};

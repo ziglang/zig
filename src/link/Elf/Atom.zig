@@ -2173,17 +2173,15 @@ const loongarch = struct {
         const r_type: elf.R_LARCH = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
         const cwriter = stream.writer();
+        const code_buf = code[r_offset..];
 
         const P, const A, const S, const GOT, const G, const TP, const DTP = args;
         _ = TP;
         _ = DTP;
-        _ = P;
         _ = GOT;
         _ = G;
-        _ = r_offset;
         _ = diags;
         _ = it;
-        _ = code;
 
         switch (r_type) {
             .NONE => unreachable,
@@ -2198,6 +2196,22 @@ const loongarch = struct {
                     elf_file,
                     cwriter,
                 );
+            },
+
+            .CALL36 => {
+                // TODO: relax
+                const val = S + A - P;
+                try writeImmSlot(code_buf[0..4], .j, i20, .cast, (val + 0x20000) >> 18);
+                try writeImmSlot(code_buf[4..][0..4], .k, i16, .trunc, val >> 2);
+            },
+
+            .PCALA_HI20 => {
+                // TODO: relax
+                try writeImmSlot(code_buf[0..4], .j, i20, .cast, (S + A + 0x800 - P) >> 12);
+            },
+            .PCALA_LO12 => {
+                // TODO: relax
+                try writeImmSlot(code_buf[0..4], .k, i12, .trunc, S + A);
             },
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),
@@ -2239,7 +2253,22 @@ const loongarch = struct {
         }
     }
 
-    const la_util = @import("../loongarch.zig");
+    fn writeImmSlot(
+        code: *[4]u8,
+        comptime slot: la_utils.ImmOffset,
+        comptime T: anytype,
+        comptime convert: enum { cast, trunc },
+        value: i64,
+    ) RelocError!void {
+        const inst: u32 = mem.readInt(u32, code, .little);
+        const val: T = switch (convert) {
+            .cast => math.cast(T, value) orelse return error.Overflow,
+            .trunc => @truncate(value),
+        };
+        mem.writeInt(u32, code, la_utils.relocImm(inst, slot, T, val), .little);
+    }
+
+    const la_utils = @import("../../arch/loongarch/utils.zig");
 };
 
 const ResolveArgs = struct { i64, i64, i64, i64, i64, i64, i64 };

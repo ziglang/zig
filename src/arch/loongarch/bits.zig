@@ -1,5 +1,9 @@
 const std = @import("std");
+const Target = std.Target;
 const expectEqual = std.testing.expectEqual;
+const Writer = std.Io.Writer;
+
+const InternPool = @import("../../InternPool.zig");
 
 pub const Register = enum(u8) {
     // zig fmt: off
@@ -47,7 +51,32 @@ pub const Register = enum(u8) {
         lsx,
         lasx,
         fcc,
+
+        pub fn byteSize(rc: Class, target: *const Target) usize {
+            return switch (rc) {
+                .int => switch (target.cpu.arch) {
+                    .loongarch32 => 4,
+                    .loongarch64 => 8,
+                    else => unreachable,
+                },
+                .float => 8,
+                .lsx => 16,
+                .lasx => 32,
+                .fcc => 1,
+            };
+        }
     };
+
+    pub fn fromClass(cls: Class, reg: u5) Register {
+        const base: u8 = switch (cls) {
+            .int => @intFromEnum(Register.r0),
+            .float => @intFromEnum(Register.f0),
+            .lsx => @intFromEnum(Register.v0),
+            .lasx => @intFromEnum(Register.x0),
+            .fcc => @intFromEnum(Register.fcc0),
+        };
+        return @enumFromInt(base + reg);
+    }
 
     pub fn class(reg: Register) Class {
         return switch (@intFromEnum(reg)) {
@@ -180,17 +209,34 @@ test "register encoding" {
     try expectEqual(71, Register.fcc7.id());
 }
 
+test "register decoding" {
+    try expectEqual(Register.r0, Register.fromClass(.int, 0));
+    try expectEqual(Register.r31, Register.fromClass(.int, 31));
+    try expectEqual(Register.f0, Register.fromClass(.float, 0));
+    try expectEqual(Register.f31, Register.fromClass(.float, 31));
+    try expectEqual(Register.v0, Register.fromClass(.lsx, 0));
+    try expectEqual(Register.v31, Register.fromClass(.lsx, 31));
+    try expectEqual(Register.x0, Register.fromClass(.lasx, 0));
+    try expectEqual(Register.x31, Register.fromClass(.lasx, 31));
+    try expectEqual(Register.fcc0, Register.fromClass(.fcc, 0));
+    try expectEqual(Register.fcc7, Register.fromClass(.fcc, 7));
+}
+
 pub const FrameIndex = enum(u32) {
-    // This index refers to the start of the arguments passed to this function
+    /// Refers to the start of the arguments passed to this function
     args_frame,
-    // This index refers to the return address pushed in the prologue.
-    ret_addr,
-    // This index refers to the base pointer pushed in the prologue and popped in the epilogue.
-    base_ptr,
-    // This index refers to the entire stack frame.
-    stack_frame,
-    // This index refers to the start of the call frame for arguments passed to called functions
+    /// Refers to the start of spilled return address.
+    ret_addr_frame,
+    /// Refers to the start of spilled integer static registers.
+    spill_int_frame,
+    /// Refers to the start of spilled floating-point static registers.
+    spill_float_frame,
+    // /// Refers to the base pointer pushed in the prologue and popped in the epilogue.
+    // base_ptr,
+    /// Refers to the start of the call frame for arguments passed to called functions
     call_frame,
+    /// Refers to the entire stack frame.
+    stack_frame,
     /// Other indices are used for local variable stack slots
     _,
 
@@ -200,28 +246,74 @@ pub const FrameIndex = enum(u32) {
         return @intFromEnum(fi) < named_count;
     }
 
-    pub fn format(
-        fi: FrameIndex,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        try writer.writeAll("FrameIndex");
+    pub fn format(fi: FrameIndex, writer: *Writer) Writer.Error!void {
         if (fi.isNamed()) {
-            try writer.writeByte('.');
-            try writer.writeAll(@tagName(fi));
+            try writer.print("FrameIndex.{s}", .{@tagName(fi)});
         } else {
-            try writer.writeByte('(');
-            try std.fmt.formatType(@intFromEnum(fi), fmt, options, writer, 0);
-            try writer.writeByte(')');
+            try writer.print("FrameIndex({})", .{@intFromEnum(fi)});
         }
     }
 };
 
-pub const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
+pub const FrameAddr = struct {
+    index: FrameIndex,
+    off: i32 = 0,
+
+    pub fn format(addr: FrameAddr, writer: *Writer) Writer.Error!void {
+        if (addr.off >= 0) {
+            try writer.print("{f} + 0x{x}", .{ addr.index, addr.off });
+        } else {
+            try writer.print("{f} - 0x{x}", .{ addr.index, -addr.off });
+        }
+    }
+};
 
 pub const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 
-pub const SymbolOffset = struct { index: u32, off: i32 = 0 };
-
 pub const RegisterFrame = struct { reg: Register, frame: FrameAddr };
+
+pub const NavOffset = struct { index: InternPool.Nav.Index, off: i32 = 0 };
+
+pub const UavOffset = struct { index: InternPool.Key.Ptr.BaseAddr.Uav, off: i32 = 0 };
+
+pub const Memory = struct {
+    pub const Size = enum(u4) {
+        /// Byte, 1 byte
+        byte,
+        /// Half word, 2 bytes
+        hword,
+        /// Word, 4 bytes
+        word,
+        /// Double word, 8 Bytes
+        dword,
+
+        pub fn fromByteSize(size: u64) Size {
+            return switch (size) {
+                1...1 => .byte,
+                2...2 => .hword,
+                3...4 => .word,
+                5...8 => .dword,
+                else => std.debug.panic("fromByteSize {}", .{size}),
+            };
+        }
+
+        pub fn fromBitSize(bit_size: u64) Size {
+            return switch (bit_size) {
+                8 => .byte,
+                16 => .hword,
+                32 => .word,
+                64 => .dword,
+                else => unreachable,
+            };
+        }
+
+        pub fn bitSize(s: Size) u64 {
+            return switch (s) {
+                .byte => 8,
+                .hword => 16,
+                .word => 32,
+                .dword => 64,
+            };
+        }
+    };
+};

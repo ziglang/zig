@@ -17,7 +17,7 @@ const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 pub const simplified_logic = switch (builtin.zig_backend) {
     .stage2_aarch64,
     .stage2_arm,
-    .stage2_loongarch64,
+    .stage2_loongarch,
     .stage2_powerpc,
     .stage2_sparc64,
     .stage2_spirv,
