@@ -2493,7 +2493,7 @@ fn newEmbedFile(
     cache: {
         const whole = switch (zcu.comp.cache_use) {
             .whole => |whole| whole,
-            .incremental => break :cache,
+            .incremental, .none => break :cache,
         };
         const man = whole.cache_manifest orelse break :cache;
         const ip_str = opt_ip_str orelse break :cache; // this will be a compile error
@@ -3377,7 +3377,7 @@ pub fn populateTestFunctions(
         }
 
         // The linker thread is not running, so we actually need to dispatch this task directly.
-        @import("../link.zig").doZcuTask(zcu.comp, @intFromEnum(pt.tid), .{ .link_nav = nav_index });
+        @import("../link.zig").linkTestFunctionsNav(pt, nav_index);
     }
 }
 

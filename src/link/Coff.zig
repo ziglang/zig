@@ -224,21 +224,16 @@ pub fn createEmpty(
         else => 0x1000,
     };
 
-    // If using LLVM to generate the object file for the zig compilation unit,
-    // we need a place to put the object file so that it can be subsequently
-    // handled.
-    const zcu_object_sub_path = if (!use_llvm)
-        null
-    else
-        try allocPrint(arena, "{s}.obj", .{emit.sub_path});
-
     const coff = try arena.create(Coff);
     coff.* = .{
         .base = .{
             .tag = .coff,
             .comp = comp,
             .emit = emit,
-            .zcu_object_sub_path = zcu_object_sub_path,
+            .zcu_object_basename = if (use_llvm)
+                try std.fmt.allocPrint(arena, "{s}_zcu.obj", .{fs.path.stem(emit.sub_path)})
+            else
+                null,
             .stack_size = options.stack_size orelse 16777216,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
             .print_gc_sections = options.print_gc_sections,

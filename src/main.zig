@@ -699,55 +699,21 @@ const Emit = union(enum) {
     yes_default_path,
     yes: []const u8,
 
-    const Resolved = struct {
-        data: ?Compilation.EmitLoc,
-        dir: ?fs.Dir,
-
-        fn deinit(self: *Resolved) void {
-            if (self.dir) |*dir| {
-                dir.close();
-            }
-        }
-    };
-
-    fn resolve(emit: Emit, default_basename: []const u8, output_to_cache: bool) !Resolved {
-        var resolved: Resolved = .{ .data = null, .dir = null };
-        errdefer resolved.deinit();
-
-        switch (emit) {
-            .no => {},
-            .yes_default_path => {
-                resolved.data = Compilation.EmitLoc{
-                    .directory = if (output_to_cache) null else .{
-                        .path = null,
-                        .handle = fs.cwd(),
-                    },
-                    .basename = default_basename,
-                };
-            },
-            .yes => |full_path| {
-                const basename = fs.path.basename(full_path);
-                if (fs.path.dirname(full_path)) |dirname| {
-                    const handle = try fs.cwd().openDir(dirname, .{});
-                    resolved = .{
-                        .dir = handle,
-                        .data = Compilation.EmitLoc{
-                            .basename = basename,
-                            .directory = .{
-                                .path = dirname,
-                                .handle = handle,
-                            },
-                        },
-                    };
-                } else {
-                    resolved.data = Compilation.EmitLoc{
-                        .basename = basename,
-                        .directory = .{ .path = null, .handle = fs.cwd() },
-                    };
+    const OutputToCacheReason = enum { listen, @"zig run", @"zig test" };
+    fn resolve(emit: Emit, default_basename: []const u8, output_to_cache: ?OutputToCacheReason) Compilation.CreateOptions.Emit {
+        return switch (emit) {
+            .no => .no,
+            .yes_default_path => if (output_to_cache != null) .yes_cache else .{ .yes_path = default_basename },
+            .yes => |path| if (output_to_cache) |reason| {
+                switch (reason) {
+                    .listen => fatal("--listen incompatible with explicit output path '{s}'", .{path}),
+                    .@"zig run", .@"zig test" => fatal(
+                        "'{s}' with explicit output path '{s}' requires explicit '-femit-bin=path' or '-fno-emit-bin'",
+                        .{ @tagName(reason), path },
+                    ),
                 }
-            },
-        }
-        return resolved;
+            } else .{ .yes_path = path },
+        };
     }
 };
 
@@ -2830,7 +2796,7 @@ fn buildOutputType(
                 .link => {
                     create_module.opts.output_mode = if (is_shared_lib) .Lib else .Exe;
                     if (emit_bin != .no) {
-                        emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
+                        emit_bin = if (out_path) |p| .{ .yes = p } else .yes_a_out;
                     }
                     if (emit_llvm) {
                         fatal("-emit-llvm cannot be used when linking", .{});
@@ -3208,7 +3174,17 @@ fn buildOutputType(
     var cleanup_emit_bin_dir: ?fs.Dir = null;
     defer if (cleanup_emit_bin_dir) |*dir| dir.close();
 
-    const output_to_cache = listen != .none;
+    // For `zig run` and `zig test`, we don't want to put the binary in the cwd by default. So, if
+    // the binary is requested with no explicit path (as is the default), we emit to the cache.
+    const output_to_cache: ?Emit.OutputToCacheReason = switch (listen) {
+        .stdio, .ip4 => .listen,
+        .none => if (arg_mode == .run and emit_bin == .yes_default_path)
+            .@"zig run"
+        else if (arg_mode == .zig_test and emit_bin == .yes_default_path)
+            .@"zig test"
+        else
+            null,
+    };
     const optional_version = if (have_version) version else null;
 
     const root_name = if (provided_name) |n| n else main_mod.fully_qualified_name;
@@ -3225,150 +3201,48 @@ fn buildOutputType(
         },
     };
 
-    const a_out_basename = switch (target.ofmt) {
-        .coff => "a.exe",
-        else => "a.out",
-    };
-
-    const emit_bin_loc: ?Compilation.EmitLoc = switch (emit_bin) {
-        .no => null,
-        .yes_default_path => Compilation.EmitLoc{
-            .directory = blk: {
-                switch (arg_mode) {
-                    .run, .zig_test => break :blk null,
-                    .build, .cc, .cpp, .translate_c, .zig_test_obj => {
-                        if (output_to_cache) {
-                            break :blk null;
-                        } else {
-                            break :blk .{ .path = null, .handle = fs.cwd() };
-                        }
-                    },
-                }
-            },
-            .basename = if (clang_preprocessor_mode == .pch)
-                try std.fmt.allocPrint(arena, "{s}.pch", .{root_name})
-            else
-                try std.zig.binNameAlloc(arena, .{
+    const emit_bin_resolved: Compilation.CreateOptions.Emit = switch (emit_bin) {
+        .no => .no,
+        .yes_default_path => emit: {
+            if (output_to_cache != null) break :emit .yes_cache;
+            const name = switch (clang_preprocessor_mode) {
+                .pch => try std.fmt.allocPrint(arena, "{s}.pch", .{root_name}),
+                else => try std.zig.binNameAlloc(arena, .{
                     .root_name = root_name,
                     .target = target,
                     .output_mode = create_module.resolved_options.output_mode,
                     .link_mode = create_module.resolved_options.link_mode,
                     .version = optional_version,
                 }),
+            };
+            break :emit .{ .yes_path = name };
         },
-        .yes => |full_path| b: {
-            const basename = fs.path.basename(full_path);
-            if (fs.path.dirname(full_path)) |dirname| {
-                const handle = fs.cwd().openDir(dirname, .{}) catch |err| {
-                    fatal("unable to open output directory '{s}': {s}", .{ dirname, @errorName(err) });
-                };
-                cleanup_emit_bin_dir = handle;
-                break :b Compilation.EmitLoc{
-                    .basename = basename,
-                    .directory = .{
-                        .path = dirname,
-                        .handle = handle,
-                    },
-                };
-            } else {
-                break :b Compilation.EmitLoc{
-                    .basename = basename,
-                    .directory = .{ .path = null, .handle = fs.cwd() },
-                };
-            }
-        },
-        .yes_a_out => Compilation.EmitLoc{
-            .directory = .{ .path = null, .handle = fs.cwd() },
-            .basename = a_out_basename,
+        .yes => |path| if (output_to_cache != null) {
+            assert(output_to_cache == .listen); // there was an explicit bin path
+            fatal("--listen incompatible with explicit output path '{s}'", .{path});
+        } else .{ .yes_path = path },
+        .yes_a_out => emit: {
+            assert(output_to_cache == null);
+            break :emit .{ .yes_path = switch (target.ofmt) {
+                .coff => "a.exe",
+                else => "a.out",
+            } };
         },
     };
 
     const default_h_basename = try std.fmt.allocPrint(arena, "{s}.h", .{root_name});
-    var emit_h_resolved = emit_h.resolve(default_h_basename, output_to_cache) catch |err| {
-        switch (emit_h) {
-            .yes => |p| {
-                fatal("unable to open directory from argument '-femit-h', '{s}': {s}", .{
-                    p, @errorName(err),
-                });
-            },
-            .yes_default_path => {
-                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{
-                    default_h_basename, @errorName(err),
-                });
-            },
-            .no => unreachable,
-        }
-    };
-    defer emit_h_resolved.deinit();
+    const emit_h_resolved = emit_h.resolve(default_h_basename, output_to_cache);
 
     const default_asm_basename = try std.fmt.allocPrint(arena, "{s}.s", .{root_name});
-    var emit_asm_resolved = emit_asm.resolve(default_asm_basename, output_to_cache) catch |err| {
-        switch (emit_asm) {
-            .yes => |p| {
-                fatal("unable to open directory from argument '-femit-asm', '{s}': {s}", .{
-                    p, @errorName(err),
-                });
-            },
-            .yes_default_path => {
-                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{
-                    default_asm_basename, @errorName(err),
-                });
-            },
-            .no => unreachable,
-        }
-    };
-    defer emit_asm_resolved.deinit();
+    const emit_asm_resolved = emit_asm.resolve(default_asm_basename, output_to_cache);
 
     const default_llvm_ir_basename = try std.fmt.allocPrint(arena, "{s}.ll", .{root_name});
-    var emit_llvm_ir_resolved = emit_llvm_ir.resolve(default_llvm_ir_basename, output_to_cache) catch |err| {
-        switch (emit_llvm_ir) {
-            .yes => |p| {
-                fatal("unable to open directory from argument '-femit-llvm-ir', '{s}': {s}", .{
-                    p, @errorName(err),
-                });
-            },
-            .yes_default_path => {
-                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{
-                    default_llvm_ir_basename, @errorName(err),
-                });
-            },
-            .no => unreachable,
-        }
-    };
-    defer emit_llvm_ir_resolved.deinit();
+    const emit_llvm_ir_resolved = emit_llvm_ir.resolve(default_llvm_ir_basename, output_to_cache);
 
     const default_llvm_bc_basename = try std.fmt.allocPrint(arena, "{s}.bc", .{root_name});
-    var emit_llvm_bc_resolved = emit_llvm_bc.resolve(default_llvm_bc_basename, output_to_cache) catch |err| {
-        switch (emit_llvm_bc) {
-            .yes => |p| {
-                fatal("unable to open directory from argument '-femit-llvm-bc', '{s}': {s}", .{
-                    p, @errorName(err),
-                });
-            },
-            .yes_default_path => {
-                fatal("unable to open directory from arguments '--name' or '-fsoname', '{s}': {s}", .{
-                    default_llvm_bc_basename, @errorName(err),
-                });
-            },
-            .no => unreachable,
-        }
-    };
-    defer emit_llvm_bc_resolved.deinit();
+    const emit_llvm_bc_resolved = emit_llvm_bc.resolve(default_llvm_bc_basename, output_to_cache);
 
-    var emit_docs_resolved = emit_docs.resolve("docs", output_to_cache) catch |err| {
-        switch (emit_docs) {
-            .yes => |p| {
-                fatal("unable to open directory from argument '-femit-docs', '{s}': {s}", .{
-                    p, @errorName(err),
-                });
-            },
-            .yes_default_path => {
-                fatal("unable to open directory 'docs': {s}", .{@errorName(err)});
-            },
-            .no => unreachable,
-        }
-    };
-    defer emit_docs_resolved.deinit();
+    const emit_docs_resolved = emit_docs.resolve("docs", output_to_cache);
 
     const is_exe_or_dyn_lib = switch (create_module.resolved_options.output_mode) {
         .Obj => false,
@@ -3378,7 +3252,7 @@ fn buildOutputType(
     // Note that cmake when targeting Windows will try to execute
     // zig cc to make an executable and output an implib too.
     const implib_eligible = is_exe_or_dyn_lib and
-        emit_bin_loc != null and target.os.tag == .windows;
+        emit_bin_resolved != .no and target.os.tag == .windows;
     if (!implib_eligible) {
         if (!emit_implib_arg_provided) {
             emit_implib = .no;
@@ -3387,22 +3261,18 @@ fn buildOutputType(
         }
     }
     const default_implib_basename = try std.fmt.allocPrint(arena, "{s}.lib", .{root_name});
-    var emit_implib_resolved = switch (emit_implib) {
-        .no => Emit.Resolved{ .data = null, .dir = null },
-        .yes => |p| emit_implib.resolve(default_implib_basename, output_to_cache) catch |err| {
-            fatal("unable to open directory from argument '-femit-implib', '{s}': {s}", .{
-                p, @errorName(err),
+    const emit_implib_resolved: Compilation.CreateOptions.Emit = switch (emit_implib) {
+        .no => .no,
+        .yes => emit_implib.resolve(default_implib_basename, output_to_cache),
+        .yes_default_path => emit: {
+            if (output_to_cache != null) break :emit .yes_cache;
+            const p = try fs.path.join(arena, &.{
+                fs.path.dirname(emit_bin_resolved.yes_path) orelse ".",
+                default_implib_basename,
             });
-        },
-        .yes_default_path => Emit.Resolved{
-            .data = Compilation.EmitLoc{
-                .directory = emit_bin_loc.?.directory,
-                .basename = default_implib_basename,
-            },
-            .dir = null,
+            break :emit .{ .yes_path = p };
         },
     };
-    defer emit_implib_resolved.deinit();
 
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{
@@ -3456,7 +3326,7 @@ fn buildOutputType(
         src.src_path = try dirs.local_cache.join(arena, &.{sub_path});
     }
 
-    if (build_options.have_llvm and emit_asm != .no) {
+    if (build_options.have_llvm and emit_asm_resolved != .no) {
         // LLVM has no way to set this non-globally.
         const argv = [_][*:0]const u8{ "zig (LLVM option parsing)", "--x86-asm-syntax=intel" };
         @import("codegen/llvm/bindings.zig").ParseCommandLineOptions(argv.len, &argv);
@@ -3472,23 +3342,11 @@ fn buildOutputType(
         fatal("--debug-incremental requires -fincremental", .{});
     }
 
-    const disable_lld_caching = !output_to_cache;
-
     const cache_mode: Compilation.CacheMode = b: {
+        // Once incremental compilation is the default, we'll want some smarter logic here,
+        // considering things like the backend in use and whether there's a ZCU.
+        if (output_to_cache == null) break :b .none;
         if (incremental) break :b .incremental;
-        if (disable_lld_caching) break :b .incremental;
-        if (!create_module.resolved_options.have_zcu) break :b .whole;
-
-        // TODO: once we support incremental compilation for the LLVM backend
-        // via saving the LLVM module into a bitcode file and restoring it,
-        // along with compiler state, this clause can be removed so that
-        // incremental cache mode is used for LLVM backend too.
-        if (create_module.resolved_options.use_llvm) break :b .whole;
-
-        // Eventually, this default should be `.incremental`. However, since incremental
-        // compilation is currently an opt-in feature, it makes a strictly worse default cache mode
-        // than `.whole`.
-        // https://github.com/ziglang/zig/issues/21165
         break :b .whole;
     };
 
@@ -3510,13 +3368,13 @@ fn buildOutputType(
         .main_mod = main_mod,
         .root_mod = root_mod,
         .std_mod = std_mod,
-        .emit_bin = emit_bin_loc,
-        .emit_h = emit_h_resolved.data,
-        .emit_asm = emit_asm_resolved.data,
-        .emit_llvm_ir = emit_llvm_ir_resolved.data,
-        .emit_llvm_bc = emit_llvm_bc_resolved.data,
-        .emit_docs = emit_docs_resolved.data,
-        .emit_implib = emit_implib_resolved.data,
+        .emit_bin = emit_bin_resolved,
+        .emit_h = emit_h_resolved,
+        .emit_asm = emit_asm_resolved,
+        .emit_llvm_ir = emit_llvm_ir_resolved,
+        .emit_llvm_bc = emit_llvm_bc_resolved,
+        .emit_docs = emit_docs_resolved,
+        .emit_implib = emit_implib_resolved,
         .lib_directories = create_module.lib_directories.items,
         .rpath_list = create_module.rpath_list.items,
         .symbol_wrap_set = symbol_wrap_set,
@@ -3599,7 +3457,6 @@ fn buildOutputType(
         .test_filters = test_filters.items,
         .test_name_prefix = test_name_prefix,
         .test_runner_path = test_runner_path,
-        .disable_lld_caching = disable_lld_caching,
         .cache_mode = cache_mode,
         .subsystem = subsystem,
         .debug_compile_errors = debug_compile_errors,
@@ -3744,13 +3601,8 @@ fn buildOutputType(
     }) {
         dev.checkAny(&.{ .run_command, .test_command });
 
-        if (test_exec_args.items.len == 0 and target.ofmt == .c) default_exec_args: {
+        if (test_exec_args.items.len == 0 and target.ofmt == .c and emit_bin_resolved != .no) {
             // Default to using `zig run` to execute the produced .c code from `zig test`.
-            const c_code_loc = emit_bin_loc orelse break :default_exec_args;
-            const c_code_directory = c_code_loc.directory orelse comp.bin_file.?.emit.root_dir;
-            const c_code_path = try fs.path.join(arena, &[_][]const u8{
-                c_code_directory.path orelse ".", c_code_loc.basename,
-            });
             try test_exec_args.appendSlice(arena, &.{ self_exe_path, "run" });
             if (dirs.zig_lib.path) |p| {
                 try test_exec_args.appendSlice(arena, &.{ "-I", p });
@@ -3775,7 +3627,7 @@ fn buildOutputType(
             if (create_module.dynamic_linker) |dl| {
                 try test_exec_args.appendSlice(arena, &.{ "--dynamic-linker", dl });
             }
-            try test_exec_args.append(arena, c_code_path);
+            try test_exec_args.append(arena, null); // placeholder for the path of the emitted C source file
         }
 
         try runOrTest(
@@ -4354,12 +4206,22 @@ fn runOrTest(
     runtime_args_start: ?usize,
     link_libc: bool,
 ) !void {
-    const lf = comp.bin_file orelse return;
-    // A naive `directory.join` here will indeed get the correct path to the binary,
-    // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
-    const exe_path = try fs.path.join(arena, &[_][]const u8{
-        lf.emit.root_dir.path orelse ".", lf.emit.sub_path,
-    });
+    const raw_emit_bin = comp.emit_bin orelse return;
+    const exe_path = switch (comp.cache_use) {
+        .none => p: {
+            if (fs.path.isAbsolute(raw_emit_bin)) break :p raw_emit_bin;
+            // Use `fs.path.join` to make a file in the cwd is still executed properly.
+            break :p try fs.path.join(arena, &.{
+                ".",
+                raw_emit_bin,
+            });
+        },
+        .whole, .incremental => try comp.dirs.local_cache.join(arena, &.{
+            "o",
+            &Cache.binToHex(comp.digest.?),
+            raw_emit_bin,
+        }),
+    };
 
     var argv = std.ArrayList([]const u8).init(gpa);
     defer argv.deinit();
@@ -5087,16 +4949,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         };
     };
 
-    const exe_basename = try std.zig.binNameAlloc(arena, .{
-        .root_name = "build",
-        .target = resolved_target.result,
-        .output_mode = .Exe,
-    });
-    const emit_bin: Compilation.EmitLoc = .{
-        .directory = null, // Use the local zig-cache.
-        .basename = exe_basename,
-    };
-
     process.raiseFileDescriptorLimit();
 
     const cwd_path = try introspect.getResolvedCwd(arena);
@@ -5357,8 +5209,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .config = config,
                 .root_mod = root_mod,
                 .main_mod = build_mod,
-                .emit_bin = emit_bin,
-                .emit_h = null,
+                .emit_bin = .yes_cache,
                 .self_exe_path = self_exe_path,
                 .thread_pool = &thread_pool,
                 .verbose_cc = verbose_cc,
@@ -5386,8 +5237,11 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             // Since incremental compilation isn't done yet, we use cache_mode = whole
             // above, and thus the output file is already closed.
             //try comp.makeBinFileExecutable();
-            child_argv.items[argv_index_exe] =
-                try dirs.local_cache.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
+            child_argv.items[argv_index_exe] = try dirs.local_cache.join(arena, &.{
+                "o",
+                &Cache.binToHex(comp.digest.?),
+                comp.emit_bin.?,
+            });
         }
 
         if (process.can_spawn) {
@@ -5504,16 +5358,6 @@ fn jitCmd(
         .is_explicit_dynamic_linker = false,
     };
 
-    const exe_basename = try std.zig.binNameAlloc(arena, .{
-        .root_name = options.cmd_name,
-        .target = resolved_target.result,
-        .output_mode = .Exe,
-    });
-    const emit_bin: Compilation.EmitLoc = .{
-        .directory = null, // Use the global zig-cache.
-        .basename = exe_basename,
-    };
-
     const self_exe_path = fs.selfExePathAlloc(arena) catch |err| {
         fatal("unable to find self exe path: {s}", .{@errorName(err)});
     };
@@ -5605,8 +5449,7 @@ fn jitCmd(
             .config = config,
             .root_mod = root_mod,
             .main_mod = root_mod,
-            .emit_bin = emit_bin,
-            .emit_h = null,
+            .emit_bin = .yes_cache,
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
             .cache_mode = .whole,
@@ -5637,7 +5480,11 @@ fn jitCmd(
             };
         }
 
-        const exe_path = try dirs.global_cache.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
+        const exe_path = try dirs.global_cache.join(arena, &.{
+            "o",
+            &Cache.binToHex(comp.digest.?),
+            comp.emit_bin.?,
+        });
         child_argv.appendAssumeCapacity(exe_path);
     }
 

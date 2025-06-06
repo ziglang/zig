@@ -1,5 +1,4 @@
 base: link.File,
-disable_caching: bool,
 ofmt: union(enum) {
     elf: Elf,
     coff: Coff,
@@ -231,7 +230,7 @@ pub fn createEmpty(
             .tag = .lld,
             .comp = comp,
             .emit = emit,
-            .zcu_object_sub_path = try allocPrint(arena, "{s}.{s}", .{ emit.sub_path, obj_file_ext }),
+            .zcu_object_basename = try allocPrint(arena, "{s}_zcu.{s}", .{ fs.path.stem(emit.sub_path), obj_file_ext }),
             .gc_sections = gc_sections,
             .print_gc_sections = options.print_gc_sections,
             .stack_size = stack_size,
@@ -239,7 +238,6 @@ pub fn createEmpty(
             .file = null,
             .build_id = options.build_id,
         },
-        .disable_caching = options.disable_lld_caching,
         .ofmt = switch (target.ofmt) {
             .coff => .{ .coff = try .init(comp, options) },
             .elf => .{ .elf = try .init(comp, options) },
@@ -289,14 +287,11 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
     const full_out_path_z = try arena.dupeZ(u8, full_out_path);
     const opt_zcu = comp.zcu;
 
-    // If there is no Zig code to compile, then we should skip flushing the output file
-    // because it will not be part of the linker line anyway.
-    const zcu_obj_path: ?[]const u8 = if (opt_zcu != null) blk: {
-        const dirname = fs.path.dirname(full_out_path_z) orelse ".";
-        break :blk try fs.path.join(arena, &.{ dirname, base.zcu_object_sub_path.? });
+    const zcu_obj_path: ?Cache.Path = if (opt_zcu != null) p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
     } else null;
 
-    log.debug("zcu_obj_path={s}", .{if (zcu_obj_path) |s| s else "(null)"});
+    log.debug("zcu_obj_path={?}", .{zcu_obj_path});
 
     const compiler_rt_path: ?Cache.Path = if (comp.compiler_rt_strat == .obj)
         comp.compiler_rt_obj.?.full_object_path
@@ -330,7 +325,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
     for (comp.win32_resource_table.keys()) |key| {
         object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.res_path));
     }
-    if (zcu_obj_path) |p| object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
+    if (zcu_obj_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
     if (compiler_rt_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
     if (ubsan_rt_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
 
@@ -368,14 +363,8 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
     const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
 
-    // If there is no Zig code to compile, then we should skip flushing the output file because it
-    // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.zcu != null) p: {
-        if (fs.path.dirname(full_out_path)) |dirname| {
-            break :p try fs.path.join(arena, &.{ dirname, base.zcu_object_sub_path.? });
-        } else {
-            break :p base.zcu_object_sub_path.?;
-        }
+    const zcu_obj_path: ?Cache.Path = if (comp.zcu != null) p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
     } else null;
 
     const is_lib = comp.config.output_mode == .Lib;
@@ -402,8 +391,8 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
 
-            if (module_obj_path) |p|
-                break :blk Cache.Path.initCwd(p);
+            if (zcu_obj_path) |p|
+                break :blk p;
 
             // TODO I think this is unreachable. Audit this situation when solving the above TODO
             // regarding eliding redundant object -> object transformations.
@@ -513,9 +502,9 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
 
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
-        if (comp.implib_emit) |emit| {
-            const implib_out_path = try emit.root_dir.join(arena, &[_][]const u8{emit.sub_path});
-            try argv.append(try allocPrint(arena, "-IMPLIB:{s}", .{implib_out_path}));
+        if (comp.emit_implib) |raw_emit_path| {
+            const path = try comp.resolveEmitPathFlush(arena, .temp, raw_emit_path);
+            try argv.append(try allocPrint(arena, "-IMPLIB:{}", .{path}));
         }
 
         if (comp.config.link_libc) {
@@ -556,8 +545,8 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
             try argv.append(key.status.success.res_path);
         }
 
-        if (module_obj_path) |p| {
-            try argv.append(p);
+        if (zcu_obj_path) |p| {
+            try argv.append(try p.toString(arena));
         }
 
         if (coff.module_definition_file) |def| {
@@ -808,14 +797,8 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
     const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
 
-    // If there is no Zig code to compile, then we should skip flushing the output file because it
-    // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.zcu != null) p: {
-        if (fs.path.dirname(full_out_path)) |dirname| {
-            break :p try fs.path.join(arena, &.{ dirname, base.zcu_object_sub_path.? });
-        } else {
-            break :p base.zcu_object_sub_path.?;
-        }
+    const zcu_obj_path: ?Cache.Path = if (comp.zcu != null) p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
     } else null;
 
     const output_mode = comp.config.output_mode;
@@ -862,8 +845,8 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
 
-            if (module_obj_path) |p|
-                break :blk Cache.Path.initCwd(p);
+            if (zcu_obj_path) |p|
+                break :blk p;
 
             // TODO I think this is unreachable. Audit this situation when solving the above TODO
             // regarding eliding redundant object -> object transformations.
@@ -1151,8 +1134,8 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             try argv.append(try key.status.success.object_path.toString(arena));
         }
 
-        if (module_obj_path) |p| {
-            try argv.append(p);
+        if (zcu_obj_path) |p| {
+            try argv.append(try p.toString(arena));
         }
 
         if (comp.tsan_lib) |lib| {
@@ -1387,14 +1370,8 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
     const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
 
-    // If there is no Zig code to compile, then we should skip flushing the output file because it
-    // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.zcu != null) p: {
-        if (fs.path.dirname(full_out_path)) |dirname| {
-            break :p try fs.path.join(arena, &.{ dirname, base.zcu_object_sub_path.? });
-        } else {
-            break :p base.zcu_object_sub_path.?;
-        }
+    const zcu_obj_path: ?Cache.Path = if (comp.zcu != null) p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
     } else null;
 
     const is_obj = comp.config.output_mode == .Obj;
@@ -1419,8 +1396,8 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
             if (comp.c_object_table.count() != 0)
                 break :blk comp.c_object_table.keys()[0].status.success.object_path;
 
-            if (module_obj_path) |p|
-                break :blk Cache.Path.initCwd(p);
+            if (zcu_obj_path) |p|
+                break :blk p;
 
             // TODO I think this is unreachable. Audit this situation when solving the above TODO
             // regarding eliding redundant object -> object transformations.
@@ -1610,8 +1587,8 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
         for (comp.c_object_table.keys()) |key| {
             try argv.append(try key.status.success.object_path.toString(arena));
         }
-        if (module_obj_path) |p| {
-            try argv.append(p);
+        if (zcu_obj_path) |p| {
+            try argv.append(try p.toString(arena));
         }
 
         if (compiler_rt_path) |p| {

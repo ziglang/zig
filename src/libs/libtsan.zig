@@ -45,11 +45,6 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .link_mode = link_mode,
     });
 
-    const emit_bin = Compilation.EmitLoc{
-        .directory = null, // Put it in the cache directory.
-        .basename = basename,
-    };
-
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
     const unwind_tables: std.builtin.UnwindTables =
@@ -287,8 +282,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .root_mod = root_mod,
         .root_name = root_name,
         .libc_installation = comp.libc_installation,
-        .emit_bin = emit_bin,
-        .emit_h = null,
+        .emit_bin = .yes_cache,
         .c_source_files = c_source_files.items,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,

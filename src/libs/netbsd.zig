@@ -684,10 +684,6 @@ fn buildSharedLib(
     defer tracy.end();
 
     const basename = try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ lib.name, lib.sover });
-    const emit_bin = Compilation.EmitLoc{
-        .directory = bin_directory,
-        .basename = basename,
-    };
     const version: Version = .{ .major = lib.sover, .minor = 0, .patch = 0 };
     const ld_basename = path.basename(comp.getTarget().standardDynamicLinkerPath().get().?);
     const soname = if (mem.eql(u8, lib.name, "ld")) ld_basename else basename;
@@ -746,8 +742,7 @@ fn buildSharedLib(
         .root_mod = root_mod,
         .root_name = lib.name,
         .libc_installation = comp.libc_installation,
-        .emit_bin = emit_bin,
-        .emit_h = null,
+        .emit_bin = .yes_cache,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,

@@ -41,7 +41,7 @@ pub fn createEmpty(
             .tag = .goff,
             .comp = comp,
             .emit = emit,
-            .zcu_object_sub_path = emit.sub_path,
+            .zcu_object_basename = emit.sub_path,
             .gc_sections = options.gc_sections orelse false,
             .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 0,

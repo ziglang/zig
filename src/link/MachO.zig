@@ -173,13 +173,6 @@ pub fn createEmpty(
     const output_mode = comp.config.output_mode;
     const link_mode = comp.config.link_mode;
 
-    // If using LLVM to generate the object file for the zig compilation unit,
-    // we need a place to put the object file so that it can be subsequently
-    // handled.
-    const zcu_object_sub_path = if (!use_llvm)
-        null
-    else
-        try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
     const allow_shlib_undefined = options.allow_shlib_undefined orelse false;
 
     const self = try arena.create(MachO);
@@ -188,7 +181,10 @@ pub fn createEmpty(
             .tag = .macho,
             .comp = comp,
             .emit = emit,
-            .zcu_object_sub_path = zcu_object_sub_path,
+            .zcu_object_basename = if (use_llvm)
+                try std.fmt.allocPrint(arena, "{s}_zcu.o", .{fs.path.stem(emit.sub_path)})
+            else
+                null,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
             .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 16777216,
@@ -351,21 +347,16 @@ pub fn flush(
     const sub_prog_node = prog_node.start("MachO Flush", 0);
     defer sub_prog_node.end();
 
-    const directory = self.base.emit.root_dir;
-    const module_obj_path: ?Path = if (self.base.zcu_object_sub_path) |path| .{
-        .root_dir = directory,
-        .sub_path = if (fs.path.dirname(self.base.emit.sub_path)) |dirname|
-            try fs.path.join(arena, &.{ dirname, path })
-        else
-            path,
+    const zcu_obj_path: ?Path = if (self.base.zcu_object_basename) |raw| p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, raw);
     } else null;
 
     // --verbose-link
     if (comp.verbose_link) try self.dumpArgv(comp);
 
     if (self.getZigObject()) |zo| try zo.flush(self, tid);
-    if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
-    if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
+    if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, zcu_obj_path);
+    if (self.base.isObject()) return relocatable.flushObject(self, comp, zcu_obj_path);
 
     var positionals = std.ArrayList(link.Input).init(gpa);
     defer positionals.deinit();
@@ -387,7 +378,7 @@ pub fn flush(
         positionals.appendAssumeCapacity(try link.openObjectInput(diags, key.status.success.object_path));
     }
 
-    if (module_obj_path) |path| try positionals.append(try link.openObjectInput(diags, path));
+    if (zcu_obj_path) |path| try positionals.append(try link.openObjectInput(diags, path));
 
     if (comp.config.any_sanitize_thread) {
         try positionals.append(try link.openObjectInput(diags, comp.tsan_lib.?.full_object_path));
@@ -636,12 +627,9 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
     const directory = self.base.emit.root_dir;
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
-    const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
-        if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, path });
-        } else {
-            break :blk path;
-        }
+    const zcu_obj_path: ?[]const u8 = if (self.base.zcu_object_basename) |raw| p: {
+        const p = try comp.resolveEmitPathFlush(arena, .temp, raw);
+        break :p try p.toString(arena);
     } else null;
 
     var argv = std.ArrayList([]const u8).init(arena);
@@ -670,7 +658,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(try key.status.success.object_path.toString(arena));
         }
 
-        if (module_obj_path) |p| {
+        if (zcu_obj_path) |p| {
             try argv.append(p);
         }
     } else {
@@ -762,7 +750,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             try argv.append(try key.status.success.object_path.toString(arena));
         }
 
-        if (module_obj_path) |p| {
+        if (zcu_obj_path) |p| {
             try argv.append(p);
         }
 

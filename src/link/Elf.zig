@@ -249,14 +249,6 @@ pub fn createEmpty(
     const is_dyn_lib = output_mode == .Lib and link_mode == .dynamic;
     const default_sym_version: elf.Versym = if (is_dyn_lib or comp.config.rdynamic) .GLOBAL else .LOCAL;
 
-    // If using LLVM to generate the object file for the zig compilation unit,
-    // we need a place to put the object file so that it can be subsequently
-    // handled.
-    const zcu_object_sub_path = if (!use_llvm)
-        null
-    else
-        try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
-
     var rpath_table: std.StringArrayHashMapUnmanaged(void) = .empty;
     try rpath_table.entries.resize(arena, options.rpath_list.len);
     @memcpy(rpath_table.entries.items(.key), options.rpath_list);
@@ -268,7 +260,10 @@ pub fn createEmpty(
             .tag = .elf,
             .comp = comp,
             .emit = emit,
-            .zcu_object_sub_path = zcu_object_sub_path,
+            .zcu_object_basename = if (use_llvm)
+                try std.fmt.allocPrint(arena, "{s}_zcu.o", .{fs.path.stem(emit.sub_path)})
+            else
+                null,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
             .print_gc_sections = options.print_gc_sections,
             .stack_size = options.stack_size orelse 16777216,
@@ -770,17 +765,13 @@ fn flushInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
 
-    const module_obj_path: ?Path = if (self.base.zcu_object_sub_path) |path| .{
-        .root_dir = self.base.emit.root_dir,
-        .sub_path = if (fs.path.dirname(self.base.emit.sub_path)) |dirname|
-            try fs.path.join(arena, &.{ dirname, path })
-        else
-            path,
+    const zcu_obj_path: ?Path = if (self.base.zcu_object_basename) |raw| p: {
+        break :p try comp.resolveEmitPathFlush(arena, .temp, raw);
     } else null;
 
     if (self.zigObjectPtr()) |zig_object| try zig_object.flush(self, tid);
 
-    if (module_obj_path) |path| openParseObjectReportingFailure(self, path);
+    if (zcu_obj_path) |path| openParseObjectReportingFailure(self, path);
 
     switch (comp.config.output_mode) {
         .Obj => return relocatable.flushObject(self, comp),

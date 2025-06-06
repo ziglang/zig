@@ -2951,21 +2951,16 @@ pub fn createEmpty(
     const output_mode = comp.config.output_mode;
     const wasi_exec_model = comp.config.wasi_exec_model;
 
-    // If using LLVM to generate the object file for the zig compilation unit,
-    // we need a place to put the object file so that it can be subsequently
-    // handled.
-    const zcu_object_sub_path = if (!use_llvm)
-        null
-    else
-        try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
-
     const wasm = try arena.create(Wasm);
     wasm.* = .{
         .base = .{
             .tag = .wasm,
             .comp = comp,
             .emit = emit,
-            .zcu_object_sub_path = zcu_object_sub_path,
+            .zcu_object_basename = if (use_llvm)
+                try std.fmt.allocPrint(arena, "{s}_zcu.o", .{fs.path.stem(emit.sub_path)})
+            else
+                null,
             // Garbage collection is so crucial to WebAssembly that we design
             // the linker around the assumption that it will be on in the vast
             // majority of cases, and therefore express "no garbage collection"
@@ -3834,15 +3829,9 @@ pub fn flush(
 
     if (comp.verbose_link) Compilation.dump_argv(wasm.dump_argv_list.items);
 
-    if (wasm.base.zcu_object_sub_path) |path| {
-        const module_obj_path: Path = .{
-            .root_dir = wasm.base.emit.root_dir,
-            .sub_path = if (fs.path.dirname(wasm.base.emit.sub_path)) |dirname|
-                try fs.path.join(arena, &.{ dirname, path })
-            else
-                path,
-        };
-        openParseObjectReportingFailure(wasm, module_obj_path);
+    if (wasm.base.zcu_object_basename) |raw| {
+        const zcu_obj_path: Path = try comp.resolveEmitPathFlush(arena, .temp, raw);
+        openParseObjectReportingFailure(wasm, zcu_obj_path);
         try prelink(wasm, prog_node);
     }
 

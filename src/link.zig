@@ -384,9 +384,11 @@ pub const File = struct {
     emit: Path,
 
     file: ?fs.File,
-    /// When linking with LLD, this linker code will output an object file only at
-    /// this location, and then this path can be placed on the LLD linker line.
-    zcu_object_sub_path: ?[]const u8 = null,
+    /// When using the LLVM backend, the emitted object is written to a file with this name. This
+    /// object file then becomes a normal link input to LLD or a self-hosted linker.
+    ///
+    /// To convert this to an actual path, see `Compilation.resolveEmitPath` (with `kind == .temp`).
+    zcu_object_basename: ?[]const u8 = null,
     gc_sections: bool,
     print_gc_sections: bool,
     build_id: std.zig.BuildId,
@@ -433,7 +435,6 @@ pub const File = struct {
         export_symbol_names: []const []const u8,
         global_base: ?u64,
         build_id: std.zig.BuildId,
-        disable_lld_caching: bool,
         hash_style: Lld.Elf.HashStyle,
         sort_section: ?Lld.Elf.SortSection,
         major_subsystem_version: ?u16,
@@ -1083,7 +1084,7 @@ pub const File = struct {
         // In this case, an object file is created by the LLVM backend, so
         // there is no prelink phase. The Zig code is linked as a standard
         // object along with the others.
-        if (base.zcu_object_sub_path != null) return;
+        if (base.zcu_object_basename != null) return;
 
         switch (base.tag) {
             inline .wasm => |tag| {
@@ -1494,6 +1495,31 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
                 }
             }
         },
+    }
+}
+/// After the main pipeline is done, but before flush, the compilation may need to link one final
+/// `Nav` into the binary: the `builtin.test_functions` value. Since the link thread isn't running
+/// by then, we expose this function which can be called directly.
+pub fn linkTestFunctionsNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) void {
+    const zcu = pt.zcu;
+    const comp = zcu.comp;
+    const diags = &comp.link_diags;
+    if (zcu.llvm_object) |llvm_object| {
+        llvm_object.updateNav(pt, nav_index) catch |err| switch (err) {
+            error.OutOfMemory => diags.setAllocFailure(),
+        };
+    } else if (comp.bin_file) |lf| {
+        lf.updateNav(pt, nav_index) catch |err| switch (err) {
+            error.OutOfMemory => diags.setAllocFailure(),
+            error.CodegenFail => zcu.assertCodegenFailed(nav_index),
+            error.Overflow, error.RelocationNotByteAligned => {
+                switch (zcu.codegenFail(nav_index, "unable to codegen: {s}", .{@errorName(err)})) {
+                    error.CodegenFail => return,
+                    error.OutOfMemory => return diags.setAllocFailure(),
+                }
+                // Not a retryable failure.
+            },
+        };
     }
 }
 
