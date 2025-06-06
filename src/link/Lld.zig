@@ -312,58 +312,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
     // insight as to what's going on here you can read that function body which is more
     // well-commented.
 
-    const id_symlink_basename = "llvm-ar.id";
-
-    var man: Cache.Manifest = undefined;
-    defer if (!lld.disable_caching) man.deinit();
-
     const link_inputs = comp.link_inputs;
-
-    var digest: [Cache.hex_digest_len]u8 = undefined;
-
-    if (!lld.disable_caching) {
-        man = comp.cache_parent.obtain();
-
-        // We are about to obtain this lock, so here we give other processes a chance first.
-        base.releaseLock();
-
-        try link.hashInputs(&man, link_inputs);
-
-        for (comp.c_object_table.keys()) |key| {
-            _ = try man.addFilePath(key.status.success.object_path, null);
-        }
-        for (comp.win32_resource_table.keys()) |key| {
-            _ = try man.addFile(key.status.success.res_path, null);
-        }
-        try man.addOptionalFile(zcu_obj_path);
-        try man.addOptionalFilePath(compiler_rt_path);
-        try man.addOptionalFilePath(ubsan_rt_path);
-
-        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
-        _ = try man.hit();
-        digest = man.final();
-
-        var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = Cache.readSmallFile(
-            directory.handle,
-            id_symlink_basename,
-            &prev_digest_buf,
-        ) catch |err| b: {
-            log.debug("archive new_digest={s} readFile error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
-            break :b prev_digest_buf[0..0];
-        };
-        if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("archive digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
-            base.lock = man.toOwnedLock();
-            return;
-        }
-
-        // We are about to change the output file to be different, so we invalidate the build hash now.
-        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return e,
-        };
-    }
 
     var object_files: std.ArrayListUnmanaged([*:0]const u8) = .empty;
 
@@ -408,20 +357,6 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
         },
     );
     if (bad) return error.UnableToWriteArchive;
-
-    if (!lld.disable_caching) {
-        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save archive hash digest file: {s}", .{@errorName(err)});
-        };
-
-        if (man.have_exclusive_lock) {
-            man.writeManifest() catch |err| {
-                log.warn("failed to write cache manifest when archiving: {s}", .{@errorName(err)});
-            };
-        }
-
-        base.lock = man.toOwnedLock();
-    }
 }
 
 fn coffLink(lld: *Lld, arena: Allocator) !void {
@@ -456,90 +391,6 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
         .disabled, .default, .enabled => null,
         .named => |name| name,
     };
-
-    // See link/Elf.zig for comments on how this mechanism works.
-    const id_symlink_basename = "lld.id";
-
-    var man: Cache.Manifest = undefined;
-    defer if (!lld.disable_caching) man.deinit();
-
-    var digest: [Cache.hex_digest_len]u8 = undefined;
-
-    if (!lld.disable_caching) {
-        man = comp.cache_parent.obtain();
-        base.releaseLock();
-
-        comptime assert(Compilation.link_hash_implementation_version == 14);
-
-        try link.hashInputs(&man, comp.link_inputs);
-        for (comp.c_object_table.keys()) |key| {
-            _ = try man.addFilePath(key.status.success.object_path, null);
-        }
-        for (comp.win32_resource_table.keys()) |key| {
-            _ = try man.addFile(key.status.success.res_path, null);
-        }
-        try man.addOptionalFile(module_obj_path);
-        man.hash.addOptionalBytes(entry_name);
-        man.hash.add(base.stack_size);
-        man.hash.add(coff.image_base);
-        man.hash.add(base.build_id);
-        {
-            // TODO remove this, libraries must instead be resolved by the frontend.
-            for (coff.lib_directories) |lib_directory| man.hash.addOptionalBytes(lib_directory.path);
-        }
-        man.hash.add(comp.skip_linker_dependencies);
-        if (comp.config.link_libc) {
-            man.hash.add(comp.libc_installation != null);
-            if (comp.libc_installation) |libc_installation| {
-                man.hash.addBytes(libc_installation.crt_dir.?);
-                if (target.abi == .msvc or target.abi == .itanium) {
-                    man.hash.addBytes(libc_installation.msvc_lib_dir.?);
-                    man.hash.addBytes(libc_installation.kernel32_lib_dir.?);
-                }
-            }
-        }
-        man.hash.addListOfBytes(comp.windows_libs.keys());
-        man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
-        man.hash.addOptional(coff.subsystem);
-        man.hash.add(comp.config.is_test);
-        man.hash.add(coff.tsaware);
-        man.hash.add(coff.nxcompat);
-        man.hash.add(coff.dynamicbase);
-        man.hash.add(base.allow_shlib_undefined);
-        // strip does not need to go into the linker hash because it is part of the hash namespace
-        man.hash.add(coff.major_subsystem_version);
-        man.hash.add(coff.minor_subsystem_version);
-        man.hash.add(coff.repro);
-        man.hash.addOptional(comp.version);
-        try man.addOptionalFile(coff.module_definition_file);
-
-        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
-        _ = try man.hit();
-        digest = man.final();
-        var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = Cache.readSmallFile(
-            directory.handle,
-            id_symlink_basename,
-            &prev_digest_buf,
-        ) catch |err| blk: {
-            log.debug("COFF LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
-            // Handle this as a cache miss.
-            break :blk prev_digest_buf[0..0];
-        };
-        if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("COFF LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
-            // Hot diggity dog! The output binary is already there.
-            base.lock = man.toOwnedLock();
-            return;
-        }
-        log.debug("COFF LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
-
-        // We are about to change the output file to be different, so we invalidate the build hash now.
-        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return e,
-        };
-    }
 
     if (comp.config.output_mode == .Obj) {
         // LLD's COFF driver does not support the equivalent of `-r` so we do a simple file copy
@@ -935,21 +786,6 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
 
         try spawnLld(comp, arena, argv.items);
     }
-
-    if (!lld.disable_caching) {
-        // Update the file with the digest. If it fails we can continue; it only
-        // means that the next invocation will have an unnecessary cache miss.
-        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest file: {s}", .{@errorName(err)});
-        };
-        // Again failure here only means an unnecessary cache miss.
-        man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
-        };
-        // We hang on to this lock so that the output file path can be used without
-        // other processes clobbering it.
-        base.lock = man.toOwnedLock();
-    }
 }
 fn findLib(arena: Allocator, name: []const u8, lib_directories: []const Cache.Directory) !?[]const u8 {
     for (lib_directories) |lib_directory| {
@@ -1000,118 +836,6 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
         if (comp.ubsan_rt_obj) |x| break :blk x.full_object_path;
         break :blk null;
     };
-
-    // Here we want to determine whether we can save time by not invoking LLD when the
-    // output is unchanged. None of the linker options or the object files that are being
-    // linked are in the hash that namespaces the directory we are outputting to. Therefore,
-    // we must hash those now, and the resulting digest will form the "id" of the linking
-    // job we are about to perform.
-    // After a successful link, we store the id in the metadata of a symlink named "lld.id" in
-    // the artifact directory. So, now, we check if this symlink exists, and if it matches
-    // our digest. If so, we can skip linking. Otherwise, we proceed with invoking LLD.
-    const id_symlink_basename = "lld.id";
-
-    var man: std.Build.Cache.Manifest = undefined;
-    defer if (!lld.disable_caching) man.deinit();
-
-    var digest: [std.Build.Cache.hex_digest_len]u8 = undefined;
-
-    if (!lld.disable_caching) {
-        man = comp.cache_parent.obtain();
-
-        // We are about to obtain this lock, so here we give other processes a chance first.
-        base.releaseLock();
-
-        comptime assert(Compilation.link_hash_implementation_version == 14);
-
-        try man.addOptionalFile(elf.linker_script);
-        try man.addOptionalFile(elf.version_script);
-        man.hash.add(elf.allow_undefined_version);
-        man.hash.addOptional(elf.enable_new_dtags);
-        try link.hashInputs(&man, comp.link_inputs);
-        for (comp.c_object_table.keys()) |key| {
-            _ = try man.addFilePath(key.status.success.object_path, null);
-        }
-        try man.addOptionalFile(module_obj_path);
-        try man.addOptionalFilePath(compiler_rt_path);
-        try man.addOptionalFilePath(ubsan_rt_path);
-        try man.addOptionalFilePath(if (comp.tsan_lib) |l| l.full_object_path else null);
-        try man.addOptionalFilePath(if (comp.fuzzer_lib) |l| l.full_object_path else null);
-
-        // We can skip hashing libc and libc++ components that we are in charge of building from Zig
-        // installation sources because they are always a product of the compiler version + target information.
-        man.hash.addOptionalBytes(elf.entry_name);
-        man.hash.add(elf.image_base);
-        man.hash.add(base.gc_sections);
-        man.hash.addOptional(elf.sort_section);
-        man.hash.add(comp.link_eh_frame_hdr);
-        man.hash.add(elf.emit_relocs);
-        man.hash.add(comp.config.rdynamic);
-        man.hash.addListOfBytes(elf.rpath_list);
-        if (output_mode == .Exe) {
-            man.hash.add(base.stack_size);
-        }
-        man.hash.add(base.build_id);
-        man.hash.addListOfBytes(elf.symbol_wrap_set);
-        man.hash.add(comp.skip_linker_dependencies);
-        man.hash.add(elf.z_nodelete);
-        man.hash.add(elf.z_notext);
-        man.hash.add(elf.z_defs);
-        man.hash.add(elf.z_origin);
-        man.hash.add(elf.z_nocopyreloc);
-        man.hash.add(elf.z_now);
-        man.hash.add(elf.z_relro);
-        man.hash.add(elf.z_common_page_size orelse 0);
-        man.hash.add(elf.z_max_page_size orelse 0);
-        man.hash.add(elf.hash_style);
-        // strip does not need to go into the linker hash because it is part of the hash namespace
-        if (comp.config.link_libc) {
-            man.hash.add(comp.libc_installation != null);
-            if (comp.libc_installation) |libc_installation| {
-                man.hash.addBytes(libc_installation.crt_dir.?);
-            }
-        }
-        if (have_dynamic_linker) {
-            man.hash.addOptionalBytes(target.dynamic_linker.get());
-        }
-        man.hash.addOptionalBytes(elf.soname);
-        man.hash.addOptional(comp.version);
-        man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
-        man.hash.add(base.allow_shlib_undefined);
-        man.hash.add(elf.bind_global_refs_locally);
-        man.hash.add(elf.compress_debug_sections);
-        man.hash.add(comp.config.any_sanitize_thread);
-        man.hash.add(comp.config.any_fuzz);
-        man.hash.addOptionalBytes(comp.sysroot);
-
-        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
-        _ = try man.hit();
-        digest = man.final();
-
-        var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = std.Build.Cache.readSmallFile(
-            directory.handle,
-            id_symlink_basename,
-            &prev_digest_buf,
-        ) catch |err| blk: {
-            log.debug("ELF LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
-            // Handle this as a cache miss.
-            break :blk prev_digest_buf[0..0];
-        };
-        if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("ELF LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
-            // Hot diggity dog! The output binary is already there.
-            base.lock = man.toOwnedLock();
-            return;
-        }
-        log.debug("ELF LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
-
-        // We are about to change the output file to be different, so we invalidate the build hash now.
-        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return e,
-        };
-    }
 
     // Due to a deficiency in LLD, we need to special-case BPF to a simple file
     // copy when generating relocatables. Normally, we would expect `lld -r` to work.
@@ -1570,21 +1294,6 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
 
         try spawnLld(comp, arena, argv.items);
     }
-
-    if (!lld.disable_caching) {
-        // Update the file with the digest. If it fails we can continue; it only
-        // means that the next invocation will have an unnecessary cache miss.
-        std.Build.Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest file: {s}", .{@errorName(err)});
-        };
-        // Again failure here only means an unnecessary cache miss.
-        man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
-        };
-        // We hang on to this lock so that the output file path can be used without
-        // other processes clobbering it.
-        base.lock = man.toOwnedLock();
-    }
 }
 fn getLDMOption(target: std.Target) ?[]const u8 {
     // This should only return emulations understood by LLD's parseEmulation().
@@ -1699,71 +1408,6 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
         if (comp.ubsan_rt_obj) |obj| break :blk obj.full_object_path;
         break :blk null;
     };
-
-    const id_symlink_basename = "lld.id";
-
-    var man: Cache.Manifest = undefined;
-    defer if (!lld.disable_caching) man.deinit();
-
-    var digest: [Cache.hex_digest_len]u8 = undefined;
-
-    if (!lld.disable_caching) {
-        man = comp.cache_parent.obtain();
-
-        // We are about to obtain this lock, so here we give other processes a chance first.
-        base.releaseLock();
-
-        comptime assert(Compilation.link_hash_implementation_version == 14);
-
-        try link.hashInputs(&man, comp.link_inputs);
-        for (comp.c_object_table.keys()) |key| {
-            _ = try man.addFilePath(key.status.success.object_path, null);
-        }
-        try man.addOptionalFile(module_obj_path);
-        try man.addOptionalFilePath(compiler_rt_path);
-        try man.addOptionalFilePath(ubsan_rt_path);
-        man.hash.addOptionalBytes(wasm.entry_name);
-        man.hash.add(base.stack_size);
-        man.hash.add(base.build_id);
-        man.hash.add(import_memory);
-        man.hash.add(export_memory);
-        man.hash.add(wasm.import_table);
-        man.hash.add(wasm.export_table);
-        man.hash.addOptional(wasm.initial_memory);
-        man.hash.addOptional(wasm.max_memory);
-        man.hash.add(shared_memory);
-        man.hash.addOptional(wasm.global_base);
-        man.hash.addListOfBytes(wasm.export_symbol_names);
-        // strip does not need to go into the linker hash because it is part of the hash namespace
-
-        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
-        _ = try man.hit();
-        digest = man.final();
-
-        var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = Cache.readSmallFile(
-            directory.handle,
-            id_symlink_basename,
-            &prev_digest_buf,
-        ) catch |err| blk: {
-            log.debug("WASM LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
-            // Handle this as a cache miss.
-            break :blk prev_digest_buf[0..0];
-        };
-        if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("WASM LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
-            // Hot diggity dog! The output binary is already there.
-            base.lock = man.toOwnedLock();
-            return;
-        }
-        log.debug("WASM LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
-
-        // We are about to change the output file to be different, so we invalidate the build hash now.
-        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return e,
-        };
-    }
 
     if (is_obj) {
         // LLD's WASM driver does not support the equivalent of `-r` so we do a simple file copy
@@ -1997,21 +1641,6 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
                 else => |e| return e,
             };
         }
-    }
-
-    if (!lld.disable_caching) {
-        // Update the file with the digest. If it fails we can continue; it only
-        // means that the next invocation will have an unnecessary cache miss.
-        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest symlink: {s}", .{@errorName(err)});
-        };
-        // Again failure here only means an unnecessary cache miss.
-        man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
-        };
-        // We hang on to this lock so that the output file path can be used without
-        // other processes clobbering it.
-        base.lock = man.toOwnedLock();
     }
 }
 
