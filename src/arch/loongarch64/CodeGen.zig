@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const cast = std.math.cast;
 
 const Air = @import("../../Air.zig");
 const codegen = @import("../../codegen.zig");
@@ -1511,13 +1512,24 @@ fn genCopy(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: Cop
     const zcu = cg.pt.zcu;
     if (!ty.hasRuntimeBits(zcu)) return;
 
-    _ = opts;
-
     switch (dst_mcv) {
-        else => {},
+        .register => |reg| try cg.genCopyToReg(ty, reg, src_mcv, opts),
+        else => return cg.fail("TODO: genCopy {s} => {s}", .{ @tagName(src_mcv), @tagName(dst_mcv) }),
     }
+}
 
-    return cg.fail("TODO: genCopy {s} => {s}", .{ @tagName(src_mcv), @tagName(dst_mcv) });
+fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: CopyOptions) !void {
+    _ = ty;
+    switch (src_mcv) {
+        .none => {},
+        .dead, .unreach => unreachable,
+        .undef => if (opts.safety) try cg.asmInst(.lu12i_w(dst, 0xaaaa)),
+        .register => |src| try cg.asmInst(.ori(dst, src, 0)),
+        .register_bias => |ro| {
+            try cg.asmInst(.addi_d(dst, ro.reg, cast(i12, ro.off) orelse return cg.fail("TODO copy reg_bias to reg", .{})));
+        },
+        else => return cg.fail("TODO: genCopyToReg from {s}", .{@tagName(src_mcv)}),
+    }
 }
 
 /// Pattern matching framework.
