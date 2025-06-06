@@ -766,10 +766,11 @@ fn failMsg(self: *CodeGen, msg: *Zcu.ErrorMsg) error{ OutOfMemory, CodegenFail }
 fn addInst(cg: *CodeGen, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     const gpa = cg.gpa;
 
-    cg_mir_log.debug("  | {}", .{inst});
-
     try cg.mir_instructions.ensureUnusedCapacity(gpa, 1);
     const result_index: Mir.Inst.Index = @intCast(cg.mir_instructions.len);
+
+    cg_mir_log.debug("  | {}: {}", .{ result_index, inst });
+
     cg.mir_instructions.appendAssumeCapacity(inst);
     return result_index;
 }
@@ -1159,7 +1160,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
     for (body) |inst| {
         if (cg.liveness.isUnused(inst) and !cg.air.mustLower(inst, ip)) continue;
 
-        cg_mir_log.debug("  {}", .{cg.fmtAir(inst)});
+        cg_mir_log.debug("{}", .{cg.fmtAir(inst)});
         verbose_tracking_log.debug("{}", .{cg.fmtTracking()});
 
         cg.reused_operands = .initEmpty();
@@ -1442,8 +1443,10 @@ fn genCopy(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: Cop
     _ = opts;
 
     switch (dst_mcv) {
-        else => return std.debug.panic("TODO: genCopy {s} => {s}", .{ @tagName(src_mcv), @tagName(dst_mcv) }),
+        else => {},
     }
+
+    return cg.fail("TODO: genCopy {s} => {s}", .{ @tagName(src_mcv), @tagName(dst_mcv) });
 }
 
 fn airArg(cg: *CodeGen, inst: Air.Inst.Index) !void {
