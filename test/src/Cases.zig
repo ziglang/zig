@@ -560,7 +560,7 @@ pub fn lowerToTranslateCSteps(
                 .root_module = translate_c.createModule(),
             });
             run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
-            run_exe.linkLibC();
+            run_exe.root_module.link_libc = true;
             const run = b.addRunArtifact(run_exe);
             run.step.name = b.fmt("{s} run", .{annotated_case_name});
             run.expectStdOutEqual(output);
