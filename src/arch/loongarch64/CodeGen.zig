@@ -1461,33 +1461,35 @@ fn airRet(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
     const zcu = pt.zcu;
     const un_op = cg.getAirData(inst).un_op;
 
-    const ret_ty = cg.fn_type.fnReturnType(zcu);
-    const ret_temp = switch (cg.call_info.return_value) {
-        .ref_frame => |_| deref_ret: {
-            // load pointer
-            var ret_ptr = try cg.tempInit(.usize, cg.ret_mcv);
-            const ret_temp = try ret_ptr.load(ret_ty, .{ .safety = safety }, cg);
-            try ret_ptr.die(cg);
-            break :deref_ret ret_temp;
-        },
-        else => try cg.tempInit(ret_ty, cg.ret_mcv),
-    };
-
     const un_temp = try cg.tempFromOperand(un_op, false);
-    try un_temp.copy(ret_temp, cg, ret_ty);
-    try ret_temp.die(cg);
 
-    try (try cg.tempInit(.noreturn, .unreach)).finish(inst, &.{un_temp}, cg);
-    try cg.finishReturn(inst);
+    if (!std.meta.eql(un_temp.tracking(cg).short, cg.ret_mcv)) {
+        // copy return values into proper location
+        const ret_ty = cg.fn_type.fnReturnType(zcu);
+        const ret_temp = switch (cg.call_info.return_value) {
+            .ref_frame => |_| deref_ret: {
+                // load pointer
+                var ret_ptr = try cg.tempInit(.usize, cg.ret_mcv);
+                const ret_temp = try ret_ptr.load(ret_ty, .{ .safety = safety }, cg);
+                try ret_ptr.die(cg);
+                break :deref_ret ret_temp;
+            },
+            else => try cg.tempInit(ret_ty, cg.ret_mcv),
+        };
+        try un_temp.copy(ret_temp, cg, ret_ty);
+
+        try ret_temp.finish(inst, &.{un_temp}, cg);
+        try cg.finishReturn(inst);
+    } else {
+        try un_temp.finish(inst, &.{un_temp}, cg);
+        try cg.finishReturn(inst);
+    }
 }
 
 /// Finishes a return.
 /// The return value is expected to be copied to ret_mcv.
 fn finishReturn(cg: *CodeGen, inst: Air.Inst.Index) !void {
-    // lock return value regs
-    for (cg.call_info.return_value.getRegs()) |reg| {
-        try cg.register_manager.getReg(reg, inst);
-    }
+    _ = inst;
 
     // restore error return trace
     if (cg.call_info.err_ret_trace_reg) |err_ret_trace_reg| {
