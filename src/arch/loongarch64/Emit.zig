@@ -34,9 +34,20 @@ pub fn emitMir(emit: *Emit) Error!void {
 
     for (0..emit.lower.mir.instructions.len) |mir_i| {
         const mir_index: Mir.Inst.Index = @intCast(mir_i);
+        const mir_inst = emit.lower.mir.instructions.get(mir_index);
 
         const lowered = try emit.lower.lowerMir(mir_index);
         var lir_relocs = lowered.relocs;
+
+        if (mir_inst.tag == Mir.Inst.Tag.fromPseudo(.func_epilogue)) {
+            switch (emit.debug_output) {
+                .dwarf => |dwarf| {
+                    try dwarf.setEpilogueBegin();
+                    try emit.dbgAdvancePCAndLine(emit.prev_di_loc);
+                },
+                .plan9, .none => {},
+            }
+        }
 
         for (lowered.insts, 0..) |lir_inst, lir_index| {
             const start_offset: u32 = @intCast(emit.code.items.len);
@@ -58,16 +69,27 @@ pub fn emitMir(emit: *Emit) Error!void {
         }
         std.debug.assert(lir_relocs.len == 0);
 
-        if (lowered.insts.len == 0) {
-            const mir_inst = emit.lower.mir.instructions.get(mir_index);
-            switch (mir_inst.tag.unwrap()) {
-                else => unreachable,
-                .pseudo => |tag| switch (tag) {
-                    .func_prologue => {}, // TODO: func_prologue current does not lower to any instructions
-                    .jump_to_epilogue => {}, // jump_to_epilogue may be optimized out
-                    else => unreachable,
+        switch (mir_inst.tag.unwrap()) {
+            else => {},
+            .pseudo => |tag| switch (tag) {
+                .func_prologue => {
+                    switch (emit.debug_output) {
+                        .dwarf => |dwarf| try dwarf.setPrologueEnd(),
+                        .plan9, .none => {},
+                    }
                 },
-            }
+                .dbg_line_stmt_line_column => try emit.dbgAdvancePCAndLine(.{
+                    .line = mir_inst.data.line_column.line,
+                    .column = mir_inst.data.line_column.column,
+                    .is_stmt = true,
+                }),
+                .dbg_line_line_column => try emit.dbgAdvancePCAndLine(.{
+                    .line = mir_inst.data.line_column.line,
+                    .column = mir_inst.data.line_column.column,
+                    .is_stmt = false,
+                }),
+                else => {},
+            },
         }
     }
     // TODO: emit relocs
@@ -92,3 +114,19 @@ const Loc = struct {
     column: u32,
     is_stmt: bool,
 };
+
+fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc) Error!void {
+    const delta_line = @as(i33, loc.line) - @as(i33, emit.prev_di_loc.line);
+    const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
+    log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });
+    switch (emit.debug_output) {
+        .dwarf => |dwarf| {
+            if (loc.is_stmt != emit.prev_di_loc.is_stmt) try dwarf.negateStmt();
+            if (loc.column != emit.prev_di_loc.column) try dwarf.setColumn(loc.column);
+            try dwarf.advancePCAndLine(delta_line, delta_pc);
+            emit.prev_di_loc = loc;
+            emit.prev_di_pc = emit.code.items.len;
+        },
+        .plan9, .none => {},
+    }
+}

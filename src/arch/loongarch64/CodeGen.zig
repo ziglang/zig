@@ -1169,8 +1169,25 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .arg => try cg.airArg(inst),
             .ret => try cg.airRet(inst, false),
             .ret_safe => try cg.airRet(inst, true),
+
+            .dbg_stmt => if (cg.debug_output != .none) {
+                const dbg_stmt = cg.getAirData(inst).dbg_stmt;
+                try cg.asmPseudo(.dbg_line_stmt_line_column, .{ .line_column = .{
+                    .line = dbg_stmt.line,
+                    .column = dbg_stmt.column,
+                } });
+            },
+            .dbg_empty_stmt => if (cg.debug_output != .none) {
+                if (cg.mir_instructions.len > 0) {
+                    const prev_mir_tag = &cg.mir_instructions.items(.tag)[cg.mir_instructions.len - 1];
+                    if (prev_mir_tag.* == Mir.Inst.Tag.fromPseudo(.dbg_line_line_column))
+                        prev_mir_tag.* = Mir.Inst.Tag.fromPseudo(.dbg_line_stmt_line_column);
+                }
+                try cg.asmInst(.ori, .{ .DJUk12 = .{ .zero, .zero, 0 } });
+            },
             // TODO: emit debug info
-            .dbg_stmt, .dbg_empty_stmt, .dbg_inline_block, .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => {},
+            .dbg_inline_block => {},
+            .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => {},
             else => return cg.fail(
                 "TODO implement {s} for LoongArch64 CodeGen",
                 .{@tagName(air_tags[@intFromEnum(inst)])},

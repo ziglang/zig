@@ -94,6 +94,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                         lower.reloc(.b26, .{ .inst = @intCast(lower.mir.instructions.len - 1) }, 0);
                     }
                 },
+                .dbg_line_line_column, .dbg_line_stmt_line_column => {},
                 else => unreachable,
             }
         },

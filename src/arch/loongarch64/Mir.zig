@@ -52,6 +52,11 @@ pub const Inst = struct {
         spill_gp_regs,
         /// Restores general-purpose registers, uses `reg_list` payload.
         restore_gp_regs,
+
+        /// Update debug line with is_stmt register set, uses `line_column` payload.
+        dbg_line_stmt_line_column,
+        /// Update debug line with is_stmt register clear, uses `line_column` payload.
+        dbg_line_line_column,
     };
 
     pub const Data = union {
@@ -81,6 +86,11 @@ pub const Inst = struct {
         switch (inst.tag.unwrap()) {
             .pseudo => |tag| {
                 switch (tag) {
+                    .dbg_line_stmt_line_column, .dbg_line_line_column => try writer.print(".{s} L{d}:{d}", .{
+                        @tagName(tag),
+                        inst.data.line_column.line,
+                        inst.data.line_column.column,
+                    }),
                     else => try writer.print(".pseudo.{s}", .{@tagName(tag)}),
                 }
             },
