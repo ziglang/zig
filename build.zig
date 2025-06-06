@@ -255,7 +255,7 @@ pub fn build(b: *std.Build) !void {
         };
         const git_describe = mem.trim(u8, git_describe_untrimmed, " \n\r");
 
-        switch (mem.count(u8, git_describe, "-")) {
+        switch (mem.countScalar(u8, git_describe, '-')) {
             0 => {
                 // Tagged release version (e.g. 0.10.0).
                 if (!mem.eql(u8, git_describe, version_string)) {
