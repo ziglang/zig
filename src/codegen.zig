@@ -89,6 +89,7 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
 /// MIR from codegen to the linker *regardless* of which backend is in use. So, we use this: a
 /// union of all MIR types. The active tag is known from the backend in use; see `AnyMir.tag`.
 pub const AnyMir = union {
+    loongarch: @import("arch/loongarch/Mir.zig"),
     riscv64: @import("arch/riscv64/Mir.zig"),
     sparc64: @import("arch/sparc64/Mir.zig"),
     x86_64: @import("arch/x86_64/Mir.zig"),
@@ -99,6 +100,7 @@ pub const AnyMir = union {
         return switch (backend) {
             .stage2_aarch64 => "aarch64",
             .stage2_arm => "arm",
+            .stage2_loongarch => "loongarch",
             .stage2_riscv64 => "riscv64",
             .stage2_sparc64 => "sparc64",
             .stage2_x86_64 => "x86_64",
@@ -114,6 +116,7 @@ pub const AnyMir = union {
         switch (backend) {
             else => unreachable,
             inline .stage2_riscv64,
+            .stage2_loongarch,
             .stage2_sparc64,
             .stage2_x86_64,
             .stage2_wasm,
@@ -142,6 +145,7 @@ pub fn generateFunction(
     switch (target_util.zigBackend(target, false)) {
         else => unreachable,
         inline .stage2_riscv64,
+        .stage2_loongarch,
         .stage2_sparc64,
         .stage2_x86_64,
         .stage2_wasm,
