@@ -21,8 +21,10 @@ argv: std.ArrayListUnmanaged(Arg),
 /// Use `setCwd` to set the initial current working directory
 cwd: ?Build.LazyPath,
 
-/// Override this field to modify the environment, or use setEnvironmentVariable
-env_map: ?*EnvMap,
+/// Environment of the child process. When `null` the environment of the parent
+/// process is used.
+/// See also `setEnvironmentVariable` and `setFileEnvironmentVariable`.
+env: ?std.StringArrayHashMapUnmanaged(EnvVar),
 
 /// When `true` prevents `ZIG_PROGRESS` environment variable from being passed
 /// to the child process, which otherwise would be used for the child to send
@@ -160,6 +162,12 @@ pub const Output = struct {
     basename: []const u8,
 };
 
+pub const EnvVar = union(enum) {
+    lazy_path: std.Build.LazyPath,
+    directory_source: std.Build.LazyPath,
+    bytes: []u8,
+};
+
 pub fn create(owner: *std.Build, name: []const u8) *Run {
     const run = owner.allocator.create(Run) catch @panic("OOM");
     run.* = .{
@@ -171,7 +179,7 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         }),
         .argv = .{},
         .cwd = null,
-        .env_map = null,
+        .env = null,
         .disable_zig_progress = false,
         .stdio = .infer_from_args,
         .stdin = .none,
@@ -426,49 +434,67 @@ pub fn setCwd(run: *Run, cwd: Build.LazyPath) void {
 }
 
 pub fn clearEnvironment(run: *Run) void {
-    const b = run.step.owner;
-    const new_env_map = b.allocator.create(EnvMap) catch @panic("OOM");
-    new_env_map.* = EnvMap.init(b.allocator);
-    run.env_map = new_env_map;
+    if (run.env) |*env| {
+        env.clearRetainingCapacity();
+    } else {
+        run.env = .empty;
+    }
 }
 
 pub fn addPathDir(run: *Run, search_path: []const u8) void {
     const b = run.step.owner;
-    const env_map = getEnvMapInternal(run);
+    const env = run.getEnv();
 
     const key = "PATH";
-    const prev_path = env_map.get(key);
+    const prev_entry = env.get(key);
 
-    if (prev_path) |pp| {
-        const new_path = b.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
-        env_map.put(key, new_path) catch @panic("OOM");
+    if (prev_entry) |pe| {
+        if (pe != .bytes)
+            return;
+        const new_path = b.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pe.bytes, search_path });
+        env.put(b.allocator, key, .{ .bytes = new_path }) catch @panic("OOM");
     } else {
-        env_map.put(key, b.dupePath(search_path)) catch @panic("OOM");
+        env.put(b.allocator, key, .{ .bytes = b.dupePath(search_path) }) catch @panic("OOM");
     }
 }
 
-pub fn getEnvMap(run: *Run) *EnvMap {
-    return getEnvMapInternal(run);
-}
-
-fn getEnvMapInternal(run: *Run) *EnvMap {
-    const arena = run.step.owner.allocator;
-    return run.env_map orelse {
-        const env_map = arena.create(EnvMap) catch @panic("OOM");
-        env_map.* = process.getEnvMap(arena) catch @panic("unhandled error");
-        run.env_map = env_map;
-        return env_map;
-    };
+pub fn getEnv(run: *Run) *std.StringArrayHashMapUnmanaged(EnvVar) {
+    if (run.env == null) {
+        run.env = .empty;
+        const arena = run.step.owner.allocator;
+        const env_map = process.getEnvMap(arena) catch @panic("unhandled error");
+        run.setEnvironmentVariables(&env_map);
+    }
+    return &run.env.?;
 }
 
 pub fn setEnvironmentVariable(run: *Run, key: []const u8, value: []const u8) void {
     const b = run.step.owner;
-    const env_map = run.getEnvMap();
-    env_map.put(b.dupe(key), b.dupe(value)) catch @panic("unhandled error");
+    const env = run.getEnv();
+    env.put(b.allocator, b.dupe(key), .{ .bytes = b.dupe(value) }) catch @panic("OOM");
+}
+
+pub fn setEnvironmentVariables(run: *Run, env_map: *const process.EnvMap) void {
+    var iter = env_map.hash_map.iterator();
+    while (iter.next()) |entry| {
+        run.setEnvironmentVariable(entry.key_ptr.*, entry.value_ptr.*);
+    }
+}
+
+pub fn setFileEnvironmentVariable(run: *Run, key: []const u8, lp: std.Build.LazyPath) void {
+    const b = run.step.owner;
+    run.getEnv().put(b.allocator, b.dupe(key), .{ .lazy_path = lp.dupe(b) }) catch @panic("OOM");
+    lp.addStepDependencies(&run.step);
+}
+
+pub fn setDirectoryEnvironmentVariable(run: *Run, key: []const u8, lp: std.Build.LazyPath) void {
+    const b = run.step.owner;
+    run.getEnv().put(b.allocator, b.dupe(key), .{ .directory_source = lp.dupe(b) }) catch @panic("OOM");
+    lp.addStepDependencies(&run.step);
 }
 
 pub fn removeEnvironmentVariable(run: *Run, key: []const u8) void {
-    run.getEnvMap().remove(key);
+    _ = run.getEnv().swapRemove(key);
 }
 
 /// Adds a check for exact stderr match. Does not add any other checks.
@@ -616,36 +642,52 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     var argv_list = std.ArrayList([]const u8).init(arena);
     var output_placeholders = std.ArrayList(IndexedOutput).init(arena);
+    var env_map: EnvMap = .init(arena);
+    var env_map_ptr: ?*const EnvMap = null;
 
     var man = b.graph.cache.obtain();
     defer man.deinit();
 
-    if (run.env_map) |env_map| {
-        const KV = struct { []const u8, []const u8 };
-        var kv_pairs = try std.ArrayList(KV).initCapacity(arena, env_map.count());
-        var iter = env_map.iterator();
-        while (iter.next()) |entry| {
-            kv_pairs.appendAssumeCapacity(.{ entry.key_ptr.*, entry.value_ptr.* });
-        }
+    if (run.env) |*env| {
+        env_map_ptr = &env_map;
+        env.sortUnstable(struct {
+            keys: [][]const u8,
 
-        std.mem.sortUnstable(KV, kv_pairs.items, {}, struct {
-            fn lessThan(_: void, kv1: KV, kv2: KV) bool {
-                const k1 = kv1[0];
-                const k2 = kv2[0];
+            pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
+                const lhs = ctx.keys[lhs_index];
+                const rhs = ctx.keys[rhs_index];
 
-                if (k1.len != k2.len) return k1.len < k2.len;
+                if (lhs.len != rhs.len) return lhs.len < rhs.len;
 
-                for (k1, k2) |c1, c2| {
-                    if (c1 == c2) continue;
-                    return c1 < c2;
+                for (lhs, rhs) |lhs_c, rhs_c| {
+                    if (lhs_c == rhs_c) continue;
+                    return lhs_c < rhs_c;
                 }
                 unreachable; // two keys cannot be equal
             }
-        }.lessThan);
+        }{ .keys = env.keys() });
 
-        for (kv_pairs.items) |kv| {
-            man.hash.addBytes(kv[0]);
-            man.hash.addBytes(kv[1]);
+        var iter = env.iterator();
+        while (iter.next()) |entry| {
+            const key = entry.key_ptr.*;
+            man.hash.addBytes(key);
+
+            switch (entry.value_ptr.*) {
+                .lazy_path => |lazy_path| {
+                    const path = lazy_path.getPath2(b, step);
+                    try env_map.put(key, path);
+                    _ = try man.addFile(path, null);
+                },
+                .directory_source => |directory_source| {
+                    const path = directory_source.getPath2(b, step);
+                    try env_map.put(key, path);
+                    man.hash.addBytes(path);
+                },
+                .bytes => |value| {
+                    try env_map.put(key, value);
+                    man.hash.addBytes(value);
+                },
+            }
         }
     }
 
@@ -774,7 +816,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
         }
 
-        try runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node, null);
+        try runCommand(run, argv_list.items, &env_map, has_side_effects, output_dir_path, prog_node, null);
         if (!has_side_effects) try step.writeManifestAndWatch(&man);
         return;
     };
@@ -804,7 +846,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
     }
 
-    try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node, null);
+    try runCommand(run, argv_list.items, env_map_ptr, has_side_effects, tmp_dir_path, prog_node, null);
 
     const dep_file_dir = std.fs.cwd();
     const dep_file_basename = dep_output_file.generated_file.getPath();
@@ -872,6 +914,7 @@ pub fn rerunInFuzzMode(
     const step = &run.step;
     const b = step.owner;
     const arena = b.allocator;
+
     var argv_list: std.ArrayListUnmanaged([]const u8) = .empty;
     for (run.argv.items) |arg| {
         switch (arg) {
@@ -897,10 +940,27 @@ pub fn rerunInFuzzMode(
             .output_file, .output_directory => unreachable,
         }
     }
+
+    var env_map: EnvMap = .init(arena);
+    var env_map_ptr: ?*const EnvMap = null;
+    if (run.env) |env| {
+        env_map_ptr = &env_map;
+        var iter = env.iterator();
+        while (iter.next()) |entry| {
+            const key = entry.key_ptr.*;
+            const value = switch (entry.value_ptr.*) {
+                .lazy_path => |lazy_path| lazy_path.getPath2(b, step),
+                .directory_source => |directory_source| directory_source.getPath2(b, step),
+                .bytes => |value| value,
+            };
+            try env_map.put(key, value);
+        }
+    }
+
     const has_side_effects = false;
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
-    try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node, .{
+    try runCommand(run, argv_list.items, env_map_ptr, has_side_effects, tmp_dir_path, prog_node, .{
         .unit_test_index = unit_test_index,
         .web_server = web_server,
     });
@@ -986,6 +1046,7 @@ const FuzzContext = struct {
 fn runCommand(
     run: *Run,
     argv: []const []const u8,
+    env_map: ?*const EnvMap,
     has_side_effects: bool,
     output_dir_path: []const u8,
     prog_node: std.Progress.Node,
@@ -998,7 +1059,7 @@ fn runCommand(
     const cwd: ?[]const u8 = if (run.cwd) |lazy_cwd| lazy_cwd.getPath2(b, step) else null;
 
     try step.handleChildProcUnsupported(cwd, argv);
-    try Step.handleVerbose2(step.owner, cwd, run.env_map, argv);
+    try Step.handleVerbose2(step.owner, cwd, env_map, argv);
 
     const allow_skip = switch (run.stdio) {
         .check, .zig_test => run.skip_foreign_checks,
@@ -1008,7 +1069,7 @@ fn runCommand(
     var interp_argv = std.ArrayList([]const u8).init(b.allocator);
     defer interp_argv.deinit();
 
-    const result = spawnChildAndCollect(run, argv, has_side_effects, prog_node, fuzz_context) catch |err| term: {
+    const result = spawnChildAndCollect(run, argv, env_map, has_side_effects, prog_node, fuzz_context) catch |err| term: {
         // InvalidExe: cpu arch mismatch
         // FileNotFound: can happen with a wrong dynamic linker path
         if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
@@ -1134,9 +1195,9 @@ fn runCommand(
                 run.addPathForDynLibs(exe);
             }
 
-            try Step.handleVerbose2(step.owner, cwd, run.env_map, interp_argv.items);
+            try Step.handleVerbose2(step.owner, cwd, env_map, interp_argv.items);
 
-            break :term spawnChildAndCollect(run, interp_argv.items, has_side_effects, prog_node, fuzz_context) catch |e| {
+            break :term spawnChildAndCollect(run, interp_argv.items, env_map, has_side_effects, prog_node, fuzz_context) catch |e| {
                 if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
 
                 return step.fail("unable to spawn interpreter {s}: {s}", .{
@@ -1319,6 +1380,7 @@ const ChildProcResult = struct {
 fn spawnChildAndCollect(
     run: *Run,
     argv: []const []const u8,
+    env_map: ?*const EnvMap,
     has_side_effects: bool,
     prog_node: std.Progress.Node,
     fuzz_context: ?FuzzContext,
@@ -1335,7 +1397,7 @@ fn spawnChildAndCollect(
     if (run.cwd) |lazy_cwd| {
         child.cwd = lazy_cwd.getPath2(b, &run.step);
     }
-    child.env_map = run.env_map orelse &b.graph.env_map;
+    child.env_map = env_map orelse &b.graph.env_map;
     child.request_resource_usage_statistics = true;
 
     child.stdin_behavior = switch (run.stdio) {
