@@ -678,6 +678,7 @@ const eqlBytes_allowed = switch (builtin.zig_backend) {
     // These backends don't support vectors yet.
     .stage2_powerpc,
     .stage2_riscv64,
+    .stage2_loongarch,
     => false,
     // The SPIR-V backend does not support the optimized path yet.
     .stage2_spirv => false,
