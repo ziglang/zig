@@ -354,6 +354,10 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
+            .loongarch64, .loongarch32 => loongarch.scanReloc(self, elf_file, rel, symbol, code, &it) catch |err| switch (err) {
+                error.RelocFailure => has_reloc_errors = true,
+                else => |e| return e,
+            },
             else => return error.UnsupportedCpuArch,
         }
     }
@@ -688,6 +692,12 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
                 => has_reloc_errors = true,
                 else => |e| return e,
             },
+            .loongarch64, .loongarch32 => loongarch.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
+                error.RelocFailure,
+                error.RelaxFailure,
+                => has_reloc_errors = true,
+                else => |e| return e,
+            },
             else => return error.UnsupportedCpuArch,
         }
     }
@@ -875,6 +885,10 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
                 else => |e| return e,
             },
             .riscv64 => riscv.resolveRelocNonAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
+                error.RelocFailure => has_reloc_errors = true,
+                else => |e| return e,
+            },
+            .loongarch64, .loongarch32 => loongarch.resolveRelocNonAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
@@ -2060,6 +2074,169 @@ const riscv = struct {
     }
 
     const riscv_util = @import("../riscv.zig");
+};
+
+const loongarch = struct {
+    fn scanReloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        symbol: *Symbol,
+        code: ?[]const u8,
+        it: *RelocsIterator,
+    ) !void {
+        _ = code;
+        _ = it;
+
+        const r_type: elf.R_LARCH = @enumFromInt(rel.r_type());
+        const is_dyn_lib = elf_file.isEffectivelyDynLib();
+
+        switch (r_type) {
+            .@"32" => try atom.scanReloc(symbol, rel, absRelocAction(symbol, elf_file), elf_file),
+            .@"64" => try atom.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file),
+            .@"32_PCREL" => try atom.scanReloc(symbol, rel, pcRelocAction(symbol, elf_file), elf_file),
+            .@"64_PCREL" => try atom.scanReloc(symbol, rel, pcRelocAction(symbol, elf_file), elf_file),
+
+            .B26, .PCALA_HI20, .CALL36 => if (symbol.flags.import) {
+                symbol.flags.needs_plt = true;
+            },
+            .GOT_HI20, .GOT_PC_HI20 => symbol.flags.needs_got = true,
+            .TLS_IE_HI20, .TLS_IE_PC_HI20 => symbol.flags.needs_gottp = true,
+            .TLS_GD_PC_HI20, .TLS_LD_PC_HI20, .TLS_GD_HI20, .TLS_LD_HI20 => symbol.flags.needs_tlsgd = true,
+            .TLS_DESC_CALL => symbol.flags.needs_tlsdesc = true,
+
+            .TLS_LE_HI20,
+            .TLS_LE_LO12,
+            .TLS_LE64_LO20,
+            .TLS_LE64_HI12,
+            .TLS_LE_HI20_R,
+            .TLS_LE_LO12_R,
+            => if (is_dyn_lib) try atom.reportPicError(symbol, rel, elf_file),
+
+            .B16,
+            .B21,
+            .ABS_HI20,
+            .ABS_LO12,
+            .ABS64_LO20,
+            .ABS64_HI12,
+            .PCALA_LO12,
+            .PCALA64_LO20,
+            .PCALA64_HI12,
+            .GOT_PC_LO12,
+            .GOT64_PC_LO20,
+            .GOT64_PC_HI12,
+            .GOT_LO12,
+            .GOT64_LO20,
+            .GOT64_HI12,
+            .TLS_IE_PC_LO12,
+            .TLS_IE64_PC_LO20,
+            .TLS_IE64_PC_HI12,
+            .TLS_IE_LO12,
+            .TLS_IE64_LO20,
+            .TLS_IE64_HI12,
+            .ADD6,
+            .SUB6,
+            .ADD8,
+            .SUB8,
+            .ADD16,
+            .SUB16,
+            .ADD32,
+            .SUB32,
+            .ADD64,
+            .SUB64,
+            .ADD_ULEB128,
+            .SUB_ULEB128,
+            .TLS_DESC_PC_HI20,
+            .TLS_DESC_PC_LO12,
+            .TLS_DESC_LD,
+            .TLS_LE_ADD_R,
+            => {},
+
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
+        }
+    }
+
+    fn resolveRelocAlloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        target: *const Symbol,
+        args: ResolveArgs,
+        it: *RelocsIterator,
+        code: []u8,
+        stream: anytype,
+    ) !void {
+        const diags = &elf_file.base.comp.link_diags;
+        const r_type: elf.R_LARCH = @enumFromInt(rel.r_type());
+        const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
+        const cwriter = stream.writer();
+
+        const P, const A, const S, const GOT, const G, const TP, const DTP = args;
+        _ = TP;
+        _ = DTP;
+        _ = P;
+        _ = GOT;
+        _ = G;
+        _ = r_offset;
+        _ = diags;
+        _ = it;
+        _ = code;
+
+        switch (r_type) {
+            .NONE => unreachable,
+
+            .@"32" => try cwriter.writeInt(u32, @as(u32, @truncate(@as(u64, @intCast(S + A)))), .little),
+
+            .@"64" => {
+                try atom.resolveDynAbsReloc(
+                    target,
+                    rel,
+                    dynAbsRelocAction(target, elf_file),
+                    elf_file,
+                    cwriter,
+                );
+            },
+
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
+        }
+    }
+
+    fn resolveRelocNonAlloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        target: *const Symbol,
+        args: ResolveArgs,
+        it: *RelocsIterator,
+        code: []u8,
+        stream: anytype,
+    ) !void {
+        _ = it;
+
+        const r_type: elf.R_LARCH = @enumFromInt(rel.r_type());
+        const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
+        const cwriter = stream.writer();
+
+        _, const A, const S, const GOT, _, _, const DTP = args;
+        _ = GOT;
+        _ = DTP;
+        _ = r_offset;
+        _ = code;
+
+        switch (r_type) {
+            .NONE => unreachable,
+
+            .@"32" => try cwriter.writeInt(i32, @as(i32, @intCast(S + A)), .little),
+            .@"64" => if (atom.debugTombstoneValue(target.*, elf_file)) |value|
+                try cwriter.writeInt(u64, value, .little)
+            else
+                try cwriter.writeInt(i64, S + A, .little),
+
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
+        }
+    }
+
+    const la_util = @import("../loongarch.zig");
 };
 
 const ResolveArgs = struct { i64, i64, i64, i64, i64, i64, i64 };

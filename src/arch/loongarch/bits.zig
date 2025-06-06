@@ -36,6 +36,10 @@ pub const Register = enum(u8) {
     pub const tp = Register.r2;
     pub const sp = Register.r3;
     pub const fp = Register.r22;
+    pub const t0 = Register.r12;
+    pub const t1 = Register.r13;
+    pub const t2 = Register.r14;
+    pub const t3 = Register.r15;
 
     pub const Class = enum {
         int,
