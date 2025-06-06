@@ -677,14 +677,14 @@ pub fn generate(
         else => |e| return e,
     };
 
-    // TODO end the function at the right brace
-    // if (debug_output != .none) _ = try cg.addInst(.{
-    //     .tag = .fromPseudo(.dbg_line),
-    //     .data = .{ .line_column = .{
-    //         .line = func.rbrace_line,
-    //         .column = func.rbrace_column,
-    //     } },
-    // });
+    // end the function at the right brace
+    if (debug_output != .none) _ = try cg.addInst(.{
+        .tag = .fromPseudo(.dbg_line_line_column),
+        .data = .{ .line_column = .{
+            .line = func.rbrace_line,
+            .column = func.rbrace_column,
+        } },
+    });
 
     var mir: Mir = .{
         .instructions = cg.mir_instructions.toOwnedSlice(),
