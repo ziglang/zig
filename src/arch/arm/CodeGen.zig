@@ -4344,7 +4344,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
     // TODO: add Instruction.supportedOn
     // function for ARM
-    if (Target.arm.featureSetHas(self.target.cpu.features, .has_v5t)) {
+    if (self.target.cpu.has(.arm, .has_v5t)) {
         _ = try self.addInst(.{
             .tag = .blx,
             .data = .{ .reg = .lr },
@@ -5578,7 +5578,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     } },
                 });
             } else if (x <= math.maxInt(u16)) {
-                if (Target.arm.featureSetHas(self.target.cpu.features, .has_v7)) {
+                if (self.target.cpu.has(.arm, .has_v7)) {
                     _ = try self.addInst(.{
                         .tag = .movw,
                         .data = .{ .r_imm16 = .{
@@ -5606,7 +5606,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             } else {
                 // TODO write constant to code and load
                 // relative to pc
-                if (Target.arm.featureSetHas(self.target.cpu.features, .has_v7)) {
+                if (self.target.cpu.has(.arm, .has_v7)) {
                     // immediate: 0xaaaabbbb
                     // movw reg, #0xbbbb
                     // movt reg, #0xaaaa

@@ -135,6 +135,7 @@ pub const ResolveError = error{
     LibCppRequiresLibC,
     LibUnwindRequiresLibC,
     TargetCannotDynamicLink,
+    TargetCannotStaticLinkExecutables,
     LibCRequiresDynamicLinking,
     SharedLibrariesRequireDynamicLinking,
     ExportMemoryAndDynamicIncompatible,
@@ -165,7 +166,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.shared_memory == true) return error.ObjectFilesCannotShareMemory;
             break :b false;
         }
-        if (!std.Target.wasm.featureSetHasAll(target.cpu.features, .{ .atomics, .bulk_memory })) {
+        if (!target.cpu.hasAll(.wasm, &.{ .atomics, .bulk_memory })) {
             if (options.shared_memory == true)
                 return error.SharedMemoryRequiresAtomicsAndBulkMemory;
             break :b false;
@@ -360,6 +361,10 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.link_mode == .dynamic) return error.TargetCannotDynamicLink;
             break :b .static;
         }
+        if (target.os.tag == .fuchsia and options.output_mode == .Exe) {
+            if (options.link_mode == .static) return error.TargetCannotStaticLinkExecutables;
+            break :b .dynamic;
+        }
         if (explicitly_exe_or_dyn_lib and link_libc and
             (target_util.osRequiresLibC(target) or
                 // For these libcs, Zig can only provide dynamic libc when cross-compiling.
@@ -416,22 +421,29 @@ pub fn resolve(options: Options) ResolveError!Config {
 
     const pie: bool = b: {
         switch (options.output_mode) {
-            .Obj, .Exe => {},
+            .Exe => if (target.os.tag == .fuchsia or
+                (target.abi.isAndroid() and link_mode == .dynamic))
+            {
+                if (options.pie == false) return error.TargetRequiresPie;
+                break :b true;
+            },
             .Lib => if (link_mode == .dynamic) {
                 if (options.pie == true) return error.DynamicLibraryPrecludesPie;
                 break :b false;
             },
-        }
-        if (target_util.requiresPIE(target)) {
-            if (options.pie == false) return error.TargetRequiresPie;
-            break :b true;
+            .Obj => {},
         }
         if (options.any_sanitize_thread) {
             if (options.pie == false) return error.SanitizeThreadRequiresPie;
             break :b true;
         }
         if (options.pie) |pie| break :b pie;
-        break :b false;
+        break :b if (options.output_mode == .Exe) switch (target.os.tag) {
+            .fuchsia,
+            .openbsd,
+            => true,
+            else => target.os.tag.isDarwin(),
+        } else false;
     };
 
     const root_strip = b: {

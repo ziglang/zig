@@ -164,12 +164,12 @@ pub const Register = enum(u8) {
     ft8, ft9, ft10, ft11, // foat temporaries. calller saved.
 
     // this register is accessed only through API instructions instead of directly
-    // fcsr, 
+    // fcsr,
 
-    f0, f1,  f2,  f3,  f4,  f5,  f6,  f7,  
-    f8, f9,  f10, f11, f12, f13, f14, f15, 
-    f16, f17, f18, f19, f20, f21, f22, f23, 
-    f24, f25, f26, f27, f28, f29, f30, f31, 
+    f0, f1,  f2,  f3,  f4,  f5,  f6,  f7,
+    f8, f9,  f10, f11, f12, f13, f14, f15,
+    f16, f17, f18, f19, f20, f21, f22, f23,
+    f24, f25, f26, f27, f28, f29, f30, f31,
 
 
     // V extension registers
@@ -211,12 +211,10 @@ pub const Register = enum(u8) {
     }
 
     pub fn bitSize(reg: Register, zcu: *const Zcu) u32 {
-        const features = zcu.getTarget().cpu.features;
-
         return switch (@intFromEnum(reg)) {
             // zig fmt: off
             @intFromEnum(Register.zero) ... @intFromEnum(Register.x31) => 64,
-            @intFromEnum(Register.ft0)  ... @intFromEnum(Register.f31) => if (Target.riscv.featureSetHas(features, .d)) 64 else 32,
+            @intFromEnum(Register.ft0)  ... @intFromEnum(Register.f31) => if (zcu.getTarget().cpu.has(.riscv, .d)) 64 else 32,
             @intFromEnum(Register.v0)   ... @intFromEnum(Register.v31) => 256, // TODO: look at suggestVectorSize
             else => unreachable,
             // zig fmt: on

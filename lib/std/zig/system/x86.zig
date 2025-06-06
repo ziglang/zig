@@ -77,7 +77,7 @@ pub fn detectNativeCpuAndFeatures(arch: Target.Cpu.Arch, os: Target.Os, query: T
                 detectIntelProcessor(&cpu, family, model, brand_id);
             },
             0x68747541 => {
-                if (detectAMDProcessor(cpu.features, family, model)) |m| cpu.model = m;
+                if (detectAMDProcessor(cpu, family, model)) |m| cpu.model = m;
             },
             else => {},
         }
@@ -107,7 +107,7 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
             return;
         },
         5 => {
-            if (Target.x86.featureSetHas(cpu.features, .mmx)) {
+            if (cpu.has(.x86, .mmx)) {
                 cpu.model = &Target.x86.cpu.pentium_mmx;
                 return;
             }
@@ -177,10 +177,10 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
                     return;
                 },
                 0x55 => {
-                    if (Target.x86.featureSetHas(cpu.features, .avx512bf16)) {
+                    if (cpu.has(.x86, .avx512bf16)) {
                         cpu.model = &Target.x86.cpu.cooperlake;
                         return;
-                    } else if (Target.x86.featureSetHas(cpu.features, .avx512vnni)) {
+                    } else if (cpu.has(.x86, .avx512vnni)) {
                         cpu.model = &Target.x86.cpu.cascadelake;
                         return;
                     } else {
@@ -296,11 +296,11 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
             }
         },
         15 => {
-            if (Target.x86.featureSetHas(cpu.features, .@"64bit")) {
+            if (cpu.has(.x86, .@"64bit")) {
                 cpu.model = &Target.x86.cpu.nocona;
                 return;
             }
-            if (Target.x86.featureSetHas(cpu.features, .sse3)) {
+            if (cpu.has(.x86, .sse3)) {
                 cpu.model = &Target.x86.cpu.prescott;
                 return;
             }
@@ -311,7 +311,7 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
     }
 }
 
-fn detectAMDProcessor(features: Target.Cpu.Feature.Set, family: u32, model: u32) ?*const Target.Cpu.Model {
+fn detectAMDProcessor(cpu: Target.Cpu, family: u32, model: u32) ?*const Target.Cpu.Model {
     return switch (family) {
         4 => &Target.x86.cpu.i486,
         5 => switch (model) {
@@ -321,11 +321,11 @@ fn detectAMDProcessor(features: Target.Cpu.Feature.Set, family: u32, model: u32)
             10 => &Target.x86.cpu.geode,
             else => &Target.x86.cpu.pentium,
         },
-        6 => if (Target.x86.featureSetHas(features, .sse))
+        6 => if (cpu.has(.x86, .sse))
             &Target.x86.cpu.athlon_xp
         else
             &Target.x86.cpu.athlon,
-        15 => if (Target.x86.featureSetHas(features, .sse3))
+        15 => if (cpu.has(.x86, .sse3))
             &Target.x86.cpu.k8_sse3
         else
             &Target.x86.cpu.k8,

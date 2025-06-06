@@ -43,10 +43,6 @@ pub fn libCxxNeedsLibUnwind(target: std.Target) bool {
     };
 }
 
-pub fn requiresPIE(target: std.Target) bool {
-    return target.abi.isAndroid() or target.os.tag.isDarwin() or target.os.tag == .openbsd;
-}
-
 /// This function returns whether non-pic code is completely invalid on the given target.
 pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
     return target.abi.isAndroid() or
@@ -64,7 +60,12 @@ pub fn picLevel(target: std.Target) u32 {
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
 /// C compiler argument is valid to Clang.
 pub fn supports_fpic(target: std.Target) bool {
-    return target.os.tag != .windows and target.os.tag != .uefi;
+    return switch (target.os.tag) {
+        .windows,
+        .uefi,
+        => target.abi == .gnu or target.abi == .cygnus,
+        else => true,
+    };
 }
 
 pub fn alwaysSingleThreaded(target: std.Target) bool {
@@ -84,7 +85,7 @@ pub fn defaultSingleThreaded(target: std.Target) bool {
     return false;
 }
 
-pub fn hasValgrindSupport(target: std.Target) bool {
+pub fn hasValgrindSupport(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     // We can't currently output the necessary Valgrind client request assembly when using the C
     // backend and compiling with an MSVC-like compiler.
     const ofmt_c_msvc = (target.abi == .msvc or target.abi == .itanium) and target.ofmt == .c;
@@ -103,7 +104,11 @@ pub fn hasValgrindSupport(target: std.Target) bool {
             else => false,
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (target.os.tag) {
-            .linux => true,
+            .linux => backend != .stage2_powerpc, // Insufficient inline assembly support in self-hosted.
+            else => false,
+        },
+        .riscv64 => switch (target.os.tag) {
+            .linux => backend != .stage2_riscv64, // Insufficient inline assembly support in self-hosted.
             else => false,
         },
         .s390x => switch (target.os.tag) {
@@ -292,18 +297,21 @@ pub fn classifyCompilerRtLibName(name: []const u8) CompilerRtClassification {
 
 pub fn hasDebugInfo(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .nvptx, .nvptx64 => std.Target.nvptx.featureSetHas(target.cpu.features, .ptx75) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx76) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx77) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx78) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx80) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx81) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx82) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx83) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx84) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx85) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx86) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx87),
+        // TODO: We should make newer PTX versions depend on older ones so we'd just check `ptx75`.
+        .nvptx, .nvptx64 => target.cpu.hasAny(.nvptx, &.{
+            .ptx75,
+            .ptx76,
+            .ptx77,
+            .ptx78,
+            .ptx80,
+            .ptx81,
+            .ptx82,
+            .ptx83,
+            .ptx84,
+            .ptx85,
+            .ptx86,
+            .ptx87,
+        }),
         .bpfel, .bpfeb => false,
         else => true,
     };
@@ -608,28 +616,22 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
             else => if (target.abi.isMusl()) "elfv2" else "elfv1",
         },
         .powerpc64le => "elfv2",
-        .riscv64 => b: {
-            const featureSetHas = std.Target.riscv.featureSetHas;
-            break :b if (featureSetHas(target.cpu.features, .e))
-                "lp64e"
-            else if (featureSetHas(target.cpu.features, .d))
-                "lp64d"
-            else if (featureSetHas(target.cpu.features, .f))
-                "lp64f"
-            else
-                "lp64";
-        },
-        .riscv32 => b: {
-            const featureSetHas = std.Target.riscv.featureSetHas;
-            break :b if (featureSetHas(target.cpu.features, .e))
-                "ilp32e"
-            else if (featureSetHas(target.cpu.features, .d))
-                "ilp32d"
-            else if (featureSetHas(target.cpu.features, .f))
-                "ilp32f"
-            else
-                "ilp32";
-        },
+        .riscv64 => if (target.cpu.has(.riscv, .e))
+            "lp64e"
+        else if (target.cpu.has(.riscv, .d))
+            "lp64d"
+        else if (target.cpu.has(.riscv, .f))
+            "lp64f"
+        else
+            "lp64",
+        .riscv32 => if (target.cpu.has(.riscv, .e))
+            "ilp32e"
+        else if (target.cpu.has(.riscv, .d))
+            "ilp32d"
+        else if (target.cpu.has(.riscv, .f))
+            "ilp32f"
+        else
+            "ilp32",
         else => null,
     };
 }
@@ -667,7 +669,7 @@ pub fn minFunctionAlignment(target: std.Target) Alignment {
     return switch (target.cpu.arch) {
         .riscv32,
         .riscv64,
-        => if (std.Target.riscv.featureSetHasAny(target.cpu.features, .{ .c, .zca })) .@"2" else .@"4",
+        => if (target.cpu.hasAny(.riscv, &.{ .c, .zca })) .@"2" else .@"4",
         .thumb,
         .thumbeb,
         .csky,

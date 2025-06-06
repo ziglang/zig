@@ -187,7 +187,6 @@ pub fn validateEFlags(
 ) !void {
     switch (target.cpu.arch) {
         .riscv64 => {
-            const features = target.cpu.features;
             const flags: riscv.Eflags = @bitCast(e_flags);
             var any_errors: bool = false;
 
@@ -196,7 +195,7 @@ pub fn validateEFlags(
 
             // Invalid when
             // 1. The input uses C and we do not.
-            if (flags.rvc and !std.Target.riscv.featureSetHas(features, .c)) {
+            if (flags.rvc and !target.cpu.has(.riscv, .c)) {
                 any_errors = true;
                 diags.addParseError(
                     path,
@@ -208,7 +207,7 @@ pub fn validateEFlags(
             // Invalid when
             // 1. We use E and the input does not.
             // 2. The input uses E and we do not.
-            if (std.Target.riscv.featureSetHas(features, .e) != flags.rve) {
+            if (target.cpu.has(.riscv, .e) != flags.rve) {
                 any_errors = true;
                 diags.addParseError(
                     path,
@@ -225,7 +224,7 @@ pub fn validateEFlags(
             // Invalid when
             // 1. We use total store order and the input does not.
             // 2. The input uses total store order and we do not.
-            if (flags.tso != std.Target.riscv.featureSetHas(features, .ztso)) {
+            if (flags.tso != target.cpu.has(.riscv, .ztso)) {
                 any_errors = true;
                 diags.addParseError(
                     path,
@@ -235,9 +234,9 @@ pub fn validateEFlags(
             }
 
             const fabi: riscv.Eflags.FloatAbi =
-                if (std.Target.riscv.featureSetHas(features, .d))
+                if (target.cpu.has(.riscv, .d))
                     .double
-                else if (std.Target.riscv.featureSetHas(features, .f))
+                else if (target.cpu.has(.riscv, .f))
                     .single
                 else
                     .soft;

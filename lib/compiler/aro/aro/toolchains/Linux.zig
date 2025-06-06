@@ -318,7 +318,7 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
 
 fn getMultiarchTriple(target: std.Target) ?[]const u8 {
     const is_android = target.abi.isAndroid();
-    const is_mips_r6 = std.Target.mips.featureSetHas(target.cpu.features, .mips32r6);
+    const is_mips_r6 = target.cpu.has(.mips, .mips32r6);
     return switch (target.cpu.arch) {
         .arm, .thumb => if (is_android) "arm-linux-androideabi" else if (target.abi == .gnueabihf) "arm-linux-gnueabihf" else "arm-linux-gnueabi",
         .armeb, .thumbeb => if (target.abi == .gnueabihf) "armeb-linux-gnueabihf" else "armeb-linux-gnueabi",
