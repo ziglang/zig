@@ -22,12 +22,12 @@ seek: usize,
 end: usize,
 
 pub const VTable = struct {
-    /// Writes bytes from the internally tracked logical position to `bw`.
+    /// Writes bytes from the internally tracked logical position to `w`.
     ///
     /// Returns the number of bytes written, which will be at minimum `0` and
     /// at most `limit`. The number returned, including zero, does not indicate
     /// end of stream. `limit` is guaranteed to be at least as large as the
-    /// buffer capacity of `bw`.
+    /// buffer capacity of `w`.
     ///
     /// The reader's internal logical seek position moves forward in accordance
     /// with the number of bytes returned from this function.
@@ -35,6 +35,8 @@ pub const VTable = struct {
     /// Implementations are encouraged to utilize mandatory minimum buffer
     /// sizes combined with short reads (returning a value less than `limit`)
     /// in order to minimize complexity.
+    ///
+    /// This function is always called when `buffer` is empty.
     stream: *const fn (r: *Reader, w: *Writer, limit: Limit) StreamError!usize,
 
     /// Consumes bytes from the internally tracked stream position without
@@ -51,7 +53,7 @@ pub const VTable = struct {
     /// sizes combined with short reads (returning a value less than `limit`)
     /// in order to minimize complexity.
     ///
-    /// The default implementation is is based on calling `read`, borrowing
+    /// The default implementation is is based on calling `stream`, borrowing
     /// `buffer` to construct a temporary `Writer` and ignoring the written
     /// data.
     discard: *const fn (r: *Reader, limit: Limit) Error!usize = defaultDiscard,
@@ -88,7 +90,7 @@ pub const ShortError = error{
 pub const failing: Reader = .{
     .context = undefined,
     .vtable = &.{
-        .read = failingRead,
+        .read = failingStream,
         .discard = failingDiscard,
     },
     .buffer = &.{},
@@ -107,7 +109,7 @@ pub fn fixed(buffer: []const u8) Reader {
     return .{
         .context = undefined,
         .vtable = &.{
-            .read = endingRead,
+            .stream = endingStream,
             .discard = endingDiscard,
         },
         // This cast is safe because all potential writes to it will instead
@@ -274,8 +276,16 @@ pub fn appendRemaining(
 /// The reader's internal logical seek position moves forward in accordance
 /// with the number of bytes returned from this function.
 pub fn readVec(r: *Reader, data: []const []u8) Error!usize {
-    return readVecLimit(r, data, .unlimited);
+    return readVec(r, data, .unlimited);
 }
+
+const VectorWrapped = struct {
+    writer: Writer,
+    first: []u8,
+    middle: []const []u8,
+    last: []u8,
+    var unique_address: u8 = undefined;
+};
 
 /// Equivalent to `readVec` but reads at most `limit` bytes.
 ///
@@ -296,42 +306,55 @@ pub fn readVecLimit(r: *Reader, data: []const []u8, limit: Limit) Error!usize {
         if (remaining == 0) break;
         if (buf.len - copy_len == 0) continue;
 
+        // All of `buffer` has been copied to `data`. We now set up a structure
+        // that enables the `Writer.writableVector` API, while also ensuring
+        // API that directly operates on the `Writable.buffer` has its minimum
+        // buffer capacity requirements met.
         r.seek = 0;
         r.end = 0;
-        var vecs: [8][]u8 = undefined; // Arbitrarily chosen value.
-        const available_remaining_buf = buf[copy_len..];
-        vecs[0] = available_remaining_buf[0..@min(available_remaining_buf.len, remaining)];
-        const vec_start_remaining = remaining;
-        remaining -= vecs[0].len;
-        var vecs_i: usize = 1;
-        var data_i: usize = i + 1;
-        while (true) {
-            if (vecs.len - vecs_i == 0) {
-                const n = try r.unbuffered_reader.readVec(&vecs);
-                return @intFromEnum(limit) - vec_start_remaining + n;
-            }
-            if (remaining == 0 or data.len - data_i == 0) {
-                vecs[vecs_i] = r.buffer;
-                vecs_i += 1;
-                const n = try r.unbuffered_reader.readVec(vecs[0..vecs_i]);
-                const cutoff = vec_start_remaining - remaining;
-                if (n > cutoff) {
-                    r.end = n - cutoff;
-                    return @intFromEnum(limit) - remaining;
+        const first = buf[copy_len..];
+        var wrapped: VectorWrapped = .{
+            .first = first,
+            .middle = data[i + 1 ..],
+            .last = r.buffer,
+            .writer = .{
+                .context = &VectorWrapped.unique_address,
+                .buffer = if (first.len >= r.buffer.len) first else r.buffer,
+                .vtable = &.{ .drain = Writer.fixedDrain },
+            },
+        };
+        var n = r.vtable.stream(r, &wrapped.writer, .limited(remaining)) catch |err| switch (err) {
+            error.WriteFailed => {
+                if (wrapped.writer.buffer.ptr == first.ptr) {
+                    remaining -= wrapped.writer.end;
                 } else {
-                    return @intFromEnum(limit) - vec_start_remaining + n;
+                    r.end = wrapped.writer.end;
                 }
-            }
-            if (data[data_i].len == 0) {
-                data_i += 1;
-                continue;
-            }
-            const data_elem = data[data_i];
-            vecs[vecs_i] = data_elem[0..@min(data_elem.len, remaining)];
-            remaining -= vecs[vecs_i].len;
-            vecs_i += 1;
-            data_i += 1;
+                break;
+            },
+            else => |e| return e,
+        };
+        assert(n == wrapped.writer.end);
+        if (wrapped.writer.buffer.ptr != first.ptr) {
+            r.end = n;
+            break;
         }
+        if (n < first.len) {
+            remaining -= n;
+            break;
+        }
+        remaining -= first.len;
+        n -= first.len;
+        for (wrapped.middle) |middle| {
+            if (n < middle.len) {
+                remaining -= n;
+                break;
+            }
+            remaining -= middle.len;
+            n -= middle.len;
+        }
+        r.end = n;
+        break;
     }
     return @intFromEnum(limit) - remaining;
 }
@@ -366,10 +389,10 @@ pub fn readVecAll(r: *Reader, data: [][]u8) Error!void {
 }
 
 /// "Pump" data from the reader to the writer.
-pub fn readAll(r: *Reader, bw: *Writer, limit: Limit) StreamError!void {
+pub fn readAll(r: *Reader, w: *Writer, limit: Limit) StreamError!void {
     var remaining = limit;
     while (remaining.nonzero()) {
-        const n = try r.read(bw, remaining);
+        const n = try r.read(w, remaining);
         remaining = remaining.subtract(n).?;
     }
 }
@@ -774,12 +797,12 @@ pub fn peekDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
     return result[0 .. result.len - 1];
 }
 
-/// Appends to `bw` contents by reading from the stream until `delimiter` is
+/// Appends to `w` contents by reading from the stream until `delimiter` is
 /// found. Does not write the delimiter itself.
 ///
 /// Returns number of bytes streamed.
-pub fn readDelimiter(r: *Reader, bw: *Writer, delimiter: u8) StreamError!usize {
-    const amount, const to = try r.readAny(bw, delimiter, .unlimited);
+pub fn readDelimiter(r: *Reader, w: *Writer, delimiter: u8) StreamError!usize {
+    const amount, const to = try r.readAny(w, delimiter, .unlimited);
     return switch (to) {
         .delimiter => amount,
         .limit => unreachable,
@@ -787,7 +810,7 @@ pub fn readDelimiter(r: *Reader, bw: *Writer, delimiter: u8) StreamError!usize {
     };
 }
 
-/// Appends to `bw` contents by reading from the stream until `delimiter` is found.
+/// Appends to `w` contents by reading from the stream until `delimiter` is found.
 /// Does not write the delimiter itself.
 ///
 /// Succeeds if stream ends before delimiter found.
@@ -795,10 +818,10 @@ pub fn readDelimiter(r: *Reader, bw: *Writer, delimiter: u8) StreamError!usize {
 /// Returns number of bytes streamed. The end is not signaled to the writer.
 pub fn readDelimiterEnding(
     r: *Reader,
-    bw: *Writer,
+    w: *Writer,
     delimiter: u8,
 ) StreamRemainingError!usize {
-    const amount, const to = try r.readAny(bw, delimiter, .unlimited);
+    const amount, const to = try r.readAny(w, delimiter, .unlimited);
     return switch (to) {
         .delimiter, .end => amount,
         .limit => unreachable,
@@ -812,17 +835,17 @@ pub const StreamDelimiterLimitedError = StreamRemainingError || error{
     StreamTooLong,
 };
 
-/// Appends to `bw` contents by reading from the stream until `delimiter` is found.
+/// Appends to `w` contents by reading from the stream until `delimiter` is found.
 /// Does not write the delimiter itself.
 ///
 /// Returns number of bytes streamed.
 pub fn readDelimiterLimit(
     r: *Reader,
-    bw: *Writer,
+    w: *Writer,
     delimiter: u8,
     limit: Limit,
 ) StreamDelimiterLimitedError!usize {
-    const amount, const to = try r.readAny(bw, delimiter, limit);
+    const amount, const to = try r.readAny(w, delimiter, limit);
     return switch (to) {
         .delimiter => amount,
         .limit => error.StreamTooLong,
@@ -832,7 +855,7 @@ pub fn readDelimiterLimit(
 
 fn readAny(
     r: *Reader,
-    bw: *Writer,
+    w: *Writer,
     delimiter: ?u8,
     limit: Limit,
 ) StreamRemainingError!struct { usize, enum { delimiter, limit, end } } {
@@ -844,11 +867,11 @@ fn readAny(
             error.EndOfStream => return .{ amount, .end },
         });
         if (delimiter) |d| if (std.mem.indexOfScalar(u8, available, d)) |delimiter_index| {
-            try bw.writeAll(available[0..delimiter_index]);
+            try w.writeAll(available[0..delimiter_index]);
             r.toss(delimiter_index + 1);
             return .{ amount + delimiter_index, .delimiter };
         };
-        try bw.writeAll(available);
+        try w.writeAll(available);
         r.toss(available.len);
         amount += available.len;
         remaining = remaining.subtract(available.len).?;
@@ -1303,7 +1326,7 @@ test "expected error.EndOfStream" {
     try std.testing.expectError(error.EndOfStream, r.isBytes("foo"));
 }
 
-fn endingRead(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
+fn endingStream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
     _ = r;
     _ = w;
     _ = limit;
@@ -1316,7 +1339,7 @@ fn endingDiscard(r: *Reader, limit: Limit) Error!usize {
     return error.EndOfStream;
 }
 
-fn failingRead(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
+fn failingStream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
     _ = r;
     _ = w;
     _ = limit;
@@ -1409,8 +1432,8 @@ pub fn Hashed(comptime Hasher: type) type {
 
         fn discard(r: *Reader, limit: Limit) Error!usize {
             const this: *@This() = @alignCast(@fieldParentPtr("interface", r));
-            var bw = this.hasher.writable(&.{});
-            const n = this.in.read(&bw, limit) catch |err| switch (err) {
+            var w = this.hasher.writable(&.{});
+            const n = this.in.read(&w, limit) catch |err| switch (err) {
                 error.WriteFailed => unreachable,
                 else => |e| return e,
             };

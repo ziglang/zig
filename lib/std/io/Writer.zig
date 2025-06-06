@@ -9,7 +9,12 @@ const File = std.fs.File;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-context: ?*anyopaque,
+/// There are two strategies for obtaining context; one can use this field, or
+/// embed the `Writer` and use `@fieldParentPtr`. This field must be either set
+/// to a valid pointer or left as `null` because the interface will sometimes
+/// check if this pointer value is a known special value, for example to make
+/// `writableVector` work.
+context: ?*anyopaque = null,
 vtable: *const VTable,
 /// If this has length zero, the writer is unbuffered, and `flush` is a no-op.
 buffer: []u8,
@@ -30,11 +35,16 @@ pub const VTable = struct {
     /// order. Elements of `data` may alias each other but may not alias
     /// `buffer`.
     ///
-    /// This function modifies `Writer` state.
+    /// This function modifies `Writer.end` and `Writer.buffer`.
     ///
-    /// `data.len` must be greater than zero, and the last element of `data` is
-    /// special. It is repeated as necessary so that it is written `splat`
-    /// number of times, which may be zero.
+    /// If `data.len` is zero, it indicates this is a "flush" operation; all
+    /// remaining buffered data must be logically consumed. Generally, this
+    /// means that `end` will be set to zero before returning, however, it is
+    /// legal for implementations to manage that data differently. There may be
+    /// subsequent calls to `drain` and `sendFile` after a flush operation.
+    ///
+    /// The last element of `data` is special. It is repeated as necessary so
+    /// that it is written `splat` number of times, which may be zero.
     ///
     /// Number of bytes actually written is returned, excluding bytes from
     /// `buffer`. Bytes from `buffer` are tracked by modifying `end`.
@@ -94,7 +104,6 @@ pub const FileError = error{
 /// modified externally, `count` will always equal `end`.
 pub fn fixed(buffer: []u8) Writer {
     return .{
-        .context = undefined,
         .vtable = &.{ .drain = fixedDrain },
         .buffer = buffer,
     };
@@ -105,7 +114,6 @@ pub fn hashed(w: *Writer, hasher: anytype) Hashed(@TypeOf(hasher)) {
 }
 
 pub const failing: Writer = .{
-    .context = undefined,
     .vtable = &.{
         .drain = failingDrain,
         .sendFile = failingSendFile,
@@ -114,7 +122,6 @@ pub const failing: Writer = .{
 
 pub fn discarding(buffer: []u8) Writer {
     return .{
-        .context = undefined,
         .vtable = &.{
             .drain = discardingDrain,
             .sendFile = discardingSendFile,
@@ -199,12 +206,11 @@ pub fn writeSplatLimit(
 }
 
 /// Drains all remaining buffered data.
+///
+/// It is legal for `VTable.drain` implementations to refrain from modifying
+/// `end`.
 pub fn flush(w: *Writer) Error!void {
-    const drainFn = w.vtable.drain;
-    // This implementation allows for drain functions that do not modify `end`,
-    // such as `fixedDrain`.
-    var remaining = w.end;
-    while (remaining != 0) remaining -= try drainFn(w, &.{""}, 1);
+    assert(0 == try w.vtable.drain(w, &.{}, 0));
 }
 
 pub fn unusedCapacitySlice(w: *const Writer) []u8 {
@@ -321,14 +327,13 @@ pub fn writeSplatAll(w: *Writer, data: [][]const u8, splat: usize) Error!void {
 
 pub fn write(w: *Writer, bytes: []const u8) Error!usize {
     if (w.end + bytes.len <= w.buffer.len) {
+        @branchHint(.likely);
         @memcpy(w.buffer[w.end..][0..bytes.len], bytes);
         w.end += bytes.len;
         w.count += bytes.len;
         return bytes.len;
     }
-    const end = w.end;
-    const n = try w.vtable.drain(w, &.{bytes}, 1);
-    return n -| end;
+    return w.vtable.drain(w, &.{bytes}, 1);
 }
 
 /// Calls `write` as many times as necessary such that all of `bytes` are
@@ -1675,6 +1680,7 @@ pub fn unimplementedSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit
 /// available buffer has been filled. Also, it may be called from `flush` in
 /// which case it should return successfully.
 fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+    if (data.len == 0) return 0;
     for (data[0 .. data.len - 1]) |bytes| {
         const dest = w.buffer[w.end..];
         const len = @min(bytes.len, dest.len);
@@ -1726,7 +1732,6 @@ pub fn Hashed(comptime Hasher: type) type {
                 .out = out,
                 .hasher = .{},
                 .interface = .{
-                    .context = undefined,
                     .vtable = &.{@This().drain},
                 },
             };
@@ -1734,6 +1739,13 @@ pub fn Hashed(comptime Hasher: type) type {
 
         fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
             const this: *@This() = @alignCast(@fieldParentPtr("interface", w));
+            if (data.len == 0) {
+                const buf = w.buffered();
+                try this.out.writeAll(buf);
+                this.hasher.update(buf);
+                w.end = 0;
+                return buf.len;
+            }
             const aux_n = try this.out.writeSplatAux(w.buffered(), data, splat);
             if (aux_n < w.end) {
                 this.hasher.update(w.buffer[0..aux_n]);
@@ -1839,7 +1851,6 @@ pub const Allocating = struct {
 
     const init_interface: Writer = .{
         .interface = .{
-            .context = undefined,
             .vtable = &.{
                 .drain = Allocating.drain,
                 .sendFile = Allocating.sendFile,

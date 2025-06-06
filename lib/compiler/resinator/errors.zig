@@ -1081,11 +1081,17 @@ const CorrespondingLines = struct {
     last_byte: u8 = 0,
     at_eof: bool = false,
     span: SourceMappings.CorrespondingSpan,
-    file: std.fs.File,
-    buffered_reader: *std.io.Reader,
+    file_reader: *std.fs.File.Reader,
     code_page: SupportedCodePage,
 
-    pub fn init(cwd: std.fs.Dir, err_details: ErrorDetails, line_for_comparison: []const u8, corresponding_span: SourceMappings.CorrespondingSpan, corresponding_file: []const u8) !CorrespondingLines {
+    pub fn init(
+        cwd: std.fs.Dir,
+        err_details: ErrorDetails,
+        line_for_comparison: []const u8,
+        corresponding_span: SourceMappings.CorrespondingSpan,
+        corresponding_file: []const u8,
+        file_read_buffer: []u8,
+    ) !CorrespondingLines {
         // We don't do line comparison for this error, so don't print the note if the line
         // number is different
         if (err_details.err == .string_literal_too_long and err_details.token.line_number != corresponding_span.start_line) {
@@ -1097,14 +1103,11 @@ const CorrespondingLines = struct {
             return error.NotWorthPrintingLines;
         }
 
-        var corresponding_lines = CorrespondingLines{
+        var file = try utils.openFileNotDir(cwd, corresponding_file, .{});
+        var corresponding_lines: CorrespondingLines = .{
             .span = corresponding_span,
-            .file = try utils.openFileNotDir(cwd, corresponding_file, .{}),
-            .buffered_reader = undefined,
+            .file_reader = file.reader(&file_read_buffer),
             .code_page = err_details.code_page,
-        };
-        corresponding_lines.buffered_reader = .{
-            .unbuffered_reader = corresponding_lines.file.reader(),
         };
         errdefer corresponding_lines.deinit();
 
@@ -1215,7 +1218,7 @@ const CorrespondingLines = struct {
     }
 
     pub fn deinit(self: *CorrespondingLines) void {
-        self.file.close();
+        self.file_reader.file.close();
     }
 };
 
