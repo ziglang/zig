@@ -266,7 +266,7 @@ const StringSection = struct {
 /// A linker section containing a sequence of `Unit`s.
 pub const Section = struct {
     dirty: bool,
-    pad_to_ideal: bool,
+    pad_entries_to_ideal: bool,
     alignment: InternPool.Alignment,
     index: u32,
     first: Unit.Index.Optional,
@@ -288,7 +288,7 @@ pub const Section = struct {
 
     const init: Section = .{
         .dirty = true,
-        .pad_to_ideal = true,
+        .pad_entries_to_ideal = true,
         .alignment = .@"1",
         .index = std.math.maxInt(u32),
         .first = .none,
@@ -340,12 +340,12 @@ pub const Section = struct {
         if (sec.last.unwrap()) |last_unit| {
             const last_unit_ptr = sec.getUnit(last_unit);
             last_unit_ptr.next = unit.toOptional();
-            unit_ptr.off = last_unit_ptr.off + sec.padToIdeal(last_unit_ptr.len);
+            unit_ptr.off = last_unit_ptr.off + sec.padUnitToIdeal(last_unit_ptr.len);
         }
         if (sec.first == .none)
             sec.first = unit.toOptional();
         sec.last = unit.toOptional();
-        try sec.resize(dwarf, unit_ptr.off + sec.padToIdeal(unit_ptr.len));
+        try sec.resize(dwarf, unit_ptr.off + sec.padUnitToIdeal(unit_ptr.len));
         return unit;
     }
 
@@ -377,7 +377,7 @@ pub const Section = struct {
                 entry_ptr.off = if (unit_ptr.last.unwrap()) |last_entry| off: {
                     const last_entry_ptr = unit_ptr.getEntry(last_entry);
                     last_entry_ptr.next = entry.toOptional();
-                    break :off last_entry_ptr.off + sec.padToIdeal(last_entry_ptr.len);
+                    break :off last_entry_ptr.off + sec.padEntryToIdeal(last_entry_ptr.len);
                 } else 0;
                 entry_ptr.prev = unit_ptr.last;
                 unit_ptr.last = entry.toOptional();
@@ -469,8 +469,12 @@ pub const Section = struct {
         for (sec.units.items) |*unit| try unit.resolveRelocs(sec, dwarf);
     }
 
-    fn padToIdeal(sec: *Section, actual_size: anytype) @TypeOf(actual_size) {
-        return @intCast(sec.alignment.forward(if (sec.pad_to_ideal) Dwarf.padToIdeal(actual_size) else actual_size));
+    fn padUnitToIdeal(sec: *Section, actual_size: anytype) @TypeOf(actual_size) {
+        return @intCast(sec.alignment.forward(Dwarf.padToIdeal(actual_size)));
+    }
+
+    fn padEntryToIdeal(sec: *Section, actual_size: anytype) @TypeOf(actual_size) {
+        return @intCast(sec.alignment.forward(if (sec.pad_entries_to_ideal) Dwarf.padToIdeal(actual_size) else actual_size));
     }
 };
 
@@ -568,7 +572,7 @@ const Unit = struct {
                 last_unit_ptr.next = unit;
                 unit_ptr.prev = sec.last;
                 unit_ptr.next = .none;
-                new_off = last_unit_ptr.off + sec.padToIdeal(last_unit_ptr.len);
+                new_off = last_unit_ptr.off + sec.padUnitToIdeal(last_unit_ptr.len);
                 sec.last = unit;
                 sec.dirty = true;
             } else if (extra_header_len > 0) {
@@ -872,7 +876,7 @@ const Entry = struct {
                 assert(fbs.pos == extended_op_bytes + op_len_bytes);
                 if (len > 2) writer.writeByte(DW.LNE.padding) catch unreachable;
             },
-        } else assert(!sec.pad_to_ideal and len == 0);
+        } else assert(!sec.pad_entries_to_ideal and len == 0);
         assert(fbs.pos <= len);
         try dwarf.getFile().?.pwriteAll(fbs.getWritten(), sec.off(dwarf) + unit.off + unit.header_len + start);
     }
@@ -899,11 +903,11 @@ const Entry = struct {
                 last_entry_ptr.next = entry;
                 entry_ptr.prev = unit.last;
                 entry_ptr.next = .none;
-                entry_ptr.off = last_entry_ptr.off + sec.padToIdeal(last_entry_ptr.len);
+                entry_ptr.off = last_entry_ptr.off + sec.padEntryToIdeal(last_entry_ptr.len);
                 unit.last = entry;
                 try last_entry_ptr.pad(unit, sec, dwarf);
             }
-            try unit.resize(sec, dwarf, 0, @intCast(unit.header_len + entry_ptr.off + sec.padToIdeal(len) + unit.trailer_len));
+            try unit.resize(sec, dwarf, 0, @intCast(unit.header_len + entry_ptr.off + sec.padEntryToIdeal(len) + unit.trailer_len));
         }
         entry_ptr.len = len;
         try entry_ptr.pad(unit, sec, dwarf);
@@ -2247,13 +2251,13 @@ pub fn initMetadata(dwarf: *Dwarf) UpdateError!void {
     }
     dwarf.reloadSectionMetadata();
 
-    dwarf.debug_abbrev.section.pad_to_ideal = false;
+    dwarf.debug_abbrev.section.pad_entries_to_ideal = false;
     assert(try dwarf.debug_abbrev.section.addUnit(DebugAbbrev.header_bytes, DebugAbbrev.trailer_bytes, dwarf) == DebugAbbrev.unit);
     errdefer dwarf.debug_abbrev.section.popUnit(dwarf.gpa);
     for (std.enums.values(AbbrevCode)) |abbrev_code|
         assert(@intFromEnum(try dwarf.debug_abbrev.section.getUnit(DebugAbbrev.unit).addEntry(dwarf.gpa)) == @intFromEnum(abbrev_code));
 
-    dwarf.debug_aranges.section.pad_to_ideal = false;
+    dwarf.debug_aranges.section.pad_entries_to_ideal = false;
     dwarf.debug_aranges.section.alignment = InternPool.Alignment.fromNonzeroByteUnits(@intFromEnum(dwarf.address_size) * 2);
 
     dwarf.debug_frame.section.alignment = switch (dwarf.debug_frame.header.format) {
@@ -2262,17 +2266,17 @@ pub fn initMetadata(dwarf: *Dwarf) UpdateError!void {
         .eh_frame => .@"4",
     };
 
-    dwarf.debug_line_str.section.pad_to_ideal = false;
+    dwarf.debug_line_str.section.pad_entries_to_ideal = false;
     assert(try dwarf.debug_line_str.section.addUnit(0, 0, dwarf) == StringSection.unit);
     errdefer dwarf.debug_line_str.section.popUnit(dwarf.gpa);
 
-    dwarf.debug_str.section.pad_to_ideal = false;
+    dwarf.debug_str.section.pad_entries_to_ideal = false;
     assert(try dwarf.debug_str.section.addUnit(0, 0, dwarf) == StringSection.unit);
     errdefer dwarf.debug_str.section.popUnit(dwarf.gpa);
 
-    dwarf.debug_loclists.section.pad_to_ideal = false;
+    dwarf.debug_loclists.section.pad_entries_to_ideal = false;
 
-    dwarf.debug_rnglists.section.pad_to_ideal = false;
+    dwarf.debug_rnglists.section.pad_entries_to_ideal = false;
 }
 
 pub fn deinit(dwarf: *Dwarf) void {
