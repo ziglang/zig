@@ -722,6 +722,7 @@ pub fn generate(
 
     // TODO: calc preserve static regs
     const frame_size = try cg.computeFrameLayout();
+    log.debug("Frame layout:{}", .{cg.fmtFrameLocs()});
 
     var mir: Mir = .{
         .instructions = cg.mir_instructions.toOwnedSlice(),
@@ -1496,6 +1497,20 @@ fn formatTracking(
 }
 fn fmtTracking(self: *CodeGen) std.fmt.Formatter(formatTracking) {
     return .{ .data = .{ .self = self } };
+}
+
+fn formatFrameLocs(
+    cg: *CodeGen,
+    comptime _: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    for (0..cg.frame_allocs.len) |i| {
+        try writer.print("\n- {} @ {}", .{ cg.frame_allocs.get(i), cg.frame_locs.get(i) });
+    }
+}
+fn fmtFrameLocs(self: *CodeGen) std.fmt.Formatter(formatFrameLocs) {
+    return .{ .data = self };
 }
 
 fn resetTemps(cg: *CodeGen, from_index: Temp.Index) InnerError!void {
