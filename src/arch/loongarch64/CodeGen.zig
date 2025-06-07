@@ -1517,6 +1517,7 @@ fn tempInit(cg: *CodeGen, ty: Type, value: MCValue) InnerError!Temp {
     cg.temp_type[@intFromEnum(temp_index)] = ty;
     try cg.getValue(value, temp_index.toIndex());
     cg.next_temp_index = @enumFromInt(@intFromEnum(temp_index) + 1);
+    log.debug("{} => {} (birth)", .{ temp_index.toIndex(), value });
     return .{ .index = temp_index.toIndex() };
 }
 
@@ -1542,6 +1543,7 @@ fn tempFromOperand(cg: *CodeGen, op_ref: Air.Inst.Ref, op_dies: bool) InnerError
         const op_inst = op_ref.toIndex().?;
         const tracking = cg.resolveInst(op_inst);
         temp_index.tracking(cg).* = tracking.*;
+        log.debug("{} => {} (birth from operand)", .{ temp_index.toIndex(), tracking.short });
 
         if (!cg.reuseTemp(tracking, temp.index, op_inst)) return .{ .index = op_ref.toIndex().? };
         cg.temp_type[@intFromEnum(temp_index)] = cg.typeOf(op_ref);
