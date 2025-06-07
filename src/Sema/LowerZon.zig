@@ -157,13 +157,14 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
             )) {
                 .wip => |wip| ty: {
                     errdefer wip.cancel(ip, pt.tid);
-                    wip.setName(ip, try self.sema.createTypeName(
+                    const type_name = try self.sema.createTypeName(
                         self.block,
                         .anon,
                         "struct",
                         self.base_node_inst.resolve(ip),
                         wip.index,
-                    ));
+                    );
+                    wip.setName(ip, type_name.name, type_name.nav);
 
                     const struct_type = ip.loadStructType(wip.index);
 

@@ -2963,13 +2963,14 @@ fn zirStructDecl(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, try sema.createTypeName(
+    const type_name = try sema.createTypeName(
         block,
         small.name_strategy,
         "struct",
         inst,
         wip_ty.index,
-    ));
+    );
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -3007,7 +3008,10 @@ pub fn createTypeName(
     inst: ?Zir.Inst.Index,
     /// This is used purely to give the type a unique name in the `anon` case.
     type_index: InternPool.Index,
-) !InternPool.NullTerminatedString {
+) !struct {
+    name: InternPool.NullTerminatedString,
+    nav: InternPool.Nav.Index.Optional,
+} {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -3015,7 +3019,10 @@ pub fn createTypeName(
 
     switch (name_strategy) {
         .anon => {}, // handled after switch
-        .parent => return block.type_name_ctx,
+        .parent => return .{
+            .name = block.type_name_ctx,
+            .nav = sema.owner.unwrap().nav_val.toOptional(),
+        },
         .func => func_strat: {
             const fn_info = sema.code.getFnInfo(ip.funcZirBodyInst(sema.func_index).resolve(ip) orelse return error.AnalysisFail);
             const zir_tags = sema.code.instructions.items(.tag);
@@ -3057,7 +3064,10 @@ pub fn createTypeName(
             };
 
             try writer.writeByte(')');
-            return ip.getOrPutString(gpa, pt.tid, buf.items, .no_embedded_nulls);
+            return .{
+                .name = try ip.getOrPutString(gpa, pt.tid, buf.items, .no_embedded_nulls),
+                .nav = .none,
+            };
         },
         .dbg_var => {
             // TODO: this logic is questionable. We ideally should be traversing the `Block` rather than relying on the order of AstGen instructions.
@@ -3066,9 +3076,12 @@ pub fn createTypeName(
             const zir_data = sema.code.instructions.items(.data);
             for (@intFromEnum(inst.?)..zir_tags.len) |i| switch (zir_tags[i]) {
                 .dbg_var_ptr, .dbg_var_val => if (zir_data[i].str_op.operand == ref) {
-                    return ip.getOrPutStringFmt(gpa, pt.tid, "{}.{s}", .{
-                        block.type_name_ctx.fmt(ip), zir_data[i].str_op.getStr(sema.code),
-                    }, .no_embedded_nulls);
+                    return .{
+                        .name = try ip.getOrPutStringFmt(gpa, pt.tid, "{}.{s}", .{
+                            block.type_name_ctx.fmt(ip), zir_data[i].str_op.getStr(sema.code),
+                        }, .no_embedded_nulls),
+                        .nav = .none,
+                    };
                 },
                 else => {},
             };
@@ -3086,9 +3099,12 @@ pub fn createTypeName(
     // types appropriately. However, `@typeName` becomes a problem then. If we remove
     // that builtin from the language, we can consider this.
 
-    return ip.getOrPutStringFmt(gpa, pt.tid, "{}__{s}_{d}", .{
-        block.type_name_ctx.fmt(ip), anon_prefix, @intFromEnum(type_index),
-    }, .no_embedded_nulls);
+    return .{
+        .name = try ip.getOrPutStringFmt(gpa, pt.tid, "{}__{s}_{d}", .{
+            block.type_name_ctx.fmt(ip), anon_prefix, @intFromEnum(type_index),
+        }, .no_embedded_nulls),
+        .nav = .none,
+    };
 }
 
 fn zirEnumDecl(
@@ -3209,7 +3225,7 @@ fn zirEnumDecl(
         inst,
         wip_ty.index,
     );
-    wip_ty.setName(ip, type_name);
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -3236,7 +3252,7 @@ fn zirEnumDecl(
         inst,
         tracked_inst,
         new_namespace_index,
-        type_name,
+        type_name.name,
         small,
         body,
         tag_type_ref,
@@ -3340,13 +3356,14 @@ fn zirUnionDecl(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, try sema.createTypeName(
+    const type_name = try sema.createTypeName(
         block,
         small.name_strategy,
         "union",
         inst,
         wip_ty.index,
-    ));
+    );
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -3432,13 +3449,14 @@ fn zirOpaqueDecl(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, try sema.createTypeName(
+    const type_name = try sema.createTypeName(
         block,
         small.name_strategy,
         "opaque",
         inst,
         wip_ty.index,
-    ));
+    );
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -20062,7 +20080,8 @@ fn structInitAnon(
     }, false)) {
         .wip => |wip| ty: {
             errdefer wip.cancel(ip, pt.tid);
-            wip.setName(ip, try sema.createTypeName(block, .anon, "struct", inst, wip.index));
+            const type_name = try sema.createTypeName(block, .anon, "struct", inst, wip.index);
+            wip.setName(ip, type_name.name, type_name.nav);
 
             const struct_type = ip.loadStructType(wip.index);
 
@@ -21122,13 +21141,14 @@ fn zirReify(
             };
             errdefer wip_ty.cancel(ip, pt.tid);
 
-            wip_ty.setName(ip, try sema.createTypeName(
+            const type_name = try sema.createTypeName(
                 block,
                 name_strategy,
                 "opaque",
                 inst,
                 wip_ty.index,
-            ));
+            );
+            wip_ty.setName(ip, type_name.name, type_name.nav);
 
             const new_namespace_index = try pt.createNamespace(.{
                 .parent = block.namespace.toOptional(),
@@ -21327,13 +21347,14 @@ fn reifyEnum(
         return sema.fail(block, src, "Type.Enum.tag_type must be an integer type", .{});
     }
 
-    wip_ty.setName(ip, try sema.createTypeName(
+    const type_name = try sema.createTypeName(
         block,
         name_strategy,
         "enum",
         inst,
         wip_ty.index,
-    ));
+    );
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const new_namespace_index = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -21498,7 +21519,7 @@ fn reifyUnion(
         inst,
         wip_ty.index,
     );
-    wip_ty.setName(ip, type_name);
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const field_types = try sema.arena.alloc(InternPool.Index, fields_len);
     const field_aligns = if (any_aligns) try sema.arena.alloc(InternPool.Alignment, fields_len) else undefined;
@@ -21591,7 +21612,7 @@ fn reifyUnion(
             }
         }
 
-        const enum_tag_ty = try sema.generateUnionTagTypeSimple(block, field_names.keys(), wip_ty.index, type_name);
+        const enum_tag_ty = try sema.generateUnionTagTypeSimple(block, field_names.keys(), wip_ty.index, type_name.name);
         break :tag_ty .{ enum_tag_ty, false };
     };
     errdefer if (!has_explicit_tag) ip.remove(pt.tid, enum_tag_ty); // remove generated tag type on error
@@ -21853,13 +21874,14 @@ fn reifyStruct(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, try sema.createTypeName(
+    const type_name = try sema.createTypeName(
         block,
         name_strategy,
         "struct",
         inst,
         wip_ty.index,
-    ));
+    );
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const struct_type = ip.loadStructType(wip_ty.index);
 

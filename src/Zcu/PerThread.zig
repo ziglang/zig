@@ -1787,7 +1787,7 @@ fn createFileRootStruct(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, try file.internFullyQualifiedName(pt));
+    wip_ty.setName(ip, try file.internFullyQualifiedName(pt), .none);
     ip.namespacePtr(namespace_index).owner_type = wip_ty.index;
 
     if (zcu.comp.incremental) {
@@ -3976,7 +3976,7 @@ fn recreateStructType(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, struct_obj.name);
+    wip_ty.setName(ip, struct_obj.name, struct_obj.name_nav);
     try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = key.zir_index });
     zcu.namespacePtr(struct_obj.namespace).owner_type = wip_ty.index;
     // No need to re-scan the namespace -- `zirStructDecl` will ultimately do that if the type is still alive.
@@ -4068,7 +4068,7 @@ fn recreateUnionType(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, union_obj.name);
+    wip_ty.setName(ip, union_obj.name, union_obj.name_nav);
     try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = key.zir_index });
     zcu.namespacePtr(namespace_index).owner_type = wip_ty.index;
     // No need to re-scan the namespace -- `zirUnionDecl` will ultimately do that if the type is still alive.
@@ -4177,7 +4177,7 @@ fn recreateEnumType(
     var done = true;
     errdefer if (!done) wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, enum_obj.name);
+    wip_ty.setName(ip, enum_obj.name, enum_obj.name_nav);
 
     zcu.namespacePtr(namespace_index).owner_type = wip_ty.index;
     // No need to re-scan the namespace -- `zirEnumDecl` will ultimately do that if the type is still alive.
