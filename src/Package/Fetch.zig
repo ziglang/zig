@@ -1128,11 +1128,12 @@ fn unpackResource(
             if (ascii.eqlIgnoreCase(mime_type, "application/zstd"))
                 break :ft .@"tar.zst";
 
-            if (ascii.eqlIgnoreCase(mime_type, "application/zip"))
+            if (ascii.eqlIgnoreCase(mime_type, "application/zip") or
+                ascii.eqlIgnoreCase(mime_type, "application/x-zip-compressed") or
+                ascii.eqlIgnoreCase(mime_type, "application/java-archive"))
+            {
                 break :ft .zip;
-
-            if (ascii.eqlIgnoreCase(mime_type, "application/java-archive"))
-                break :ft .zip;
+            }
 
             if (!ascii.eqlIgnoreCase(mime_type, "application/octet-stream") and
                 !ascii.eqlIgnoreCase(mime_type, "application/x-compressed"))
