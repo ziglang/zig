@@ -568,14 +568,14 @@ fn runResource(
             const actual_hex = Package.multiHashHexDigest(f.computed_hash.digest);
             if (!std.mem.eql(u8, declared_hash.toSlice(), &actual_hex)) {
                 return f.fail(hash_tok, try eb.printString(
-                    "hash mismatch: manifest declares {s} but the fetched package has {s}",
+                    "hash mismatch: manifest declares '{s}' but the fetched package has '{s}'",
                     .{ declared_hash.toSlice(), actual_hex },
                 ));
             }
         } else {
             if (!computed_package_hash.eql(&declared_hash)) {
                 return f.fail(hash_tok, try eb.printString(
-                    "hash mismatch: manifest declares {s} but the fetched package has {s}",
+                    "hash mismatch: manifest declares '{s}' but the fetched package has '{s}'",
                     .{ declared_hash.toSlice(), computed_package_hash.toSlice() },
                 ));
             }
@@ -726,6 +726,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                     .hash = h: {
                         const h = dep.hash orelse break :h null;
                         const pkg_hash: Package.Hash = .fromSlice(h);
+                        if (h.len == 0) break :h pkg_hash;
                         const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
                         if (gop.found_existing) {
                             if (!dep.lazy) {
