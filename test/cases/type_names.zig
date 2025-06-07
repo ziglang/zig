@@ -82,5 +82,5 @@ export fn nestedTypes() void {
 // @as(*const [17:0]u8, "tmp.UnionInStruct")
 // @as(*const [17:0]u8, "tmp.StructInUnion")
 // @as(*const [16:0]u8, "tmp.UnionInUnion")
-// @as(*const [40:0]u8, "struct { tmp.StructInTuple__struct_574 }")
-// @as(*const [38:0]u8, "struct { tmp.UnionInTuple__union_581 }")
+// @as(*const [40:0]u8, "struct { tmp.StructInTuple__struct_578 }")
+// @as(*const [38:0]u8, "struct { tmp.UnionInTuple__union_585 }")
