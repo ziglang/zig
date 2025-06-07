@@ -484,8 +484,8 @@ const InstTracking = struct {
         new_inst: Air.Inst.Index,
         old_inst: Air.Inst.Index,
     ) void {
-        self.short = .{ .dead = cg.scope_generation };
         log.debug("{} => {} (reuse {})", .{ new_inst, self.*, old_inst });
+        self.short = .{ .dead = cg.scope_generation };
     }
 
     fn spill(self: *InstTracking, cg: *CodeGen, inst: Air.Inst.Index) !void {
