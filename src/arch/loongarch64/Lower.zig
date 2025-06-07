@@ -148,6 +148,23 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     const reg = inst.data.frame_reg.reg;
                     lower.emitRegBiasToReg(reg, frame_loc.base, @as(i64, frame_loc.offset + frame_addr.off));
                 },
+                .frame_addr_reg_mem => {
+                    const data = inst.data.op_frame_reg;
+                    const frame_loc = lower.mir.frame_locs.get(@intFromEnum(data.frame.index));
+                    const offset = @as(i64, frame_loc.offset + data.frame.off);
+                    if (cast(i12, offset)) |off12| {
+                        lower.emit(.{
+                            .opcode = data.op,
+                            .data = .{ .DJSk12 = .{ data.reg, frame_loc.base, off12 } },
+                        });
+                    } else {
+                        lower.emitImmToReg(@bitCast(@as(i64, frame_loc.offset + data.frame.off)), data.reg);
+                        lower.emit(.{
+                            .opcode = data.opx,
+                            .data = .{ .DJK = .{ data.reg, frame_loc.base, data.reg } },
+                        });
+                    }
+                },
                 else => unreachable,
             }
         },
@@ -197,7 +214,8 @@ const max_result_insts = @max(
     abi.zigcc.all_static.len + 1, // push_regs/pop_regs
     abi.c_abi.all_static.len + 1, // push_regs/pop_regs
     4, // emitImmToReg/imm_to_reg
-    5, // frame_addr_to_reg/func_prolugue
+    5, // emitRegBiasToReg/frame_addr_to_reg/func_prolugue
+    6, // frame_addr_reg_mem
     7, // func_epilogue
 );
 const max_result_relocs = @max(

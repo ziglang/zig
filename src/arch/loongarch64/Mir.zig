@@ -49,6 +49,10 @@ pub const Inst = struct {
         imm_to_reg,
         /// Load frame address to register, uses `frame_reg` payload.
         frame_addr_to_reg,
+        /// Memory load/store operations, uses `op_frame_reg` payload.
+        /// Maybe lowered to `op` (DJSk12 format), rd is the `reg`, rj + si12 is the frame addr.
+        /// Or `opx` (DJK format), rd is the `reg`, rj + rk is the frame addr.
+        frame_addr_reg_mem,
 
         /// Prologue of a function, uses `none` payload.
         func_prologue,
@@ -94,6 +98,13 @@ pub const Inst = struct {
             frame: bits.FrameAddr,
             reg: Register,
         },
+        /// Opcode, opcode, frame address and register
+        op_frame_reg: struct {
+            op: encoding.OpCode,
+            opx: encoding.OpCode,
+            frame: bits.FrameAddr,
+            reg: Register,
+        },
     };
 
     pub inline fn initInst(inst: encoding.Inst) Inst {
@@ -124,6 +135,12 @@ pub const Inst = struct {
                         inst.data.frame_reg.frame,
                         @tagName(inst.data.frame_reg.reg),
                     }),
+                    .frame_addr_reg_mem => try writer.print(".frame_addr_reg_djsk12 {s}/{s} {} => {s}", .{
+                        @tagName(inst.data.op_frame_reg.op),
+                        @tagName(inst.data.op_frame_reg.opx),
+                        inst.data.op_frame_reg.frame,
+                        @tagName(inst.data.op_frame_reg.reg),
+                    }),
                     else => try writer.print(".{s}", .{@tagName(tag)}),
                 }
             },
@@ -133,6 +150,11 @@ pub const Inst = struct {
         }
     }
 };
+
+comptime {
+    // Be careful with memory usage when making instruction data larger.
+    std.debug.assert(@sizeOf(Inst.Data) <= 24);
+}
 
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);

@@ -1845,11 +1845,19 @@ fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: C
             .reg = dst,
         } }),
         .load_frame => |addr| {
-            try cg.asmPseudo(.frame_addr_to_reg, .{ .frame_reg = .{
+            const size = bits.Memory.Size.fromByteSize(ty.abiSize(cg.pt.zcu));
+            const op: encoding.OpCode, const opx: encoding.OpCode = switch (size) {
+                .byte => .{ .ld_b, .ldx_b },
+                .hword => .{ .ld_h, .ldx_h },
+                .word => .{ .ld_w, .ldx_w },
+                .dword => .{ .ld_d, .ldx_d },
+            };
+            try cg.asmPseudo(.frame_addr_reg_mem, .{ .op_frame_reg = .{
+                .op = op,
+                .opx = opx,
                 .frame = addr,
                 .reg = dst,
             } });
-            try cg.genCopyToReg(ty, dst, .{ .register_offset = .{ .reg = dst } }, .{});
         },
         else => return cg.fail("TODO: genCopyToReg from {s}", .{@tagName(src_mcv)}),
     }
@@ -1888,10 +1896,18 @@ fn genCopyRegToMem(cg: *CodeGen, dst_mcv: MCValue, src: Register, size: bits.Mem
             return cg.fail("TODO: genCopyRegToMem to {s}", .{@tagName(dst_mcv)});
         },
         .load_frame => |addr| {
-            const tmp_reg, const tmp_reg_lock = try cg.allocRegAndLock(.usize);
-            defer cg.register_manager.unlockReg(tmp_reg_lock);
-            try cg.genCopyToReg(.usize, tmp_reg, .{ .lea_frame = addr }, .{});
-            try cg.genCopyRegToMem(.{ .register_offset = .{ .reg = tmp_reg } }, src, size);
+            const op: encoding.OpCode, const opx: encoding.OpCode = switch (size) {
+                .byte => .{ .st_b, .stx_b },
+                .hword => .{ .st_h, .stx_h },
+                .word => .{ .st_w, .stx_w },
+                .dword => .{ .st_d, .stx_d },
+            };
+            try cg.asmPseudo(.frame_addr_reg_mem, .{ .op_frame_reg = .{
+                .op = op,
+                .opx = opx,
+                .frame = addr,
+                .reg = src,
+            } });
         },
         .undef,
         .load_symbol,
