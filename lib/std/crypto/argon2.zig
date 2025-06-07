@@ -581,6 +581,7 @@ const PhcFormatHasher = struct {
 pub const HashOptions = struct {
     params: Params,
     mode: Mode = .argon2id,
+    strhash_max_bytes: usize = 128,
 };
 
 /// Compute a hash of a password using the argon2 key derivation function.
@@ -588,16 +589,11 @@ pub const HashOptions = struct {
 pub fn strHash(
     allocator: mem.Allocator,
     password: []const u8,
-    options: HashOptions,
-    out: []u8,
-) Error![]const u8 {
-    return PhcFormatHasher.create(
-        allocator,
-        password,
-        options.params,
-        options.mode,
-        out,
-    );
+    comptime options: HashOptions,
+) Error![]u8 {
+    var buf: [options.strhash_max_bytes]u8 = undefined;
+    const out = try PhcFormatHasher.create(allocator, password, options.params, options.mode, &buf);
+    return allocator.dupe(u8, out);
 }
 
 /// Verify that a previously computed hash is valid for a given password.
@@ -902,13 +898,13 @@ test "password hash and password verify" {
     const allocator = std.testing.allocator;
     const password = "testpass";
 
-    var buf: [128]u8 = undefined;
     const hash = try strHash(
         allocator,
         password,
         .{ .params = .{ .t = 3, .m = 32, .p = 4 } },
-        &buf,
     );
+    defer allocator.free(hash);
+
     try strVerify(allocator, hash, password);
 }
 

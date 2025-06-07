@@ -407,23 +407,22 @@ const pwhashes = [_]CryptoPwhash{
 };
 
 fn benchmarkBcryptPwhash(
-    _: mem.Allocator,
+    allocator: mem.Allocator,
     comptime count: comptime_int,
 ) !f64 {
     const password = "testpass" ** 2;
     const opts = crypto.pwhash.bcrypt.HashOptions{
         .params = bcrypt_params,
         .encoding = .phc,
+        .strhash_max_bytes = 256,
     };
-    var buf: [256]u8 = undefined;
 
     var timer = try Timer.start();
     const start = timer.lap();
     {
         var i: usize = 0;
         while (i < count) : (i += 1) {
-            _ = try crypto.pwhash.bcrypt.strHash(password, opts, &buf);
-            mem.doNotOptimizeAway(&buf);
+            _ = try crypto.pwhash.bcrypt.strHash(allocator, password, opts);
         }
     }
     const end = timer.read();
@@ -442,16 +441,15 @@ fn benchmarkScryptPwhash(
     const opts = crypto.pwhash.scrypt.HashOptions{
         .params = crypto.pwhash.scrypt.Params.interactive,
         .encoding = .phc,
+        .strhash_max_bytes = 256,
     };
-    var buf: [256]u8 = undefined;
 
     var timer = try Timer.start();
     const start = timer.lap();
     {
         var i: usize = 0;
         while (i < count) : (i += 1) {
-            _ = try crypto.pwhash.scrypt.strHash(allocator, password, opts, &buf);
-            mem.doNotOptimizeAway(&buf);
+            _ = try crypto.pwhash.scrypt.strHash(allocator, password, opts);
         }
     }
     const end = timer.read();
@@ -469,16 +467,15 @@ fn benchmarkArgon2Pwhash(
     const password = "testpass" ** 2;
     const opts = crypto.pwhash.argon2.HashOptions{
         .params = crypto.pwhash.argon2.Params.interactive_2id,
+        .strhash_max_bytes = 256,
     };
-    var buf: [256]u8 = undefined;
 
     var timer = try Timer.start();
     const start = timer.lap();
     {
         var i: usize = 0;
         while (i < count) : (i += 1) {
-            _ = try crypto.pwhash.argon2.strHash(allocator, password, opts, &buf);
-            mem.doNotOptimizeAway(&buf);
+            _ = try crypto.pwhash.argon2.strHash(allocator, password, opts);
         }
     }
     const end = timer.read();

@@ -501,6 +501,7 @@ const CryptFormatHasher = struct {
 pub const HashOptions = struct {
     params: Params,
     encoding: pwhash.Encoding,
+    strhash_max_bytes: usize = 128,
 };
 
 /// Compute a hash of a password using the scrypt key derivation function.
@@ -508,13 +509,16 @@ pub const HashOptions = struct {
 pub fn strHash(
     allocator: mem.Allocator,
     password: []const u8,
-    options: HashOptions,
-    out: []u8,
-) Error![]const u8 {
-    switch (options.encoding) {
-        .phc => return PhcFormatHasher.create(allocator, password, options.params, out),
-        .crypt => return CryptFormatHasher.create(allocator, password, options.params, out),
-    }
+    comptime options: HashOptions,
+) Error![]u8 {
+    var buf: [options.strhash_max_bytes]u8 = undefined;
+    const hasher = comptime switch (options.encoding) {
+        .phc => &PhcFormatHasher.create,
+        .crypt => &CryptFormatHasher.create,
+    };
+
+    const written = try hasher(allocator, password, options.params, &buf);
+    return allocator.dupe(u8, written);
 }
 
 /// Verify that a previously computed hash is valid for a given password.
@@ -635,15 +639,15 @@ test "strHash and strVerify" {
 
     const password = "testpass";
     const params = Params.interactive;
-    var buf: [128]u8 = undefined;
 
     {
         const str = try strHash(
             alloc,
             password,
             .{ .params = params, .encoding = .crypt },
-            &buf,
         );
+        defer alloc.free(str);
+
         try strVerify(alloc, str, password);
     }
     {
@@ -651,8 +655,9 @@ test "strHash and strVerify" {
             alloc,
             password,
             .{ .params = params, .encoding = .phc },
-            &buf,
         );
+        defer alloc.free(str);
+
         try strVerify(alloc, str, password);
     }
 }

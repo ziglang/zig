@@ -752,6 +752,13 @@ pub const HashOptions = struct {
     params: Params,
     /// Encoding to use for the output of the hash function.
     encoding: pwhash.Encoding,
+    /// The maximum length in bytes for a hashed password. If not
+    /// set by the developer, this varies based on encoding.
+    /// `crypt` encoding uses 60 bytes, and `phc` encoding uses
+    /// 120 bytes.
+    ///
+    /// The returned hash may be smaller than the maximum length.
+    strhash_max_bytes: ?usize = null,
 };
 
 /// Compute a hash of a password using 2^rounds_log rounds of the bcrypt key stretching function.
@@ -762,14 +769,21 @@ pub const HashOptions = struct {
 /// IMPORTANT: by design, bcrypt silently truncates passwords to 72 bytes.
 /// If this is an issue for your application, set the `silently_truncate_password` option to `false`.
 pub fn strHash(
+    allocator: mem.Allocator,
     password: []const u8,
-    options: HashOptions,
-    out: []u8,
-) Error![]const u8 {
-    switch (options.encoding) {
-        .phc => return PhcFormatHasher.create(password, options.params, out),
-        .crypt => return CryptFormatHasher.create(password, options.params, out),
-    }
+    comptime options: HashOptions,
+) Error![]u8 {
+    const buf_len = comptime if (options.strhash_max_bytes) |len| len else switch (options.encoding) {
+        .crypt => hash_length,
+        .phc => hash_length * 2,
+    };
+    var buf: [buf_len]u8 = undefined;
+
+    const out = switch (options.encoding) {
+        .phc => try PhcFormatHasher.create(password, options.params, &buf),
+        .crypt => try CryptFormatHasher.create(password, options.params, &buf),
+    };
+    return allocator.dupe(u8, out);
 }
 
 /// Options for hash verification.
@@ -802,14 +816,15 @@ test "bcrypt codec" {
 }
 
 test "bcrypt crypt format" {
-    var hash_options = HashOptions{
+    const allocator = std.testing.allocator;
+    const hash_options = HashOptions{
         .params = .{ .rounds_log = 5, .silently_truncate_password = false },
         .encoding = .crypt,
     };
-    var verify_options = VerifyOptions{ .silently_truncate_password = false };
+    const verify_options = VerifyOptions{ .silently_truncate_password = false };
 
-    var buf: [hash_length]u8 = undefined;
-    const s = try strHash("password", hash_options, &buf);
+    const s = try strHash(allocator, "password", hash_options);
+    defer allocator.free(s);
 
     try testing.expect(mem.startsWith(u8, s, crypt_format.prefix));
     try strVerify(s, "password", verify_options);
@@ -818,8 +833,7 @@ test "bcrypt crypt format" {
         strVerify(s, "invalid password", verify_options),
     );
 
-    var long_buf: [hash_length]u8 = undefined;
-    var long_s = try strHash("password" ** 100, hash_options, &long_buf);
+    var long_s = try strHash(allocator, "password" ** 100, hash_options);
 
     try testing.expect(mem.startsWith(u8, long_s, crypt_format.prefix));
     try strVerify(long_s, "password" ** 100, verify_options);
@@ -828,28 +842,33 @@ test "bcrypt crypt format" {
         strVerify(long_s, "password" ** 101, verify_options),
     );
 
-    hash_options.params.silently_truncate_password = true;
-    verify_options.silently_truncate_password = true;
-    long_s = try strHash("password" ** 100, hash_options, &long_buf);
-    try strVerify(long_s, "password" ** 101, verify_options);
+    allocator.free(long_s);
+
+    long_s = try strHash(allocator, "password" ** 100, .{
+        .params = .{ .rounds_log = 5, .silently_truncate_password = true },
+        .encoding = .crypt,
+    });
+    defer allocator.free(long_s);
+    try strVerify(long_s, "password" ** 101, .{ .silently_truncate_password = true });
 
     try strVerify(
         "$2b$08$WUQKyBCaKpziCwUXHiMVvu40dYVjkTxtWJlftl0PpjY2BxWSvFIEe",
         "The devil himself",
-        verify_options,
+        .{ .silently_truncate_password = true },
     );
 }
 
 test "bcrypt phc format" {
-    var hash_options = HashOptions{
+    const allocator = std.testing.allocator;
+    const hash_options = HashOptions{
         .params = .{ .rounds_log = 5, .silently_truncate_password = false },
         .encoding = .phc,
     };
-    var verify_options = VerifyOptions{ .silently_truncate_password = false };
+    const verify_options = VerifyOptions{ .silently_truncate_password = false };
     const prefix = "$bcrypt$";
 
-    var buf: [hash_length * 2]u8 = undefined;
-    const s = try strHash("password", hash_options, &buf);
+    const s = try strHash(allocator, "password", hash_options);
+    defer allocator.free(s);
 
     try testing.expect(mem.startsWith(u8, s, prefix));
     try strVerify(s, "password", verify_options);
@@ -858,8 +877,7 @@ test "bcrypt phc format" {
         strVerify(s, "invalid password", verify_options),
     );
 
-    var long_buf: [hash_length * 2]u8 = undefined;
-    var long_s = try strHash("password" ** 100, hash_options, &long_buf);
+    var long_s = try strHash(allocator, "password" ** 100, hash_options);
 
     try testing.expect(mem.startsWith(u8, long_s, prefix));
     try strVerify(long_s, "password" ** 100, verify_options);
@@ -868,10 +886,14 @@ test "bcrypt phc format" {
         strVerify(long_s, "password" ** 101, verify_options),
     );
 
-    hash_options.params.silently_truncate_password = true;
-    verify_options.silently_truncate_password = true;
-    long_s = try strHash("password" ** 100, hash_options, &long_buf);
-    try strVerify(long_s, "password" ** 101, verify_options);
+    allocator.free(long_s);
+
+    long_s = try strHash(allocator, "password" ** 100, .{
+        .params = .{ .rounds_log = 5, .silently_truncate_password = true },
+        .encoding = .crypt,
+    });
+    defer allocator.free(long_s);
+    try strVerify(long_s, "password" ** 101, .{ .silently_truncate_password = true });
 
     try strVerify(
         "$bcrypt$r=5$2NopntlgE2lX3cTwr4qz8A$r3T7iKYQNnY4hAhGjk9RmuyvgrYJZwc",
