@@ -696,16 +696,7 @@ pub fn generate(
             .init(.{ .size = 0, .alignment = .@"1" }),
         );
     }
-    cg.frame_allocs.set(@intFromEnum(FrameIndex.ret_addr), .init(.{
-        .size = Type.usize.abiSize(zcu),
-        .alignment = Type.usize.abiAlignment(zcu).min(cg.call_info.frame_align),
-    }));
-    cg.frame_allocs.set(@intFromEnum(FrameIndex.base_ptr), .init(.{
-        .size = Type.usize.abiSize(zcu),
-        .alignment = cg.call_info.frame_align.min(
-            .fromNonzeroByteUnits(cg.target.stackAlignment()),
-        ),
-    }));
+    // TODO: spill $ra and make it allocatable
     cg.frame_allocs.set(
         @intFromEnum(FrameIndex.args_frame),
         .init(.{

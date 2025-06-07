@@ -183,10 +183,8 @@ test "register encoding" {
 pub const FrameIndex = enum(u32) {
     // This index refers to the start of the arguments passed to this function
     args_frame,
-    // This index refers to the return address pushed in the prologue.
-    ret_addr,
-    // This index refers to the base pointer pushed in the prologue and popped in the epilogue.
-    base_ptr,
+    // // This index refers to the base pointer pushed in the prologue and popped in the epilogue.
+    // base_ptr,
     // This index refers to the entire stack frame.
     stack_frame,
     // This index refers to the start of the call frame for arguments passed to called functions
