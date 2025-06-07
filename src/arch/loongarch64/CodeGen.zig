@@ -583,6 +583,10 @@ pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
         .expand_add_safe,
         .expand_sub_safe,
         .expand_mul_safe,
+        .expand_packed_load,
+        .expand_packed_store,
+        .expand_packed_struct_field_val,
+        .expand_packed_aggregate_init,
     });
 }
 
