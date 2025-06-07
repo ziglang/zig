@@ -2,8 +2,9 @@
 
 const bits = @import("bits.zig");
 const link = @import("../../link.zig");
-const log = std.log.scoped(.emit);
 const std = @import("std");
+const log = std.log.scoped(.emit);
+const R_LARCH = std.elf.R_LARCH;
 
 const Air = @import("../../Air.zig");
 const Lower = @import("Lower.zig");
@@ -60,13 +61,23 @@ pub fn emitMir(emit: *Emit) Error!void {
                 lir_relocs[0].lir_index == lir_index) : ({
                 lir_relocs = lir_relocs[1..];
             }) switch (lir_relocs[0].target) {
-                .inst => |target| {
+                .inst => |reloc| {
                     try relocs.append(emit.lower.allocator, .{
                         .source = start_offset,
-                        .loc = lir_relocs[0].loc,
-                        .target = target,
+                        .loc = reloc.loc,
+                        .target = reloc.inst,
                         .off = lir_relocs[0].off,
                     });
+                },
+                .elf_symbol => |sym| {
+                    const elf_file = emit.lower.bin_file.cast(.elf).?;
+                    const zo = elf_file.zigObjectPtr().?;
+                    const atom_ptr = zo.symbol(emit.atom_index).atom(elf_file).?;
+                    try atom_ptr.addReloc(gpa, .{
+                        .r_offset = start_offset,
+                        .r_info = (@as(u64, @intCast(sym.symbol)) << 32) | @intFromEnum(sym.ty),
+                        .r_addend = lir_relocs[0].off,
+                    }, zo);
                 },
             };
         }

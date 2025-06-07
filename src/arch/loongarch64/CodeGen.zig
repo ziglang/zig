@@ -407,19 +407,20 @@ pub const MCValue = union(enum) {
 
     /// Converts a CCV to MCV.
     /// `ref_frame` values will be converted into `load_frame`
-    /// pointing to the ptr on the call frame.
-    fn fromCCValue(ccv: abi.CCValue) MCValue {
+    /// pointing to the ptr on the call frame as MCValue cannot
+    /// represent double indirect.
+    fn fromCCValue(ccv: abi.CCValue, frame: FrameIndex) MCValue {
         return switch (ccv) {
             .none => .none,
             .register => |reg| .{ .register = reg },
             .register_pair => |regs| .{ .register_pair = regs },
-            .frame => |off| .{ .load_frame = .{ .index = .args_frame, .off = off } },
+            .frame => |off| .{ .load_frame = .{ .index = frame, .off = off } },
             .split => |pl| .{ .register_frame = .{
                 .reg = pl.reg,
-                .frame = .{ .index = .args_frame, .off = pl.frame_off },
+                .frame = .{ .index = frame, .off = pl.frame_off },
             } },
             .ref_register => |reg| .{ .register_offset = .{ .reg = reg, .off = 0 } },
-            .ref_frame => |off| .{ .load_frame = .{ .index = .args_frame, .off = off } },
+            .ref_frame => |off| .{ .load_frame = .{ .index = frame, .off = off } },
         };
     }
 };
@@ -675,12 +676,12 @@ pub fn generate(
     cg.args_mcv = try gpa.alloc(MCValue, cg.call_info.params.len);
     defer gpa.free(cg.args_mcv);
     for (cg.call_info.params, 0..) |ccv, i| {
-        cg.args_mcv[i] = .fromCCValue(ccv);
+        cg.args_mcv[i] = .fromCCValue(ccv, .args_frame);
         for (ccv.getRegs()) |arg_reg| {
             cg.register_manager.getRegAssumeFree(arg_reg, null);
         }
     }
-    cg.ret_mcv = .fromCCValue(cg.call_info.return_value);
+    cg.ret_mcv = .fromCCValue(cg.call_info.return_value, .args_frame);
     switch (cg.call_info.return_value) {
         .ref_register => |reg| cg.register_manager.getRegAssumeFree(reg, null),
         else => {},
@@ -1452,6 +1453,11 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .load => try cg.airLoad(inst),
             .store => try cg.airStore(inst),
 
+            .call => try cg.airCall(inst, .auto),
+            .call_always_tail => try cg.airCall(inst, .always_tail),
+            .call_never_tail => try cg.airCall(inst, .never_tail),
+            .call_never_inline => try cg.airCall(inst, .never_inline),
+
             .unreach => {},
 
             .dbg_stmt => if (cg.debug_output != .none) {
@@ -1786,6 +1792,10 @@ fn checkInvariantsAfterAirInst(self: *CodeGen) void {
             } else unreachable; // tracked register not in use
         }
     }
+}
+
+fn feed(cg: *CodeGen, bt: *Air.Liveness.BigTomb, op: Air.Inst.Ref) !void {
+    if (bt.feed()) if (op.toIndex()) |inst| try cg.inst_tracking.getPtr(inst).?.die(cg, inst);
 }
 
 const CopyOptions = struct {
@@ -2427,4 +2437,144 @@ fn airStore(cg: *CodeGen, inst: Air.Inst.Index) !void {
     while (try ptr.toMemory(cg)) {}
     try val.copy(ptr, cg, val_ty);
     try (try cg.tempInit(.void, .none)).finish(inst, &.{ ptr, val }, cg);
+}
+
+fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
+    // TODO: tail call
+    const pt = cg.pt;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const gpa = cg.gpa;
+    const pl_op = cg.getAirData(inst).pl_op;
+    const callee = pl_op.operand;
+    const callee_ty = cg.typeOf(callee);
+
+    const fn_ty = zcu.typeToFunc(switch (callee_ty.zigTypeTag(zcu)) {
+        .@"fn" => callee_ty,
+        .pointer => callee_ty.childType(zcu),
+        else => unreachable,
+    }).?;
+    var call_info = try cg.resolveCallInfo(&fn_ty);
+    defer call_info.deinit(gpa);
+    const ret_ty: Type = .fromInterned(fn_ty.return_type);
+
+    if (modifier == .always_tail) return cg.fail("TODO implement tail calls for loongarch64", .{});
+
+    const extra = cg.air.extraData(Air.Call, pl_op.payload);
+    const arg_refs: []const Air.Inst.Ref = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.args_len]);
+
+    if (arg_refs.len != fn_ty.param_types.len)
+        return cg.fail("var-arg calls are not supported in LA yet", .{});
+
+    // adjust call frame size & alignment for the call
+    {
+        const stack_frame_size =
+            &cg.frame_allocs.items(.abi_size)[@intFromEnum(FrameIndex.call_frame)];
+        stack_frame_size.* = @max(stack_frame_size.*, @as(u31, @truncate(call_info.frame_size)));
+        const stack_frame_align =
+            &cg.frame_allocs.items(.abi_align)[@intFromEnum(FrameIndex.call_frame)];
+        stack_frame_align.* = stack_frame_align.max(call_info.frame_align);
+    }
+
+    var reg_locks = std.ArrayList(RegisterManager.RegisterLock).init(gpa);
+    defer reg_locks.deinit();
+    try reg_locks.ensureTotalCapacity(abi.zigcc.Integer.function_arg_regs.len);
+    defer for (reg_locks.items) |reg_lock| cg.register_manager.unlockReg(reg_lock);
+
+    // frame indices for by-ref CCVs
+    const frame_indices = try gpa.alloc(FrameIndex, arg_refs.len);
+    defer gpa.free(frame_indices);
+
+    // lock regs & alloc frames
+    for (call_info.params, arg_refs, frame_indices) |ccv, arg_ref, *frame_index| {
+        // lock regs
+        for (ccv.getRegs()) |reg| {
+            try cg.register_manager.getReg(reg, null);
+            try reg_locks.append(cg.register_manager.lockReg(reg) orelse unreachable);
+        }
+
+        // alloc frames
+        switch (ccv) {
+            .ref_register, .ref_frame => frame_index.* = try cg.allocFrameIndex(.initType(cg.typeOf(arg_ref), zcu)),
+            else => {},
+        }
+    }
+
+    // lock ret regs
+    for (call_info.return_value.getRegs()) |reg| {
+        try cg.register_manager.getReg(reg, null);
+        if (cg.register_manager.lockReg(reg)) |lock| try reg_locks.append(lock);
+    }
+
+    // resolve ret MCV
+    const ret_mcv: MCValue = if (cg.liveness.isUnused(inst)) .unreach else ret_mcv: switch (call_info.return_value) {
+        .ref_register, .ref_frame => {
+            const frame = try cg.allocFrameIndex(.initType(ret_ty, zcu));
+            break :ret_mcv .{ .load_frame = .{ .index = frame } };
+        },
+        .split => unreachable,
+        else => |ccv| .fromCCValue(ccv, .call_frame),
+    };
+
+    // set arguments in place
+    for (call_info.params, arg_refs, frame_indices) |ccv, arg_ref, frame_index| {
+        switch (ccv) {
+            .ref_register, .ref_frame => {
+                const dst: MCValue = .{ .load_frame = .{ .index = frame_index } };
+                try cg.genCopy(cg.typeOf(arg_ref), dst, try cg.resolveRef(arg_ref), .{});
+            },
+            else => {
+                try cg.genCopy(cg.typeOf(arg_ref), .fromCCValue(ccv, .call_frame), try cg.resolveRef(arg_ref), .{});
+            },
+        }
+    }
+
+    // TODO: spill .ra
+
+    // do the transfer
+    if (try cg.air.value(pl_op.operand, pt)) |func_value| {
+        const func_key = ip.indexToKey(func_value.ip_index);
+        switch (switch (func_key) {
+            else => func_key,
+            .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
+                .nav => |nav| ip.indexToKey(zcu.navValue(nav).toIntern()),
+                else => func_key,
+            } else func_key,
+        }) {
+            .func => |func| {
+                if (cg.bin_file.cast(.elf)) |elf_file| {
+                    const zo = elf_file.zigObjectPtr().?;
+                    const sym_index = try zo.getOrCreateMetadataForNav(zcu, func.owner_nav);
+                    try cg.asmPseudo(.call, .{ .sym = sym_index });
+                } else unreachable;
+            },
+            .@"extern" => |ext| if (cg.bin_file.cast(.elf)) |elf_file| {
+                const sym_index = try elf_file.getGlobalSymbol(ext.name.toSlice(ip), ext.lib_name.toSlice(ip));
+                try cg.asmPseudo(.call, .{ .sym = sym_index });
+            } else unreachable,
+            // TODO what's this
+            else => return cg.fail("TODO implement calling bitcasted functions", .{}),
+        }
+    } else {
+        assert(callee.toType().zigTypeTag(zcu) == .pointer);
+        const addr_mcv = try cg.resolveRef(pl_op.operand);
+        call: {
+            switch (addr_mcv) {
+                .register => |reg| break :call try cg.asmInst(.jirl(.ra, reg, 0)),
+                .register_bias => |ro| if (cast(i18, ro.off)) |off18|
+                    if (off18 & 0b11 == 0)
+                        break :call try cg.asmInst(.jirl(.ra, ro.reg, @truncate(off18 >> 2))),
+                else => {},
+            }
+            try cg.genCopyToReg(.usize, .t0, addr_mcv, .{});
+            try cg.asmInst(.jirl(.ra, .t0, 0));
+        }
+    }
+
+    // finish
+    var bt = cg.liveness.iterateBigTomb(inst);
+    try cg.feed(&bt, pl_op.operand);
+    for (arg_refs) |arg_ref| try cg.feed(&bt, arg_ref);
+
+    try (try cg.tempInit(ret_ty, ret_mcv)).finish(inst, &.{}, cg);
 }

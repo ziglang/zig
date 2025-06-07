@@ -53,6 +53,8 @@ pub const Inst = struct {
         /// Maybe lowered to `op` (DJSk12 format), rd is the `reg`, rj + si12 is the frame addr.
         /// Or `opx` (DJK format), rd is the `reg`, rj + rk is the frame addr.
         frame_addr_reg_mem,
+        /// Function call, uses `sym` payload.
+        call,
 
         /// Prologue of a function, uses `none` payload.
         func_prologue,
@@ -105,6 +107,8 @@ pub const Inst = struct {
             frame: bits.FrameAddr,
             reg: Register,
         },
+        /// Symbol index
+        sym: u32,
     };
 
     pub inline fn initInst(inst: encoding.Inst) Inst {
@@ -141,6 +145,7 @@ pub const Inst = struct {
                         inst.data.op_frame_reg.frame,
                         @tagName(inst.data.op_frame_reg.reg),
                     }),
+                    .call => try writer.print(".call {}", .{inst.data.sym}),
                     else => try writer.print(".{s}", .{@tagName(tag)}),
                 }
             },

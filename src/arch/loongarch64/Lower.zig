@@ -6,11 +6,12 @@ const log = std.log.scoped(.lower);
 
 const Allocator = std.mem.Allocator;
 const cast = std.math.cast;
-const ErrorMsg = Zcu.ErrorMsg;
+const R_LARCH = std.elf.R_LARCH;
 
 const link = @import("../../link.zig");
 const Air = @import("../../Air.zig");
 const Zcu = @import("../../Zcu.zig");
+const ErrorMsg = Zcu.ErrorMsg;
 
 const Mir = @import("Mir.zig");
 const abi = @import("abi.zig");
@@ -46,18 +47,24 @@ pub const Error = error{
 /// The fields in instructions to be relocated must be lowered to zero.
 pub const Reloc = struct {
     lir_index: u8,
-    loc: Type,
     target: Target,
     off: i32,
 
     pub const Target = union(enum) {
-        inst: Mir.Inst.Index,
+        inst: struct {
+            loc: Type,
+            inst: Mir.Inst.Index,
+        },
+        elf_symbol: struct {
+            ty: R_LARCH,
+            symbol: u32,
+        },
     };
 
     pub const Type = enum {
         /// Immediate slot of Sd10k16ps2, right shift 2, relative to PC
         b26,
-        /// Immediate slot of JDSk16ps2ps2, right shift 2, relative to PC
+        /// Immediate slot of JDSk16ps2, right shift 2, relative to PC
         k16,
     };
 };
@@ -105,7 +112,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                         log.debug("omit jump_to_epilogue", .{});
                     } else {
                         lower.emit(.b(0, 0));
-                        lower.reloc(.b26, .{ .inst = @intCast(lower.mir.instructions.len - 1) }, 0);
+                        lower.relocInst(.b26, @intCast(lower.mir.instructions.len - 1), 0);
                     }
                 },
                 .dbg_line_line_column, .dbg_line_stmt_line_column => {},
@@ -113,31 +120,31 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     switch (inst.data.br.cond) {
                         .none => {
                             lower.emit(.b(0, 0));
-                            lower.reloc(.b26, .{ .inst = inst.data.br.inst }, 0);
+                            lower.relocInst(.b26, inst.data.br.inst, 0);
                         },
                         .eq => |regs| {
                             lower.emit(.beq(regs[0], regs[1], 0));
-                            lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
+                            lower.relocInst(.k16, inst.data.br.inst, 0);
                         },
                         .ne => |regs| {
                             lower.emit(.bne(regs[0], regs[1], 0));
-                            lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
+                            lower.relocInst(.k16, inst.data.br.inst, 0);
                         },
                         .le => |regs| {
                             lower.emit(.ble(regs[0], regs[1], 0));
-                            lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
+                            lower.relocInst(.k16, inst.data.br.inst, 0);
                         },
                         .gt => |regs| {
                             lower.emit(.bgt(regs[0], regs[1], 0));
-                            lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
+                            lower.relocInst(.k16, inst.data.br.inst, 0);
                         },
                         .leu => |regs| {
                             lower.emit(.bleu(regs[0], regs[1], 0));
-                            lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
+                            lower.relocInst(.k16, inst.data.br.inst, 0);
                         },
                         .gtu => |regs| {
                             lower.emit(.bgtu(regs[0], regs[1], 0));
-                            lower.reloc(.k16, .{ .inst = inst.data.br.inst }, 0);
+                            lower.relocInst(.k16, inst.data.br.inst, 0);
                         },
                     }
                 },
@@ -165,6 +172,13 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                         });
                     }
                 },
+                .call => {
+                    const sym = inst.data.sym;
+                    lower.emit(.pcaddu18i(.ra, 0));
+                    lower.relocElf(.CALL36, sym, 0);
+                    lower.relocElf(.RELAX, sym, 0);
+                    lower.emit(.jirl(.ra, .ra, 0));
+                },
                 else => unreachable,
             }
         },
@@ -176,7 +190,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
     };
 }
 
-fn emit(lower: *Lower, inst: encoding.Inst) void {
+inline fn emit(lower: *Lower, inst: encoding.Inst) void {
     lower.emitLir(.fromInst(inst));
 }
 
@@ -186,14 +200,22 @@ fn emitLir(lower: *Lower, inst: Lir.Inst) void {
     lower.result_insts_len += 1;
 }
 
-fn reloc(lower: *Lower, loc: Reloc.Type, target: Reloc.Target, off: i32) void {
+fn reloc(lower: *Lower, target: Reloc.Target, off: i32) void {
+    log.debug("  |    reloc: {} (+{})", .{ target, off });
     lower.result_relocs[lower.result_relocs_len] = .{
         .lir_index = lower.result_insts_len - 1,
-        .loc = loc,
         .target = target,
         .off = off,
     };
     lower.result_relocs_len += 1;
+}
+
+inline fn relocElf(lower: *Lower, ty: R_LARCH, sym: u32, off: i64) void {
+    lower.reloc(.{ .elf_symbol = .{ .ty = ty, .symbol = sym } }, off);
+}
+
+inline fn relocInst(lower: *Lower, loc: Reloc.Type, inst: Mir.Inst.Index, off: i32) void {
+    lower.reloc(.{ .inst = .{ .loc = loc, .inst = inst } }, off);
 }
 
 pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
@@ -219,7 +241,8 @@ const max_result_insts = @max(
     7, // func_epilogue
 );
 const max_result_relocs = @max(
-    1, // jump to epilogue
+    1, // jump_to_epilogue
+    2, // call
     0,
 );
 
