@@ -216,7 +216,23 @@ pub const FrameIndex = enum(u32) {
     }
 };
 
-pub const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
+pub const FrameAddr = struct {
+    index: FrameIndex,
+    off: i32 = 0,
+
+    pub fn format(
+        addr: FrameAddr,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        if (addr.off >= 0) {
+            try writer.print("{} + 0x{x}", .{ addr.index, addr.off });
+        } else {
+            try writer.print("{} - 0x{x}", .{ addr.index, -addr.off });
+        }
+    }
+};
 
 pub const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 

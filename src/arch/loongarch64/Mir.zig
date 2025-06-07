@@ -143,6 +143,19 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
 pub const FrameLoc = struct {
     base: Register,
     offset: i32,
+
+    pub fn format(
+        loc: FrameLoc,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        if (loc.offset >= 0) {
+            try writer.print("{s} + 0x{x}", .{ @tagName(loc.base), loc.offset });
+        } else {
+            try writer.print("{s} - 0x{x}", .{ @tagName(loc.base), -loc.offset });
+        }
+    }
 };
 
 /// Used in conjunction with payload to transfer a list of used registers in a compact manner.
