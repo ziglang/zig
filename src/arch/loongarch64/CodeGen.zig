@@ -1373,6 +1373,9 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .bit_or => try cg.airLogicBinOp(inst, .@"or"),
             .xor => try cg.airLogicBinOp(inst, .xor),
 
+            .trap => try cg.asmInst(.@"break"(0)),
+            .breakpoint => try cg.asmInst(.@"break"(0)),
+
             .dbg_stmt => if (cg.debug_output != .none) {
                 const dbg_stmt = cg.getAirData(inst).dbg_stmt;
                 try cg.asmPseudo(.dbg_line_stmt_line_column, .{ .line_column = .{
