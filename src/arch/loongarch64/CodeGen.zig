@@ -26,6 +26,7 @@ const FrameIndex = bits.FrameIndex;
 const assert = std.debug.assert;
 const log = std.log.scoped(.codegen);
 const cg_mir_log = std.log.scoped(.codegen_mir);
+const cg_select_log = std.log.scoped(.codegen_select);
 const verbose_tracking_log = std.log.scoped(.verbose_tracking);
 
 const CodeGen = @This();
@@ -1786,6 +1787,7 @@ const Select = struct {
     ops_count: usize = 0,
     temps: [8]Temp = undefined,
     temps_count: usize = 0,
+    case_i: usize = 0,
 
     const Error = InnerError || error{SelectFailed};
 
@@ -1818,14 +1820,32 @@ const Select = struct {
     }
 
     inline fn match(sel: *Select, case: Case) !bool {
-        for (case.requires) |requires|
-            if (!requires) return false;
-        for (case.patterns, 0..) |pattern, pat_i|
-            if (!pattern.matches(sel.ops[pat_i], sel.cg)) return false;
-
-        for (case.patterns, 0..) |pattern, pat_i| {
-            while (try pattern.convert(&sel.ops[pat_i], sel.cg)) {}
+        sel.case_i += 1;
+        for (case.requires, 0..) |requires, req_i| {
+            if (!requires) {
+                cg_select_log.debug("case {} miss for req {}", .{ sel.case_i, req_i + 1 });
+                return false;
+            }
         }
+
+        patterns: for (case.patterns, 0..) |pattern, pat_i| {
+            std.mem.swap(Temp, &sel.ops[pattern.commute[0]], &sel.ops[pattern.commute[1]]);
+
+            for (pattern.srcs, 0..) |src, src_i| {
+                if (!src.matches(sel.ops[src_i], sel.cg)) {
+                    std.mem.swap(Temp, &sel.ops[pattern.commute[0]], &sel.ops[pattern.commute[1]]);
+                    cg_select_log.debug("case {} pattern {} miss for src {}", .{ sel.case_i, pat_i + 1, src_i + 1 });
+                    continue :patterns;
+                }
+            }
+
+            cg_select_log.debug("case {} pattern {} matched", .{ sel.case_i, pat_i + 1 });
+
+            for (pattern.srcs, 0..) |src, src_i| {
+                while (try src.convert(&sel.ops[src_i], sel.cg)) {}
+            }
+            break;
+        } else return false;
 
         sel.temps_count = case.temps.len;
         for (case.temps, 0..) |temp, temp_i| sel.temps[temp_i] = try temp.create(sel);
@@ -1839,58 +1859,63 @@ const Select = struct {
         temps: []const TempSpec = &[_]TempSpec{},
     };
 
-    pub const SrcPattern = union(enum) {
-        none,
-        any,
-        imm_val: i32,
-        imm_fit: u5,
-        mem,
-        to_mem,
-        mut_mem,
-        to_mut_mem,
-        reg: Register.Class,
-        to_reg: Register.Class,
-        mut_reg: Register.Class,
-        to_mut_reg: Register.Class,
+    pub const SrcPattern = struct {
+        srcs: []const Src,
+        commute: struct { u8, u8 } = .{ 0, 0 },
 
-        pub const imm12: SrcPattern = .{ .imm_fit = 12 };
-        pub const imm20: SrcPattern = .{ .imm_fit = 20 };
-        pub const int_reg: SrcPattern = .{ .reg = .int };
-        pub const to_int_reg: SrcPattern = .{ .to_reg = .int };
-        pub const int_mut_reg: SrcPattern = .{ .mut_reg = .int };
-        pub const to_int_mut_reg: SrcPattern = .{ .to_mut_reg = .int };
+        pub const Src = union(enum) {
+            none,
+            any,
+            imm_val: i32,
+            imm_fit: u5,
+            mem,
+            to_mem,
+            mut_mem,
+            to_mut_mem,
+            reg: Register.Class,
+            to_reg: Register.Class,
+            mut_reg: Register.Class,
+            to_mut_reg: Register.Class,
 
-        fn matches(pat: SrcPattern, temp: Temp, cg: *CodeGen) bool {
-            return switch (pat) {
-                .none => temp.tracking(cg).short == .none,
-                .any => true,
-                .imm_val => |val| switch (temp.tracking(cg).short) {
-                    .immediate => |imm| @as(i32, @intCast(imm)) == val,
-                    else => false,
-                },
-                .imm_fit => |max_size| switch (temp.tracking(cg).short) {
-                    .immediate => |imm| (imm >> max_size) == 0,
-                    else => false,
-                },
-                .mem => temp.tracking(cg).short.isMemory(),
-                .mut_mem => temp.isMut(cg) and temp.tracking(cg).short.isMemory(),
-                .to_mem, .to_mut_mem => true,
-                .reg => |rc| temp.tracking(cg).short.isRegisterOf(rc),
-                .to_reg => |_| temp.typeOf(cg).abiSize(cg.pt.zcu) <= 8,
-                .mut_reg => |rc| temp.isMut(cg) and temp.tracking(cg).short.isRegisterOf(rc),
-                .to_mut_reg => |_| temp.typeOf(cg).abiSize(cg.pt.zcu) <= 8,
-            };
-        }
+            pub const imm12: Src = .{ .imm_fit = 12 };
+            pub const imm20: Src = .{ .imm_fit = 20 };
+            pub const int_reg: Src = .{ .reg = .int };
+            pub const to_int_reg: Src = .{ .to_reg = .int };
+            pub const int_mut_reg: Src = .{ .mut_reg = .int };
+            pub const to_int_mut_reg: Src = .{ .to_mut_reg = .int };
 
-        fn convert(pat: SrcPattern, temp: *Temp, cg: *CodeGen) InnerError!bool {
-            return switch (pat) {
-                .none, .any, .imm_val, .imm_fit => false,
-                .mem, .to_mem => try temp.moveToMemory(cg, false),
-                .mut_mem, .to_mut_mem => try temp.moveToMemory(cg, true),
-                .reg, .to_reg => |rc| try temp.moveToRegister(cg, rc, false),
-                .mut_reg, .to_mut_reg => |rc| try temp.moveToRegister(cg, rc, true),
-            };
-        }
+            fn matches(pat: Src, temp: Temp, cg: *CodeGen) bool {
+                return switch (pat) {
+                    .none => temp.tracking(cg).short == .none,
+                    .any => true,
+                    .imm_val => |val| switch (temp.tracking(cg).short) {
+                        .immediate => |imm| @as(i32, @intCast(imm)) == val,
+                        else => false,
+                    },
+                    .imm_fit => |max_size| switch (temp.tracking(cg).short) {
+                        .immediate => |imm| (imm >> max_size) == 0,
+                        else => false,
+                    },
+                    .mem => temp.tracking(cg).short.isMemory(),
+                    .mut_mem => temp.isMut(cg) and temp.tracking(cg).short.isMemory(),
+                    .to_mem, .to_mut_mem => true,
+                    .reg => |rc| temp.tracking(cg).short.isRegisterOf(rc),
+                    .to_reg => |_| temp.typeOf(cg).abiSize(cg.pt.zcu) <= 8,
+                    .mut_reg => |rc| temp.isMut(cg) and temp.tracking(cg).short.isRegisterOf(rc),
+                    .to_mut_reg => |_| temp.typeOf(cg).abiSize(cg.pt.zcu) <= 8,
+                };
+            }
+
+            fn convert(pat: Src, temp: *Temp, cg: *CodeGen) InnerError!bool {
+                return switch (pat) {
+                    .none, .any, .imm_val, .imm_fit => false,
+                    .mem, .to_mem => try temp.moveToMemory(cg, false),
+                    .mut_mem, .to_mut_mem => try temp.moveToMemory(cg, true),
+                    .reg, .to_reg => |rc| try temp.moveToRegister(cg, rc, false),
+                    .mut_reg, .to_mut_reg => |rc| try temp.moveToRegister(cg, rc, true),
+                };
+            }
+        };
     };
 
     pub const TempSpec = struct {
@@ -2031,10 +2056,7 @@ fn airArithBinOp(cg: *CodeGen, inst: Air.Inst.Index, opts: ArithBinOpOpts) !void
         ty.intInfo(zcu).bits <= 32 and
         opts.wrapping == .unchecked and
         try sel.match(.{
-            .patterns = &.{
-                .{ .to_reg = .int },
-                .{ .to_reg = .int },
-            },
+            .patterns = &.{.{ .srcs = &.{ .to_int_reg, .to_int_reg } }},
         }))
     {
         const lhs, const rhs = sel.ops[0..2].*;
@@ -2076,7 +2098,7 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
     assert(ty.isAbiInt(zcu));
 
     if (try sel.match(.{
-        .patterns = &.{ .to_int_reg, .imm12 },
+        .patterns = &.{.{ .srcs = &.{ .to_int_reg, .imm12 } }},
     })) {
         const lhs, const rhs = sel.ops[0..2].*;
         const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
@@ -2085,7 +2107,7 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
         try asmIntLogicBinOpRRI(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, @intCast(rhs.getImm(cg)));
         try sel.finish(dst);
     } else if (try sel.match(.{
-        .patterns = &.{ .to_int_reg, .to_int_reg },
+        .patterns = &.{.{ .srcs = &.{ .to_int_reg, .to_int_reg } }},
     })) {
         const lhs, const rhs = sel.ops[0..2].*;
         const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
@@ -2098,7 +2120,7 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
         try sel.finish(dst);
     } else if (try sel.match(.{
         .requires = &.{cg.canAllocInReg(ty)},
-        .patterns = &.{ .any, .any },
+        .patterns = &.{.{ .srcs = &.{ .any, .any } }},
         .temps = &.{ .any_usize_reg, .any_usize_reg },
     })) {
         const lhs, const rhs = sel.ops[0..2].*;
