@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.lower);
 
 const Allocator = std.mem.Allocator;
+const cast = std.math.cast;
 const ErrorMsg = Zcu.ErrorMsg;
 
 const link = @import("../../link.zig");
@@ -88,7 +89,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 // TODO: impl func prolugue
                 .func_prologue => {
                     if (lower.mir.frame_size != 0) {
-                        const off = @as(u64, @bitCast(-@as(i64, @intCast(lower.mir.frame_size))));
+                        const off = -@as(i64, @intCast(lower.mir.frame_size));
                         lower.emitRegBiasToReg(.sp, .sp, off);
                     }
                 },
@@ -145,7 +146,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     const frame_addr = inst.data.frame_reg.frame;
                     const frame_loc = lower.mir.frame_locs.get(@intFromEnum(frame_addr.index));
                     const reg = inst.data.frame_reg.reg;
-                    lower.emitRegBiasToReg(reg, frame_loc.base, @bitCast(@as(i64, frame_loc.offset + frame_addr.off)));
+                    lower.emitRegBiasToReg(reg, frame_loc.base, @as(i64, frame_loc.offset + frame_addr.off));
                 },
                 else => unreachable,
             }
@@ -247,12 +248,14 @@ fn emitImmToReg(lower: *Lower, imm: u64, dst: Register) void {
 /// Loads an immediate plus a reg to a reg.
 /// Emits up to 6 instructions.
 /// dst and src cannot be the same reg, or t0 will be clobberred.
-fn emitRegBiasToReg(lower: *Lower, dst: Register, src: Register, imm: u64) void {
-    if (dst == src) {
-        lower.emitImmToReg(imm, .t0);
+fn emitRegBiasToReg(lower: *Lower, dst: Register, src: Register, imm: i64) void {
+    if (cast(i12, imm)) |imm12| {
+        lower.emit(.addi_d(dst, src, imm12));
+    } else if (dst == src) {
+        lower.emitImmToReg(@bitCast(imm), .t0);
         lower.emit(.add_d(dst, .t0, src));
     } else {
-        lower.emitImmToReg(imm, dst);
+        lower.emitImmToReg(@bitCast(imm), dst);
         lower.emit(.add_d(dst, dst, src));
     }
 }
