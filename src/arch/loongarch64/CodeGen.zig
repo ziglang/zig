@@ -350,6 +350,33 @@ pub const MCValue = union(enum) {
         };
     }
 
+    /// Returns MCV of a limb.
+    /// Caller does not own returned values.
+    fn toLimbValue(mcv: MCValue, limb_index: usize) InnerError!MCValue {
+        switch (mcv) {
+            else => std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
+            .register, .immediate, .register_bias, .register_offset, .lea_symbol, .lea_frame => {
+                assert(limb_index == 0);
+                return mcv;
+            },
+            inline .register_pair, .register_triple, .register_quadruple => |regs| {
+                return .{ .register = regs[limb_index] };
+            },
+            .load_symbol => |sym_off| {
+                return .{ .load_symbol = .{
+                    .index = sym_off.index,
+                    .off = sym_off.off + @as(u31, @intCast(limb_index)) * 8,
+                } };
+            },
+            .load_frame => |frame_addr| {
+                return .{ .load_frame = .{
+                    .index = frame_addr.index,
+                    .off = frame_addr.off + @as(u31, @intCast(limb_index)) * 8,
+                } };
+            },
+        }
+    }
+
     pub fn format(
         mcv: MCValue,
         comptime _: []const u8,
@@ -1147,28 +1174,7 @@ const Temp = struct {
     /// Returns MCV of a limb.
     /// Caller does not own return values.
     fn toLimbValue(temp: Temp, limb_index: usize, cg: *CodeGen) InnerError!MCValue {
-        switch (temp.tracking(cg).short) {
-            else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
-            .register, .immediate, .register_bias, .register_offset, .lea_symbol, .lea_frame => {
-                assert(limb_index == 0);
-                return temp.tracking(cg).short;
-            },
-            inline .register_pair, .register_triple, .register_quadruple => |regs| {
-                return .{ .register = regs[limb_index] };
-            },
-            .load_symbol => |sym_off| {
-                return .{ .load_symbol = .{
-                    .index = sym_off.index,
-                    .off = sym_off.off + @as(u31, @intCast(limb_index)) * 8,
-                } };
-            },
-            .load_frame => |frame_addr| {
-                return .{ .load_frame = .{
-                    .index = frame_addr.index,
-                    .off = frame_addr.off + @as(u31, @intCast(limb_index)) * 8,
-                } };
-            },
-        }
+        return temp.tracking(cg).short.toLimbValue(limb_index);
     }
 
     /// Loads `val` to `temp` if `val` is not in regs yet.
