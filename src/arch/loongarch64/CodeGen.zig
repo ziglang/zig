@@ -1094,11 +1094,11 @@ const Temp = struct {
             if (op.index == temp.index) continue;
             if (op.tracking(cg).short != .dead) try op.die(cg);
             if ((tomb_bits & @as(Air.Liveness.Bpi, 1) << @intCast(op_index) == 1) and !cg.reused_operands.isSet(op_index)) {
-                switch (op.unwrap(cg)) {
-                    .temp, .err_ret_trace => {},
+                switch (temp.index.unwrap()) {
                     .ref => |op_ref| if (op_ref.toIndex()) |op_inst| {
                         try cg.inst_tracking.getPtr(op_inst).?.die(cg, op_inst);
                     },
+                    .target => {},
                 }
             }
         }
@@ -1122,11 +1122,11 @@ const Temp = struct {
         for (0.., ops) |op_index, op| {
             if (op.index != temp.index) continue;
             if ((tomb_bits & @as(Air.Liveness.Bpi, 1) << @intCast(op_index) == 1) and !cg.reused_operands.isSet(op_index)) {
-                switch (op.unwrap(cg)) {
-                    .temp, .err_ret_trace => {},
+                switch (temp.index.unwrap()) {
                     .ref => |op_ref| if (op_ref.toIndex()) |op_inst| {
                         try cg.inst_tracking.getPtr(op_inst).?.die(cg, op_inst);
                     },
+                    .target => {},
                 }
             }
         }
