@@ -1450,6 +1450,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .alloc => try cg.airAlloc(inst),
             .ret_ptr => try cg.airRetPtr(inst),
             .inferred_alloc, .inferred_alloc_comptime => unreachable,
+            .load => try cg.airLoad(inst),
             .store => try cg.airStore(inst),
 
             .unreach => {},
@@ -2370,6 +2371,37 @@ fn airRetPtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
         },
         else => try cg.airAlloc(inst),
     }
+}
+
+fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const ty_op = cg.getAirData(inst).ty_op;
+    const ty = ty_op.ty.toType();
+    const val_mcv = try cg.resolveRef(ty_op.operand);
+    var val = (try cg.tempsFromOperands(inst, .{ty_op.operand}))[0];
+    return switch (val_mcv) {
+        .none,
+        .unreach,
+        .dead,
+        .undef,
+        .register_pair,
+        .register_triple,
+        .register_quadruple,
+        .register_frame,
+        .reserved_frame,
+        .air_ref,
+        => unreachable,
+        .memory, .register_offset, .load_symbol, .load_frame => {
+            const tmp = try cg.tempAlloc(.usize, .{ .use_frame = false });
+            try val.copy(tmp, cg, .usize);
+            while (try val.toMemory(cg)) {}
+            try tmp.finish(inst, &.{val}, cg);
+        },
+        .immediate, .register, .register_bias, .lea_symbol, .lea_frame => {
+            while (try val.toMemory(cg)) {}
+            cg.temp_type[@intFromEnum(val.index)] = ty;
+            try val.finish(inst, &.{val}, cg);
+        },
+    };
 }
 
 fn airStore(cg: *CodeGen, inst: Air.Inst.Index) !void {
