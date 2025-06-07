@@ -1448,6 +1448,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .alloc => try cg.airAlloc(inst),
             .ret_ptr => try cg.airRetPtr(inst),
             .inferred_alloc, .inferred_alloc_comptime => unreachable,
+            .store => try cg.airStore(inst),
 
             .unreach => {},
 
@@ -2343,4 +2344,14 @@ fn airRetPtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
         },
         else => try cg.airAlloc(inst),
     }
+}
+
+fn airStore(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const bin_op = cg.getAirData(inst).bin_op;
+    var ptr, const val = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
+    const val_ty = val.typeOf(cg);
+
+    while (try ptr.toMemory(cg)) {}
+    try val.copy(ptr, cg, val_ty);
+    try (try cg.tempInit(.void, .none)).finish(inst, &.{ ptr, val }, cg);
 }
