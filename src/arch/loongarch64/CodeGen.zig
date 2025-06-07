@@ -969,6 +969,10 @@ const Temp = struct {
         return temp.tracking(cg).getReg().?;
     }
 
+    fn getImm(temp: Temp, cg: *CodeGen) u64 {
+        return temp.tracking(cg).short.immediate;
+    }
+
     fn moveToMemory(temp: *Temp, cg: *CodeGen, mut: bool) InnerError!bool {
         const temp_mcv = temp.tracking(cg).short;
         if (temp_mcv.isMemory() and (temp_mcv.isModifiable() or !mut)) {
@@ -1849,6 +1853,8 @@ const Select = struct {
         mut_reg: Register.Class,
         to_mut_reg: Register.Class,
 
+        pub const imm12: SrcPattern = .{ .imm_fit = 12 };
+        pub const imm20: SrcPattern = .{ .imm_fit = 20 };
         pub const int_reg: SrcPattern = .{ .reg = .int };
         pub const to_int_reg: SrcPattern = .{ .to_reg = .int };
         pub const int_mut_reg: SrcPattern = .{ .mut_reg = .int };
@@ -2044,11 +2050,19 @@ fn airArithBinOp(cg: *CodeGen, inst: Air.Inst.Index, opts: ArithBinOpOpts) !void
 
 const LogicBinOpKind = enum { @"and", @"or", xor };
 
-fn asmIntLogicBinOp(cg: *CodeGen, op: LogicBinOpKind, dst: Register, src1: Register, src2: Register) !void {
+fn asmIntLogicBinOpRRR(cg: *CodeGen, op: LogicBinOpKind, dst: Register, src1: Register, src2: Register) !void {
     return switch (op) {
         .@"and" => cg.asmInst(.@"and"(dst, src1, src2)),
         .@"or" => cg.asmInst(.@"or"(dst, src1, src2)),
         .xor => cg.asmInst(.xor(dst, src1, src2)),
+    };
+}
+
+fn asmIntLogicBinOpRRI(cg: *CodeGen, op: LogicBinOpKind, dst: Register, src1: Register, src2: u12) !void {
+    return switch (op) {
+        .@"and" => cg.asmInst(.andi(dst, src1, src2)),
+        .@"or" => cg.asmInst(.ori(dst, src1, src2)),
+        .xor => cg.asmInst(.xori(dst, src1, src2)),
     };
 }
 
@@ -2062,6 +2076,15 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
     assert(ty.isAbiInt(zcu));
 
     if (try sel.match(.{
+        .patterns = &.{ .to_int_reg, .imm12 },
+    })) {
+        const lhs, const rhs = sel.ops[0..2].*;
+        const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
+        const lhs_limb = try lhs.toLimbValue(0, cg);
+        const dst_limb = try dst.toLimbValue(0, cg);
+        try asmIntLogicBinOpRRI(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, @intCast(rhs.getImm(cg)));
+        try sel.finish(dst);
+    } else if (try sel.match(.{
         .patterns = &.{ .to_int_reg, .to_int_reg },
     })) {
         const lhs, const rhs = sel.ops[0..2].*;
@@ -2070,7 +2093,7 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
             const lhs_limb = try lhs.toLimbValue(limb_i, cg);
             const rhs_limb = try rhs.toLimbValue(limb_i, cg);
             const dst_limb = try dst.toLimbValue(limb_i, cg);
-            try asmIntLogicBinOp(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, rhs_limb.getReg().?);
+            try asmIntLogicBinOpRRR(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, rhs_limb.getReg().?);
         }
         try sel.finish(dst);
     } else if (try sel.match(.{
@@ -2085,7 +2108,7 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
             const lhs_limb = try tmp1.ensureReg(cg, try lhs.toLimbValue(limb_i, cg));
             const rhs_limb = try tmp2.ensureReg(cg, try rhs.toLimbValue(limb_i, cg));
             const dst_limb = try dst.toLimbValue(limb_i, cg);
-            try asmIntLogicBinOp(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, rhs_limb.getReg().?);
+            try asmIntLogicBinOpRRR(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, rhs_limb.getReg().?);
         }
         try sel.finish(dst);
     } else return sel.fail();
