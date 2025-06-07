@@ -97,6 +97,7 @@ pub fn build(b: *std.Build) !void {
     const skip_windows = b.option(bool, "skip-windows", "Main test suite skips targets with windows OS") orelse false;
     const skip_macos = b.option(bool, "skip-macos", "Main test suite skips targets with macos OS") orelse false;
     const skip_linux = b.option(bool, "skip-linux", "Main test suite skips targets with linux OS") orelse false;
+    const skip_llvm = b.option(bool, "skip-llvm", "Main test suite skips targets that use LLVM backend") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
@@ -445,8 +446,8 @@ pub fn build(b: *std.Build) !void {
         .skip_windows = skip_windows,
         .skip_macos = skip_macos,
         .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        .use_llvm = use_llvm,
         // 2923515904 was observed on an x86_64-linux-gnu host.
         .max_rss = 3100000000,
     }));
@@ -467,8 +468,8 @@ pub fn build(b: *std.Build) !void {
         .skip_windows = skip_windows,
         .skip_macos = skip_macos,
         .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        .use_llvm = use_llvm,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
@@ -487,8 +488,8 @@ pub fn build(b: *std.Build) !void {
         .skip_windows = skip_windows,
         .skip_macos = skip_macos,
         .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = true,
-        .use_llvm = use_llvm,
         .no_builtin = true,
     }));
 
@@ -508,8 +509,8 @@ pub fn build(b: *std.Build) !void {
         .skip_windows = skip_windows,
         .skip_macos = skip_macos,
         .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = true,
-        .use_llvm = use_llvm,
         .no_builtin = true,
     }));
 
@@ -529,8 +530,8 @@ pub fn build(b: *std.Build) !void {
         .skip_windows = skip_windows,
         .skip_macos = skip_macos,
         .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        .use_llvm = use_llvm,
         // I observed a value of 5605064704 on the M2 CI.
         .max_rss = 6165571174,
     }));
@@ -571,6 +572,7 @@ pub fn build(b: *std.Build) !void {
         .skip_windows = skip_windows,
         .skip_macos = skip_macos,
         .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_release = skip_release,
     }));
     test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
