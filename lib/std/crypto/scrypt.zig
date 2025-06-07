@@ -498,10 +498,7 @@ const CryptFormatHasher = struct {
 };
 
 /// Options for hashing a password.
-///
-/// Allocator is required for scrypt.
 pub const HashOptions = struct {
-    allocator: ?mem.Allocator,
     params: Params,
     encoding: pwhash.Encoding,
 };
@@ -509,31 +506,23 @@ pub const HashOptions = struct {
 /// Compute a hash of a password using the scrypt key derivation function.
 /// The function returns a string that includes all the parameters required for verification.
 pub fn strHash(
+    allocator: mem.Allocator,
     password: []const u8,
     options: HashOptions,
     out: []u8,
 ) Error![]const u8 {
-    const allocator = options.allocator orelse return Error.AllocatorRequired;
     switch (options.encoding) {
         .phc => return PhcFormatHasher.create(allocator, password, options.params, out),
         .crypt => return CryptFormatHasher.create(allocator, password, options.params, out),
     }
 }
 
-/// Options for hash verification.
-///
-/// Allocator is required for scrypt.
-pub const VerifyOptions = struct {
-    allocator: ?mem.Allocator,
-};
-
 /// Verify that a previously computed hash is valid for a given password.
 pub fn strVerify(
+    allocator: mem.Allocator,
     str: []const u8,
     password: []const u8,
-    options: VerifyOptions,
 ) Error!void {
-    const allocator = options.allocator orelse return Error.AllocatorRequired;
     if (mem.startsWith(u8, str, crypt_format.prefix)) {
         return CryptFormatHasher.verify(allocator, str, password);
     } else {
@@ -646,24 +635,25 @@ test "strHash and strVerify" {
 
     const password = "testpass";
     const params = Params.interactive;
-    const verify_options = VerifyOptions{ .allocator = alloc };
     var buf: [128]u8 = undefined;
 
     {
         const str = try strHash(
+            alloc,
             password,
-            .{ .allocator = alloc, .params = params, .encoding = .crypt },
+            .{ .params = params, .encoding = .crypt },
             &buf,
         );
-        try strVerify(str, password, verify_options);
+        try strVerify(alloc, str, password);
     }
     {
         const str = try strHash(
+            alloc,
             password,
-            .{ .allocator = alloc, .params = params, .encoding = .phc },
+            .{ .params = params, .encoding = .phc },
             &buf,
         );
-        try strVerify(str, password, verify_options);
+        try strVerify(alloc, str, password);
     }
 }
 
@@ -676,13 +666,13 @@ test "unix-scrypt" {
     {
         const str = "$7$C6..../....SodiumChloride$kBGj9fHznVYFQMEn/qDCfrDevf9YDtcDdKvEqHJLV8D";
         const password = "pleaseletmein";
-        try strVerify(str, password, .{ .allocator = alloc });
+        try strVerify(alloc, str, password);
     }
     // one of the libsodium test vectors
     {
         const str = "$7$B6....1....75gBMAGwfFWZqBdyF3WdTQnWdUsuTiWjG1fF9c1jiSD$tc8RoB3.Em3/zNgMLWo2u00oGIoTyJv4fl3Fl8Tix72";
         const password = "^T5H$JYt39n%K*j:W]!1s?vg!:jGi]Ax?..l7[p0v:1jHTpla9;]bUN;?bWyCbtqg nrDFal+Jxl3,2`#^tFSu%v_+7iYse8-cCkNf!tD=KrW)";
-        try strVerify(str, password, .{ .allocator = alloc });
+        try strVerify(alloc, str, password);
     }
 }
 

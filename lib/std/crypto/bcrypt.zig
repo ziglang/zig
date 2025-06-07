@@ -748,8 +748,6 @@ const CryptFormatHasher = struct {
 
 /// Options for hashing a password.
 pub const HashOptions = struct {
-    /// For `bcrypt`, that can be left to `null`.
-    allocator: ?mem.Allocator = null,
     /// Internal bcrypt parameters.
     params: Params,
     /// Encoding to use for the output of the hash function.
@@ -776,8 +774,6 @@ pub fn strHash(
 
 /// Options for hash verification.
 pub const VerifyOptions = struct {
-    /// For `bcrypt`, that can be left to `null`.
-    allocator: ?mem.Allocator = null,
     /// Whether to silently truncate the password to 72 bytes, or pre-hash the password when it is longer.
     silently_truncate_password: bool,
 };

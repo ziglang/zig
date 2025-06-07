@@ -578,51 +578,34 @@ const PhcFormatHasher = struct {
 };
 
 /// Options for hashing a password.
-///
-/// Allocator is required for argon2.
-///
-/// Only phc encoding is supported.
 pub const HashOptions = struct {
-    allocator: ?mem.Allocator,
     params: Params,
     mode: Mode = .argon2id,
-    encoding: pwhash.Encoding = .phc,
 };
 
 /// Compute a hash of a password using the argon2 key derivation function.
 /// The function returns a string that includes all the parameters required for verification.
 pub fn strHash(
+    allocator: mem.Allocator,
     password: []const u8,
     options: HashOptions,
     out: []u8,
 ) Error![]const u8 {
-    const allocator = options.allocator orelse return Error.AllocatorRequired;
-    switch (options.encoding) {
-        .phc => return PhcFormatHasher.create(
-            allocator,
-            password,
-            options.params,
-            options.mode,
-            out,
-        ),
-        .crypt => return Error.InvalidEncoding,
-    }
+    return PhcFormatHasher.create(
+        allocator,
+        password,
+        options.params,
+        options.mode,
+        out,
+    );
 }
-
-/// Options for hash verification.
-///
-/// Allocator is required for argon2.
-pub const VerifyOptions = struct {
-    allocator: ?mem.Allocator,
-};
 
 /// Verify that a previously computed hash is valid for a given password.
 pub fn strVerify(
+    allocator: mem.Allocator,
     str: []const u8,
     password: []const u8,
-    options: VerifyOptions,
 ) Error!void {
-    const allocator = options.allocator orelse return Error.AllocatorRequired;
     return PhcFormatHasher.verify(allocator, str, password);
 }
 
@@ -921,11 +904,12 @@ test "password hash and password verify" {
 
     var buf: [128]u8 = undefined;
     const hash = try strHash(
+        allocator,
         password,
-        .{ .allocator = allocator, .params = .{ .t = 3, .m = 32, .p = 4 } },
+        .{ .params = .{ .t = 3, .m = 32, .p = 4 } },
         &buf,
     );
-    try strVerify(hash, password, .{ .allocator = allocator });
+    try strVerify(allocator, hash, password);
 }
 
 test "kdf derived key length" {

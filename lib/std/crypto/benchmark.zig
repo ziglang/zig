@@ -387,39 +387,32 @@ pub fn benchmarkAes8(comptime Aes: anytype, comptime count: comptime_int) !u64 {
 }
 
 const CryptoPwhash = struct {
-    ty: type,
-    params: *const anyopaque,
     name: []const u8,
+    benchmark: fn (mem.Allocator, comptime comptime_int) anyerror!f64,
 };
 const bcrypt_params = crypto.pwhash.bcrypt.Params{ .rounds_log = 8, .silently_truncate_password = true };
 const pwhashes = [_]CryptoPwhash{
     .{
-        .ty = crypto.pwhash.bcrypt,
-        .params = &bcrypt_params,
         .name = "bcrypt",
+        .benchmark = benchmarkBcryptPwhash,
     },
     .{
-        .ty = crypto.pwhash.scrypt,
-        .params = &crypto.pwhash.scrypt.Params.interactive,
         .name = "scrypt",
+        .benchmark = benchmarkScryptPwhash,
     },
     .{
-        .ty = crypto.pwhash.argon2,
-        .params = &crypto.pwhash.argon2.Params.interactive_2id,
         .name = "argon2",
+        .benchmark = benchmarkArgon2Pwhash,
     },
 };
 
-fn benchmarkPwhash(
-    allocator: mem.Allocator,
-    comptime ty: anytype,
-    comptime params: *const anyopaque,
+fn benchmarkBcryptPwhash(
+    _: mem.Allocator,
     comptime count: comptime_int,
 ) !f64 {
     const password = "testpass" ** 2;
-    const opts = ty.HashOptions{
-        .allocator = allocator,
-        .params = @as(*const ty.Params, @ptrCast(@alignCast(params))).*,
+    const opts = crypto.pwhash.bcrypt.HashOptions{
+        .params = bcrypt_params,
         .encoding = .phc,
     };
     var buf: [256]u8 = undefined;
@@ -429,7 +422,62 @@ fn benchmarkPwhash(
     {
         var i: usize = 0;
         while (i < count) : (i += 1) {
-            _ = try ty.strHash(password, opts, &buf);
+            _ = try crypto.pwhash.bcrypt.strHash(password, opts, &buf);
+            mem.doNotOptimizeAway(&buf);
+        }
+    }
+    const end = timer.read();
+
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = elapsed_s / count;
+
+    return throughput;
+}
+
+fn benchmarkScryptPwhash(
+    allocator: mem.Allocator,
+    comptime count: comptime_int,
+) !f64 {
+    const password = "testpass" ** 2;
+    const opts = crypto.pwhash.scrypt.HashOptions{
+        .params = crypto.pwhash.scrypt.Params.interactive,
+        .encoding = .phc,
+    };
+    var buf: [256]u8 = undefined;
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    {
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            _ = try crypto.pwhash.scrypt.strHash(allocator, password, opts, &buf);
+            mem.doNotOptimizeAway(&buf);
+        }
+    }
+    const end = timer.read();
+
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = elapsed_s / count;
+
+    return throughput;
+}
+
+fn benchmarkArgon2Pwhash(
+    allocator: mem.Allocator,
+    comptime count: comptime_int,
+) !f64 {
+    const password = "testpass" ** 2;
+    const opts = crypto.pwhash.argon2.HashOptions{
+        .params = crypto.pwhash.argon2.Params.interactive_2id,
+    };
+    var buf: [256]u8 = undefined;
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    {
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            _ = try crypto.pwhash.argon2.strHash(allocator, password, opts, &buf);
             mem.doNotOptimizeAway(&buf);
         }
     }
@@ -563,7 +611,7 @@ pub fn main() !void {
 
     inline for (pwhashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
-            const throughput = try benchmarkPwhash(arena_allocator, H.ty, H.params, mode(64));
+            const throughput = try H.benchmark(arena_allocator, mode(64));
             try stdout.print("{s:>17}: {d:10.3} s/ops\n", .{ H.name, throughput });
         }
     }
