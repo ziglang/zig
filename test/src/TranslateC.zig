@@ -3,6 +3,7 @@ step: *std.Build.Step,
 test_index: usize,
 test_filters: []const []const u8,
 test_target_filters: []const []const u8,
+test_target_filters_exclude: bool,
 
 const TestCase = struct {
     name: []const u8,
@@ -97,10 +98,15 @@ pub fn addCase(self: *TranslateCContext, case: *const TestCase) void {
 
     if (self.test_target_filters.len > 0) {
         const triple_txt = target.result.zigTriple(b.allocator) catch @panic("OOM");
-
-        for (self.test_target_filters) |filter| {
-            if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
-        } else return;
+        if (self.test_target_filters_exclude) {
+            for (self.test_target_filters) |filter| {
+                if (std.mem.indexOf(u8, triple_txt, filter) != null) return;
+            }
+        } else {
+            for (self.test_target_filters) |filter| {
+                if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+            } else return;
+        }
     }
 
     const write_src = b.addWriteFiles();

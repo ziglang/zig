@@ -640,6 +640,7 @@ const test_targets = blk: {
                 .abi = .muslabin32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -666,6 +667,7 @@ const test_targets = blk: {
                 .abi = .gnuabin32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
 
         .{
@@ -700,6 +702,7 @@ const test_targets = blk: {
                 .abi = .muslabin32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -726,6 +729,7 @@ const test_targets = blk: {
                 .abi = .gnuabin32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
 
         .{
@@ -1160,6 +1164,7 @@ const test_targets = blk: {
                 .abi = .gnux32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -1185,6 +1190,7 @@ const test_targets = blk: {
                 .abi = .muslx32,
             },
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -2234,6 +2240,7 @@ pub fn addTranslateCTests(
     parent_step: *std.Build.Step,
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
+    test_target_filters_exclude: bool,
 ) void {
     const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
     cases.* = TranslateCContext{
@@ -2242,6 +2249,7 @@ pub fn addTranslateCTests(
         .test_index = 0,
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
+        .test_target_filters_exclude = test_target_filters_exclude,
     };
 
     translate_c.addCases(cases);
@@ -2268,6 +2276,7 @@ pub fn addRunTranslatedCTests(
 const ModuleTestOptions = struct {
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
+    test_target_filters_exclude: bool,
     test_extra_targets: bool,
     root_src: []const u8,
     name: []const u8,
@@ -2303,9 +2312,15 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
 
         if (options.test_target_filters.len > 0) {
-            for (options.test_target_filters) |filter| {
-                if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
-            } else continue;
+            if (options.test_target_filters_exclude) {
+                for (options.test_target_filters) |filter| {
+                    if (std.mem.indexOf(u8, triple_txt, filter) != null) continue :for_targets;
+                }
+            } else {
+                for (options.test_target_filters) |filter| {
+                    if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+                } else continue :for_targets;
+            }
         }
 
         if (options.skip_libc and test_target.link_libc == true)
@@ -2503,6 +2518,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
 const CAbiTestOptions = struct {
     test_target_filters: []const []const u8,
+    test_target_filters_exclude: bool,
     skip_non_native: bool,
     skip_release: bool,
 };
@@ -2515,7 +2531,7 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
     for (optimize_modes) |optimize_mode| {
         if (optimize_mode != .Debug and options.skip_release) continue;
 
-        for (c_abi_targets) |c_abi_target| {
+        for_targets: for (c_abi_targets) |c_abi_target| {
             if (options.skip_non_native and !c_abi_target.target.isNative()) continue;
 
             const resolved_target = b.resolveTargetQuery(c_abi_target.target);
@@ -2523,9 +2539,15 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
             const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
 
             if (options.test_target_filters.len > 0) {
-                for (options.test_target_filters) |filter| {
-                    if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
-                } else continue;
+                if (options.test_target_filters_exclude) {
+                    for (options.test_target_filters) |filter| {
+                        if (std.mem.indexOf(u8, triple_txt, filter) != null) continue :for_targets;
+                    }
+                } else {
+                    for (options.test_target_filters) |filter| {
+                        if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+                    } else continue :for_targets;
+                }
             }
 
             if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
@@ -2585,6 +2607,7 @@ pub fn addCases(
     parent_step: *Step,
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
+    test_target_filters_exclude: bool,
     target: std.Build.ResolvedTarget,
     translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
@@ -2600,13 +2623,14 @@ pub fn addCases(
     cases.addFromDir(dir, b);
     try @import("cases.zig").addCases(&cases, build_options, b);
 
-    cases.lowerToTranslateCSteps(b, parent_step, test_filters, test_target_filters, target, translate_c_options);
+    cases.lowerToTranslateCSteps(b, parent_step, test_filters, test_target_filters, test_target_filters_exclude, target, translate_c_options);
 
     cases.lowerToBuildSteps(
         b,
         parent_step,
         test_filters,
         test_target_filters,
+        test_target_filters_exclude,
     );
 }
 
