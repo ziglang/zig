@@ -51,8 +51,7 @@ fn_type: Type,
 call_info: abi.CallInfo,
 arg_index: u32,
 // MCVs of arguments.
-// Note that if the argument is passed by reference,
-// the MCV will be the pointer.
+// For ref_frame CCVs, the MCV is the pointer in load_frame.
 args_mcv: []MCValue,
 ret_mcv: MCValue,
 
@@ -405,6 +404,24 @@ pub const MCValue = union(enum) {
             .air_ref => |pl| try writer.print("(air:{})", .{@intFromEnum(pl)}),
         }
     }
+
+    /// Converts a CCV to MCV.
+    /// `ref_frame` values will be converted into `load_frame`
+    /// pointing to the ptr on the call frame.
+    fn fromCCValue(ccv: abi.CCValue) MCValue {
+        return switch (ccv) {
+            .none => .none,
+            .register => |reg| .{ .register = reg },
+            .register_pair => |regs| .{ .register_pair = regs },
+            .frame => |off| .{ .load_frame = .{ .index = .args_frame, .off = off } },
+            .split => |pl| .{ .register_frame = .{
+                .reg = pl.reg,
+                .frame = .{ .index = .args_frame, .off = pl.frame_off },
+            } },
+            .ref_register => |reg| .{ .register_offset = .{ .reg = reg, .off = 0 } },
+            .ref_frame => |off| .{ .load_frame = .{ .index = .args_frame, .off = off } },
+        };
+    }
 };
 
 const InstTrackingMap = std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InstTracking);
@@ -658,30 +675,12 @@ pub fn generate(
     cg.args_mcv = try gpa.alloc(MCValue, cg.call_info.params.len);
     defer gpa.free(cg.args_mcv);
     for (cg.call_info.params, 0..) |ccv, i| {
-        cg.args_mcv[i] = switch (ccv) {
-            .none => .none,
-            .register => |reg| .{ .register = reg },
-            .register_pair => |regs| .{ .register_pair = regs },
-            .frame => |off| .{ .load_frame = .{ .index = .args_frame, .off = off } },
-            .split => |pl| .{ .register_frame = .{
-                .reg = pl.reg,
-                .frame = .{ .index = .args_frame, .off = pl.frame_off },
-            } },
-            .ref_register => |reg| .{ .register = reg },
-            .ref_frame => |off| .{ .load_frame = .{ .index = .args_frame, .off = off } },
-        };
+        cg.args_mcv[i] = .fromCCValue(ccv);
         for (ccv.getRegs()) |arg_reg| {
             cg.register_manager.getRegAssumeFree(arg_reg, null);
         }
     }
-    cg.ret_mcv = switch (cg.call_info.return_value) {
-        .none => .none,
-        .register => |reg| .{ .register = reg },
-        .register_pair => |regs| .{ .register_pair = regs },
-        .frame, .split => unreachable,
-        .ref_register => |reg| .{ .register_offset = .{ .reg = reg, .off = 0 } },
-        .ref_frame => |off| .{ .load_frame = .{ .index = .args_frame, .off = off } },
-    };
+    cg.ret_mcv = .fromCCValue(cg.call_info.return_value);
     switch (cg.call_info.return_value) {
         .ref_register => |reg| cg.register_manager.getRegAssumeFree(reg, null),
         else => {},
