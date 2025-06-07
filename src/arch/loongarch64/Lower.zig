@@ -86,8 +86,15 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
         .pseudo => |tag| {
             switch (tag) {
                 // TODO: impl func prolugue
-                .func_prologue => {},
+                .func_prologue => {
+                    if (lower.mir.frame_size != 0) {
+                        const off = @as(u64, @bitCast(-@as(i64, @intCast(lower.mir.frame_size))));
+                        lower.emitRegBiasToReg(.sp, .sp, off);
+                    }
+                },
                 .func_epilogue => {
+                    if (lower.mir.frame_size != 0)
+                        lower.emitRegBiasToReg(.sp, .sp, @intCast(lower.mir.frame_size));
                     lower.emit(.jirl(.ra, .ra, 0));
                 },
                 .jump_to_epilogue => {
@@ -185,11 +192,12 @@ fn hasFeature(lower: *Lower, feature: std.Target.riscv.Feature) bool {
 }
 
 const max_result_insts = @max(
-    1, // non-pseudo instructions
+    1, // non-pseudo instructions/branch
     abi.zigcc.all_static.len + 1, // push_regs/pop_regs
     abi.c_abi.all_static.len + 1, // push_regs/pop_regs
     4, // emitImmToReg/imm_to_reg
     5, // frame_addr_to_reg/func_prolugue
+    7, // func_epilogue
 );
 const max_result_relocs = @max(
     1, // jump to epilogue
