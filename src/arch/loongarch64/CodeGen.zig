@@ -309,7 +309,7 @@ pub const MCValue = union(enum) {
             => unreachable, // not dereferenceable
             .immediate => |addr| .{ .memory = addr },
             .register => |reg| .{ .register_offset = .{ .reg = reg } },
-            .register_bias => |reg_off| .{ .indirect = reg_off },
+            .register_bias => |reg_off| .{ .register_offset = reg_off },
             .lea_symbol => |sym_index| .{ .load_symbol = sym_index },
             .lea_frame => |frame_addr| .{ .load_frame = frame_addr },
         };
