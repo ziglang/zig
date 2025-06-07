@@ -1070,10 +1070,16 @@ pub fn formatBuf(
 }
 
 pub fn formatFloatHexadecimal(
-    value: anytype,
+    value_: anytype,
     options: FormatOptions,
     writer: anytype,
 ) !void {
+    const value = switch (@TypeOf(value_)) {
+        // comptime_float internally is a f128; this preserves precision.
+        comptime_float => @as(f128, value_),
+        else => value_,
+    };
+
     if (math.signbit(value)) {
         try writer.writeByte('-');
     }
