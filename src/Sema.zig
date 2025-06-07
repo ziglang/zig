@@ -35088,24 +35088,24 @@ pub fn resolveUnionLayout(sema: *Sema, ty: Type) SemaError!void {
     var max_align: Alignment = .@"1";
     for (0..union_type.field_types.len) |field_index| {
         const field_ty: Type = .fromInterned(union_type.field_types.get(ip)[field_index]);
+        if (field_ty.isNoReturn(pt.zcu)) continue;
 
-        if (try field_ty.comptimeOnlySema(pt) or field_ty.zigTypeTag(pt.zcu) == .noreturn) continue; // TODO: should this affect alignment?
-
-        max_size = @max(max_size, field_ty.abiSizeSema(pt) catch |err| switch (err) {
-            error.AnalysisFail => {
-                const msg = sema.err orelse return err;
-                try sema.addFieldErrNote(ty, field_index, msg, "while checking this field", .{});
-                return err;
-            },
-            else => return err,
-        });
+        if (try field_ty.hasRuntimeBitsSema(pt)) {
+            max_size = @max(max_size, field_ty.abiSizeSema(pt) catch |err| switch (err) {
+                error.AnalysisFail => {
+                    const msg = sema.err orelse return err;
+                    try sema.addFieldErrNote(ty, field_index, msg, "while checking this field", .{});
+                    return err;
+                },
+                else => return err,
+            });
+        }
 
         const explicit_align = union_type.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
             try field_ty.abiAlignmentSema(pt);
-
         max_align = max_align.max(field_align);
     }
 

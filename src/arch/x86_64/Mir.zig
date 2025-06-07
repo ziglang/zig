@@ -9,6 +9,8 @@
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 extra: []const u32,
+local_name_bytes: []const u8,
+local_types: []const InternPool.Index,
 table: []const Inst.Index,
 frame_locs: std.MultiArrayList(FrameLoc).Slice,
 
@@ -1522,6 +1524,7 @@ pub const Inst = struct {
         pseudo_cfi_escape_bytes,
 
         /// End of prologue
+        /// Uses `none` payload.
         pseudo_dbg_prologue_end_none,
         /// Update debug line with is_stmt register set
         /// Uses `line_column` payload.
@@ -1530,44 +1533,76 @@ pub const Inst = struct {
         /// Uses `line_column` payload.
         pseudo_dbg_line_line_column,
         /// Start of epilogue
+        /// Uses `none` payload.
         pseudo_dbg_epilogue_begin_none,
         /// Start of lexical block
+        /// Uses `none` payload.
         pseudo_dbg_enter_block_none,
         /// End of lexical block
+        /// Uses `none` payload.
         pseudo_dbg_leave_block_none,
         /// Start of inline function
+        /// Uses `ip_index` payload.
         pseudo_dbg_enter_inline_func,
         /// End of inline function
+        /// Uses `ip_index` payload.
         pseudo_dbg_leave_inline_func,
-        /// Local argument or variable.
-        /// Uses `a` payload.
-        pseudo_dbg_local_a,
-        /// Local argument or variable.
-        /// Uses `ai` payload.
-        pseudo_dbg_local_ai_s,
-        /// Local argument or variable.
-        /// Uses `ai` payload.
-        pseudo_dbg_local_ai_u,
-        /// Local argument or variable.
-        /// Uses `ai` payload with extra data of type `Imm64`.
-        pseudo_dbg_local_ai_64,
-        /// Local argument or variable.
-        /// Uses `as` payload.
-        pseudo_dbg_local_as,
-        /// Local argument or variable.
-        /// Uses `ax` payload with extra data of type `bits.SymbolOffset`.
-        pseudo_dbg_local_aso,
-        /// Local argument or variable.
-        /// Uses `rx` payload with extra data of type `AirOffset`.
-        pseudo_dbg_local_aro,
-        /// Local argument or variable.
-        /// Uses `ax` payload with extra data of type `bits.FrameAddr`.
-        pseudo_dbg_local_af,
-        /// Local argument or variable.
-        /// Uses `ax` payload with extra data of type `Memory`.
-        pseudo_dbg_local_am,
+        /// Local argument.
+        /// Uses `none` payload.
+        pseudo_dbg_arg_none,
+        /// Local argument.
+        /// Uses `i` payload.
+        pseudo_dbg_arg_i_s,
+        /// Local argument.
+        /// Uses `i` payload.
+        pseudo_dbg_arg_i_u,
+        /// Local argument.
+        /// Uses `i64` payload.
+        pseudo_dbg_arg_i_64,
+        /// Local argument.
+        /// Uses `reloc` payload.
+        pseudo_dbg_arg_reloc,
+        /// Local argument.
+        /// Uses `ro` payload.
+        pseudo_dbg_arg_ro,
+        /// Local argument.
+        /// Uses `fa` payload.
+        pseudo_dbg_arg_fa,
+        /// Local argument.
+        /// Uses `x` payload with extra data of type `Memory`.
+        pseudo_dbg_arg_m,
+        /// Local argument.
+        /// Uses `ip_index` payload.
+        pseudo_dbg_arg_val,
         /// Remaining arguments are varargs.
         pseudo_dbg_var_args_none,
+        /// Local variable.
+        /// Uses `none` payload.
+        pseudo_dbg_var_none,
+        /// Local variable.
+        /// Uses `i` payload.
+        pseudo_dbg_var_i_s,
+        /// Local variable.
+        /// Uses `i` payload.
+        pseudo_dbg_var_i_u,
+        /// Local variable.
+        /// Uses `i64` payload.
+        pseudo_dbg_var_i_64,
+        /// Local variable.
+        /// Uses `reloc` payload.
+        pseudo_dbg_var_reloc,
+        /// Local variable.
+        /// Uses `ro` payload.
+        pseudo_dbg_var_ro,
+        /// Local variable.
+        /// Uses `fa` payload.
+        pseudo_dbg_var_fa,
+        /// Local variable.
+        /// Uses `x` payload with extra data of type `Memory`.
+        pseudo_dbg_var_m,
+        /// Local variable.
+        /// Uses `ip_index` payload.
+        pseudo_dbg_var_val,
 
         /// Tombstone
         /// Emitter should skip this instruction.
@@ -1584,6 +1619,7 @@ pub const Inst = struct {
             inst: Index,
         },
         /// A 32-bit immediate value.
+        i64: u64,
         i: struct {
             fixes: Fixes = ._,
             i: u32,
@@ -1683,31 +1719,18 @@ pub const Inst = struct {
                 return std.mem.sliceAsBytes(mir.extra[bytes.payload..])[0..bytes.len];
             }
         },
-        a: struct {
-            air_inst: Air.Inst.Index,
-        },
-        ai: struct {
-            air_inst: Air.Inst.Index,
-            i: u32,
-        },
-        as: struct {
-            air_inst: Air.Inst.Index,
-            sym_index: u32,
-        },
-        ax: struct {
-            air_inst: Air.Inst.Index,
-            payload: u32,
-        },
         /// Relocation for the linker where:
         /// * `sym_index` is the index of the target
         /// * `off` is the offset from the target
         reloc: bits.SymbolOffset,
+        fa: bits.FrameAddr,
+        ro: bits.RegisterOffset,
         /// Debug line and column position
         line_column: struct {
             line: u32,
             column: u32,
         },
-        func: InternPool.Index,
+        ip_index: InternPool.Index,
         /// Register list
         reg_list: RegisterList,
     };
@@ -1759,8 +1782,6 @@ pub const Inst = struct {
         }
     }
 };
-
-pub const AirOffset = struct { air_inst: Air.Inst.Index, off: i32 };
 
 /// Used in conjunction with payload to transfer a list of used registers in a compact manner.
 pub const RegisterList = struct {
@@ -1924,6 +1945,8 @@ pub const Memory = struct {
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     gpa.free(mir.extra);
+    gpa.free(mir.local_name_bytes);
+    gpa.free(mir.local_types);
     gpa.free(mir.table);
     mir.frame_locs.deinit(gpa);
     mir.* = undefined;
@@ -1937,8 +1960,6 @@ pub fn emit(
     func_index: InternPool.Index,
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
-    /// TODO: remove dependency on this argument. This blocks enabling `Zcu.Feature.separate_thread`.
-    air: *const Air,
 ) codegen.CodeGenError!void {
     const zcu = pt.zcu;
     const comp = zcu.comp;
@@ -1948,7 +1969,6 @@ pub fn emit(
     const nav = func.owner_nav;
     const mod = zcu.navFileScope(nav).mod.?;
     var e: Emit = .{
-        .air = air.*,
         .lower = .{
             .bin_file = lf,
             .target = &mod.resolved_target.result,
@@ -1998,7 +2018,7 @@ pub fn extraData(mir: Mir, comptime T: type, index: u32) struct { data: T, end: 
         @field(result, field.name) = switch (field.type) {
             u32 => mir.extra[i],
             i32, Memory.Info => @bitCast(mir.extra[i]),
-            bits.FrameIndex, Air.Inst.Index => @enumFromInt(mir.extra[i]),
+            bits.FrameIndex => @enumFromInt(mir.extra[i]),
             else => @compileError("bad field type: " ++ field.name ++ ": " ++ @typeName(field.type)),
         };
         i += 1;
@@ -2043,7 +2063,6 @@ const builtin = @import("builtin");
 const encoder = @import("encoder.zig");
 const std = @import("std");
 
-const Air = @import("../../Air.zig");
 const IntegerBitSet = std.bit_set.IntegerBitSet;
 const InternPool = @import("../../InternPool.zig");
 const Mir = @This();

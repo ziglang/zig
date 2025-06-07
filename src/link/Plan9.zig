@@ -387,9 +387,6 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     mir: *const codegen.AnyMir,
-    /// This may be `undefined`; only pass it to `emitFunction`.
-    /// This parameter will eventually be removed.
-    maybe_undef_air: *const Air,
 ) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -422,7 +419,6 @@ pub fn updateFunc(
         mir,
         &code_buffer,
         .{ .plan9 = &dbg_info_output },
-        maybe_undef_air,
     );
     const code = try code_buffer.toOwnedSlice(gpa);
     self.getAtomPtr(atom_idx).code = .{

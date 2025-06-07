@@ -995,23 +995,29 @@ fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!void {
     self.arg_index += 1;
 
     const ty = self.typeOfIndex(inst);
-
-    const arg = self.args[arg_index];
-    const mcv = blk: {
-        switch (arg) {
+    const mcv: MCValue = blk: {
+        switch (self.args[arg_index]) {
             .stack_offset => |off| {
                 const abi_size = math.cast(u32, ty.abiSize(zcu)) orelse {
                     return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(pt)});
                 };
                 const offset = off + abi_size;
-                break :blk MCValue{ .stack_offset = offset };
+                break :blk .{ .stack_offset = offset };
             },
-            else => break :blk arg,
+            else => |mcv| break :blk mcv,
         }
     };
 
-    self.genArgDbgInfo(inst, mcv) catch |err|
-        return self.fail("failed to generate debug info for parameter: {s}", .{@errorName(err)});
+    const func_zir = zcu.funcInfo(self.func_index).zir_body_inst.resolveFull(&zcu.intern_pool).?;
+    const file = zcu.fileByIndex(func_zir.file);
+    if (!file.mod.?.strip) {
+        const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
+        const zir = &file.zir.?;
+        const name = zir.nullTerminatedString(zir.getParamName(zir.getParamBody(func_zir.inst)[arg.zir_param_index]).?);
+
+        self.genArgDbgInfo(name, ty, mcv) catch |err|
+            return self.fail("failed to generate debug info for parameter: {s}", .{@errorName(err)});
+    }
 
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();
@@ -3539,11 +3545,7 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Air.
     self.finishAirBookkeeping();
 }
 
-fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
-    const ty = arg.ty.toType();
-    if (arg.name == .none) return;
-
+fn genArgDbgInfo(self: Self, name: []const u8, ty: Type, mcv: MCValue) !void {
     // TODO: Add a pseudo-instruction or something to defer this work until Emit.
     //       We aren't allowed to interact with linker state here.
     if (true) return;
@@ -3551,7 +3553,7 @@ fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
         .dwarf => |dw| switch (mcv) {
             .register => |reg| try dw.genLocalDebugInfo(
                 .local_arg,
-                arg.name.toSlice(self.air),
+                name,
                 ty,
                 .{ .reg = reg.dwarfNum() },
             ),

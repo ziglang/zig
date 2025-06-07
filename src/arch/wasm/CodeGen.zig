@@ -1877,7 +1877,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .dbg_inline_block => cg.airDbgInlineBlock(inst),
         .dbg_var_ptr => cg.airDbgVar(inst, .local_var, true),
         .dbg_var_val => cg.airDbgVar(inst, .local_var, false),
-        .dbg_arg_inline => cg.airDbgVar(inst, .local_arg, false),
+        .dbg_arg_inline => cg.airDbgVar(inst, .arg, false),
 
         .call => cg.airCall(inst, .auto),
         .call_always_tail => cg.airCall(inst, .always_tail),
@@ -6427,7 +6427,7 @@ fn airDbgInlineBlock(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airDbgVar(
     cg: *CodeGen,
     inst: Air.Inst.Index,
-    local_tag: link.File.Dwarf.WipNav.LocalTag,
+    local_tag: link.File.Dwarf.WipNav.LocalVarTag,
     is_ptr: bool,
 ) InnerError!void {
     _ = is_ptr;

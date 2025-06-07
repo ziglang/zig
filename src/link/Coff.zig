@@ -1053,9 +1053,6 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     mir: *const codegen.AnyMir,
-    /// This may be `undefined`; only pass it to `emitFunction`.
-    /// This parameter will eventually be removed.
-    maybe_undef_air: *const Air,
 ) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -1084,7 +1081,6 @@ pub fn updateFunc(
         mir,
         &code_buffer,
         .none,
-        maybe_undef_air,
     );
 
     try coff.updateNavCode(pt, nav_index, code_buffer.items, .FUNCTION);
@@ -3123,7 +3119,6 @@ const link = @import("../link.zig");
 const target_util = @import("../target.zig");
 const trace = @import("../tracy.zig").trace;
 
-const Air = @import("../Air.zig");
 const Compilation = @import("../Compilation.zig");
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");

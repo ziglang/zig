@@ -17,7 +17,6 @@ const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
-const Air = @import("../Air.zig");
 
 base: link.File,
 
@@ -74,13 +73,11 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     mir: *const codegen.AnyMir,
-    maybe_undef_air: *const Air,
 ) link.File.UpdateNavError!void {
     _ = self;
     _ = pt;
     _ = func_index;
     _ = mir;
-    _ = maybe_undef_air;
     unreachable; // we always use llvm
 }
 

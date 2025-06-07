@@ -177,6 +177,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
+        .undef => return writer.writeAll("@as(type, undefined)"),
         .int_type => |int_type| {
             const sign_char: u8 = switch (int_type.signedness) {
                 .signed => 'i',
@@ -398,7 +399,6 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
         },
 
         // values, not types
-        .undef,
         .simple_value,
         .variable,
         .@"extern",
@@ -3921,23 +3921,25 @@ pub fn getUnionLayout(loaded_union: InternPool.LoadedUnionType, zcu: *const Zcu)
     var payload_size: u64 = 0;
     var payload_align: InternPool.Alignment = .@"1";
     for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
-        if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(zcu)) continue;
+        if (Type.fromInterned(field_ty).isNoReturn(zcu)) continue;
 
         const explicit_align = loaded_union.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
             Type.fromInterned(field_ty).abiAlignment(zcu);
-        const field_size = Type.fromInterned(field_ty).abiSize(zcu);
-        if (field_size > payload_size) {
-            payload_size = field_size;
-            biggest_field = @intCast(field_index);
+        if (Type.fromInterned(field_ty).hasRuntimeBits(zcu)) {
+            const field_size = Type.fromInterned(field_ty).abiSize(zcu);
+            if (field_size > payload_size) {
+                payload_size = field_size;
+                biggest_field = @intCast(field_index);
+            }
+            if (field_align.compare(.gte, payload_align)) {
+                most_aligned_field = @intCast(field_index);
+                most_aligned_field_size = field_size;
+            }
         }
-        if (field_align.compare(.gte, payload_align)) {
-            payload_align = field_align;
-            most_aligned_field = @intCast(field_index);
-            most_aligned_field_size = field_size;
-        }
+        payload_align = payload_align.max(field_align);
     }
     const have_tag = loaded_union.flagsUnordered(ip).runtime_tag.hasTag();
     if (!have_tag or !Type.fromInterned(loaded_union.enum_tag_ty).hasRuntimeBits(zcu)) {

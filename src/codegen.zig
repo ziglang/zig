@@ -180,10 +180,6 @@ pub fn emitFunction(
     any_mir: *const AnyMir,
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
-    /// TODO: this parameter needs to be removed. We should not still hold AIR this late
-    /// in the pipeline. Any information needed to call emit must be stored in MIR.
-    /// This is `undefined` if the backend supports the `separate_thread` feature.
-    air: *const Air,
 ) CodeGenError!void {
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
@@ -199,7 +195,7 @@ pub fn emitFunction(
         => |backend| {
             dev.check(devFeatureForBackend(backend));
             const mir = &@field(any_mir, AnyMir.tag(backend));
-            return mir.emit(lf, pt, src_loc, func_index, code, debug_output, air);
+            return mir.emit(lf, pt, src_loc, func_index, code, debug_output);
         },
     }
 }

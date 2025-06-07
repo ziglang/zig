@@ -1417,9 +1417,6 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     mir: *const codegen.AnyMir,
-    /// This may be `undefined`; only pass it to `emitFunction`.
-    /// This parameter will eventually be removed.
-    maybe_undef_air: *const Air,
 ) link.File.UpdateNavError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1448,7 +1445,6 @@ pub fn updateFunc(
         mir,
         &code_buffer,
         if (debug_wip_nav) |*dn| .{ .dwarf = dn } else .none,
-        maybe_undef_air,
     );
     const code = code_buffer.items;
 
@@ -2363,7 +2359,6 @@ const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Air = @import("../../Air.zig");
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Dwarf = @import("../Dwarf.zig");

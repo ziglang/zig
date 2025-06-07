@@ -1,6 +1,5 @@
 //! This file contains the functionality for emitting x86_64 MIR as machine code
 
-air: Air,
 lower: Lower,
 atom_index: u32,
 debug_output: link.File.DebugInfoOutput,
@@ -22,6 +21,8 @@ pub fn emitMir(emit: *Emit) Error!void {
     defer relocs.deinit(emit.lower.allocator);
     var table_relocs: std.ArrayListUnmanaged(TableReloc) = .empty;
     defer table_relocs.deinit(emit.lower.allocator);
+    var local_name_index: usize = 0;
+    var local_index: usize = 0;
     for (0..emit.lower.mir.instructions.len) |mir_i| {
         const mir_index: Mir.Inst.Index = @intCast(mir_i);
         code_offset_mapping[mir_index] = @intCast(emit.code.items.len);
@@ -338,7 +339,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgEnterInline (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try dwarf.enterInlineFunc(mir_inst.data.func, emit.code.items.len, emit.prev_di_loc.line, emit.prev_di_loc.column);
+                            try dwarf.enterInlineFunc(mir_inst.data.ip_index, emit.code.items.len, emit.prev_di_loc.line, emit.prev_di_loc.column);
                         },
                         .plan9 => {},
                         .none => {},
@@ -348,77 +349,61 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgLeaveInline (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try dwarf.leaveInlineFunc(mir_inst.data.func, emit.code.items.len);
+                            try dwarf.leaveInlineFunc(mir_inst.data.ip_index, emit.code.items.len);
                         },
                         .plan9 => {},
                         .none => {},
                     },
-                    .pseudo_dbg_local_a,
-                    .pseudo_dbg_local_ai_s,
-                    .pseudo_dbg_local_ai_u,
-                    .pseudo_dbg_local_ai_64,
-                    .pseudo_dbg_local_as,
-                    .pseudo_dbg_local_aso,
-                    .pseudo_dbg_local_aro,
-                    .pseudo_dbg_local_af,
-                    .pseudo_dbg_local_am,
+                    .pseudo_dbg_arg_none,
+                    .pseudo_dbg_arg_i_s,
+                    .pseudo_dbg_arg_i_u,
+                    .pseudo_dbg_arg_i_64,
+                    .pseudo_dbg_arg_reloc,
+                    .pseudo_dbg_arg_ro,
+                    .pseudo_dbg_arg_fa,
+                    .pseudo_dbg_arg_m,
+                    .pseudo_dbg_var_none,
+                    .pseudo_dbg_var_i_s,
+                    .pseudo_dbg_var_i_u,
+                    .pseudo_dbg_var_i_64,
+                    .pseudo_dbg_var_reloc,
+                    .pseudo_dbg_var_ro,
+                    .pseudo_dbg_var_fa,
+                    .pseudo_dbg_var_m,
                     => switch (emit.debug_output) {
                         .dwarf => |dwarf| {
                             var loc_buf: [2]link.File.Dwarf.Loc = undefined;
-                            const air_inst_index, const loc: link.File.Dwarf.Loc = switch (mir_inst.ops) {
+                            const loc: link.File.Dwarf.Loc = loc: switch (mir_inst.ops) {
                                 else => unreachable,
-                                .pseudo_dbg_local_a => .{ mir_inst.data.a.air_inst, .empty },
-                                .pseudo_dbg_local_ai_s,
-                                .pseudo_dbg_local_ai_u,
-                                .pseudo_dbg_local_ai_64,
-                                => .{ mir_inst.data.ai.air_inst, .{ .stack_value = stack_value: {
-                                    loc_buf[0] = switch (emit.lower.imm(mir_inst.ops, mir_inst.data.ai.i)) {
+                                .pseudo_dbg_arg_none, .pseudo_dbg_var_none => .empty,
+                                .pseudo_dbg_arg_i_s,
+                                .pseudo_dbg_arg_i_u,
+                                .pseudo_dbg_var_i_s,
+                                .pseudo_dbg_var_i_u,
+                                => .{ .stack_value = stack_value: {
+                                    loc_buf[0] = switch (emit.lower.imm(mir_inst.ops, mir_inst.data.i.i)) {
                                         .signed => |s| .{ .consts = s },
                                         .unsigned => |u| .{ .constu = u },
                                     };
                                     break :stack_value &loc_buf[0];
-                                } } },
-                                .pseudo_dbg_local_as => .{ mir_inst.data.as.air_inst, .{
-                                    .addr_reloc = mir_inst.data.as.sym_index,
                                 } },
-                                .pseudo_dbg_local_aso => loc: {
-                                    const sym_off = emit.lower.mir.extraData(
-                                        bits.SymbolOffset,
-                                        mir_inst.data.ax.payload,
-                                    ).data;
-                                    break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
-                                        sym: {
-                                            loc_buf[0] = .{ .addr_reloc = sym_off.sym_index };
-                                            break :sym &loc_buf[0];
-                                        },
-                                        off: {
-                                            loc_buf[1] = .{ .consts = sym_off.off };
-                                            break :off &loc_buf[1];
-                                        },
-                                    } } };
-                                },
-                                .pseudo_dbg_local_aro => loc: {
-                                    const air_off = emit.lower.mir.extraData(
-                                        Mir.AirOffset,
-                                        mir_inst.data.rx.payload,
-                                    ).data;
-                                    break :loc .{ air_off.air_inst, .{ .plus = .{
-                                        reg: {
-                                            loc_buf[0] = .{ .breg = mir_inst.data.rx.r1.dwarfNum() };
-                                            break :reg &loc_buf[0];
-                                        },
-                                        off: {
-                                            loc_buf[1] = .{ .consts = air_off.off };
-                                            break :off &loc_buf[1];
-                                        },
-                                    } } };
-                                },
-                                .pseudo_dbg_local_af => loc: {
-                                    const reg_off = emit.lower.mir.resolveFrameAddr(emit.lower.mir.extraData(
-                                        bits.FrameAddr,
-                                        mir_inst.data.ax.payload,
-                                    ).data);
-                                    break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
+                                .pseudo_dbg_arg_i_64, .pseudo_dbg_var_i_64 => .{ .stack_value = stack_value: {
+                                    loc_buf[0] = .{ .constu = mir_inst.data.i64 };
+                                    break :stack_value &loc_buf[0];
+                                } },
+                                .pseudo_dbg_arg_reloc, .pseudo_dbg_var_reloc => .{ .plus = .{
+                                    sym: {
+                                        loc_buf[0] = .{ .addr_reloc = mir_inst.data.reloc.sym_index };
+                                        break :sym &loc_buf[0];
+                                    },
+                                    off: {
+                                        loc_buf[1] = .{ .consts = mir_inst.data.reloc.off };
+                                        break :off &loc_buf[1];
+                                    },
+                                } },
+                                .pseudo_dbg_arg_fa, .pseudo_dbg_var_fa => {
+                                    const reg_off = emit.lower.mir.resolveFrameAddr(mir_inst.data.fa);
+                                    break :loc .{ .plus = .{
                                         reg: {
                                             loc_buf[0] = .{ .breg = reg_off.reg.dwarfNum() };
                                             break :reg &loc_buf[0];
@@ -427,11 +412,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                                             loc_buf[1] = .{ .consts = reg_off.off };
                                             break :off &loc_buf[1];
                                         },
-                                    } } };
+                                    } };
                                 },
-                                .pseudo_dbg_local_am => loc: {
-                                    const mem = emit.lower.mem(undefined, mir_inst.data.ax.payload);
-                                    break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
+                                .pseudo_dbg_arg_m, .pseudo_dbg_var_m => {
+                                    const mem = emit.lower.mem(undefined, mir_inst.data.x.payload);
+                                    break :loc .{ .plus = .{
                                         base: {
                                             loc_buf[0] = switch (mem.base()) {
                                                 .none => .{ .constu = 0 },
@@ -449,30 +434,64 @@ pub fn emitMir(emit: *Emit) Error!void {
                                             };
                                             break :disp &loc_buf[1];
                                         },
-                                    } } };
+                                    } };
                                 },
                             };
-                            const ip = &emit.lower.bin_file.comp.zcu.?.intern_pool;
-                            const air_inst = emit.air.instructions.get(@intFromEnum(air_inst_index));
-                            const name: Air.NullTerminatedString = switch (air_inst.tag) {
-                                else => unreachable,
-                                .arg => air_inst.data.arg.name,
-                                .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => @enumFromInt(air_inst.data.pl_op.payload),
-                            };
-                            try dwarf.genLocalDebugInfo(
-                                switch (air_inst.tag) {
+
+                            const local_name_bytes = emit.lower.mir.local_name_bytes[local_name_index..];
+                            const local_name = local_name_bytes[0..std.mem.indexOfScalar(u8, local_name_bytes, 0).? :0];
+                            local_name_index += local_name.len + 1;
+
+                            const local_type = emit.lower.mir.local_types[local_index];
+                            local_index += 1;
+
+                            try dwarf.genLocalVarDebugInfo(
+                                switch (mir_inst.ops) {
                                     else => unreachable,
-                                    .arg, .dbg_arg_inline => .local_arg,
-                                    .dbg_var_ptr, .dbg_var_val => .local_var,
+                                    .pseudo_dbg_arg_none,
+                                    .pseudo_dbg_arg_i_s,
+                                    .pseudo_dbg_arg_i_u,
+                                    .pseudo_dbg_arg_i_64,
+                                    .pseudo_dbg_arg_reloc,
+                                    .pseudo_dbg_arg_ro,
+                                    .pseudo_dbg_arg_fa,
+                                    .pseudo_dbg_arg_m,
+                                    .pseudo_dbg_arg_val,
+                                    => .arg,
+                                    .pseudo_dbg_var_none,
+                                    .pseudo_dbg_var_i_s,
+                                    .pseudo_dbg_var_i_u,
+                                    .pseudo_dbg_var_i_64,
+                                    .pseudo_dbg_var_reloc,
+                                    .pseudo_dbg_var_ro,
+                                    .pseudo_dbg_var_fa,
+                                    .pseudo_dbg_var_m,
+                                    .pseudo_dbg_var_val,
+                                    => .local_var,
                                 },
-                                name.toSlice(emit.air),
-                                switch (air_inst.tag) {
-                                    else => unreachable,
-                                    .arg => emit.air.typeOfIndex(air_inst_index, ip),
-                                    .dbg_var_ptr => emit.air.typeOf(air_inst.data.pl_op.operand, ip).childTypeIp(ip),
-                                    .dbg_var_val, .dbg_arg_inline => emit.air.typeOf(air_inst.data.pl_op.operand, ip),
-                                },
+                                local_name,
+                                .fromInterned(local_type),
                                 loc,
+                            );
+                        },
+                        .plan9 => {},
+                        .none => {},
+                    },
+                    .pseudo_dbg_arg_val, .pseudo_dbg_var_val => switch (emit.debug_output) {
+                        .dwarf => |dwarf| {
+                            const local_name_bytes = emit.lower.mir.local_name_bytes[local_name_index..];
+                            const local_name = local_name_bytes[0..std.mem.indexOfScalar(u8, local_name_bytes, 0).? :0];
+                            local_name_index += local_name.len + 1;
+
+                            try dwarf.genLocalConstDebugInfo(
+                                emit.lower.src_loc,
+                                switch (mir_inst.ops) {
+                                    else => unreachable,
+                                    .pseudo_dbg_arg_val => .comptime_arg,
+                                    .pseudo_dbg_var_val => .local_const,
+                                },
+                                local_name,
+                                .fromInterned(mir_inst.data.ip_index),
                             );
                         },
                         .plan9 => {},
@@ -611,11 +630,10 @@ fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc) Error!void {
 }
 
 const bits = @import("bits.zig");
+const Emit = @This();
+const InternPool = @import("../../InternPool.zig");
 const link = @import("../../link.zig");
 const log = std.log.scoped(.emit);
-const std = @import("std");
-
-const Air = @import("../../Air.zig");
-const Emit = @This();
 const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");
+const std = @import("std");

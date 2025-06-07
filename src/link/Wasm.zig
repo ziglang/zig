@@ -29,7 +29,6 @@ const leb = std.leb;
 const log = std.log.scoped(.link);
 const mem = std.mem;
 
-const Air = @import("../Air.zig");
 const Mir = @import("../arch/wasm/Mir.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
 const abi = @import("../arch/wasm/abi.zig");
@@ -3182,14 +3181,12 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     any_mir: *const codegen.AnyMir,
-    maybe_undef_air: *const Air,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
     dev.check(.wasm_backend);
-    _ = maybe_undef_air; // we (correctly) do not need this
 
     // This linker implementation only works with codegen backend `.stage2_wasm`.
     const mir = &any_mir.wasm;

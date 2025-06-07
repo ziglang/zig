@@ -17,7 +17,6 @@ const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
-const Air = @import("../Air.zig");
 const AnyMir = @import("../codegen.zig").AnyMir;
 
 pub const zig_h = "#include \"zig.h\"\n";
@@ -182,12 +181,7 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     mir: *AnyMir,
-    /// This may be `undefined`; only pass it to `emitFunction`.
-    /// This parameter will eventually be removed.
-    maybe_undef_air: *const Air,
 ) link.File.UpdateNavError!void {
-    _ = maybe_undef_air; // It would be a bug to use this argument.
-
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);

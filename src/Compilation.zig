@@ -4589,10 +4589,8 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 comp.dispatchZcuLinkTask(tid, .{ .link_func = .{
                     .func = func.func,
                     .mir = shared_mir,
-                    .air = undefined,
                 } });
             } else {
-                const emit_needs_air = !zcu.backendSupportsFeature(.separate_thread);
                 {
                     const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
                     defer pt.deactivate();
@@ -4602,7 +4600,6 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 comp.dispatchZcuLinkTask(tid, .{ .link_func = .{
                     .func = func.func,
                     .mir = shared_mir,
-                    .air = if (emit_needs_air) &air else undefined,
                 } });
                 air.deinit(gpa);
             }

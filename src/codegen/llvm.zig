@@ -9509,15 +9509,21 @@ pub const FuncGen = struct {
 
         const inst_ty = self.typeOfIndex(inst);
 
-        const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
-        if (name == .none) return arg_val;
-
         const func = zcu.funcInfo(zcu.navValue(self.ng.nav_index).toIntern());
+        const func_zir = func.zir_body_inst.resolveFull(&zcu.intern_pool).?;
+        const file = zcu.fileByIndex(func_zir.file);
+
+        const mod = file.mod.?;
+        if (mod.strip) return arg_val;
+        const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
+        const zir = &file.zir.?;
+        const name = zir.nullTerminatedString(zir.getParamName(zir.getParamBody(func_zir.inst)[arg.zir_param_index]).?);
+
         const lbrace_line = zcu.navSrcLine(func.owner_nav) + func.lbrace_line + 1;
         const lbrace_col = func.lbrace_column + 1;
 
         const debug_parameter = try o.builder.debugParameter(
-            try o.builder.metadataString(name.toSlice(self.air)),
+            try o.builder.metadataString(name),
             self.file,
             self.scope,
             lbrace_line,
@@ -9535,7 +9541,6 @@ pub const FuncGen = struct {
             },
         };
 
-        const mod = self.ng.ownerModule();
         if (isByRef(inst_ty, zcu)) {
             _ = try self.wip.callIntrinsic(
                 .normal,

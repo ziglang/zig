@@ -2893,16 +2893,9 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
         runtime_params_len;
 
     var runtime_param_index: usize = 0;
-    for (fn_info.param_body[0..src_params_len]) |inst| {
+    for (fn_info.param_body[0..src_params_len], 0..) |inst, zir_param_index| {
         const gop = sema.inst_map.getOrPutAssumeCapacity(inst);
         if (gop.found_existing) continue; // provided above by comptime arg
-
-        const param_inst_info = sema.code.instructions.get(@intFromEnum(inst));
-        const param_name: Zir.NullTerminatedString = switch (param_inst_info.tag) {
-            .param_anytype => param_inst_info.data.str_tok.start,
-            .param => sema.code.extraData(Zir.Inst.Param, param_inst_info.data.pl_tok.payload_index).data.name,
-            else => unreachable,
-        };
 
         const param_ty = fn_ty_info.param_types.get(ip)[runtime_param_index];
         runtime_param_index += 1;
@@ -2923,10 +2916,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
             .tag = .arg,
             .data = .{ .arg = .{
                 .ty = Air.internedToRef(param_ty),
-                .name = if (inner_block.ownerModule().strip)
-                    .none
-                else
-                    try sema.appendAirString(sema.code.nullTerminatedString(param_name)),
+                .zir_param_index = @intCast(zir_param_index),
             } },
         });
     }

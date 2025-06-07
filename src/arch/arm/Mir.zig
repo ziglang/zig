@@ -294,9 +294,7 @@ pub fn emit(
     func_index: InternPool.Index,
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
-    air: *const @import("../../Air.zig"),
 ) codegen.CodeGenError!void {
-    _ = air; // using this would be a bug
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
     const nav = func.owner_nav;

@@ -70,6 +70,7 @@ mod: *Package.Module,
 target: *const std.Target,
 args: []MCValue,
 ret_mcv: InstTracking,
+func_index: InternPool.Index,
 fn_type: Type,
 arg_index: usize,
 src_loc: Zcu.LazySrcLoc,
@@ -774,6 +775,7 @@ pub fn generate(
         .owner = .{ .nav_index = func.owner_nav },
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
+        .func_index = func_index,
         .fn_type = fn_type,
         .arg_index = 0,
         .branch_stack = &branch_stack,
@@ -877,6 +879,7 @@ pub fn generateLazy(
         .owner = .{ .lazy_sym = lazy_sym },
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
+        .func_index = undefined,
         .fn_type = undefined,
         .arg_index = 0,
         .branch_stack = undefined,
@@ -4724,10 +4727,8 @@ fn airFieldParentPtr(func: *Func, inst: Air.Inst.Index) !void {
     return func.fail("TODO implement codegen airFieldParentPtr", .{});
 }
 
-fn genArgDbgInfo(func: *const Func, inst: Air.Inst.Index, mcv: MCValue) InnerError!void {
-    const arg = func.air.instructions.items(.data)[@intFromEnum(inst)].arg;
-    const ty = arg.ty.toType();
-    if (arg.name == .none) return;
+fn genArgDbgInfo(func: *const Func, name: []const u8, ty: Type, mcv: MCValue) InnerError!void {
+    assert(!func.mod.strip);
 
     // TODO: Add a pseudo-instruction or something to defer this work until Emit.
     //       We aren't allowed to interact with linker state here.
@@ -4736,7 +4737,7 @@ fn genArgDbgInfo(func: *const Func, inst: Air.Inst.Index, mcv: MCValue) InnerErr
         .dwarf => |dw| switch (mcv) {
             .register => |reg| dw.genLocalDebugInfo(
                 .local_arg,
-                arg.name.toSlice(func.air),
+                name,
                 ty,
                 .{ .reg = reg.dwarfNum() },
             ) catch |err| return func.fail("failed to generate debug info: {s}", .{@errorName(err)}),
@@ -4749,6 +4750,8 @@ fn genArgDbgInfo(func: *const Func, inst: Air.Inst.Index, mcv: MCValue) InnerErr
 }
 
 fn airArg(func: *Func, inst: Air.Inst.Index) InnerError!void {
+    const zcu = func.pt.zcu;
+
     var arg_index = func.arg_index;
 
     // we skip over args that have no bits
@@ -4765,7 +4768,14 @@ fn airArg(func: *Func, inst: Air.Inst.Index) InnerError!void {
 
         try func.genCopy(arg_ty, dst_mcv, src_mcv);
 
-        try func.genArgDbgInfo(inst, src_mcv);
+        const arg = func.air.instructions.items(.data)[@intFromEnum(inst)].arg;
+        // can delete `func.func_index` if this logic is moved to emit
+        const func_zir = zcu.funcInfo(func.func_index).zir_body_inst.resolveFull(&zcu.intern_pool).?;
+        const file = zcu.fileByIndex(func_zir.file);
+        const zir = &file.zir.?;
+        const name = zir.nullTerminatedString(zir.getParamName(zir.getParamBody(func_zir.inst)[arg.zir_param_index]).?);
+
+        try func.genArgDbgInfo(name, arg_ty, src_mcv);
         break :result dst_mcv;
     };
 

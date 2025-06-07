@@ -4208,15 +4208,22 @@ fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!void {
     while (self.args[arg_index] == .none) arg_index += 1;
     self.arg_index = arg_index + 1;
 
-    const ty = self.typeOfIndex(inst);
-    const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
-    const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
-    if (name != .none) try self.dbg_info_relocs.append(self.gpa, .{
-        .tag = tag,
-        .ty = ty,
-        .name = name.toSlice(self.air),
-        .mcv = self.args[arg_index],
-    });
+    const zcu = self.pt.zcu;
+    const func_zir = zcu.funcInfo(self.func_index).zir_body_inst.resolveFull(&zcu.intern_pool).?;
+    const file = zcu.fileByIndex(func_zir.file);
+    if (!file.mod.?.strip) {
+        const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
+        const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
+        const ty = self.typeOfIndex(inst);
+        const zir = &file.zir.?;
+        const name = zir.nullTerminatedString(zir.getParamName(zir.getParamBody(func_zir.inst)[arg.zir_param_index]).?);
+        try self.dbg_info_relocs.append(self.gpa, .{
+            .tag = tag,
+            .ty = ty,
+            .name = name,
+            .mcv = self.args[arg_index],
+        });
+    }
 
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else self.args[arg_index];
     return self.finishAir(inst, result, .{ .none, .none, .none });

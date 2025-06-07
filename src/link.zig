@@ -8,7 +8,6 @@ const log = std.log.scoped(.link);
 const trace = @import("tracy.zig").trace;
 const wasi_libc = @import("libs/wasi_libc.zig");
 
-const Air = @import("Air.zig");
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 const Path = std.Build.Cache.Path;
@@ -752,9 +751,6 @@ pub const File = struct {
         /// that `mir.deinit` remains legal for the caller. For instance, the callee can
         /// take ownership of an embedded slice and replace it with `&.{}` in `mir`.
         mir: *codegen.AnyMir,
-        /// This may be `undefined`; only pass it to `emitFunction`.
-        /// This parameter will eventually be removed.
-        maybe_undef_air: *const Air,
     ) UpdateNavError!void {
         assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
@@ -762,7 +758,7 @@ pub const File = struct {
             .spirv => unreachable, // see corresponding special case in `Zcu.PerThread.runCodegenInner`
             inline else => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateFunc(pt, func_index, mir, maybe_undef_air);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateFunc(pt, func_index, mir);
             },
         }
     }
@@ -1271,11 +1267,6 @@ pub const ZcuTask = union(enum) {
         /// the codegen job to ensure that the linker receives functions in a deterministic order,
         /// allowing reproducible builds.
         mir: *SharedMir,
-        /// This field exists only due to deficiencies in some codegen implementations; it should
-        /// be removed when the corresponding parameter of `CodeGen.emitFunction` can be removed.
-        /// This is `undefined` if `Zcu.Feature.separate_thread` is supported.
-        /// If this is defined, its memory is owned externally; do not `deinit` this `air`.
-        air: *const Air,
 
         pub const SharedMir = struct {
             /// This is initially `.pending`. When `value` is populated, the codegen thread will set
@@ -1458,7 +1449,7 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
             assert(zcu.llvm_object == null); // LLVM codegen doesn't produce MIR
             const mir = &func.mir.value;
             if (comp.bin_file) |lf| {
-                lf.updateFunc(pt, func.func, mir, func.air) catch |err| switch (err) {
+                lf.updateFunc(pt, func.func, mir) catch |err| switch (err) {
                     error.OutOfMemory => return diags.setAllocFailure(),
                     error.CodegenFail => return zcu.assertCodegenFailed(nav),
                     error.Overflow, error.RelocationNotByteAligned => {

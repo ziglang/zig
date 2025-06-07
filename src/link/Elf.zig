@@ -1683,12 +1683,11 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     mir: *const codegen.AnyMir,
-    maybe_undef_air: *const Air,
 ) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    return self.zigObjectPtr().?.updateFunc(self, pt, func_index, mir, maybe_undef_air);
+    return self.zigObjectPtr().?.updateFunc(self, pt, func_index, mir);
 }
 
 pub fn updateNav(
@@ -4516,7 +4515,6 @@ const trace = @import("../tracy.zig").trace;
 const synthetic_sections = @import("Elf/synthetic_sections.zig");
 
 const Merge = @import("Elf/Merge.zig");
-const Air = @import("../Air.zig");
 const Archive = @import("Elf/Archive.zig");
 const AtomList = @import("Elf/AtomList.zig");
 const Compilation = @import("../Compilation.zig");
