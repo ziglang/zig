@@ -1284,6 +1284,20 @@ fn canAllocInReg(cg: *CodeGen, ty: Type) bool {
     return std.math.isPowerOfTwo(abi_size) and abi_size <= max_abi_size;
 }
 
+pub fn allocReg(cg: *CodeGen, ty: Type, inst: ?Air.Inst.Index) !Register {
+    if (cg.register_manager.tryAllocReg(inst, cg.getAllocatableRegSetForType(ty))) |reg| {
+        return reg;
+    } else {
+        return cg.fail("Cannot allocate register for {} (Zig compiler bug)", .{ty.fmt(cg.pt)});
+    }
+}
+
+pub fn allocRegAndLock(cg: *CodeGen, ty: Type) !struct { Register, RegisterManager.RegisterLock } {
+    const reg = try cg.allocReg(ty, null);
+    const lock = cg.register_manager.lockRegAssumeUnused(reg);
+    return .{ reg, lock };
+}
+
 pub fn allocRegOrMem(cg: *CodeGen, ty: Type, inst: ?Air.Inst.Index, opts: MCVAllocOptions) !MCValue {
     const zcu = cg.pt.zcu;
 
@@ -1782,12 +1796,12 @@ fn genCopy(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: Cop
 
     switch (dst_mcv) {
         .register => |reg| try cg.genCopyToReg(ty, reg, src_mcv, opts),
+        .load_frame => try cg.genCopyToMem(ty, dst_mcv, src_mcv),
         else => return cg.fail("TODO: genCopy {s} => {s}", .{ @tagName(src_mcv), @tagName(dst_mcv) }),
     }
 }
 
 fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: CopyOptions) !void {
-    _ = ty;
     switch (src_mcv) {
         .none => {},
         .dead, .unreach => unreachable,
@@ -1834,6 +1848,91 @@ fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: C
             try cg.genCopyToReg(ty, dst, .{ .register_offset = .{ .reg = dst } }, .{});
         },
         else => return cg.fail("TODO: genCopyToReg from {s}", .{@tagName(src_mcv)}),
+    }
+}
+
+/// Copies a value from register to memory.
+fn genCopyRegToMem(cg: *CodeGen, dst_mcv: MCValue, src: Register, size: bits.Memory.Size) !void {
+    switch (dst_mcv) {
+        else => unreachable,
+        .air_ref => |dst_ref| try cg.genCopyRegToMem(try cg.resolveRef(dst_ref), src, size),
+        .memory => |addr| {
+            const tmp_reg, const tmp_reg_lock = try cg.allocRegAndLock(.usize);
+            defer cg.register_manager.unlockReg(tmp_reg_lock);
+            try cg.genCopyToReg(.usize, tmp_reg, .{ .immediate = addr }, .{});
+            try cg.genCopyRegToMem(.{ .register_offset = .{ .reg = tmp_reg } }, src, size);
+        },
+        .register_offset => |ro| {
+            if (cast(i12, ro.off)) |off| {
+                switch (size) {
+                    .byte => try cg.asmInst(.st_b(src, ro.reg, off)),
+                    .hword => try cg.asmInst(.st_h(src, ro.reg, off)),
+                    .word => try cg.asmInst(.st_w(src, ro.reg, off)),
+                    .dword => try cg.asmInst(.st_d(src, ro.reg, off)),
+                }
+                return;
+            }
+            if (cast(i16, ro.off)) |off| {
+                if (off & 0b11 == 0) {
+                    switch (size) {
+                        .word => return cg.asmInst(.stox4_w(src, ro.reg, @intCast(off >> 2))),
+                        .dword => return cg.asmInst(.stox4_d(src, ro.reg, @intCast(off >> 2))),
+                        else => {},
+                    }
+                }
+            }
+            return cg.fail("TODO: genCopyRegToMem to {s}", .{@tagName(dst_mcv)});
+        },
+        .load_frame => |addr| {
+            const tmp_reg, const tmp_reg_lock = try cg.allocRegAndLock(.usize);
+            defer cg.register_manager.unlockReg(tmp_reg_lock);
+            try cg.genCopyToReg(.usize, tmp_reg, .{ .lea_frame = addr }, .{});
+            try cg.genCopyRegToMem(.{ .register_offset = .{ .reg = tmp_reg } }, src, size);
+        },
+        .undef,
+        .load_symbol,
+        => return cg.fail("TODO: genCopyRegToMem to {s}", .{@tagName(dst_mcv)}),
+    }
+}
+
+fn genCopyToMem(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
+    const pt = cg.pt;
+    const zcu = pt.zcu;
+
+    const abi_size: u32 = @intCast(ty.abiSize(zcu));
+    switch (src_mcv) {
+        .none,
+        .unreach,
+        .dead,
+        .reserved_frame,
+        => unreachable,
+        .air_ref => |src_ref| try cg.genCopyToMem(ty, dst_mcv, try cg.resolveRef(src_ref)),
+        .register => |reg| return cg.genCopyRegToMem(dst_mcv, reg, .fromByteSize(ty.abiSize(zcu))),
+        .register_offset,
+        .memory,
+        .load_symbol,
+        .load_frame,
+        => return cg.fail("TODO: genCopyToMem from {s}", .{@tagName(src_mcv)}),
+        inline .register_pair, .register_triple, .register_quadruple => |regs| {
+            for (regs, 0..) |reg, reg_i| {
+                const size: bits.Memory.Size = if (reg_i == regs.len - 1) .fromByteSize(abi_size % 8) else .dword;
+                try cg.genCopyRegToMem(dst_mcv.toLimbValue(reg_i), reg, size);
+            }
+        },
+        .immediate, .register_bias, .lea_symbol, .lea_frame => {
+            const tmp_reg, const tmp_reg_lock = try cg.allocRegAndLock(.usize);
+            defer cg.register_manager.unlockReg(tmp_reg_lock);
+
+            try cg.genCopyToReg(.usize, tmp_reg, src_mcv, .{});
+            try cg.genCopyRegToMem(dst_mcv, tmp_reg, .dword);
+        },
+        .register_frame => |reg_frame| {
+            // copy reg
+            try cg.genCopyRegToMem(dst_mcv, reg_frame.reg, .dword);
+            // copy memory
+            return cg.fail("TODO: genCopyToMem from {s}", .{@tagName(src_mcv)});
+        },
+        else => return cg.fail("TODO: genCopyToMem from {s}", .{@tagName(src_mcv)}),
     }
 }
 
