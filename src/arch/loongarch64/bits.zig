@@ -223,3 +223,45 @@ pub const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 pub const SymbolOffset = struct { index: u32, off: i32 = 0 };
 
 pub const RegisterFrame = struct { reg: Register, frame: FrameAddr };
+
+pub const Memory = struct {
+    pub const Size = enum(u4) {
+        /// Byte, 1 byte
+        byte,
+        /// Half word, 2 bytes
+        hword,
+        /// Word, 4 bytes
+        word,
+        /// Double word, 8 Bytes
+        dword,
+
+        pub fn fromByteSize(size: u64) Size {
+            return switch (size) {
+                1...1 => .byte,
+                2...2 => .hword,
+                3...4 => .word,
+                5...8 => .dword,
+                else => std.debug.panic("fromByteSize {}", .{size}),
+            };
+        }
+
+        pub fn fromBitSize(bit_size: u64) Size {
+            return switch (bit_size) {
+                8 => .byte,
+                16 => .hword,
+                32 => .word,
+                64 => .dword,
+                else => unreachable,
+            };
+        }
+
+        pub fn bitSize(s: Size) u64 {
+            return switch (s) {
+                .byte => 8,
+                .hword => 16,
+                .word => 32,
+                .dword => 64,
+            };
+        }
+    };
+};

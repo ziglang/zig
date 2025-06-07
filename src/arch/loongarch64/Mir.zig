@@ -45,6 +45,10 @@ pub const Inst = struct {
     pub const PseudoTag = enum {
         /// Branch instructions, uses `br` payload.
         branch,
+        /// Load an 64-bit immediate to register, uses `imm_reg` payload.
+        imm_to_reg,
+        /// Load frame address to register, uses `frame_reg` payload.
+        frame_addr_to_reg,
 
         /// Prologue of a function, uses `none` payload.
         func_prologue,
@@ -80,6 +84,16 @@ pub const Inst = struct {
             inst: Index,
             cond: BranchCondition,
         },
+        /// Immediate and register
+        imm_reg: struct {
+            imm: u64,
+            reg: Register,
+        },
+        /// Frame address and register
+        frame_reg: struct {
+            frame: bits.FrameAddr,
+            reg: Register,
+        },
     };
 
     pub inline fn initInst(inst: encoding.Inst) Inst {
@@ -102,7 +116,15 @@ pub const Inst = struct {
                         inst.data.line_column.column,
                     }),
                     .branch => try writer.print(".branch {} => {}", .{ inst.data.br.cond, inst.data.br.inst }),
-                    else => try writer.print(".pseudo.{s}", .{@tagName(tag)}),
+                    .imm_to_reg => try writer.print(".imm_to_reg {} => {s}", .{
+                        inst.data.imm_reg.imm,
+                        @tagName(inst.data.imm_reg.reg),
+                    }),
+                    .frame_addr_to_reg => try writer.print(".frame_addr_to_reg {} => {s}", .{
+                        inst.data.frame_reg.frame,
+                        @tagName(inst.data.frame_reg.reg),
+                    }),
+                    else => try writer.print(".{s}", .{@tagName(tag)}),
                 }
             },
             .inst => |opcode| {

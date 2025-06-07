@@ -16,6 +16,8 @@ const abi = @import("abi.zig");
 const bits = @import("bits.zig");
 const encoding = @import("encoding.zig");
 const Lir = @import("Lir.zig");
+const utils = @import("./utils.zig");
+const Register = bits.Register;
 
 const Lower = @This();
 
@@ -131,6 +133,13 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                         },
                     }
                 },
+                .imm_to_reg => lower.emitImmToReg(inst.data.imm_reg.imm, inst.data.imm_reg.reg),
+                .frame_addr_to_reg => {
+                    const frame_addr = inst.data.frame_reg.frame;
+                    const frame_loc = lower.mir.frame_locs.get(@intFromEnum(frame_addr.index));
+                    const reg = inst.data.frame_reg.reg;
+                    lower.emitRegBiasToReg(reg, frame_loc.base, @bitCast(@as(i64, frame_loc.offset + frame_addr.off)));
+                },
                 else => unreachable,
             }
         },
@@ -179,6 +188,8 @@ const max_result_insts = @max(
     1, // non-pseudo instructions
     abi.zigcc.all_static.len + 1, // push_regs/pop_regs
     abi.c_abi.all_static.len + 1, // push_regs/pop_regs
+    4, // emitImmToReg/imm_to_reg
+    5, // frame_addr_to_reg/func_prolugue
 );
 const max_result_relocs = @max(
     1, // jump to epilogue
@@ -187,3 +198,53 @@ const max_result_relocs = @max(
 
 const ResultInstIndex = std.math.IntFittingRange(0, max_result_insts);
 const ResultRelocIndex = std.math.IntFittingRange(0, max_result_relocs);
+
+/// Loads an immediate to a reg.
+/// Emits up to 5 instructions.
+fn emitImmToReg(lower: *Lower, imm: u64, dst: Register) void {
+    var use_lu12i = false;
+    var set_hi = false;
+    // Loads 31..12 bits as LU12I.W clears 11..00 bits
+    if (utils.notZero((imm & 0x00000000fffff000) >> 12)) |part| {
+        lower.emit(.lu12i_w(dst, @truncate(@as(i64, @bitCast(part)))));
+        use_lu12i = true;
+        set_hi = (part >> 11) != 0;
+    }
+    // Then loads 11..0 bits with ORI first if LU12I.W is not used
+    // in order to clear 63..12 bits
+    const lo12: u12 = @truncate(imm & 0x0000000000000fff);
+    if (!use_lu12i) {
+        lower.emit(.ori(dst, .zero, lo12));
+        set_hi = false;
+    }
+    // Loads 51..32 bits
+    if (utils.notZero((imm & 0x000fffff00000000) >> 32)) |part| {
+        if (!(part == 0xfffff and set_hi)) {
+            lower.emit(.cu32i_d(dst, @truncate(@as(i64, @bitCast(part)))));
+            set_hi = (part >> 11) != 0;
+        }
+    }
+    // Loads 63..52 bits
+    if (utils.notZero((imm & 0xfff0000000000000) >> 52)) |part| {
+        if (!(part == 0xfff and set_hi)) {
+            lower.emit(.cu52i_d(dst, dst, @truncate(@as(i64, @bitCast(part)))));
+        }
+    }
+    // Loads 11..0 at the end if LU12I.W is used, to preserve higher bits.
+    if (use_lu12i and lo12 != 0x000) {
+        lower.emit(.ori(dst, dst, lo12));
+    }
+}
+
+/// Loads an immediate plus a reg to a reg.
+/// Emits up to 6 instructions.
+/// dst and src cannot be the same reg, or t0 will be clobberred.
+fn emitRegBiasToReg(lower: *Lower, dst: Register, src: Register, imm: u64) void {
+    if (dst == src) {
+        lower.emitImmToReg(imm, .t0);
+        lower.emit(.add_d(dst, .t0, src));
+    } else {
+        lower.emitImmToReg(imm, dst);
+        lower.emit(.add_d(dst, dst, src));
+    }
+}
