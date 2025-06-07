@@ -1382,6 +1382,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .ret_ptr => try cg.airRetPtr(inst),
             .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
+            .unreach => {},
+
             .dbg_stmt => if (cg.debug_output != .none) {
                 const dbg_stmt = cg.getAirData(inst).dbg_stmt;
                 try cg.asmPseudo(.dbg_line_stmt_line_column, .{ .line_column = .{
