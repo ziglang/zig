@@ -1445,6 +1445,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .breakpoint => try cg.asmInst(.@"break"(0)),
 
             .ret_addr => try (try cg.tempInit(.usize, .{ .register = .ra })).finish(inst, &.{}, cg),
+            .frame_addr => try (try cg.tempInit(.usize, .{ .lea_frame = .{ .index = .stack_frame } })).finish(inst, &.{}, cg),
 
             .alloc => try cg.airAlloc(inst),
             .ret_ptr => try cg.airRetPtr(inst),
