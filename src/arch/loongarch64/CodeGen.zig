@@ -2098,7 +2098,10 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
     assert(ty.isAbiInt(zcu));
 
     if (try sel.match(.{
-        .patterns = &.{.{ .srcs = &.{ .to_int_reg, .imm12 } }},
+        .patterns = &.{
+            .{ .srcs = &.{ .to_int_reg, .imm12 } },
+            .{ .srcs = &.{ .to_int_reg, .imm12 }, .commute = .{ 0, 1 } },
+        },
     })) {
         const lhs, const rhs = sel.ops[0..2].*;
         const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
