@@ -956,10 +956,6 @@ const Temp = struct {
         return temp.tracking(cg).getReg().?;
     }
 
-    fn getRegs(temp: Temp, cg: *CodeGen) []const Register {
-        return temp.tracking(cg).getRegs();
-    }
-
     fn moveToMemory(temp: *Temp, cg: *CodeGen, mut: bool) InnerError!bool {
         const temp_mcv = temp.tracking(cg).short;
         if (temp_mcv.isMemory() and (temp_mcv.isModifiable() or !mut)) {
@@ -1124,6 +1120,13 @@ const Temp = struct {
             },
         }
         return .{ .index = new_temp_index.toIndex() };
+    }
+
+    fn truncateRegister(temp: Temp, cg: *CodeGen) !void {
+        const temp_tracking = temp.tracking(cg);
+        const regs = temp_tracking.getRegs();
+        assert(regs.len > 0);
+        return cg.truncateRegister(temp.typeOf(cg), regs[regs.len - 1]);
     }
 };
 
@@ -1687,6 +1690,28 @@ fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: C
     }
 }
 
+/// Truncates the value in the register in place.
+/// Clobbers any remaining bits.
+fn truncateRegister(cg: *CodeGen, ty: Type, reg: Register) !void {
+    const zcu = cg.pt.zcu;
+
+    assert(reg.class() == .int);
+    const bit_size = @as(u5, @intCast(ty.bitSize(zcu) % 64));
+
+    // skip unneeded truncation
+    if (bit_size == 0) return;
+
+    if (ty.isAbiInt(zcu)) {
+        if (bit_size <= 32) {
+            try cg.asmInst(.bstrpick_w(reg, reg, 0, bit_size - 1));
+        } else {
+            try cg.asmInst(.bstrpick_d(reg, reg, 0, bit_size - 1));
+        }
+    } else {
+        try cg.asmInst(.bstrpick_d(reg, reg, 0, bit_size - 1));
+    }
+}
+
 /// Pattern matching framework.
 const Select = struct {
     cg: *CodeGen,
@@ -1944,7 +1969,7 @@ fn airArithBinOp(cg: *CodeGen, inst: Air.Inst.Index, opts: ArithBinOpOpts) !void
             .add => try cg.asmInst(.add_w(dst.getReg(cg), lhs.getReg(cg), rhs.getReg(cg))),
             .sub => try cg.asmInst(.sub_w(dst.getReg(cg), lhs.getReg(cg), rhs.getReg(cg))),
         }
-        // TODO: truncate integer
+        try dst.truncateRegister(cg);
         try sel.finish(dst);
     } else return sel.fail();
 }
