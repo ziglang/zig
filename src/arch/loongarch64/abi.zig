@@ -51,8 +51,10 @@ pub const CCValue = union(enum) {
     /// A value whose lower-ordered bits are in a register and the others are in the call frame.
     split: struct { reg: Register, frame_off: i32 },
     /// A value passed as a pointer in a register.
+    /// Caller allocates memory and sets the register to the pointer.
     ref_register: Register,
     /// A value passed as a pointer in the call frame.
+    /// Caller allocates memory and sets the frame address to the pointer.
     ref_frame: i32,
 
     pub fn getRegs(ccv: *const CCValue) []const Register {

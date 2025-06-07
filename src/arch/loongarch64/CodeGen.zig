@@ -1375,7 +1375,12 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
 
             .trap => try cg.asmInst(.@"break"(0)),
             .breakpoint => try cg.asmInst(.@"break"(0)),
+
             .ret_addr => try (try cg.tempInit(.usize, .{ .register = .ra })).finish(inst, &.{}, cg),
+
+            .alloc => try cg.airAlloc(inst),
+            .ret_ptr => try cg.airRetPtr(inst),
+            .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
             .dbg_stmt => if (cg.debug_output != .none) {
                 const dbg_stmt = cg.getAirData(inst).dbg_stmt;
@@ -2141,4 +2146,29 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
         }
         try sel.finish(dst);
     } else return sel.fail();
+}
+
+fn airAlloc(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
+    const ty = cg.getAirData(inst).ty;
+    const frame = try cg.allocFrameIndex(.initType(ty, zcu));
+    const result = try cg.tempInit(.ptr_usize, .{ .lea_frame = .{ .index = frame } });
+    try result.finish(inst, &.{}, cg);
+}
+
+fn airRetPtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    switch (cg.call_info.return_value) {
+        .ref_register => |reg| {
+            const result = try cg.tempInit(.ptr_usize, .{ .register = reg });
+            try result.finish(inst, &.{}, cg);
+        },
+        .ref_frame => |frame_off| {
+            const result = try cg.tempInit(.ptr_usize, .{ .load_frame = .{
+                .index = .args_frame,
+                .off = frame_off,
+            } });
+            try result.finish(inst, &.{}, cg);
+        },
+        else => try cg.airAlloc(inst),
+    }
 }
