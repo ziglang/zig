@@ -87,9 +87,8 @@ pub const zigcc = struct {
     pub const all_static = Integer.static_regs ++ Floating.static_regs;
 
     pub const Integer = struct {
-        pub const all_allocatable_regs = [_]Register{ret_addr_reg} ++ function_arg_regs ++ temporary_regs ++ static_regs;
+        pub const all_allocatable_regs = function_arg_regs ++ temporary_regs ++ static_regs;
 
-        pub const ret_addr_reg = .r1;
         pub const function_arg_regs = [_]Register{ .r4, .r5, .r6, .r7, .r8, .r9, .r10, .r11 };
         pub const function_ret_regs = function_arg_regs;
         pub const temporary_regs = [_]Register{ .r12, .r13, .r14, .r15, .r16, .r17, .r18, .r19, .r20 };
@@ -119,9 +118,8 @@ pub const c_abi = struct {
     pub const all_static = Integer.static_regs ++ Floating.static_regs;
 
     pub const Integer = struct {
-        pub const all_allocatable_regs = [_]Register{ret_addr_reg} ++ function_arg_regs ++ temporary_regs ++ static_regs;
+        pub const all_allocatable_regs = function_arg_regs ++ temporary_regs ++ static_regs;
 
-        pub const ret_addr_reg = .r1;
         pub const function_arg_regs = [_]Register{ .r4, .r5, .r6, .r7, .r8, .r9, .r10, .r11 };
         pub const function_ret_regs = [_]Register{ .r4, .r5 };
         pub const temporary_regs = [_]Register{ .r12, .r13, .r14, .r15, .r16, .r17, .r18, .r19, .r20 };
