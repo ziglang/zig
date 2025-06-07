@@ -1375,6 +1375,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
 
             .trap => try cg.asmInst(.@"break"(0)),
             .breakpoint => try cg.asmInst(.@"break"(0)),
+            .ret_addr => try (try cg.tempInit(.usize, .{ .register = .ra })).finish(inst, &.{}, cg),
 
             .dbg_stmt => if (cg.debug_output != .none) {
                 const dbg_stmt = cg.getAirData(inst).dbg_stmt;
