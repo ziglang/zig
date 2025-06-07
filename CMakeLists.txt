@@ -519,6 +519,7 @@ set(ZIG_STAGE2_SOURCES
     src/Air/Legalize.zig
     src/Air/Liveness.zig
     src/Air/Liveness/Verify.zig
+    src/Air/print.zig
     src/Air/types_resolved.zig
     src/Builtin.zig
     src/Compilation.zig
@@ -675,7 +676,6 @@ set(ZIG_STAGE2_SOURCES
     src/libs/mingw.zig
     src/libs/musl.zig
     src/mutable_value.zig
-    src/print_air.zig
     src/print_env.zig
     src/print_targets.zig
     src/print_value.zig

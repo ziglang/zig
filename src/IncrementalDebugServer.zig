@@ -10,7 +10,7 @@
 
 comptime {
     // This file should only be referenced when debug extensions are enabled.
-    std.debug.assert(@import("build_options").enable_debug_extensions);
+    std.debug.assert(@import("build_options").enable_debug_extensions and !@import("builtin").single_threaded);
 }
 
 zcu: *Zcu,

@@ -2376,7 +2376,7 @@ pub const FunctionImportId = enum(u32) {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const ext = ip.getNav(i.ptr(wasm).*).getResolvedExtern(ip).?;
-                return !ext.is_weak_linkage and ext.lib_name != .none;
+                return ext.linkage != .weak and ext.lib_name != .none;
             },
         };
     }

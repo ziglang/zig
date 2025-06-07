@@ -2255,19 +2255,30 @@ pub const DeclGen = struct {
     fn renderFwdDecl(
         dg: *DeclGen,
         nav_index: InternPool.Nav.Index,
-        flags: struct {
-            is_extern: bool,
+        flags: packed struct {
             is_const: bool,
             is_threadlocal: bool,
-            is_weak_linkage: bool,
+            linkage: std.builtin.GlobalLinkage,
+            visibility: std.builtin.SymbolVisibility,
         },
     ) !void {
         const zcu = dg.pt.zcu;
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
         const fwd = dg.fwdDeclWriter();
-        try fwd.writeAll(if (flags.is_extern) "zig_extern " else "static ");
-        if (flags.is_weak_linkage) try fwd.writeAll("zig_weak_linkage ");
+        try fwd.writeAll(switch (flags.linkage) {
+            .internal => "static ",
+            .strong, .weak, .link_once => "zig_extern ",
+        });
+        switch (flags.linkage) {
+            .internal, .strong => {},
+            .weak => try fwd.writeAll("zig_weak_linkage "),
+            .link_once => return dg.fail("TODO: CBE: implement linkonce linkage?", .{}),
+        }
+        switch (flags.linkage) {
+            .internal => {},
+            .strong, .weak, .link_once => try fwd.print("zig_visibility({s}) ", .{@tagName(flags.visibility)}),
+        }
         if (flags.is_threadlocal and !dg.mod.single_threaded) try fwd.writeAll("zig_threadlocal ");
         try dg.renderTypeAndName(
             fwd,
@@ -2994,10 +3005,10 @@ pub fn genDecl(o: *Object) !void {
     switch (ip.indexToKey(nav.status.fully_resolved.val)) {
         .@"extern" => |@"extern"| {
             if (!ip.isFunctionType(nav_ty.toIntern())) return o.dg.renderFwdDecl(o.dg.pass.nav, .{
-                .is_extern = true,
                 .is_const = @"extern".is_const,
                 .is_threadlocal = @"extern".is_threadlocal,
-                .is_weak_linkage = @"extern".is_weak_linkage,
+                .linkage = @"extern".linkage,
+                .visibility = @"extern".visibility,
             });
 
             const fwd = o.dg.fwdDeclWriter();
@@ -3016,13 +3027,12 @@ pub fn genDecl(o: *Object) !void {
         },
         .variable => |variable| {
             try o.dg.renderFwdDecl(o.dg.pass.nav, .{
-                .is_extern = false,
                 .is_const = false,
                 .is_threadlocal = variable.is_threadlocal,
-                .is_weak_linkage = variable.is_weak_linkage,
+                .linkage = .internal,
+                .visibility = .default,
             });
             const w = o.writer();
-            if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
             if (variable.is_threadlocal and !o.dg.mod.single_threaded) try w.writeAll("zig_threadlocal ");
             if (nav.status.fully_resolved.@"linksection".toSlice(&zcu.intern_pool)) |s|
                 try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
@@ -3467,7 +3477,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .error_set_has_value => return f.fail("TODO: C backend: implement error_set_has_value", .{}),
             .vector_store_elem => return f.fail("TODO: C backend: implement vector_store_elem", .{}),
 
-            .tlv_dllimport_ptr => try airTlvDllimportPtr(f, inst),
+            .runtime_nav_ptr => try airRuntimeNavPtr(f, inst),
 
             .c_va_start => try airCVaStart(f, inst),
             .c_va_arg => try airCVaArg(f, inst),
@@ -7672,7 +7682,7 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airTlvDllimportPtr(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airRuntimeNavPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_nav = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, .fromInterned(ty_nav.ty));

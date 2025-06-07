@@ -168,6 +168,15 @@ fn printOutput(
                 try build_args.appendSlice(&[_][]const u8{ "-target", triple });
                 try shell_out.print("-target {s} ", .{triple});
             }
+            if (code.use_llvm) |use_llvm| {
+                if (use_llvm) {
+                    try build_args.append("-fllvm");
+                    try shell_out.print("-fllvm", .{});
+                } else {
+                    try build_args.append("-fno-llvm");
+                    try shell_out.print("-fno-llvm", .{});
+                }
+            }
             if (code.verbose_cimport) {
                 try build_args.append("--verbose-cimport");
                 try shell_out.print("--verbose-cimport ", .{});
@@ -224,7 +233,6 @@ fn printOutput(
                     break :code_block;
                 }
             }
-
             const target_query = try std.Target.Query.parse(.{
                 .arch_os_abi = code.target_str orelse "native",
             });
@@ -319,6 +327,16 @@ fn printOutput(
                     },
                 }
             }
+            if (code.use_llvm) |use_llvm| {
+                if (use_llvm) {
+                    try test_args.append("-fllvm");
+                    try shell_out.print("-fllvm", .{});
+                } else {
+                    try test_args.append("-fno-llvm");
+                    try shell_out.print("-fno-llvm", .{});
+                }
+            }
+
             const result = run(arena, &env_map, tmp_dir_path, test_args.items) catch
                 fatal("test failed", .{});
             const escaped_stderr = try escapeHtml(arena, result.stderr);
@@ -469,6 +487,15 @@ fn printOutput(
                 try build_args.appendSlice(&[_][]const u8{ "-target", triple });
                 try shell_out.print("-target {s} ", .{triple});
             }
+            if (code.use_llvm) |use_llvm| {
+                if (use_llvm) {
+                    try build_args.append("-fllvm");
+                    try shell_out.print("-fllvm", .{});
+                } else {
+                    try build_args.append("-fno-llvm");
+                    try shell_out.print("-fno-llvm", .{});
+                }
+            }
             for (code.additional_options) |option| {
                 try build_args.append(option);
                 try shell_out.print("{s} ", .{option});
@@ -537,6 +564,15 @@ fn printOutput(
             if (code.target_str) |triple| {
                 try test_args.appendSlice(&[_][]const u8{ "-target", triple });
                 try shell_out.print("-target {s} ", .{triple});
+            }
+            if (code.use_llvm) |use_llvm| {
+                if (use_llvm) {
+                    try test_args.append("-fllvm");
+                    try shell_out.print("-fllvm", .{});
+                } else {
+                    try test_args.append("-fno-llvm");
+                    try shell_out.print("-fno-llvm", .{});
+                }
             }
             if (code.link_mode) |link_mode| {
                 switch (link_mode) {
@@ -827,6 +863,7 @@ const Code = struct {
     verbose_cimport: bool,
     just_check_syntax: bool,
     additional_options: []const []const u8,
+    use_llvm: ?bool,
 
     const Id = union(enum) {
         @"test",
@@ -886,6 +923,7 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
     var link_libc = false;
     var disable_cache = false;
     var verbose_cimport = false;
+    var use_llvm: ?bool = null;
 
     while (it.next()) |prefixed_line| {
         const line = skipPrefix(prefixed_line);
@@ -901,6 +939,10 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
             try additional_options.append(arena, line["additional_option=".len..]);
         } else if (mem.startsWith(u8, line, "target=")) {
             target_str = line["target=".len..];
+        } else if (mem.eql(u8, line, "llvm=true")) {
+            use_llvm = true;
+        } else if (mem.eql(u8, line, "llvm=false")) {
+            use_llvm = false;
         } else if (mem.eql(u8, line, "link_libc")) {
             link_libc = true;
         } else if (mem.eql(u8, line, "disable_cache")) {
@@ -923,6 +965,7 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
         .disable_cache = disable_cache,
         .verbose_cimport = verbose_cimport,
         .just_check_syntax = just_check_syntax,
+        .use_llvm = use_llvm,
     };
 }
 

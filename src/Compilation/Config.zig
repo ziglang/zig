@@ -191,91 +191,6 @@ pub fn resolve(options: Options) ResolveError!Config {
 
     const root_optimize_mode = options.root_optimize_mode orelse .Debug;
 
-    // Make a decision on whether to use LLVM backend for machine code generation.
-    // Note that using the LLVM backend does not necessarily mean using LLVM libraries.
-    // For example, Zig can emit .bc and .ll files directly, and this is still considered
-    // using "the LLVM backend".
-    const use_llvm = b: {
-        // If we have no zig code to compile, no need for LLVM.
-        if (!options.have_zcu) break :b false;
-
-        // If emitting to LLVM bitcode object format, must use LLVM backend.
-        if (options.emit_llvm_ir or options.emit_llvm_bc) {
-            if (options.use_llvm == false)
-                return error.EmittingLlvmModuleRequiresLlvmBackend;
-            if (!target_util.hasLlvmSupport(target, target.ofmt))
-                return error.LlvmLacksTargetSupport;
-
-            break :b true;
-        }
-
-        // If LLVM does not support the target, then we can't use it.
-        if (!target_util.hasLlvmSupport(target, target.ofmt)) {
-            if (options.use_llvm == true) return error.LlvmLacksTargetSupport;
-            break :b false;
-        }
-
-        // If Zig does not support the target, then we can't use it.
-        if (target_util.zigBackend(target, false) == .other) {
-            if (options.use_llvm == false) return error.ZigLacksTargetSupport;
-            break :b true;
-        }
-
-        if (options.use_llvm) |x| break :b x;
-
-        // If we cannot use LLVM libraries, then our own backends will be a
-        // better default since the LLVM backend can only produce bitcode
-        // and not an object file or executable.
-        if (!use_lib_llvm and options.emit_bin) break :b false;
-
-        // Prefer LLVM for release builds.
-        if (root_optimize_mode != .Debug) break :b true;
-
-        // At this point we would prefer to use our own self-hosted backend,
-        // because the compilation speed is better than LLVM. But only do it if
-        // we are confident in the robustness of the backend.
-        break :b !target_util.selfHostedBackendIsAsRobustAsLlvm(target);
-    };
-
-    if (options.emit_bin and options.have_zcu) {
-        if (!use_lib_llvm and use_llvm) {
-            // Explicit request to use LLVM to produce an object file, but without
-            // using LLVM libraries. Impossible.
-            return error.EmittingBinaryRequiresLlvmLibrary;
-        }
-
-        if (target_util.zigBackend(target, use_llvm) == .other) {
-            // There is no compiler backend available for this target.
-            return error.ZigLacksTargetSupport;
-        }
-    }
-
-    // Make a decision on whether to use LLD or our own linker.
-    const use_lld = b: {
-        if (!target_util.hasLldSupport(target.ofmt)) {
-            if (options.use_lld == true) return error.LldIncompatibleObjectFormat;
-            break :b false;
-        }
-
-        if (!build_options.have_llvm) {
-            if (options.use_lld == true) return error.LldUnavailable;
-            break :b false;
-        }
-
-        if (options.lto != null and options.lto != .none) {
-            if (options.use_lld == false) return error.LtoRequiresLld;
-            break :b true;
-        }
-
-        if (options.use_llvm == false) {
-            if (options.use_lld == true) return error.LldCannotIncrementallyLink;
-            break :b false;
-        }
-
-        if (options.use_lld) |x| break :b x;
-        break :b true;
-    };
-
     // Make a decision on whether to use Clang or Aro for translate-c and compiling C files.
     const c_frontend: CFrontend = b: {
         if (!build_options.have_llvm) {
@@ -286,19 +201,6 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b if (clang) .clang else .aro;
         }
         break :b .clang;
-    };
-
-    const lto: std.zig.LtoMode = b: {
-        if (!use_lld) {
-            // zig ld LTO support is tracked by
-            // https://github.com/ziglang/zig/issues/8680
-            if (options.lto != null and options.lto != .none) return error.LtoRequiresLld;
-            break :b .none;
-        }
-
-        if (options.lto) |x| break :b x;
-
-        break :b .none;
     };
 
     const link_libcpp = b: {
@@ -314,14 +216,6 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    var link_libunwind = b: {
-        if (link_libcpp and target_util.libCxxNeedsLibUnwind(target)) {
-            if (options.link_libunwind == false) return error.LibCppRequiresLibUnwind;
-            break :b true;
-        }
-        break :b options.link_libunwind orelse false;
-    };
-
     const link_libc = b: {
         if (target_util.osRequiresLibC(target)) {
             if (options.link_libc == false) return error.OsRequiresLibC;
@@ -331,7 +225,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.link_libc == false) return error.LibCppRequiresLibC;
             break :b true;
         }
-        if (link_libunwind) {
+        if (options.link_libunwind == true) {
             if (options.link_libc == false) return error.LibUnwindRequiresLibC;
             break :b true;
         }
@@ -402,12 +296,17 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b .static;
     };
 
-    // This is done here to avoid excessive duplicated logic due to the complex dependencies between these options.
-    if (options.output_mode == .Exe and link_libc and target_util.libCNeedsLibUnwind(target, link_mode)) {
-        if (options.link_libunwind == false) return error.LibCRequiresLibUnwind;
-
-        link_libunwind = true;
-    }
+    const link_libunwind = b: {
+        if (options.output_mode == .Exe and link_libc and target_util.libCNeedsLibUnwind(target, link_mode)) {
+            if (options.link_libunwind == false) return error.LibCRequiresLibUnwind;
+            break :b true;
+        }
+        if (link_libcpp and target_util.libCxxNeedsLibUnwind(target)) {
+            if (options.link_libunwind == false) return error.LibCppRequiresLibUnwind;
+            break :b true;
+        }
+        break :b options.link_libunwind orelse false;
+    };
 
     const import_memory = options.import_memory orelse (options.output_mode == .Obj);
     const export_memory = b: {
@@ -444,6 +343,119 @@ pub fn resolve(options: Options) ResolveError!Config {
             => true,
             else => target.os.tag.isDarwin(),
         } else false;
+    };
+
+    const is_dyn_lib = switch (options.output_mode) {
+        .Obj, .Exe => false,
+        .Lib => link_mode == .dynamic,
+    };
+
+    // Make a decision on whether to use LLVM backend for machine code generation.
+    // Note that using the LLVM backend does not necessarily mean using LLVM libraries.
+    // For example, Zig can emit .bc and .ll files directly, and this is still considered
+    // using "the LLVM backend".
+    const use_llvm = b: {
+        // If we have no zig code to compile, no need for LLVM.
+        if (!options.have_zcu) break :b false;
+
+        // If emitting to LLVM bitcode object format, must use LLVM backend.
+        if (options.emit_llvm_ir or options.emit_llvm_bc) {
+            if (options.use_llvm == false)
+                return error.EmittingLlvmModuleRequiresLlvmBackend;
+            if (!target_util.hasLlvmSupport(target, target.ofmt))
+                return error.LlvmLacksTargetSupport;
+
+            break :b true;
+        }
+
+        // If LLVM does not support the target, then we can't use it.
+        if (!target_util.hasLlvmSupport(target, target.ofmt)) {
+            if (options.use_llvm == true) return error.LlvmLacksTargetSupport;
+            break :b false;
+        }
+
+        // If Zig does not support the target, then we can't use it.
+        if (target_util.zigBackend(target, false) == .other) {
+            if (options.use_llvm == false) return error.ZigLacksTargetSupport;
+            break :b true;
+        }
+
+        if (options.use_llvm) |x| break :b x;
+
+        // If we cannot use LLVM libraries, then our own backends will be a
+        // better default since the LLVM backend can only produce bitcode
+        // and not an object file or executable.
+        if (!use_lib_llvm and options.emit_bin) break :b false;
+
+        // Prefer LLVM for release builds.
+        if (root_optimize_mode != .Debug) break :b true;
+
+        // load_dynamic_library standalone test not passing on this combination
+        // https://github.com/ziglang/zig/issues/24080
+        if (target.os.tag == .macos and is_dyn_lib) break :b true;
+
+        // At this point we would prefer to use our own self-hosted backend,
+        // because the compilation speed is better than LLVM. But only do it if
+        // we are confident in the robustness of the backend.
+        break :b !target_util.selfHostedBackendIsAsRobustAsLlvm(target);
+    };
+
+    if (options.emit_bin and options.have_zcu) {
+        if (!use_lib_llvm and use_llvm) {
+            // Explicit request to use LLVM to produce an object file, but without
+            // using LLVM libraries. Impossible.
+            return error.EmittingBinaryRequiresLlvmLibrary;
+        }
+
+        if (target_util.zigBackend(target, use_llvm) == .other) {
+            // There is no compiler backend available for this target.
+            return error.ZigLacksTargetSupport;
+        }
+    }
+
+    // Make a decision on whether to use LLD or our own linker.
+    const use_lld = b: {
+        if (!target_util.hasLldSupport(target.ofmt)) {
+            if (options.use_lld == true) return error.LldIncompatibleObjectFormat;
+            break :b false;
+        }
+
+        if (!build_options.have_llvm) {
+            if (options.use_lld == true) return error.LldUnavailable;
+            break :b false;
+        }
+
+        if (options.lto != null and options.lto != .none) {
+            if (options.use_lld == false) return error.LtoRequiresLld;
+            break :b true;
+        }
+
+        if (options.use_llvm == false) {
+            if (options.use_lld == true) return error.LldCannotIncrementallyLink;
+            break :b false;
+        }
+
+        if (options.use_lld) |x| break :b x;
+
+        // If we have no zig code to compile, no need for the self-hosted linker.
+        if (!options.have_zcu) break :b true;
+
+        // If we do have zig code, match the decision for whether to use the llvm backend,
+        // so that the llvm backend defaults to lld and the self-hosted backends do not.
+        break :b use_llvm;
+    };
+
+    const lto: std.zig.LtoMode = b: {
+        if (!use_lld) {
+            // zig ld LTO support is tracked by
+            // https://github.com/ziglang/zig/issues/8680
+            if (options.lto != null and options.lto != .none) return error.LtoRequiresLld;
+            break :b .none;
+        }
+
+        if (options.lto) |x| break :b x;
+
+        break :b .none;
     };
 
     const root_strip = b: {

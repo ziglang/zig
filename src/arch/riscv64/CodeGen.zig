@@ -1041,12 +1041,7 @@ fn formatAir(
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    @import("../../print_air.zig").dumpInst(
-        data.inst,
-        data.func.pt,
-        data.func.air,
-        data.func.liveness,
-    );
+    data.func.air.dumpInst(data.inst, data.func.pt, data.func.liveness);
 }
 fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(formatAir) {
     return .{ .data = .{ .func = func, .inst = inst } };
@@ -1656,7 +1651,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .wrap_errunion_payload => try func.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try func.airWrapErrUnionErr(inst),
 
-            .tlv_dllimport_ptr => try func.airTlvDllimportPtr(inst),
+            .runtime_nav_ptr => try func.airRuntimeNavPtr(inst),
 
             .add_optimized,
             .sub_optimized,
@@ -3626,7 +3621,7 @@ fn airWrapErrUnionErr(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airTlvDllimportPtr(func: *Func, inst: Air.Inst.Index) !void {
+fn airRuntimeNavPtr(func: *Func, inst: Air.Inst.Index) !void {
     const zcu = func.pt.zcu;
     const ip = &zcu.intern_pool;
     const ty_nav = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
@@ -3641,7 +3636,7 @@ fn airTlvDllimportPtr(func: *Func, inst: Air.Inst.Index) !void {
             break :sym sym;
         }
         break :sym try zo.getOrCreateMetadataForNav(zcu, ty_nav.nav);
-    } else return func.fail("TODO tlv_dllimport_ptr on {}", .{func.bin_file.tag});
+    } else return func.fail("TODO runtime_nav_ptr on {}", .{func.bin_file.tag});
 
     const dest_mcv = try func.allocRegOrMem(ptr_ty, inst, true);
     if (dest_mcv.isRegister()) {

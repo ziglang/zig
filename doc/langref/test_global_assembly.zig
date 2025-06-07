@@ -19,3 +19,4 @@ test "global assembly" {
 
 // test
 // target=x86_64-linux
+// llvm=true
