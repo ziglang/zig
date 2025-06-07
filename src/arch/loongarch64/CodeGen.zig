@@ -215,6 +215,14 @@ pub const MCValue = union(enum) {
         };
     }
 
+    fn isInRegister(mcv: MCValue) bool {
+        return switch (mcv) {
+            .register, .register_pair, .register_triple, .register_quadruple => true,
+            .register_bias => |reg_off| reg_off.off == 0,
+            else => false,
+        };
+    }
+
     fn isRegisterBias(mcv: MCValue) bool {
         return switch (mcv) {
             .register, .register_bias => true,
@@ -1067,6 +1075,10 @@ const Temp = struct {
         return val;
     }
 
+    fn getLimbCount(temp: Temp, cg: *CodeGen) u64 {
+        return std.math.divCeil(u64, temp.typeOf(cg).abiSize(cg.pt.zcu), 8) catch unreachable;
+    }
+
     fn getLimb(temp: Temp, limb_ty: Type, limb_index: u28, cg: *CodeGen) InnerError!Temp {
         const new_temp_index = cg.next_temp_index;
         cg.next_temp_index = @enumFromInt(@intFromEnum(new_temp_index) + 1);
@@ -1127,6 +1139,45 @@ const Temp = struct {
         return .{ .index = new_temp_index.toIndex() };
     }
 
+    /// Returns MCV of a limb.
+    /// Caller does not own return values.
+    fn toLimbValue(temp: Temp, limb_index: usize, cg: *CodeGen) InnerError!MCValue {
+        switch (temp.tracking(cg).short) {
+            else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
+            .register, .immediate, .register_bias, .register_offset, .lea_symbol, .lea_frame => {
+                assert(limb_index == 0);
+                return temp.tracking(cg).short;
+            },
+            inline .register_pair, .register_triple, .register_quadruple => |regs| {
+                return .{ .register = regs[limb_index] };
+            },
+            .load_symbol => |sym_off| {
+                return .{ .load_symbol = .{
+                    .index = sym_off.index,
+                    .off = sym_off.off + @as(u31, @intCast(limb_index)) * 8,
+                } };
+            },
+            .load_frame => |frame_addr| {
+                return .{ .load_frame = .{
+                    .index = frame_addr.index,
+                    .off = frame_addr.off + @as(u31, @intCast(limb_index)) * 8,
+                } };
+            },
+        }
+    }
+
+    /// Loads `val` to `temp` if `val` is not in regs yet.
+    /// Returns either MCV of self if copy occurred or `val` if `val` is already in regs.
+    fn ensureReg(temp: Temp, cg: *CodeGen, val: MCValue) InnerError!MCValue {
+        if (val.isInRegister()) {
+            return val;
+        } else {
+            const temp_mcv = temp.tracking(cg).short;
+            try cg.genCopyToReg(temp.typeOf(cg), temp.getReg(cg), val, .{});
+            return temp_mcv;
+        }
+    }
+
     fn truncateRegister(temp: Temp, cg: *CodeGen) !void {
         const temp_tracking = temp.tracking(cg);
         const regs = temp_tracking.getRegs();
@@ -1165,22 +1216,22 @@ const MCVAllocOptions = struct {
     use_frame: bool = true,
 };
 
-pub fn allocRegOrMem(cg: *CodeGen, ty: Type, inst: ?Air.Inst.Index, opts: MCVAllocOptions) !MCValue {
-    const pt = cg.pt;
-    const zcu = pt.zcu;
-    const abi_size = std.math.cast(u32, ty.abiSize(zcu)) orelse {
-        return cg.fail("type '{}' too big to fit into stack frame", .{ty.fmt(pt)});
-    };
+fn canAllocInReg(cg: *CodeGen, ty: Type) bool {
+    const zcu = cg.pt.zcu;
+    const abi_size = ty.abiSize(zcu);
+    const max_abi_size = @as(u32, switch (ty.zigTypeTag(zcu)) {
+        .float => 16,
+        else => 8,
+    });
+    return std.math.isPowerOfTwo(abi_size) and abi_size <= max_abi_size;
+}
 
-    if (opts.use_reg) {
-        const max_abi_size = @as(u32, switch (ty.zigTypeTag(zcu)) {
-            .float => 16,
-            else => 8,
-        });
-        if (std.math.isPowerOfTwo(abi_size) and abi_size <= max_abi_size) {
-            if (cg.register_manager.tryAllocReg(inst, cg.getAllocatableRegSetForType(ty))) |reg| {
-                return MCValue{ .register = reg };
-            }
+pub fn allocRegOrMem(cg: *CodeGen, ty: Type, inst: ?Air.Inst.Index, opts: MCVAllocOptions) !MCValue {
+    const zcu = cg.pt.zcu;
+
+    if (opts.use_reg and cg.canAllocInReg(ty)) {
+        if (cg.register_manager.tryAllocReg(inst, cg.getAllocatableRegSetForType(ty))) |reg| {
+            return MCValue{ .register = reg };
         }
     }
 
@@ -1189,7 +1240,7 @@ pub fn allocRegOrMem(cg: *CodeGen, ty: Type, inst: ?Air.Inst.Index, opts: MCVAll
         return .{ .load_frame = .{ .index = frame_index } };
     }
 
-    return error.OutOfRegisters;
+    return cg.fail("Cannot allocate {} with options {} (Zig compiler bug)", .{ ty.fmt(cg.pt), opts });
 }
 
 fn allocFrameIndex(cg: *CodeGen, alloc: FrameAlloc) !FrameIndex {
@@ -1312,6 +1363,10 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .sub => try cg.airArithBinOp(inst, .{ .op = .sub, .wrapping = .unchecked }),
             .sub_safe => try cg.airArithBinOp(inst, .{ .op = .sub, .wrapping = .checked }),
             .sub_wrap => try cg.airArithBinOp(inst, .{ .op = .sub, .wrapping = .unchecked }),
+
+            .bit_and => try cg.airLogicBinOp(inst, .@"and"),
+            .bit_or => try cg.airLogicBinOp(inst, .@"or"),
+            .xor => try cg.airLogicBinOp(inst, .xor),
 
             .dbg_stmt => if (cg.debug_output != .none) {
                 const dbg_stmt = cg.getAirData(inst).dbg_stmt;
@@ -1497,7 +1552,7 @@ inline fn tempsFromOperands(
 }
 
 fn tempReuseOrAlloc(cg: *CodeGen, inst: Air.Inst.Index, op: Temp, op_i: Air.Liveness.OperandInt, ty: Type, opts: MCVAllocOptions) InnerError!Temp {
-    if (cg.liveness.operandDies(inst, op_i)) {
+    if (cg.liveness.operandDies(inst, op_i) and op.isMut(cg)) {
         cg.reused_operands.set(op_i);
         return op;
     } else {
@@ -1759,19 +1814,17 @@ const Select = struct {
     }
 
     inline fn match(sel: *Select, case: Case) !bool {
-        inline for (case.requires) |requires|
+        for (case.requires) |requires|
             if (!requires) return false;
-        inline for (case.patterns, 0..) |pattern, pat_i|
+        for (case.patterns, 0..) |pattern, pat_i|
             if (!pattern.matches(sel.ops[pat_i], sel.cg)) return false;
 
-        inline for (case.patterns, 0..) |pattern, pat_i| {
+        for (case.patterns, 0..) |pattern, pat_i| {
             while (try pattern.convert(&sel.ops[pat_i], sel.cg)) {}
         }
 
         sel.temps_count = case.temps.len;
-        inline for (case.temps, 0..) |temp, temp_i| {
-            sel.temps[temp_i] = try temp.create(sel.cg, sel);
-        }
+        for (case.temps, 0..) |temp, temp_i| sel.temps[temp_i] = try temp.create(sel);
 
         return true;
     }
@@ -1795,6 +1848,11 @@ const Select = struct {
         to_reg: Register.Class,
         mut_reg: Register.Class,
         to_mut_reg: Register.Class,
+
+        pub const int_reg: SrcPattern = .{ .reg = .int };
+        pub const to_int_reg: SrcPattern = .{ .to_reg = .int };
+        pub const int_mut_reg: SrcPattern = .{ .mut_reg = .int };
+        pub const to_int_mut_reg: SrcPattern = .{ .to_mut_reg = .int };
 
         fn matches(pat: SrcPattern, temp: Temp, cg: *CodeGen) bool {
             return switch (pat) {
@@ -1831,18 +1889,23 @@ const Select = struct {
 
     pub const TempSpec = struct {
         type: Type = .noreturn,
-        kind: Kind,
+        kind: Kind = .any,
 
         pub const Kind = union(enum) {
-            any,
+            alloc: MCVAllocOptions,
             mcv: MCValue,
             constant: Value,
             lazy_symbol: struct { kind: link.File.LazySymbol.Kind },
             symbol: *const struct { lib: ?[]const u8 = null, name: []const u8 },
 
-            pub const none = .{ .mcv = .none };
-            pub const undef = .{ .mcv = .undef };
+            pub const none: Kind = .{ .mcv = .none };
+            pub const undef: Kind = .{ .mcv = .undef };
+            pub const any: Kind = .{ .alloc = .{} };
+            pub const any_reg: Kind = .{ .alloc = .{ .use_frame = false } };
+            pub const any_frame: Kind = .{ .alloc = .{ .use_reg = false } };
         };
+
+        pub const any_usize_reg: TempSpec = .{ .type = .usize, .kind = .any_reg };
 
         fn create(spec: TempSpec, sel: *const Select) InnerError!Temp {
             const cg = sel.cg;
@@ -1850,7 +1913,7 @@ const Select = struct {
             const zcu = pt.zcu;
 
             return switch (spec.kind) {
-                .any => try cg.tempAlloc(spec.type, .{}),
+                .alloc => |alloc_opts| try cg.tempAlloc(spec.type, alloc_opts),
                 .mcv => |mcv| try cg.tempInit(spec.type, mcv),
                 .constant => |constant| try cg.tempInit(constant.typeOf(zcu), try cg.genTypedValue(constant)),
                 .lazy_symbol => |lazy_symbol_spec| {
@@ -1866,20 +1929,20 @@ const Select = struct {
                             else => ty.toIntern(),
                         },
                     };
-                    return .{ try cg.tempInit(.usize, .{ .lea_symbol = .{
-                        .sym_index = if (cg.bin_file.cast(.elf)) |elf_file|
+                    return try cg.tempInit(.usize, .{ .lea_symbol = .{
+                        .index = if (cg.bin_file.cast(.elf)) |elf_file|
                             elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_symbol) catch |err|
                                 return cg.fail("{s} creating lazy symbol", .{@errorName(err)})
                         else
                             return cg.fail("external symbols unimplemented for {s}", .{@tagName(cg.bin_file.tag)}),
-                    } }), true };
+                    } });
                 },
-                .symbol => |symbol_spec| .{ try cg.tempInit(spec.type, .{ .lea_symbol = .{
-                    .sym_index = if (cg.bin_file.cast(.elf)) |elf_file|
+                .symbol => |symbol_spec| try cg.tempInit(spec.type, .{ .lea_symbol = .{
+                    .index = if (cg.bin_file.cast(.elf)) |elf_file|
                         try elf_file.getGlobalSymbol(symbol_spec.name, symbol_spec.lib)
                     else
                         return cg.fail("external symbols unimplemented for {s}", .{@tagName(cg.bin_file.tag)}),
-                } }), true },
+                } }),
             };
         }
     };
@@ -1975,6 +2038,55 @@ fn airArithBinOp(cg: *CodeGen, inst: Air.Inst.Index, opts: ArithBinOpOpts) !void
             .sub => try cg.asmInst(.sub_w(dst.getReg(cg), lhs.getReg(cg), rhs.getReg(cg))),
         }
         try dst.truncateRegister(cg);
+        try sel.finish(dst);
+    } else return sel.fail();
+}
+
+const LogicBinOpKind = enum { @"and", @"or", xor };
+
+fn asmIntLogicBinOp(cg: *CodeGen, op: LogicBinOpKind, dst: Register, src1: Register, src2: Register) !void {
+    return switch (op) {
+        .@"and" => cg.asmInst(.@"and"(dst, src1, src2)),
+        .@"or" => cg.asmInst(.@"or"(dst, src1, src2)),
+        .xor => cg.asmInst(.xor(dst, src1, src2)),
+    };
+}
+
+fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
+    const pt = cg.pt;
+    const zcu = pt.zcu;
+
+    const bin_op = cg.getAirData(inst).bin_op;
+    var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs }));
+    const ty = sel.ops[0].typeOf(cg);
+    assert(ty.isAbiInt(zcu));
+
+    if (try sel.match(.{
+        .patterns = &.{ .to_int_reg, .to_int_reg },
+    })) {
+        const lhs, const rhs = sel.ops[0..2].*;
+        const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
+        for (0..lhs.getLimbCount(cg)) |limb_i| {
+            const lhs_limb = try lhs.toLimbValue(limb_i, cg);
+            const rhs_limb = try rhs.toLimbValue(limb_i, cg);
+            const dst_limb = try dst.toLimbValue(limb_i, cg);
+            try asmIntLogicBinOp(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, rhs_limb.getReg().?);
+        }
+        try sel.finish(dst);
+    } else if (try sel.match(.{
+        .requires = &.{cg.canAllocInReg(ty)},
+        .patterns = &.{ .any, .any },
+        .temps = &.{ .any_usize_reg, .any_usize_reg },
+    })) {
+        const lhs, const rhs = sel.ops[0..2].*;
+        const tmp1, const tmp2 = sel.temps[0..2].*;
+        const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
+        for (0..lhs.getLimbCount(cg)) |limb_i| {
+            const lhs_limb = try tmp1.ensureReg(cg, try lhs.toLimbValue(limb_i, cg));
+            const rhs_limb = try tmp2.ensureReg(cg, try rhs.toLimbValue(limb_i, cg));
+            const dst_limb = try dst.toLimbValue(limb_i, cg);
+            try asmIntLogicBinOp(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, rhs_limb.getReg().?);
+        }
         try sel.finish(dst);
     } else return sel.fail();
 }
