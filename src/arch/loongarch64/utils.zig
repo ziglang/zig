@@ -12,3 +12,7 @@ pub fn hi20(val: u64, pc: u64) i20 {
 pub fn lo12(val: u64, pc: u64) i12 {
     return @bitCast(@as(i12, @truncate((@as(i64, @intCast(val)) - @as(i64, @intCast(pc))) & 0xfff)));
 }
+
+pub fn notZero(val: anytype) ?@TypeOf(val) {
+    return if (val != 0) val else null;
+}

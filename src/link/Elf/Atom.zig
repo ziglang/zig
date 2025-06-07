@@ -2261,7 +2261,7 @@ const loongarch = struct {
         }
     }
 
-    const la_util = @import("../loongarch.zig");
+    const la_util = @import("../../arch/loongarch64/utils.zig");
 };
 
 const ResolveArgs = struct { i64, i64, i64, i64, i64, i64, i64 };
