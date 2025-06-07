@@ -10,8 +10,6 @@ pub fn Value(comptime T: type) type {
             return .{ .raw = value };
         }
 
-        pub const fence = @compileError("@fence is deprecated, use other atomics to establish ordering");
-
         pub inline fn load(self: *const Self, comptime order: AtomicOrder) T {
             return @atomicLoad(T, &self.raw, order);
         }
