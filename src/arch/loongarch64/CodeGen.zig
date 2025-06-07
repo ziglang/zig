@@ -720,9 +720,13 @@ pub fn generate(
         } },
     });
 
+    // TODO: calc preserve static regs
+    const frame_size = try cg.computeFrameLayout();
+
     var mir: Mir = .{
         .instructions = cg.mir_instructions.toOwnedSlice(),
         .frame_locs = cg.frame_locs.toOwnedSlice(),
+        .frame_size = frame_size,
     };
     defer mir.deinit(gpa);
 
@@ -778,6 +782,56 @@ pub fn generateLazy(
     _ = debug_output;
 
     unreachable;
+}
+
+/// Computes frame layout and fill `frame_locs` based on `frame_allocs`.
+/// Returns size of the frame.
+fn computeFrameLayout(cg: *CodeGen) !usize {
+    const frame_allocs_len = cg.frame_allocs.len;
+    try cg.frame_locs.resize(cg.gpa, frame_allocs_len);
+
+    const frame_align = cg.frame_allocs.items(.abi_align);
+    const frame_offset = cg.frame_locs.items(.offset);
+
+    // sort frames by alignment
+    const frame_alloc_order = try cg.gpa.alloc(FrameIndex, frame_allocs_len - FrameIndex.named_count);
+    defer cg.gpa.free(frame_alloc_order);
+
+    for (frame_alloc_order, FrameIndex.named_count..) |*frame_order, frame_index|
+        frame_order.* = @enumFromInt(frame_index);
+
+    {
+        const SortContext = struct {
+            frame_align: @TypeOf(frame_align),
+            pub fn lessThan(ctx: @This(), lhs: FrameIndex, rhs: FrameIndex) bool {
+                return ctx.frame_align[@intFromEnum(lhs)].compare(.gt, ctx.frame_align[@intFromEnum(rhs)]);
+            }
+        };
+        const sort_context: SortContext = .{ .frame_align = frame_align };
+        std.mem.sort(FrameIndex, frame_alloc_order, sort_context, SortContext.lessThan);
+    }
+
+    // TODO: use frame pointer when needed
+    // TODO: optimize: don't touch sp for leave functions
+
+    // compute locations from the bottom to the top
+    var sp_offset: i32 = 0;
+    cg.setFrameLoc(.stack_frame, .sp, &sp_offset, true);
+    cg.setFrameLoc(.call_frame, .sp, &sp_offset, true);
+    for (frame_alloc_order) |frame_index| cg.setFrameLoc(frame_index, .sp, &sp_offset, true);
+    cg.setFrameLoc(.args_frame, .sp, &sp_offset, false);
+
+    return @intCast(sp_offset - frame_offset[@intFromEnum(FrameIndex.call_frame)]);
+}
+
+fn setFrameLoc(cg: *CodeGen, frame_index: FrameIndex, base: Register, offset: *i32, comptime aligned: bool) void {
+    const frame_i = @intFromEnum(frame_index);
+    if (aligned) {
+        const alignment = cg.frame_allocs.items(.abi_align)[frame_i];
+        offset.* = @intCast(alignment.forward(@intCast(offset.*)));
+    }
+    cg.frame_locs.set(frame_i, .{ .base = base, .offset = offset.* });
+    offset.* += cg.frame_allocs.items(.abi_size)[frame_i];
 }
 
 fn gen(cg: *CodeGen) InnerError!void {

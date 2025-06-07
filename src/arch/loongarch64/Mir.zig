@@ -13,6 +13,7 @@ const InternPool = @import("../../InternPool.zig");
 
 instructions: std.MultiArrayList(Inst).Slice,
 frame_locs: std.MultiArrayList(FrameLoc).Slice,
+frame_size: usize,
 
 pub const Inst = struct {
     tag: Tag,
