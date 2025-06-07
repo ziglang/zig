@@ -476,7 +476,10 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
                 compile.name_only_filename = owner.fmt("lib{s}.dylib", .{compile.name});
                 compile.out_lib_filename = compile.out_filename;
             } else if (target.os.tag == .windows) {
-                compile.out_lib_filename = owner.fmt("{s}.lib", .{compile.name});
+                compile.out_lib_filename = if (target.abi.isGnu())
+                    owner.fmt("lib{s}.dll.a", .{compile.name})
+                else
+                    owner.fmt("{s}.lib", .{compile.name});
             } else {
                 compile.major_only_filename = owner.fmt("lib{s}.so.{d}", .{ compile.name, version.major });
                 compile.name_only_filename = owner.fmt("lib{s}.so", .{compile.name});
@@ -486,7 +489,10 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             if (target.os.tag.isDarwin()) {
                 compile.out_lib_filename = compile.out_filename;
             } else if (target.os.tag == .windows) {
-                compile.out_lib_filename = owner.fmt("{s}.lib", .{compile.name});
+                compile.out_lib_filename = if (target.abi.isGnu())
+                    owner.fmt("lib{s}.dll.a", .{compile.name})
+                else
+                    owner.fmt("{s}.lib", .{compile.name});
             } else {
                 compile.out_lib_filename = compile.out_filename;
             }
@@ -662,6 +668,11 @@ pub fn producesPdbFile(compile: *Compile) bool {
     switch (target.os.tag) {
         .windows, .uefi => {},
         else => return false,
+    }
+    if (compile.root_module.debug_format) |fmt| {
+        if (fmt != .code_view) return false;
+    } else {
+        if (target.abi.isGnu()) return false;
     }
     if (target.ofmt == .c) return false;
     if (compile.root_module.strip == true or
@@ -1848,7 +1859,10 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
         // -femit-implib[=path]      (default) Produce an import .lib when building a Windows DLL
         if (compile.generated_implib) |implib| {
-            implib.path = b.fmt("{}" ++ sep ++ "{s}.lib", .{ output_dir, compile.name });
+            if (compile.rootModuleTarget().abi.isGnu())
+                implib.path = b.fmt("{}" ++ sep ++ "lib{s}.dll.a", .{ output_dir, compile.name })
+            else
+                implib.path = b.fmt("{}" ++ sep ++ "{s}.lib", .{ output_dir, compile.name });
         }
 
         // -femit-h[=path]           Generate a C header file (.h)
