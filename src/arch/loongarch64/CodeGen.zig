@@ -1403,7 +1403,7 @@ fn resolveCallInfo(cg: *CodeGen, fn_ty: *const InternPool.Key.FuncType) codegen.
     };
 }
 
-fn getAirData(cg: *CodeGen, inst: Air.Inst.Index) Air.Inst.Data {
+inline fn getAirData(cg: *CodeGen, inst: Air.Inst.Index) Air.Inst.Data {
     return cg.air.instructions.items(.data)[@intFromEnum(inst)];
 }
 
