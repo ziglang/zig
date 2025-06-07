@@ -99,7 +99,7 @@ copy_rel: CopyRelSection = .{},
 rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
 /// SHT_GROUP sections
 /// Applies only to a relocatable.
-comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .empty,
+group_sections: std.ArrayListUnmanaged(GroupSection) = .empty,
 
 resolver: SymbolResolver = .{},
 
@@ -510,7 +510,7 @@ pub fn deinit(self: *Elf) void {
     self.copy_rel.deinit(gpa);
     self.rela_dyn.deinit(gpa);
     self.rela_plt.deinit(gpa);
-    self.comdat_group_sections.deinit(gpa);
+    self.group_sections.deinit(gpa);
     self.dump_argv_list.deinit(gpa);
 }
 
@@ -919,7 +919,7 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
         &self.sections,
         self.shstrtab.items,
         self.merge_sections.items,
-        self.comdat_group_sections.items,
+        self.group_sections.items,
         self.zigObjectPtr(),
         self.files,
     );
@@ -1315,16 +1315,16 @@ pub fn resolveSymbols(self: *Elf) !void {
     }
 
     {
-        // Dedup comdat groups.
+        // Dedup groups.
         var table = std.StringHashMap(Ref).init(self.base.comp.gpa);
         defer table.deinit();
 
         for (self.objects.items) |index| {
-            try self.file(index).?.object.resolveComdatGroups(self, &table);
+            try self.file(index).?.object.resolveGroups(self, &table);
         }
 
         for (self.objects.items) |index| {
-            self.file(index).?.object.markComdatGroupsDead(self);
+            self.file(index).?.object.markGroupsDead(self);
         }
     }
 
@@ -3125,7 +3125,7 @@ pub fn sortShdrs(
     sections: *std.MultiArrayList(Section),
     shstrtab: []const u8,
     merge_sections: []Merge.Section,
-    comdat_group_sections: []ComdatGroupSection,
+    comdat_group_sections: []GroupSection,
     zig_object_ptr: ?*ZigObject,
     files: std.MultiArrayList(File.Entry),
 ) !void {
@@ -4446,8 +4446,8 @@ pub fn atom(self: *Elf, ref: Ref) ?*Atom {
     return file_ptr.atom(ref.index);
 }
 
-pub fn comdatGroup(self: *Elf, ref: Ref) *ComdatGroup {
-    return self.file(ref.file).?.comdatGroup(ref.index);
+pub fn group(self: *Elf, ref: Ref) *Group {
+    return self.file(ref.file).?.group(ref.index);
 }
 
 pub fn symbol(self: *Elf, ref: Ref) ?*Symbol {
@@ -4814,7 +4814,7 @@ fn fmtDumpState(
             object.fmtCies(self),
             object.fmtFdes(self),
             object.fmtSymtab(self),
-            object.fmtComdatGroups(self),
+            object.fmtGroups(self),
         });
     }
 
@@ -4852,9 +4852,9 @@ fn fmtDumpState(
     try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.plt.fmt(self)});
 
-    try writer.writeAll("Output COMDAT groups\n");
-    for (self.comdat_group_sections.items) |cg| {
-        try writer.print("  shdr({d}) : COMDAT({})\n", .{ cg.shndx, cg.cg_ref });
+    try writer.writeAll("Output groups\n");
+    for (self.group_sections.items) |cg| {
+        try writer.print("  shdr({d}) : GROUP({})\n", .{ cg.shndx, cg.cg_ref });
     }
 
     try writer.writeAll("\nOutput merge sections\n");
@@ -4934,25 +4934,26 @@ const default_entry_addr = 0x8000000;
 
 pub const base_tag: link.File.Tag = .elf;
 
-pub const ComdatGroup = struct {
+pub const Group = struct {
     signature_off: u32,
     file_index: File.Index,
     shndx: u32,
     members_start: u32,
     members_len: u32,
+    is_comdat: bool,
     alive: bool = true,
 
-    pub fn file(cg: ComdatGroup, elf_file: *Elf) File {
+    pub fn file(cg: Group, elf_file: *Elf) File {
         return elf_file.file(cg.file_index).?;
     }
 
-    pub fn signature(cg: ComdatGroup, elf_file: *Elf) [:0]const u8 {
+    pub fn signature(cg: Group, elf_file: *Elf) [:0]const u8 {
         return cg.file(elf_file).object.getString(cg.signature_off);
     }
 
-    pub fn comdatGroupMembers(cg: ComdatGroup, elf_file: *Elf) []const u32 {
+    pub fn members(cg: Group, elf_file: *Elf) []const u32 {
         const object = cg.file(elf_file).object;
-        return object.comdat_group_data.items[cg.members_start..][0..cg.members_len];
+        return object.group_data.items[cg.members_start..][0..cg.members_len];
     }
 
     pub const Index = u32;
@@ -5310,7 +5311,7 @@ const Air = @import("../Air.zig");
 const Archive = @import("Elf/Archive.zig");
 const AtomList = @import("Elf/AtomList.zig");
 const Compilation = @import("../Compilation.zig");
-const ComdatGroupSection = synthetic_sections.ComdatGroupSection;
+const GroupSection = synthetic_sections.GroupSection;
 const CopyRelSection = synthetic_sections.CopyRelSection;
 const Diags = @import("../link.zig").Diags;
 const DynamicSection = synthetic_sections.DynamicSection;

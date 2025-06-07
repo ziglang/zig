@@ -2294,9 +2294,10 @@ fn resolvePathInputLib(
     const test_path: Path = pq.path;
     // In the case of shared libraries, they might actually be "linker scripts"
     // that contain references to other libraries.
-    if (pq.query.allow_so_scripts and target.ofmt == .elf and
-        Compilation.classifyFileExt(test_path.sub_path) == .shared_library)
-    {
+    if (pq.query.allow_so_scripts and target.ofmt == .elf and switch (Compilation.classifyFileExt(test_path.sub_path)) {
+        .static_library, .shared_library => true,
+        else => false,
+    }) {
         var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => return .no_match,
             else => |e| fatal("unable to search for {s} library '{'}': {s}", .{
@@ -2304,14 +2305,13 @@ fn resolvePathInputLib(
             }),
         };
         errdefer file.close();
-        try ld_script_bytes.resize(gpa, @sizeOf(std.elf.Elf64_Ehdr));
+        try ld_script_bytes.resize(gpa, @max(std.elf.MAGIC.len, std.elf.ARMAG.len));
         const n = file.preadAll(ld_script_bytes.items, 0) catch |err| fatal("failed to read '{'}': {s}", .{
             test_path, @errorName(err),
         });
-        elf_file: {
-            if (n != ld_script_bytes.items.len) break :elf_file;
-            if (!mem.eql(u8, ld_script_bytes.items[0..4], "\x7fELF")) break :elf_file;
-            // Appears to be an ELF file.
+        const buf = ld_script_bytes.items[0..n];
+        if (mem.startsWith(u8, buf, std.elf.MAGIC) or mem.startsWith(u8, buf, std.elf.ARMAG)) {
+            // Appears to be an ELF or archive file.
             return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query);
         }
         const stat = file.stat() catch |err|
@@ -2319,10 +2319,10 @@ fn resolvePathInputLib(
         const size = std.math.cast(u32, stat.size) orelse
             fatal("{}: linker script too big", .{test_path});
         try ld_script_bytes.resize(gpa, size);
-        const buf = ld_script_bytes.items[n..];
-        const n2 = file.preadAll(buf, n) catch |err|
+        const buf2 = ld_script_bytes.items[n..];
+        const n2 = file.preadAll(buf2, n) catch |err|
             fatal("failed to read {}: {s}", .{ test_path, @errorName(err) });
-        if (n2 != buf.len) fatal("failed to read {}: unexpected end of file", .{test_path});
+        if (n2 != buf2.len) fatal("failed to read {}: unexpected end of file", .{test_path});
         var diags = Diags.init(gpa);
         defer diags.deinit();
         const ld_script_result = LdScript.parse(gpa, &diags, test_path, ld_script_bytes.items);
