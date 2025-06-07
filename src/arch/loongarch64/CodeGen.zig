@@ -1428,6 +1428,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .arg => try cg.airArg(inst),
             .ret => try cg.airRet(inst, false),
             .ret_safe => try cg.airRet(inst, true),
+            .ret_load => try cg.airRetLoad(inst),
 
             .add => try cg.airArithBinOp(inst, .{ .op = .add, .wrapping = .unchecked }),
             .add_safe => try cg.airArithBinOp(inst, .{ .op = .add, .wrapping = .checked }),
@@ -2201,8 +2202,32 @@ fn airRet(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
     }
 }
 
+fn airRetLoad(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const pt = cg.pt;
+    const zcu = pt.zcu;
+    const un_op = cg.getAirData(inst).un_op;
+
+    var un_temp = try cg.tempFromOperand(un_op, false);
+    switch (cg.call_info.return_value) {
+        // per AIR semantics, when the return value is passed by-ref, operand is always ret_ptr.
+        .ref_register, .ref_frame => {},
+        // or, load from memory
+        else => {
+            const ret_ty = cg.fn_type.fnReturnType(zcu);
+            const ret_temp = try cg.tempInit(ret_ty, cg.ret_mcv);
+
+            while (try un_temp.toMemory(cg)) {}
+            try un_temp.copy(ret_temp, cg, ret_ty);
+            try ret_temp.die(cg);
+        },
+    }
+
+    try (try cg.tempInit(.noreturn, .undef)).finish(inst, &.{un_temp}, cg);
+    try cg.finishReturn(inst);
+}
+
 /// Finishes a return.
-/// The return value is expected to be copied to ret_mcv.
+/// The return value is expected to be copied to the proper location.
 fn finishReturn(cg: *CodeGen, inst: Air.Inst.Index) !void {
     _ = inst;
 
