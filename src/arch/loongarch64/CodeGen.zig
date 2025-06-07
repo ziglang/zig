@@ -558,14 +558,12 @@ const FrameAlloc = struct {
     abi_size: u31,
     spill_pad: u3,
     abi_align: InternPool.Alignment,
-    ref_count: u16,
 
     fn init(alloc_abi: struct { size: u64, pad: u3 = 0, alignment: InternPool.Alignment }) FrameAlloc {
         return .{
             .abi_size = @intCast(alloc_abi.size),
             .spill_pad = alloc_abi.pad,
             .abi_align = alloc_abi.alignment,
-            .ref_count = 0,
         };
     }
 
