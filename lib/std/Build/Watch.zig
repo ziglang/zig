@@ -600,7 +600,7 @@ const Os = switch (builtin.os.tag) {
             };
         }
     },
-    .dragonfly, .freebsd, .netbsd, .openbsd, .ios, .macos, .tvos, .visionos, .watchos, .haiku => struct {
+    .dragonfly, .freebsd, .netbsd, .openbsd, .ios, .macos, .tvos, .visionos, .watchos => struct {
         const posix = std.posix;
 
         kq_fd: i32,
