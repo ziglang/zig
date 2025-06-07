@@ -787,8 +787,8 @@ fn eqlBytes(a: []const u8, b: []const u8) bool {
 /// Compares two slices and returns the index of the first inequality.
 /// Returns null if the slices are equal.
 pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
-    if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T))
-        return if (indexOfDiffBytes(sliceAsBytes(a), sliceAsBytes(b))) |index| index / @sizeOf(T) else return null;
+    if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T) and eqlBytes_allowed)
+        return if (indexOfDiffBytes(sliceAsBytes(a), sliceAsBytes(b))) |index| index / @sizeOf(T) else null;
 
     const shortest = @min(a.len, b.len);
     if (a.ptr == b.ptr) return if (a.len == b.len) null else shortest;
@@ -821,45 +821,66 @@ test indexOfDiff {
 
 /// std.mem.indexOfDiff heavily optimized for slices of bytes.
 fn indexOfDiffBytes(a: []const u8, b: []const u8) ?usize {
+    comptime assert(eqlBytes_allowed);
+
     const shortest = @min(a.len, b.len);
-    const vec_len = std.simd.suggestVectorLength(u8) orelse 0;
     if (a.ptr == b.ptr) return if (a.len == b.len) null else shortest;
 
-    if (shortest < @sizeOf(usize)) {
-        for (0..shortest) |index| if (a[index] != b[index]) return index;
-    }
-    // Use SWAR when the slice is small or SIMD is not supported
-    else if (shortest < 16 or vec_len == 0) {
-        var index: usize = 0;
-        while (index + @sizeOf(usize) <= shortest) : (index += @sizeOf(usize)) {
-            const a_chunk: usize = @bitCast(a[index..][0..@sizeOf(usize)].*);
-            const b_chunk: usize = @bitCast(b[index..][0..@sizeOf(usize)].*);
-            const diff = a_chunk ^ b_chunk;
-            if (diff != 0) {
-                const offset = @divFloor(if (native_endian == .little) @ctz(diff) else @clz(diff), 8);
-                return index + offset;
+    if (shortest < 16) {
+        if (shortest < @sizeOf(usize)) {
+            for (0..shortest) |index| if (a[index] != b[index]) return index;
+        } else {
+            var index: usize = 0;
+            while (index + @sizeOf(usize) <= shortest) : (index += @sizeOf(usize)) {
+                const a_chunk: usize = @bitCast(a[index..][0..@sizeOf(usize)].*);
+                const b_chunk: usize = @bitCast(b[index..][0..@sizeOf(usize)].*);
+                const diff = a_chunk ^ b_chunk;
+                if (diff != 0)
+                    return index + @divFloor(if (native_endian == .little) @ctz(diff) else @clz(diff), 8);
+            }
+            if (index < shortest) {
+                const a_chunk: usize = @bitCast(a[shortest - @sizeOf(usize) ..][0..@sizeOf(usize)].*);
+                const b_chunk: usize = @bitCast(b[shortest - @sizeOf(usize) ..][0..@sizeOf(usize)].*);
+                const diff = a_chunk ^ b_chunk;
+                if (diff != 0)
+                    return shortest - @sizeOf(usize) + @divFloor(if (native_endian == .little) @ctz(diff) else @clz(diff), 8);
             }
         }
-        if (index < shortest) {
-            const a_chunk: usize = @bitCast(a[shortest - @sizeOf(usize) ..][0..@sizeOf(usize)].*);
-            const b_chunk: usize = @bitCast(b[shortest - @sizeOf(usize) ..][0..@sizeOf(usize)].*);
-            const diff = a_chunk ^ b_chunk;
-            if (diff != 0) {
-                const offset = @divFloor(if (native_endian == .little) @ctz(diff) else @clz(diff), 8);
-                return shortest - @sizeOf(usize) + offset;
-            }
-        }
+        return if (a.len == b.len) null else shortest;
     }
+
+    const Scan = if (std.simd.suggestVectorLength(u8)) |vec_len| struct {
+        const size = vec_len;
+
+        pub inline fn isNotZero(cur_size: comptime_int, mask: @Vector(cur_size, bool)) bool {
+            return @reduce(.Or, mask);
+        }
+
+        pub inline fn firstTrue(cur_size: comptime_int, mask: @Vector(cur_size, bool)) usize {
+            return std.simd.firstTrue(mask).?;
+        }
+    } else struct {
+        const size = @sizeOf(usize);
+
+        pub inline fn isNotZero(_: comptime_int, mask: usize) bool {
+            return mask != 0;
+        }
+        pub inline fn firstTrue(_: comptime_int, mask: usize) usize {
+            return @divFloor(if (native_endian == .little) @ctz(mask) else @clz(mask), 8);
+        }
+    };
+
     // When the slice is smaller than the max vector length, reselect an appropriate vector length.
-    else if (shortest < vec_len) {
+    if (shortest < Scan.size) {
         comptime var new_vec_len = 16;
-        inline while (new_vec_len < vec_len) : (new_vec_len *= 2) {
+        inline while (new_vec_len < Scan.size) : (new_vec_len *= 2) {
             if (new_vec_len < shortest and 2 * new_vec_len >= shortest) {
                 inline for ([_]usize{ 0, shortest - new_vec_len }) |index| {
                     const a_chunk: @Vector(new_vec_len, u8) = @bitCast(a[index..][0..new_vec_len].*);
                     const b_chunk: @Vector(new_vec_len, u8) = @bitCast(b[index..][0..new_vec_len].*);
                     const diff = a_chunk != b_chunk;
-                    if (@reduce(.Or, diff)) return index + std.simd.firstTrue(diff).?;
+                    if (Scan.isNotZero(new_vec_len, diff))
+                        return index + Scan.firstTrue(new_vec_len, diff);
                 }
                 break;
             }
@@ -869,25 +890,29 @@ fn indexOfDiffBytes(a: []const u8, b: []const u8) ?usize {
     else {
         var index: usize = 0;
         const unroll_factor = 4;
-        while (index + vec_len * unroll_factor <= shortest) : (index += vec_len * unroll_factor) {
+        while (index + Scan.size * unroll_factor <= shortest) : (index += Scan.size * unroll_factor) {
             inline for (0..unroll_factor) |i| {
-                const a_chunk: @Vector(vec_len, u8) = @bitCast(a[index + vec_len * i ..][0..vec_len].*);
-                const b_chunk: @Vector(vec_len, u8) = @bitCast(b[index + vec_len * i ..][0..vec_len].*);
+                const a_chunk: @Vector(Scan.size, u8) = @bitCast(a[index + Scan.size * i ..][0..Scan.size].*);
+                const b_chunk: @Vector(Scan.size, u8) = @bitCast(b[index + Scan.size * i ..][0..Scan.size].*);
                 const diff = a_chunk != b_chunk;
-                if (@reduce(.Or, diff)) return index + vec_len * i + std.simd.firstTrue(diff).?;
+                if (Scan.isNotZero(Scan.size, diff))
+                    return index + Scan.size * i + Scan.firstTrue(Scan.size, diff);
             }
         }
-        while (index + vec_len <= shortest) : (index += vec_len) {
-            const a_chunk: @Vector(vec_len, u8) = @bitCast(a[index..][0..vec_len].*);
-            const b_chunk: @Vector(vec_len, u8) = @bitCast(b[index..][0..vec_len].*);
+        while (index + Scan.size <= shortest) : (index += Scan.size) {
+            const a_chunk: @Vector(Scan.size, u8) = @bitCast(a[index..][0..Scan.size].*);
+            const b_chunk: @Vector(Scan.size, u8) = @bitCast(b[index..][0..Scan.size].*);
             const diff = a_chunk != b_chunk;
-            if (@reduce(.Or, diff)) return index + std.simd.firstTrue(diff).?;
+            if (Scan.isNotZero(Scan.size, diff))
+                return index + Scan.firstTrue(Scan.size, diff);
         }
+
         if (index < shortest) {
-            const a_chunk: @Vector(vec_len, u8) = @bitCast(a[shortest - vec_len ..][0..vec_len].*);
-            const b_chunk: @Vector(vec_len, u8) = @bitCast(b[shortest - vec_len ..][0..vec_len].*);
+            const a_chunk: @Vector(Scan.size, u8) = @bitCast(a[shortest - Scan.size ..][0..Scan.size].*);
+            const b_chunk: @Vector(Scan.size, u8) = @bitCast(b[shortest - Scan.size ..][0..Scan.size].*);
             const diff = a_chunk != b_chunk;
-            if (@reduce(.Or, diff)) return shortest - vec_len + std.simd.firstTrue(diff).?;
+            if (Scan.isNotZero(Scan.size, diff))
+                return shortest - Scan.size + Scan.firstTrue(Scan.size, diff);
         }
     }
 
