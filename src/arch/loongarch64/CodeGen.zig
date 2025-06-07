@@ -18,6 +18,7 @@ const Mir = @import("./Mir.zig");
 const Lir = @import("./Lir.zig");
 const Emit = @import("./Emit.zig");
 const encoding = @import("./encoding.zig");
+const utils = @import("./utils.zig");
 const RegisterManager = abi.RegisterManager;
 const Register = bits.Register;
 const FrameIndex = bits.FrameIndex;
@@ -1526,6 +1527,41 @@ fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: C
         .register => |src| try cg.asmInst(.ori(dst, src, 0)),
         .register_bias => |ro| {
             try cg.asmInst(.addi_d(dst, ro.reg, cast(i12, ro.off) orelse return cg.fail("TODO copy reg_bias to reg", .{})));
+        },
+        .immediate => |imm| {
+            log.debug("load imm 0x{x:0>16} to {s}", .{ imm, @tagName(dst) });
+            var use_lu12i = false;
+            var set_hi = false;
+            // Loads 31..12 bits as LU12I.W clears 11..00 bits
+            if (utils.notZero((imm & 0x00000000fffff000) >> 12)) |part| {
+                try cg.asmInst(.lu12i_w(dst, @truncate(@as(i64, @bitCast(part)))));
+                use_lu12i = true;
+                set_hi = (part >> 11) != 0;
+            }
+            // Then loads 11..0 bits with ORI first if LU12I.W is not used
+            // in order to clear 63..12 bits
+            const lo12: u12 = @truncate(imm & 0x0000000000000fff);
+            if (!use_lu12i) {
+                try cg.asmInst(.ori(dst, .zero, lo12));
+                set_hi = false;
+            }
+            // Loads 51..32 bits
+            if (utils.notZero((imm & 0x000fffff00000000) >> 32)) |part| {
+                if (!(part == 0xfffff and set_hi)) {
+                    try cg.asmInst(.cu32i_d(dst, @truncate(@as(i64, @bitCast(part)))));
+                    set_hi = (part >> 11) != 0;
+                }
+            }
+            // Loads 63..52 bits
+            if (utils.notZero((imm & 0xfff0000000000000) >> 52)) |part| {
+                if (!(part == 0xfff and set_hi)) {
+                    try cg.asmInst(.cu52i_d(dst, dst, @truncate(@as(i64, @bitCast(part)))));
+                }
+            }
+            // Loads 11..0 at the end if LU12I.W is used, to preserve higher bits.
+            if (use_lu12i and lo12 != 0x000) {
+                try cg.asmInst(.ori(dst, dst, lo12));
+            }
         },
         else => return cg.fail("TODO: genCopyToReg from {s}", .{@tagName(src_mcv)}),
     }
