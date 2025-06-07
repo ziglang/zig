@@ -787,7 +787,7 @@ fn eqlBytes(a: []const u8, b: []const u8) bool {
 /// Compares two slices and returns the index of the first inequality.
 /// Returns null if the slices are equal.
 pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
-    if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T))
+    if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T) and eqlBytes_allowed)
         return if (indexOfDiffBytes(sliceAsBytes(a), sliceAsBytes(b))) |index| index / @sizeOf(T) else return null;
 
     const shortest = @min(a.len, b.len);
