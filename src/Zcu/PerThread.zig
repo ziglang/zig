@@ -4428,11 +4428,13 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
     var liveness: Air.Liveness = try .analyze(zcu, air.*, ip);
     defer liveness.deinit(gpa);
 
-    // TODO: surely writing to stderr from n threads simultaneously will work flawlessly
     if (build_options.enable_debug_extensions and comp.verbose_air) {
-        std.debug.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)});
-        air.dump(pt, liveness);
-        std.debug.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)});
+        std.debug.lockStdErr();
+        defer std.debug.unlockStdErr();
+        const stderr = std.io.getStdErr().writer();
+        stderr.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)}) catch {};
+        air.write(stderr, pt, liveness);
+        stderr.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)}) catch {};
     }
 
     if (std.debug.runtime_safety) {
