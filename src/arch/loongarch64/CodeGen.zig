@@ -419,10 +419,9 @@ const InstTracking = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (std.meta.eql(inst_tracking.long, inst_tracking.short))
-            try writer.print("{}", .{inst_tracking.short})
-        else
+        if (!std.meta.eql(inst_tracking.long, inst_tracking.short))
             try writer.print("|{}| ", .{inst_tracking.long});
+        try writer.print("{}", .{inst_tracking.short});
     }
 
     fn die(self: *InstTracking, cg: *CodeGen, inst: Air.Inst.Index) !void {
