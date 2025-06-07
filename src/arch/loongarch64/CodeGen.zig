@@ -352,7 +352,7 @@ pub const MCValue = union(enum) {
 
     /// Returns MCV of a limb.
     /// Caller does not own returned values.
-    fn toLimbValue(mcv: MCValue, limb_index: usize) InnerError!MCValue {
+    fn toLimbValue(mcv: MCValue, limb_index: usize) MCValue {
         switch (mcv) {
             else => std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
             .register, .immediate, .register_bias, .register_offset, .lea_symbol, .lea_frame => {
@@ -1177,7 +1177,7 @@ const Temp = struct {
 
     /// Returns MCV of a limb.
     /// Caller does not own return values.
-    fn toLimbValue(temp: Temp, limb_index: usize, cg: *CodeGen) InnerError!MCValue {
+    fn toLimbValue(temp: Temp, limb_index: usize, cg: *CodeGen) MCValue {
         return temp.tracking(cg).short.toLimbValue(limb_index);
     }
 
@@ -1246,7 +1246,7 @@ pub fn allocRegOrMem(cg: *CodeGen, ty: Type, inst: ?Air.Inst.Index, opts: MCVAll
 
     if (opts.use_reg and cg.canAllocInReg(ty)) {
         if (cg.register_manager.tryAllocReg(inst, cg.getAllocatableRegSetForType(ty))) |reg| {
-            return MCValue{ .register = reg };
+            return .{ .register = reg };
         }
     }
 
@@ -2126,8 +2126,8 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
     })) {
         const lhs, const rhs = sel.ops[0..2].*;
         const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
-        const lhs_limb = try lhs.toLimbValue(0, cg);
-        const dst_limb = try dst.toLimbValue(0, cg);
+        const lhs_limb = lhs.toLimbValue(0, cg);
+        const dst_limb = dst.toLimbValue(0, cg);
         try asmIntLogicBinOpRRI(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, @intCast(rhs.getImm(cg)));
         try sel.finish(dst);
     } else if (try sel.match(.{
@@ -2136,9 +2136,9 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
         const lhs, const rhs = sel.ops[0..2].*;
         const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
         for (0..lhs.getLimbCount(cg)) |limb_i| {
-            const lhs_limb = try lhs.toLimbValue(limb_i, cg);
-            const rhs_limb = try rhs.toLimbValue(limb_i, cg);
-            const dst_limb = try dst.toLimbValue(limb_i, cg);
+            const lhs_limb = lhs.toLimbValue(limb_i, cg);
+            const rhs_limb = rhs.toLimbValue(limb_i, cg);
+            const dst_limb = dst.toLimbValue(limb_i, cg);
             try asmIntLogicBinOpRRR(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, rhs_limb.getReg().?);
         }
         try sel.finish(dst);
@@ -2151,9 +2151,9 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
         const tmp1, const tmp2 = sel.temps[0..2].*;
         const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
         for (0..lhs.getLimbCount(cg)) |limb_i| {
-            const lhs_limb = try tmp1.ensureReg(cg, try lhs.toLimbValue(limb_i, cg));
-            const rhs_limb = try tmp2.ensureReg(cg, try rhs.toLimbValue(limb_i, cg));
-            const dst_limb = try dst.toLimbValue(limb_i, cg);
+            const lhs_limb = try tmp1.ensureReg(cg, lhs.toLimbValue(limb_i, cg));
+            const rhs_limb = try tmp2.ensureReg(cg, rhs.toLimbValue(limb_i, cg));
+            const dst_limb = dst.toLimbValue(limb_i, cg);
             try asmIntLogicBinOpRRR(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, rhs_limb.getReg().?);
         }
         try sel.finish(dst);
