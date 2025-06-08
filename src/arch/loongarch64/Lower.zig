@@ -166,7 +166,6 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     const sym = inst.data.sym;
                     lower.emit(.pcaddu18i(.ra, 0));
                     lower.relocElf(.CALL36, sym, 0);
-                    lower.relocElf(.RELAX, sym, 0);
                     lower.emit(.jirl(.ra, .ra, 0));
                 },
                 .load_ra => if (lower.mir.spill_ra)
