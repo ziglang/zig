@@ -528,8 +528,14 @@ fn parseInst(parser: *AsmParser, mnemonic: []const u8, ops: *OperandIterator) !M
     @setEvalBranchQuota(3_000);
     // find override matchers
     inline for (@typeInfo(instToMatcher).@"struct".decls) |decl| {
-        if (mnemonicEql(decl.name, mnemonic))
-            return @field(instToMatcher, decl.name)(decl.name, ops);
+        if (mnemonicEql(decl.name, mnemonic)) {
+            const matcher = @field(instToMatcher, decl.name);
+            switch (@typeInfo(@TypeOf(matcher))) {
+                .@"fn" => return matcher(decl.name, ops),
+                .enum_literal => return InstMatcher.default(ops, @tagName(matcher)),
+                else => unreachable,
+            }
+        }
     }
 
     // find default matchers
@@ -647,6 +653,7 @@ const instToMatcher = struct {
     pub const csrxchg = InstMatcher.csrxchg;
     pub const cacop = InstMatcher.cacop;
     pub const invtlb = InstMatcher.invtlb;
+    pub const tlbinv = InstMatcher.invtlb;
     pub const preld = InstMatcher.preld;
     pub const preldx = InstMatcher.preld;
     // pub const b = InstMatcher.branch;
@@ -655,6 +662,37 @@ const instToMatcher = struct {
     // pub const bnez = InstMatcher.cond_br_zero;
     // pub const bceqz = InstMatcher.fcc_cond_br;
     // pub const bcnez = InstMatcher.fcc_cond_br;
+
+    pub const dbcl = .dbgcall;
+    pub const ertn = .eret;
+    pub const pcaddi = .pcaddu2i;
+
+    pub const ext_w_b = .sext_b;
+    pub const ext_w_h = .sext_h;
+
+    pub const ldptr_w = .ldox4_w;
+    pub const ldptr_d = .ldox4_d;
+
+    pub const stptr_w = .stox4_w;
+    pub const stptr_d = .stox4_d;
+
+    pub const bitrev_w = .revbit_w;
+    pub const bitrev_d = .revbit_d;
+    pub const bitrev_4b = .revbit_4b;
+    pub const bitrev_8b = .revbit_8b;
+
+    pub const asrtle_d = .asrtle;
+    pub const asrtgt_d = .asrtgt;
+
+    pub const lu32i_d = .cu32i_d;
+    pub const lu52i = .cu52i_d;
+
+    pub const alsl_w = .sladd_w;
+    pub const alsl_wu = .sladd_wu;
+    pub const alsl_d = .sladd_d;
+
+    pub const bytepick_w = .catpick_w;
+    pub const bytepick_d = .catpick_d;
 };
 
 /// Mnemonics that will not have auto-generated matcher.
