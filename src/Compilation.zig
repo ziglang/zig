@@ -4202,6 +4202,10 @@ fn performAllTheWork(
     comp.link_task_wait_group.reset();
     defer comp.link_task_wait_group.wait();
 
+    comp.link_prog_node.increaseEstimatedTotalItems(
+        comp.link_task_queue.queued_prelink.items.len + // already queued prelink tasks
+            comp.link_task_queue.pending_prelink_tasks, // prelink tasks which will be queued
+    );
     comp.link_task_queue.start(comp);
 
     if (comp.emit_docs != null) {
@@ -4597,6 +4601,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 .value = undefined,
             };
             assert(zcu.pending_codegen_jobs.rmw(.Add, 1, .monotonic) > 0); // the "Code Generation" node hasn't been ended
+            zcu.codegen_prog_node.increaseEstimatedTotalItems(1);
             if (comp.separateCodegenThreadOk()) {
                 // `workerZcuCodegen` takes ownership of `air`.
                 comp.thread_pool.spawnWgId(&comp.link_task_wait_group, workerZcuCodegen, .{ comp, func.func, air, shared_mir });
@@ -7444,6 +7449,7 @@ pub fn queuePrelinkTasks(comp: *Compilation, tasks: []const link.PrelinkTask) vo
 /// The reason for the double-queue here is that the first queue ensures any
 /// resolve_type_fully tasks are complete before this dispatch function is called.
 fn dispatchZcuLinkTask(comp: *Compilation, tid: usize, task: link.ZcuTask) void {
+    comp.link_prog_node.increaseEstimatedTotalItems(1);
     if (!comp.separateCodegenThreadOk()) {
         assert(tid == 0);
         if (task == .link_func) {

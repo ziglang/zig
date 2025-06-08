@@ -1290,7 +1290,10 @@ pub const ZcuTask = union(enum) {
 
 pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
     const diags = &comp.link_diags;
-    const base = comp.bin_file orelse return;
+    const base = comp.bin_file orelse {
+        comp.link_prog_node.completeOne();
+        return;
+    };
     switch (task) {
         .load_explicitly_provided => {
             const prog_node = comp.link_prog_node.start("Parse Inputs", comp.link_inputs.len);
@@ -1413,12 +1416,13 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
 }
 pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
     const diags = &comp.link_diags;
+    const zcu = comp.zcu.?;
+    const ip = &zcu.intern_pool;
+    const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
+    defer pt.deactivate();
     switch (task) {
         .link_nav => |nav_index| {
-            const zcu = comp.zcu.?;
-            const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
-            defer pt.deactivate();
-            const fqn_slice = zcu.intern_pool.getNav(nav_index).fqn.toSlice(&zcu.intern_pool);
+            const fqn_slice = ip.getNav(nav_index).fqn.toSlice(ip);
             const nav_prog_node = comp.link_prog_node.start(fqn_slice, 0);
             defer nav_prog_node.end();
             if (zcu.llvm_object) |llvm_object| {
@@ -1440,11 +1444,8 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
             }
         },
         .link_func => |func| {
-            const zcu = comp.zcu.?;
             const nav = zcu.funcInfo(func.func).owner_nav;
-            const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
-            defer pt.deactivate();
-            const fqn_slice = zcu.intern_pool.getNav(nav).fqn.toSlice(&zcu.intern_pool);
+            const fqn_slice = ip.getNav(nav).fqn.toSlice(ip);
             const nav_prog_node = comp.link_prog_node.start(fqn_slice, 0);
             defer nav_prog_node.end();
             switch (func.mir.status.load(.monotonic)) {
@@ -1468,9 +1469,9 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
             }
         },
         .link_type => |ty| {
-            const zcu = comp.zcu.?;
-            const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
-            defer pt.deactivate();
+            const name = Type.fromInterned(ty).containerTypeName(ip).toSlice(ip);
+            const nav_prog_node = comp.link_prog_node.start(name, 0);
+            defer nav_prog_node.end();
             if (zcu.llvm_object == null) {
                 if (comp.bin_file) |lf| {
                     lf.updateContainerType(pt, ty) catch |err| switch (err) {
@@ -1481,8 +1482,8 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
             }
         },
         .update_line_number => |ti| {
-            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
-            defer pt.deactivate();
+            const nav_prog_node = comp.link_prog_node.start("Update line number", 0);
+            defer nav_prog_node.end();
             if (pt.zcu.llvm_object == null) {
                 if (comp.bin_file) |lf| {
                     lf.updateLineNumber(pt, ti) catch |err| switch (err) {
