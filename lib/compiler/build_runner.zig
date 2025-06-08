@@ -1312,6 +1312,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\    needed                     (Default) Lazy dependencies are fetched as needed
         \\    all                        Lazy dependencies are always fetched
         \\  --watch                      Continuously rebuild when source files are modified
+        \\  --watch-clear                Clear screen before each rebuild
         \\  --fuzz                       Continuously search for unit test failures
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
         \\     -fincremental             Enable incremental compilation
