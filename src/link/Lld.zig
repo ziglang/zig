@@ -267,6 +267,9 @@ pub fn flush(
 
     const comp = lld.base.comp;
     const result = if (comp.config.output_mode == .Lib and comp.config.link_mode == .static) r: {
+        if (!@import("build_options").have_llvm or !comp.config.use_lib_llvm) {
+            return lld.base.comp.link_diags.fail("using lld without libllvm not implemented", .{});
+        }
         break :r linkAsArchive(lld, arena);
     } else switch (lld.ofmt) {
         .coff => coffLink(lld, arena),

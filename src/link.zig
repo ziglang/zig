@@ -1074,7 +1074,7 @@ pub const File = struct {
 
     /// Called when all linker inputs have been sent via `loadInput`. After
     /// this, `loadInput` will not be called anymore.
-    pub fn prelink(base: *File, prog_node: std.Progress.Node) FlushError!void {
+    pub fn prelink(base: *File) FlushError!void {
         assert(!base.post_prelink);
 
         // In this case, an object file is created by the LLVM backend, so
@@ -1085,7 +1085,7 @@ pub const File = struct {
         switch (base.tag) {
             inline .wasm => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).prelink(prog_node);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).prelink(base.comp.link_prog_node);
             },
             else => {},
         }
@@ -1293,7 +1293,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
     const base = comp.bin_file orelse return;
     switch (task) {
         .load_explicitly_provided => {
-            const prog_node = comp.work_queue_progress_node.start("Parse Linker Inputs", comp.link_inputs.len);
+            const prog_node = comp.link_prog_node.start("Parse Inputs", comp.link_inputs.len);
             defer prog_node.end();
             for (comp.link_inputs) |input| {
                 base.loadInput(input) catch |err| switch (err) {
@@ -1310,7 +1310,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
             }
         },
         .load_host_libc => {
-            const prog_node = comp.work_queue_progress_node.start("Linker Parse Host libc", 0);
+            const prog_node = comp.link_prog_node.start("Parse Host libc", 0);
             defer prog_node.end();
 
             const target = comp.root_mod.resolved_target.result;
@@ -1369,7 +1369,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
             }
         },
         .load_object => |path| {
-            const prog_node = comp.work_queue_progress_node.start("Linker Parse Object", 0);
+            const prog_node = comp.link_prog_node.start("Parse Object", 0);
             defer prog_node.end();
             base.openLoadObject(path) catch |err| switch (err) {
                 error.LinkFailure => return, // error reported via diags
@@ -1377,7 +1377,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
             };
         },
         .load_archive => |path| {
-            const prog_node = comp.work_queue_progress_node.start("Linker Parse Archive", 0);
+            const prog_node = comp.link_prog_node.start("Parse Archive", 0);
             defer prog_node.end();
             base.openLoadArchive(path, null) catch |err| switch (err) {
                 error.LinkFailure => return, // error reported via link_diags
@@ -1385,7 +1385,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
             };
         },
         .load_dso => |path| {
-            const prog_node = comp.work_queue_progress_node.start("Linker Parse Shared Library", 0);
+            const prog_node = comp.link_prog_node.start("Parse Shared Library", 0);
             defer prog_node.end();
             base.openLoadDso(path, .{
                 .preferred_mode = .dynamic,
@@ -1396,7 +1396,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
             };
         },
         .load_input => |input| {
-            const prog_node = comp.work_queue_progress_node.start("Linker Parse Input", 0);
+            const prog_node = comp.link_prog_node.start("Parse Input", 0);
             defer prog_node.end();
             base.loadInput(input) catch |err| switch (err) {
                 error.LinkFailure => return, // error reported via link_diags
@@ -1418,6 +1418,9 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
             const zcu = comp.zcu.?;
             const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
             defer pt.deactivate();
+            const fqn_slice = zcu.intern_pool.getNav(nav_index).fqn.toSlice(&zcu.intern_pool);
+            const nav_prog_node = comp.link_prog_node.start(fqn_slice, 0);
+            defer nav_prog_node.end();
             if (zcu.llvm_object) |llvm_object| {
                 llvm_object.updateNav(pt, nav_index) catch |err| switch (err) {
                     error.OutOfMemory => diags.setAllocFailure(),
@@ -1441,6 +1444,9 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
             const nav = zcu.funcInfo(func.func).owner_nav;
             const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
             defer pt.deactivate();
+            const fqn_slice = zcu.intern_pool.getNav(nav).fqn.toSlice(&zcu.intern_pool);
+            const nav_prog_node = comp.link_prog_node.start(fqn_slice, 0);
+            defer nav_prog_node.end();
             switch (func.mir.status.load(.monotonic)) {
                 .pending => unreachable,
                 .ready => {},

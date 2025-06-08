@@ -255,7 +255,7 @@ test_filters: []const []const u8,
 test_name_prefix: ?[]const u8,
 
 link_task_wait_group: WaitGroup = .{},
-work_queue_progress_node: std.Progress.Node = .none,
+link_prog_node: std.Progress.Node = std.Progress.Node.none,
 
 llvm_opt_bisect_limit: c_int,
 
@@ -2795,6 +2795,17 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         }
     }
 
+    // The linker progress node is set up here instead of in `performAllTheWork`, because
+    // we also want it around during `flush`.
+    const have_link_node = comp.bin_file != null;
+    if (have_link_node) {
+        comp.link_prog_node = main_progress_node.start("Linking", 0);
+    }
+    defer if (have_link_node) {
+        comp.link_prog_node.end();
+        comp.link_prog_node = .none;
+    };
+
     try comp.performAllTheWork(main_progress_node);
 
     if (comp.zcu) |zcu| {
@@ -2843,7 +2854,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
     switch (comp.cache_use) {
         .none, .incremental => {
-            try flush(comp, arena, .main, main_progress_node);
+            try flush(comp, arena, .main);
         },
         .whole => |whole| {
             if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
@@ -2919,7 +2930,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 }
             }
 
-            try flush(comp, arena, .main, main_progress_node);
+            try flush(comp, arena, .main);
 
             // Calling `flush` may have produced errors, in which case the
             // cache manifest must not be written.
@@ -3009,13 +3020,12 @@ fn flush(
     comp: *Compilation,
     arena: Allocator,
     tid: Zcu.PerThread.Id,
-    prog_node: std.Progress.Node,
 ) !void {
     if (comp.zcu) |zcu| {
         if (zcu.llvm_object) |llvm_object| {
             // Emit the ZCU object from LLVM now; it's required to flush the output file.
             // If there's an output file, it wants to decide where the LLVM object goes!
-            const sub_prog_node = prog_node.start("LLVM Emit Object", 0);
+            const sub_prog_node = comp.link_prog_node.start("LLVM Emit Object", 0);
             defer sub_prog_node.end();
             try llvm_object.emit(.{
                 .pre_ir_path = comp.verbose_llvm_ir,
@@ -3053,7 +3063,7 @@ fn flush(
     }
     if (comp.bin_file) |lf| {
         // This is needed before reading the error flags.
-        lf.flush(arena, tid, prog_node) catch |err| switch (err) {
+        lf.flush(arena, tid, comp.link_prog_node) catch |err| switch (err) {
             error.LinkFailure => {}, // Already reported.
             error.OutOfMemory => return error.OutOfMemory,
         };
@@ -4172,28 +4182,15 @@ pub fn addWholeFileError(
     }
 }
 
-pub fn performAllTheWork(
+fn performAllTheWork(
     comp: *Compilation,
     main_progress_node: std.Progress.Node,
 ) JobError!void {
-    comp.work_queue_progress_node = main_progress_node;
-    defer comp.work_queue_progress_node = .none;
-
+    // Regardless of errors, `comp.zcu` needs to update its generation number.
     defer if (comp.zcu) |zcu| {
-        zcu.sema_prog_node.end();
-        zcu.sema_prog_node = .none;
-        zcu.codegen_prog_node.end();
-        zcu.codegen_prog_node = .none;
-
         zcu.generation += 1;
     };
-    try comp.performAllTheWorkInner(main_progress_node);
-}
 
-fn performAllTheWorkInner(
-    comp: *Compilation,
-    main_progress_node: std.Progress.Node,
-) JobError!void {
     // Here we queue up all the AstGen tasks first, followed by C object compilation.
     // We wait until the AstGen tasks are all completed before proceeding to the
     // (at least for now) single-threaded main work queue. However, C object compilation
@@ -4513,8 +4510,24 @@ fn performAllTheWorkInner(
         }
 
         zcu.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
-        zcu.codegen_prog_node = if (comp.bin_file != null) main_progress_node.start("Code Generation", 0) else .none;
+        if (comp.bin_file != null) {
+            zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
+        }
+        // We increment `pending_codegen_jobs` so that it doesn't reach 0 until after analysis finishes.
+        // That prevents the "Code Generation" node from constantly disappearing and reappearing when
+        // we're probably going to analyze more functions at some point.
+        assert(zcu.pending_codegen_jobs.swap(1, .monotonic) == 0); // don't let this become 0 until analysis finishes
     }
+    // When analysis ends, delete the progress nodes for "Semantic Analysis" and possibly "Code Generation".
+    defer if (comp.zcu) |zcu| {
+        zcu.sema_prog_node.end();
+        zcu.sema_prog_node = .none;
+        if (zcu.pending_codegen_jobs.rmw(.Sub, 1, .monotonic) == 1) {
+            // Decremented to 0, so all done.
+            zcu.codegen_prog_node.end();
+            zcu.codegen_prog_node = .none;
+        }
+    };
 
     if (!comp.separateCodegenThreadOk()) {
         // Waits until all input files have been parsed.
@@ -4583,6 +4596,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 .status = .init(.pending),
                 .value = undefined,
             };
+            assert(zcu.pending_codegen_jobs.rmw(.Add, 1, .monotonic) > 0); // the "Code Generation" node hasn't been ended
             if (comp.separateCodegenThreadOk()) {
                 // `workerZcuCodegen` takes ownership of `air`.
                 comp.thread_pool.spawnWgId(&comp.link_task_wait_group, workerZcuCodegen, .{ comp, func.func, air, shared_mir });

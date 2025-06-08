@@ -66,8 +66,18 @@ root_mod: *Package.Module,
 /// `root_mod` is the test runner, and `main_mod` is the user's source file which has the tests.
 main_mod: *Package.Module,
 std_mod: *Package.Module,
-sema_prog_node: std.Progress.Node = std.Progress.Node.none,
-codegen_prog_node: std.Progress.Node = std.Progress.Node.none,
+sema_prog_node: std.Progress.Node = .none,
+codegen_prog_node: std.Progress.Node = .none,
+/// The number of codegen jobs which are pending or in-progress. Whichever thread drops this value
+/// to 0 is responsible for ending `codegen_prog_node`. While semantic analysis is happening, this
+/// value bottoms out at 1 instead of 0, to ensure that it can only drop to 0 after analysis is
+/// completed (since semantic analysis could trigger more codegen work).
+pending_codegen_jobs: std.atomic.Value(u32) = .init(0),
+
+/// This is the progress node *under* `sema_prog_node` which is currently running.
+/// When we have to pause to analyze something else, we just temporarily rename this node.
+/// Eventually, when we thread semantic analysis, we will want one of these per thread.
+cur_sema_prog_node: std.Progress.Node = .none,
 
 /// Used by AstGen worker to load and store ZIR cache.
 global_zir_cache: Cache.Directory,
@@ -4751,5 +4761,29 @@ fn explainWhyFileIsInModule(
         }));
 
         import = importer_ref.import;
+    }
+}
+
+const SemaProgNode = struct {
+    /// `null` means we created the node, so should end it.
+    old_name: ?[std.Progress.Node.max_name_len]u8,
+    pub fn end(spn: SemaProgNode, zcu: *Zcu) void {
+        if (spn.old_name) |old_name| {
+            zcu.sema_prog_node.completeOne(); // we're just renaming, but it's effectively completion
+            zcu.cur_sema_prog_node.setName(&old_name);
+        } else {
+            zcu.cur_sema_prog_node.end();
+            zcu.cur_sema_prog_node = .none;
+        }
+    }
+};
+pub fn startSemaProgNode(zcu: *Zcu, name: []const u8) SemaProgNode {
+    if (zcu.cur_sema_prog_node.index != .none) {
+        const old_name = zcu.cur_sema_prog_node.getName();
+        zcu.cur_sema_prog_node.setName(name);
+        return .{ .old_name = old_name };
+    } else {
+        zcu.cur_sema_prog_node = zcu.sema_prog_node.start(name, 0);
+        return .{ .old_name = null };
     }
 }

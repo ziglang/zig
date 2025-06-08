@@ -180,7 +180,7 @@ fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
     // We've finished the prelink tasks, so run prelink if necessary.
     if (comp.bin_file) |lf| {
         if (!lf.post_prelink) {
-            if (lf.prelink(comp.work_queue_progress_node)) |_| {
+            if (lf.prelink()) |_| {
                 lf.post_prelink = true;
             } else |err| switch (err) {
                 error.OutOfMemory => comp.link_diags.setAllocFailure(),

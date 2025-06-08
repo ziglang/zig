@@ -796,8 +796,8 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
         info.deps.clearRetainingCapacity();
     }
 
-    const unit_prog_node = zcu.sema_prog_node.start("comptime", 0);
-    defer unit_prog_node.end();
+    const unit_prog_node = zcu.startSemaProgNode("comptime");
+    defer unit_prog_node.end(zcu);
 
     return pt.analyzeComptimeUnit(cu_id) catch |err| switch (err) {
         error.AnalysisFail => {
@@ -976,8 +976,8 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
         info.deps.clearRetainingCapacity();
     }
 
-    const unit_prog_node = zcu.sema_prog_node.start(nav.fqn.toSlice(ip), 0);
-    defer unit_prog_node.end();
+    const unit_prog_node = zcu.startSemaProgNode(nav.fqn.toSlice(ip));
+    defer unit_prog_node.end(zcu);
 
     const invalidate_value: bool, const new_failed: bool = if (pt.analyzeNavVal(nav_id)) |result| res: {
         break :res .{
@@ -1396,8 +1396,8 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
         info.deps.clearRetainingCapacity();
     }
 
-    const unit_prog_node = zcu.sema_prog_node.start(nav.fqn.toSlice(ip), 0);
-    defer unit_prog_node.end();
+    const unit_prog_node = zcu.startSemaProgNode(nav.fqn.toSlice(ip));
+    defer unit_prog_node.end(zcu);
 
     const invalidate_type: bool, const new_failed: bool = if (pt.analyzeNavType(nav_id)) |result| res: {
         break :res .{
@@ -1617,8 +1617,8 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         info.deps.clearRetainingCapacity();
     }
 
-    const func_prog_node = zcu.sema_prog_node.start(ip.getNav(func.owner_nav).fqn.toSlice(ip), 0);
-    defer func_prog_node.end();
+    const func_prog_node = zcu.startSemaProgNode(ip.getNav(func.owner_nav).fqn.toSlice(ip));
+    defer func_prog_node.end(zcu);
 
     const ies_outdated, const new_failed = if (pt.analyzeFuncBody(func_index)) |result|
         .{ prev_failed or result.ies_outdated, false }
@@ -3360,6 +3360,7 @@ pub fn populateTestFunctions(
         ip.mutateVarInit(test_fns_val.toIntern(), new_init);
     }
     {
+        assert(zcu.codegen_prog_node.index == .none);
         zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
         defer {
             zcu.codegen_prog_node.end();
@@ -4393,6 +4394,11 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, ou
         },
     }
     zcu.comp.link_task_queue.mirReady(zcu.comp, out);
+    if (zcu.pending_codegen_jobs.rmw(.Sub, 1, .monotonic) == 1) {
+        // Decremented to 0, so all done.
+        zcu.codegen_prog_node.end();
+        zcu.codegen_prog_node = .none;
+    }
 }
 fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) error{
     OutOfMemory,
