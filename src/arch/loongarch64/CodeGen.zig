@@ -27,6 +27,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.codegen);
 const cg_mir_log = std.log.scoped(.codegen_mir);
 const cg_select_log = std.log.scoped(.codegen_select);
+const tracking_log = std.log.scoped(.tracking);
 const verbose_tracking_log = std.log.scoped(.verbose_tracking);
 
 const CodeGen = @This();
@@ -494,7 +495,7 @@ const InstTracking = struct {
         }
 
         self.short = .{ .dead = cg.scope_generation };
-        log.debug("{} => {} (death)", .{ inst, self.* });
+        tracking_log.debug("{} => {} (death)", .{ inst, self.* });
     }
 
     fn reuse(
@@ -503,7 +504,7 @@ const InstTracking = struct {
         new_inst: Air.Inst.Index,
         old_inst: Air.Inst.Index,
     ) void {
-        log.debug("{} => {} (reuse {})", .{ new_inst, self.*, old_inst });
+        tracking_log.debug("{} => {} (reuse {})", .{ new_inst, self.*, old_inst });
         self.short = .{ .dead = cg.scope_generation };
     }
 
@@ -517,14 +518,14 @@ const InstTracking = struct {
             .reserved_frame => |index| self.long = .{ .load_frame = .{ .index = index } },
             else => unreachable,
         }
-        log.debug("spill {} from {} to {}", .{ inst, self.short, self.long });
+        tracking_log.debug("spill {} from {} to {}", .{ inst, self.short, self.long });
         try cg.genCopy(cg.typeOfIndex(inst), self.long, self.short, .{});
     }
 
     fn trackSpill(inst_tracking: *InstTracking, cg: *CodeGen, inst: Air.Inst.Index) !void {
         try cg.freeValue(inst_tracking.short);
         inst_tracking.reuseFrame();
-        log.debug("%{d} => {} (spilled)", .{ inst, inst_tracking.* });
+        tracking_log.debug("%{d} => {} (spilled)", .{ inst, inst_tracking.* });
     }
 
     fn reuseFrame(inst_tracking: *InstTracking) void {
@@ -541,7 +542,7 @@ const InstTracking = struct {
     fn liveOut(inst_tracking: *InstTracking, cg: *CodeGen, inst: Air.Inst.Index) void {
         for (inst_tracking.getRegs()) |reg| {
             if (cg.register_manager.isRegFree(reg)) {
-                log.debug("{} => {} (live-out)", .{ inst, inst_tracking.* });
+                tracking_log.debug("{} => {} (live-out)", .{ inst, inst_tracking.* });
                 continue;
             }
 
@@ -568,7 +569,7 @@ const InstTracking = struct {
             // Perform side-effects of freeValue manually.
             cg.register_manager.freeReg(reg);
 
-            log.debug("{} => {} (live-out {})", .{ inst, inst_tracking.*, tracked_inst });
+            tracking_log.debug("{} => {} (live-out {})", .{ inst, inst_tracking.*, tracked_inst });
         }
     }
 };
