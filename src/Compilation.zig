@@ -1277,6 +1277,7 @@ pub const MiscTask = enum {
     analyze_mod,
     docs_copy,
     docs_wasm,
+    cachedir_tag,
 
     @"musl crt1.o",
     @"musl rcrt1.o",
@@ -4193,6 +4194,8 @@ fn performAllTheWorkInner(
         comp.thread_pool.spawnWgId(&comp.link_task_wait_group, link.flushTaskQueue, .{comp});
     }
 
+    comp.thread_pool.spawnWg(&work_queue_wait_group, workerTagCacheDirs, .{comp});
+
     if (comp.docs_emit != null) {
         dev.check(.docs_emit);
         comp.thread_pool.spawnWg(&work_queue_wait_group, workerDocsCopy, .{comp});
@@ -4927,6 +4930,29 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
             @errorName(err),
         });
     };
+}
+
+fn workerTagCacheDirs(comp: *Compilation) void {
+    for (&[_]Cache.Directory{ comp.dirs.global_cache, comp.dirs.local_cache }) |dir| {
+        tagCacheDir(dir.handle) catch |err| {
+            return comp.lockAndSetMiscFailure(
+                .cachedir_tag,
+                "unable to create CACHEDIR.TAG file in '{}': {s}",
+                .{ dir, @errorName(err) },
+            );
+        };
+    }
+}
+
+fn tagCacheDir(dir: fs.Dir) !void {
+    const file = try dir.createFile("CACHEDIR.TAG", .{});
+    defer file.close();
+    try file.writeAll(
+        \\Signature: 8a477f597d28d172789f06886806bc55
+        \\# This file is a cache directory tag created by Zig.
+        \\# For information about cache directory tags, see: http://www.brynosaurus.com/cachedir/
+        \\
+    );
 }
 
 fn workerUpdateFile(
