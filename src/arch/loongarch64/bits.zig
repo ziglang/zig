@@ -1,4 +1,5 @@
 const std = @import("std");
+const Target = std.Target;
 const expectEqual = std.testing.expectEqual;
 
 pub const Register = enum(u8) {
@@ -47,7 +48,32 @@ pub const Register = enum(u8) {
         lsx,
         lasx,
         fcc,
+
+        pub fn byteSize(rc: Class, target: *const Target) usize {
+            return switch (rc) {
+                .int => switch (target.cpu.arch) {
+                    .loongarch32 => 4,
+                    .loongarch64 => 8,
+                    else => unreachable,
+                },
+                .float => 8,
+                .lsx => 16,
+                .lasx => 32,
+                .fcc => 1,
+            };
+        }
     };
+
+    pub fn fromClass(cls: Class, reg: u5) Register {
+        const base: u8 = switch (cls) {
+            .int => @intFromEnum(Register.r0),
+            .float => @intFromEnum(Register.f0),
+            .lsx => @intFromEnum(Register.v0),
+            .lasx => @intFromEnum(Register.x0),
+            .fcc => @intFromEnum(Register.fcc0),
+        };
+        return @enumFromInt(base + reg);
+    }
 
     pub fn class(reg: Register) Class {
         return switch (@intFromEnum(reg)) {
@@ -180,15 +206,33 @@ test "register encoding" {
     try expectEqual(71, Register.fcc7.id());
 }
 
+test "register decoding" {
+    try expectEqual(Register.r0, Register.fromClass(.int, 0));
+    try expectEqual(Register.r31, Register.fromClass(.int, 31));
+    try expectEqual(Register.f0, Register.fromClass(.float, 0));
+    try expectEqual(Register.f31, Register.fromClass(.float, 31));
+    try expectEqual(Register.v0, Register.fromClass(.lsx, 0));
+    try expectEqual(Register.v31, Register.fromClass(.lsx, 31));
+    try expectEqual(Register.x0, Register.fromClass(.lasx, 0));
+    try expectEqual(Register.x31, Register.fromClass(.lasx, 31));
+    try expectEqual(Register.fcc0, Register.fromClass(.fcc, 0));
+    try expectEqual(Register.fcc7, Register.fromClass(.fcc, 7));
+}
+
 pub const FrameIndex = enum(u32) {
-    // This index refers to the start of the arguments passed to this function
+    /// Refers to the start of the arguments passed to this function
     args_frame,
-    // // This index refers to the base pointer pushed in the prologue and popped in the epilogue.
+    /// Refers to the start of spilled integer static registers.
+    /// $ra is also spilled to this frame.
+    spill_int_frame,
+    /// Refers to the start of spilled floating-point static registers.
+    spill_float_frame,
+    // /// Refers to the base pointer pushed in the prologue and popped in the epilogue.
     // base_ptr,
-    // This index refers to the entire stack frame.
-    stack_frame,
-    // This index refers to the start of the call frame for arguments passed to called functions
+    /// Refers to the start of the call frame for arguments passed to called functions
     call_frame,
+    /// Refers to the entire stack frame.
+    stack_frame,
     /// Other indices are used for local variable stack slots
     _,
 

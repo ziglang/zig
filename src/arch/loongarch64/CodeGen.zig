@@ -689,13 +689,12 @@ pub fn generate(
 
     // init basic frames
     try cg.frame_allocs.resize(gpa, FrameIndex.named_count);
-    inline for ([_]FrameIndex{ .stack_frame, .call_frame }) |frame| {
+    inline for ([_]FrameIndex{ .stack_frame, .call_frame, .spill_int_frame, .spill_float_frame }) |frame| {
         cg.frame_allocs.set(
             @intFromEnum(frame),
             .init(.{ .size = 0, .alignment = .@"1" }),
         );
     }
-    // TODO: spill $ra and make it allocatable
     cg.frame_allocs.set(
         @intFromEnum(FrameIndex.args_frame),
         .init(.{
@@ -819,6 +818,8 @@ fn computeFrameLayout(cg: *CodeGen) !usize {
     cg.setFrameLoc(.stack_frame, .sp, &sp_offset, true);
     cg.setFrameLoc(.call_frame, .sp, &sp_offset, true);
     for (frame_alloc_order) |frame_index| cg.setFrameLoc(frame_index, .sp, &sp_offset, true);
+    cg.setFrameLoc(.spill_float_frame, .sp, &sp_offset, true);
+    cg.setFrameLoc(.spill_int_frame, .sp, &sp_offset, true);
     cg.setFrameLoc(.args_frame, .sp, &sp_offset, false);
 
     return @intCast(sp_offset - frame_offset[@intFromEnum(FrameIndex.call_frame)]);
@@ -834,9 +835,52 @@ fn setFrameLoc(cg: *CodeGen, frame_index: FrameIndex, base: Register, offset: *i
     offset.* += cg.frame_allocs.items(.abi_size)[frame_i];
 }
 
+/// Adjusts a frame alloc for a required size and alignment.
+fn adjustFrame(cg: *CodeGen, frame: FrameIndex, size: u32, alignment: InternPool.Alignment) void {
+    const frame_size =
+        &cg.frame_allocs.items(.abi_size)[@intFromEnum(frame)];
+    frame_size.* = @max(frame_size.*, @as(u31, @intCast(size)));
+    const frame_align =
+        &cg.frame_allocs.items(.abi_align)[@intFromEnum(frame)];
+    frame_align.* = frame_align.max(alignment);
+}
+
+/// Computes static registers that need to be spilled.
+fn computeSpillRegs(cg: *CodeGen, regs: []const Register) Mir.RegisterList {
+    var list: Mir.RegisterList = .empty;
+    for (regs) |reg|
+        if (cg.register_manager.isRegAllocated(reg)) list.push(reg);
+    return list;
+}
+
+/// Adjusts spill frames.
+fn adjustSpillFrame(cg: *CodeGen, rc: Register.Class, regs: Mir.RegisterList) void {
+    const size = rc.byteSize(cg.target) * regs.count();
+    const frame: FrameIndex = switch (rc) {
+        .int => .spill_int_frame,
+        .float => .spill_float_frame,
+        else => unreachable,
+    };
+    cg.adjustFrame(frame, @intCast(size), .fromByteUnits(@intCast(rc.byteSize(cg.target))));
+}
+
 fn gen(cg: *CodeGen) InnerError!void {
     try cg.asmPseudo(.func_prologue, .none);
+    const bp_spill_regs_int = try cg.asmPlaceholder();
+    const bp_spill_regs_float = try cg.asmPlaceholder();
+
     try cg.genBody(cg.air.getMainBody());
+
+    // Spill static registers and return address
+    const spill_regs_int = cg.computeSpillRegs(&(abi.zigcc.Integer.static_regs ++ [_]Register{.ra}));
+    const spill_regs_float = cg.computeSpillRegs(&abi.zigcc.Floating.static_regs);
+    cg.backpatchPseudo(bp_spill_regs_int, .spill_int_regs, .{ .reg_list = spill_regs_int });
+    cg.backpatchPseudo(bp_spill_regs_float, .spill_float_regs, .{ .reg_list = spill_regs_float });
+    try cg.asmPseudo(.restore_int_regs, .{ .reg_list = spill_regs_int });
+    try cg.asmPseudo(.restore_float_regs, .{ .reg_list = spill_regs_float });
+    cg.adjustSpillFrame(.int, spill_regs_int);
+    cg.adjustSpillFrame(.float, spill_regs_float);
+
     try cg.asmPseudo(.func_epilogue, .none);
 }
 
@@ -872,11 +916,24 @@ fn addInst(cg: *CodeGen, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     return result_index;
 }
 
-fn asmPseudo(cg: *CodeGen, tag: Mir.Inst.PseudoTag, data: Mir.Inst.Data) error{OutOfMemory}!void {
+fn backpatchInst(cg: *CodeGen, index: Mir.Inst.Index, inst: Mir.Inst) void {
+    cg_mir_log.debug("  | backpatch: {}: {}", .{ index, inst });
+    cg.mir_instructions.set(index, inst);
+}
+
+inline fn asmPseudo(cg: *CodeGen, tag: Mir.Inst.PseudoTag, data: Mir.Inst.Data) error{OutOfMemory}!void {
     _ = try cg.addInst(.{ .tag = .fromPseudo(tag), .data = data });
 }
 
-fn asmInst(cg: *CodeGen, inst: encoding.Inst) error{OutOfMemory}!void {
+inline fn asmPlaceholder(cg: *CodeGen) error{OutOfMemory}!u32 {
+    return cg.addInst(.{ .tag = .fromPseudo(.none), .data = .none });
+}
+
+inline fn backpatchPseudo(cg: *CodeGen, index: Mir.Inst.Index, tag: Mir.Inst.PseudoTag, data: Mir.Inst.Data) void {
+    cg.backpatchInst(index, .{ .tag = .fromPseudo(tag), .data = data });
+}
+
+inline fn asmInst(cg: *CodeGen, inst: encoding.Inst) error{OutOfMemory}!void {
     _ = try cg.addInst(.initInst(inst));
 }
 
@@ -2467,14 +2524,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
         return cg.fail("var-arg calls are not supported in LA yet", .{});
 
     // adjust call frame size & alignment for the call
-    {
-        const stack_frame_size =
-            &cg.frame_allocs.items(.abi_size)[@intFromEnum(FrameIndex.call_frame)];
-        stack_frame_size.* = @max(stack_frame_size.*, @as(u31, @truncate(call_info.frame_size)));
-        const stack_frame_align =
-            &cg.frame_allocs.items(.abi_align)[@intFromEnum(FrameIndex.call_frame)];
-        stack_frame_align.* = stack_frame_align.max(call_info.frame_align);
-    }
+    cg.adjustFrame(.call_frame, call_info.frame_size, call_info.frame_align);
 
     var reg_locks = std.ArrayList(RegisterManager.RegisterLock).init(gpa);
     defer reg_locks.deinit();
@@ -2528,8 +2578,6 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
             },
         }
     }
-
-    // TODO: spill .ra
 
     // do the transfer
     if (try cg.air.value(pl_op.operand, pt)) |func_value| {

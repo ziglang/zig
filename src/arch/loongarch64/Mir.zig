@@ -3,7 +3,6 @@
 
 const Mir = @This();
 const std = @import("std");
-const IntegerBitSet = std.bit_set.IntegerBitSet;
 
 const bits = @import("bits.zig");
 const Register = bits.Register;
@@ -43,6 +42,9 @@ pub const Inst = struct {
     };
 
     pub const PseudoTag = enum {
+        /// Placeholder for backpatch or dead. No payload.
+        none,
+
         /// Branch instructions, uses `br` payload.
         branch,
         /// Load an 64-bit immediate to register, uses `imm_reg` payload.
@@ -62,10 +64,14 @@ pub const Inst = struct {
         func_epilogue,
         /// Jump to epilogue, uses `none` payload.
         jump_to_epilogue,
-        /// Spills general-purpose registers, uses `reg_list` payload.
-        spill_gp_regs,
-        /// Restores general-purpose registers, uses `reg_list` payload.
-        restore_gp_regs,
+        /// Spills general-purpose integer registers, uses `reg_list` payload.
+        spill_int_regs,
+        /// Restores general-purpose integer registers, uses `reg_list` payload.
+        restore_int_regs,
+        /// Spills general-purpose float registers, uses `reg_list` payload.
+        spill_float_regs,
+        /// Restores general-purpose float registers, uses `reg_list` payload.
+        restore_float_regs,
 
         /// Update debug line with is_stmt register set, uses `line_column` payload.
         dbg_line_stmt_line_column,
@@ -79,7 +85,7 @@ pub const Inst = struct {
         op: encoding.Data,
 
         /// Register list.
-        reg_list: Mir.RegisterList,
+        reg_list: RegisterList,
         /// Debug line and column position.
         line_column: struct {
             line: u32,
@@ -146,6 +152,10 @@ pub const Inst = struct {
                         @tagName(inst.data.op_frame_reg.reg),
                     }),
                     .call => try writer.print(".call {}", .{inst.data.sym}),
+                    .spill_int_regs => try writer.print(".spill_int_regs {}", .{inst.data.reg_list.fmt(.int)}),
+                    .spill_float_regs => try writer.print(".spill_float_regs {}", .{inst.data.reg_list.fmt(.float)}),
+                    .restore_int_regs => try writer.print(".restore_int_regs {}", .{inst.data.reg_list.fmt(.int)}),
+                    .restore_float_regs => try writer.print(".restore_float_regs {}", .{inst.data.reg_list.fmt(.float)}),
                     else => try writer.print(".{s}", .{@tagName(tag)}),
                 }
             },
@@ -189,42 +199,51 @@ pub const FrameLoc = struct {
 pub const RegisterList = struct {
     bitset: BitSet,
 
-    const BitSet = IntegerBitSet(32);
+    const BitSet = std.bit_set.StaticBitSet(32);
     const Self = @This();
 
-    pub const empty: RegisterList = .{ .bitset = .initEmpty() };
+    pub const empty: Self = .{ .bitset = .initEmpty() };
 
-    fn getIndexForReg(registers: []const Register, reg: Register) BitSet.MaskInt {
-        for (registers, 0..) |cpreg, i| {
-            if (reg.id() == cpreg.id()) return @intCast(i);
-        }
-        unreachable; // register not in input register list!
+    pub fn getRegFromIndex(rc: Register.Class, reg: usize) Register {
+        return .fromClass(rc, @intCast(reg));
     }
 
-    pub fn push(self: *Self, registers: []const Register, reg: Register) void {
-        const index = getIndexForReg(registers, reg);
-        self.bitset.set(index);
+    pub fn push(self: *Self, reg: Register) void {
+        self.bitset.set(reg.enc());
     }
 
-    pub fn isSet(self: Self, registers: []const Register, reg: Register) bool {
-        const index = getIndexForReg(registers, reg);
-        return self.bitset.isSet(index);
+    pub fn isSet(self: Self, reg: Register) bool {
+        return self.bitset.isSet(reg.enc());
     }
 
     pub fn iterator(self: Self, comptime options: std.bit_set.IteratorOptions) BitSet.Iterator(options) {
         return self.bitset.iterator(options);
     }
 
-    pub fn count(self: Self) i32 {
-        return @intCast(self.bitset.count());
+    pub fn count(self: Self) usize {
+        return self.bitset.count();
     }
 
-    pub fn size(self: Self, target: *const std.Target) i32 {
-        return @intCast(self.bitset.count() * @as(u4, switch (target.cpu.arch) {
-            else => unreachable,
-            .loongarch32 => 4,
-            .loongarch64 => 8,
-        }));
+    const FormatData = struct {
+        regs: *const RegisterList,
+        rc: Register.Class,
+    };
+    fn format2(
+        data: FormatData,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        var iter = data.regs.iterator(.{});
+        var reg_i: usize = 0;
+        while (iter.next()) |reg| {
+            if (reg_i != 0) try writer.writeAll(" ");
+            reg_i += 1;
+            try writer.writeAll(@tagName(Register.fromClass(data.rc, @intCast(reg))));
+        }
+    }
+    fn fmt(regs: *const RegisterList, rc: Register.Class) std.fmt.Formatter(format2) {
+        return .{ .data = .{ .regs = regs, .rc = rc } };
     }
 };
 

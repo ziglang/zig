@@ -93,6 +93,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
         .inst => |opcode| lower.emitLir(.{ .opcode = opcode, .data = inst.data.op }),
         .pseudo => |tag| {
             switch (tag) {
+                .none => {},
                 // TODO: impl func prolugue
                 .func_prologue => {
                     if (lower.mir.frame_size != 0) {
@@ -151,13 +152,13 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 .imm_to_reg => lower.emitImmToReg(inst.data.imm_reg.imm, inst.data.imm_reg.reg),
                 .frame_addr_to_reg => {
                     const frame_addr = inst.data.frame_reg.frame;
-                    const frame_loc = lower.mir.frame_locs.get(@intFromEnum(frame_addr.index));
+                    const frame_loc = lower.resolveFrame(frame_addr.index);
                     const reg = inst.data.frame_reg.reg;
                     lower.emitRegBiasToReg(reg, frame_loc.base, @as(i64, frame_loc.offset + frame_addr.off));
                 },
                 .frame_addr_reg_mem => {
                     const data = inst.data.op_frame_reg;
-                    const frame_loc = lower.mir.frame_locs.get(@intFromEnum(data.frame.index));
+                    const frame_loc = lower.resolveFrame(data.frame.index);
                     const offset = @as(i64, frame_loc.offset + data.frame.off);
                     if (cast(i12, offset)) |off12| {
                         lower.emit(.{
@@ -179,7 +180,26 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     lower.relocElf(.RELAX, sym, 0);
                     lower.emit(.jirl(.ra, .ra, 0));
                 },
-                else => unreachable,
+                .spill_int_regs => lower.emitRegSpill(inst.data.reg_list, .{
+                    .frame = .spill_int_frame,
+                    .reg_class = .int,
+                    .inst = .st_d,
+                }),
+                .restore_int_regs => lower.emitRegSpill(inst.data.reg_list, .{
+                    .frame = .spill_int_frame,
+                    .reg_class = .int,
+                    .inst = .ld_d,
+                }),
+                .spill_float_regs => lower.emitRegSpill(inst.data.reg_list, .{
+                    .frame = .spill_float_frame,
+                    .reg_class = .float,
+                    .inst = .fst_d,
+                }),
+                .restore_float_regs => lower.emitRegSpill(inst.data.reg_list, .{
+                    .frame = .spill_float_frame,
+                    .reg_class = .float,
+                    .inst = .fld_d,
+                }),
             }
         },
     }
@@ -218,17 +238,21 @@ inline fn relocInst(lower: *Lower, loc: Reloc.Type, inst: Mir.Inst.Index, off: i
     lower.reloc(.{ .inst = .{ .loc = loc, .inst = inst } }, off);
 }
 
-pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
+fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
     @branchHint(.cold);
     assert(lower.err_msg == null);
     lower.err_msg = try ErrorMsg.create(lower.allocator, lower.src_loc, format, args);
     return error.LowerFail;
 }
 
-fn hasFeature(lower: *Lower, feature: std.Target.riscv.Feature) bool {
+fn hasFeature(lower: *Lower, feature: std.Target.loongarch.Feature) bool {
     const target = lower.pt.zcu.getTarget();
     const features = target.cpu.features;
-    return std.Target.riscv.featureSetHas(features, feature);
+    return std.Target.loongarch.featureSetHas(features, feature);
+}
+
+inline fn resolveFrame(lower: *Lower, frame: bits.FrameIndex) Mir.FrameLoc {
+    return lower.mir.frame_locs.get(@intFromEnum(frame));
 }
 
 const max_result_insts = @max(
@@ -298,5 +322,28 @@ fn emitRegBiasToReg(lower: *Lower, dst: Register, src: Register, imm: i64) void 
     } else {
         lower.emitImmToReg(@bitCast(imm), dst);
         lower.emit(.add_d(dst, dst, src));
+    }
+}
+
+const SpillOptions = struct {
+    frame: bits.FrameIndex,
+    reg_class: Register.Class,
+    inst: encoding.OpCode,
+};
+
+/// Emits register spill/restores with DJSk12/VdJSK12/XdJSK12 instructions.
+/// rd/vd/xd is the operand register. rj + si12 is the frame address.
+fn emitRegSpill(lower: *Lower, regs: Mir.RegisterList, opts: SpillOptions) void {
+    const frame = lower.resolveFrame(opts.frame);
+    var offset = frame.offset;
+    const reg_size: i32 = @intCast(opts.reg_class.byteSize(lower.target));
+    var iter = regs.iterator(.{});
+    while (iter.next()) |reg_index| {
+        const reg = Mir.RegisterList.getRegFromIndex(opts.reg_class, reg_index);
+        lower.emit(.{
+            .opcode = opts.inst,
+            .data = .{ .DJSk12 = .{ reg, frame.base, @intCast(offset) } },
+        });
+        offset += reg_size;
     }
 }
