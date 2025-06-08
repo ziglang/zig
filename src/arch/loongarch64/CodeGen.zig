@@ -2027,6 +2027,7 @@ fn genCopyToMem(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !voi
 
 /// Truncates the value in the register in place.
 /// Clobbers any remaining bits.
+/// 32-bit values will not be truncated.
 fn truncateRegister(cg: *CodeGen, ty: Type, reg: Register) !void {
     const zcu = cg.pt.zcu;
 
@@ -2034,7 +2035,7 @@ fn truncateRegister(cg: *CodeGen, ty: Type, reg: Register) !void {
     const bit_size = @as(u6, @intCast(ty.bitSize(zcu) % 64));
 
     // skip unneeded truncation
-    if (bit_size == 0) return;
+    if (bit_size == 0 or bit_size == 32) return;
 
     if (ty.isAbiInt(zcu)) {
         if (bit_size <= 32) {
