@@ -618,6 +618,13 @@ const InstMatcher = struct {
         const si12 = try ops.nextImm(i12);
         return .initInst(.cacop(rj, code, si12));
     }
+
+    pub fn invtlb(_: []const u8, ops: *OperandIterator) !Mir.Inst {
+        const op = try ops.nextImm(u5);
+        const rj = try ops.nextReg();
+        const rk = try ops.nextReg();
+        return .initInst(.tlbinv(rj, rk, op));
+    }
 };
 
 /// Maps mnemonics to custom matchers.
@@ -628,7 +635,7 @@ const instToMatcher = struct {
     pub const bstrpick_d = InstMatcher.bstr_d;
     pub const csrxchg = InstMatcher.csrxchg;
     pub const cacop = InstMatcher.cacop;
-    // pub const invtlb = InstMatcher.invtlb;
+    pub const invtlb = InstMatcher.invtlb;
     // pub const preld = InstMatcher.preld;
     // pub const preldx = InstMatcher.preld;
     // pub const b = InstMatcher.branch;
