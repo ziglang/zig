@@ -529,7 +529,7 @@ fn parseInst(parser: *AsmParser, mnemonic: []const u8, ops: *OperandIterator) !M
     // find override matchers
     inline for (@typeInfo(instToMatcher).@"struct".decls) |decl| {
         if (mnemonicEql(decl.name, mnemonic))
-            return @field(instToMatcher, decl.name)(mnemonic, ops);
+            return @field(instToMatcher, decl.name)(decl.name, ops);
     }
 
     // find default matchers
@@ -576,13 +576,31 @@ const InstMatcher = struct {
         }
 
         const inst: encoding.Inst = @call(.always_inline, gen_fn, ops);
-        return .{ .tag = .fromInst(inst.opcode), .data = .{ .op = inst.data } };
+        return .initInst(inst);
     }
 
-    pub fn bstr_w(mnem: []const u8, ops: *OperandIterator) !Mir.Inst {
-        _ = mnem;
-        _ = ops;
-        unreachable;
+    pub fn bstr_w(decl_name: []const u8, ops: *OperandIterator) !Mir.Inst {
+        const op: encoding.OpCode = if (mem.eql(u8, decl_name, "bstrins_w")) .bstrins_w else .bstrpick_w;
+        const rd = try ops.nextReg();
+        const rj = try ops.nextReg();
+        const msbw = try ops.nextImm(u5);
+        const lsbw = try ops.nextImm(u5);
+        return .initInst(.{
+            .opcode = op,
+            .data = .{ .DJUk5Um5 = .{ rd, rj, lsbw, msbw } },
+        });
+    }
+
+    pub fn bstr_d(decl_name: []const u8, ops: *OperandIterator) !Mir.Inst {
+        const op: encoding.OpCode = if (mem.eql(u8, decl_name, "bstrins_d")) .bstrins_d else .bstrpick_d;
+        const rd = try ops.nextReg();
+        const rj = try ops.nextReg();
+        const msbw = try ops.nextImm(u6);
+        const lsbw = try ops.nextImm(u6);
+        return .initInst(.{
+            .opcode = op,
+            .data = .{ .DJUk6Um6 = .{ rd, rj, lsbw, msbw } },
+        });
     }
 };
 
@@ -590,8 +608,8 @@ const InstMatcher = struct {
 const instToMatcher = struct {
     pub const bstrins_w = InstMatcher.bstr_w;
     pub const bstrpick_w = InstMatcher.bstr_w;
-    // pub const bstrins_d = InstMatcher.bstr_d;
-    // pub const bstrpick_d = InstMatcher.bstr_d;
+    pub const bstrins_d = InstMatcher.bstr_d;
+    pub const bstrpick_d = InstMatcher.bstr_d;
     // pub const csrxchg = InstMatcher.csrxchg;
     // pub const cacop = InstMatcher.cacop;
     // pub const invtlb = InstMatcher.invtlb;
