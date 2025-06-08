@@ -223,6 +223,10 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
 /// than or equal to the number of behavior tests as the respective LLVM backend.
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: std.Target) bool {
     if (target.cpu.arch.isSpirV()) return true;
+    if (target.cpu.arch == .x86_64 and target.ptrBitWidth() == 64) return switch (target.ofmt) {
+        .elf, .macho => true,
+        else => false,
+    };
     return false;
 }
 

@@ -880,7 +880,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
             .error_set_has_value => return self.fail("TODO implement error_set_has_value", .{}),
             .vector_store_elem => return self.fail("TODO implement vector_store_elem", .{}),
-            .tlv_dllimport_ptr => return self.fail("TODO implement tlv_dllimport_ptr", .{}),
+            .runtime_nav_ptr => return self.fail("TODO implement runtime_nav_ptr", .{}),
 
             .c_va_arg => return self.fail("TODO implement c_va_arg", .{}),
             .c_va_copy => return self.fail("TODO implement c_va_copy", .{}),

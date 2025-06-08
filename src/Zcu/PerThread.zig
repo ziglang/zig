@@ -1153,18 +1153,23 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     // First, we must resolve the declaration's type. To do this, we analyze the type body if available,
     // or otherwise, we analyze the value body, populating `early_val` in the process.
 
-    switch (zir_decl.kind) {
+    const is_const = is_const: switch (zir_decl.kind) {
         .@"comptime" => unreachable, // this is not a Nav
-        .unnamed_test, .@"test", .decltest => assert(nav_ty.zigTypeTag(zcu) == .@"fn"),
-        .@"usingnamespace" => {},
-        .@"const" => {},
-        .@"var" => try sema.validateVarType(
-            &block,
-            if (zir_decl.type_body != null) ty_src else init_src,
-            nav_ty,
-            zir_decl.linkage == .@"extern",
-        ),
-    }
+        .unnamed_test, .@"test", .decltest => {
+            assert(nav_ty.zigTypeTag(zcu) == .@"fn");
+            break :is_const true;
+        },
+        .@"usingnamespace", .@"const" => true,
+        .@"var" => {
+            try sema.validateVarType(
+                &block,
+                if (zir_decl.type_body != null) ty_src else init_src,
+                nav_ty,
+                zir_decl.linkage == .@"extern",
+            );
+            break :is_const false;
+        },
+    };
 
     // Now that we know the type, we can evaluate the alignment, linksection, and addrspace, to determine
     // the full pointer type of this declaration.
@@ -1195,7 +1200,6 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
                 .init = final_val.?.toIntern(),
                 .owner_nav = nav_id,
                 .is_threadlocal = zir_decl.is_threadlocal,
-                .is_weak_linkage = false,
             } })),
             else => final_val.?,
         },
@@ -1212,10 +1216,12 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
                 .name = old_nav.name,
                 .ty = nav_ty.toIntern(),
                 .lib_name = try ip.getOrPutStringOpt(gpa, pt.tid, lib_name, .no_embedded_nulls),
-                .is_const = zir_decl.kind == .@"const",
                 .is_threadlocal = zir_decl.is_threadlocal,
-                .is_weak_linkage = false,
+                .linkage = .strong,
+                .visibility = .default,
                 .is_dll_import = false,
+                .relocation = .any,
+                .is_const = is_const,
                 .alignment = modifiers.alignment,
                 .@"addrspace" = modifiers.@"addrspace",
                 .zir_index = old_nav.analysis.?.zir_index, // `declaration` instruction
@@ -1243,6 +1249,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
         }
         ip.resolveNavValue(nav_id, .{
             .val = nav_val.toIntern(),
+            .is_const = is_const,
             .alignment = .none,
             .@"linksection" = .none,
             .@"addrspace" = .generic,
@@ -1286,6 +1293,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
 
     ip.resolveNavValue(nav_id, .{
         .val = nav_val.toIntern(),
+        .is_const = is_const,
         .alignment = modifiers.alignment,
         .@"linksection" = modifiers.@"linksection",
         .@"addrspace" = modifiers.@"addrspace",
@@ -1515,8 +1523,6 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     // the pointer modifiers, i.e. alignment, linksection, addrspace.
     const modifiers = try sema.resolveNavPtrModifiers(&block, zir_decl, inst_resolved.inst, resolved_ty);
 
-    // Usually, we can infer this information from the resolved `Nav` value; see `Zcu.navValIsConst`.
-    // However, since we don't have one, we need to quickly check the ZIR to figure this out.
     const is_const = switch (zir_decl.kind) {
         .@"comptime" => unreachable,
         .unnamed_test, .@"test", .decltest, .@"usingnamespace", .@"const" => true,
@@ -1542,7 +1548,7 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
             r.alignment != modifiers.alignment or
             r.@"linksection" != modifiers.@"linksection" or
             r.@"addrspace" != modifiers.@"addrspace" or
-            zcu.navValIsConst(r.val) != is_const or
+            r.is_const != is_const or
             (old_nav.getExtern(ip) != null) != is_extern_decl,
     };
 
@@ -1550,10 +1556,10 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
 
     ip.resolveNavType(nav_id, .{
         .type = resolved_ty.toIntern(),
+        .is_const = is_const,
         .alignment = modifiers.alignment,
         .@"linksection" = modifiers.@"linksection",
         .@"addrspace" = modifiers.@"addrspace",
-        .is_const = is_const,
         .is_threadlocal = zir_decl.is_threadlocal,
         .is_extern_decl = is_extern_decl,
     });
@@ -1750,7 +1756,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *A
 
     if (build_options.enable_debug_extensions and comp.verbose_air) {
         std.debug.print("# Begin Function AIR: {}:\n", .{nav.fqn.fmt(ip)});
-        @import("../print_air.zig").dump(pt, air.*, liveness);
+        air.dump(pt, liveness);
         std.debug.print("# End Function AIR: {}\n\n", .{nav.fqn.fmt(ip)});
     }
 
@@ -3577,8 +3583,10 @@ pub fn getCoerced(pt: Zcu.PerThread, val: Value, new_ty: Type) Allocator.Error!V
                 .lib_name = e.lib_name,
                 .is_const = e.is_const,
                 .is_threadlocal = e.is_threadlocal,
-                .is_weak_linkage = e.is_weak_linkage,
+                .linkage = e.linkage,
+                .visibility = e.visibility,
                 .is_dll_import = e.is_dll_import,
+                .relocation = e.relocation,
                 .alignment = e.alignment,
                 .@"addrspace" = e.@"addrspace",
                 .zir_index = e.zir_index,
@@ -3954,7 +3962,7 @@ pub fn navPtrType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Allocator.Err
     const ty, const alignment, const @"addrspace", const is_const = switch (ip.getNav(nav_id).status) {
         .unresolved => unreachable,
         .type_resolved => |r| .{ r.type, r.alignment, r.@"addrspace", r.is_const },
-        .fully_resolved => |r| .{ ip.typeOf(r.val), r.alignment, r.@"addrspace", zcu.navValIsConst(r.val) },
+        .fully_resolved => |r| .{ ip.typeOf(r.val), r.alignment, r.@"addrspace", r.is_const },
     };
     return pt.ptrType(.{
         .child = ty,
