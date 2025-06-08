@@ -1,4 +1,4 @@
-/// ABI related stuff for LoongArch64.
+//! ABI related stuff for LoongArch64.
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;

@@ -18,6 +18,7 @@ const Mir = @import("./Mir.zig");
 const Lir = @import("./Lir.zig");
 const Emit = @import("./Emit.zig");
 const encoding = @import("./encoding.zig");
+const AsmParser = @import("./AsmParser.zig");
 const RegisterManager = abi.RegisterManager;
 const Register = bits.Register;
 const FrameIndex = bits.FrameIndex;
@@ -1520,6 +1521,10 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .bit_or => try cg.airLogicBinOp(inst, .@"or"),
             .xor => try cg.airLogicBinOp(inst, .xor),
 
+            .assembly => cg.airAsm(inst) catch |err| switch (err) {
+                error.AsmParseFail => return error.CodegenFail,
+                else => |e| return e,
+            },
             .trap => try cg.asmInst(.@"break"(0)),
             .breakpoint => try cg.asmInst(.@"break"(0)),
 
@@ -2670,4 +2675,125 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
     for (arg_refs) |arg_ref| try cg.feed(&bt, arg_ref);
 
     try (try cg.tempInit(ret_ty, ret_mcv)).finish(inst, &.{}, cg);
+}
+
+fn airAsm(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const ty_pl = cg.getAirData(inst).ty_pl;
+    const extra = cg.air.extraData(Air.Asm, ty_pl.payload);
+    var extra_i: usize = extra.end;
+    const outputs: []const Air.Inst.Ref =
+        @ptrCast(cg.air.extra.items[extra_i..][0..extra.data.outputs_len]);
+    extra_i += outputs.len;
+    const inputs: []const Air.Inst.Ref = @ptrCast(cg.air.extra.items[extra_i..][0..extra.data.inputs_len]);
+    extra_i += inputs.len;
+    const clobbers_len = @as(u31, @truncate(extra.data.flags));
+
+    var parser: AsmParser = .{
+        .pt = cg.pt,
+        .target = cg.target,
+        .gpa = cg.gpa,
+        .register_manager = &cg.register_manager,
+        .src_loc = cg.src_loc,
+        .output_len = outputs.len,
+        .input_len = inputs.len,
+        .clobber_len = clobbers_len,
+        .mir_offset = cg.label(),
+    };
+    try parser.init();
+    defer parser.deinit();
+    errdefer if (parser.err_msg) |msg| {
+        cg.failMsg(msg) catch {};
+    };
+
+    // parse constraints
+    for (outputs) |_| {
+        const extra_bytes = std.mem.sliceAsBytes(cg.air.extra.items[extra_i..]);
+        const constraint = std.mem.sliceTo(extra_bytes, 0);
+        const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+        try parser.parseOutputConstraint(name, constraint);
+    }
+
+    for (inputs) |_| {
+        const input_bytes = std.mem.sliceAsBytes(cg.air.extra.items[extra_i..]);
+        const constraint = std.mem.sliceTo(input_bytes, 0);
+        const name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+        try parser.parseOutputConstraint(name, constraint);
+    }
+
+    for (0..clobbers_len) |_| {
+        const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(cg.air.extra.items[extra_i..]), 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        extra_i += clobber.len / 4 + 1;
+
+        try parser.parseClobberConstraint(clobber);
+    }
+
+    // prepare to input load
+    try parser.finalizeConstraints();
+
+    // load inputs
+    for (inputs, 0..) |input, input_i| {
+        const input_mcv = &parser.args.items[outputs.len + input_i].value;
+        const input_cgv = try cg.resolveRef(input);
+
+        switch (input_mcv.*) {
+            .none => unreachable,
+            .imm => |*imm| {
+                switch (input_cgv) {
+                    .immediate => |input_imm| {
+                        if (cast(i32, @as(i64, @bitCast(input_imm)))) |imm32|
+                            imm.* = imm32
+                        else
+                            return cg.fail("input immediate {} cannot fit into operand", .{imm});
+                    },
+                    else => return cg.fail("input {} is not an immediate", .{input_i + 1}),
+                }
+            },
+            .reg => |reg| {
+                try cg.genCopyToReg(cg.typeOf(input), reg, input_cgv, .{});
+            },
+        }
+    }
+
+    // parse source
+    const asm_source = std.mem.sliceAsBytes(cg.air.extra.items[extra_i..])[0..extra.data.source_len];
+    try parser.parseSource(asm_source);
+
+    // finish MC generation
+    try parser.finalizeCodeGen();
+
+    // copy instructions
+    try cg.mir_instructions.ensureUnusedCapacity(cg.gpa, parser.mir_insts.items.len);
+    for (parser.mir_insts.items) |mc_inst|
+        cg.mir_instructions.appendAssumeCapacity(mc_inst);
+
+    // kill operands
+    var bt = cg.liveness.iterateBigTomb(inst);
+    for (outputs) |output| if (output != .none) try cg.feed(&bt, output);
+    for (inputs) |input| try cg.feed(&bt, input);
+
+    // finish assembly block
+    if (outputs.len != 0) {
+        assert(outputs.len == 1);
+        const result_ty = cg.typeOf(outputs[0]);
+        const result_mcv = parser.args.items[0].value;
+        switch (result_mcv) {
+            .none, .imm => unreachable,
+            .reg => |reg| {
+                const result_tmp = try cg.tempInit(result_ty, .{ .register = reg });
+                try result_tmp.finish(inst, &.{}, cg);
+            },
+        }
+    } else {
+        try (try cg.tempInit(.void, .none)).finish(inst, &.{}, cg);
+    }
 }
