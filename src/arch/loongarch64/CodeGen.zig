@@ -1542,6 +1542,19 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .call_never_tail => try cg.airCall(inst, .never_tail),
             .call_never_inline => try cg.airCall(inst, .never_inline),
 
+            .cmp_eq => try cg.airCompareToBool(inst, .{ .cond = .eq, .swap = false, .opti = false }),
+            .cmp_eq_optimized => try cg.airCompareToBool(inst, .{ .cond = .eq, .swap = false, .opti = true }),
+            .cmp_neq => try cg.airCompareToBool(inst, .{ .cond = .ne, .swap = false, .opti = false }),
+            .cmp_neq_optimized => try cg.airCompareToBool(inst, .{ .cond = .ne, .swap = false, .opti = true }),
+            .cmp_lt => try cg.airCompareToBool(inst, .{ .cond = .gt, .swap = true, .opti = false }),
+            .cmp_lt_optimized => try cg.airCompareToBool(inst, .{ .cond = .gt, .swap = true, .opti = true }),
+            .cmp_lte => try cg.airCompareToBool(inst, .{ .cond = .le, .swap = false, .opti = false }),
+            .cmp_lte_optimized => try cg.airCompareToBool(inst, .{ .cond = .le, .swap = false, .opti = true }),
+            .cmp_gt => try cg.airCompareToBool(inst, .{ .cond = .gt, .swap = false, .opti = false }),
+            .cmp_gt_optimized => try cg.airCompareToBool(inst, .{ .cond = .gt, .swap = false, .opti = true }),
+            .cmp_gte => try cg.airCompareToBool(inst, .{ .cond = .le, .swap = true, .opti = false }),
+            .cmp_gte_optimized => try cg.airCompareToBool(inst, .{ .cond = .le, .swap = true, .opti = true }),
+
             .unreach => {},
 
             .dbg_stmt => if (cg.debug_output != .none) {
@@ -1750,6 +1763,16 @@ fn tempReuseOrAlloc(cg: *CodeGen, inst: Air.Inst.Index, op: Temp, op_i: Air.Live
     } else {
         return cg.tempAlloc(ty, opts);
     }
+}
+
+fn tempTryReuseOrAlloc(cg: *CodeGen, inst: Air.Inst.Index, op_temps: []const Temp, opts: MCVAllocOptions) InnerError!Temp {
+    for (op_temps, 0..) |op, op_i| {
+        if (cg.liveness.operandDies(inst, @truncate(op_i)) and op.isMut(cg)) {
+            cg.reused_operands.set(op_i);
+            return op;
+        }
+    }
+    return cg.tempAlloc(op_temps[0].typeOf(cg), opts);
 }
 
 fn reuseOperand(
@@ -2796,4 +2819,39 @@ fn airAsm(cg: *CodeGen, inst: Air.Inst.Index) !void {
     } else {
         try (try cg.tempInit(.void, .none)).finish(inst, &.{}, cg);
     }
+}
+
+const CmpToBoolOptions = struct {
+    cond: Mir.BranchCondition.Tag,
+    swap: bool,
+    opti: bool,
+};
+
+// TODO: instruction combination
+fn airCompareToBool(cg: *CodeGen, inst: Air.Inst.Index, comptime opts: CmpToBoolOptions) !void {
+    // const pt = cg.pt;
+    // const zcu = pt.zcu;
+
+    var bin_op = cg.getAirData(inst).bin_op;
+    if (opts.swap) std.mem.swap(Air.Inst.Ref, &bin_op.lhs, &bin_op.rhs);
+    var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs }));
+
+    if (try sel.match(.{
+        .patterns = &.{
+            .{ .srcs = &.{ .to_int_reg, .to_int_reg } },
+            .{ .srcs = &.{ .to_int_reg, .to_int_reg }, .commute = .{ 0, 1 } },
+        },
+    })) {
+        const lhs, const rhs = sel.ops[0..2].*;
+        const dst = try cg.tempTryReuseOrAlloc(inst, &.{ lhs, rhs }, .{ .use_frame = false });
+
+        const label_if = try cg.asmBr(null, .compare(opts.cond, lhs.getReg(cg), rhs.getReg(cg)));
+        try cg.asmInst(.ori(dst.getReg(cg), .zero, 0));
+        const label_fall = try cg.asmBr(null, .none);
+        cg.performReloc(label_if);
+        try cg.asmInst(.ori(dst.getReg(cg), .zero, 1));
+        cg.performReloc(label_fall);
+
+        try sel.finish(dst);
+    } else return sel.fail();
 }

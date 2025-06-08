@@ -262,6 +262,8 @@ pub const BranchCondition = union(enum) {
     leu: struct { Register, Register },
     gtu: struct { Register, Register },
 
+    pub const Tag = std.meta.Tag(BranchCondition);
+
     pub fn format(
         inst: BranchCondition,
         comptime _: []const u8,
@@ -283,5 +285,9 @@ pub const BranchCondition = union(enum) {
                 try writer.print("{s} {s} {s}", .{ @tagName(regs[0]), op, @tagName(regs[1]) });
             },
         }
+    }
+
+    pub fn compare(comptime tag: Tag, lhs: Register, rhs: Register) BranchCondition {
+        return @unionInit(BranchCondition, @tagName(tag), .{ lhs, rhs });
     }
 };
