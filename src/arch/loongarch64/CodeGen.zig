@@ -1971,14 +1971,14 @@ fn truncateRegister(cg: *CodeGen, ty: Type, reg: Register) !void {
     const zcu = cg.pt.zcu;
 
     assert(reg.class() == .int);
-    const bit_size = @as(u5, @intCast(ty.bitSize(zcu) % 64));
+    const bit_size = @as(u6, @intCast(ty.bitSize(zcu) % 64));
 
     // skip unneeded truncation
     if (bit_size == 0) return;
 
     if (ty.isAbiInt(zcu)) {
         if (bit_size <= 32) {
-            try cg.asmInst(.bstrpick_w(reg, reg, 0, bit_size - 1));
+            try cg.asmInst(.bstrpick_w(reg, reg, 0, @intCast(bit_size - 1)));
         } else {
             try cg.asmInst(.bstrpick_d(reg, reg, 0, bit_size - 1));
         }
