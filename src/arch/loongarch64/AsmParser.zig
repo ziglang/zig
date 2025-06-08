@@ -494,9 +494,36 @@ const OperandIterator = struct {
         }
     }
 
+    fn resolveArg(it: *OperandIterator, tmpl: []const u8) !?*MCValue {
+        if (tmpl.len < 2)
+            return null;
+        if (tmpl[0] == '%') {
+            if (tmpl[1] == '[' and tmpl[tmpl.len - 1] == ']') {
+                const arg_name = tmpl[2..][0 .. tmpl.len - 3];
+                if (it.parser.arg_map.get(arg_name)) |arg_i| {
+                    return &it.parser.args.items[arg_i].value;
+                } else {
+                    return it.parser.fail("undefined named assembly argument: '{s}'", .{tmpl});
+                }
+            } else if (std.fmt.parseInt(usize, tmpl[1..], 10) catch null) |arg_i| {
+                if (arg_i < it.parser.args.items.len) {
+                    return &it.parser.args.items[arg_i].value;
+                } else {
+                    return it.parser.fail("undefined assembly argument: '{s}'", .{tmpl});
+                }
+            }
+        }
+        return null;
+    }
+
     fn nextReg(it: *OperandIterator) !Register {
         if (it.next()) |name| {
-            if (try it.parser.parseRegister(name)) |reg| {
+            if (try it.resolveArg(name)) |mcv| {
+                switch (mcv.*) {
+                    .reg => |reg| return reg,
+                    else => return it.parser.fail("argument is not a register: '{s}'", .{name}),
+                }
+            } else if (try it.parser.parseRegister(name)) |reg| {
                 return reg;
             } else {
                 return it.parser.fail("invalid register operand: '{s}'", .{name});
@@ -505,12 +532,30 @@ const OperandIterator = struct {
     }
 
     fn tryNextReg(it: *OperandIterator) !?Register {
-        return if (it.next()) |name| try it.parser.parseRegister(name) else null;
+        return if (it.next()) |name| {
+            if (try it.resolveArg(name)) |mcv| {
+                switch (mcv.*) {
+                    .reg => |reg| reg,
+                    else => null,
+                }
+            } else try it.parser.parseRegister(name);
+        } else null;
     }
 
     fn nextImm(it: *OperandIterator, T: type) !T {
         if (it.next()) |imm_str| {
-            return std.fmt.parseInt(T, imm_str, 0) catch |err| switch (err) {
+            if (try it.resolveArg(imm_str)) |mcv| {
+                switch (mcv.*) {
+                    .imm => |imm| {
+                        if (std.math.cast(T, imm)) |imm_cast| {
+                            return imm_cast;
+                        } else {
+                            return it.parser.fail("immediate argument cannot fit into " ++ @typeName(T) ++ ": '{s}'", .{imm_str});
+                        }
+                    },
+                    else => return it.parser.fail("argument is not an immediate: '{s}'", .{imm_str}),
+                }
+            } else return std.fmt.parseInt(T, imm_str, 0) catch |err| switch (err) {
                 error.Overflow => return it.parser.fail("immediate operand cannot fit into " ++ @typeName(T) ++ ": '{s}'", .{imm_str}),
                 error.InvalidCharacter => return it.parser.fail("invalid " ++ @typeName(T) ++ " operand: '{s}'", .{imm_str}),
             };
@@ -519,7 +564,17 @@ const OperandIterator = struct {
 
     fn tryNextImm(it: *OperandIterator, T: type) ?T {
         if (it.next()) |imm_str| {
-            return std.fmt.parseInt(T, imm_str, 0) catch null;
+            if (try it.resolveArg(imm_str)) |mcv| {
+                return switch (mcv.*) {
+                    .imm => |imm| {
+                        if (std.math.cast(T, imm)) |imm_cast|
+                            imm_cast
+                        else
+                            null;
+                    },
+                    else => null,
+                };
+            } else return std.fmt.parseInt(T, imm_str, 0) catch null;
         } else return null;
     }
 };
