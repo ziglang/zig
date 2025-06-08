@@ -3098,7 +3098,9 @@ pub fn processExports(pt: Zcu.PerThread) !void {
             // This export might already have been sent to the linker on a previous update, in which case we need to delete it.
             // The linker export API should be modified to eliminate this call. #23616
             if (zcu.comp.bin_file) |lf| {
-                lf.deleteExport(exp.exported, exp.opts.name);
+                if (zcu.llvm_object == null) {
+                    lf.deleteExport(exp.exported, exp.opts.name);
+                }
             }
             continue;
         }
@@ -3122,8 +3124,10 @@ pub fn processExports(pt: Zcu.PerThread) !void {
             // This export might already have been sent to the linker on a previous update, in which case we need to delete it.
             // The linker export API should be modified to eliminate this loop. #23616
             if (zcu.comp.bin_file) |lf| {
-                for (exports) |exp| {
-                    lf.deleteExport(exp.exported, exp.opts.name);
+                if (zcu.llvm_object == null) {
+                    for (exports) |exp| {
+                        lf.deleteExport(exp.exported, exp.opts.name);
+                    }
                 }
             }
             continue;
