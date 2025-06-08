@@ -1926,7 +1926,8 @@ fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: C
                     }
                 }
             }
-            return cg.fail("TODO: genCopyToReg from {s}", .{@tagName(src_mcv)});
+            try cg.genCopyToReg(.usize, dst, .{ .register_bias = .{ .reg = ro.reg, .off = ro.off } }, .{});
+            return cg.genCopyToReg(ty, dst, .{ .register_offset = .{ .reg = dst } }, .{});
         },
         .lea_frame => |addr| try cg.asmPseudo(.frame_addr_to_reg, .{ .frame_reg = .{
             .frame = addr,
