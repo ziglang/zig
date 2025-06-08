@@ -1902,6 +1902,8 @@ const riscv = struct {
 
             .SUB_ULEB128,
             .SET_ULEB128,
+
+            .RELAX,
             => {},
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),
@@ -1929,6 +1931,7 @@ const riscv = struct {
 
         switch (r_type) {
             .NONE => unreachable,
+            .RELAX => {},
 
             .@"32" => try cwriter.writeInt(u32, @as(u32, @truncate(@as(u64, @intCast(S + A)))), .little),
 
@@ -2068,6 +2071,7 @@ const riscv = struct {
 
         switch (r_type) {
             .NONE => unreachable,
+            .RELAX => {},
 
             .@"32" => try cwriter.writeInt(i32, @as(i32, @intCast(S + A)), .little),
             .@"64" => if (atom.debugTombstoneValue(target.*, elf_file)) |value|
