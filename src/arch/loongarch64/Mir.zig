@@ -83,6 +83,10 @@ pub const Inst = struct {
         dbg_line_stmt_line_column,
         /// Update debug line with is_stmt register clear, uses `line_column` payload.
         dbg_line_line_column,
+        /// Start of lexical block, no payload.
+        dbg_enter_block,
+        /// End of lexical block, no payload.
+        dbg_exit_block,
     };
 
     pub const Data = union {

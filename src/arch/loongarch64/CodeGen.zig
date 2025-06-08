@@ -87,14 +87,6 @@ loops: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
 next_temp_index: Temp.Index = @enumFromInt(0),
 temp_type: [Temp.Index.max]Type = undefined,
 
-const State = struct {
-    registers: RegisterManager.TrackedRegisters,
-    reg_tracking: [RegisterManager.RegisterBitSet.bit_length]InstTracking,
-    free_registers: RegisterManager.RegisterBitSet,
-    inst_tracking_len: u32,
-    scope_generation: u32,
-};
-
 const Owner = union(enum) {
     nav_index: InternPool.Nav.Index,
     lazy_sym: link.File.LazySymbol,
@@ -539,6 +531,65 @@ const InstTracking = struct {
         });
     }
 
+    fn resurrect(inst_tracking: *InstTracking, cg: *CodeGen, inst: Air.Inst.Index, scope_generation: u32) !void {
+        switch (inst_tracking.short) {
+            .dead => |die_generation| if (die_generation >= scope_generation) {
+                inst_tracking.reuseFrame();
+                try cg.getValue(inst_tracking.short, inst);
+                tracking_log.debug("%{d} => {} (resurrect)", .{ inst, inst_tracking.* });
+            },
+            else => {},
+        }
+    }
+
+    fn verifyMaterialize(inst_tracking: InstTracking, target: InstTracking) void {
+        switch (inst_tracking.long) {
+            .none,
+            .unreach,
+            .undef,
+            .immediate,
+            .memory,
+            .lea_frame,
+            .load_symbol,
+            .lea_symbol,
+            => assert(std.meta.eql(inst_tracking.long, target.long)),
+            .load_frame,
+            .reserved_frame,
+            => switch (target.long) {
+                .none,
+                .load_frame,
+                .reserved_frame,
+                => {},
+                else => unreachable,
+            },
+            else => unreachable,
+        }
+    }
+
+    fn materialize(inst_tracking: *InstTracking, cg: *CodeGen, inst: Air.Inst.Index, target: InstTracking) !void {
+        inst_tracking.verifyMaterialize(target);
+        try inst_tracking.materializeUnsafe(cg, inst, target);
+    }
+
+    fn materializeUnsafe(inst_tracking: InstTracking, cg: *CodeGen, inst: Air.Inst.Index, target: InstTracking) !void {
+        const ty = cg.typeOfIndex(inst);
+        // if ((inst_tracking.long == .none or inst_tracking.long == .reserved_frame) and target.long == .load_frame)
+        //     try cg.genCopy(ty, target.long, inst_tracking.short);
+        try cg.genCopy(ty, target.short, inst_tracking.short);
+    }
+
+    fn trackMaterialize(inst_tracking: *InstTracking, inst: Air.Inst.Index, target: InstTracking) void {
+        inst_tracking.verifyMaterialize(target);
+        // do not clobber reserved frame indices
+        inst_tracking.long = if (target.long == .none) switch (inst_tracking.long) {
+            .load_frame => |addr| .{ .reserved_frame = addr.index },
+            .reserved_frame => inst_tracking.long,
+            else => target.long,
+        } else target.long;
+        inst_tracking.short = target.short;
+        tracking_log.debug("%{d} => {} (materialize)", .{ inst, inst_tracking.* });
+    }
+
     fn liveOut(inst_tracking: *InstTracking, cg: *CodeGen, inst: Air.Inst.Index) void {
         for (inst_tracking.getRegs()) |reg| {
             if (cg.register_manager.isRegFree(reg)) {
@@ -887,6 +938,7 @@ fn adjustSpillFrame(cg: *CodeGen, rc: Register.Class, regs: Mir.RegisterList) vo
     cg.adjustFrame(frame, @intCast(size), .fromByteUnits(@intCast(rc.byteSize(cg.target))));
 }
 
+/// Generates the function body.
 fn gen(cg: *CodeGen) InnerError!void {
     try cg.asmPseudo(.func_prologue, .none);
     const bp_spill_regs_int = try cg.asmPlaceholder();
@@ -906,6 +958,13 @@ fn gen(cg: *CodeGen) InnerError!void {
     cg.adjustSpillFrame(.float, spill_regs_float);
 
     try cg.asmPseudo(.func_epilogue, .none);
+}
+
+/// Generates a lexical block.
+fn genBodyBlock(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
+    if (cg.debug_output != .none) try cg.asmPseudo(.dbg_enter_block, .none);
+    try cg.genBody(body);
+    if (cg.debug_output != .none) try cg.asmPseudo(.dbg_exit_block, .none);
 }
 
 fn fail(cg: *CodeGen, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
@@ -1189,12 +1248,12 @@ const Temp = struct {
                 const result_mcv = try cg.allocRegOrMem(ty, inst, .{});
                 try cg.genCopy(cg.typeOfIndex(inst), result_mcv, temp.tracking(cg).short, .{});
 
-                log.debug("{} => {} (birth copied from {})", .{ inst, result_mcv, temp.index });
+                tracking_log.debug("{} => {} (birth copied from {})", .{ inst, result_mcv, temp.index });
                 cg.inst_tracking.putAssumeCapacityNoClobber(inst, .init(result_mcv));
             },
             .temp => |temp_index| {
                 const temp_tracking = temp_index.tracking(cg);
-                log.debug("{} => {} (birth from {})", .{ inst, temp_tracking.short, temp.index });
+                tracking_log.debug("{} => {} (birth from {})", .{ inst, temp_tracking.short, temp.index });
                 cg.inst_tracking.putAssumeCapacityNoClobber(inst, .init(temp_tracking.short));
                 assert(cg.reuseTemp(temp_tracking, inst, temp_index.toIndex()));
             },
@@ -1489,6 +1548,131 @@ inline fn getAirData(cg: *CodeGen, inst: Air.Inst.Index) Air.Inst.Data {
     return cg.air.instructions.items(.data)[@intFromEnum(inst)];
 }
 
+const State = struct {
+    registers: RegisterManager.TrackedRegisters,
+    reg_tracking: [RegisterManager.RegisterBitSet.bit_length]InstTracking,
+    free_registers: RegisterManager.RegisterBitSet,
+    next_temp_index: Temp.Index,
+    inst_tracking_len: u32,
+    scope_generation: u32,
+};
+
+fn initRetroactiveState(cg: *CodeGen) State {
+    var state: State = undefined;
+    state.next_temp_index = cg.next_temp_index;
+    state.inst_tracking_len = @intCast(cg.inst_tracking.count());
+    state.scope_generation = cg.scope_generation;
+    cg.scope_generation += 1;
+    return state;
+}
+
+fn saveRetroactiveState(cg: *CodeGen, state: *State) !void {
+    const free_registers = cg.register_manager.free_registers;
+    var it = free_registers.iterator(.{ .kind = .unset });
+    while (it.next()) |index| {
+        const tracked_inst = cg.register_manager.registers[index];
+        state.registers[index] = tracked_inst;
+        state.reg_tracking[index] = cg.inst_tracking.get(tracked_inst).?;
+    }
+    state.free_registers = free_registers;
+}
+
+fn saveState(cg: *CodeGen) !State {
+    var state = cg.initRetroactiveState();
+    try cg.saveRetroactiveState(&state);
+    return state;
+}
+
+fn restoreState(cg: *CodeGen, state: State, deaths: []const Air.Inst.Index, comptime opts: struct {
+    emit_instructions: bool,
+    update_tracking: bool,
+    resurrect: bool,
+    close_scope: bool,
+}) !void {
+    if (opts.close_scope) {
+        // kill temps
+        for (@intFromEnum(state.next_temp_index)..@intFromEnum(cg.next_temp_index)) |temp_i|
+            try (Temp{ .index = @enumFromInt(temp_i) }).die(cg);
+        cg.next_temp_index = state.next_temp_index;
+
+        // kill inst results
+        for (
+            cg.inst_tracking.keys()[state.inst_tracking_len..],
+            cg.inst_tracking.values()[state.inst_tracking_len..],
+        ) |inst, *tracking| try tracking.die(cg, inst);
+        cg.inst_tracking.shrinkRetainingCapacity(state.inst_tracking_len);
+    }
+
+    if (opts.resurrect) {
+        // resurrect temps
+        for (
+            cg.inst_tracking.keys()[0..@intFromEnum(state.next_temp_index)],
+            cg.inst_tracking.values()[0..@intFromEnum(state.next_temp_index)],
+        ) |inst, *tracking| try tracking.resurrect(cg, inst, state.scope_generation);
+        // recurrect inst results
+        for (
+            cg.inst_tracking.keys()[Temp.Index.max..state.inst_tracking_len],
+            cg.inst_tracking.values()[Temp.Index.max..state.inst_tracking_len],
+        ) |inst, *tracking| try tracking.resurrect(cg, inst, state.scope_generation);
+    }
+    for (deaths) |death| try cg.resolveInst(death).die(cg, death);
+
+    const ExpectedContents = [@typeInfo(RegisterManager.TrackedRegisters).array.len]RegisterManager.RegisterLock;
+    var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
+        if (opts.update_tracking) {} else std.heap.stackFallback(@sizeOf(ExpectedContents), cg.gpa);
+
+    var reg_locks = if (opts.update_tracking) {} else try std.ArrayList(RegisterManager.RegisterLock).initCapacity(
+        stack.get(),
+        @typeInfo(ExpectedContents).array.len,
+    );
+    defer if (!opts.update_tracking) {
+        for (reg_locks.items) |lock| cg.register_manager.unlockReg(lock);
+        reg_locks.deinit();
+    };
+
+    // restore register state
+    for (
+        0..,
+        cg.register_manager.registers,
+        state.registers,
+        state.reg_tracking,
+    ) |reg_i, current_slot, target_slot, reg_tracking| {
+        const reg_index: RegisterManager.TrackedIndex = @intCast(reg_i);
+        const current_maybe_inst = if (cg.register_manager.isRegIndexFree(reg_index)) null else current_slot;
+        const target_maybe_inst = if (state.free_registers.isSet(reg_index)) null else target_slot;
+
+        if (std.debug.runtime_safety) if (target_maybe_inst) |target_inst|
+            assert(cg.inst_tracking.getIndex(target_inst).? < state.inst_tracking_len);
+
+        if (opts.emit_instructions and current_maybe_inst != target_maybe_inst) {
+            if (current_maybe_inst) |current_inst|
+                try cg.inst_tracking.getPtr(current_inst).?.spill(cg, current_inst);
+            if (target_maybe_inst) |target_inst|
+                try cg.inst_tracking.getPtr(target_inst).?.materialize(cg, target_inst, reg_tracking);
+        }
+        if (opts.update_tracking) {
+            if (current_maybe_inst) |current_inst| {
+                try cg.inst_tracking.getPtr(current_inst).?.trackSpill(cg, current_inst);
+                cg.register_manager.freeRegIndex(reg_index);
+            }
+            if (target_maybe_inst) |target_inst| {
+                cg.register_manager.getRegIndexAssumeFree(reg_index, target_inst);
+                cg.inst_tracking.getPtr(target_inst).?.trackMaterialize(target_inst, reg_tracking);
+            }
+        } else if (target_maybe_inst) |_|
+            try reg_locks.append(cg.register_manager.lockRegIndexAssumeUnused(reg_index));
+    }
+
+    // verify register state
+    if (opts.update_tracking and std.debug.runtime_safety) {
+        assert(cg.register_manager.free_registers.eql(state.free_registers));
+        var used_reg_it = state.free_registers.iterator(.{ .kind = .unset });
+        while (used_reg_it.next()) |index|
+            assert(cg.register_manager.registers[index] == state.registers[index]);
+    }
+}
+
+/// Generates a AIR block.
 fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
     @setEvalBranchQuota(28_600);
     const pt = cg.pt;
@@ -1555,6 +1739,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .cmp_gt_optimized => try cg.airCompareToBool(inst, .{ .cond = .gt, .swap = false, .opti = true }),
             .cmp_gte => try cg.airCompareToBool(inst, .{ .cond = .le, .swap = true, .opti = false }),
             .cmp_gte_optimized => try cg.airCompareToBool(inst, .{ .cond = .le, .swap = true, .opti = true }),
+
+            .cond_br => try cg.airCondBr(inst),
 
             .unreach => {},
 
@@ -1697,7 +1883,7 @@ fn tempInit(cg: *CodeGen, ty: Type, value: MCValue) InnerError!Temp {
     cg.temp_type[@intFromEnum(temp_index)] = ty;
     try cg.getValue(value, temp_index.toIndex());
     cg.next_temp_index = @enumFromInt(@intFromEnum(temp_index) + 1);
-    log.debug("{} => {} (birth)", .{ temp_index.toIndex(), value });
+    tracking_log.debug("{} => {} (birth)", .{ temp_index.toIndex(), value });
     return .{ .index = temp_index.toIndex() };
 }
 
@@ -1723,7 +1909,7 @@ fn tempFromOperand(cg: *CodeGen, op_ref: Air.Inst.Ref, op_dies: bool) InnerError
         const op_inst = op_ref.toIndex().?;
         const tracking = cg.resolveInst(op_inst);
         temp_index.tracking(cg).* = tracking.*;
-        log.debug("{} => {} (birth from operand)", .{ temp_index.toIndex(), tracking.short });
+        tracking_log.debug("{} => {} (birth from operand)", .{ temp_index.toIndex(), tracking.short });
 
         if (!cg.reuseTemp(tracking, temp.index, op_inst)) return .{ .index = op_ref.toIndex().? };
         cg.temp_type[@intFromEnum(temp_index)] = cg.typeOf(op_ref);
@@ -2855,4 +3041,56 @@ fn airCompareToBool(cg: *CodeGen, inst: Air.Inst.Index, comptime opts: CmpToBool
 
         try sel.finish(dst);
     } else return sel.fail();
+}
+
+fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const pt = cg.pt;
+
+    const pl_op = cg.getAirData(inst).pl_op;
+    const extra = cg.air.extraData(Air.CondBr, pl_op.payload);
+    const then_body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.then_body_len]);
+    const else_body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const liveness_cond_br = cg.liveness.getCondBr(inst);
+
+    const cond_mcv = try cg.resolveRef(pl_op.operand);
+    const cond_ty = cg.typeOf(pl_op.operand);
+
+    // try to kill the operand earlier so it does not need to be spilled
+    if (cg.liveness.operandDies(inst, 0))
+        if (pl_op.operand.toIndex()) |index| try cg.resolveInst(index).die(cg, index);
+
+    const state = try cg.saveState();
+
+    // do the branch
+    const reloc = gen_br: switch (cond_mcv) {
+        .register => |reg| try cg.asmBr(null, .{ .eq = .{ reg, .zero } }),
+        .immediate,
+        .load_frame,
+        => {
+            assert(cond_ty.abiSize(pt.zcu) <= 8);
+            const tmp_reg = try cg.allocReg(cond_ty, null);
+            try cg.genCopyToReg(cond_ty, tmp_reg, cond_mcv, .{});
+            break :gen_br try cg.asmBr(null, .{ .eq = .{ tmp_reg, .zero } });
+        },
+        else => unreachable,
+    };
+
+    for (liveness_cond_br.then_deaths) |death| try cg.resolveInst(death).die(cg, death);
+    try cg.genBodyBlock(then_body);
+    try cg.restoreState(state, &.{}, .{
+        .emit_instructions = false,
+        .update_tracking = true,
+        .resurrect = true,
+        .close_scope = true,
+    });
+
+    cg.performReloc(reloc);
+    for (liveness_cond_br.else_deaths) |death| try cg.resolveInst(death).die(cg, death);
+    try cg.genBodyBlock(else_body);
+    try cg.restoreState(state, &.{}, .{
+        .emit_instructions = false,
+        .update_tracking = true,
+        .resurrect = true,
+        .close_scope = true,
+    });
 }

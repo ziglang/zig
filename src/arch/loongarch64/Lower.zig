@@ -118,7 +118,11 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                         lower.relocInst(.b26, lower.mir.epilogue_begin, 0);
                     }
                 },
-                .dbg_line_line_column, .dbg_line_stmt_line_column => {},
+                .dbg_line_line_column,
+                .dbg_line_stmt_line_column,
+                .dbg_enter_block,
+                .dbg_exit_block,
+                => {},
                 .branch => {
                     switch (inst.data.br.cond) {
                         .none => {
