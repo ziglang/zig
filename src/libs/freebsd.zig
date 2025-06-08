@@ -1073,12 +1073,14 @@ fn buildSharedLib(
         .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
-        .cache_mode = .incremental,
+        // Because we manually cache the whole set of objects, we don't cache the individual objects
+        // within it. In fact, we *can't* do that, because we need `emit_bin` to specify the path.
+        .cache_mode = .none,
         .config = config,
         .root_mod = root_mod,
         .root_name = lib.name,
         .libc_installation = comp.libc_installation,
-        .emit_bin = .yes_cache,
+        .emit_bin = .{ .yes_path = try bin_directory.join(arena, &.{basename}) },
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
