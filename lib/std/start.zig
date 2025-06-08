@@ -159,6 +159,14 @@ fn exit2(code: usize) noreturn {
                     : "o0", "o1", "o2", "o3", "o4", "o5", "o6", "o7", "memory"
                 );
             },
+            .loongarch64 => {
+                asm volatile ("syscall 0"
+                    :
+                    : [number] "{a7}" (93),
+                      [arg1] "{a0}" (code),
+                    : "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "memory"
+                );
+            },
             else => @compileError("TODO"),
         },
         // exits(0)
