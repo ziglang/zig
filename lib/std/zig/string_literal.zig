@@ -1,6 +1,6 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
-const utf8Encode = std.unicode.utf8Encode;
+const utf8EncodeAllowSurrogates = std.unicode.utf8EncodeAllowSurrogates;
 
 pub const ParseError = error{
     OutOfMemory,
@@ -69,7 +69,7 @@ pub const Error = union(enum) {
                 .{self.raw_string[bad_index]},
             ),
             .invalid_unicode_codepoint => try writer.writeAll(
-                "unicode escape does not correspond to a valid unicode scalar value",
+                "unicode escape does not correspond to a Unicode code point",
             ),
             .expected_lbrace => |bad_index| try writer.print(
                 "expected '{{', found '{c}'",
@@ -339,8 +339,8 @@ pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result 
                     .success => |codepoint| {
                         if (bytes[escape_char_index] == 'u') {
                             var buf: [4]u8 = undefined;
-                            const len = utf8Encode(codepoint, &buf) catch {
-                                return Result{ .failure = .{ .invalid_unicode_codepoint = escape_char_index + 1 } };
+                            const len = utf8EncodeAllowSurrogates(codepoint, &buf) catch |err| switch (err) {
+                                error.CodepointTooLarge => unreachable, // Checked in `parseEscapeSequence`.
                             };
                             try writer.writeAll(buf[0..len]);
                         } else {
@@ -386,6 +386,7 @@ test parseAlloc {
     try expect(eql(u8, "\x12foo", try parseAlloc(alloc, "\"\\x12foo\"")));
     try expect(eql(u8, "bytes\u{1234}foo", try parseAlloc(alloc, "\"bytes\\u{1234}foo\"")));
     try expect(eql(u8, "foo", try parseAlloc(alloc, "\"foo\"")));
-    try expect(eql(u8, "foo", try parseAlloc(alloc, "\"f\x6f\x6f\"")));
-    try expect(eql(u8, "f💯", try parseAlloc(alloc, "\"f\u{1f4af}\"")));
+    try expect(eql(u8, "foo", try parseAlloc(alloc, "\"f\\x6f\\x6f\"")));
+    try expect(eql(u8, "f💯", try parseAlloc(alloc, "\"f\\u{1f4af}\"")));
+    try expect(eql(u8, "\xed\xa0\x80", try parseAlloc(alloc, "\"\\u{d800}\"")));
 }

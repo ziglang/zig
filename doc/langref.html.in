@@ -733,12 +733,12 @@
         </tr>
         <tr>
             <th scope="row"><code>\u{NNNNNN}</code></th>
-          <td>hexadecimal Unicode scalar value UTF-8 encoded (1 or more digits)</td>
+          <td>hexadecimal Unicode code point (1 or more digits)</td>
         </tr>
         </tbody>
       </table>
       </div>
-      <p>Note that the maximum valid Unicode scalar value is {#syntax#}0x10ffff{#endsyntax#}.</p>
+      <p>Note that the highest Unicode code point is {#syntax#}0x10ffff{#endsyntax#}. Character literals are integers ('A' = 65 and '\u{10000}' = 0x10000 = 65,536), but \u escapes in string literals are encoded as UTF-8 ("A" = "\u{41}" = "\x41" and "\u{10000}" = "\xF0\x90\x80\x80"). \u escapes can be used for surrogate code points, which are not Unicode scalar values or technically allowed in UTF-8 as defined by the Unicode standard, but can be useful in practice.</p>
       {#header_close#}
       {#header_open|Multiline String Literals#}
       <p>
