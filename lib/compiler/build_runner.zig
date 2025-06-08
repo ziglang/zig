@@ -267,8 +267,19 @@ pub fn main() !void {
                 prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "--watch")) {
                 watch = true;
-            } else if (mem.eql(u8, arg, "--watch-clear")) {
-                watch_clear = true;
+            } else if (mem.startsWith(u8, arg, "--watch=")) {
+                watch = true;
+                const text = arg["--watch=".len..];
+                const option = std.meta.stringToEnum(std.Build.Watch.Options, text) orelse {
+                    fatalWithHint("expected [clear] in '{s}', found '{s}'", .{
+                        arg, text,
+                    });
+                };
+                switch (option) {
+                    .clear => {
+                        watch_clear = true;
+                    },
+                }
             } else if (mem.eql(u8, arg, "--fuzz")) {
                 fuzz = true;
             } else if (mem.eql(u8, arg, "-fincremental")) {
@@ -1311,8 +1322,8 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
         \\    needed                     (Default) Lazy dependencies are fetched as needed
         \\    all                        Lazy dependencies are always fetched
-        \\  --watch                      Continuously rebuild when source files are modified
-        \\  --watch-clear                Clear screen before each rebuild
+        \\  --watch[=option]             Continuously rebuild when source files are modified
+        \\    clear                      Clear screen before each rebuild. (default: no clear)
         \\  --fuzz                       Continuously search for unit test failures
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
         \\     -fincremental             Enable incremental compilation

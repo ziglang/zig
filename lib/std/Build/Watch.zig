@@ -12,6 +12,10 @@ generation: Generation,
 
 pub const have_impl = Os != void;
 
+pub const Options = enum {
+    clear,
+};
+
 /// Key is the directory to watch which contains one or more files we are
 /// interested in noticing changes to.
 ///
