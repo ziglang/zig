@@ -625,6 +625,17 @@ const InstMatcher = struct {
         const rk = try ops.nextReg();
         return .initInst(.tlbinv(rj, rk, op));
     }
+
+    pub fn preld(decl_name: []const u8, ops: *OperandIterator) !Mir.Inst {
+        const op: encoding.OpCode = if (mem.eql(u8, decl_name, "preld")) .preld else .preldx;
+        const hint = try ops.nextImm(u5);
+        const rj = try ops.nextReg();
+        const si12 = try ops.nextImm(i12);
+        return .initInst(.{
+            .opcode = op,
+            .data = .{ .JUd5Sk12 = .{ rj, hint, si12 } },
+        });
+    }
 };
 
 /// Maps mnemonics to custom matchers.
@@ -636,8 +647,8 @@ const instToMatcher = struct {
     pub const csrxchg = InstMatcher.csrxchg;
     pub const cacop = InstMatcher.cacop;
     pub const invtlb = InstMatcher.invtlb;
-    // pub const preld = InstMatcher.preld;
-    // pub const preldx = InstMatcher.preld;
+    pub const preld = InstMatcher.preld;
+    pub const preldx = InstMatcher.preld;
     // pub const b = InstMatcher.branch;
     // pub const bl = InstMatcher.branch;
     // pub const beqz = InstMatcher.cond_br_zero;
