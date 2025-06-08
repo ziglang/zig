@@ -1898,7 +1898,7 @@ fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: C
         .none => {},
         .dead, .unreach => unreachable,
         .undef => if (opts.safety) try cg.asmInst(.lu12i_w(dst, 0xaaaa)),
-        .register => |src| try cg.asmInst(.ori(dst, src, 0)),
+        .register => |src| if (dst != src) try cg.asmInst(.ori(dst, src, 0)),
         .register_bias => |ro| {
             try cg.asmInst(.addi_d(dst, ro.reg, cast(i12, ro.off) orelse return cg.fail("TODO copy reg_bias to reg", .{})));
         },
