@@ -611,6 +611,13 @@ const InstMatcher = struct {
             return ops.parser.fail("r0 and r1 cannot be used as rj for CSRXCHG", .{});
         return .initInst(.csrxchg(rd, rj, csr_num));
     }
+
+    pub fn cacop(_: []const u8, ops: *OperandIterator) !Mir.Inst {
+        const code = try ops.nextImm(u5);
+        const rj = try ops.nextReg();
+        const si12 = try ops.nextImm(i12);
+        return .initInst(.cacop(rj, code, si12));
+    }
 };
 
 /// Maps mnemonics to custom matchers.
@@ -620,7 +627,7 @@ const instToMatcher = struct {
     pub const bstrins_d = InstMatcher.bstr_d;
     pub const bstrpick_d = InstMatcher.bstr_d;
     pub const csrxchg = InstMatcher.csrxchg;
-    // pub const cacop = InstMatcher.cacop;
+    pub const cacop = InstMatcher.cacop;
     // pub const invtlb = InstMatcher.invtlb;
     // pub const preld = InstMatcher.preld;
     // pub const preldx = InstMatcher.preld;
