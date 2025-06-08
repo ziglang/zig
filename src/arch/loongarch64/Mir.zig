@@ -13,6 +13,8 @@ const InternPool = @import("../../InternPool.zig");
 instructions: std.MultiArrayList(Inst).Slice,
 frame_locs: std.MultiArrayList(FrameLoc).Slice,
 frame_size: usize,
+/// The first instruction of epilogue.
+epilogue_begin: Inst.Index,
 
 pub const Inst = struct {
     tag: Tag,

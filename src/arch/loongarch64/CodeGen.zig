@@ -59,6 +59,7 @@ src_loc: Zcu.LazySrcLoc,
 
 /// MIR instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .empty,
+epilogue_label: Mir.Inst.Index = undefined,
 
 reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 inst_tracking: InstTrackingMap = .empty,
@@ -726,6 +727,7 @@ pub fn generate(
         .instructions = cg.mir_instructions.toOwnedSlice(),
         .frame_locs = cg.frame_locs.toOwnedSlice(),
         .frame_size = frame_size,
+        .epilogue_begin = cg.epilogue_label,
     };
     defer mir.deinit(gpa);
 
@@ -870,6 +872,7 @@ fn gen(cg: *CodeGen) InnerError!void {
     const bp_spill_regs_float = try cg.asmPlaceholder();
 
     try cg.genBody(cg.air.getMainBody());
+    cg.epilogue_label = cg.label();
 
     // Spill static registers and return address
     const spill_regs_int = cg.computeSpillRegs(&(abi.zigcc.Integer.static_regs ++ [_]Register{.ra}));

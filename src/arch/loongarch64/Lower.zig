@@ -107,13 +107,11 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     lower.emit(.jirl(.ra, .ra, 0));
                 },
                 .jump_to_epilogue => {
-                    if (index + 1 < lower.mir.instructions.len and
-                        lower.mir.instructions.get(index + 1).tag == Mir.Inst.Tag.fromPseudo(.func_epilogue))
-                    {
-                        log.debug("omit jump_to_epilogue", .{});
+                    if (index + 1 == lower.mir.epilogue_begin) {
+                        log.debug("omitted jump_to_epilogue", .{});
                     } else {
                         lower.emit(.b(0, 0));
-                        lower.relocInst(.b26, @intCast(lower.mir.instructions.len - 1), 0);
+                        lower.relocInst(.b26, lower.mir.epilogue_begin, 0);
                     }
                 },
                 .dbg_line_line_column, .dbg_line_stmt_line_column => {},
