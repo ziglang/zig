@@ -1552,7 +1552,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     if (prev_mir_tag.* == Mir.Inst.Tag.fromPseudo(.dbg_line_line_column))
                         prev_mir_tag.* = Mir.Inst.Tag.fromPseudo(.dbg_line_stmt_line_column);
                 }
-                try cg.asmInst(.ori(.zero, .zero, 0));
+                try cg.asmInst(.andi(.r0, .r0, 0));
             },
             // TODO: emit debug info
             .dbg_inline_block => {},
