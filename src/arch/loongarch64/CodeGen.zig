@@ -2591,6 +2591,12 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
         if (cg.register_manager.lockReg(reg)) |lock| try reg_locks.append(lock);
     }
 
+    // lock temporary regs
+    for (abi.zigcc.all_temporary) |reg| {
+        try cg.register_manager.getReg(reg, null);
+        if (cg.register_manager.lockReg(reg)) |lock| try reg_locks.append(lock);
+    }
+
     // resolve ret MCV
     const ret_mcv: MCValue = if (cg.liveness.isUnused(inst)) .unreach else ret_mcv: switch (call_info.return_value) {
         .ref_register, .ref_frame => {

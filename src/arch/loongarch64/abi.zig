@@ -87,6 +87,7 @@ pub const CCValue = union(enum) {
 pub const zigcc = struct {
     pub const all_allocatable_regs = Integer.all_allocatable_regs ++ Floating.all_allocatable_regs;
     pub const all_static = Integer.static_regs ++ Floating.static_regs;
+    pub const all_temporary = Integer.temporary_regs ++ Floating.temporary_regs;
 
     pub const Integer = struct {
         pub const all_allocatable_regs = function_arg_regs ++ temporary_regs ++ static_regs ++ [_]Register{.ra};
