@@ -602,6 +602,15 @@ const InstMatcher = struct {
             .data = .{ .DJUk6Um6 = .{ rd, rj, lsbw, msbw } },
         });
     }
+
+    pub fn csrxchg(_: []const u8, ops: *OperandIterator) !Mir.Inst {
+        const rd = try ops.nextReg();
+        const rj = try ops.nextReg();
+        const csr_num = try ops.nextImm(u14);
+        if (rj == .r0 or rj == .r1)
+            return ops.parser.fail("r0 and r1 cannot be used as rj for CSRXCHG", .{});
+        return .initInst(.csrxchg(rd, rj, csr_num));
+    }
 };
 
 /// Maps mnemonics to custom matchers.
@@ -610,7 +619,7 @@ const instToMatcher = struct {
     pub const bstrpick_w = InstMatcher.bstr_w;
     pub const bstrins_d = InstMatcher.bstr_d;
     pub const bstrpick_d = InstMatcher.bstr_d;
-    // pub const csrxchg = InstMatcher.csrxchg;
+    pub const csrxchg = InstMatcher.csrxchg;
     // pub const cacop = InstMatcher.cacop;
     // pub const invtlb = InstMatcher.invtlb;
     // pub const preld = InstMatcher.preld;
