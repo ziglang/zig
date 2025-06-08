@@ -110,7 +110,7 @@ pub fn main() !void {
     var steps_menu = false;
     var output_tmp_nonce: ?[16]u8 = null;
     var watch = false;
-    var withClear = false;
+    var watch_clear = false;
     var fuzz = false;
     var debounce_interval_ms: u16 = 50;
     var listen_port: u16 = 0;
@@ -267,8 +267,8 @@ pub fn main() !void {
                 prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "--watch")) {
                 watch = true;
-            } else if (mem.eql(u8, arg, "--with-clear")) {
-                withClear = true;
+            } else if (mem.eql(u8, arg, "--watch-clear")) {
+                watch_clear = true;
             } else if (mem.eql(u8, arg, "--fuzz")) {
                 fuzz = true;
             } else if (mem.eql(u8, arg, "-fincremental")) {
@@ -487,7 +487,7 @@ pub fn main() !void {
         var debounce_timeout: Watch.Timeout = .none;
         while (true) switch (try w.wait(gpa, debounce_timeout)) {
             .timeout => {
-                if (withClear) {
+                if (watch_clear) {
                     try std.io.getStdOut().writeAll("\x1B[2J\x1B[H");
                 }
 
