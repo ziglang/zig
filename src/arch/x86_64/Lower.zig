@@ -427,8 +427,35 @@ fn encode(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operan
     lower.result_insts_len += 1;
 }
 
+const inst_tags_len = @typeInfo(Mir.Inst.Tag).@"enum".fields.len;
+const inst_fixes_len = @typeInfo(Mir.Inst.Fixes).@"enum".fields.len;
+/// Lookup table, indexed by `@intFromEnum(inst.tag) * inst_fixes_len + @intFromEnum(fixes)`.
+/// The value is the resulting `Mnemonic`, or `null` if the combination is not valid.
+const mnemonic_table: [inst_tags_len * inst_fixes_len]?Mnemonic = table: {
+    @setEvalBranchQuota(80_000);
+    var table: [inst_tags_len * inst_fixes_len]?Mnemonic = undefined;
+    for (0..inst_fixes_len) |fixes_i| {
+        const fixes: Mir.Inst.Fixes = @enumFromInt(fixes_i);
+        const prefix, const suffix = affix: {
+            const pattern = if (std.mem.indexOfScalar(u8, @tagName(fixes), ' ')) |i|
+                @tagName(fixes)[i + 1 ..]
+            else
+                @tagName(fixes);
+            const wildcard_idx = std.mem.indexOfScalar(u8, pattern, '_').?;
+            break :affix .{ pattern[0..wildcard_idx], pattern[wildcard_idx + 1 ..] };
+        };
+        for (0..inst_tags_len) |inst_tag_i| {
+            const inst_tag: Mir.Inst.Tag = @enumFromInt(inst_tag_i);
+            const name = prefix ++ @tagName(inst_tag) ++ suffix;
+            const idx = inst_tag_i * inst_fixes_len + fixes_i;
+            table[idx] = if (@hasField(Mnemonic, name)) @field(Mnemonic, name) else null;
+        }
+    }
+    break :table table;
+};
+
 fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
-    @setEvalBranchQuota(2_800);
+    @setEvalBranchQuota(2_000);
     const fixes = switch (inst.ops) {
         .none => inst.data.none.fixes,
         .inst => inst.data.inst.fixes,
@@ -457,19 +484,18 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         else
             .none,
     }, mnemonic: {
-        comptime var max_len = 0;
-        inline for (@typeInfo(Mnemonic).@"enum".fields) |field| max_len = @max(field.name.len, max_len);
-        var buf: [max_len]u8 = undefined;
-
+        if (mnemonic_table[@intFromEnum(inst.tag) * inst_fixes_len + @intFromEnum(fixes)]) |mnemonic| {
+            break :mnemonic mnemonic;
+        }
+        // This combination is invalid; make the theoretical mnemonic name and emit an error with it.
         const fixes_name = @tagName(fixes);
         const pattern = fixes_name[if (std.mem.indexOfScalar(u8, fixes_name, ' ')) |i| i + " ".len else 0..];
         const wildcard_index = std.mem.indexOfScalar(u8, pattern, '_').?;
-        const parts = .{ pattern[0..wildcard_index], @tagName(inst.tag), pattern[wildcard_index + "_".len ..] };
-        const err_msg = "unsupported mnemonic: ";
-        const mnemonic = std.fmt.bufPrint(&buf, "{s}{s}{s}", parts) catch
-            return lower.fail(err_msg ++ "'{s}{s}{s}'", parts);
-        break :mnemonic std.meta.stringToEnum(Mnemonic, mnemonic) orelse
-            return lower.fail(err_msg ++ "'{s}'", .{mnemonic});
+        return lower.fail("unsupported mnemonic: '{s}{s}{s}'", .{
+            pattern[0..wildcard_index],
+            @tagName(inst.tag),
+            pattern[wildcard_index + "_".len ..],
+        });
     }, switch (inst.ops) {
         .none => &.{},
         .inst => &.{
