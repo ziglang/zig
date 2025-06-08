@@ -721,7 +721,7 @@ pub fn generate(
 
     // TODO: calc preserve static regs
     const frame_size = try cg.computeFrameLayout();
-    log.debug("Frame layout:{}", .{cg.fmtFrameLocs()});
+    log.debug("Frame layout: {} bytes{}", .{ frame_size, cg.fmtFrameLocs() });
 
     var mir: Mir = .{
         .instructions = cg.mir_instructions.toOwnedSlice(),
