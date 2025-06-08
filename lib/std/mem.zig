@@ -787,13 +787,13 @@ fn eqlBytes(a: []const u8, b: []const u8) bool {
 /// Compares two slices and returns the index of the first inequality.
 /// Returns null if the slices are equal.
 pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
-    if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T) and eqlBytes_allowed)
+    if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T))
         return if (indexOfDiffBytes(sliceAsBytes(a), sliceAsBytes(b))) |index| index / @sizeOf(T) else null;
 
     const shortest = @min(a.len, b.len);
     if (a.ptr == b.ptr) return if (a.len == b.len) null else shortest;
-    var index: usize = 0;
-    while (index < shortest) : (index += 1) if (a[index] != b[index]) return index;
+
+    for (0..shortest) |index| if (a[index] != b[index]) return index;
     return if (a.len == b.len) null else shortest;
 }
 
@@ -803,8 +803,10 @@ test indexOfDiff {
     try testing.expectEqual(indexOfDiff(u8, "one", "one two"), 3);
     try testing.expectEqual(indexOfDiff(u8, "one twx", "one two"), 6);
     try testing.expectEqual(indexOfDiff(u8, "xne", "one"), 0);
-    try testing.expectEqual(indexOfDiff(u8, "one two three four", "one two three"), 13);
-    try testing.expectEqual(indexOfDiff(u8, "one two three four five six", "one two three four five"), 23);
+    try testing.expectEqual(indexOfDiff(u16, &.{ 0x4e00, 0x4e8c, 0x4e09, 0x56db }, &.{ 0x4e00, 0x4e8c, 0x4e09 }), 3);
+    try testing.expectEqual(indexOfDiff(u16, &.{ 0x96f6, 0x4e8c, 0x4e09, 0x56db }, &.{ 0x4e00, 0x4e8c, 0x4e09, 0x56db }), 0);
+    try testing.expectEqual(indexOfDiff(f64, &.{ 0x8000000000000000, 0x0000000000000000 }, &.{ 0x0000000000000000, 0x0000000000000000 }), 0);
+    try testing.expectEqual(indexOfDiff(u64, &.{ 0xaaaaaaaaaaaaaaaa, 0xaaaaaaaaaaaabbbb }, &.{ 0xaaaaaaaaaaaaaaaa, 0xaaaaaaaaaaaacccc }), 1);
     comptime {
         try testing.expectEqual(indexOfDiff(type, &.{ bool, f32 }, &.{ bool, f32 }), null);
         try testing.expectEqual(indexOfDiff(type, &.{ bool, f32 }, &.{ f32, bool }), 0);
@@ -815,105 +817,105 @@ test indexOfDiff {
     }
     try testing.expectEqual(indexOfDiff(void, &.{ {}, {} }, &.{ {}, {} }), null);
     try testing.expectEqual(indexOfDiff(void, &.{{}}, &.{ {}, {} }), 1);
-    try testing.expectEqual(indexOfDiff(f64, &.{ 3.14, 2.71, 1.60 }, &.{ 3.14, 2.71, 1.60 }), null);
-    try testing.expectEqual(indexOfDiff(u128, &.{ 1, 2, 3 }, &.{ 1, 2, 4 }), 2);
 }
 
 /// std.mem.indexOfDiff heavily optimized for slices of bytes.
 fn indexOfDiffBytes(a: []const u8, b: []const u8) ?usize {
-    comptime assert(eqlBytes_allowed);
-
     const shortest = @min(a.len, b.len);
     if (a.ptr == b.ptr) return if (a.len == b.len) null else shortest;
 
-    if (shortest < 16) {
-        if (shortest < @sizeOf(usize)) {
+    const swar_thr = @sizeOf(usize) * 2;
+    const max_vec_size = std.simd.suggestVectorLength(u8) orelse 0;
+    const unroll_factor = 4;
+    // Context used to generate corresponding scanning strategies (SWAR/SIMD) at compile time
+    const Ctx = struct {
+        fn Scan(vec_size: comptime_int) type {
+            return if (vec_size != 0) struct { // SIMD path
+                const size = vec_size;
+                const Chunk = @Vector(size, u8);
+                const Mask = @Type(.{ .int = .{ .bits = size, .signedness = .unsigned } });
+                inline fn load(src: []const u8) Chunk {
+                    return @bitCast(src[0..size].*);
+                }
+                inline fn toMask(lhs: Chunk, rhs: Chunk) Mask {
+                    return @bitCast(lhs != rhs);
+                }
+                inline fn hasDiff(mask: Mask) bool {
+                    return mask != 0;
+                }
+                inline fn firstDiff(mask: Mask) usize {
+                    return @ctz(mask);
+                }
+            } else struct { // SWAR path
+                const size = @sizeOf(usize);
+                const Chunk = usize;
+                const Mask = usize;
+                inline fn load(src: []const u8) Chunk {
+                    return @bitCast(src[0..size].*);
+                }
+                inline fn toMask(lhs: Chunk, rhs: Chunk) Mask {
+                    return lhs ^ rhs;
+                }
+                inline fn hasDiff(mask: Mask) bool {
+                    return mask != 0;
+                }
+                inline fn firstDiff(mask: Mask) usize {
+                    // Endian-aware
+                    return (if (native_endian == .little) @ctz(mask) else @clz(mask)) / 8;
+                }
+            };
+        }
+    };
+    // Samll slices (0, @sizeOf(usize) * 2]
+    if (shortest <= swar_thr) {
+        const Scan = Ctx.Scan(0);
+        // (0, @sizeOf(usize))
+        if (shortest < Scan.size) {
             for (0..shortest) |index| if (a[index] != b[index]) return index;
-        } else {
-            var index: usize = 0;
-            while (index + @sizeOf(usize) <= shortest) : (index += @sizeOf(usize)) {
-                const a_chunk: usize = @bitCast(a[index..][0..@sizeOf(usize)].*);
-                const b_chunk: usize = @bitCast(b[index..][0..@sizeOf(usize)].*);
-                const diff = a_chunk ^ b_chunk;
-                if (diff != 0)
-                    return index + @divFloor(if (native_endian == .little) @ctz(diff) else @clz(diff), 8);
-            }
-            if (index < shortest) {
-                const a_chunk: usize = @bitCast(a[shortest - @sizeOf(usize) ..][0..@sizeOf(usize)].*);
-                const b_chunk: usize = @bitCast(b[shortest - @sizeOf(usize) ..][0..@sizeOf(usize)].*);
-                const diff = a_chunk ^ b_chunk;
-                if (diff != 0)
-                    return shortest - @sizeOf(usize) + @divFloor(if (native_endian == .little) @ctz(diff) else @clz(diff), 8);
-            }
+            return if (a.len == b.len) null else shortest;
+        }
+        // [@sizeOf(usize), @sizeOf(usize) * 2]
+        inline for ([_]usize{ 0, shortest - Scan.size }) |index| {
+            const mask = Scan.toMask(Scan.load(a[index..]), Scan.load(b[index..]));
+            if (Scan.hasDiff(mask)) return index + Scan.firstDiff(mask);
         }
         return if (a.len == b.len) null else shortest;
     }
-
-    const Scan = if (std.simd.suggestVectorLength(u8)) |vec_len| struct {
-        const size = vec_len;
-
-        pub inline fn isNotZero(cur_size: comptime_int, mask: @Vector(cur_size, bool)) bool {
-            return @reduce(.Or, mask);
-        }
-
-        pub inline fn firstTrue(cur_size: comptime_int, mask: @Vector(cur_size, bool)) usize {
-            return std.simd.firstTrue(mask).?;
-        }
-    } else struct {
-        const size = @sizeOf(usize);
-
-        pub inline fn isNotZero(_: comptime_int, mask: usize) bool {
-            return mask != 0;
-        }
-        pub inline fn firstTrue(_: comptime_int, mask: usize) usize {
-            return @divFloor(if (native_endian == .little) @ctz(mask) else @clz(mask), 8);
-        }
-    };
-
-    // When the slice is smaller than the max vector length, reselect an appropriate vector length.
-    if (shortest < Scan.size) {
-        comptime var new_vec_len = 16;
-        inline while (new_vec_len < Scan.size) : (new_vec_len *= 2) {
-            if (new_vec_len < shortest and 2 * new_vec_len >= shortest) {
-                inline for ([_]usize{ 0, shortest - new_vec_len }) |index| {
-                    const a_chunk: @Vector(new_vec_len, u8) = @bitCast(a[index..][0..new_vec_len].*);
-                    const b_chunk: @Vector(new_vec_len, u8) = @bitCast(b[index..][0..new_vec_len].*);
-                    const diff = a_chunk != b_chunk;
-                    if (Scan.isNotZero(new_vec_len, diff))
-                        return index + Scan.firstTrue(new_vec_len, diff);
+    // Medium slices (@sizeOf(usize) * 2, max_vec_size)
+    if (shortest < max_vec_size) {
+        // Finding the appropriate vector length through doubling method
+        comptime var cur_vec_size = swar_thr;
+        inline while (cur_vec_size < max_vec_size) : (cur_vec_size *= 2) {
+            if (cur_vec_size < shortest and shortest <= cur_vec_size * 2) {
+                const Scan = Ctx.Scan(cur_vec_size);
+                inline for ([_]usize{ 0, shortest - Scan.size }) |index| {
+                    const mask = Scan.toMask(Scan.load(a[index..]), Scan.load(b[index..]));
+                    if (Scan.hasDiff(mask)) return index + Scan.firstDiff(mask);
                 }
-                break;
+                return if (a.len == b.len) null else shortest;
             }
         }
     }
-    // Using max vector length to perform SIMD scanning on slice
-    else {
-        var index: usize = 0;
-        const unroll_factor = 4;
-        while (index + Scan.size * unroll_factor <= shortest) : (index += Scan.size * unroll_factor) {
-            inline for (0..unroll_factor) |i| {
-                const a_chunk: @Vector(Scan.size, u8) = @bitCast(a[index + Scan.size * i ..][0..Scan.size].*);
-                const b_chunk: @Vector(Scan.size, u8) = @bitCast(b[index + Scan.size * i ..][0..Scan.size].*);
-                const diff = a_chunk != b_chunk;
-                if (Scan.isNotZero(Scan.size, diff))
-                    return index + Scan.size * i + Scan.firstTrue(Scan.size, diff);
-            }
-        }
-        while (index + Scan.size <= shortest) : (index += Scan.size) {
-            const a_chunk: @Vector(Scan.size, u8) = @bitCast(a[index..][0..Scan.size].*);
-            const b_chunk: @Vector(Scan.size, u8) = @bitCast(b[index..][0..Scan.size].*);
-            const diff = a_chunk != b_chunk;
-            if (Scan.isNotZero(Scan.size, diff))
-                return index + Scan.firstTrue(Scan.size, diff);
-        }
+    // Large slices [max_vec_size, +∞)
+    const Scan = Ctx.Scan(max_vec_size);
 
-        if (index < shortest) {
-            const a_chunk: @Vector(Scan.size, u8) = @bitCast(a[shortest - Scan.size ..][0..Scan.size].*);
-            const b_chunk: @Vector(Scan.size, u8) = @bitCast(b[shortest - Scan.size ..][0..Scan.size].*);
-            const diff = a_chunk != b_chunk;
-            if (Scan.isNotZero(Scan.size, diff))
-                return shortest - Scan.size + Scan.firstTrue(Scan.size, diff);
+    var index: usize = 0;
+    // Main unrolled loop
+    while (index + Scan.size * unroll_factor <= shortest) : (index += Scan.size * unroll_factor) {
+        inline for (0..unroll_factor) |i| {
+            const mask = Scan.toMask(Scan.load(a[index + Scan.size * i ..]), Scan.load(b[index + Scan.size * i ..]));
+            if (Scan.hasDiff(mask)) return index + Scan.size * i + Scan.firstDiff(mask);
         }
+    }
+    // Residual iterations
+    while (index + Scan.size <= shortest) : (index += Scan.size) {
+        const mask = Scan.toMask(Scan.load(a[index..]), Scan.load(b[index..]));
+        if (Scan.hasDiff(mask)) return index + Scan.firstDiff(mask);
+    }
+    // Final overlapping check
+    if (index < shortest) {
+        const mask = Scan.toMask(Scan.load(a[shortest - Scan.size ..]), Scan.load(b[shortest - Scan.size ..]));
+        if (Scan.hasDiff(mask)) return shortest - Scan.size + Scan.firstDiff(mask);
     }
 
     return if (a.len == b.len) null else shortest;
