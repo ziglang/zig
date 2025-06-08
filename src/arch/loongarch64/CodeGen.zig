@@ -1812,7 +1812,7 @@ fn formatFrameLocs(
     writer: anytype,
 ) @TypeOf(writer).Error!void {
     for (0..cg.frame_allocs.len) |i| {
-        try writer.print("\n- {} @ {}", .{ cg.frame_allocs.get(i), cg.frame_locs.get(i) });
+        try writer.print("\n- {}: {}\n      @ {}", .{ @as(FrameIndex, @enumFromInt(i)), cg.frame_allocs.get(i), cg.frame_locs.get(i) });
     }
 }
 fn fmtFrameLocs(self: *CodeGen) std.fmt.Formatter(formatFrameLocs) {

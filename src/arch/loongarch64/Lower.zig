@@ -67,7 +67,7 @@ pub const Reloc = struct {
             writer: anytype,
         ) @TypeOf(writer).Error!void {
             switch (target) {
-                .inst => |pl| try writer.print("MIR ref: {} (({s}))", .{ pl.inst, @tagName(pl.loc) }),
+                .inst => |pl| try writer.print("MIR ref: {} ({s})", .{ pl.inst, @tagName(pl.loc) }),
                 .elf_symbol => |pl| try writer.print("ELF symbol: R_LARCH_{s} => {}", .{ @tagName(pl.ty), pl.symbol }),
             }
         }
