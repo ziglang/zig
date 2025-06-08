@@ -2581,12 +2581,16 @@ pub fn standardDynamicLinkerPath(target: Target) DynamicLinker {
 }
 
 pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
+    return ptrBitWidth_arch_abi(cpu.arch, abi);
+}
+
+pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
     switch (abi) {
         .gnux32, .muslx32, .gnuabin32, .muslabin32, .ilp32 => return 32,
         .gnuabi64, .muslabi64 => return 64,
         else => {},
     }
-    return switch (cpu.arch) {
+    return switch (cpu_arch) {
         .avr,
         .msp430,
         => 16,

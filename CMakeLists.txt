@@ -519,6 +519,7 @@ set(ZIG_STAGE2_SOURCES
     src/Air/Legalize.zig
     src/Air/Liveness.zig
     src/Air/Liveness/Verify.zig
+    src/Air/print.zig
     src/Air/types_resolved.zig
     src/Builtin.zig
     src/Compilation.zig
@@ -675,7 +676,6 @@ set(ZIG_STAGE2_SOURCES
     src/libs/mingw.zig
     src/libs/musl.zig
     src/mutable_value.zig
-    src/print_air.zig
     src/print_env.zig
     src/print_targets.zig
     src/print_value.zig
@@ -797,13 +797,12 @@ elseif(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
   set(ZIG_HOST_TARGET_ARCH "x86_64")
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "arm64")
   set(ZIG_HOST_TARGET_ARCH "aarch64")
-elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7l")
+elseif(ZIG_HOST_TARGET_ARCH MATCHES "^arm(el)?$" OR ZIG_HOST_TARGET_ARCH MATCHES "^armv[7-8]l$")
   set(ZIG_HOST_TARGET_ARCH "arm")
-elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7b")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armeb" OR ZIG_HOST_TARGET_ARCH MATCHES "^armv[7-8]b$")
   set(ZIG_HOST_TARGET_ARCH "armeb")
 endif()
-string(REGEX REPLACE "^((arm|thumb)(hf?)?)el$" "\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
-if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(hf?)?(eb)?$")
+if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(eb)?$")
   check_symbol_exists(__thumb__ "" ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
   if(ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
     string(REGEX REPLACE "^arm" "thumb" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")

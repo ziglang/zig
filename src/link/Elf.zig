@@ -959,6 +959,12 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     self.rela_plt.clearRetainingCapacity();
 
     if (self.zigObjectPtr()) |zo| {
+        var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
+        defer {
+            for (undefs.values()) |*refs| refs.deinit();
+            undefs.deinit();
+        }
+
         var has_reloc_errors = false;
         for (zo.atoms_indexes.items) |atom_index| {
             const atom_ptr = zo.atom(atom_index) orelse continue;
@@ -969,7 +975,10 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
             const code = try zo.codeAlloc(self, atom_index);
             defer gpa.free(code);
             const file_offset = atom_ptr.offset(self);
-            atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
+            (if (shdr.sh_flags & elf.SHF_ALLOC == 0)
+                atom_ptr.resolveRelocsNonAlloc(self, code, &undefs)
+            else
+                atom_ptr.resolveRelocsAlloc(self, code)) catch |err| switch (err) {
                 error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
                 error.UnsupportedCpuArch => {
                     try self.reportUnsupportedCpuArch();
@@ -979,6 +988,8 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
             };
             try self.pwriteAll(code, file_offset);
         }
+
+        try self.reportUndefinedSymbols(&undefs);
 
         if (has_reloc_errors) return error.LinkFailure;
     }
@@ -1392,11 +1403,9 @@ fn scanRelocs(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const shared_objects = self.shared_objects.values();
 
-    var undefs = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)).init(gpa);
+    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
     defer {
-        for (undefs.values()) |*refs| {
-            refs.deinit();
-        }
+        for (undefs.values()) |*refs| refs.deinit();
         undefs.deinit();
     }
 
@@ -2702,15 +2711,16 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    const needs_interp = blk: {
-        // On Ubuntu with musl-gcc, we get a weird combo of options looking like this:
-        // -dynamic-linker=<path> -static
-        // In this case, if we do generate .interp section and segment, we will get
-        // a segfault in the dynamic linker trying to load a binary that is static
-        // and doesn't contain .dynamic section.
-        if (self.base.isStatic() and !comp.config.pie) break :blk false;
-        break :blk target.dynamic_linker.get() != null;
+    const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
+        .Exe => true,
+        .Lib => comp.config.link_mode == .dynamic,
+        .Obj => false,
     };
+    const have_dynamic_linker = comp.config.link_mode == .dynamic and is_exe_or_dyn_lib and !target.dynamic_linker.eql(.none);
+
+    const needs_interp = have_dynamic_linker and
+        (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker);
+
     if (needs_interp and self.section_indexes.interp == null) {
         self.section_indexes.interp = try self.addSection(.{
             .name = try self.insertShString(".interp"),
@@ -3707,11 +3717,9 @@ fn allocateSpecialPhdrs(self: *Elf) void {
 fn writeAtoms(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var undefs = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)).init(gpa);
+    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
     defer {
-        for (undefs.values()) |*refs| {
-            refs.deinit();
-        }
+        for (undefs.values()) |*refs| refs.deinit();
         undefs.deinit();
     }
 

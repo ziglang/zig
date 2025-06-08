@@ -25,8 +25,8 @@ git fetch --tags
 export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
 export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 
-mkdir build-debug
-cd build-debug
+mkdir build-debug-llvm
+cd build-debug-llvm
 
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
@@ -39,6 +39,7 @@ cmake .. \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
   -DZIG_NO_LIB=ON \
+  -DZIG_EXTRA_BUILD_ARGS="-Duse-llvm=true" \
   -GNinja
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
@@ -63,7 +64,6 @@ stage3-debug/bin/zig build test docs \
   -Dskip-netbsd \
   -Dskip-windows \
   -Dskip-macos \
-  -Dskip-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \

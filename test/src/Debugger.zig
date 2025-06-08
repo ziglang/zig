@@ -9,7 +9,6 @@ pub const Options = struct {
     lldb: ?[]const u8,
     optimize_modes: []const std.builtin.OptimizeMode,
     skip_single_threaded: bool,
-    skip_non_native: bool,
     skip_libc: bool,
 };
 
