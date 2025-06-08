@@ -2153,6 +2153,7 @@ const loongarch = struct {
             .TLS_DESC_PC_LO12,
             .TLS_DESC_LD,
             .TLS_LE_ADD_R,
+            .RELAX,
             => {},
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),
@@ -2185,6 +2186,7 @@ const loongarch = struct {
 
         switch (r_type) {
             .NONE => unreachable,
+            .RELAX => {},
 
             .@"32" => try cwriter.writeInt(u32, @as(u32, @truncate(@as(u64, @intCast(S + A)))), .little),
 
@@ -2242,6 +2244,7 @@ const loongarch = struct {
 
         switch (r_type) {
             .NONE => unreachable,
+            .RELAX => {},
 
             .@"32" => try cwriter.writeInt(i32, @as(i32, @intCast(S + A)), .little),
             .@"64" => if (atom.debugTombstoneValue(target.*, elf_file)) |value|
