@@ -100,8 +100,12 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                         const off = -@as(i64, @intCast(lower.mir.frame_size));
                         lower.emitRegBiasToReg(.sp, .sp, off);
                     }
+                    if (lower.mir.spill_ra)
+                        lower.emitRegFrameOp(.ra, .{ .index = .ret_addr_frame }, .st_d, .stx_d);
                 },
                 .func_epilogue => {
+                    if (lower.mir.spill_ra)
+                        lower.emitRegFrameOp(.ra, .{ .index = .ret_addr_frame }, .ld_d, .ldx_d);
                     if (lower.mir.frame_size != 0)
                         lower.emitRegBiasToReg(.sp, .sp, @intCast(lower.mir.frame_size));
                     lower.emit(.jirl(.ra, .ra, 0));
@@ -156,20 +160,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 },
                 .frame_addr_reg_mem => {
                     const data = inst.data.op_frame_reg;
-                    const frame_loc = lower.resolveFrame(data.frame.index);
-                    const offset = @as(i64, frame_loc.offset + data.frame.off);
-                    if (cast(i12, offset)) |off12| {
-                        lower.emit(.{
-                            .opcode = data.op,
-                            .data = .{ .DJSk12 = .{ data.reg, frame_loc.base, off12 } },
-                        });
-                    } else {
-                        lower.emitImmToReg(@bitCast(@as(i64, frame_loc.offset + data.frame.off)), data.reg);
-                        lower.emit(.{
-                            .opcode = data.opx,
-                            .data = .{ .DJK = .{ data.reg, frame_loc.base, data.reg } },
-                        });
-                    }
+                    lower.emitRegFrameOp(data.reg, data.frame, data.op, data.opx);
                 },
                 .call => {
                     const sym = inst.data.sym;
@@ -178,6 +169,8 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     lower.relocElf(.RELAX, sym, 0);
                     lower.emit(.jirl(.ra, .ra, 0));
                 },
+                .load_ra => if (lower.mir.spill_ra)
+                    lower.emitRegFrameOp(.ra, .{ .index = .ret_addr_frame }, .ld_d, .ldx_d),
                 .spill_int_regs => lower.emitRegSpill(inst.data.reg_list, .{
                     .frame = .spill_int_frame,
                     .reg_class = .int,
@@ -259,7 +252,7 @@ const max_result_insts = @max(
     abi.c_abi.all_static.len + 1, // push_regs/pop_regs
     4, // emitImmToReg/imm_to_reg
     5, // emitRegBiasToReg/frame_addr_to_reg/func_prolugue
-    6, // frame_addr_reg_mem
+    6, // emitRegFrameOp/frame_addr_reg_mem/load_ra
     7, // func_epilogue
 );
 const max_result_relocs = @max(
@@ -320,6 +313,25 @@ fn emitRegBiasToReg(lower: *Lower, dst: Register, src: Register, imm: i64) void 
     } else {
         lower.emitImmToReg(@bitCast(imm), dst);
         lower.emit(.add_d(dst, dst, src));
+    }
+}
+
+/// Emits up to 6 instructions.
+/// See Mir.Inst.PseudoTag.frame_addr_reg_mem.
+fn emitRegFrameOp(lower: *Lower, reg: Register, frame: bits.FrameAddr, op: encoding.OpCode, opx: encoding.OpCode) void {
+    const frame_loc = lower.resolveFrame(frame.index);
+    const offset = @as(i64, frame_loc.offset + frame.off);
+    if (cast(i12, offset)) |off12| {
+        lower.emit(.{
+            .opcode = op,
+            .data = .{ .DJSk12 = .{ reg, frame_loc.base, off12 } },
+        });
+    } else {
+        lower.emitImmToReg(@bitCast(@as(i64, frame_loc.offset + frame.off)), reg);
+        lower.emit(.{
+            .opcode = opx,
+            .data = .{ .DJK = .{ reg, frame_loc.base, reg } },
+        });
     }
 }
 

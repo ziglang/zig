@@ -690,7 +690,13 @@ pub fn generate(
 
     // init basic frames
     try cg.frame_allocs.resize(gpa, FrameIndex.named_count);
-    inline for ([_]FrameIndex{ .stack_frame, .call_frame, .spill_int_frame, .spill_float_frame }) |frame| {
+    inline for ([_]FrameIndex{
+        .stack_frame,
+        .call_frame,
+        .spill_int_frame,
+        .spill_float_frame,
+        .ret_addr_frame,
+    }) |frame| {
         cg.frame_allocs.set(
             @intFromEnum(frame),
             .init(.{ .size = 0, .alignment = .@"1" }),
@@ -719,18 +725,30 @@ pub fn generate(
         } },
     });
 
-    // TODO: calc preserve static regs
+    // check if $ra needs to be spilled
+    const ra_allocated = cg.register_manager.isRegAllocated(.ra);
+    if (ra_allocated) {
+        cg.frame_allocs.set(
+            @intFromEnum(FrameIndex.ret_addr_frame),
+            .init(.{ .size = 8, .alignment = .@"8" }),
+        );
+    }
+
+    // compute frame layout
     const frame_size = try cg.computeFrameLayout();
     log.debug("Frame layout: {} bytes{}", .{ frame_size, cg.fmtFrameLocs() });
 
+    // construct MIR
     var mir: Mir = .{
         .instructions = cg.mir_instructions.toOwnedSlice(),
         .frame_locs = cg.frame_locs.toOwnedSlice(),
         .frame_size = frame_size,
         .epilogue_begin = cg.epilogue_label,
+        .spill_ra = ra_allocated,
     };
     defer mir.deinit(gpa);
 
+    // emit MC
     var emit: Emit = .{
         .air = cg.air,
         .lower = .{
@@ -822,6 +840,7 @@ fn computeFrameLayout(cg: *CodeGen) !usize {
     for (frame_alloc_order) |frame_index| cg.setFrameLoc(frame_index, .sp, &sp_offset, true);
     cg.setFrameLoc(.spill_float_frame, .sp, &sp_offset, true);
     cg.setFrameLoc(.spill_int_frame, .sp, &sp_offset, true);
+    cg.setFrameLoc(.ret_addr_frame, .sp, &sp_offset, true);
     cg.setFrameLoc(.args_frame, .sp, &sp_offset, false);
 
     return @intCast(sp_offset - frame_offset[@intFromEnum(FrameIndex.call_frame)]);
@@ -874,8 +893,8 @@ fn gen(cg: *CodeGen) InnerError!void {
     try cg.genBody(cg.air.getMainBody());
     cg.epilogue_label = cg.label();
 
-    // Spill static registers and return address
-    const spill_regs_int = cg.computeSpillRegs(&(abi.zigcc.Integer.static_regs ++ [_]Register{.ra}));
+    // Spill static registers
+    const spill_regs_int = cg.computeSpillRegs(&(abi.zigcc.Integer.static_regs));
     const spill_regs_float = cg.computeSpillRegs(&abi.zigcc.Floating.static_regs);
     cg.backpatchPseudo(bp_spill_regs_int, .spill_int_regs, .{ .reg_list = spill_regs_int });
     cg.backpatchPseudo(bp_spill_regs_float, .spill_float_regs, .{ .reg_list = spill_regs_float });
@@ -1504,7 +1523,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .trap => try cg.asmInst(.@"break"(0)),
             .breakpoint => try cg.asmInst(.@"break"(0)),
 
-            .ret_addr => try (try cg.tempInit(.usize, .{ .register = .ra })).finish(inst, &.{}, cg),
+            .ret_addr => try cg.airRetAddr(inst),
             .frame_addr => try (try cg.tempInit(.usize, .{ .lea_frame = .{ .index = .stack_frame } })).finish(inst, &.{}, cg),
 
             .alloc => try cg.airAlloc(inst),
@@ -2434,6 +2453,17 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
     } else return sel.fail();
 }
 
+fn airRetAddr(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    // do not mark $ra as allocated
+    const index = RegisterManager.indexOfKnownRegIntoTracked(.ra).?;
+    const ra_allocated = cg.register_manager.allocated_registers.isSet(index);
+    const dst = try cg.tempInit(.usize, .{ .register = .ra });
+    cg.register_manager.allocated_registers.setValue(index, ra_allocated);
+
+    try cg.asmPseudo(.load_ra, .none);
+    try dst.finish(inst, &.{}, cg);
+}
+
 fn airAlloc(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const zcu = cg.pt.zcu;
     const ty = cg.getAirData(inst).ty;
@@ -2582,6 +2612,10 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
             },
         }
     }
+
+    // lock ra
+    try cg.register_manager.getReg(.ra, null);
+    try reg_locks.append(cg.register_manager.lockReg(.ra) orelse unreachable);
 
     // do the transfer
     if (try cg.air.value(pl_op.operand, pt)) |func_value| {

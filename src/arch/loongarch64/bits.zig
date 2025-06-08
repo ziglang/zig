@@ -222,8 +222,9 @@ test "register decoding" {
 pub const FrameIndex = enum(u32) {
     /// Refers to the start of the arguments passed to this function
     args_frame,
+    /// Refers to the start of spilled return address.
+    ret_addr_frame,
     /// Refers to the start of spilled integer static registers.
-    /// $ra is also spilled to this frame.
     spill_int_frame,
     /// Refers to the start of spilled floating-point static registers.
     spill_float_frame,

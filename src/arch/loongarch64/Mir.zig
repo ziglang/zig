@@ -15,6 +15,8 @@ frame_locs: std.MultiArrayList(FrameLoc).Slice,
 frame_size: usize,
 /// The first instruction of epilogue.
 epilogue_begin: Inst.Index,
+/// Indicates that $ra needs to be spilled.
+spill_ra: bool,
 
 pub const Inst = struct {
     tag: Tag,
@@ -59,12 +61,14 @@ pub const Inst = struct {
         frame_addr_reg_mem,
         /// Function call, uses `sym` payload.
         call,
+        /// Loads spilled $ra back to $ra, no payload.
+        load_ra,
 
-        /// Prologue of a function, uses `none` payload.
+        /// Prologue of a function, no payload.
         func_prologue,
-        /// Epilogue of a function, uses `none` payload.
+        /// Epilogue of a function, no payload.
         func_epilogue,
-        /// Jump to epilogue, uses `none` payload.
+        /// Jump to epilogue, no payload.
         jump_to_epilogue,
         /// Spills general-purpose integer registers, uses `reg_list` payload.
         spill_int_regs,
@@ -139,19 +143,19 @@ pub const Inst = struct {
                         inst.data.line_column.column,
                     }),
                     .branch => try writer.print(".branch {} => {}", .{ inst.data.br.cond, inst.data.br.inst }),
-                    .imm_to_reg => try writer.print(".imm_to_reg {} => {s}", .{
-                        inst.data.imm_reg.imm,
+                    .imm_to_reg => try writer.print(".imm_to_reg {s} <== {}", .{
                         @tagName(inst.data.imm_reg.reg),
+                        inst.data.imm_reg.imm,
                     }),
-                    .frame_addr_to_reg => try writer.print(".frame_addr_to_reg {} => {s}", .{
-                        inst.data.frame_reg.frame,
+                    .frame_addr_to_reg => try writer.print(".frame_addr_to_reg {s} <== {}", .{
                         @tagName(inst.data.frame_reg.reg),
+                        inst.data.frame_reg.frame,
                     }),
-                    .frame_addr_reg_mem => try writer.print(".frame_addr_reg_djsk12 {s}/{s} {} => {s}", .{
+                    .frame_addr_reg_mem => try writer.print(".frame_addr_reg_djsk12 {s}/{s} {s}, {}", .{
                         @tagName(inst.data.op_frame_reg.op),
                         @tagName(inst.data.op_frame_reg.opx),
-                        inst.data.op_frame_reg.frame,
                         @tagName(inst.data.op_frame_reg.reg),
+                        inst.data.op_frame_reg.frame,
                     }),
                     .call => try writer.print(".call {}", .{inst.data.sym}),
                     .spill_int_regs => try writer.print(".spill_int_regs {}", .{inst.data.reg_list.fmt(.int)}),
