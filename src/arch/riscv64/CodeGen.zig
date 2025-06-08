@@ -3603,9 +3603,7 @@ fn airRuntimeNavPtr(func: *Func, inst: Air.Inst.Index) !void {
     const tlv_sym_index = if (func.bin_file.cast(.elf)) |elf_file| sym: {
         const zo = elf_file.zigObjectPtr().?;
         if (nav.getExtern(ip)) |e| {
-            const sym = try elf_file.getGlobalSymbol(nav.name.toSlice(ip), e.lib_name.toSlice(ip));
-            zo.symbol(sym).flags.is_extern_ptr = true;
-            break :sym sym;
+            break :sym try elf_file.getGlobalSymbol(nav.name.toSlice(ip), e.lib_name.toSlice(ip));
         }
         break :sym try zo.getOrCreateMetadataForNav(zcu, ty_nav.nav);
     } else return func.fail("TODO runtime_nav_ptr on {}", .{func.bin_file.tag});

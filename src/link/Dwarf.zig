@@ -1478,16 +1478,16 @@ pub const WipNav = struct {
     pub fn genLocalVarDebugInfo(
         wip_nav: *WipNav,
         tag: LocalVarTag,
-        name: []const u8,
+        opt_name: ?[]const u8,
         ty: Type,
         loc: Loc,
     ) UpdateError!void {
         assert(wip_nav.func != .none);
         try wip_nav.abbrevCode(switch (tag) {
-            .arg => .arg,
-            .local_var => .local_var,
+            .arg => if (opt_name) |_| .arg else .unnamed_arg,
+            .local_var => if (opt_name) |_| .local_var else unreachable,
         });
-        try wip_nav.strp(name);
+        if (opt_name) |name| try wip_nav.strp(name);
         try wip_nav.refType(ty);
         try wip_nav.infoExprLoc(loc);
         wip_nav.any_children = true;
@@ -1498,7 +1498,7 @@ pub const WipNav = struct {
         wip_nav: *WipNav,
         src_loc: Zcu.LazySrcLoc,
         tag: LocalConstTag,
-        name: []const u8,
+        opt_name: ?[]const u8,
         val: Value,
     ) UpdateError!void {
         assert(wip_nav.func != .none);
@@ -1508,19 +1508,19 @@ pub const WipNav = struct {
         const has_runtime_bits = ty.hasRuntimeBits(zcu);
         const has_comptime_state = ty.comptimeOnly(zcu) and try ty.onePossibleValue(pt) == null;
         try wip_nav.abbrevCode(if (has_runtime_bits and has_comptime_state) switch (tag) {
-            .comptime_arg => .comptime_arg_runtime_bits_comptime_state,
-            .local_const => .local_const_runtime_bits_comptime_state,
+            .comptime_arg => if (opt_name) |_| .comptime_arg_runtime_bits_comptime_state else .unnamed_comptime_arg_runtime_bits_comptime_state,
+            .local_const => if (opt_name) |_| .local_const_runtime_bits_comptime_state else unreachable,
         } else if (has_comptime_state) switch (tag) {
-            .comptime_arg => .comptime_arg_comptime_state,
-            .local_const => .local_const_comptime_state,
+            .comptime_arg => if (opt_name) |_| .comptime_arg_comptime_state else .unnamed_comptime_arg_comptime_state,
+            .local_const => if (opt_name) |_| .local_const_comptime_state else unreachable,
         } else if (has_runtime_bits) switch (tag) {
-            .comptime_arg => .comptime_arg_runtime_bits,
-            .local_const => .local_const_runtime_bits,
+            .comptime_arg => if (opt_name) |_| .comptime_arg_runtime_bits else .unnamed_comptime_arg_runtime_bits,
+            .local_const => if (opt_name) |_| .local_const_runtime_bits else unreachable,
         } else switch (tag) {
-            .comptime_arg => .comptime_arg,
-            .local_const => .local_const,
+            .comptime_arg => if (opt_name) |_| .comptime_arg else .unnamed_comptime_arg,
+            .local_const => if (opt_name) |_| .local_const else unreachable,
         });
-        try wip_nav.strp(name);
+        if (opt_name) |name| try wip_nav.strp(name);
         try wip_nav.refType(ty);
         if (has_runtime_bits) try wip_nav.blockValue(src_loc, val);
         if (has_comptime_state) try wip_nav.refValue(val);
@@ -4945,10 +4945,15 @@ const AbbrevCode = enum {
     empty_inlined_func,
     inlined_func,
     arg,
+    unnamed_arg,
     comptime_arg,
+    unnamed_comptime_arg,
     comptime_arg_runtime_bits,
+    unnamed_comptime_arg_runtime_bits,
     comptime_arg_comptime_state,
+    unnamed_comptime_arg_comptime_state,
     comptime_arg_runtime_bits_comptime_state,
+    unnamed_comptime_arg_runtime_bits_comptime_state,
     local_var,
     local_const,
     local_const_runtime_bits,
@@ -5734,6 +5739,13 @@ const AbbrevCode = enum {
                 .{ .location, .exprloc },
             },
         },
+        .unnamed_arg = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .type, .ref_addr },
+                .{ .location, .exprloc },
+            },
+        },
         .comptime_arg = .{
             .tag = .formal_parameter,
             .attrs = &.{
@@ -5742,11 +5754,26 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
             },
         },
+        .unnamed_comptime_arg = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .const_expr, .flag_present },
+                .{ .type, .ref_addr },
+            },
+        },
         .comptime_arg_runtime_bits = .{
             .tag = .formal_parameter,
             .attrs = &.{
                 .{ .const_expr, .flag_present },
                 .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .const_value, .block },
+            },
+        },
+        .unnamed_comptime_arg_runtime_bits = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .const_expr, .flag_present },
                 .{ .type, .ref_addr },
                 .{ .const_value, .block },
             },
@@ -5760,11 +5787,28 @@ const AbbrevCode = enum {
                 .{ .ZIG_comptime_value, .ref_addr },
             },
         },
+        .unnamed_comptime_arg_comptime_state = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .const_expr, .flag_present },
+                .{ .type, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
+            },
+        },
         .comptime_arg_runtime_bits_comptime_state = .{
             .tag = .formal_parameter,
             .attrs = &.{
                 .{ .const_expr, .flag_present },
                 .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .const_value, .block },
+                .{ .ZIG_comptime_value, .ref_addr },
+            },
+        },
+        .unnamed_comptime_arg_runtime_bits_comptime_state = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .const_expr, .flag_present },
                 .{ .type, .ref_addr },
                 .{ .const_value, .block },
                 .{ .ZIG_comptime_value, .ref_addr },

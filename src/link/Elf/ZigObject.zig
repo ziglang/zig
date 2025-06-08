@@ -1542,11 +1542,7 @@ pub fn updateNav(
                 nav.name.toSlice(ip),
                 @"extern".lib_name.toSlice(ip),
             );
-            if (!ip.isFunctionType(@"extern".ty)) {
-                const sym = self.symbol(sym_index);
-                sym.flags.is_extern_ptr = true;
-                if (@"extern".is_threadlocal) sym.flags.is_tls = true;
-            }
+            if (@"extern".is_threadlocal) self.symbol(sym_index).flags.is_tls = true;
             if (self.dwarf) |*dwarf| dwarf: {
                 var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index) orelse break :dwarf;
                 defer debug_wip_nav.deinit();

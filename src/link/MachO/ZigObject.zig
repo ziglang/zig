@@ -881,11 +881,7 @@ pub fn updateNav(
             const name = @"extern".name.toSlice(ip);
             const lib_name = @"extern".lib_name.toSlice(ip);
             const sym_index = try self.getGlobalSymbol(macho_file, name, lib_name);
-            if (!ip.isFunctionType(@"extern".ty)) {
-                const sym = &self.symbols.items[sym_index];
-                sym.flags.is_extern_ptr = true;
-                if (@"extern".is_threadlocal) sym.flags.tlv = true;
-            }
+            if (@"extern".is_threadlocal) self.symbols.items[sym_index].flags.tlv = true;
             if (self.dwarf) |*dwarf| dwarf: {
                 var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index) orelse break :dwarf;
                 defer debug_wip_nav.deinit();
