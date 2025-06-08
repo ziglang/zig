@@ -102,6 +102,14 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .column = mir_inst.data.line_column.column,
                     .is_stmt = false,
                 }),
+                .dbg_enter_block => switch (emit.debug_output) {
+                    .dwarf => |dwarf| try dwarf.enterBlock(emit.code.items.len),
+                    .plan9, .none => {},
+                },
+                .dbg_exit_block => switch (emit.debug_output) {
+                    .dwarf => |dwarf| try dwarf.leaveBlock(emit.code.items.len),
+                    .plan9, .none => {},
+                },
                 else => {},
             },
         }
