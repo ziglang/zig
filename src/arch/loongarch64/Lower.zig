@@ -59,6 +59,18 @@ pub const Reloc = struct {
             ty: R_LARCH,
             symbol: u32,
         },
+
+        pub fn format(
+            target: Target,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            switch (target) {
+                .inst => |pl| try writer.print("MIR ref: {} (({s}))", .{ pl.inst, @tagName(pl.loc) }),
+                .elf_symbol => |pl| try writer.print("ELF symbol: R_LARCH_{s} => {}", .{ @tagName(pl.ty), pl.symbol }),
+            }
+        }
     };
 
     pub const Type = enum {
@@ -87,7 +99,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
     defer lower.result_relocs_len = undefined;
 
     const inst = lower.mir.instructions.get(index);
-    log.debug("lowering: {}", .{inst});
+    log.debug("  {}", .{inst});
 
     switch (inst.tag.unwrap()) {
         .inst => |opcode| lower.emitLir(.{ .opcode = opcode, .data = inst.data.op }),
