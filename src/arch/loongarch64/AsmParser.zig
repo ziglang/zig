@@ -751,4 +751,15 @@ const instToMatcher = struct {
 };
 
 /// Mnemonics that will not have auto-generated matcher.
-const defaultMatcherBlocklist = enum {};
+const defaultMatcherBlocklist = enum {
+    b,
+    bl,
+    beqz,
+    bnez,
+    bceqz,
+    bcnez,
+    bgt,
+    bgtu,
+    ble,
+    bleu,
+};
