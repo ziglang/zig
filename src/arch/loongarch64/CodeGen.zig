@@ -1910,8 +1910,8 @@ fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: C
             const size = bits.Memory.Size.fromByteSize(ty.abiSize(cg.pt.zcu));
             if (cast(i12, ro.off)) |off| {
                 switch (size) {
-                    .byte => try cg.asmInst(.ld_b(dst, ro.reg, off)),
-                    .hword => try cg.asmInst(.ld_h(dst, ro.reg, off)),
+                    .byte => try cg.asmInst(.ld_bu(dst, ro.reg, off)),
+                    .hword => try cg.asmInst(.ld_hu(dst, ro.reg, off)),
                     .word => try cg.asmInst(.ld_w(dst, ro.reg, off)),
                     .dword => try cg.asmInst(.ld_d(dst, ro.reg, off)),
                 }
@@ -1935,8 +1935,8 @@ fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: C
         .load_frame => |addr| {
             const size = bits.Memory.Size.fromByteSize(ty.abiSize(cg.pt.zcu));
             const op: encoding.OpCode, const opx: encoding.OpCode = switch (size) {
-                .byte => .{ .ld_b, .ldx_b },
-                .hword => .{ .ld_h, .ldx_h },
+                .byte => .{ .ld_bu, .ldx_bu },
+                .hword => .{ .ld_hu, .ldx_hu },
                 .word => .{ .ld_w, .ldx_w },
                 .dword => .{ .ld_d, .ldx_d },
             };
