@@ -787,7 +787,8 @@ fn eqlBytes(a: []const u8, b: []const u8) bool {
 /// Compares two slices and returns the index of the first inequality.
 /// Returns null if the slices are equal.
 pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
-    if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T))
+    if (!std.debug.inValgrind() // https://github.com/ziglang/zig/issues/17717
+    and backend_supports_vectors and !@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T))
         return if (indexOfDiffBytes(sliceAsBytes(a), sliceAsBytes(b))) |index| index / @sizeOf(T) else null;
 
     const shortest = @min(a.len, b.len);
@@ -833,18 +834,15 @@ fn indexOfDiffBytes(a: []const u8, b: []const u8) ?usize {
             return if (vec_size != 0) struct { // SIMD path
                 const size = vec_size;
                 const Chunk = @Vector(size, u8);
-                const Mask = @Type(.{ .int = .{ .bits = size, .signedness = .unsigned } });
+                const Mask = @Vector(size, bool);
                 inline fn load(src: []const u8) Chunk {
                     return @bitCast(src[0..size].*);
                 }
                 inline fn toMask(lhs: Chunk, rhs: Chunk) Mask {
-                    return @bitCast(lhs != rhs);
+                    return lhs != rhs;
                 }
-                inline fn hasDiff(mask: Mask) bool {
-                    return mask != 0;
-                }
-                inline fn firstDiff(mask: Mask) usize {
-                    return @ctz(mask);
+                inline fn firstTrue(mask: Mask) ?usize {
+                    return if (std.simd.firstTrue(mask)) |offset| @intCast(offset) else null;
                 }
             } else struct { // SWAR path
                 const size = @sizeOf(usize);
@@ -859,9 +857,10 @@ fn indexOfDiffBytes(a: []const u8, b: []const u8) ?usize {
                 inline fn hasDiff(mask: Mask) bool {
                     return mask != 0;
                 }
-                inline fn firstDiff(mask: Mask) usize {
+                inline fn firstTrue(mask: Mask) ?usize {
                     // Endian-aware
-                    return (if (native_endian == .little) @ctz(mask) else @clz(mask)) / 8;
+                    const offset = if (native_endian == .little) @ctz(mask) else @clz(mask);
+                    return if (offset == @bitSizeOf(Mask)) null else offset / 8;
                 }
             };
         }
@@ -877,7 +876,7 @@ fn indexOfDiffBytes(a: []const u8, b: []const u8) ?usize {
         // [@sizeOf(usize), @sizeOf(usize) * 2]
         inline for ([_]usize{ 0, shortest - Scan.size }) |index| {
             const mask = Scan.toMask(Scan.load(a[index..]), Scan.load(b[index..]));
-            if (Scan.hasDiff(mask)) return index + Scan.firstDiff(mask);
+            if (Scan.firstTrue(mask)) |offset| return index + offset;
         }
         return if (a.len == b.len) null else shortest;
     }
@@ -890,7 +889,7 @@ fn indexOfDiffBytes(a: []const u8, b: []const u8) ?usize {
                 const Scan = Ctx.Scan(cur_vec_size);
                 inline for ([_]usize{ 0, shortest - Scan.size }) |index| {
                     const mask = Scan.toMask(Scan.load(a[index..]), Scan.load(b[index..]));
-                    if (Scan.hasDiff(mask)) return index + Scan.firstDiff(mask);
+                    if (Scan.firstTrue(mask)) |offset| return index + offset;
                 }
                 return if (a.len == b.len) null else shortest;
             }
@@ -904,18 +903,18 @@ fn indexOfDiffBytes(a: []const u8, b: []const u8) ?usize {
     while (index + Scan.size * unroll_factor <= shortest) : (index += Scan.size * unroll_factor) {
         inline for (0..unroll_factor) |i| {
             const mask = Scan.toMask(Scan.load(a[index + Scan.size * i ..]), Scan.load(b[index + Scan.size * i ..]));
-            if (Scan.hasDiff(mask)) return index + Scan.size * i + Scan.firstDiff(mask);
+            if (Scan.firstTrue(mask)) |offset| return index + Scan.size * i + offset;
         }
     }
     // Residual iterations
     while (index + Scan.size <= shortest) : (index += Scan.size) {
         const mask = Scan.toMask(Scan.load(a[index..]), Scan.load(b[index..]));
-        if (Scan.hasDiff(mask)) return index + Scan.firstDiff(mask);
+        if (Scan.firstTrue(mask)) |offset| return index + offset;
     }
     // Final overlapping check
     if (index < shortest) {
         const mask = Scan.toMask(Scan.load(a[shortest - Scan.size ..]), Scan.load(b[shortest - Scan.size ..]));
-        if (Scan.hasDiff(mask)) return shortest - Scan.size + Scan.firstDiff(mask);
+        if (Scan.firstTrue(mask)) |offset| return shortest - Scan.size + offset;
     }
 
     return if (a.len == b.len) null else shortest;
