@@ -3169,7 +3169,7 @@ fn airBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
 
     // process operand death
     if (cg.liveness.operandDies(inst, 0)) {
-        if (br.operand.toIndex()) |op_inst| try cg.resolveInst(op_inst).die(cg, op_inst);
+        if (br.operand.toIndex()) |op_inst| try cg.inst_tracking.getPtr(op_inst).?.die(cg, op_inst);
     }
 
     if (first_br) {
