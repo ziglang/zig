@@ -636,7 +636,8 @@ const InstMatcher = struct {
             }
         }
 
-        const inst: encoding.Inst = @call(.always_inline, gen_fn, ops);
+        // Workaround https://github.com/ziglang/zig/issues/24127
+        const inst: encoding.Inst = @call(.auto, gen_fn, ops);
         return .initInst(inst);
     }
 

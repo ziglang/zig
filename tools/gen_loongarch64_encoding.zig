@@ -205,10 +205,11 @@ pub fn main() anyerror!void {
         defer arena.free(name_buf);
         std.mem.replaceScalar(u8, name_buf, '.', '_');
 
+        try out_writer.writeAll("    // Workaround https://github.com/ziglang/zig/issues/24127\n");
         if (std.zig.isValidId(name_buf)) {
-            try out_writer.print("    pub inline fn {s}(", .{name_buf});
+            try out_writer.print("    pub noinline fn {s}(", .{name_buf});
         } else {
-            try out_writer.print("    pub inline fn @\"{s}\"(", .{name_buf});
+            try out_writer.print("    pub noinline fn @\"{s}\"(", .{name_buf});
         }
         for (desc.format, 0..) |slot, slot_i| {
             if (slot == .none) continue;
