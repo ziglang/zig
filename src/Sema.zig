@@ -35054,7 +35054,7 @@ pub fn resolveUnionAlignment(
     union_type.setAlignment(ip, max_align);
 }
 
-/// This logic must be kept in sync with `Zcu.getUnionLayout`.
+/// This logic must be kept in sync with `Type.getUnionLayout`.
 pub fn resolveUnionLayout(sema: *Sema, ty: Type) SemaError!void {
     const pt = sema.pt;
     const ip = &pt.zcu.intern_pool;
@@ -35089,6 +35089,14 @@ pub fn resolveUnionLayout(sema: *Sema, ty: Type) SemaError!void {
     for (0..union_type.field_types.len) |field_index| {
         const field_ty: Type = .fromInterned(union_type.field_types.get(ip)[field_index]);
         if (field_ty.isNoReturn(pt.zcu)) continue;
+
+        // We need to call `hasRuntimeBits` before calling `abiSize` to prevent reachable `unreachable`s,
+        // but `hasRuntimeBits` only resolves field types and so may infinite recurse on a layout wip type,
+        // so we must resolve the layout manually first, instead of waiting for `abiSize` to do it for us.
+        // This is arguably just hacking around bugs in both `abiSize` for not allowing arbitrary types to
+        // be queried, enabling failures to be handled with the emission of a compile error, and also in
+        // `hasRuntimeBits` for ever being able to infinite recurse in the first place.
+        try field_ty.resolveLayout(pt);
 
         if (try field_ty.hasRuntimeBitsSema(pt)) {
             max_size = @max(max_size, field_ty.abiSizeSema(pt) catch |err| switch (err) {

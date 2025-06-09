@@ -3915,29 +3915,30 @@ fn resolveUnionInner(
 pub fn getUnionLayout(loaded_union: InternPool.LoadedUnionType, zcu: *const Zcu) Zcu.UnionLayout {
     const ip = &zcu.intern_pool;
     assert(loaded_union.haveLayout(ip));
-    var most_aligned_field: u32 = undefined;
-    var most_aligned_field_size: u64 = undefined;
-    var biggest_field: u32 = undefined;
+    var most_aligned_field: u32 = 0;
+    var most_aligned_field_align: InternPool.Alignment = .@"1";
+    var most_aligned_field_size: u64 = 0;
+    var biggest_field: u32 = 0;
     var payload_size: u64 = 0;
     var payload_align: InternPool.Alignment = .@"1";
-    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
-        if (Type.fromInterned(field_ty).isNoReturn(zcu)) continue;
+    for (loaded_union.field_types.get(ip), 0..) |field_ty_ip_index, field_index| {
+        const field_ty: Type = .fromInterned(field_ty_ip_index);
+        if (field_ty.isNoReturn(zcu)) continue;
 
         const explicit_align = loaded_union.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
-            Type.fromInterned(field_ty).abiAlignment(zcu);
-        if (Type.fromInterned(field_ty).hasRuntimeBits(zcu)) {
-            const field_size = Type.fromInterned(field_ty).abiSize(zcu);
-            if (field_size > payload_size) {
-                payload_size = field_size;
-                biggest_field = @intCast(field_index);
-            }
-            if (field_align.compare(.gte, payload_align)) {
-                most_aligned_field = @intCast(field_index);
-                most_aligned_field_size = field_size;
-            }
+            field_ty.abiAlignment(zcu);
+        const field_size = field_ty.abiSize(zcu);
+        if (field_size > payload_size) {
+            payload_size = field_size;
+            biggest_field = @intCast(field_index);
+        }
+        if (field_size > 0 and field_align.compare(.gte, most_aligned_field_align)) {
+            most_aligned_field = @intCast(field_index);
+            most_aligned_field_align = field_align;
+            most_aligned_field_size = field_size;
         }
         payload_align = payload_align.max(field_align);
     }
