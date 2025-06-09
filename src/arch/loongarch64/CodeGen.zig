@@ -1753,7 +1753,12 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .br => try cg.airBr(inst),
             .cond_br => try cg.airCondBr(inst),
 
-            .unreach => {},
+            .unreach => return cg.fail("reached unreachable code during code generation", .{}),
+            .intcast_safe,
+            .add_safe,
+            .sub_safe,
+            .mul_safe,
+            => return cg.fail("legalization miss (Zig compiler bug)", .{}),
 
             .dbg_stmt => if (cg.debug_output != .none) {
                 const dbg_stmt = cg.getAirData(inst).dbg_stmt;
