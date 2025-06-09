@@ -1716,6 +1716,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .bit_or => try cg.airLogicBinOp(inst, .@"or"),
             .xor => try cg.airLogicBinOp(inst, .xor),
 
+            .bitcast => try cg.airBitCast(inst),
+
             .assembly => cg.airAsm(inst) catch |err| switch (err) {
                 error.AsmParseFail => return error.CodegenFail,
                 else => |e| return e,
@@ -3006,11 +3008,11 @@ fn airAsm(cg: *CodeGen, inst: Air.Inst.Index) !void {
     // finish assembly block
     if (outputs.len != 0) {
         assert(outputs.len == 1);
-        const result_ty = cg.typeOf(outputs[0]);
         const result_mcv = parser.args.items[0].value;
         switch (result_mcv) {
             .none, .imm => unreachable,
             .reg => |reg| {
+                const result_ty = cg.typeOfIndex(inst);
                 const result_tmp = try cg.tempInit(result_ty, .{ .register = reg });
                 try result_tmp.finish(inst, &.{}, cg);
             },
@@ -3028,9 +3030,6 @@ const CmpToBoolOptions = struct {
 
 // TODO: instruction combination
 fn airCompareToBool(cg: *CodeGen, inst: Air.Inst.Index, comptime opts: CmpToBoolOptions) !void {
-    // const pt = cg.pt;
-    // const zcu = pt.zcu;
-
     var bin_op = cg.getAirData(inst).bin_op;
     if (opts.swap) std.mem.swap(Air.Inst.Ref, &bin_op.lhs, &bin_op.rhs);
     var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs }));
@@ -3238,4 +3237,28 @@ fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
         .resurrect = true,
         .close_scope = true,
     });
+}
+
+fn airBitCast(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
+    const ty_op = cg.getAirData(inst).ty_op;
+    const dst_ty = ty_op.ty.toType();
+    const src_ty = cg.typeOf(ty_op.operand);
+    var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{ty_op.operand}));
+
+    if (dst_ty.isAbiInt(zcu) and
+        src_ty.isAbiInt(zcu) and
+        src_ty.abiSize(zcu) == dst_ty.abiSize(zcu) and
+        try sel.match(.{
+            .patterns = &.{.{ .srcs = &.{.any} }},
+        }))
+    {
+        const src = sel.ops[0];
+        if (cg.liveness.operandDies(inst, 0)) {
+            cg.reused_operands.set(0);
+            try src.finish(inst, &.{src}, cg);
+        } else {
+            try (try cg.tempInit(dst_ty, .{ .air_ref = ty_op.operand })).finish(inst, &.{src}, cg);
+        }
+    } else return sel.fail();
 }
