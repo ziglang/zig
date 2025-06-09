@@ -106,6 +106,19 @@ pub const MCValue = union(enum) {
     none,
     reg: Register,
     imm: i32,
+
+    pub fn format(
+        mcv: MCValue,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        switch (mcv) {
+            .none => try writer.print("(none)", .{}),
+            .reg => |reg| try writer.print("{s}", .{@tagName(reg)}),
+            .imm => |imm| try writer.print("imm:{}", .{imm}),
+        }
+    }
 };
 
 pub const MCArg = struct {
@@ -115,6 +128,17 @@ pub const MCArg = struct {
     /// For outputs, null means the output does not require early-clobber and can be reused.
     /// For inputs, null means that it reuses an output register.
     reg_lock: ?RegisterManager.RegisterLock,
+
+    pub fn format(
+        mca: MCArg,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        try writer.print("{}", .{mca.value});
+        if (mca.reg_lock != null)
+            try writer.writeAll(" (locked)");
+    }
 };
 
 fn fail(parser: *AsmParser, comptime format: []const u8, args: anytype) error{ OutOfMemory, AsmParseFail } {
@@ -338,7 +362,7 @@ fn formatArgs(
     const parser = data.self;
     try writer.writeAll("Args:");
     for (parser.args.items, 0..) |*arg, arg_i| {
-        try writer.print("\n  {} = {}", .{ arg_i, arg.value });
+        try writer.print("\n  {} = {}", .{ arg_i, arg });
         if (arg.reg_lock != null) try writer.writeAll(" (locked)");
     }
     var it = parser.arg_map.iterator();
@@ -346,7 +370,7 @@ fn formatArgs(
 
     try writer.writeAll("\nClobber locks:");
     for (parser.clobber_locks.items) |*arg| {
-        try writer.print("\n  - {s}", .{@tagName(RegisterManager.regAtTrackedIndex(arg.tracked_index))});
+        try writer.print(" {s}", .{@tagName(RegisterManager.regAtTrackedIndex(arg.tracked_index))});
     }
 }
 fn fmtArgsAndClobbers(self: *AsmParser) std.fmt.Formatter(formatArgs) {
