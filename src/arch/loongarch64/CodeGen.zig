@@ -529,7 +529,7 @@ const InstTracking = struct {
     fn trackSpill(inst_tracking: *InstTracking, cg: *CodeGen, inst: Air.Inst.Index) !void {
         try cg.freeValue(inst_tracking.short);
         inst_tracking.reuseFrame();
-        tracking_log.debug("%{d} => {} (spilled)", .{ inst, inst_tracking.* });
+        tracking_log.debug("{} => {} (spilled)", .{ inst, inst_tracking.* });
     }
 
     fn reuseFrame(inst_tracking: *InstTracking) void {
@@ -548,7 +548,7 @@ const InstTracking = struct {
             .dead => |die_generation| if (die_generation >= scope_generation) {
                 inst_tracking.reuseFrame();
                 try cg.getValue(inst_tracking.short, inst);
-                tracking_log.debug("%{d} => {} (resurrect)", .{ inst, inst_tracking.* });
+                tracking_log.debug("{} => {} (resurrect)", .{ inst, inst_tracking.* });
             },
             else => {},
         }
@@ -599,7 +599,7 @@ const InstTracking = struct {
             else => target.long,
         } else target.long;
         inst_tracking.short = target.short;
-        tracking_log.debug("%{d} => {} (materialize)", .{ inst, inst_tracking.* });
+        tracking_log.debug("{} => {} (materialize)", .{ inst, inst_tracking.* });
     }
 
     fn liveOut(inst_tracking: *InstTracking, cg: *CodeGen, inst: Air.Inst.Index) void {
@@ -1396,8 +1396,13 @@ const Temp = struct {
     }
 };
 
-fn getValue(self: *CodeGen, value: MCValue, inst: ?Air.Inst.Index) !void {
-    for (value.getRegs()) |reg| try self.register_manager.getReg(reg, inst);
+fn getValue(cg: *CodeGen, value: MCValue, inst: ?Air.Inst.Index) !void {
+    for (value.getRegs()) |reg| try cg.register_manager.getReg(reg, inst);
+}
+
+fn getValueIfFree(cg: *CodeGen, value: MCValue, inst: ?Air.Inst.Index) !void {
+    for (value.getRegs()) |reg| if (cg.register_manager.isRegFree(reg))
+        try cg.register_manager.getReg(reg, inst);
 }
 
 fn freeValue(cg: *CodeGen, value: MCValue) !void {
@@ -1706,7 +1711,6 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
         if (cg.liveness.isUnused(inst) and !cg.air.mustLower(inst, ip)) continue;
 
         cg_mir_log.debug("{}", .{cg.fmtAir(inst)});
-        verbose_tracking_log.debug("{}", .{cg.fmtTracking()});
 
         cg.reused_operands = .initEmpty();
         try cg.inst_tracking.ensureUnusedCapacity(cg.gpa, 1);
@@ -1799,6 +1803,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
         }
 
         try cg.resetTemps(@enumFromInt(0));
+        verbose_tracking_log.debug("{}", .{cg.fmtTracking()});
         cg.checkInvariantsAfterAirInst();
     }
 }
@@ -3118,9 +3123,8 @@ fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, ty_ref: Air.Inst.Ref, body: []
     const tracking = &cg.inst_tracking.values()[inst_tracking_i];
     if (cg.liveness.isUnused(inst)) {
         try tracking.die(cg, inst);
-    } else {
-        try cg.getValue(tracking.short, inst);
     }
+    try cg.getValueIfFree(tracking.short, inst);
 }
 
 fn airBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
