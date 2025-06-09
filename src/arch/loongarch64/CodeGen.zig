@@ -418,6 +418,18 @@ pub const MCValue = union(enum) {
             .ref_frame => |off| .{ .load_frame = .{ .index = frame, .off = off } },
         };
     }
+
+    /// Allocates and loads `val` to registers if `val` is not in regs yet.
+    /// Returns either self or the allocated reg and a flag indicating whether allocation happened.
+    fn ensureReg(val: MCValue, cg: *CodeGen, inst: Air.Inst.Index, ty: Type) InnerError!struct { Register, bool } {
+        if (val.isInRegister()) {
+            return .{ val.register, false };
+        } else {
+            const temp_reg = try cg.allocReg(ty, inst);
+            try cg.genCopyToReg(ty, temp_reg, val, .{});
+            return .{ temp_reg, true };
+        }
+    }
 };
 
 const InstTrackingMap = std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InstTracking);
@@ -1713,6 +1725,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .xor => try cg.airLogicBinOp(inst, .xor),
 
             .bitcast => try cg.airBitCast(inst),
+            .intcast => try cg.airIntCast(inst),
 
             .assembly => cg.airAsm(inst) catch |err| switch (err) {
                 error.AsmParseFail => return error.CodegenFail,
@@ -1778,6 +1791,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             },
             // TODO: emit debug info
             .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => {},
+
             else => return cg.fail(
                 "TODO implement {s} for LoongArch64 CodeGen",
                 .{@tagName(air_tags[@intFromEnum(inst)])},
@@ -1959,12 +1973,12 @@ inline fn tempsFromOperands(
     return op_temps;
 }
 
-fn tempReuseOrAlloc(cg: *CodeGen, inst: Air.Inst.Index, op: Temp, op_i: Air.Liveness.OperandInt, ty: Type, opts: MCVAllocOptions) InnerError!Temp {
+fn tempReuseOrAlloc(cg: *CodeGen, inst: Air.Inst.Index, op: Temp, op_i: Air.Liveness.OperandInt, ty: Type, opts: MCVAllocOptions) InnerError!struct { Temp, bool } {
     if (cg.liveness.operandDies(inst, op_i) and op.isMut(cg)) {
         cg.reused_operands.set(op_i);
-        return op;
+        return .{ op, true };
     } else {
-        return cg.tempAlloc(ty, opts);
+        return .{ try cg.tempAlloc(ty, opts), false };
     }
 }
 
@@ -2336,20 +2350,14 @@ const Select = struct {
 
     fn fail(sel: *Select) error{ OutOfMemory, CodegenFail } {
         cg_select_log.debug("select failed after {} cases", .{sel.case_i});
-        if (sel.inst) |inst| {
-            return sel.cg.fail("failed to select '{}'", .{sel.cg.fmtAir(inst)});
-        } else {
-            return sel.cg.fail("failed to select", .{});
-        }
+        return sel.cg.fail("failed to select", .{});
     }
 
     inline fn match(sel: *Select, case: Case) !bool {
         sel.case_i += 1;
-        for (case.requires, 0..) |requires, req_i| {
-            if (!requires) {
-                cg_select_log.debug("case {} miss for req {}", .{ sel.case_i, req_i + 1 });
-                return false;
-            }
+        if (!case.requirement) {
+            cg_select_log.debug("case {} miss for pre-requirement", .{sel.case_i});
+            return false;
         }
 
         patterns: for (case.patterns, 0..) |pattern, pat_i| {
@@ -2378,7 +2386,7 @@ const Select = struct {
     }
 
     pub const Case = struct {
-        requires: []const bool = &[_]bool{},
+        requirement: bool = true,
         patterns: []const SrcPattern,
         temps: []const TempSpec = &[_]TempSpec{},
     };
@@ -2602,7 +2610,7 @@ fn airArithBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: enum { add, sub }) !voi
         }))
     {
         const lhs, const rhs = sel.ops[0..2].*;
-        const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
+        const dst, _ = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
         switch (op) {
             .add => try cg.asmInst(.add_w(dst.getReg(cg), lhs.getReg(cg), rhs.getReg(cg))),
             .sub => try cg.asmInst(.sub_w(dst.getReg(cg), lhs.getReg(cg), rhs.getReg(cg))),
@@ -2646,7 +2654,7 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
         },
     })) {
         const lhs, const rhs = sel.ops[0..2].*;
-        const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
+        const dst, _ = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
         const lhs_limb = lhs.toLimbValue(0, cg);
         const dst_limb = dst.toLimbValue(0, cg);
         try asmIntLogicBinOpRRI(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, @intCast(rhs.getImm(cg)));
@@ -2655,7 +2663,7 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
         .patterns = &.{.{ .srcs = &.{ .to_int_reg, .to_int_reg } }},
     })) {
         const lhs, const rhs = sel.ops[0..2].*;
-        const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
+        const dst, _ = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
         for (0..lhs.getLimbCount(cg)) |limb_i| {
             const lhs_limb = lhs.toLimbValue(limb_i, cg);
             const rhs_limb = rhs.toLimbValue(limb_i, cg);
@@ -2664,13 +2672,12 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
         }
         try sel.finish(dst);
     } else if (try sel.match(.{
-        .requires = &.{cg.canAllocInReg(ty)},
         .patterns = &.{.{ .srcs = &.{ .any, .any } }},
         .temps = &.{ .any_usize_reg, .any_usize_reg },
     })) {
         const lhs, const rhs = sel.ops[0..2].*;
         const tmp1, const tmp2 = sel.temps[0..2].*;
-        const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
+        const dst, _ = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
         for (0..lhs.getLimbCount(cg)) |limb_i| {
             const lhs_limb = try tmp1.ensureReg(cg, lhs.toLimbValue(limb_i, cg));
             const rhs_limb = try tmp2.ensureReg(cg, rhs.toLimbValue(limb_i, cg));
@@ -3258,5 +3265,64 @@ fn airBitCast(cg: *CodeGen, inst: Air.Inst.Index) !void {
         } else {
             try (try cg.tempInit(dst_ty, .{ .air_ref = ty_op.operand })).finish(inst, &.{src}, cg);
         }
+    } else return sel.fail();
+}
+
+fn airIntCast(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
+    const ty_op = cg.getAirData(inst).ty_op;
+    const dst_ty = ty_op.ty.toType();
+    const src_ty = cg.typeOf(ty_op.operand);
+    var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{ty_op.operand}));
+
+    assert(src_ty.isAbiInt(zcu) and dst_ty.isAbiInt(zcu));
+    const src_ty_info = src_ty.intInfo(zcu);
+    const dst_ty_info = dst_ty.intInfo(zcu);
+    const src_reg_size = (src_ty_info.bits + 63) / 64;
+    const dst_reg_size = (dst_ty_info.bits + 63) / 64;
+    const src_tail_bits: u6 = @intCast(src_ty_info.bits % 64);
+    const dst_tail_bits: u6 = @intCast(dst_ty_info.bits % 64);
+
+    // case 1: no operation needed
+    // 1. types with same bit size
+    // 2. sign-extending modes are the same
+    // 3. i32 to i32...64 promotion
+    if (try sel.match(.{
+        .requirement = src_reg_size == dst_reg_size and
+            (src_ty_info.bits == dst_ty_info.bits or
+                (src_tail_bits <= 32 and dst_tail_bits <= 32 and dst_tail_bits != 0) or
+                (src_tail_bits > 32 and dst_tail_bits > 32) or
+                (src_tail_bits == 32 and (dst_tail_bits >= 32 or dst_tail_bits == 0))),
+        .patterns = &.{.{ .srcs = &.{.any} }},
+    })) {
+        const src = sel.ops[0];
+        if (cg.liveness.operandDies(inst, 0)) {
+            cg.reused_operands.set(0);
+            try src.finish(inst, &.{src}, cg);
+        } else {
+            try (try cg.tempInit(dst_ty, .{ .air_ref = ty_op.operand })).finish(inst, &.{src}, cg);
+        }
+    } else
+    // case 2: zero-extend the highest limb
+    // 1. u32 to u/i33...64 promotion
+    if (try sel.match(.{
+        .requirement = src_reg_size == dst_reg_size and
+            src_ty_info.bits == 32 and
+            src_ty_info.signedness == .unsigned and
+            (dst_tail_bits > 32 or dst_tail_bits == 0),
+        .patterns = &.{.{ .srcs = &.{.any} }},
+    })) {
+        const src = sel.ops[0];
+        const dst, const dst_reused = try cg.tempReuseOrAlloc(inst, src, 0, dst_ty, .{});
+        if (!dst_reused)
+            try src.copy(dst, cg, src_ty);
+        const src_limb, const src_alloc = try src.toLimbValue(src.getLimbCount(cg) - 1, cg).ensureReg(cg, inst, .usize);
+        const dst_limb, const dst_alloc = try dst.toLimbValue(dst.getLimbCount(cg) - 1, cg).ensureReg(cg, inst, .usize);
+
+        try cg.asmInst(.bstrpick_d(dst_limb, src_limb, 0, src_tail_bits));
+
+        if (src_alloc) try cg.freeReg(src_limb);
+        if (dst_alloc) try cg.freeReg(dst_limb);
+        try dst.finish(inst, &.{src}, cg);
     } else return sel.fail();
 }
