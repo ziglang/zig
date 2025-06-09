@@ -1927,11 +1927,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             }
         }
 
-        if (is_dyn_lib) {
-            if (self.soname) |soname| {
-                try argv.append("-soname");
-                try argv.append(soname);
-            }
+        if (is_dyn_lib or (output_mode == .Exe and comp.config.rdynamic)) {
             if (self.version_script) |version_script| {
                 try argv.append("-version-script");
                 try argv.append(version_script);
@@ -1940,6 +1936,13 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                 try argv.append("--undefined-version");
             } else {
                 try argv.append("--no-undefined-version");
+            }
+        }
+
+        if (is_dyn_lib) {
+            if (self.soname) |soname| {
+                try argv.append("-soname");
+                try argv.append(soname);
             }
             if (self.enable_new_dtags) |enable_new_dtags| {
                 if (enable_new_dtags) {
