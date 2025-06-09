@@ -1767,7 +1767,7 @@ pub fn lowerUav(
         const atom = coff.getAtom(metadata.atom);
         const existing_addr = atom.getSymbol(coff).value;
         if (uav_alignment.check(existing_addr))
-            return .{ .mcv = .{ .load_direct = atom.getSymbolIndex().? } };
+            return .{ .mcv = .{ .load_symbol = atom.getSymbolIndex().? } };
     }
 
     var name_buf: [32]u8 = undefined;
@@ -1799,7 +1799,7 @@ pub fn lowerUav(
         .section = coff.rdata_section_index.?,
     });
     return .{ .mcv = .{
-        .load_direct = coff.getAtom(atom_index).getSymbolIndex().?,
+        .load_symbol = coff.getAtom(atom_index).getSymbolIndex().?,
     } };
 }
 

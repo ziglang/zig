@@ -1015,12 +1015,12 @@ pub fn genNavRef(
             .internal => {
                 const atom_index = try coff_file.getOrCreateAtomForNav(nav_index);
                 const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
-                return .{ .mcv = .{ .load_got = sym_index } };
+                return .{ .mcv = .{ .lea_symbol = sym_index } };
             },
             .strong, .weak => {
                 const global_index = try coff_file.getGlobalSymbol(nav.name.toSlice(ip), lib_name.toSlice(ip));
                 try coff_file.need_got_table.put(zcu.gpa, global_index, {}); // needs GOT
-                return .{ .mcv = .{ .load_got = link.File.Coff.global_symbol_bit | global_index } };
+                return .{ .mcv = .{ .lea_symbol = global_index } };
             },
             .link_once => unreachable,
         }

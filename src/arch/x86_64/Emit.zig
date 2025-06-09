@@ -107,10 +107,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             nav,
                             emit.lower.target.*,
                         )) {
-                            .mcv => |mcv| switch (mcv) {
-                                else => std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
-                                .lea_symbol => |sym_index| sym_index,
-                            },
+                            .mcv => |mcv| mcv.lea_symbol,
                             .fail => |em| {
                                 assert(emit.lower.err_msg == null);
                                 emit.lower.err_msg = em;
@@ -154,10 +151,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             Type.fromInterned(uav.orig_ty).ptrAlignment(emit.pt.zcu),
                             emit.lower.src_loc,
                         )) {
-                            .mcv => |mcv| switch (mcv) {
-                                else => std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
-                                .load_direct, .load_symbol => |sym_index| sym_index,
-                            },
+                            .mcv => |mcv| mcv.load_symbol,
                             .fail => |em| {
                                 assert(emit.lower.err_msg == null);
                                 emit.lower.err_msg = em;
@@ -207,7 +201,9 @@ pub fn emitMir(emit: *Emit) Error!void {
                     switch (lowered_inst.encoding.mnemonic) {
                         .call => {
                             reloc.target.type = .branch;
-                            try emit.encodeInst(lowered_inst, reloc_info);
+                            if (emit.bin_file.cast(.coff)) |_| try emit.encodeInst(try .new(.none, .call, &.{
+                                .{ .mem = .initRip(.ptr, 0) },
+                            }, emit.lower.target), reloc_info) else try emit.encodeInst(lowered_inst, reloc_info);
                             continue :lowered_inst;
                         },
                         else => {},
@@ -269,6 +265,37 @@ pub fn emitMir(emit: *Emit) Error!void {
                                     lowered_inst.ops[0],
                                     .{ .mem = .initSib(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, .{ .base = .{
                                         .reg = lowered_inst.ops[0].reg.to64(),
+                                    } }) },
+                                }, emit.lower.target), &.{});
+                            },
+                            else => unreachable,
+                        } else switch (lowered_inst.encoding.mnemonic) {
+                            .lea => try emit.encodeInst(try .new(.none, .lea, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(.none, 0) },
+                            }, emit.lower.target), reloc_info),
+                            .mov => try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, 0) },
+                            }, emit.lower.target), reloc_info),
+                            else => unreachable,
+                        }
+                    } else if (emit.bin_file.cast(.coff)) |_| {
+                        if (reloc.target.is_extern) switch (lowered_inst.encoding.mnemonic) {
+                            .lea => try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(.ptr, 0) },
+                            }, emit.lower.target), reloc_info),
+                            .mov => {
+                                const dst_reg = lowered_inst.ops[0].reg.to64();
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    .{ .reg = dst_reg },
+                                    .{ .mem = .initRip(.ptr, 0) },
+                                }, emit.lower.target), reloc_info);
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initSib(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, .{ .base = .{
+                                        .reg = dst_reg,
                                     } }) },
                                 }, emit.lower.target), &.{});
                             },
@@ -751,6 +778,21 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
                     .symbolnum = @intCast(reloc.target.index),
                 },
             });
+        } else if (emit.bin_file.cast(.coff)) |coff_file| {
+            const atom_index = coff_file.getAtomIndexForSymbol(
+                .{ .sym_index = emit.atom_index, .file = null },
+            ).?;
+            try coff_file.addRelocation(atom_index, .{
+                .type = if (reloc.target.is_extern) .got else .direct,
+                .target = if (reloc.target.is_extern)
+                    coff_file.getGlobalByIndex(reloc.target.index)
+                else
+                    .{ .sym_index = reloc.target.index, .file = null },
+                .offset = end_offset - 4,
+                .addend = @intCast(reloc.off),
+                .pcrel = true,
+                .length = 2,
+            });
         } else unreachable,
         .branch => if (emit.bin_file.cast(.elf)) |elf_file| {
             const zo = elf_file.zigObjectPtr().?;
@@ -781,13 +823,12 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             const atom_index = coff_file.getAtomIndexForSymbol(
                 .{ .sym_index = emit.atom_index, .file = null },
             ).?;
-            const target: link.File.Coff.SymbolWithLoc = if (link.File.Coff.global_symbol_bit & reloc.target.index != 0)
-                coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & reloc.target.index)
-            else
-                .{ .sym_index = reloc.target.index, .file = null };
             try coff_file.addRelocation(atom_index, .{
-                .type = .direct,
-                .target = target,
+                .type = if (reloc.target.is_extern) .import else .got,
+                .target = if (reloc.target.is_extern)
+                    coff_file.getGlobalByIndex(reloc.target.index)
+                else
+                    .{ .sym_index = reloc.target.index, .file = null },
                 .offset = end_offset - 4,
                 .addend = @intCast(reloc.off),
                 .pcrel = true,
