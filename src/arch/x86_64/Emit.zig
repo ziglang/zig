@@ -21,7 +21,8 @@ pub const Error = Lower.Error || error{
 } || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
-    const gpa = emit.bin_file.comp.gpa;
+    const comp = emit.bin_file.comp;
+    const gpa = comp.gpa;
     try emit.code_offset_mapping.resize(gpa, emit.lower.mir.instructions.len);
     emit.relocs.clearRetainingCapacity();
     emit.table_relocs.clearRetainingCapacity();
@@ -99,12 +100,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .inst => |inst| .{ .index = inst, .is_extern = false, .type = .inst },
                     .table => .{ .index = undefined, .is_extern = false, .type = .table },
                     .nav => |nav| {
-                        const ip = &emit.pt.zcu.intern_pool;
                         const sym_index = switch (try codegen.genNavRef(
                             emit.bin_file,
                             emit.pt,
                             emit.lower.src_loc,
-                            .fromInterned(ip.getNav(nav).typeOf(ip)),
                             nav,
                             emit.lower.target.*,
                         )) {
@@ -118,12 +117,13 @@ pub fn emitMir(emit: *Emit) Error!void {
                                 return error.EmitFail;
                             },
                         };
+                        const ip = &emit.pt.zcu.intern_pool;
                         break :target switch (ip.getNav(nav).status) {
                             .unresolved => unreachable,
                             .type_resolved => |type_resolved| .{
                                 .index = sym_index,
                                 .is_extern = false,
-                                .type = if (type_resolved.is_threadlocal) .tlv else .symbol,
+                                .type = if (type_resolved.is_threadlocal and comp.config.any_non_single_threaded) .tlv else .symbol,
                             },
                             .fully_resolved => |fully_resolved| switch (ip.indexToKey(fully_resolved.val)) {
                                 .@"extern" => |@"extern"| .{
@@ -132,7 +132,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                         .default => true,
                                         .hidden, .protected => false,
                                     },
-                                    .type = if (@"extern".is_threadlocal) .tlv else .symbol,
+                                    .type = if (@"extern".is_threadlocal and comp.config.any_non_single_threaded) .tlv else .symbol,
                                     .force_pcrel_direct = switch (@"extern".relocation) {
                                         .any => false,
                                         .pcrel => true,
@@ -141,7 +141,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                 .variable => |variable| .{
                                     .index = sym_index,
                                     .is_extern = false,
-                                    .type = if (variable.is_threadlocal) .tlv else .symbol,
+                                    .type = if (variable.is_threadlocal and comp.config.any_non_single_threaded) .tlv else .symbol,
                                 },
                                 else => .{ .index = sym_index, .is_extern = false, .type = .symbol },
                             },
@@ -292,12 +292,8 @@ pub fn emitMir(emit: *Emit) Error!void {
                 .branch, .tls => unreachable,
                 .tlv => {
                     if (emit.bin_file.cast(.elf)) |elf_file| {
-                        if (reloc.target.is_extern) {
-                            // TODO handle extern TLS vars, i.e., emit GD model
-                            return emit.fail("TODO implement extern {s} reloc for {s}", .{
-                                @tagName(reloc.target.type), @tagName(emit.bin_file.tag),
-                            });
-                        } else if (emit.pic) switch (lowered_inst.encoding.mnemonic) {
+                        // TODO handle extern TLS vars, i.e., emit GD model
+                        if (emit.pic) switch (lowered_inst.encoding.mnemonic) {
                             .lea, .mov => {
                                 // Here, we currently assume local dynamic TLS vars, and so
                                 // we emit LD model.
@@ -507,7 +503,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                                     } };
                                 },
                                 .pseudo_dbg_arg_m, .pseudo_dbg_var_m => {
-                                    const ip = &emit.pt.zcu.intern_pool;
                                     const mem = emit.lower.mir.resolveMemoryExtra(mir_inst.data.x.payload).decode();
                                     break :loc .{ .plus = .{
                                         base: {
@@ -519,7 +514,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                                                     emit.bin_file,
                                                     emit.pt,
                                                     emit.lower.src_loc,
-                                                    .fromInterned(ip.getNav(nav).typeOf(ip)),
                                                     nav,
                                                     emit.lower.target.*,
                                                 ) catch |err| switch (err) {
@@ -803,9 +797,6 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             @tagName(reloc.target.type), @tagName(emit.bin_file.tag),
         }),
         .tls => if (emit.bin_file.cast(.elf)) |elf_file| {
-            if (reloc.target.is_extern) return emit.fail("TODO implement extern {s} reloc for {s}", .{
-                @tagName(reloc.target.type), @tagName(emit.bin_file.tag),
-            });
             const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
             const r_type: std.elf.R_X86_64 = if (emit.pic) .TLSLD else unreachable;
@@ -818,9 +809,6 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             @tagName(reloc.target.type), @tagName(emit.bin_file.tag),
         }),
         .tlv => if (emit.bin_file.cast(.elf)) |elf_file| {
-            if (reloc.target.is_extern) return emit.fail("TODO implement extern {s} reloc for {s}", .{
-                @tagName(reloc.target.type), @tagName(emit.bin_file.tag),
-            });
             const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
             const r_type: std.elf.R_X86_64 = if (emit.pic) .DTPOFF32 else .TPOFF32;

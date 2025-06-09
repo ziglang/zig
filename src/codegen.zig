@@ -955,47 +955,18 @@ pub fn genNavRef(
     lf: *link.File,
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
-    ty: Type,
     nav_index: InternPool.Nav.Index,
     target: std.Target,
 ) CodeGenError!GenResult {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-    log.debug("genNavRef: ty = {}", .{ty.fmt(pt)});
-
-    if (!ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
-        const imm: u64 = switch (@divExact(target.ptrBitWidth(), 8)) {
-            1 => 0xaa,
-            2 => 0xaaaa,
-            4 => 0xaaaaaaaa,
-            8 => 0xaaaaaaaaaaaaaaaa,
-            else => unreachable,
-        };
-        return .{ .mcv = .{ .immediate = imm } };
-    }
-
-    const comp = lf.comp;
-    const gpa = comp.gpa;
-
-    // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
-    if (ty.castPtrToFn(zcu)) |fn_ty| {
-        if (zcu.typeToFunc(fn_ty).?.is_generic) {
-            return .{ .mcv = .{ .immediate = fn_ty.abiAlignment(zcu).toByteUnits().? } };
-        }
-    } else if (ty.zigTypeTag(zcu) == .pointer) {
-        const elem_ty = ty.elemType2(zcu);
-        if (!elem_ty.hasRuntimeBits(zcu)) {
-            return .{ .mcv = .{ .immediate = elem_ty.abiAlignment(zcu).toByteUnits().? } };
-        }
-    }
-
     const nav = ip.getNav(nav_index);
+    log.debug("genNavRef({})", .{nav.fqn.fmt(ip)});
+
     const lib_name, const linkage, const is_threadlocal = if (nav.getExtern(ip)) |e|
-        .{ e.lib_name, e.linkage, e.is_threadlocal and !zcu.navFileScope(nav_index).mod.?.single_threaded }
+        .{ e.lib_name, e.linkage, e.is_threadlocal and zcu.comp.config.any_non_single_threaded }
     else
         .{ .none, .internal, false };
-
-    const name = nav.name;
     if (lf.cast(.elf)) |elf_file| {
         const zo = elf_file.zigObjectPtr().?;
         switch (linkage) {
@@ -1005,7 +976,7 @@ pub fn genNavRef(
                 return .{ .mcv = .{ .lea_symbol = sym_index } };
             },
             .strong, .weak => {
-                const sym_index = try elf_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
+                const sym_index = try elf_file.getGlobalSymbol(nav.name.toSlice(ip), lib_name.toSlice(ip));
                 switch (linkage) {
                     .internal => unreachable,
                     .strong => {},
@@ -1026,7 +997,7 @@ pub fn genNavRef(
                 return .{ .mcv = .{ .lea_symbol = sym_index } };
             },
             .strong, .weak => {
-                const sym_index = try macho_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
+                const sym_index = try macho_file.getGlobalSymbol(nav.name.toSlice(ip), lib_name.toSlice(ip));
                 switch (linkage) {
                     .internal => unreachable,
                     .strong => {},
@@ -1047,8 +1018,8 @@ pub fn genNavRef(
                 return .{ .mcv = .{ .load_got = sym_index } };
             },
             .strong, .weak => {
-                const global_index = try coff_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
-                try coff_file.need_got_table.put(gpa, global_index, {}); // needs GOT
+                const global_index = try coff_file.getGlobalSymbol(nav.name.toSlice(ip), lib_name.toSlice(ip));
+                try coff_file.need_got_table.put(zcu.gpa, global_index, {}); // needs GOT
                 return .{ .mcv = .{ .load_got = link.File.Coff.global_symbol_bit | global_index } };
             },
             .link_once => unreachable,
@@ -1058,7 +1029,7 @@ pub fn genNavRef(
         const atom = p9.getAtom(atom_index);
         return .{ .mcv = .{ .memory = atom.getOffsetTableAddress(p9) } };
     } else {
-        const msg = try ErrorMsg.create(gpa, src_loc, "TODO genNavRef for target {}", .{target});
+        const msg = try ErrorMsg.create(zcu.gpa, src_loc, "TODO genNavRef for target {}", .{target});
         return .{ .fail = msg };
     }
 }
@@ -1071,12 +1042,11 @@ pub fn genTypedValue(
     val: Value,
     target: std.Target,
 ) CodeGenError!GenResult {
-    const ip = &pt.zcu.intern_pool;
     return switch (try lowerValue(pt, val, &target)) {
         .none => .{ .mcv = .none },
         .undef => .{ .mcv = .undef },
         .immediate => |imm| .{ .mcv = .{ .immediate = imm } },
-        .lea_nav => |nav| genNavRef(lf, pt, src_loc, .fromInterned(ip.getNav(nav).typeOf(ip)), nav, target),
+        .lea_nav => |nav| genNavRef(lf, pt, src_loc, nav, target),
         .lea_uav => |uav| switch (try lf.lowerUav(
             pt,
             uav.val,

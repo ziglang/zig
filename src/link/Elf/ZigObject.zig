@@ -1142,7 +1142,6 @@ fn getNavShdrIndex(
     const gpa = elf_file.base.comp.gpa;
     const ptr_size = elf_file.ptrWidthBytes();
     const ip = &zcu.intern_pool;
-    const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
     const nav_val = zcu.navValue(nav_index);
     if (ip.isFunctionType(nav_val.typeOf(zcu).toIntern())) {
         if (self.text_index) |symbol_index|
@@ -1162,7 +1161,7 @@ fn getNavShdrIndex(
         else => .{ true, false, nav_val.toIntern() },
     };
     const has_relocs = self.symbol(sym_index).atom(elf_file).?.relocs(elf_file).len > 0;
-    if (any_non_single_threaded and is_threadlocal) {
+    if (is_threadlocal and elf_file.base.comp.config.any_non_single_threaded) {
         const is_bss = !has_relocs and for (code) |byte| {
             if (byte != 0) break false;
         } else true;
@@ -1542,7 +1541,7 @@ pub fn updateNav(
                 nav.name.toSlice(ip),
                 @"extern".lib_name.toSlice(ip),
             );
-            if (@"extern".is_threadlocal) self.symbol(sym_index).flags.is_tls = true;
+            if (@"extern".is_threadlocal and elf_file.base.comp.config.any_non_single_threaded) self.symbol(sym_index).flags.is_tls = true;
             if (self.dwarf) |*dwarf| dwarf: {
                 var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index) orelse break :dwarf;
                 defer debug_wip_nav.deinit();

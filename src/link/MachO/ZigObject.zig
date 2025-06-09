@@ -881,7 +881,7 @@ pub fn updateNav(
             const name = @"extern".name.toSlice(ip);
             const lib_name = @"extern".lib_name.toSlice(ip);
             const sym_index = try self.getGlobalSymbol(macho_file, name, lib_name);
-            if (@"extern".is_threadlocal) self.symbols.items[sym_index].flags.tlv = true;
+            if (@"extern".is_threadlocal and macho_file.base.comp.config.any_non_single_threaded) self.symbols.items[sym_index].flags.tlv = true;
             if (self.dwarf) |*dwarf| dwarf: {
                 var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index) orelse break :dwarf;
                 defer debug_wip_nav.deinit();
@@ -1154,7 +1154,6 @@ fn getNavOutputSection(
 ) error{OutOfMemory}!u8 {
     _ = self;
     const ip = &zcu.intern_pool;
-    const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
     const nav_val = zcu.navValue(nav_index);
     if (ip.isFunctionType(nav_val.typeOf(zcu).toIntern())) return macho_file.zig_text_sect_index.?;
     const is_const, const is_threadlocal, const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
@@ -1162,7 +1161,7 @@ fn getNavOutputSection(
         .@"extern" => |@"extern"| .{ @"extern".is_const, @"extern".is_threadlocal, .none },
         else => .{ true, false, nav_val.toIntern() },
     };
-    if (any_non_single_threaded and is_threadlocal) {
+    if (is_threadlocal and macho_file.base.comp.config.any_non_single_threaded) {
         for (code) |byte| {
             if (byte != 0) break;
         } else return macho_file.getSectionByName("__DATA", "__thread_bss") orelse try macho_file.addSection(
