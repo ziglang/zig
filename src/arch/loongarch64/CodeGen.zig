@@ -68,7 +68,7 @@ inst_tracking: InstTrackingMap = .empty,
 register_manager: RegisterManager = .{},
 
 // Key is the block instruction
-blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, State) = .empty,
+blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockState) = .empty,
 
 /// Generation of the current scope, increments by 1 for every entered scope.
 scope_generation: u32 = 0,
@@ -573,9 +573,9 @@ const InstTracking = struct {
 
     fn materializeUnsafe(inst_tracking: InstTracking, cg: *CodeGen, inst: Air.Inst.Index, target: InstTracking) !void {
         const ty = cg.typeOfIndex(inst);
-        // if ((inst_tracking.long == .none or inst_tracking.long == .reserved_frame) and target.long == .load_frame)
-        //     try cg.genCopy(ty, target.long, inst_tracking.short);
-        try cg.genCopy(ty, target.short, inst_tracking.short);
+        if ((inst_tracking.long == .none or inst_tracking.long == .reserved_frame) and target.long == .load_frame)
+            try cg.genCopy(ty, target.long, inst_tracking.short, .{});
+        try cg.genCopy(ty, target.short, inst_tracking.short, .{});
     }
 
     fn trackMaterialize(inst_tracking: *InstTracking, inst: Air.Inst.Index, target: InstTracking) void {
@@ -1615,7 +1615,7 @@ fn restoreState(cg: *CodeGen, state: State, deaths: []const Air.Inst.Index, comp
             cg.inst_tracking.values()[Temp.Index.max..state.inst_tracking_len],
         ) |inst, *tracking| try tracking.resurrect(cg, inst, state.scope_generation);
     }
-    for (deaths) |death| try cg.resolveInst(death).die(cg, death);
+    for (deaths) |death| try cg.inst_tracking.getPtr(death).?.die(cg, death);
 
     const ExpectedContents = [@typeInfo(RegisterManager.TrackedRegisters).array.len]RegisterManager.RegisterLock;
     var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
@@ -1671,6 +1671,16 @@ fn restoreState(cg: *CodeGen, state: State, deaths: []const Air.Inst.Index, comp
             assert(cg.register_manager.registers[index] == state.registers[index]);
     }
 }
+
+const BlockState = struct {
+    state: State,
+    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
+
+    fn deinit(self: *BlockState, gpa: Allocator) void {
+        self.relocs.deinit(gpa);
+        self.* = undefined;
+    }
+};
 
 /// Generates a AIR block.
 fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
@@ -1740,6 +1750,9 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .cmp_gte => try cg.airCompareToBool(inst, .{ .cond = .le, .swap = true, .opti = false }),
             .cmp_gte_optimized => try cg.airCompareToBool(inst, .{ .cond = .le, .swap = true, .opti = true }),
 
+            .block => try cg.airBlock(inst),
+            .dbg_inline_block => try cg.airDbgInlineBlock(inst),
+            .br => try cg.airBr(inst),
             .cond_br => try cg.airCondBr(inst),
 
             .unreach => {},
@@ -1760,7 +1773,6 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 try cg.asmInst(.andi(.r0, .r0, 0));
             },
             // TODO: emit debug info
-            .dbg_inline_block => {},
             .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => {},
             else => return cg.fail(
                 "TODO implement {s} for LoongArch64 CodeGen",
@@ -3041,6 +3053,139 @@ fn airCompareToBool(cg: *CodeGen, inst: Air.Inst.Index, comptime opts: CmpToBool
 
         try sel.finish(dst);
     } else return sel.fail();
+}
+
+fn airBlock(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const ty_pl = cg.getAirData(inst).ty_pl;
+    const extra = cg.air.extraData(Air.Block, ty_pl.payload);
+
+    if (cg.debug_output != .none) try cg.asmPseudo(.dbg_enter_block, .none);
+    try cg.lowerBlock(inst, ty_pl.ty, @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]));
+    if (cg.debug_output != .none) try cg.asmPseudo(.dbg_exit_block, .none);
+}
+
+fn airDbgInlineBlock(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const ty_pl = cg.getAirData(inst).ty_pl;
+    const extra = cg.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
+
+    const old_inline_func = cg.inline_func;
+    defer cg.inline_func = old_inline_func;
+    cg.inline_func = extra.data.func;
+
+    if (cg.debug_output != .none) try cg.asmPseudo(.dbg_enter_inline_func, .{ .func = extra.data.func });
+    try cg.lowerBlock(inst, ty_pl.ty, @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]));
+    if (cg.debug_output != .none) try cg.asmPseudo(.dbg_enter_inline_func, .{ .func = old_inline_func });
+}
+
+fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, ty_ref: Air.Inst.Ref, body: []const Air.Inst.Index) !void {
+    const ty = ty_ref.toType();
+    const inst_tracking_i = cg.inst_tracking.count();
+    cg.inst_tracking.putAssumeCapacityNoClobber(inst, .init(.unreach));
+
+    // init block data
+    try cg.blocks.putNoClobber(cg.gpa, inst, .{ .state = cg.initRetroactiveState() });
+    const liveness = cg.liveness.getBlock(inst);
+
+    // generate the body
+    try cg.genBody(body);
+
+    // remove block data
+    var block_data = cg.blocks.fetchRemove(inst).?.value;
+    defer block_data.deinit(cg.gpa);
+
+    // if there are any br-s targeting this block
+    if (block_data.relocs.items.len > 0) {
+        assert(!ty.eql(.noreturn, cg.pt.zcu));
+        try cg.restoreState(block_data.state, liveness.deaths, .{
+            .emit_instructions = false,
+            .update_tracking = true,
+            .resurrect = true,
+            .close_scope = true,
+        });
+        for (block_data.relocs.items) |reloc| cg.performReloc(reloc);
+    } else assert(ty.eql(.noreturn, cg.pt.zcu));
+
+    // process return value
+    if (std.debug.runtime_safety) assert(cg.inst_tracking.getIndex(inst).? == inst_tracking_i);
+    const tracking = &cg.inst_tracking.values()[inst_tracking_i];
+    if (cg.liveness.isUnused(inst)) {
+        try tracking.die(cg, inst);
+    } else {
+        try cg.getValue(tracking.short, inst);
+    }
+}
+
+fn airBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
+    const br = cg.getAirData(inst).br;
+
+    const block_ty = cg.typeOfIndex(br.block_inst);
+    const block_unused =
+        !block_ty.hasRuntimeBitsIgnoreComptime(zcu) or cg.liveness.isUnused(br.block_inst);
+
+    const block_tracking = cg.inst_tracking.getPtr(br.block_inst).?;
+    const block_data = cg.blocks.getPtr(br.block_inst).?;
+    const first_br = block_data.relocs.items.len == 0;
+
+    // prepare/copy the result
+    const block_result = result: {
+        if (block_unused) break :result .none;
+
+        if (!first_br) try cg.getValue(block_tracking.short, null);
+        const op_mcv = try cg.resolveRef(br.operand);
+
+        // try to reuse operand
+        if (br.operand.toIndex()) |op_index| {
+            if (cg.reuseOperandAdvanced(inst, op_index, 0, op_mcv, br.block_inst)) {
+                if (first_br) break :result op_mcv;
+
+                // load value to destination
+                try cg.getValue(block_tracking.short, br.block_inst);
+                // .long = .none to avoid merging operand and block result stack frames.
+                const current_tracking: InstTracking = .{ .long = .none, .short = op_mcv };
+                try current_tracking.materializeUnsafe(cg, br.block_inst, block_tracking.*);
+                try cg.freeValue(op_mcv);
+
+                break :result block_tracking.short;
+            }
+        }
+
+        // allocate and copy
+        const dst_mcv = dst: {
+            if (first_br) {
+                break :dst try cg.allocRegOrMem(cg.typeOfIndex(br.block_inst), br.block_inst, .{});
+            } else {
+                try cg.getValue(block_tracking.short, br.block_inst);
+                break :dst block_tracking.short;
+            }
+        };
+        try cg.genCopy(block_ty, dst_mcv, op_mcv, .{});
+        break :result dst_mcv;
+    };
+
+    // process operand death
+    if (cg.liveness.operandDies(inst, 0)) {
+        if (br.operand.toIndex()) |op_inst| try cg.resolveInst(op_inst).die(cg, op_inst);
+    }
+
+    if (first_br) {
+        block_tracking.* = .init(block_result);
+        try cg.saveRetroactiveState(&block_data.state);
+    } else {
+        try cg.restoreState(block_data.state, &.{}, .{
+            .emit_instructions = true,
+            .update_tracking = false,
+            .resurrect = false,
+            .close_scope = false,
+        });
+    }
+
+    // jump to block ends
+    const jmp_reloc = try cg.asmBr(null, .none);
+    try block_data.relocs.append(cg.gpa, jmp_reloc);
+
+    // stop tracking block result without forgetting tracking info
+    try cg.freeValue(block_tracking.short);
 }
 
 fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) !void {

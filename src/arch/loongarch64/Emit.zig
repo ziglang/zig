@@ -110,6 +110,22 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .dwarf => |dwarf| try dwarf.leaveBlock(emit.code.items.len),
                     .plan9, .none => {},
                 },
+                .dbg_enter_inline_func => switch (emit.debug_output) {
+                    .dwarf => |dwarf| try dwarf.enterInlineFunc(
+                        mir_inst.data.func,
+                        emit.code.items.len,
+                        emit.prev_di_loc.line,
+                        emit.prev_di_loc.column,
+                    ),
+                    .plan9, .none => {},
+                },
+                .dbg_exit_inline_func => switch (emit.debug_output) {
+                    .dwarf => |dwarf| try dwarf.leaveInlineFunc(
+                        mir_inst.data.func,
+                        emit.code.items.len,
+                    ),
+                    .plan9, .none => {},
+                },
                 else => {},
             },
         }

@@ -99,9 +99,9 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
     defer lower.result_relocs_len = undefined;
 
     const inst = lower.mir.instructions.get(index);
-    log.debug("  {}", .{inst});
+    log.debug("  {}: {}", .{ index, inst });
 
-    switch (inst.tag.unwrap()) {
+    lower_inst: switch (inst.tag.unwrap()) {
         .inst => |opcode| lower.emitLir(.{ .opcode = opcode, .data = inst.data.op }),
         .pseudo => |tag| {
             switch (tag) {
@@ -134,36 +134,40 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 .dbg_line_stmt_line_column,
                 .dbg_enter_block,
                 .dbg_exit_block,
+                .dbg_enter_inline_func,
+                .dbg_exit_inline_func,
                 => {},
                 .branch => {
+                    const target_inst = inst.data.br.inst;
+                    if (target_inst + 1 == index) break :lower_inst;
                     switch (inst.data.br.cond) {
                         .none => {
                             lower.emit(.b(0, 0));
-                            lower.relocInst(.b26, inst.data.br.inst, 0);
+                            lower.relocInst(.b26, target_inst, 0);
                         },
                         .eq => |regs| {
                             lower.emit(.beq(regs[0], regs[1], 0));
-                            lower.relocInst(.k16, inst.data.br.inst, 0);
+                            lower.relocInst(.k16, target_inst, 0);
                         },
                         .ne => |regs| {
                             lower.emit(.bne(regs[0], regs[1], 0));
-                            lower.relocInst(.k16, inst.data.br.inst, 0);
+                            lower.relocInst(.k16, target_inst, 0);
                         },
                         .le => |regs| {
                             lower.emit(.ble(regs[0], regs[1], 0));
-                            lower.relocInst(.k16, inst.data.br.inst, 0);
+                            lower.relocInst(.k16, target_inst, 0);
                         },
                         .gt => |regs| {
                             lower.emit(.bgt(regs[0], regs[1], 0));
-                            lower.relocInst(.k16, inst.data.br.inst, 0);
+                            lower.relocInst(.k16, target_inst, 0);
                         },
                         .leu => |regs| {
                             lower.emit(.bleu(regs[0], regs[1], 0));
-                            lower.relocInst(.k16, inst.data.br.inst, 0);
+                            lower.relocInst(.k16, target_inst, 0);
                         },
                         .gtu => |regs| {
                             lower.emit(.bgtu(regs[0], regs[1], 0));
-                            lower.relocInst(.k16, inst.data.br.inst, 0);
+                            lower.relocInst(.k16, target_inst, 0);
                         },
                     }
                 },

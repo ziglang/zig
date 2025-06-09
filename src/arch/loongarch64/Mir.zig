@@ -87,6 +87,12 @@ pub const Inst = struct {
         dbg_enter_block,
         /// End of lexical block, no payload.
         dbg_exit_block,
+        /// Start of inline function block, uses `func` payload.
+        /// Payload points to the inlined function.
+        dbg_enter_inline_func,
+        /// End of inline function block, uses `func` payload.
+        /// Payload points to the outer function.
+        dbg_exit_inline_func,
     };
 
     pub const Data = union {
@@ -125,6 +131,8 @@ pub const Inst = struct {
         },
         /// Symbol index
         sym: u32,
+        /// Function index
+        func: InternPool.Index,
     };
 
     pub inline fn initInst(inst: encoding.Inst) Inst {
@@ -166,6 +174,7 @@ pub const Inst = struct {
                     .spill_float_regs => try writer.print(".spill_float_regs {}", .{inst.data.reg_list.fmt(.float)}),
                     .restore_int_regs => try writer.print(".restore_int_regs {}", .{inst.data.reg_list.fmt(.int)}),
                     .restore_float_regs => try writer.print(".restore_float_regs {}", .{inst.data.reg_list.fmt(.float)}),
+                    .dbg_enter_inline_func, .dbg_exit_inline_func => try writer.print(".{s} {}", .{ @tagName(tag), inst.data.func }),
                     else => try writer.print(".{s}", .{@tagName(tag)}),
                 }
             },
