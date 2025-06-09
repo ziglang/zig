@@ -58,7 +58,7 @@ pub fn writeInst(
     inst: Air.Inst.Index,
     pt: Zcu.PerThread,
     liveness: ?Air.Liveness,
-) void {
+) Writer.Error!void {
     comptime std.debug.assert(build_options.enable_debug_extensions);
     var writer: Writer = .{
         .pt = pt,
@@ -68,7 +68,7 @@ pub fn writeInst(
         .indent = 2,
         .skip_body = true,
     };
-    writer.writeInst(stream, inst) catch return;
+    return writer.writeInst(stream, inst);
 }
 
 pub fn dump(air: Air, pt: Zcu.PerThread, liveness: ?Air.Liveness) void {
