@@ -3035,9 +3035,9 @@ const CmpToBoolOptions = struct {
 
 // TODO: instruction combination
 fn airCompareToBool(cg: *CodeGen, inst: Air.Inst.Index, comptime opts: CmpToBoolOptions) !void {
-    var bin_op = cg.getAirData(inst).bin_op;
-    if (opts.swap) std.mem.swap(Air.Inst.Ref, &bin_op.lhs, &bin_op.rhs);
+    const bin_op = cg.getAirData(inst).bin_op;
     var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs }));
+    if (opts.swap) std.mem.swap(Temp, &sel.ops[0], &sel.ops[1]);
 
     if (try sel.match(.{
         .patterns = &.{
