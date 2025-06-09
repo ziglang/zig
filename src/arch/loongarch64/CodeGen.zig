@@ -1799,7 +1799,7 @@ fn formatAir(
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    data.self.air.dumpInst(data.inst, data.self.pt, data.self.liveness);
+    data.self.air.writeInst(writer, data.inst, data.self.pt, data.self.liveness);
 }
 fn fmtAir(self: *CodeGen, inst: Air.Inst.Index) std.fmt.Formatter(formatAir) {
     return .{ .data = .{ .self = self, .inst = inst } };
@@ -2334,8 +2334,9 @@ const Select = struct {
     }
 
     fn fail(sel: *Select) error{ OutOfMemory, CodegenFail } {
+        cg_select_log.debug("select failed after {} cases", .{sel.case_i});
         if (sel.inst) |inst| {
-            return sel.cg.fail("failed to select {}", .{sel.cg.fmtAir(inst)});
+            return sel.cg.fail("failed to select '{}'", .{sel.cg.fmtAir(inst)});
         } else {
             return sel.cg.fail("failed to select", .{});
         }
