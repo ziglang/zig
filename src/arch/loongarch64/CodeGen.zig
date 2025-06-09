@@ -2026,17 +2026,17 @@ fn reuseOperandAdvanced(
     return true;
 }
 
-fn resolveRef(self: *CodeGen, ref: Air.Inst.Ref) InnerError!MCValue {
-    const zcu = self.pt.zcu;
-    const ty = self.typeOf(ref);
+fn resolveRef(cg: *CodeGen, ref: Air.Inst.Ref) InnerError!MCValue {
+    const zcu = cg.pt.zcu;
+    const ty = cg.typeOf(ref);
 
     // If the type has no codegen bits, no need to store it.
     if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) return .none;
 
     const mcv: MCValue = if (ref.toIndex()) |inst| mcv: {
-        break :mcv self.inst_tracking.getPtr(inst).?.short;
+        break :mcv cg.inst_tracking.getPtr(inst).?.short;
     } else mcv: {
-        break :mcv try self.genTypedValue(.fromInterned(ref.toInterned().?));
+        break :mcv try cg.genTypedValue(.fromInterned(ref.toInterned().?));
     };
 
     switch (mcv) {
@@ -2045,22 +2045,23 @@ fn resolveRef(self: *CodeGen, ref: Air.Inst.Ref) InnerError!MCValue {
     }
 }
 
-fn resolveInst(self: *CodeGen, inst: Air.Inst.Index) *InstTracking {
-    const tracking = self.inst_tracking.getPtr(inst).?;
+fn resolveInst(cg: *CodeGen, inst: Air.Inst.Index) *InstTracking {
+    const tracking = cg.inst_tracking.getPtr(inst).?;
     return switch (tracking.short) {
         .none, .unreach, .dead => unreachable,
         else => tracking,
     };
 }
 
-pub fn spillInstruction(self: *CodeGen, reg: Register, inst: Air.Inst.Index) !void {
-    const tracking = self.inst_tracking.getPtr(inst) orelse return;
+pub fn spillInstruction(cg: *CodeGen, reg: Register, inst: Air.Inst.Index) !void {
+    const tracking = cg.inst_tracking.getPtr(inst) orelse return;
     if (std.debug.runtime_safety) {
         for (tracking.getRegs()) |tracked_reg| {
             if (tracked_reg.id() == reg.id()) break;
         } else unreachable; // spilled reg not tracked with spilled instruction
     }
-    try tracking.spill(self, inst);
+    try tracking.spill(cg, inst);
+    try tracking.trackSpill(cg, inst);
 }
 
 fn handleGenResult(cg: *CodeGen, res: codegen.GenResult) InnerError!MCValue {
@@ -2088,15 +2089,15 @@ fn lowerUav(cg: *CodeGen, val: Value, alignment: InternPool.Alignment) InnerErro
     return cg.handleGenResult(try cg.bin_file.lowerUav(cg.pt, val.toIntern(), alignment, cg.src_loc));
 }
 
-fn checkInvariantsAfterAirInst(self: *CodeGen) void {
-    assert(!self.register_manager.lockedRegsExist());
+fn checkInvariantsAfterAirInst(cg: *CodeGen) void {
+    assert(!cg.register_manager.lockedRegsExist());
 
     if (std.debug.runtime_safety) {
         // check consistency of tracked registers
-        var it = self.register_manager.free_registers.iterator(.{ .kind = .unset });
+        var it = cg.register_manager.free_registers.iterator(.{ .kind = .unset });
         while (it.next()) |index| {
-            const tracked_inst = self.register_manager.registers[index];
-            const tracking = self.resolveInst(tracked_inst);
+            const tracked_inst = cg.register_manager.registers[index];
+            const tracking = cg.resolveInst(tracked_inst);
             for (tracking.getRegs()) |reg| {
                 if (RegisterManager.indexOfRegIntoTracked(reg).? == index) break;
             } else unreachable; // tracked register not in use
