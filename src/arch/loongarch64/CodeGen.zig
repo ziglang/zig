@@ -1830,6 +1830,10 @@ fn formatTracking(
 ) @TypeOf(writer).Error!void {
     var it = data.self.inst_tracking.iterator();
     while (it.next()) |entry| try writer.print("\n{} = {}", .{ entry.key_ptr.*, entry.value_ptr.* });
+
+    try writer.writeAll("\nUsed registers:");
+    var reg_it = data.self.register_manager.free_registers.iterator(.{ .kind = .unset });
+    while (reg_it.next()) |index| try writer.print(" {s}", .{@tagName(RegisterManager.regAtTrackedIndex(@intCast(index)))});
 }
 fn fmtTracking(self: *CodeGen) std.fmt.Formatter(formatTracking) {
     return .{ .data = .{ .self = self } };
