@@ -138,7 +138,7 @@ pub const StdIo = union(enum) {
 pub const Arg = union(enum) {
     artifact: PrefixedArtifact,
     lazy_path: PrefixedLazyPath,
-    directory_source: PrefixedLazyPath,
+    decorated_directory: DecoratedLazyPath,
     bytes: []u8,
     output_file: *Output,
     output_directory: *Output,
@@ -152,6 +152,12 @@ pub const PrefixedArtifact = struct {
 pub const PrefixedLazyPath = struct {
     prefix: []const u8,
     lazy_path: std.Build.LazyPath,
+};
+
+pub const DecoratedLazyPath = struct {
+    prefix: []const u8,
+    lazy_path: std.Build.LazyPath,
+    suffix: []const u8,
 };
 
 pub const Output = struct {
@@ -360,19 +366,33 @@ pub fn addPrefixedOutputDirectoryArg(
     return .{ .generated = .{ .file = &output.generated_file } };
 }
 
-pub fn addDirectoryArg(run: *Run, directory_source: std.Build.LazyPath) void {
-    run.addPrefixedDirectoryArg("", directory_source);
+pub fn addDirectoryArg(run: *Run, lazy_directory: std.Build.LazyPath) void {
+    run.addDecoratedDirectoryArg("", lazy_directory, "");
 }
 
-pub fn addPrefixedDirectoryArg(run: *Run, prefix: []const u8, directory_source: std.Build.LazyPath) void {
+pub fn addPrefixedDirectoryArg(run: *Run, prefix: []const u8, lazy_directory: std.Build.LazyPath) void {
     const b = run.step.owner;
-
-    const prefixed_directory_source: PrefixedLazyPath = .{
+    run.argv.append(b.allocator, .{ .decorated_directory = .{
         .prefix = b.dupe(prefix),
-        .lazy_path = directory_source.dupe(b),
-    };
-    run.argv.append(b.allocator, .{ .directory_source = prefixed_directory_source }) catch @panic("OOM");
-    directory_source.addStepDependencies(&run.step);
+        .lazy_path = lazy_directory.dupe(b),
+        .suffix = "",
+    } }) catch @panic("OOM");
+    lazy_directory.addStepDependencies(&run.step);
+}
+
+pub fn addDecoratedDirectoryArg(
+    run: *Run,
+    prefix: []const u8,
+    lazy_directory: std.Build.LazyPath,
+    suffix: []const u8,
+) void {
+    const b = run.step.owner;
+    run.argv.append(b.allocator, .{ .decorated_directory = .{
+        .prefix = b.dupe(prefix),
+        .lazy_path = lazy_directory.dupe(b),
+        .suffix = b.dupe(suffix),
+    } }) catch @panic("OOM");
+    lazy_directory.addStepDependencies(&run.step);
 }
 
 /// Add a path argument to a dep file (.d) for the child process to write its
@@ -661,11 +681,11 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 man.hash.addBytes(file.prefix);
                 _ = try man.addFile(file_path, null);
             },
-            .directory_source => |file| {
-                const file_path = file.lazy_path.getPath2(b, step);
-                try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
-                man.hash.addBytes(file.prefix);
-                man.hash.addBytes(file_path);
+            .decorated_directory => |dd| {
+                const file_path = dd.lazy_path.getPath3(b, step);
+                const resolved_arg = b.fmt("{s}{}{s}", .{ dd.prefix, file_path, dd.suffix });
+                try argv_list.append(resolved_arg);
+                man.hash.addBytes(resolved_arg);
             },
             .artifact => |pa| {
                 const artifact = pa.artifact;
@@ -882,9 +902,9 @@ pub fn rerunInFuzzMode(
                 const file_path = file.lazy_path.getPath2(b, step);
                 try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, file_path }));
             },
-            .directory_source => |file| {
-                const file_path = file.lazy_path.getPath2(b, step);
-                try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, file_path }));
+            .decorated_directory => |dd| {
+                const file_path = dd.lazy_path.getPath3(b, step);
+                try argv_list.append(arena, b.fmt("{s}{}{s}", .{ dd.prefix, file_path, dd.suffix }));
             },
             .artifact => |pa| {
                 const artifact = pa.artifact;
