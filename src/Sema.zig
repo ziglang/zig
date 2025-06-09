@@ -1171,11 +1171,11 @@ fn analyzeBodyInner(
             .as_node                      => try sema.zirAsNode(block, inst),
             .as_shift_operand             => try sema.zirAsShiftOperand(block, inst),
             .bit_and                      => try sema.zirBitwise(block, inst, .bit_and),
-            .bit_not                      => try sema.zirBitNot(block, inst),
+            .bit_not                      => try sema.zirBitNot(block, inst, false),
             .bit_or                       => try sema.zirBitwise(block, inst, .bit_or),
             .bitcast                      => try sema.zirBitcast(block, inst),
             .suspend_block                => try sema.zirSuspendBlock(block, inst),
-            .bool_not                     => try sema.zirBoolNot(block, inst),
+            .bool_not                     => try sema.zirBitNot(block, inst, true),
             .bool_br_and                  => try sema.zirBoolBr(block, inst, false),
             .bool_br_or                   => try sema.zirBoolBr(block, inst, true),
             .c_import                     => try sema.zirCImport(block, inst),
@@ -14412,9 +14412,9 @@ fn zirBitwise(
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
-    const is_int = scalar_tag == .int or scalar_tag == .comptime_int;
+    const is_int_or_bool = scalar_tag == .int or scalar_tag == .comptime_int or scalar_tag == .bool;
 
-    if (!is_int) {
+    if (!is_int_or_bool) {
         return sema.fail(block, src, "invalid operands to binary bitwise expression: '{s}' and '{s}'", .{ @tagName(lhs_ty.zigTypeTag(zcu)), @tagName(rhs_ty.zigTypeTag(zcu)) });
     }
 
@@ -14442,7 +14442,12 @@ fn zirBitwise(
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
 }
 
-fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirBitNot(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    is_bool_not: bool,
+) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -14455,10 +14460,14 @@ fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const operand = try sema.resolveInst(inst_data.operand);
     const operand_type = sema.typeOf(operand);
     const scalar_type = operand_type.scalarType(zcu);
+    const scalar_tag = scalar_type.zigTypeTag(zcu);
 
-    if (scalar_type.zigTypeTag(zcu) != .int) {
-        return sema.fail(block, src, "unable to perform binary not operation on type '{}'", .{
-            operand_type.fmt(pt),
+    const is_finite_int_or_bool = scalar_tag == .int or scalar_tag == .bool;
+    const is_allowed_type = if (is_bool_not) scalar_tag == .bool else is_finite_int_or_bool;
+
+    if (!is_allowed_type) {
+        return sema.fail(block, src, "unable to perform {s} not operation on type '{}'", .{
+            if (is_bool_not) "boolean" else "binary", operand_type.fmt(pt),
         });
     }
 
@@ -18334,25 +18343,6 @@ fn zirTypeofPeer(
 
     const result_type = try sema.resolvePeerTypes(block, src, inst_list, .{ .typeof_builtin_call_node_offset = extra.data.src_node });
     return Air.internedToRef(result_type.toIntern());
-}
-
-fn zirBoolNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
-    const src = block.nodeOffset(inst_data.src_node);
-    const operand_src = block.src(.{ .node_offset_un_op = inst_data.src_node });
-    const uncasted_operand = try sema.resolveInst(inst_data.operand);
-
-    const operand = try sema.coerce(block, .bool, uncasted_operand, operand_src);
-    if (try sema.resolveValue(operand)) |val| {
-        return if (val.isUndef(zcu)) .undef_bool else if (val.toBool()) .bool_false else .bool_true;
-    }
-    try sema.requireRuntimeBlock(block, src, null);
-    return block.addTyOp(.not, .bool, operand);
 }
 
 fn zirBoolBr(
