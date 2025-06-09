@@ -77,7 +77,7 @@ fn printTypeDefinition(options: *Options, out: Writer, comptime T: type) !void {
             if (@"struct".is_tuple) return;
 
             try out.print("pub const {} = ", .{std.zig.fmtId(@typeName(T))});
-            try printStructDefinition(options, out, T);
+            try printStructDefinition(options, out, T, 0);
             try out.writeAll(";\n\n");
         },
         .@"union" => |@"union"| {
@@ -114,7 +114,7 @@ fn printEnumDefinition(options: *Options, out: Writer, comptime T: type) !void {
     try out.writeAll("}");
 }
 
-fn printStructDefinition(options: *Options, out: Writer, comptime T: type) !void {
+fn printStructDefinition(options: *Options, out: Writer, comptime T: type, indent: u8) !void {
     const @"struct" = @typeInfo(T).@"struct";
 
     switch (@"struct".layout) {
@@ -122,7 +122,7 @@ fn printStructDefinition(options: *Options, out: Writer, comptime T: type) !void
         .@"extern" => try out.writeAll("extern struct"),
         .@"packed" => {
             try out.writeAll("packed struct(");
-            try printTypeName(options, out, @"struct".backing_integer.?, indent_width);
+            try printTypeName(options, out, @"struct".backing_integer.?, indent);
             try out.writeAll(")");
         },
     }
@@ -130,20 +130,22 @@ fn printStructDefinition(options: *Options, out: Writer, comptime T: type) !void
     try out.writeAll(" {\n");
 
     inline for (@"struct".fields) |field| {
-        try out.writeAll(" " ** indent_width);
+        const field_indent = indent +| indent_width;
+        try out.writeByteNTimes(' ', field_indent);
         if (field.is_comptime) try out.writeAll("comptime ");
         if (!@"struct".is_tuple) try out.print("{p_}: ", .{std.zig.fmtId(field.name)});
-        try printTypeName(options, out, field.type, indent_width);
+        try printTypeName(options, out, field.type, field_indent);
         if (!@"struct".is_tuple and @"struct".layout != .@"packed" and field.alignment != @alignOf(field.type)) {
             try out.print(" align({})", .{field.alignment});
         }
         if (field.defaultValue()) |default_value| {
             try out.writeAll(" = ");
-            try printValue(options, out, field.type, default_value, indent_width);
+            try printValue(options, out, field.type, default_value, field_indent);
         }
         try out.writeAll(",\n");
     }
 
+    try out.writeByteNTimes(' ', indent);
     try out.writeAll("}");
 }
 
@@ -216,7 +218,7 @@ fn printTypeName(options: *Options, out: Writer, comptime T: type, indent: u8) !
         .@"enum" => try out.print("{}", .{std.zig.fmtId(@typeName(T))}),
         .@"struct" => |@"struct"| {
             if (@"struct".is_tuple) {
-                try printStructDefinition(options, out, T);
+                try printStructDefinition(options, out, T, indent);
             } else {
                 try out.print("{}", .{std.zig.fmtId(@typeName(T))});
             }
@@ -276,10 +278,10 @@ fn printValue(options: *Options, out: Writer, comptime T: type, value: T, indent
 
             try out.writeAll(".{\n");
             inline for (@"struct".fields) |field| {
-                const elem_indent = indent +| indent_width;
-                try out.writeByteNTimes(' ', elem_indent);
+                const field_indent = indent +| indent_width;
+                try out.writeByteNTimes(' ', field_indent);
                 if (!@"struct".is_tuple) try out.print(".{p_} = ", .{std.zig.fmtId(field.name)});
-                try printValue(options, out, field.type, @field(value, field.name), elem_indent);
+                try printValue(options, out, field.type, @field(value, field.name), field_indent);
                 try out.writeAll(",\n");
             }
             try out.writeByteNTimes(' ', indent);
