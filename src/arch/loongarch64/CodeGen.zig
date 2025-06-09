@@ -1753,7 +1753,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .br => try cg.airBr(inst),
             .cond_br => try cg.airCondBr(inst),
 
-            .unreach => return cg.fail("reached unreachable code during code generation", .{}),
+            .unreach => {},
+
             .intcast_safe,
             .add_safe,
             .sub_safe,
