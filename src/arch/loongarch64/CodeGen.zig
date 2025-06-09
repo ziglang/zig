@@ -1705,12 +1705,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .ret_safe => try cg.airRet(inst, true),
             .ret_load => try cg.airRetLoad(inst),
 
-            .add => try cg.airArithBinOp(inst, .{ .op = .add, .wrapping = .unchecked }),
-            .add_safe => try cg.airArithBinOp(inst, .{ .op = .add, .wrapping = .checked }),
-            .add_wrap => try cg.airArithBinOp(inst, .{ .op = .add, .wrapping = .unchecked }),
-            .sub => try cg.airArithBinOp(inst, .{ .op = .sub, .wrapping = .unchecked }),
-            .sub_safe => try cg.airArithBinOp(inst, .{ .op = .sub, .wrapping = .checked }),
-            .sub_wrap => try cg.airArithBinOp(inst, .{ .op = .sub, .wrapping = .unchecked }),
+            .add, .add_wrap => try cg.airArithBinOp(inst, .add),
+            .sub, .sub_wrap => try cg.airArithBinOp(inst, .sub),
 
             .bit_and => try cg.airLogicBinOp(inst, .@"and"),
             .bit_or => try cg.airLogicBinOp(inst, .@"or"),
@@ -2583,12 +2579,7 @@ fn finishReturn(cg: *CodeGen, inst: Air.Inst.Index) !void {
     try cg.asmPseudo(.jump_to_epilogue, .none);
 }
 
-const ArithBinOpOpts = struct {
-    op: enum { add, sub },
-    wrapping: enum { unchecked, checked },
-};
-
-fn airArithBinOp(cg: *CodeGen, inst: Air.Inst.Index, opts: ArithBinOpOpts) !void {
+fn airArithBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: enum { add, sub }) !void {
     const pt = cg.pt;
     const zcu = pt.zcu;
 
@@ -2598,14 +2589,13 @@ fn airArithBinOp(cg: *CodeGen, inst: Air.Inst.Index, opts: ArithBinOpOpts) !void
 
     if (ty.isInt(zcu) and
         ty.intInfo(zcu).bits <= 32 and
-        opts.wrapping == .unchecked and
         try sel.match(.{
             .patterns = &.{.{ .srcs = &.{ .to_int_reg, .to_int_reg } }},
         }))
     {
         const lhs, const rhs = sel.ops[0..2].*;
         const dst = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
-        switch (opts.op) {
+        switch (op) {
             .add => try cg.asmInst(.add_w(dst.getReg(cg), lhs.getReg(cg), rhs.getReg(cg))),
             .sub => try cg.asmInst(.sub_w(dst.getReg(cg), lhs.getReg(cg), rhs.getReg(cg))),
         }
