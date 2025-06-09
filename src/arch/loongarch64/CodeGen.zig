@@ -2612,17 +2612,32 @@ fn airArithBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: enum { add, sub }) !voi
     var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs }));
     const ty = sel.ops[0].typeOf(cg);
 
-    if (ty.isInt(zcu) and
-        ty.intInfo(zcu).bits <= 32 and
-        try sel.match(.{
-            .patterns = &.{.{ .srcs = &.{ .to_int_reg, .to_int_reg } }},
-        }))
-    {
+    // case 1: 32-bit integers
+    if (try sel.match(.{
+        .requirement = ty.isInt(zcu) and
+            ty.intInfo(zcu).bits <= 32,
+        .patterns = &.{.{ .srcs = &.{ .to_int_reg, .to_int_reg } }},
+    })) {
         const lhs, const rhs = sel.ops[0..2].*;
-        const dst, _ = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
+        const dst = try cg.tempTryReuseOrAlloc(inst, &.{ lhs, rhs }, .{ .use_frame = false });
         switch (op) {
             .add => try cg.asmInst(.add_w(dst.getReg(cg), lhs.getReg(cg), rhs.getReg(cg))),
             .sub => try cg.asmInst(.sub_w(dst.getReg(cg), lhs.getReg(cg), rhs.getReg(cg))),
+        }
+        try dst.truncateRegister(cg);
+        try sel.finish(dst);
+    } else
+    // case 2: 64-bit integers
+    if (try sel.match(.{
+        .requirement = ty.isInt(zcu) and
+            ty.intInfo(zcu).bits <= 64,
+        .patterns = &.{.{ .srcs = &.{ .to_int_reg, .to_int_reg } }},
+    })) {
+        const lhs, const rhs = sel.ops[0..2].*;
+        const dst = try cg.tempTryReuseOrAlloc(inst, &.{ lhs, rhs }, .{ .use_frame = false });
+        switch (op) {
+            .add => try cg.asmInst(.add_d(dst.getReg(cg), lhs.getReg(cg), rhs.getReg(cg))),
+            .sub => try cg.asmInst(.sub_d(dst.getReg(cg), lhs.getReg(cg), rhs.getReg(cg))),
         }
         try dst.truncateRegister(cg);
         try sel.finish(dst);
