@@ -3251,19 +3251,20 @@ fn airBitCast(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const src_ty = cg.typeOf(ty_op.operand);
     var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{ty_op.operand}));
 
-    if (dst_ty.isAbiInt(zcu) and
-        src_ty.isAbiInt(zcu) and
-        src_ty.abiSize(zcu) == dst_ty.abiSize(zcu) and
-        try sel.match(.{
-            .patterns = &.{.{ .srcs = &.{.any} }},
-        }))
-    {
+    if (try sel.match(.{
+        .requirement = dst_ty.isAbiInt(zcu) and
+            src_ty.isAbiInt(zcu) and
+            src_ty.abiSize(zcu) == dst_ty.abiSize(zcu),
+        .patterns = &.{.{ .srcs = &.{.any} }},
+    })) {
         const src = sel.ops[0];
         if (cg.liveness.operandDies(inst, 0)) {
             cg.reused_operands.set(0);
             try src.finish(inst, &.{src}, cg);
         } else {
-            try (try cg.tempInit(dst_ty, .{ .air_ref = ty_op.operand })).finish(inst, &.{src}, cg);
+            const dst = try cg.tempAlloc(dst_ty, .{});
+            try src.copy(dst, cg, dst_ty);
+            try dst.finish(inst, &.{src}, cg);
         }
     } else return sel.fail();
 }
