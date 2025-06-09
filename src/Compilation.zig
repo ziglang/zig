@@ -224,6 +224,8 @@ compiler_rt_lib: ?CrtFile = null,
 /// Populated when we build the compiler_rt_obj object. A Job to build this is indicated
 /// by setting `queued_jobs.compiler_rt_obj` and resolved before calling linker.flush().
 compiler_rt_obj: ?CrtFile = null,
+/// hack for stage2_x86_64 + coff
+compiler_rt_dyn_lib: ?CrtFile = null,
 /// Populated when we build the libfuzzer static library. A Job to build this
 /// is indicated by setting `queued_jobs.fuzzer_lib` and resolved before
 /// calling linker.flush().
@@ -291,6 +293,8 @@ emit_llvm_bc: ?[]const u8,
 emit_docs: ?[]const u8,
 
 const QueuedJobs = struct {
+    /// hack for stage2_x86_64 + coff
+    compiler_rt_dyn_lib: bool = false,
     compiler_rt_lib: bool = false,
     compiler_rt_obj: bool = false,
     ubsan_rt_lib: bool = false,
@@ -1753,7 +1757,7 @@ fn addModuleTableToCacheHash(
     }
 }
 
-const RtStrat = enum { none, lib, obj, zcu };
+const RtStrat = enum { none, lib, obj, zcu, dyn_lib };
 
 pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compilation {
     const output_mode = options.config.output_mode;
@@ -1816,7 +1820,11 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             if (options.skip_linker_dependencies) break :s .none;
             const want = options.want_compiler_rt orelse is_exe_or_dyn_lib;
             if (!want) break :s .none;
-            if (have_zcu and output_mode == .Obj) break :s .zcu;
+            if (have_zcu) {
+                if (output_mode == .Obj) break :s .zcu;
+                if (target.ofmt == .coff and target_util.zigBackend(target, use_llvm) == .stage2_x86_64)
+                    break :s if (is_exe_or_dyn_lib) .dyn_lib else .zcu;
+            }
             if (is_exe_or_dyn_lib) break :s .lib;
             break :s .obj;
         };
@@ -2440,6 +2448,11 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     // In this case we are making a static library, so we ask
                     // for a compiler-rt object to put in it.
                     comp.queued_jobs.compiler_rt_obj = true;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
+                } else if (comp.compiler_rt_strat == .dyn_lib) {
+                    // hack for stage2_x86_64 + coff
+                    log.debug("queuing a job to build compiler_rt_dyn_lib", .{});
+                    comp.queued_jobs.compiler_rt_dyn_lib = true;
                     comp.link_task_queue.pending_prelink_tasks += 1;
                 }
 
@@ -4254,6 +4267,7 @@ fn performAllTheWork(
             "compiler_rt.zig",
             "compiler_rt",
             .Lib,
+            .static,
             .compiler_rt,
             main_progress_node,
             RtOptions{
@@ -4270,6 +4284,7 @@ fn performAllTheWork(
             "compiler_rt.zig",
             "compiler_rt",
             .Obj,
+            .static,
             .compiler_rt,
             main_progress_node,
             RtOptions{
@@ -4280,12 +4295,31 @@ fn performAllTheWork(
         });
     }
 
+    // hack for stage2_x86_64 + coff
+    if (comp.queued_jobs.compiler_rt_dyn_lib and comp.compiler_rt_dyn_lib == null) {
+        comp.link_task_wait_group.spawnManager(buildRt, .{
+            comp,
+            "compiler_rt.zig",
+            "compiler_rt",
+            .Lib,
+            .dynamic,
+            .compiler_rt,
+            main_progress_node,
+            RtOptions{
+                .checks_valgrind = true,
+                .allow_lto = false,
+            },
+            &comp.compiler_rt_dyn_lib,
+        });
+    }
+
     if (comp.queued_jobs.fuzzer_lib and comp.fuzzer_lib == null) {
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "fuzzer.zig",
             "fuzzer",
             .Lib,
+            .static,
             .libfuzzer,
             main_progress_node,
             RtOptions{},
@@ -4299,6 +4333,7 @@ fn performAllTheWork(
             "ubsan_rt.zig",
             "ubsan_rt",
             .Lib,
+            .static,
             .libubsan,
             main_progress_node,
             RtOptions{
@@ -4314,6 +4349,7 @@ fn performAllTheWork(
             "ubsan_rt.zig",
             "ubsan_rt",
             .Obj,
+            .static,
             .libubsan,
             main_progress_node,
             RtOptions{
@@ -5390,6 +5426,7 @@ fn buildRt(
     root_source_name: []const u8,
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
+    link_mode: std.builtin.LinkMode,
     misc_task: MiscTask,
     prog_node: std.Progress.Node,
     options: RtOptions,
@@ -5399,6 +5436,7 @@ fn buildRt(
         root_source_name,
         root_name,
         output_mode,
+        link_mode,
         misc_task,
         prog_node,
         options,
@@ -5554,6 +5592,7 @@ fn buildLibZigC(comp: *Compilation, prog_node: std.Progress.Node) void {
         "c.zig",
         "zigc",
         .Lib,
+        .static,
         .libzigc,
         prog_node,
         .{},
@@ -7231,6 +7270,7 @@ fn buildOutputFromZig(
     src_basename: []const u8,
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
+    link_mode: std.builtin.LinkMode,
     misc_task_tag: MiscTask,
     prog_node: std.Progress.Node,
     options: RtOptions,
@@ -7251,7 +7291,7 @@ fn buildOutputFromZig(
 
     const config = try Config.resolve(.{
         .output_mode = output_mode,
-        .link_mode = .static,
+        .link_mode = link_mode,
         .resolved_target = comp.root_mod.resolved_target,
         .is_test = false,
         .have_zcu = true,

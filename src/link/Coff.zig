@@ -1715,6 +1715,21 @@ fn flushInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     }
 
     assert(!coff.imports_count_dirty);
+
+    // hack for stage2_x86_64 + coff
+    if (comp.compiler_rt_dyn_lib) |crt_file| {
+        const compiler_rt_sub_path = try std.fs.path.join(gpa, &.{
+            std.fs.path.dirname(coff.base.emit.sub_path) orelse "",
+            std.fs.path.basename(crt_file.full_object_path.sub_path),
+        });
+        defer gpa.free(compiler_rt_sub_path);
+        try crt_file.full_object_path.root_dir.handle.copyFile(
+            crt_file.full_object_path.sub_path,
+            coff.base.emit.root_dir.handle,
+            compiler_rt_sub_path,
+            .{},
+        );
+    }
 }
 
 pub fn getNavVAddr(
