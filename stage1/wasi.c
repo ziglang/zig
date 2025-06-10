@@ -399,6 +399,49 @@ static void DirEntry_unlink(uint32_t de) {
     des[de].host_path = NULL;
 }
 
+static enum wasi_errno FileDescriptor_open(uint32_t de, uint32_t oflags, uint64_t fs_rights_base, uint32_t fdflags, FILE **stream) {
+    const bool creat = (oflags & wasi_oflags_creat) != 0;
+    const bool excl = (oflags & wasi_oflags_excl) != 0;
+    const bool trunc = (oflags & wasi_oflags_trunc) != 0;
+    const bool append = (fdflags & wasi_fdflags_append) != 0;
+
+    switch (des[de].filetype) {
+        case wasi_filetype_directory:
+        case wasi_filetype_regular_file:
+            break;
+        default: panic("unimplemented");
+    }
+
+    if (des[de].host_path == NULL) {
+        if (!creat) return wasi_errno_noent;
+        *stream = NULL;
+    } else {
+        if (oflags != (append ? wasi_oflags_creat : wasi_oflags_creat | wasi_oflags_trunc)) {
+            char mode[] = "rb+";
+            if ((fs_rights_base & wasi_rights_fd_write) == 0) mode[2] = '\0';
+            *stream = fopen(des[de].host_path, mode);
+            if (*stream != NULL) {
+                if (append || excl || trunc) fclose(*stream);
+                if (excl) return wasi_errno_exist;
+            } else if (!creat) return wasi_errno_noent;
+        }
+        if (append || trunc || *stream == NULL) {
+            char mode[] = "wb+";
+            if ((fs_rights_base & wasi_rights_fd_read) == 0) mode[2] = '\0';
+            if (trunc || !append) {
+                *stream = fopen(des[de].host_path, mode);
+                if (append && *stream != NULL) fclose(*stream);
+            }
+            if (append) {
+                mode[0] = 'a';
+                *stream = fopen(des[de].host_path, mode);
+            }
+        }
+        if (*stream == NULL) return wasi_errno_isdir;
+    }
+    return wasi_errno_success;
+}
+
 uint32_t wasi_snapshot_preview1_args_sizes_get(uint32_t argv_size, uint32_t argv_buf_size) {
     uint8_t *const m = *wasm_memory;
     uint32_t *argv_size_ptr = (uint32_t *)&m[argv_size];
@@ -813,82 +856,36 @@ uint32_t wasi_snapshot_preview1_path_open(uint32_t fd, uint32_t dirflags, uint32
     fprintf(stderr, "wasi_snapshot_preview1_path_open(%u, 0x%X, \"%.*s\", 0x%X, 0x%llX, 0x%llX, 0x%X)\n", fd, dirflags, (int)path_len, path_ptr, oflags, (unsigned long long)fs_rights_base, (unsigned long long)fs_rights_inheriting, fdflags);
 #endif
 
-    bool creat = (oflags & wasi_oflags_creat) != 0;
-    bool directory = (oflags & wasi_oflags_directory) != 0;
-    bool excl = (oflags & wasi_oflags_excl) != 0;
-    bool trunc = (oflags & wasi_oflags_trunc) != 0;
-    bool append = (fdflags & wasi_fdflags_append) != 0;
+    const bool directory = (oflags & wasi_oflags_directory) != 0;
 
     uint32_t de;
-    enum wasi_errno lookup_errno = DirEntry_lookup(fd, dirflags, path_ptr, path_len, &de);
-    if (lookup_errno == wasi_errno_success) {
-        if (directory && des[de].filetype != wasi_filetype_directory) return wasi_errno_notdir;
-
-        struct FileDescriptor *new_fds = realloc(fds, (fd_len + 1) * sizeof(struct FileDescriptor));
-        if (new_fds == NULL) return wasi_errno_nomem;
-        fds = new_fds;
-
-        fds[fd_len].de = de;
-        fds[fd_len].fdflags = fdflags;
-        switch (des[de].filetype) {
-            case wasi_filetype_directory: fds[fd_len].stream = NULL; break;
-            default: panic("unimplemented: path_open non-directory DirEntry");
-        }
-        fds[fd_len].fs_rights_inheriting = fs_rights_inheriting;
-
-#if LOG_TRACE
-        fprintf(stderr, "fd = %u\n", fd_len);
-#endif
-        store32_align2(res_fd_ptr, fd_len);
-        fd_len += 1;
-    }
-    if (lookup_errno != wasi_errno_noent) return lookup_errno;
+    const enum wasi_errno lookup_errno = DirEntry_lookup(fd, dirflags, path_ptr, path_len, &de);
+    if (lookup_errno != wasi_errno_success && lookup_errno != wasi_errno_noent) return lookup_errno;
+    if (lookup_errno == wasi_errno_success && directory && des[de].filetype != wasi_filetype_directory) return wasi_errno_notdir;
 
     struct FileDescriptor *new_fds = realloc(fds, (fd_len + 1) * sizeof(struct FileDescriptor));
     if (new_fds == NULL) return wasi_errno_nomem;
     fds = new_fds;
 
-    enum wasi_filetype filetype = directory ? wasi_filetype_directory : wasi_filetype_regular_file;
-    enum wasi_errno create_errno = DirEntry_create(fd, path_ptr, path_len, filetype, 0, &de);
-    if (create_errno != wasi_errno_success) return create_errno;
+    if (lookup_errno == wasi_errno_noent) {
+      enum wasi_filetype filetype = directory ? wasi_filetype_directory : wasi_filetype_regular_file;
+      const enum wasi_errno create_errno = DirEntry_create(fd, path_ptr, path_len, filetype, time(NULL), &de);
+      if (create_errno != wasi_errno_success) return create_errno;
+    }
+
     FILE *stream;
-    if (!directory) {
-        if (des[de].host_path == NULL) {
-            if (!creat) { DirEntry_unlink(de); de_len -= 1; return wasi_errno_noent; }
-            time_t now = time(NULL);
-            des[de].atim = now;
-            des[de].mtim = now;
-            des[de].ctim = now;
-            stream = NULL;
-        } else {
-            if (oflags != (append ? wasi_oflags_creat : wasi_oflags_creat | wasi_oflags_trunc)) {
-                char mode[] = "rb+";
-                if ((fs_rights_base & wasi_rights_fd_write) == 0) mode[2] = '\0';
-                stream = fopen(des[de].host_path, mode);
-                if (stream != NULL) {
-                    if (append || excl || trunc) fclose(stream);
-                    if (excl) {
-                        DirEntry_unlink(de);
-                        de_len -= 1;
-                        return wasi_errno_exist;
-                    }
-                } else if (!creat) { DirEntry_unlink(de); de_len -= 1; return wasi_errno_noent; }
-            }
-            if (append || trunc || stream == NULL) {
-                char mode[] = "wb+";
-                if ((fs_rights_base & wasi_rights_fd_read) == 0) mode[2] = '\0';
-                if (trunc || !append) {
-                    stream = fopen(des[de].host_path, mode);
-                    if (append && stream != NULL) fclose(stream);
-                }
-                if (append) {
-                    mode[0] = 'a';
-                    stream = fopen(des[de].host_path, mode);
-                }
-            }
-            if (stream == NULL) { DirEntry_unlink(de); de_len -= 1; return wasi_errno_isdir; }
+    if (directory) stream = NULL;
+    else {
+      if (lookup_errno == wasi_errno_success) panic("unimplemented");
+      const enum wasi_errno open_errno = FileDescriptor_open(de, oflags, fs_rights_base, fdflags, &stream);
+      if (open_errno != wasi_errno_success) {
+        if (lookup_errno == wasi_errno_noent) {
+          DirEntry_unlink(de);
+          de_len -= 1;
         }
-    } else stream = NULL;
+        return open_errno;
+      }
+    }
 
 #if LOG_TRACE
     fprintf(stderr, "fd = %u\n", fd_len);
