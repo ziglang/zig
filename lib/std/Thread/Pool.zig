@@ -163,7 +163,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
     wait_group.start();
 
     if (builtin.single_threaded) {
-        @call(.auto, func, .{0} ++ args);
+        callFn(func, .{0} ++ args);
         wait_group.finish();
         return;
     }
@@ -177,7 +177,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
 
         fn runFn(runnable: *Runnable, id: ?usize) void {
             const closure: *@This() = @alignCast(@fieldParentPtr("runnable", runnable));
-            @call(.auto, func, .{id.?} ++ closure.arguments);
+            callFn(func, .{id.?} ++ closure.arguments);
             closure.wait_group.finish();
 
             // The thread pool's allocator is protected by the mutex.
@@ -195,7 +195,7 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
         const closure = pool.allocator.create(Closure) catch {
             const id: ?usize = pool.ids.getIndex(std.Thread.getCurrentId());
             pool.mutex.unlock();
-            @call(.auto, func, .{id.?} ++ args);
+            callFn(func, .{id.?} ++ args);
             wait_group.finish();
             return;
         };
