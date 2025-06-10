@@ -463,14 +463,14 @@ pub fn Iterator(comptime SeekableStream: type) type {
                         return error.ZipBadFileOffset;
                     if (local_header.version_needed_to_extract != self.version_needed_to_extract)
                         return error.ZipMismatchVersionNeeded;
-                    if (local_header.last_modification_time != self.last_modification_time)
+                    if (!options.best_effort and local_header.last_modification_time != self.last_modification_time)
                         return error.ZipMismatchModTime;
-                    if (local_header.last_modification_date != self.last_modification_date)
+                    if (!options.best_effort and local_header.last_modification_date != self.last_modification_date)
                         return error.ZipMismatchModDate;
 
-                    if (@as(u16, @bitCast(local_header.flags)) != @as(u16, @bitCast(self.flags)))
+                    if (!options.best_effort and @as(u16, @bitCast(local_header.flags)) != @as(u16, @bitCast(self.flags)))
                         return error.ZipMismatchFlags;
-                    if (local_header.crc32 != 0 and local_header.crc32 != self.crc32)
+                    if (!options.best_effort and local_header.crc32 != 0 and local_header.crc32 != self.crc32)
                         return error.ZipMismatchCrc32;
                     var extents: FileExtents = .{
                         .uncompressed_size = local_header.uncompressed_size,
@@ -610,6 +610,8 @@ pub const ExtractOptions = struct {
     /// Allow filenames within the zip to use backslashes.  Back slashes are normalized
     /// to forward slashes before forwarding them to platform APIs.
     allow_backslashes: bool = false,
+    /// Disables some validation to allow extraction of ZIP files in the wild that have some invalid metadata but extract otherwise fine in practice.
+    best_effort: bool = false,
 
     diagnostics: ?*Diagnostics = null,
 };
@@ -625,7 +627,7 @@ pub fn extract(dest: std.fs.Dir, seekable_stream: anytype, options: ExtractOptio
     var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
     while (try iter.next()) |entry| {
         const crc32 = try entry.extract(seekable_stream, options, &filename_buf, dest);
-        if (crc32 != entry.crc32)
+        if (!options.best_effort and crc32 != entry.crc32)
             return error.ZipCrcMismatch;
         if (options.diagnostics) |d| {
             try d.nextFilename(filename_buf[0..entry.filename_len]);
