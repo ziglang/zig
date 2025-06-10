@@ -107,6 +107,15 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                         }
                     }
                 } else if (target.cpu.arch == .thumb) {
+                    for (mingw32_arm_src) |dep| {
+                        try c_source_files.append(.{
+                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                                "libc", "mingw", dep,
+                            }),
+                            .extra_flags = crt_args.items,
+                            .owner = undefined,
+                        });
+                    }
                     for (mingw32_arm32_src) |dep| {
                         try c_source_files.append(.{
                             .src_path = try comp.dirs.zig_lib.join(arena, &.{
@@ -117,6 +126,15 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                         });
                     }
                 } else if (target.cpu.arch == .aarch64) {
+                    for (mingw32_arm_src) |dep| {
+                        try c_source_files.append(.{
+                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                                "libc", "mingw", dep,
+                            }),
+                            .extra_flags = crt_args.items,
+                            .owner = undefined,
+                        });
+                    }
                     for (mingw32_arm64_src) |dep| {
                         try c_source_files.append(.{
                             .src_path = try comp.dirs.zig_lib.join(arena, &.{
@@ -943,6 +961,8 @@ const mingw32_x86_32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "floorf.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fmodf.c",
 };
+
+const mingw32_arm_src = [_][]const u8{};
 
 const mingw32_arm32_src = [_][]const u8{
     // mingwex
