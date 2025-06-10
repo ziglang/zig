@@ -153,7 +153,7 @@ pub fn StaticMap(comptime Enum: type) type {
         oid_to_enum: std.StaticStringMap(Enum),
         enum_to_oid: EnumToOid,
 
-        pub fn oidToEnum(self: @This(), encoded: []const u8) ?Enum {
+        pub fn oidToEnum(comptime self: @This(), encoded: []const u8) ?Enum {
             return self.oid_to_enum.get(encoded);
         }
 
