@@ -92,6 +92,38 @@ fn join(pool: *Pool, spawned: usize) void {
     pool.allocator.free(pool.threads);
 }
 
+/// Used by spawn functions to limit 'f' return type to void, noreturn or error union with void or noreturn.
+fn callFn(f: anytype, args: anytype) void {
+    const bad_fn_return = "expected return type of startFn to be 'noreturn', '!noreturn', 'void', or '!void'";
+
+    switch (@typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?)) {
+        .void, .noreturn => {
+            @call(.auto, f, args);
+        },
+
+        .error_union => |info| {
+            switch (info.payload) {
+                void, noreturn => {
+                    @call(.auto, f, args) catch |err| {
+                        std.debug.print("error: {s}\n", .{@errorName(err)});
+                        if (@errorReturnTrace()) |trace| {
+                            std.debug.dumpStackTrace(trace.*);
+                        }
+                    };
+                },
+
+                else => {
+                    @compileError(bad_fn_return);
+                },
+            }
+        },
+
+        else => {
+            @compileError(bad_fn_return);
+        },
+    }
+}
+
 /// Runs `func` in the thread pool, calling `WaitGroup.start` beforehand, and
 /// `WaitGroup.finish` after it returns.
 ///
@@ -101,7 +133,7 @@ pub fn spawnWg(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, args
     wait_group.start();
 
     if (builtin.single_threaded) {
-        @call(.auto, func, args);
+        callFn(func, args);
         wait_group.finish();
         return;
     }
@@ -211,38 +243,6 @@ pub fn spawnWgId(pool: *Pool, wait_group: *WaitGroup, comptime func: anytype, ar
 
     // Notify waiting threads outside the lock to try and keep the critical section small.
     pool.cond.signal();
-}
-
-/// Used by spawn functions to limit 'f' return type to void, noreturn or error union with void or noreturn.
-fn callFn(f: anytype, args: anytype) void {
-    const bad_fn_return = "expected return type of startFn to be 'noreturn', '!noreturn', 'void', or '!void'";
-
-    switch (@typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?)) {
-        .void, .noreturn => {
-            @call(.auto, f, args);
-        },
-
-        .error_union => |info| {
-            switch (info.payload) {
-                void, noreturn => {
-                    @call(.auto, f, args) catch |err| {
-                        std.debug.print("error: {s}\n", .{@errorName(err)});
-                        if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
-                        }
-                    };
-                },
-
-                else => {
-                    @compileError(bad_fn_return);
-                },
-            }
-        },
-
-        else => {
-            @compileError(bad_fn_return);
-        },
-    }
 }
 
 pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
