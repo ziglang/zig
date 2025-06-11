@@ -712,7 +712,16 @@ const Emit = union(enum) {
                         .{ @tagName(reason), path },
                     ),
                 }
-            } else .{ .yes_path = path },
+            } else e: {
+                // If there's a dirname, check that dir exists. This will give a more descriptive error than `Compilation` otherwise would.
+                if (fs.path.dirname(path)) |dir_path| {
+                    var dir = fs.cwd().openDir(dir_path, .{}) catch |err| {
+                        fatal("unable to open output directory '{s}': {s}", .{ dir_path, @errorName(err) });
+                    };
+                    dir.close();
+                }
+                break :e .{ .yes_path = path };
+            },
         };
     }
 };
@@ -3220,7 +3229,16 @@ fn buildOutputType(
         .yes => |path| if (output_to_cache != null) {
             assert(output_to_cache == .listen); // there was an explicit bin path
             fatal("--listen incompatible with explicit output path '{s}'", .{path});
-        } else .{ .yes_path = path },
+        } else emit: {
+            // If there's a dirname, check that dir exists. This will give a more descriptive error than `Compilation` otherwise would.
+            if (fs.path.dirname(path)) |dir_path| {
+                var dir = fs.cwd().openDir(dir_path, .{}) catch |err| {
+                    fatal("unable to open output directory '{s}': {s}", .{ dir_path, @errorName(err) });
+                };
+                dir.close();
+            }
+            break :emit .{ .yes_path = path };
+        },
         .yes_a_out => emit: {
             assert(output_to_cache == null);
             break :emit .{ .yes_path = switch (target.ofmt) {
