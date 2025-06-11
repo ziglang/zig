@@ -102,9 +102,11 @@ pub fn updateExports(
 }
 
 pub fn flush(self: *Goff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+    if (build_options.skip_non_native and builtin.object_format != .goff)
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+
     _ = self;
     _ = arena;
     _ = tid;
     _ = prog_node;
-    unreachable; // we always use llvm
 }
