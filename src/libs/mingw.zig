@@ -295,17 +295,11 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         "o", &digest, final_def_basename,
     });
 
-    const target_defines = switch (target.cpu.arch) {
-        .thumb => "#define DEF_ARM32\n",
-        .aarch64 => "#define DEF_ARM64\n",
-        .x86 => "#define DEF_I386\n",
-        .x86_64 => "#define DEF_X64\n",
-        else => unreachable,
-    };
-
     const aro = @import("aro");
     var aro_comp = aro.Compilation.init(gpa, std.fs.cwd());
     defer aro_comp.deinit();
+
+    aro_comp.target = target;
 
     const include_dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "def-include" });
 
@@ -321,7 +315,6 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     try aro_comp.include_dirs.append(gpa, include_dir);
 
     const builtin_macros = try aro_comp.generateBuiltinMacros(.include_system_defines);
-    const user_macros = try aro_comp.addSourceFromBuffer("<command line>", target_defines);
     const def_file_source = try aro_comp.addSourceFromPath(def_file_path);
 
     var pp = aro.Preprocessor.init(&aro_comp);
@@ -329,7 +322,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     pp.linemarkers = .none;
     pp.preserve_whitespace = true;
 
-    try pp.preprocessSources(&.{ def_file_source, builtin_macros, user_macros });
+    try pp.preprocessSources(&.{ def_file_source, builtin_macros });
 
     for (aro_comp.diagnostics.list.items) |diagnostic| {
         if (diagnostic.kind == .@"fatal error" or diagnostic.kind == .@"error") {
