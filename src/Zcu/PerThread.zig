@@ -4392,7 +4392,9 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, ou
             const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
             switch (backend) {
                 else => unreachable, // assertion failure
-                .stage2_llvm => {},
+                .stage2_spirv64,
+                .stage2_llvm,
+                => {},
             }
             out.status.store(.failed, .monotonic);
         },
