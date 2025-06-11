@@ -59,6 +59,16 @@ pub fn BoundedArrayAligned(
             return self.buffer[0..self.len];
         }
 
+        pub fn constSlice(self: *const Self) void {
+            _ = self;
+            @compileError("This function has been deprecated, use .items() instead");
+        }
+
+        pub fn slice(self: *const Self) void {
+            _ = self;
+            @compileError("This function has been deprecated, use .items() instead");
+        }
+
         /// Adjust the slice's length to `len`.
         /// Does not initialize added items if any.
         pub fn resize(self: *Self, len: usize) error{Overflow}!void {
