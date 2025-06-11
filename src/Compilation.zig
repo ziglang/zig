@@ -2589,6 +2589,11 @@ fn cleanupAfterUpdate(comp: *Compilation, tmp_dir_rand_int: u64) void {
             if (none.tmp_artifact_directory) |*tmp_dir| {
                 tmp_dir.handle.close();
                 none.tmp_artifact_directory = null;
+                if (dev.env == .bootstrap) {
+                    // zig1 uses `CacheMode.none`, but it doesn't need to know how to delete
+                    // temporary directories; it doesn't have a real cache directory anyway.
+                    return;
+                }
                 const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
                 comp.dirs.local_cache.handle.deleteTree(tmp_dir_sub_path) catch |err| {
                     log.warn("failed to delete temporary directory '{s}{c}{s}': {s}", .{
