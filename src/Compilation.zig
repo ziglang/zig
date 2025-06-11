@@ -2070,12 +2070,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_docs = try options.emit_docs.resolve(arena, &options, .docs),
         };
 
-        errdefer {
-            for (comp.windows_libs.keys()) |windows_lib| gpa.free(windows_lib);
-            comp.windows_libs.deinit(gpa);
-        }
-        try comp.windows_libs.ensureUnusedCapacity(gpa, options.windows_lib_names.len);
-        for (options.windows_lib_names) |windows_lib| comp.windows_libs.putAssumeCapacity(try gpa.dupe(u8, windows_lib), {});
+        comp.windows_libs = try std.StringArrayHashMapUnmanaged(void).init(gpa, options.windows_lib_names, &.{});
+        errdefer comp.windows_libs.deinit(gpa);
 
         // Prevent some footguns by making the "any" fields of config reflect
         // the default Module settings.
@@ -2306,6 +2302,13 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
     if (comp.emit_bin != null and target.ofmt != .c) {
         if (!comp.skip_linker_dependencies) {
+            // These DLLs are always loaded into every Windows process.
+            if (target.os.tag == .windows and is_exe_or_dyn_lib) {
+                try comp.windows_libs.ensureUnusedCapacity(gpa, 2);
+                comp.windows_libs.putAssumeCapacity("kernel32", {});
+                comp.windows_libs.putAssumeCapacity("ntdll", {});
+            }
+
             // If we need to build libc for the target, add work items for it.
             // We go through the work queue so that building can be done in parallel.
             // If linking against host libc installation, instead queue up jobs
@@ -2399,7 +2402,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                     // When linking mingw-w64 there are some import libs we always need.
                     try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
-                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(try gpa.dupe(u8, name), {});
+                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
                 } else {
                     return error.LibCUnavailable;
                 }
@@ -2497,7 +2500,6 @@ pub fn destroy(comp: *Compilation) void {
     comp.c_object_work_queue.deinit();
     comp.win32_resource_work_queue.deinit();
 
-    for (comp.windows_libs.keys()) |windows_lib| gpa.free(windows_lib);
     comp.windows_libs.deinit(gpa);
 
     {
@@ -7597,27 +7599,6 @@ fn getCrtPathsInner(
         .crtend = if (basenames.crtend) |basename| try crtFilePath(crt_files, basename) else null,
         .crtn = if (basenames.crtn) |basename| try crtFilePath(crt_files, basename) else null,
     };
-}
-
-pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
-    // Avoid deadlocking on building import libs such as kernel32.lib
-    // This can happen when the user uses `build-exe foo.obj -lkernel32` and
-    // then when we create a sub-Compilation for zig libc, it also tries to
-    // build kernel32.lib.
-    if (comp.skip_linker_dependencies) return;
-    const target = &comp.root_mod.resolved_target.result;
-    if (target.os.tag != .windows or target.ofmt == .c) return;
-
-    // This happens when an `extern "foo"` function is referenced.
-    // If we haven't seen this library yet and we're targeting Windows, we need
-    // to queue up a work item to produce the DLL import library for this.
-    const gop = try comp.windows_libs.getOrPut(comp.gpa, lib_name);
-    if (gop.found_existing) return;
-    {
-        errdefer _ = comp.windows_libs.pop();
-        gop.key_ptr.* = try comp.gpa.dupe(u8, lib_name);
-    }
-    try comp.queueJob(.{ .windows_import_lib = gop.index });
 }
 
 /// This decides the optimization mode for all zig-provided libraries, including
