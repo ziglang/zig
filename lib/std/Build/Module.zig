@@ -265,7 +265,7 @@ pub const CreateOptions = struct {
     /// Position Independent Code
     pic: ?bool = null,
     red_zone: ?bool = null,
-    /// Whether to omit the stack frame pointer. Frees up a register and makes it
+    /// Whether to omit the stack frame pointer. Frees up a register but makes it
     /// more difficult to obtain stack traces. Has target-dependent effects.
     omit_frame_pointer: ?bool = null,
     error_tracing: ?bool = null,

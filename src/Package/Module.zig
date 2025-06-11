@@ -188,13 +188,21 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     const omit_frame_pointer = b: {
         if (options.inherited.omit_frame_pointer) |x| break :b x;
         if (options.parent) |p| break :b p.omit_frame_pointer;
-        if (optimize_mode == .ReleaseSmall) {
-            // On x86, in most cases, keeping the frame pointer usually results in smaller binary size.
-            // This has to do with how instructions for memory access via the stack base pointer register (when keeping the frame pointer)
-            // are smaller than instructions for memory access via the stack pointer register (when omitting the frame pointer).
-            break :b !target.cpu.arch.isX86();
-        }
-        break :b false;
+        break :b switch (optimize_mode) {
+            .Debug,
+            .ReleaseSafe,
+            => false,
+            .ReleaseFast => {
+                // Free up a register if possible.
+                break :b true;
+            },
+            .ReleaseSmall => {
+                // On x86, in most cases, keeping the frame pointer usually results in smaller binary size.
+                // This has to do with how instructions for memory access via the stack base pointer register (when keeping the frame pointer)
+                // are smaller than instructions for memory access via the stack pointer register (when omitting the frame pointer).
+                break :b !target.cpu.arch.isX86();
+            },
+        };
     };
 
     const sanitize_thread = b: {
