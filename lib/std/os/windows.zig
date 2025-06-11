@@ -422,6 +422,10 @@ pub fn RtlGenRandom(output: []u8) RtlGenRandomError!void {
         const to_read: ULONG = @min(buff.len, max_read_size);
 
         if (advapi32.RtlGenRandom(buff.ptr, to_read) == 0) {
+            // This function has been seen to fail in the wild with error code 38 (Reached the end of the file),
+            // but that happened while the system was running out of system resources and that failure
+            // has not been reproduced. Additionally, RtlGenRandom internally calls ProcessPrng which
+            // is documented to not be able to fail, so any error is truly unexpected.
             return unexpectedError(GetLastError());
         }
 
