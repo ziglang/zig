@@ -977,8 +977,8 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 else => |e| return e,
             };
 
-            const alignment = if (flexible_field != null and field_decl.getFieldIndex() == 0)
-                @as(c_uint, @intCast(record_alignment))
+            const alignment: ?c_uint = if (flexible_field == null and field_decl.getFieldIndex() == 0)
+                @intCast(record_alignment)
             else
                 ClangAlignment.forField(c, field_decl, record_def).zigAlignment();
 
