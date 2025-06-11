@@ -412,7 +412,30 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
     var user_input_options = UserInputOptionsMap.init(allocator);
     inline for (@typeInfo(@TypeOf(args)).@"struct".fields) |field| {
         const v = @field(args, field.name);
-        const T = @TypeOf(v);
+
+        const type_info = @typeInfo(@TypeOf(v));
+        const is_comptime_str = is_comptime_str: switch (type_info) {
+            .pointer => |pointer| {
+                if (pointer.size == .One and pointer.is_const) {
+                    const child_type_info = @typeInfo(pointer.child);
+                    switch (child_type_info) {
+                        .array => |array| {
+                            if (array.child == u8) {
+                                if (array.sentinel) |sentinel| {
+                                    break :is_comptime_str @as(*const u8, @ptrCast(sentinel)).* == 0;
+                                }
+                            }
+                        },
+                        else => break :is_comptime_str false,
+                    }
+                }
+                break :is_comptime_str false;
+            },
+            else => break :is_comptime_str false,
+        };
+
+        const T = if (is_comptime_str) []const u8 else @TypeOf(v);
+
         switch (T) {
             Target.Query => {
                 user_input_options.put(field.name, .{
