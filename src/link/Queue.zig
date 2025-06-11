@@ -147,8 +147,7 @@ pub fn enqueueZcu(q: *Queue, comp: *Compilation, task: ZcuTask) Allocator.Error!
 }
 
 fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
-    q.flush_safety.lock();
-    defer q.flush_safety.unlock();
+    q.flush_safety.lock(); // every `return` site should unlock this before unlocking `q.mutex`
 
     if (std.debug.runtime_safety) {
         q.mutex.lock();
@@ -167,6 +166,7 @@ fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
                 } else {
                     // We're expecting more prelink tasks so can't move on to ZCU tasks.
                     q.state = .finished;
+                    q.flush_safety.unlock();
                     return;
                 }
             }
@@ -200,6 +200,7 @@ fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
             if (q.wip_zcu.items.len == 0) {
                 // We've exhausted all available tasks.
                 q.state = .finished;
+                q.flush_safety.unlock();
                 return;
             }
         }
@@ -215,6 +216,7 @@ fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
             if (status_ptr.load(.monotonic) != .pending) break :pending;
             // We will stop for now, and get restarted once this MIR is ready.
             q.state = .{ .wait_for_mir = task.link_func.mir };
+            q.flush_safety.unlock();
             return;
         }
         link.doZcuTask(comp, tid, task);
