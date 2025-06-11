@@ -2817,7 +2817,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 // The `test_functions` decl has been intentionally postponed until now,
                 // at which point we must populate it with the list of test functions that
                 // have been discovered and not filtered out.
-                try pt.populateTestFunctions(main_progress_node);
+                try pt.populateTestFunctions();
             }
 
             try pt.processExports();

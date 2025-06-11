@@ -3229,38 +3229,41 @@ fn processExportsInner(
     }
 }
 
-pub fn populateTestFunctions(
-    pt: Zcu.PerThread,
-    main_progress_node: std.Progress.Node,
-) Allocator.Error!void {
+pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
+
+    // Our job is to correctly set the value of the `test_functions` declaration if it has been
+    // analyzed and sent to codegen, It usually will have been, because the test runner will
+    // reference it, and `std.builtin` shouldn't have type errors. However, if it hasn't been
+    // analyzed, we will just terminate early, since clearly the test runner hasn't referenced
+    // `test_functions` so there's no point populating it. More to the the point, we potentially
+    // *can't* populate it without doing some type resolution, and... let's try to leave Sema in
+    // the past here.
+
     const builtin_mod = zcu.builtin_modules.get(zcu.root_mod.getBuiltinOptions(zcu.comp.config).hash()).?;
     const builtin_file_index = zcu.module_roots.get(builtin_mod).?.unwrap().?;
-    pt.ensureFileAnalyzed(builtin_file_index) catch |err| switch (err) {
-        error.AnalysisFail => unreachable, // builtin module is generated so cannot be corrupt
-        error.OutOfMemory => |e| return e,
-    };
-    const builtin_root_type = Type.fromInterned(zcu.fileRootType(builtin_file_index));
-    const builtin_namespace = builtin_root_type.getNamespace(zcu).unwrap().?;
+    const builtin_root_type = zcu.fileRootType(builtin_file_index);
+    if (builtin_root_type == .none) return; // `@import("builtin")` never analyzed
+    const builtin_namespace = Type.fromInterned(builtin_root_type).getNamespace(zcu).unwrap().?;
+    // We know that the namespace has a `test_functions`...
     const nav_index = zcu.namespacePtr(builtin_namespace).pub_decls.getKeyAdapted(
         try ip.getOrPutString(gpa, pt.tid, "test_functions", .no_embedded_nulls),
         Zcu.Namespace.NameAdapter{ .zcu = zcu },
     ).?;
+    // ...but it might not be populated, so let's check that!
+    if (zcu.failed_analysis.contains(.wrap(.{ .nav_val = nav_index })) or
+        zcu.transitive_failed_analysis.contains(.wrap(.{ .nav_val = nav_index })) or
+        ip.getNav(nav_index).status != .fully_resolved)
     {
-        // We have to call `ensureNavValUpToDate` here in case `builtin.test_functions`
-        // was not referenced by start code.
-        zcu.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
-        defer {
-            zcu.sema_prog_node.end();
-            zcu.sema_prog_node = std.Progress.Node.none;
-        }
-        pt.ensureNavValUpToDate(nav_index) catch |err| switch (err) {
-            error.AnalysisFail => return,
-            error.OutOfMemory => return error.OutOfMemory,
-        };
+        // The value of `builtin.test_functions` was either never referenced, or failed analysis.
+        // Either way, we don't need to do anything.
+        return;
     }
+
+    // Okay, `builtin.test_functions` is (potentially) referenced and valid. Our job now is to swap
+    // its placeholder `&.{}` value for the actual list of all test functions.
 
     const test_fns_val = zcu.navValue(nav_index);
     const test_fn_ty = test_fns_val.typeOf(zcu).slicePtrFieldType(zcu).childType(zcu);
@@ -3363,17 +3366,8 @@ pub fn populateTestFunctions(
         } });
         ip.mutateVarInit(test_fns_val.toIntern(), new_init);
     }
-    {
-        assert(zcu.codegen_prog_node.index == .none);
-        zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
-        defer {
-            zcu.codegen_prog_node.end();
-            zcu.codegen_prog_node = std.Progress.Node.none;
-        }
-
-        // The linker thread is not running, so we actually need to dispatch this task directly.
-        @import("../link.zig").linkTestFunctionsNav(pt, nav_index);
-    }
+    // The linker thread is not running, so we actually need to dispatch this task directly.
+    @import("../link.zig").linkTestFunctionsNav(pt, nav_index);
 }
 
 /// Stores an error in `pt.zcu.failed_files` for this file, and sets the file
