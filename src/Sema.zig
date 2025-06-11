@@ -9418,14 +9418,6 @@ fn resolveGenericBody(
     return sema.resolveConstDefinedValue(block, src, result, reason);
 }
 
-/// Given a library name, examines if the library name should end up in
-/// `link.File.Options.windows_libs` table (for example, libc is always
-/// specified via dedicated flag `link_libc` instead),
-/// and puts it there if it doesn't exist.
-/// It also dupes the library name which can then be saved as part of the
-/// respective `Decl` (either `ExternFn` or `Var`).
-/// The liveness of the duped library name is tied to liveness of `Zcu`.
-/// To deallocate, call `deinit` on the respective `Decl` (`ExternFn` or `Var`).
 pub fn handleExternLibName(
     sema: *Sema,
     block: *Block,
@@ -9475,11 +9467,6 @@ pub fn handleExternLibName(
                 .{ lib_name, lib_name },
             );
         }
-        comp.addLinkLib(lib_name) catch |err| {
-            return sema.fail(block, src_loc, "unable to add link lib '{s}': {s}", .{
-                lib_name, @errorName(err),
-            });
-        };
     }
 }
 
