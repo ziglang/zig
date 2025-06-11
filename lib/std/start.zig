@@ -486,7 +486,7 @@ fn _start() callconv(.naked) noreturn {
 
 fn WinStartup() callconv(.withStackAlign(.c, 1)) noreturn {
     // Switch from the x87 fpu state set by windows to the state expected by the gnu abi.
-    if (builtin.abi == .gnu) asm volatile ("fninit");
+    if (builtin.cpu.arch.isX86() and builtin.abi == .gnu) asm volatile ("fninit");
 
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
@@ -499,7 +499,7 @@ fn WinStartup() callconv(.withStackAlign(.c, 1)) noreturn {
 
 fn wWinMainCRTStartup() callconv(.withStackAlign(.c, 1)) noreturn {
     // Switch from the x87 fpu state set by windows to the state expected by the gnu abi.
-    if (builtin.abi == .gnu) asm volatile ("fninit");
+    if (builtin.cpu.arch.isX86() and builtin.abi == .gnu) asm volatile ("fninit");
 
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
