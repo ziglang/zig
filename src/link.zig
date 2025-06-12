@@ -1267,6 +1267,11 @@ pub const ZcuTask = union(enum) {
         /// the codegen job to ensure that the linker receives functions in a deterministic order,
         /// allowing reproducible builds.
         mir: *SharedMir,
+        /// This is not actually used by `doZcuTask`. Instead, `Queue` uses this value as a heuristic
+        /// to avoid queueing too much AIR/MIR for codegen/link at a time. Essentially, we cap the
+        /// total number of AIR bytes which are being processed at once, preventing unbounded memory
+        /// usage when AIR is produced faster than it is processed.
+        air_bytes: u32,
 
         pub const SharedMir = struct {
             /// This is initially `.pending`. When `value` is populated, the codegen thread will set

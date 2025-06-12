@@ -39,6 +39,21 @@ wip_zcu: std.ArrayListUnmanaged(ZcuTask),
 /// index into `wip_zcu` which we have reached.
 wip_zcu_idx: usize,
 
+/// The sum of all `air_bytes` for all currently-queued `ZcuTask.link_func` tasks. Because
+/// MIR bytes are approximately proportional to AIR bytes, this acts to limit the amount of
+/// AIR and MIR which is queued for codegen and link respectively, to prevent excessive
+/// memory usage if analysis produces AIR faster than it can be processed by codegen/link.
+/// The cap is `max_air_bytes_in_flight`.
+/// Guarded by `mutex`.
+air_bytes_in_flight: u32,
+/// If nonzero, then a call to `enqueueZcu` is blocked waiting to add a `link_func` task, but
+/// cannot until `air_bytes_in_flight` is no greater than this value.
+/// Guarded by `mutex`.
+air_bytes_waiting: u32,
+/// After setting `air_bytes_waiting`, `enqueueZcu` will wait on this condition (with `mutex`).
+/// When `air_bytes_waiting` many bytes can be queued, this condition should be signaled.
+air_bytes_cond: std.Thread.Condition,
+
 /// Guarded by `mutex`.
 state: union(enum) {
     /// The link thread is currently running or queued to run.
@@ -52,6 +67,11 @@ state: union(enum) {
     wait_for_mir: *ZcuTask.LinkFunc.SharedMir,
 },
 
+/// In the worst observed case, MIR is around 50 times as large as AIR. More typically, the ratio is
+/// around 20. Going by that 50x multiplier, and assuming we want to consume no more than 500 MiB of
+/// memory on AIR/MIR, we see a limit of around 10 MiB of AIR in-flight.
+const max_air_bytes_in_flight = 10 * 1024 * 1024;
+
 /// The initial `Queue` state, containing no tasks, expecting no prelink tasks, and with no running worker thread.
 /// The `pending_prelink_tasks` and `queued_prelink` fields may be modified as needed before calling `start`.
 pub const empty: Queue = .{
@@ -64,6 +84,9 @@ pub const empty: Queue = .{
     .wip_zcu = .empty,
     .wip_zcu_idx = 0,
     .state = .finished,
+    .air_bytes_in_flight = 0,
+    .air_bytes_waiting = 0,
+    .air_bytes_cond = .{},
 };
 /// `lf` is needed to correctly deinit any pending `ZcuTask`s.
 pub fn deinit(q: *Queue, comp: *Compilation) void {
@@ -131,6 +154,16 @@ pub fn enqueueZcu(q: *Queue, comp: *Compilation, task: ZcuTask) Allocator.Error!
     {
         q.mutex.lock();
         defer q.mutex.unlock();
+        // If this is a `link_func` task, we might need to wait for `air_bytes_in_flight` to fall.
+        if (task == .link_func) {
+            const max_in_flight = max_air_bytes_in_flight -| task.link_func.air_bytes;
+            while (q.air_bytes_in_flight > max_in_flight) {
+                q.air_bytes_waiting = task.link_func.air_bytes;
+                q.air_bytes_cond.wait(&q.mutex);
+                q.air_bytes_waiting = 0;
+            }
+            q.air_bytes_in_flight += task.link_func.air_bytes;
+        }
         try q.queued_zcu.append(comp.gpa, task);
         switch (q.state) {
             .running, .wait_for_mir => return,
@@ -221,6 +254,17 @@ fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
         }
         link.doZcuTask(comp, tid, task);
         task.deinit(comp.zcu.?);
+        if (task == .link_func) {
+            // Decrease `air_bytes_in_flight`, since we've finished processing this MIR.
+            q.mutex.lock();
+            defer q.mutex.unlock();
+            q.air_bytes_in_flight -= task.link_func.air_bytes;
+            if (q.air_bytes_waiting != 0 and
+                q.air_bytes_in_flight <= max_air_bytes_in_flight -| q.air_bytes_waiting)
+            {
+                q.air_bytes_cond.signal();
+            }
+        }
         q.wip_zcu_idx += 1;
     }
 }

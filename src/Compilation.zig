@@ -4607,12 +4607,17 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
             };
             assert(zcu.pending_codegen_jobs.rmw(.Add, 1, .monotonic) > 0); // the "Code Generation" node hasn't been ended
             zcu.codegen_prog_node.increaseEstimatedTotalItems(1);
+            // This value is used as a heuristic to avoid queueing too much AIR/MIR at once (hence
+            // using a lot of memory). If this would cause too many AIR bytes to be in-flight, we
+            // will block on the `dispatchZcuLinkTask` call below.
+            const air_bytes: u32 = @intCast(air.instructions.len * 5 + air.extra.items.len * 4);
             if (comp.separateCodegenThreadOk()) {
                 // `workerZcuCodegen` takes ownership of `air`.
                 comp.thread_pool.spawnWgId(&comp.link_task_wait_group, workerZcuCodegen, .{ comp, func.func, air, shared_mir });
                 comp.dispatchZcuLinkTask(tid, .{ .link_func = .{
                     .func = func.func,
                     .mir = shared_mir,
+                    .air_bytes = air_bytes,
                 } });
             } else {
                 {
@@ -4624,6 +4629,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 comp.dispatchZcuLinkTask(tid, .{ .link_func = .{
                     .func = func.func,
                     .mir = shared_mir,
+                    .air_bytes = air_bytes,
                 } });
                 air.deinit(gpa);
             }
