@@ -1321,6 +1321,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
         }
 
         // This job depends on any resolve_type_fully jobs queued up before it.
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
         try zcu.comp.queueJob(.{ .link_nav = nav_id });
     }
 
@@ -1717,6 +1718,8 @@ fn analyzeFuncBody(
     }
 
     // This job depends on any resolve_type_fully jobs queued up before it.
+    zcu.codegen_prog_node.increaseEstimatedTotalItems(1);
+    comp.link_prog_node.increaseEstimatedTotalItems(1);
     try comp.queueJob(.{ .codegen_func = .{
         .func = func_index,
         .air = air,
@@ -1799,6 +1802,7 @@ fn createFileRootStruct(
     codegen_type: {
         if (file.mod.?.strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
         try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     zcu.setFileRootType(file_index, wip_ty.index);
@@ -3827,6 +3831,7 @@ pub fn getExtern(pt: Zcu.PerThread, key: InternPool.Key.Extern) Allocator.Error!
     const result = try pt.zcu.intern_pool.getExtern(pt.zcu.gpa, pt.tid, key);
     if (result.new_nav.unwrap()) |nav| {
         // This job depends on any resolve_type_fully jobs queued up before it.
+        pt.zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
         try pt.zcu.comp.queueJob(.{ .link_nav = nav });
         if (pt.zcu.comp.debugIncremental()) try pt.zcu.incremental_debug_state.newNav(pt.zcu, nav);
     }
@@ -3974,6 +3979,7 @@ fn recreateStructType(
     codegen_type: {
         if (file.mod.?.strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
         try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
 
@@ -4066,6 +4072,7 @@ fn recreateUnionType(
     codegen_type: {
         if (file.mod.?.strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
         try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
 

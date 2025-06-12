@@ -195,6 +195,7 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
                     codegen_type: {
                         if (pt.zcu.comp.config.use_llvm) break :codegen_type;
                         if (self.block.ownerModule().strip) break :codegen_type;
+                        pt.zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
                         try pt.zcu.comp.queueJob(.{ .link_type = wip.index });
                     }
                     break :ty wip.finish(ip, new_namespace_index);

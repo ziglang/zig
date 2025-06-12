@@ -848,6 +848,8 @@ const Job = union(enum) {
     /// This `Job` exists (instead of the `link.ZcuTask` being directly queued) to ensure that
     /// all types are resolved before the linker task is queued.
     /// If the backend does not support `Zcu.Feature.separate_thread`, codegen and linking happen immediately.
+    /// Before queueing this `Job`, increase the estimated total item count for both
+    /// `comp.zcu.?.codegen_prog_node` and `comp.link_prog_node`.
     codegen_func: struct {
         func: InternPool.Index,
         /// The AIR emitted from analyzing `func`; owned by this `Job` in `gpa`.
@@ -857,12 +859,15 @@ const Job = union(enum) {
     /// This `Job` exists (instead of the `link.ZcuTask` being directly queued) to ensure that
     /// all types are resolved before the linker task is queued.
     /// If the backend does not support `Zcu.Feature.separate_thread`, the task is run immediately.
+    /// Before queueing this `Job`, increase the estimated total item count for `comp.link_prog_node`.
     link_nav: InternPool.Nav.Index,
     /// Queue a `link.ZcuTask` to emit debug information for this container type.
     /// This `Job` exists (instead of the `link.ZcuTask` being directly queued) to ensure that
     /// all types are resolved before the linker task is queued.
     /// If the backend does not support `Zcu.Feature.separate_thread`, the task is run immediately.
+    /// Before queueing this `Job`, increase the estimated total item count for `comp.link_prog_node`.
     link_type: InternPool.Index,
+    /// Before queueing this `Job`, increase the estimated total item count for `comp.link_prog_node`.
     update_line_number: InternPool.TrackedInst.Index,
     /// The `AnalUnit`, which is *not* a `func`, must be semantically analyzed.
     /// This may be its first time being analyzed, or it may be outdated.
@@ -4592,11 +4597,17 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
             const zcu = comp.zcu.?;
             const gpa = zcu.gpa;
             var air = func.air;
-            errdefer air.deinit(gpa);
+            errdefer {
+                zcu.codegen_prog_node.completeOne();
+                comp.link_prog_node.completeOne();
+                air.deinit(gpa);
+            }
             if (!air.typesFullyResolved(zcu)) {
                 // Type resolution failed in a way which affects this function. This is a transitive
                 // failure, but it doesn't need recording, because this function semantically depends
                 // on the failed type, so when it is changed the function is updated.
+                zcu.codegen_prog_node.completeOne();
+                comp.link_prog_node.completeOne();
                 air.deinit(gpa);
                 return;
             }
@@ -4606,7 +4617,6 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 .value = undefined,
             };
             assert(zcu.pending_codegen_jobs.rmw(.Add, 1, .monotonic) > 0); // the "Code Generation" node hasn't been ended
-            zcu.codegen_prog_node.increaseEstimatedTotalItems(1);
             // This value is used as a heuristic to avoid queueing too much AIR/MIR at once (hence
             // using a lot of memory). If this would cause too many AIR bytes to be in-flight, we
             // will block on the `dispatchZcuLinkTask` call below.
@@ -4640,6 +4650,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
             if (nav.analysis != null) {
                 const unit: InternPool.AnalUnit = .wrap(.{ .nav_val = nav_index });
                 if (zcu.failed_analysis.contains(unit) or zcu.transitive_failed_analysis.contains(unit)) {
+                    comp.link_prog_node.completeOne();
                     return;
                 }
             }
@@ -4648,6 +4659,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 // Type resolution failed in a way which affects this `Nav`. This is a transitive
                 // failure, but it doesn't need recording, because this `Nav` semantically depends
                 // on the failed type, so when it is changed the `Nav` will be updated.
+                comp.link_prog_node.completeOne();
                 return;
             }
             comp.dispatchZcuLinkTask(tid, .{ .link_nav = nav_index });
@@ -4659,6 +4671,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 // Type resolution failed in a way which affects this type. This is a transitive
                 // failure, but it doesn't need recording, because this type semantically depends
                 // on the failed type, so when that is changed, this type will be updated.
+                comp.link_prog_node.completeOne();
                 return;
             }
             comp.dispatchZcuLinkTask(tid, .{ .link_type = ty });
@@ -7460,7 +7473,6 @@ pub fn queuePrelinkTasks(comp: *Compilation, tasks: []const link.PrelinkTask) vo
 /// The reason for the double-queue here is that the first queue ensures any
 /// resolve_type_fully tasks are complete before this dispatch function is called.
 fn dispatchZcuLinkTask(comp: *Compilation, tid: usize, task: link.ZcuTask) void {
-    comp.link_prog_node.increaseEstimatedTotalItems(1);
     if (!comp.separateCodegenThreadOk()) {
         assert(tid == 0);
         if (task == .link_func) {
