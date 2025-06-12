@@ -17,14 +17,6 @@
 // really matter here because this is a no-op anyway.
 static void __guard_check_icall_dummy(void) {}
 
-// When CFGuard is not active, directly tail-call the target address, which
-// is passed via %rax.
-__asm__(
-    ".globl __guard_dispatch_icall_dummy\n"
-    "__guard_dispatch_icall_dummy:\n"
-    "    jmp *%rax\n"
-);
-
 // This is intentionally declared as _not_ a function pointer, so that the
 // jmp instruction is not included as a valid call target for CFGuard.
 extern void *__guard_dispatch_icall_dummy;

@@ -214,7 +214,7 @@ DECLARE_INTERFACE_(ID3DXConstantTable, ID3DXBuffer)
 /*** ID3DXConstantTable methods ***/
 #define ID3DXConstantTable_GetDesc(p,a)                               (p)->GetDesc(a)
 #define ID3DXConstantTable_GetConstantDesc(p,a,b,c)                   (p)->GetConstantDesc(a,b,c)
-#define ID3DXConstantTable_GetSamplerIndex(p,a)                       (p)->GetConstantDesc(a)
+#define ID3DXConstantTable_GetSamplerIndex(p,a)                       (p)->GetSamplerIndex(a)
 #define ID3DXConstantTable_GetConstant(p,a,b)                         (p)->GetConstant(a,b)
 #define ID3DXConstantTable_GetConstantByName(p,a,b)                   (p)->GetConstantByName(a,b)
 #define ID3DXConstantTable_GetConstantElement(p,a,b)                  (p)->GetConstantElement(a,b)

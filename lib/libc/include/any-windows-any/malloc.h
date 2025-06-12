@@ -102,12 +102,10 @@ extern "C" {
   _CRTIMP void *__cdecl _aligned_offset_malloc(size_t _Size,size_t _Alignment,size_t _Offset);
   _CRTIMP void *__cdecl _aligned_realloc(void *_Memory,size_t _Size,size_t _Alignment);
   _CRTIMP void *__cdecl _aligned_offset_realloc(void *_Memory,size_t _Size,size_t _Alignment,size_t _Offset);
-# if __MSVCRT_VERSION__ >= 0x900
   _CRTIMP void *__cdecl _recalloc(void *_Memory,size_t _Count,size_t _Size);
   _CRTIMP void *__cdecl _aligned_recalloc(void *_Memory,size_t _Count,size_t _Size,size_t _Alignment);
   _CRTIMP void *__cdecl _aligned_offset_recalloc(void *_Memory,size_t _Count,size_t _Size,size_t _Alignment,size_t _Offset);
   _CRTIMP size_t __cdecl _aligned_msize(void *_Memory,size_t _Alignment,size_t _Offset);
-# endif
 
 #if defined(_DEBUG) && defined(_CRTDBG_MAP_ALLOC)
 #pragma pop_macro("calloc")
@@ -131,7 +129,9 @@ extern "C" {
 void * __mingw_aligned_malloc (size_t _Size, size_t _Alignment);
 void __mingw_aligned_free (void *_Memory);
 void * __mingw_aligned_offset_realloc (void *_Memory, size_t _Size, size_t _Alignment, size_t _Offset);
+void * __mingw_aligned_offset_malloc (size_t, size_t, size_t);
 void * __mingw_aligned_realloc (void *_Memory, size_t _Size, size_t _Offset);
+size_t __mingw_aligned_msize (void *memblock, size_t alignment, size_t offset);
 
 #if defined(__x86_64__) || defined(__i386__)
 /* Get the compiler's definition of _mm_malloc and _mm_free. */

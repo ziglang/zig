@@ -99,7 +99,7 @@ copy_rel: CopyRelSection = .{},
 rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
 /// SHT_GROUP sections
 /// Applies only to a relocatable.
-comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .empty,
+group_sections: std.ArrayListUnmanaged(GroupSection) = .empty,
 
 resolver: SymbolResolver = .{},
 
@@ -510,7 +510,7 @@ pub fn deinit(self: *Elf) void {
     self.copy_rel.deinit(gpa);
     self.rela_dyn.deinit(gpa);
     self.rela_plt.deinit(gpa);
-    self.comdat_group_sections.deinit(gpa);
+    self.group_sections.deinit(gpa);
     self.dump_argv_list.deinit(gpa);
 }
 
@@ -919,7 +919,7 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
         &self.sections,
         self.shstrtab.items,
         self.merge_sections.items,
-        self.comdat_group_sections.items,
+        self.group_sections.items,
         self.zigObjectPtr(),
         self.files,
     );
@@ -959,6 +959,12 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     self.rela_plt.clearRetainingCapacity();
 
     if (self.zigObjectPtr()) |zo| {
+        var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
+        defer {
+            for (undefs.values()) |*refs| refs.deinit();
+            undefs.deinit();
+        }
+
         var has_reloc_errors = false;
         for (zo.atoms_indexes.items) |atom_index| {
             const atom_ptr = zo.atom(atom_index) orelse continue;
@@ -969,7 +975,10 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
             const code = try zo.codeAlloc(self, atom_index);
             defer gpa.free(code);
             const file_offset = atom_ptr.offset(self);
-            atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
+            (if (shdr.sh_flags & elf.SHF_ALLOC == 0)
+                atom_ptr.resolveRelocsNonAlloc(self, code, &undefs)
+            else
+                atom_ptr.resolveRelocsAlloc(self, code)) catch |err| switch (err) {
                 error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
                 error.UnsupportedCpuArch => {
                     try self.reportUnsupportedCpuArch();
@@ -979,6 +988,8 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
             };
             try self.pwriteAll(code, file_offset);
         }
+
+        try self.reportUndefinedSymbols(&undefs);
 
         if (has_reloc_errors) return error.LinkFailure;
     }
@@ -1315,16 +1326,16 @@ pub fn resolveSymbols(self: *Elf) !void {
     }
 
     {
-        // Dedup comdat groups.
+        // Dedup groups.
         var table = std.StringHashMap(Ref).init(self.base.comp.gpa);
         defer table.deinit();
 
         for (self.objects.items) |index| {
-            try self.file(index).?.object.resolveComdatGroups(self, &table);
+            try self.file(index).?.object.resolveGroups(self, &table);
         }
 
         for (self.objects.items) |index| {
-            self.file(index).?.object.markComdatGroupsDead(self);
+            self.file(index).?.object.markGroupsDead(self);
         }
     }
 
@@ -1392,11 +1403,9 @@ fn scanRelocs(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const shared_objects = self.shared_objects.values();
 
-    var undefs = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)).init(gpa);
+    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
     defer {
-        for (undefs.values()) |*refs| {
-            refs.deinit();
-        }
+        for (undefs.values()) |*refs| refs.deinit();
         undefs.deinit();
     }
 
@@ -2702,15 +2711,16 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    const needs_interp = blk: {
-        // On Ubuntu with musl-gcc, we get a weird combo of options looking like this:
-        // -dynamic-linker=<path> -static
-        // In this case, if we do generate .interp section and segment, we will get
-        // a segfault in the dynamic linker trying to load a binary that is static
-        // and doesn't contain .dynamic section.
-        if (self.base.isStatic() and !comp.config.pie) break :blk false;
-        break :blk target.dynamic_linker.get() != null;
+    const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
+        .Exe => true,
+        .Lib => comp.config.link_mode == .dynamic,
+        .Obj => false,
     };
+    const have_dynamic_linker = comp.config.link_mode == .dynamic and is_exe_or_dyn_lib and !target.dynamic_linker.eql(.none);
+
+    const needs_interp = have_dynamic_linker and
+        (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker);
+
     if (needs_interp and self.section_indexes.interp == null) {
         self.section_indexes.interp = try self.addSection(.{
             .name = try self.insertShString(".interp"),
@@ -3125,7 +3135,7 @@ pub fn sortShdrs(
     sections: *std.MultiArrayList(Section),
     shstrtab: []const u8,
     merge_sections: []Merge.Section,
-    comdat_group_sections: []ComdatGroupSection,
+    comdat_group_sections: []GroupSection,
     zig_object_ptr: ?*ZigObject,
     files: std.MultiArrayList(File.Entry),
 ) !void {
@@ -3707,11 +3717,9 @@ fn allocateSpecialPhdrs(self: *Elf) void {
 fn writeAtoms(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var undefs = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)).init(gpa);
+    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
     defer {
-        for (undefs.values()) |*refs| {
-            refs.deinit();
-        }
+        for (undefs.values()) |*refs| refs.deinit();
         undefs.deinit();
     }
 
@@ -4446,8 +4454,8 @@ pub fn atom(self: *Elf, ref: Ref) ?*Atom {
     return file_ptr.atom(ref.index);
 }
 
-pub fn comdatGroup(self: *Elf, ref: Ref) *ComdatGroup {
-    return self.file(ref.file).?.comdatGroup(ref.index);
+pub fn group(self: *Elf, ref: Ref) *Group {
+    return self.file(ref.file).?.group(ref.index);
 }
 
 pub fn symbol(self: *Elf, ref: Ref) ?*Symbol {
@@ -4814,7 +4822,7 @@ fn fmtDumpState(
             object.fmtCies(self),
             object.fmtFdes(self),
             object.fmtSymtab(self),
-            object.fmtComdatGroups(self),
+            object.fmtGroups(self),
         });
     }
 
@@ -4852,9 +4860,9 @@ fn fmtDumpState(
     try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.plt.fmt(self)});
 
-    try writer.writeAll("Output COMDAT groups\n");
-    for (self.comdat_group_sections.items) |cg| {
-        try writer.print("  shdr({d}) : COMDAT({})\n", .{ cg.shndx, cg.cg_ref });
+    try writer.writeAll("Output groups\n");
+    for (self.group_sections.items) |cg| {
+        try writer.print("  shdr({d}) : GROUP({})\n", .{ cg.shndx, cg.cg_ref });
     }
 
     try writer.writeAll("\nOutput merge sections\n");
@@ -4934,25 +4942,26 @@ const default_entry_addr = 0x8000000;
 
 pub const base_tag: link.File.Tag = .elf;
 
-pub const ComdatGroup = struct {
+pub const Group = struct {
     signature_off: u32,
     file_index: File.Index,
     shndx: u32,
     members_start: u32,
     members_len: u32,
+    is_comdat: bool,
     alive: bool = true,
 
-    pub fn file(cg: ComdatGroup, elf_file: *Elf) File {
+    pub fn file(cg: Group, elf_file: *Elf) File {
         return elf_file.file(cg.file_index).?;
     }
 
-    pub fn signature(cg: ComdatGroup, elf_file: *Elf) [:0]const u8 {
+    pub fn signature(cg: Group, elf_file: *Elf) [:0]const u8 {
         return cg.file(elf_file).object.getString(cg.signature_off);
     }
 
-    pub fn comdatGroupMembers(cg: ComdatGroup, elf_file: *Elf) []const u32 {
+    pub fn members(cg: Group, elf_file: *Elf) []const u32 {
         const object = cg.file(elf_file).object;
-        return object.comdat_group_data.items[cg.members_start..][0..cg.members_len];
+        return object.group_data.items[cg.members_start..][0..cg.members_len];
     }
 
     pub const Index = u32;
@@ -5310,7 +5319,7 @@ const Air = @import("../Air.zig");
 const Archive = @import("Elf/Archive.zig");
 const AtomList = @import("Elf/AtomList.zig");
 const Compilation = @import("../Compilation.zig");
-const ComdatGroupSection = synthetic_sections.ComdatGroupSection;
+const GroupSection = synthetic_sections.GroupSection;
 const CopyRelSection = synthetic_sections.CopyRelSection;
 const Diags = @import("../link.zig").Diags;
 const DynamicSection = synthetic_sections.DynamicSection;

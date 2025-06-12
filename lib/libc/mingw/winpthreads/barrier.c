@@ -20,12 +20,22 @@
    DEALINGS IN THE SOFTWARE.
 */
 
-#include <windows.h>
-#include <stdio.h>
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include <assert.h>
 #include <malloc.h>
+#include <stdio.h>
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+/* public header files */
 #include "pthread.h"
+#include "semaphore.h"
+/* internal header files */
 #include "barrier.h"
-#include "ref.h" 
 #include "misc.h"
 
 static pthread_spinlock_t barrier_global = PTHREAD_SPINLOCK_INITIALIZER;
@@ -34,9 +44,7 @@ static WINPTHREADS_ATTRIBUTE((noinline)) int
 barrier_unref(volatile pthread_barrier_t *barrier, int res)
 {
     pthread_spin_lock(&barrier_global);
-#ifdef WINPTHREAD_DBG
     assert((((barrier_t *)*barrier)->valid == LIFE_BARRIER) && (((barrier_t *)*barrier)->busy > 0));
-#endif
      ((barrier_t *)*barrier)->busy -= 1;
     pthread_spin_unlock(&barrier_global);
     return res;
@@ -64,7 +72,7 @@ barrier_ref_destroy(volatile pthread_barrier_t *barrier, pthread_barrier_t *bDes
 
     *bDestroy = NULL;
     pthread_spin_lock(&barrier_global);
-    
+
     if (!barrier || !*barrier || ((barrier_t *)*barrier)->valid != LIFE_BARRIER) r = EINVAL;
     else {
         barrier_t *b_ = (barrier_t *)*barrier;
@@ -92,15 +100,15 @@ int pthread_barrier_destroy(pthread_barrier_t *b_)
     pthread_barrier_t bDestroy;
     barrier_t *b;
     int r;
-    
+
     while ((r = barrier_ref_destroy(b_,&bDestroy)) == EBUSY)
       Sleep(0);
-    
+
     if (r)
       return r;
 
     b = (barrier_t *)bDestroy;
-    
+
     pthread_mutex_lock(&b->m);
 
     if (sem_destroy(&b->sems[0]) != 0)

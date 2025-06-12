@@ -921,41 +921,74 @@ fn genNavRef(
     const nav = ip.getNav(nav_index);
     assert(!nav.isThreadlocal(ip));
 
-    const is_extern, const lib_name = if (nav.getExtern(ip)) |e|
-        .{ true, e.lib_name }
+    const lib_name, const linkage, const visibility = if (nav.getExtern(ip)) |e|
+        .{ e.lib_name, e.linkage, e.visibility }
     else
-        .{ false, .none };
+        .{ .none, .internal, .default };
 
     const name = nav.name;
     if (lf.cast(.elf)) |elf_file| {
         const zo = elf_file.zigObjectPtr().?;
-        if (is_extern) {
-            const sym_index = try elf_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
-            zo.symbol(sym_index).flags.is_extern_ptr = true;
-            return .{ .mcv = .{ .lea_symbol = sym_index } };
+        switch (linkage) {
+            .internal => {
+                const sym_index = try zo.getOrCreateMetadataForNav(zcu, nav_index);
+                return .{ .mcv = .{ .lea_symbol = sym_index } };
+            },
+            .strong, .weak => {
+                const sym_index = try elf_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
+                switch (linkage) {
+                    .internal => unreachable,
+                    .strong => {},
+                    .weak => zo.symbol(sym_index).flags.weak = true,
+                    .link_once => unreachable,
+                }
+                switch (visibility) {
+                    .default => zo.symbol(sym_index).flags.is_extern_ptr = true,
+                    .hidden, .protected => {},
+                }
+                return .{ .mcv = .{ .lea_symbol = sym_index } };
+            },
+            .link_once => unreachable,
         }
-        const sym_index = try zo.getOrCreateMetadataForNav(zcu, nav_index);
-        return .{ .mcv = .{ .lea_symbol = sym_index } };
     } else if (lf.cast(.macho)) |macho_file| {
         const zo = macho_file.getZigObject().?;
-        if (is_extern) {
-            const sym_index = try macho_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
-            zo.symbols.items[sym_index].flags.is_extern_ptr = true;
-            return .{ .mcv = .{ .lea_symbol = sym_index } };
+        switch (linkage) {
+            .internal => {
+                const sym_index = try zo.getOrCreateMetadataForNav(macho_file, nav_index);
+                const sym = zo.symbols.items[sym_index];
+                return .{ .mcv = .{ .lea_symbol = sym.nlist_idx } };
+            },
+            .strong, .weak => {
+                const sym_index = try macho_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
+                switch (linkage) {
+                    .internal => unreachable,
+                    .strong => {},
+                    .weak => zo.symbols.items[sym_index].flags.weak = true,
+                    .link_once => unreachable,
+                }
+                switch (visibility) {
+                    .default => zo.symbols.items[sym_index].flags.is_extern_ptr = true,
+                    .hidden, .protected => {},
+                }
+                return .{ .mcv = .{ .lea_symbol = sym_index } };
+            },
+            .link_once => unreachable,
         }
-        const sym_index = try zo.getOrCreateMetadataForNav(macho_file, nav_index);
-        const sym = zo.symbols.items[sym_index];
-        return .{ .mcv = .{ .lea_symbol = sym.nlist_idx } };
     } else if (lf.cast(.coff)) |coff_file| {
-        if (is_extern) {
-            // TODO audit this
-            const global_index = try coff_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
-            try coff_file.need_got_table.put(gpa, global_index, {}); // needs GOT
-            return .{ .mcv = .{ .load_got = link.File.Coff.global_symbol_bit | global_index } };
+        // TODO audit this
+        switch (linkage) {
+            .internal => {
+                const atom_index = try coff_file.getOrCreateAtomForNav(nav_index);
+                const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
+                return .{ .mcv = .{ .load_got = sym_index } };
+            },
+            .strong, .weak => {
+                const global_index = try coff_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
+                try coff_file.need_got_table.put(gpa, global_index, {}); // needs GOT
+                return .{ .mcv = .{ .load_got = link.File.Coff.global_symbol_bit | global_index } };
+            },
+            .link_once => unreachable,
         }
-        const atom_index = try coff_file.getOrCreateAtomForNav(nav_index);
-        const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
-        return .{ .mcv = .{ .load_got = sym_index } };
     } else if (lf.cast(.plan9)) |p9| {
         const atom_index = try p9.seeNav(pt, nav_index);
         const atom = p9.getAtom(atom_index);

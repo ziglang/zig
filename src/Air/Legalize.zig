@@ -622,7 +622,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .addrspace_cast,
             .save_err_return_trace_index,
             .vector_store_elem,
-            .tlv_dllimport_ptr,
+            .runtime_nav_ptr,
             .c_va_arg,
             .c_va_copy,
             .c_va_end,

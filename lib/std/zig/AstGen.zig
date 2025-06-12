@@ -177,7 +177,6 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     var gen_scope: GenZir = .{
         .is_comptime = true,
         .parent = &top_scope.base,
-        .anon_name_strategy = .parent,
         .decl_node_index = .root,
         .decl_line = 0,
         .astgen = &astgen,
@@ -196,6 +195,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
             tree.containerDeclRoot(),
             .auto,
             .none,
+            .parent,
         )) |struct_decl_ref| {
             assert(struct_decl_ref.toIndex().? == .main_struct_inst);
             break :fatal false;
@@ -639,12 +639,6 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
 fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
-
-    const prev_anon_name_strategy = gz.anon_name_strategy;
-    defer gz.anon_name_strategy = prev_anon_name_strategy;
-    if (!nodeUsesAnonNameStrategy(tree, node)) {
-        gz.anon_name_strategy = .anon;
-    }
 
     switch (tree.nodeTag(node)) {
         .root => unreachable, // Top-level declaration.
@@ -1104,7 +1098,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .tagged_union_two_trailing,
         => {
             var buf: [2]Ast.Node.Index = undefined;
-            return containerDecl(gz, scope, ri, node, tree.fullContainerDecl(&buf, node).?);
+            return containerDecl(gz, scope, ri, node, tree.fullContainerDecl(&buf, node).?, .anon);
         },
 
         .@"break" => return breakExpr(gz, scope, node),
@@ -1159,6 +1153,53 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             var buf: [1]Ast.Node.Index = undefined;
             return fnProtoExpr(gz, scope, ri, node, tree.fullFnProto(&buf, node).?);
         },
+    }
+}
+
+/// When a name strategy other than `.anon` is available, for instance when analyzing the init expr
+/// of a variable declaration, try this function before `expr`/`comptimeExpr`/etc, so that the name
+/// strategy can be applied if necessary. If `null` is returned, then `node` does not consume a name
+/// strategy, and a normal evaluation function like `expr` should be used instead. Otherwise, `node`
+/// does consume a name strategy; the expression has been evaluated like `expr`, but using the given
+/// name strategy.
+fn nameStratExpr(
+    gz: *GenZir,
+    scope: *Scope,
+    ri: ResultInfo,
+    node: Ast.Node.Index,
+    name_strat: Zir.Inst.NameStrategy,
+) InnerError!?Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    switch (tree.nodeTag(node)) {
+        .container_decl,
+        .container_decl_trailing,
+        .container_decl_two,
+        .container_decl_two_trailing,
+        .container_decl_arg,
+        .container_decl_arg_trailing,
+        .tagged_union,
+        .tagged_union_trailing,
+        .tagged_union_two,
+        .tagged_union_two_trailing,
+        .tagged_union_enum_tag,
+        .tagged_union_enum_tag_trailing,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            return try containerDecl(gz, scope, ri, node, tree.fullContainerDecl(&buf, node).?, name_strat);
+        },
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        => {
+            const builtin_token = tree.nodeMainToken(node);
+            const builtin_name = tree.tokenSlice(builtin_token);
+            if (!std.mem.eql(u8, builtin_name, "@Type")) return null;
+            var buf: [2]Ast.Node.Index = undefined;
+            const params = tree.builtinCallParams(&buf, node).?;
+            if (params.len != 1) return null; // let `builtinCall` error
+            return try builtinReify(gz, scope, ri, node, params[0], name_strat);
+        },
+        else => return null,
     }
 }
 
@@ -3241,10 +3282,8 @@ fn varDecl(
                     .rl = .{ .ty = try typeExpr(gz, scope, type_node) },
                     .ctx = .const_init,
                 } else .{ .rl = .none, .ctx = .const_init };
-                const prev_anon_name_strategy = gz.anon_name_strategy;
-                gz.anon_name_strategy = .dbg_var;
-                const init_inst = try reachableExprComptime(gz, scope, result_info, init_node, node, if (force_comptime) .comptime_keyword else null);
-                gz.anon_name_strategy = prev_anon_name_strategy;
+                const init_inst: Zir.Inst.Ref = try nameStratExpr(gz, scope, result_info, init_node, .dbg_var) orelse
+                    try reachableExprComptime(gz, scope, result_info, init_node, node, if (force_comptime) .comptime_keyword else null);
 
                 _ = try gz.addUnNode(.validate_const, init_inst, init_node);
                 try gz.addDbgVar(.dbg_var_val, ident_name, init_inst);
@@ -3307,10 +3346,8 @@ fn varDecl(
             };
             const init_result_info: ResultInfo = .{ .rl = init_rl, .ctx = .const_init };
 
-            const prev_anon_name_strategy = gz.anon_name_strategy;
-            gz.anon_name_strategy = .dbg_var;
-            defer gz.anon_name_strategy = prev_anon_name_strategy;
-            const init_inst = try reachableExprComptime(gz, scope, init_result_info, init_node, node, if (force_comptime) .comptime_keyword else null);
+            const init_inst: Zir.Inst.Ref = try nameStratExpr(gz, scope, init_result_info, init_node, .dbg_var) orelse
+                try reachableExprComptime(gz, scope, init_result_info, init_node, node, if (force_comptime) .comptime_keyword else null);
 
             // The const init expression may have modified the error return trace, so signal
             // to Sema that it should save the new index for restoring later.
@@ -3380,9 +3417,13 @@ fn varDecl(
                 };
                 break :a .{ alloc, true, .{ .rl = .{ .inferred_ptr = alloc } } };
             };
-            const prev_anon_name_strategy = gz.anon_name_strategy;
-            gz.anon_name_strategy = .dbg_var;
-            _ = try reachableExprComptime(
+            _ = try nameStratExpr(
+                gz,
+                scope,
+                result_info,
+                init_node,
+                .dbg_var,
+            ) orelse try reachableExprComptime(
                 gz,
                 scope,
                 result_info,
@@ -3390,7 +3431,6 @@ fn varDecl(
                 node,
                 if (var_decl.comptime_token != null) .comptime_keyword else null,
             );
-            gz.anon_name_strategy = prev_anon_name_strategy;
             const final_ptr: Zir.Inst.Ref = if (resolve_inferred) ptr: {
                 break :ptr try gz.addUnNode(.resolve_inferred_alloc, alloc, node);
             } else alloc;
@@ -4605,11 +4645,12 @@ fn globalVarDecl(
     defer init_gz.unstack();
 
     if (var_decl.ast.init_node.unwrap()) |init_node| {
-        init_gz.anon_name_strategy = .parent;
         const init_ri: ResultInfo = if (var_decl.ast.type_node != .none) .{
             .rl = .{ .coerced_ty = decl_inst.toRef() },
         } else .{ .rl = .none };
-        const init_inst = try expr(&init_gz, &init_gz.base, init_ri, init_node);
+        const init_inst: Zir.Inst.Ref = try nameStratExpr(&init_gz, &init_gz.base, init_ri, init_node, .parent) orelse init: {
+            break :init try expr(&init_gz, &init_gz.base, init_ri, init_node);
+        };
         _ = try init_gz.addBreakWithSrcNode(.break_inline, decl_inst, init_inst, node);
     }
 
@@ -4986,6 +5027,7 @@ fn structDeclInner(
     container_decl: Ast.full.ContainerDecl,
     layout: std.builtin.Type.ContainerLayout,
     backing_int_node: Ast.Node.OptionalIndex,
+    name_strat: Zir.Inst.NameStrategy,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
@@ -5020,6 +5062,7 @@ fn structDeclInner(
             .any_default_inits = false,
             .any_aligned_fields = false,
             .fields_hash = std.zig.hashSrc(@tagName(layout)),
+            .name_strat = name_strat,
         });
         return decl_inst.toRef();
     }
@@ -5216,6 +5259,7 @@ fn structDeclInner(
         .any_default_inits = any_default_inits,
         .any_aligned_fields = any_aligned_fields,
         .fields_hash = fields_hash,
+        .name_strat = name_strat,
     });
 
     wip_members.finishBits(bits_per_field);
@@ -5347,6 +5391,7 @@ fn unionDeclInner(
     layout: std.builtin.Type.ContainerLayout,
     opt_arg_node: Ast.Node.OptionalIndex,
     auto_enum_tok: ?Ast.TokenIndex,
+    name_strat: Zir.Inst.NameStrategy,
 ) InnerError!Zir.Inst.Ref {
     const decl_inst = try gz.reserveInstructionIndex();
 
@@ -5497,6 +5542,7 @@ fn unionDeclInner(
         .auto_enum_tag = auto_enum_tok != null,
         .any_aligned_fields = any_aligned_fields,
         .fields_hash = fields_hash,
+        .name_strat = name_strat,
     });
 
     wip_members.finishBits(bits_per_field);
@@ -5519,6 +5565,7 @@ fn containerDecl(
     ri: ResultInfo,
     node: Ast.Node.Index,
     container_decl: Ast.full.ContainerDecl,
+    name_strat: Zir.Inst.NameStrategy,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
@@ -5539,7 +5586,7 @@ fn containerDecl(
                 else => unreachable,
             } else .auto;
 
-            const result = try structDeclInner(gz, scope, node, container_decl, layout, container_decl.ast.arg);
+            const result = try structDeclInner(gz, scope, node, container_decl, layout, container_decl.ast.arg, name_strat);
             return rvalue(gz, ri, result, node);
         },
         .keyword_union => {
@@ -5549,7 +5596,7 @@ fn containerDecl(
                 else => unreachable,
             } else .auto;
 
-            const result = try unionDeclInner(gz, scope, node, container_decl.ast.members, layout, container_decl.ast.arg, container_decl.ast.enum_token);
+            const result = try unionDeclInner(gz, scope, node, container_decl.ast.members, layout, container_decl.ast.arg, container_decl.ast.enum_token, name_strat);
             return rvalue(gz, ri, result, node);
         },
         .keyword_enum => {
@@ -5758,6 +5805,7 @@ fn containerDecl(
                 .fields_len = @intCast(counts.total_fields),
                 .decls_len = @intCast(counts.decls),
                 .fields_hash = fields_hash,
+                .name_strat = name_strat,
             });
 
             wip_members.finishBits(bits_per_field);
@@ -5819,6 +5867,7 @@ fn containerDecl(
                 .src_node = node,
                 .captures_len = @intCast(namespace.captures.count()),
                 .decls_len = decl_count,
+                .name_strat = name_strat,
             });
 
             wip_members.finishBits(0);
@@ -8207,10 +8256,8 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         .rl = .{ .coerced_ty = astgen.fn_ret_ty },
         .ctx = .@"return",
     };
-    const prev_anon_name_strategy = gz.anon_name_strategy;
-    gz.anon_name_strategy = .func;
-    const operand = try reachableExpr(gz, scope, ri, operand_node, node);
-    gz.anon_name_strategy = prev_anon_name_strategy;
+    const operand: Zir.Inst.Ref = try nameStratExpr(gz, scope, ri, operand_node, .func) orelse
+        try reachableExpr(gz, scope, ri, operand_node, node);
 
     switch (nodeMayEvalToError(tree, operand_node)) {
         .never => {
@@ -9472,31 +9519,7 @@ fn builtinCall(
         },
 
         .Type => {
-            const type_info_ty = try gz.addBuiltinValue(node, .type_info);
-            const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = type_info_ty } }, params[0]);
-
-            const gpa = gz.astgen.gpa;
-
-            try gz.instructions.ensureUnusedCapacity(gpa, 1);
-            try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-
-            const payload_index = try gz.astgen.addExtra(Zir.Inst.Reify{
-                .node = node, // Absolute node index -- see the definition of `Reify`.
-                .operand = operand,
-                .src_line = astgen.source_line,
-            });
-            const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
-            gz.astgen.instructions.appendAssumeCapacity(.{
-                .tag = .extended,
-                .data = .{ .extended = .{
-                    .opcode = .reify,
-                    .small = @intFromEnum(gz.anon_name_strategy),
-                    .operand = payload_index,
-                } },
-            });
-            gz.instructions.appendAssumeCapacity(new_index);
-            const result = new_index.toRef();
-            return rvalue(gz, ri, result, node);
+            return builtinReify(gz, scope, ri, node, params[0], .anon);
         },
         .panic => {
             try emitDbgNode(gz, node);
@@ -9826,6 +9849,41 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
     }
+}
+fn builtinReify(
+    gz: *GenZir,
+    scope: *Scope,
+    ri: ResultInfo,
+    node: Ast.Node.Index,
+    arg_node: Ast.Node.Index,
+    name_strat: Zir.Inst.NameStrategy,
+) InnerError!Zir.Inst.Ref {
+    const astgen = gz.astgen;
+    const gpa = astgen.gpa;
+
+    const type_info_ty = try gz.addBuiltinValue(node, .type_info);
+    const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = type_info_ty } }, arg_node);
+
+    try gz.instructions.ensureUnusedCapacity(gpa, 1);
+    try astgen.instructions.ensureUnusedCapacity(gpa, 1);
+
+    const payload_index = try astgen.addExtra(Zir.Inst.Reify{
+        .node = node, // Absolute node index -- see the definition of `Reify`.
+        .operand = operand,
+        .src_line = astgen.source_line,
+    });
+    const new_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len);
+    astgen.instructions.appendAssumeCapacity(.{
+        .tag = .extended,
+        .data = .{ .extended = .{
+            .opcode = .reify,
+            .small = @intFromEnum(name_strat),
+            .operand = payload_index,
+        } },
+    });
+    gz.instructions.appendAssumeCapacity(new_index);
+    const result = new_index.toRef();
+    return rvalue(gz, ri, result, node);
 }
 
 fn hasDeclOrField(
@@ -11087,31 +11145,6 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
     }
 }
 
-/// Returns `true` if the node uses `gz.anon_name_strategy`.
-fn nodeUsesAnonNameStrategy(tree: *const Ast, node: Ast.Node.Index) bool {
-    switch (tree.nodeTag(node)) {
-        .container_decl,
-        .container_decl_trailing,
-        .container_decl_two,
-        .container_decl_two_trailing,
-        .container_decl_arg,
-        .container_decl_arg_trailing,
-        .tagged_union,
-        .tagged_union_trailing,
-        .tagged_union_two,
-        .tagged_union_two_trailing,
-        .tagged_union_enum_tag,
-        .tagged_union_enum_tag_trailing,
-        => return true,
-        .builtin_call_two, .builtin_call_two_comma, .builtin_call, .builtin_call_comma => {
-            const builtin_token = tree.nodeMainToken(node);
-            const builtin_name = tree.tokenSlice(builtin_token);
-            return std.mem.eql(u8, builtin_name, "@Type");
-        },
-        else => return false,
-    }
-}
-
 /// Applies `rl` semantics to `result`. Expressions which do not do their own handling of
 /// result locations must call this function on their result.
 /// As an example, if `ri.rl` is `.ptr`, it will write the result to the pointer.
@@ -11875,8 +11908,6 @@ const GenZir = struct {
     /// exits from this block should use `break_inline` rather than `break`.
     is_inline: bool = false,
     c_import: bool = false,
-    /// How decls created in this scope should be named.
-    anon_name_strategy: Zir.Inst.NameStrategy = .anon,
     /// The containing decl AST node.
     decl_node_index: Ast.Node.Index,
     /// The containing decl line index, absolute.
@@ -13043,6 +13074,7 @@ const GenZir = struct {
         any_default_inits: bool,
         any_aligned_fields: bool,
         fields_hash: std.zig.SrcHash,
+        name_strat: Zir.Inst.NameStrategy,
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
@@ -13082,7 +13114,7 @@ const GenZir = struct {
                     .has_backing_int = args.has_backing_int,
                     .known_non_opv = args.known_non_opv,
                     .known_comptime_only = args.known_comptime_only,
-                    .name_strategy = gz.anon_name_strategy,
+                    .name_strategy = args.name_strat,
                     .layout = args.layout,
                     .any_comptime_fields = args.any_comptime_fields,
                     .any_default_inits = args.any_default_inits,
@@ -13104,6 +13136,7 @@ const GenZir = struct {
         auto_enum_tag: bool,
         any_aligned_fields: bool,
         fields_hash: std.zig.SrcHash,
+        name_strat: Zir.Inst.NameStrategy,
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
@@ -13147,7 +13180,7 @@ const GenZir = struct {
                     .has_body_len = args.body_len != 0,
                     .has_fields_len = args.fields_len != 0,
                     .has_decls_len = args.decls_len != 0,
-                    .name_strategy = gz.anon_name_strategy,
+                    .name_strategy = args.name_strat,
                     .layout = args.layout,
                     .auto_enum_tag = args.auto_enum_tag,
                     .any_aligned_fields = args.any_aligned_fields,
@@ -13166,6 +13199,7 @@ const GenZir = struct {
         decls_len: u32,
         nonexhaustive: bool,
         fields_hash: std.zig.SrcHash,
+        name_strat: Zir.Inst.NameStrategy,
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
@@ -13209,7 +13243,7 @@ const GenZir = struct {
                     .has_body_len = args.body_len != 0,
                     .has_fields_len = args.fields_len != 0,
                     .has_decls_len = args.decls_len != 0,
-                    .name_strategy = gz.anon_name_strategy,
+                    .name_strategy = args.name_strat,
                     .nonexhaustive = args.nonexhaustive,
                 }),
                 .operand = payload_index,
@@ -13221,6 +13255,7 @@ const GenZir = struct {
         src_node: Ast.Node.Index,
         captures_len: u32,
         decls_len: u32,
+        name_strat: Zir.Inst.NameStrategy,
     }) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
@@ -13246,7 +13281,7 @@ const GenZir = struct {
                 .small = @bitCast(Zir.Inst.OpaqueDecl.Small{
                     .has_captures_len = args.captures_len != 0,
                     .has_decls_len = args.decls_len != 0,
-                    .name_strategy = gz.anon_name_strategy,
+                    .name_strategy = args.name_strat,
                 }),
                 .operand = payload_index,
             } },

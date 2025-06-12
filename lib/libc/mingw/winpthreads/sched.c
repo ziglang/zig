@@ -20,12 +20,20 @@
    DEALINGS IN THE SOFTWARE.
 */
 
-#include <windows.h>
-#include <stdio.h>
-#include "pthread.h"
-#include "thread.h"
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
+#include <stdio.h>
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+/* public header files */
+#include "pthread.h"
+/* internal header files */
 #include "misc.h"
+#include "thread.h"
 
 int sched_get_priority_min(int pol)
 {

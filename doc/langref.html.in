@@ -777,7 +777,7 @@
       value. Using this value would be a bug. The value will be unused, or overwritten before being used."
       </p>
       <p>
-      In {#link|Debug#} mode, Zig writes {#syntax#}0xaa{#endsyntax#} bytes to undefined memory. This is to catch
+      In {#link|Debug#} and {#link|ReleaseSafe#} mode, Zig writes {#syntax#}0xaa{#endsyntax#} bytes to undefined memory. This is to catch
       bugs early, and to help detect use of undefined memory in a debugger. However, this behavior is only an
       implementation feature, not a language semantic, so it is not guaranteed to be observable to code.
       </p>
@@ -2295,7 +2295,7 @@ or
       {#code|test_aligned_struct_fields.zig#}
 
       <p>
-      Equating packed structs results in a comparison of the backing integer, 
+      Equating packed structs results in a comparison of the backing integer,
       and only works for the {#syntax#}=={#endsyntax#} and {#syntax#}!={#endsyntax#} {#link|Operators#}.
       </p>
       {#code|test_packed_struct_equality.zig#}
