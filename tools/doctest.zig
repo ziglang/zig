@@ -122,7 +122,7 @@ fn printOutput(
     try env_map.put("CLICOLOR_FORCE", "1");
 
     const host = try std.zig.system.resolveTargetQuery(.{});
-    const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
+    const obj_ext = builtin.target.objFileExt();
     const print = std.debug.print;
 
     var shell_buffer = std.ArrayList(u8).init(arena);

@@ -155,13 +155,17 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
         .coff => switch (options.output_mode) {
             .Exe => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, t.exeFileExt() }),
             .Lib => {
+                const prefix = if (t.abi.isGnu()) "lib" else "";
                 const suffix = switch (options.link_mode orelse .static) {
-                    .static => ".lib",
+                    .static => if (t.abi.isGnu()) ".a" else ".lib",
                     .dynamic => ".dll",
                 };
-                return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, suffix });
+                return std.fmt.allocPrint(allocator, "{s}{s}{s}", .{ prefix, root_name, suffix });
             },
-            .Obj => return std.fmt.allocPrint(allocator, "{s}.obj", .{root_name}),
+            .Obj => if (t.abi.isGnu())
+                return std.fmt.allocPrint(allocator, "{s}.o", .{root_name})
+            else
+                return std.fmt.allocPrint(allocator, "{s}.obj", .{root_name}),
         },
         .elf, .goff, .xcoff => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
@@ -226,7 +230,7 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
         .plan9 => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
             .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{
-                root_name, t.ofmt.fileExt(t.cpu.arch),
+                root_name, t.objFileExt(),
             }),
             .Lib => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
                 t.libPrefix(), root_name,
