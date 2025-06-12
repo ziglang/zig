@@ -3,36 +3,14 @@ const assert = std.debug.assert;
 
 pub const Module = @import("Package/Module.zig");
 pub const Fetch = @import("Package/Fetch.zig");
-pub const build_zig_basename = "build.zig";
-pub const Manifest = @import("Package/Manifest.zig");
+pub const build_zig_basename = std.zig.build_file_basename;
+pub const Manifest = std.zig.Manifest;
 
 pub const multihash_len = 1 + 1 + Hash.Algo.digest_length;
 pub const multihash_hex_digest_len = 2 * multihash_len;
 pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 
-pub const Fingerprint = packed struct(u64) {
-    id: u32,
-    checksum: u32,
-
-    pub fn generate(name: []const u8) Fingerprint {
-        return .{
-            .id = std.crypto.random.intRangeLessThan(u32, 1, 0xffffffff),
-            .checksum = std.hash.Crc32.hash(name),
-        };
-    }
-
-    pub fn validate(n: Fingerprint, name: []const u8) bool {
-        switch (n.id) {
-            0x00000000, 0xffffffff => return false,
-            else => return std.hash.Crc32.hash(name) == n.checksum,
-        }
-    }
-
-    pub fn int(n: Fingerprint) u64 {
-        return @bitCast(n);
-    }
-};
-
+pub const Fingerprint = std.zig.Fingerprint;
 /// A user-readable, file system safe hash that identifies an exact package
 /// snapshot, including file contents.
 ///
@@ -53,8 +31,7 @@ pub const Hash = struct {
     pub const Algo = std.crypto.hash.sha2.Sha256;
     pub const Digest = [Algo.digest_length]u8;
 
-    /// Example: "nnnn-vvvv-hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
-    pub const max_len = 32 + 1 + 32 + 1 + (32 + 32 + 200) / 6;
+    pub const max_len = std.zig.Manifest.hash_max_len;
 
     pub fn fromSlice(s: []const u8) Hash {
         assert(s.len <= max_len);
