@@ -1171,11 +1171,11 @@ fn analyzeBodyInner(
             .as_node                      => try sema.zirAsNode(block, inst),
             .as_shift_operand             => try sema.zirAsShiftOperand(block, inst),
             .bit_and                      => try sema.zirBitwise(block, inst, .bit_and),
-            .bit_not                      => try sema.zirBitNot(block, inst, false),
+            .bit_not                      => try sema.zirBitNot(block, inst),
             .bit_or                       => try sema.zirBitwise(block, inst, .bit_or),
             .bitcast                      => try sema.zirBitcast(block, inst),
             .suspend_block                => try sema.zirSuspendBlock(block, inst),
-            .bool_not                     => try sema.zirBitNot(block, inst, true),
+            .bool_not                     => try sema.zirBoolNot(block, inst),
             .bool_br_and                  => try sema.zirBoolBr(block, inst, false),
             .bool_br_or                   => try sema.zirBoolBr(block, inst, true),
             .c_import                     => try sema.zirCImport(block, inst),
@@ -14442,57 +14442,55 @@ fn zirBitwise(
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
 }
 
-fn zirBitNot(
-    sema: *Sema,
-    block: *Block,
-    inst: Zir.Inst.Index,
-    is_bool_not: bool,
-) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
+fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
-    const src = block.nodeOffset(inst_data.src_node);
     const operand_src = block.src(.{ .node_offset_un_op = inst_data.src_node });
-
+    const src = block.nodeOffset(inst_data.src_node);
     const operand = try sema.resolveInst(inst_data.operand);
-    const operand_type = sema.typeOf(operand);
-    const scalar_type = operand_type.scalarType(zcu);
-    const scalar_tag = scalar_type.zigTypeTag(zcu);
+    const operand_ty = sema.typeOf(operand);
+    const scalar_ty = operand_ty.scalarType(zcu);
+    const scalar_tag = scalar_ty.zigTypeTag(zcu);
 
-    const is_finite_int_or_bool = scalar_tag == .int or scalar_tag == .bool;
-    const is_allowed_type = if (is_bool_not) scalar_tag == .bool else is_finite_int_or_bool;
+    if (scalar_tag != .int and scalar_tag != .bool)
+        return sema.fail(block, operand_src, "bitwise not operation on type '{}'", .{operand_ty.fmt(pt)});
 
-    if (!is_allowed_type) {
-        return sema.fail(block, src, "unable to perform {s} not operation on type '{}'", .{
-            if (is_bool_not) "boolean" else "binary", operand_type.fmt(pt),
-        });
-    }
+    return analyzeBitNot(sema, block, operand, src);
+}
 
+fn analyzeBitNot(
+    sema: *Sema,
+    block: *Block,
+    operand: Air.Inst.Ref,
+    src: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const operand_ty = sema.typeOf(operand);
+    const scalar_ty = operand_ty.scalarType(zcu);
     if (try sema.resolveValue(operand)) |val| {
         if (val.isUndef(zcu)) {
-            return pt.undefRef(operand_type);
-        } else if (operand_type.zigTypeTag(zcu) == .vector) {
-            const vec_len = try sema.usizeCast(block, operand_src, operand_type.vectorLen(zcu));
+            return pt.undefRef(operand_ty);
+        } else if (operand_ty.zigTypeTag(zcu) == .vector) {
+            const vec_len = try sema.usizeCast(block, src, operand_ty.vectorLen(zcu));
             const elems = try sema.arena.alloc(InternPool.Index, vec_len);
             for (elems, 0..) |*elem, i| {
                 const elem_val = try val.elemValue(pt, i);
-                elem.* = (try elem_val.bitwiseNot(scalar_type, sema.arena, pt)).toIntern();
+                elem.* = (try elem_val.bitwiseNot(scalar_ty, sema.arena, pt)).toIntern();
             }
             return Air.internedToRef((try pt.intern(.{ .aggregate = .{
-                .ty = operand_type.toIntern(),
+                .ty = operand_ty.toIntern(),
                 .storage = .{ .elems = elems },
             } })));
         } else {
-            const result_val = try val.bitwiseNot(operand_type, sema.arena, pt);
+            const result_val = try val.bitwiseNot(operand_ty, sema.arena, pt);
             return Air.internedToRef(result_val.toIntern());
         }
     }
 
     try sema.requireRuntimeBlock(block, src, null);
-    return block.addTyOp(.not, operand_type, operand);
+    return block.addTyOp(.not, operand_ty, operand);
 }
 
 fn analyzeTupleCat(
@@ -18343,6 +18341,30 @@ fn zirTypeofPeer(
 
     const result_type = try sema.resolvePeerTypes(block, src, inst_list, .{ .typeof_builtin_call_node_offset = extra.data.src_node });
     return Air.internedToRef(result_type.toIntern());
+}
+
+fn zirBoolNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
+    const src = block.nodeOffset(inst_data.src_node);
+    const operand_src = block.src(.{ .node_offset_un_op = inst_data.src_node });
+    const uncasted_operand = try sema.resolveInst(inst_data.operand);
+    const uncasted_ty = sema.typeOf(uncasted_operand);
+    if (uncasted_ty.isVector(zcu)) {
+        if (uncasted_ty.scalarType(zcu).zigTypeTag(zcu) != .bool) {
+            return sema.fail(block, operand_src, "boolean not operation on type '{}'", .{
+                uncasted_ty.fmt(pt),
+            });
+        }
+        return analyzeBitNot(sema, block, uncasted_operand, src);
+    }
+    const operand = try sema.coerce(block, .bool, uncasted_operand, operand_src);
+    if (try sema.resolveValue(operand)) |val| {
+        return if (val.isUndef(zcu)) .undef_bool else if (val.toBool()) .bool_false else .bool_true;
+    }
+    try sema.requireRuntimeBlock(block, src, null);
+    return block.addTyOp(.not, .bool, operand);
 }
 
 fn zirBoolBr(
