@@ -73,7 +73,7 @@ pub const X25519 = struct {
         return q.toBytes();
     }
 
-    /// Compute the X25519 equivalent to an Ed25519 public eky.
+    /// Compute the X25519 equivalent to an Ed25519 public key.
     pub fn publicKeyFromEd25519(ed25519_public_key: crypto.sign.Ed25519.PublicKey) (IdentityElementError || EncodingError)![public_length]u8 {
         const pk_ed = try crypto.ecc.Edwards25519.fromBytes(ed25519_public_key.bytes);
         const pk = try Curve.fromEdwards25519(pk_ed);
