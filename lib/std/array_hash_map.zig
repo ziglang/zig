@@ -2219,6 +2219,66 @@ test "basic hash map usage" {
     try testing.expect(map.swapRemove(3));
 }
 
+test "string array hashmap usage" {
+    var map = StringArrayHashMap([]i32).init(std.testing.allocator);
+    defer map.deinit();
+
+    // read from empty hashmap
+    try testing.expect(map.getKey("foo") == null);
+    try testing.expect(map.getKey("bar") == null);
+    try testing.expect(map.contains("foo") == false);
+    try testing.expect(map.contains("bar") == false);
+
+    // create entries
+    var foo_values = [_]i32{ 11, 22 };
+    try map.putNoClobber("foo", &foo_values);
+
+    var bar_values = [_]i32{ 33, 44 };
+    try map.putNoClobber("bar", &bar_values);
+
+    var baz_values = [_]i32{ 55, 66 };
+    try map.putNoClobber("baz", &baz_values);
+
+    // number of entries in the hashmap
+    try testing.expect(map.count() == 3);
+
+    // read values associated with keys
+    try testing.expectEqualSlices(i32, map.get("foo").?, &[_]i32{ 11, 22 });
+    try testing.expectEqualSlices(i32, map.get("bar").?, &[_]i32{ 33, 44 });
+    try testing.expectEqualSlices(i32, map.get("baz").?, &[_]i32{ 55, 66 });
+
+    // read all keys
+    try testing.expectEqualSlices([]const u8, map.keys(), &[_][]const u8{ "foo", "bar", "baz" });
+
+    // sort entries by key
+    const C = struct {
+        keys: [][]const u8,
+
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            return std.mem.order(u8, ctx.keys[a_index], ctx.keys[b_index]) == .lt;
+        }
+    };
+
+    map.sort(C{ .keys = map.keys() });
+
+    try testing.expectEqualStrings("bar", map.keys()[0]);
+    try testing.expectEqualStrings("baz", map.keys()[1]);
+    try testing.expectEqualStrings("foo", map.keys()[2]);
+    try testing.expectEqualSlices(i32, map.values()[0], &[_]i32{ 33, 44 });
+    try testing.expectEqualSlices(i32, map.values()[1], &[_]i32{ 55, 66 });
+    try testing.expectEqualSlices(i32, map.values()[2], &[_]i32{ 11, 22 });
+
+    // update 'bar'
+    var new_bar_values = [_]i32{ 77, 88 };
+    try map.put("bar", &new_bar_values);
+    try testing.expectEqualSlices(i32, map.get("bar").?, &[_]i32{ 77, 88 });
+
+    // delete 'baz'
+    try testing.expect(false == map.swapRemove("qux")); // non-existing entry
+    try testing.expect(true == map.swapRemove("baz")); // existing entry
+    try testing.expect(map.count() == 2);
+}
+
 test "iterator hash map" {
     var reset_map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
     defer reset_map.deinit();
