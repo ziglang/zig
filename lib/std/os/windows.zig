@@ -1121,7 +1121,12 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
     }
 }
 
-pub const MoveFileError = error{ FileNotFound, AccessDenied, Unexpected };
+pub const MoveFileError = error{
+    FileNotFound,
+    AccessDenied,
+    CircularLoop,
+    Unexpected,
+};
 
 pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) (MoveFileError || Wtf8ToPrefixedFileWError)!void {
     const old_path_w = try sliceToPrefixedFileW(null, old_path);
@@ -1134,6 +1139,9 @@ pub fn MoveFileExW(old_path: [*:0]const u16, new_path: [*:0]const u16, flags: DW
         switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .ACCESS_DENIED => return error.AccessDenied,
+            .INVALID_PARAMETER,
+            .SHARING_VIOLATION, // This is returned before Windows 11
+            => return error.CircularLoop,
             else => |err| return unexpectedError(err),
         }
     }
