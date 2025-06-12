@@ -316,7 +316,7 @@
           <a href="https://ziglang.org/documentation/0.11.0/">0.11.0</a> |
           <a href="https://ziglang.org/documentation/0.12.0/">0.12.0</a> |
           <a href="https://ziglang.org/documentation/0.13.0/">0.13.0</a> |
-          <a href="https://ziglang.org/documentation/0.14.0/">0.14.0</a> |
+          <a href="https://ziglang.org/documentation/0.14.1/">0.14.1</a> |
           master
         </nav>
         <nav aria-labelledby="table-of-contents">
@@ -777,7 +777,7 @@
       value. Using this value would be a bug. The value will be unused, or overwritten before being used."
       </p>
       <p>
-      In {#link|Debug#} mode, Zig writes {#syntax#}0xaa{#endsyntax#} bytes to undefined memory. This is to catch
+      In {#link|Debug#} and {#link|ReleaseSafe#} mode, Zig writes {#syntax#}0xaa{#endsyntax#} bytes to undefined memory. This is to catch
       bugs early, and to help detect use of undefined memory in a debugger. However, this behavior is only an
       implementation feature, not a language semantic, so it is not guaranteed to be observable to code.
       </p>
@@ -2295,7 +2295,7 @@ or
       {#code|test_aligned_struct_fields.zig#}
 
       <p>
-      Equating packed structs results in a comparison of the backing integer, 
+      Equating packed structs results in a comparison of the backing integer,
       and only works for the {#syntax#}=={#endsyntax#} and {#syntax#}!={#endsyntax#} {#link|Operators#}.
       </p>
       {#code|test_packed_struct_equality.zig#}
@@ -5147,6 +5147,23 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>{#syntax#}elem{#endsyntax#} is coerced to the element type of {#syntax#}dest{#endsyntax#}.</p>
       <p>For securely zeroing out sensitive contents from memory, you should use
       {#syntax#}std.crypto.secureZero{#endsyntax#}</p>
+      {#header_close#}
+
+      {#header_open|@memmove#}
+      <pre>{#syntax#}@memmove(dest, source) void{#endsyntax#}</pre>
+      <p>This function copies bytes from one region of memory to another, but unlike
+      {#link|@memcpy#} the regions may overlap.</p>
+      <p>{#syntax#}dest{#endsyntax#} must be a mutable slice, a mutable pointer to an array, or
+        a mutable many-item {#link|pointer|Pointers#}. It may have any
+        alignment, and it may have any element type.</p>
+      <p>{#syntax#}source{#endsyntax#} must be a slice, a pointer to
+        an array, or a many-item {#link|pointer|Pointers#}. It may
+        have any alignment, and it may have any element type.</p>
+      <p>The {#syntax#}source{#endsyntax#} element type must have the same in-memory
+        representation as the {#syntax#}dest{#endsyntax#} element type.</p>
+      <p>Similar to {#link|for#} loops, at least one of {#syntax#}source{#endsyntax#} and
+        {#syntax#}dest{#endsyntax#} must provide a length, and if two lengths are provided,
+        they must be equal.</p>
       {#header_close#}
 
       {#header_open|@min#}

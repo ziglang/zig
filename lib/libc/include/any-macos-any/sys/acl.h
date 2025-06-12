@@ -24,8 +24,11 @@
 #define _SYS_ACL_H
 
 #include <Availability.h>
+#include <_bounds.h>
 #include <sys/kauth.h>
 #include <sys/_types/_ssize_t.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #define __DARWIN_ACL_READ_DATA			(1<<1)
 #define __DARWIN_ACL_LIST_DIRECTORY		__DARWIN_ACL_READ_DATA
@@ -200,13 +203,13 @@ extern int	acl_set_file(const char *path_p, acl_type_t type, acl_t acl);
 extern int	acl_set_link_np(const char *path_p, acl_type_t type, acl_t acl);
 
 /* 23.1.6.4 ACL Format translation */
-extern ssize_t	acl_copy_ext(void *buf_p, acl_t acl, ssize_t size);
-extern ssize_t	acl_copy_ext_native(void *buf_p, acl_t acl, ssize_t size);
-extern acl_t	acl_copy_int(const void *buf_p);
-extern acl_t	acl_copy_int_native(const void *buf_p);
-extern acl_t	acl_from_text(const char *buf_p);
+extern ssize_t	acl_copy_ext(void *_LIBC_SIZE(size) buf_p, acl_t acl, ssize_t size);
+extern ssize_t	acl_copy_ext_native(void *_LIBC_SIZE(size) buf_p, acl_t acl, ssize_t size);
+extern acl_t	acl_copy_int(const void *_LIBC_UNSAFE_INDEXABLE buf_p);
+extern acl_t	acl_copy_int_native(const void *_LIBC_UNSAFE_INDEXABLE buf_p);
+extern acl_t	acl_from_text(const char *_LIBC_UNSAFE_INDEXABLE buf_p);
 extern ssize_t	acl_size(acl_t acl);
-extern char	*acl_to_text(acl_t acl, ssize_t *len_p);
+extern char	*_LIBC_CSTR	acl_to_text(acl_t acl, ssize_t *len_p);
 __END_DECLS
 
 #endif /* _SYS_ACL_H */

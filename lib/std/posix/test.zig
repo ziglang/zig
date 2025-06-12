@@ -859,12 +859,75 @@ test "shutdown socket" {
     std.net.Stream.close(.{ .handle = sock });
 }
 
-test "sigaction" {
+test "sigrtmin/max" {
+    if (native_os == .wasi or native_os == .windows or native_os == .macos) {
+        return error.SkipZigTest;
+    }
+
+    try std.testing.expect(posix.sigrtmin() >= 32);
+    try std.testing.expect(posix.sigrtmin() >= posix.system.sigrtmin());
+    try std.testing.expect(posix.sigrtmin() < posix.system.sigrtmax());
+    try std.testing.expect(posix.sigrtmax() < posix.NSIG);
+}
+
+test "sigset empty/full" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
-    // https://github.com/ziglang/zig/issues/7427
-    if (native_os == .linux and builtin.target.cpu.arch == .x86)
+    var set: posix.sigset_t = posix.sigemptyset();
+    for (1..posix.NSIG) |i| {
+        try expectEqual(false, posix.sigismember(&set, @truncate(i)));
+    }
+
+    // The C library can reserve some (unnamed) signals, so can't check the full
+    // NSIG set is defined, but just test a couple:
+    set = posix.sigfillset();
+    try expectEqual(true, posix.sigismember(&set, @truncate(posix.SIG.CHLD)));
+    try expectEqual(true, posix.sigismember(&set, @truncate(posix.SIG.INT)));
+}
+
+// Some signals (i.e., 32 - 34 on glibc/musl) are not allowed to be added to a
+// sigset by the C library, so avoid testing them.
+fn reserved_signo(i: usize) bool {
+    if (native_os == .macos) return false;
+    if (!builtin.link_libc) return false;
+    const max = if (native_os == .netbsd) 32 else 31;
+    return i > max and i < posix.sigrtmin();
+}
+
+test "sigset add/del" {
+    if (native_os == .wasi or native_os == .windows)
+        return error.SkipZigTest;
+
+    var sigset: posix.sigset_t = posix.sigemptyset();
+
+    // See that none are set, then set each one, see that they're all set, then
+    // remove them all, and then see that none are set.
+    for (1..posix.NSIG) |i| {
+        try expectEqual(false, posix.sigismember(&sigset, @truncate(i)));
+    }
+    for (1..posix.NSIG) |i| {
+        if (!reserved_signo(i)) {
+            posix.sigaddset(&sigset, @truncate(i));
+        }
+    }
+    for (1..posix.NSIG) |i| {
+        if (!reserved_signo(i)) {
+            try expectEqual(true, posix.sigismember(&sigset, @truncate(i)));
+        }
+    }
+    for (1..posix.NSIG) |i| {
+        if (!reserved_signo(i)) {
+            posix.sigdelset(&sigset, @truncate(i));
+        }
+    }
+    for (1..posix.NSIG) |i| {
+        try expectEqual(false, posix.sigismember(&sigset, @truncate(i)));
+    }
+}
+
+test "sigaction" {
+    if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/15381
@@ -872,66 +935,138 @@ test "sigaction" {
         return error.SkipZigTest;
     }
 
+    const test_signo = posix.SIG.URG; // URG only because it is ignored by default in debuggers
+
     const S = struct {
         var handler_called_count: u32 = 0;
 
         fn handler(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
             _ = ctx_ptr;
             // Check that we received the correct signal.
-            switch (native_os) {
-                .netbsd => {
-                    if (sig == posix.SIG.USR1 and sig == info.info.signo)
-                        handler_called_count += 1;
-                },
-                else => {
-                    if (sig == posix.SIG.USR1 and sig == info.signo)
-                        handler_called_count += 1;
-                },
+            const info_sig = switch (native_os) {
+                .netbsd => info.info.signo,
+                else => info.signo,
+            };
+            if (sig == test_signo and sig == info_sig) {
+                handler_called_count += 1;
             }
         }
     };
 
     var sa: posix.Sigaction = .{
         .handler = .{ .sigaction = &S.handler },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = posix.SA.SIGINFO | posix.SA.RESETHAND,
     };
+
     var old_sa: posix.Sigaction = undefined;
 
     // Install the new signal handler.
-    posix.sigaction(posix.SIG.USR1, &sa, null);
+    posix.sigaction(test_signo, &sa, null);
 
     // Check that we can read it back correctly.
-    posix.sigaction(posix.SIG.USR1, null, &old_sa);
+    posix.sigaction(test_signo, null, &old_sa);
     try testing.expectEqual(&S.handler, old_sa.handler.sigaction.?);
     try testing.expect((old_sa.flags & posix.SA.SIGINFO) != 0);
 
     // Invoke the handler.
-    try posix.raise(posix.SIG.USR1);
-    try testing.expect(S.handler_called_count == 1);
+    try posix.raise(test_signo);
+    try testing.expectEqual(1, S.handler_called_count);
 
     // Check if passing RESETHAND correctly reset the handler to SIG_DFL
-    posix.sigaction(posix.SIG.USR1, null, &old_sa);
+    posix.sigaction(test_signo, null, &old_sa);
     try testing.expectEqual(posix.SIG.DFL, old_sa.handler.handler);
 
     // Reinstall the signal w/o RESETHAND and re-raise
     sa.flags = posix.SA.SIGINFO;
-    posix.sigaction(posix.SIG.USR1, &sa, null);
-    try posix.raise(posix.SIG.USR1);
-    try testing.expect(S.handler_called_count == 2);
+    posix.sigaction(test_signo, &sa, null);
+    try posix.raise(test_signo);
+    try testing.expectEqual(2, S.handler_called_count);
 
     // Now set the signal to ignored
     sa.handler = .{ .handler = posix.SIG.IGN };
     sa.flags = 0;
-    posix.sigaction(posix.SIG.USR1, &sa, null);
+    posix.sigaction(test_signo, &sa, null);
 
     // Re-raise to ensure handler is actually ignored
-    try posix.raise(posix.SIG.USR1);
-    try testing.expect(S.handler_called_count == 2);
+    try posix.raise(test_signo);
+    try testing.expectEqual(2, S.handler_called_count);
 
     // Ensure that ignored state is returned when querying
-    posix.sigaction(posix.SIG.USR1, null, &old_sa);
-    try testing.expectEqual(posix.SIG.IGN, old_sa.handler.handler.?);
+    posix.sigaction(test_signo, null, &old_sa);
+    try testing.expectEqual(posix.SIG.IGN, old_sa.handler.handler);
+}
+
+test "sigset_t bits" {
+    if (native_os == .wasi or native_os == .windows)
+        return error.SkipZigTest;
+
+    const S = struct {
+        var expected_sig: i32 = undefined;
+        var handler_called_count: u32 = 0;
+
+        fn handler(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
+            _ = ctx_ptr;
+
+            const info_sig = switch (native_os) {
+                .netbsd => info.info.signo,
+                else => info.signo,
+            };
+            if (sig == expected_sig and sig == info_sig) {
+                handler_called_count += 1;
+            }
+        }
+    };
+
+    const self_pid = posix.system.getpid();
+
+    // To check that sigset_t mapping matches kernel (think u32/u64 mismatches on
+    // big-endian), try sending a blocked signal to make sure the mask matches the
+    // signal.  (Send URG and CHLD because they're ignored by default in the
+    // debugger, vs. USR1 or other named signals)
+    inline for ([_]usize{ posix.SIG.URG, posix.SIG.CHLD, 62, 94, 126 }) |test_signo| {
+        if (test_signo >= posix.NSIG) continue;
+
+        S.expected_sig = test_signo;
+        S.handler_called_count = 0;
+
+        const sa: posix.Sigaction = .{
+            .handler = .{ .sigaction = &S.handler },
+            .mask = posix.sigemptyset(),
+            .flags = posix.SA.SIGINFO | posix.SA.RESETHAND,
+        };
+
+        var old_sa: posix.Sigaction = undefined;
+
+        // Install the new signal handler.
+        posix.sigaction(test_signo, &sa, &old_sa);
+
+        // block the signal and see that its delayed until unblocked
+        var block_one: posix.sigset_t = posix.sigemptyset();
+        posix.sigaddset(&block_one, test_signo);
+        posix.sigprocmask(posix.SIG.BLOCK, &block_one, null);
+
+        // qemu maps target signals to host signals 1-to-1, so targets
+        // with more signals than the host will fail to send the signal.
+        const rc = posix.system.kill(self_pid, test_signo);
+        switch (posix.errno(rc)) {
+            .SUCCESS => {
+                // See that the signal is blocked, then unblocked
+                try testing.expectEqual(0, S.handler_called_count);
+                posix.sigprocmask(posix.SIG.UNBLOCK, &block_one, null);
+                try testing.expectEqual(1, S.handler_called_count);
+            },
+            .INVAL => {
+                // Signal won't get delviered.  Just clean up.
+                posix.sigprocmask(posix.SIG.UNBLOCK, &block_one, null);
+                try testing.expectEqual(0, S.handler_called_count);
+            },
+            else => |errno| return posix.unexpectedErrno(errno),
+        }
+
+        // Restore original handler
+        posix.sigaction(test_signo, &old_sa, null);
+    }
 }
 
 test "dup & dup2" {
@@ -1256,6 +1391,8 @@ fn expectMode(dir: posix.fd_t, file: []const u8, mode: posix.mode_t) !void {
 }
 
 test "fchmodat smoke test" {
+    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23808
+
     if (!std.fs.has_executable_bit) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});

@@ -72,8 +72,8 @@ pub fn findByMnemonic(
             },
             inline .@"invpcid 32bit", .@"rdpid 32bit" => |tag| switch (target.cpu.arch) {
                 else => unreachable,
-                .x86 => std.Target.x86.featureSetHas(
-                    target.cpu.features,
+                .x86 => target.cpu.has(
+                    .x86,
                     @field(std.Target.x86.Feature, @tagName(tag)[0 .. @tagName(tag).len - " 32bit".len]),
                 ),
                 .x86_64 => false,
@@ -81,17 +81,17 @@ pub fn findByMnemonic(
             inline .@"invpcid 64bit", .@"rdpid 64bit", .@"prefetchi 64bit" => |tag| switch (target.cpu.arch) {
                 else => unreachable,
                 .x86 => false,
-                .x86_64 => std.Target.x86.featureSetHas(
-                    target.cpu.features,
+                .x86_64 => target.cpu.has(
+                    .x86,
                     @field(std.Target.x86.Feature, @tagName(tag)[0 .. @tagName(tag).len - " 64bit".len]),
                 ),
             },
-            .prefetch => std.Target.x86.featureSetHasAny(target.cpu.features, .{ .sse, .prfchw, .prefetchi, .prefetchwt1 }),
+            .prefetch => target.cpu.hasAny(.x86, &.{ .sse, .prfchw, .prefetchi, .prefetchwt1 }),
             inline else => |tag| has_features: {
                 comptime var feature_it = std.mem.splitScalar(u8, @tagName(tag), ' ');
                 comptime var features: []const std.Target.x86.Feature = &.{};
                 inline while (comptime feature_it.next()) |feature| features = features ++ .{@field(std.Target.x86.Feature, feature)};
-                break :has_features std.Target.x86.featureSetHasAll(target.cpu.features, features[0..].*);
+                break :has_features target.cpu.hasAll(.x86, features);
             },
         }) continue;
 
@@ -313,7 +313,7 @@ pub const Mnemonic = enum {
     @"or", out, outs, outsb, outsd, outsw,
     pause, pop, popf, popfd, popfq, push, pushfq,
     rcl, rcr,
-    rdfsbase, rdgsbase, rdmsr, rdpid, rdpkru, rdpmc, rdrand, rdseed, rdssd, rdssq, rdtsc, rdtscp,
+    rdfsbase, rdgsbase, rdmsr, rdpid, rdpkru, rdpmc, rdrand, rdseed, rdsspd, rdsspq, rdtsc, rdtscp,
     ret, rol, ror, rsm,
     sahf, sal, sar, sbb,
     scas, scasb, scasd, scasq, scasw,
@@ -336,7 +336,7 @@ pub const Mnemonic = enum {
     fcom, fcomi, fcomip, fcomp, fcompp, fcos,
     fdecstp, fdiv, fdivp, fdivr, fdivrp, ffree,
     fiadd, ficom, ficomp, fidiv, fidivr, fild, fimul, fincstp, finit,
-    fist, fistp, fisttp, fisub, fisubr,
+    fist, fistp, fisub, fisubr,
     fld, fld1, fldcw, fldenv, fldl2e, fldl2t, fldlg2, fldln2, fldpi, fldz,
     fmul, fmulp,
     fnclex, fninit, fnop, fnsave, fnstcw, fnstenv, fnstsw,
@@ -349,19 +349,18 @@ pub const Mnemonic = enum {
     // MMX
     emms, movd, movq,
     packssdw, packsswb, packuswb,
-    paddb, paddd, paddq, paddsb, paddsw, paddusb, paddusw, paddw,
+    paddb, paddd, paddsb, paddsw, paddusb, paddusw, paddw,
     pand, pandn, por, pxor,
     pcmpeqb, pcmpeqd, pcmpeqw,
     pcmpgtb, pcmpgtd, pcmpgtw,
-    pmulhw, pmullw,
+    pmaddwd, pmulhw, pmullw,
     pslld, psllq, psllw,
     psrad, psraw,
     psrld, psrlq, psrlw,
-    psubb, psubd, psubq, psubsb, psubsw, psubusb, psubusw, psubw,
+    psubb, psubd, psubsb, psubsw, psubusb, psubusw, psubw,
     // SSE
     addps, addss,
-    andps,
-    andnps,
+    andnps, andps,
     cmpps, cmpss, comiss,
     cvtpi2ps, cvtps2pi, cvtsi2ss, cvtss2si, cvttps2pi, cvttss2si,
     divps, divss,
@@ -374,9 +373,11 @@ pub const Mnemonic = enum {
     movss, movups,
     mulps, mulss,
     orps,
+    pavgb, pavgw,
     pextrw, pinsrw,
-    pmaxsw, pmaxub, pminsw, pminub, pmovmskb,
+    pmaxsw, pmaxub, pminsw, pminub, pmovmskb, pmulhuw,
     prefetchit0, prefetchit1, prefetchnta, prefetcht0, prefetcht1, prefetcht2, prefetchw, prefetchwt1,
+    psadbw, pshufw,
     shufps,
     sqrtps, sqrtss,
     stmxcsr,
@@ -397,15 +398,16 @@ pub const Mnemonic = enum {
     maxpd, maxsd,
     minpd, minsd,
     movapd,
-    movdqa, movdqu,
+    movdq2q, movdqa, movdqu,
     movhpd, movlpd,
-    movmskpd,
+    movmskpd, movq2dq,
     //movsd,
     movupd,
     mulpd, mulsd,
     orpd,
+    paddq, pmuludq,
     pshufd, pshufhw, pshuflw,
-    pslldq, psrldq,
+    pslldq, psrldq, psubq,
     punpckhbw, punpckhdq, punpckhqdq, punpckhwd,
     punpcklbw, punpckldq, punpcklqdq, punpcklwd,
     shufpd,
@@ -414,9 +416,17 @@ pub const Mnemonic = enum {
     ucomisd, unpckhpd, unpcklpd,
     xorpd,
     // SSE3
-    addsubpd, addsubps, haddpd, haddps, lddqu, movddup, movshdup, movsldup,
+    addsubpd, addsubps,
+    fisttp,
+    haddpd, haddps,
+    hsubpd, hsubps,
+    lddqu,
+    movddup, movshdup, movsldup,
     // SSSE3
-    pabsb, pabsd, pabsw, palignr, pshufb,
+    pabsb, pabsd, pabsw, palignr,
+    phaddw, phaddsw, phaddd, phsubw, phsubsw, phsubd,
+    pmaddubsw, pmulhrsw, pshufb,
+    psignb, psignd, psignw,
     // SSE4.1
     blendpd, blendps, blendvpd, blendvps,
     dppd, dpps,
@@ -426,11 +436,12 @@ pub const Mnemonic = enum {
     pblendvb, pblendw,
     pcmpeqq,
     pextrb, pextrd, pextrq,
+    phminposuw,
     pinsrb, pinsrd, pinsrq,
     pmaxsb, pmaxsd, pmaxud, pmaxuw, pminsb, pminsd, pminud, pminuw,
     pmovsxbd, pmovsxbq, pmovsxbw, pmovsxdq, pmovsxwd, pmovsxwq,
     pmovzxbd, pmovzxbq, pmovzxbw, pmovzxdq, pmovzxwd, pmovzxwq,
-    pmulld,
+    pmuldq, pmulld,
     ptest,
     roundpd, roundps, roundsd, roundss,
     // SSE4.2
@@ -458,7 +469,7 @@ pub const Mnemonic = enum {
     vdppd, vdpps,
     vextractf128, vextractps,
     vgf2p8affineinvqb, vgf2p8affineqb, vgf2p8mulb,
-    vhaddpd, vhaddps,
+    vhaddpd, vhaddps, vhsubpd, vhsubps,
     vinsertf128, vinsertps,
     vlddqu, vldmxcsr,
     vmaskmovpd, vmaskmovps,
@@ -480,21 +491,24 @@ pub const Mnemonic = enum {
     vpabsb, vpabsd, vpabsw,
     vpackssdw, vpacksswb, vpackusdw, vpackuswb,
     vpaddb, vpaddd, vpaddq, vpaddsb, vpaddsw, vpaddusb, vpaddusw, vpaddw,
-    vpalignr, vpand, vpandn,
+    vpalignr, vpand, vpandn, vpavgb, vpavgw,
     vpblendvb, vpblendw, vpclmulqdq,
     vpcmpeqb, vpcmpeqd, vpcmpeqq, vpcmpeqw,
     vpcmpgtb, vpcmpgtd, vpcmpgtq, vpcmpgtw,
     vperm2f128, vpermilpd, vpermilps,
     vpextrb, vpextrd, vpextrq, vpextrw,
+    vphaddw, vphaddsw, vphaddd, vphminposuw, vphsubw, vphsubsw, vphsubd,
     vpinsrb, vpinsrd, vpinsrq, vpinsrw,
+    vpmaddubsw, vpmaddwd,
     vpmaxsb, vpmaxsd, vpmaxsw, vpmaxub, vpmaxud, vpmaxuw,
     vpminsb, vpminsd, vpminsw, vpminub, vpminud, vpminuw,
     vpmovmskb,
     vpmovsxbd, vpmovsxbq, vpmovsxbw, vpmovsxdq, vpmovsxwd, vpmovsxwq,
     vpmovzxbd, vpmovzxbq, vpmovzxbw, vpmovzxdq, vpmovzxwd, vpmovzxwq,
-    vpmulhw, vpmulld, vpmullw,
+    vpmuldq, vpmulhrsw, vpmulhuw, vpmulhw, vpmulld, vpmullw, vpmuludq,
     vpor,
-    vpshufb, vpshufd, vpshufhw, vpshuflw,
+    vpsadbw, vpshufb, vpshufd, vpshufhw, vpshuflw,
+    vpsignb, vpsignd, vpsignw,
     vpslld, vpslldq, vpsllq, vpsllw,
     vpsrad, vpsraq, vpsraw,
     vpsrld, vpsrldq, vpsrlq, vpsrlw,
@@ -779,7 +793,7 @@ pub const Op = enum {
     pub fn isImmediate(op: Op) bool {
         // zig fmt: off
         return switch (op) {
-            .imm8, .imm16, .imm32, .imm64, 
+            .imm8, .imm16, .imm32, .imm64,
             .imm8s, .imm16s, .imm32s,
             .rel8, .rel16, .rel32,
             .unity,
@@ -986,6 +1000,7 @@ pub const Feature = enum {
     sse,
     sse2,
     sse3,
+    @"sse3 x87",
     sse4_1,
     sse4_2,
     ssse3,
@@ -1015,7 +1030,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 }
 
 const mnemonic_to_encodings_map = init: {
-    @setEvalBranchQuota(5_800);
+    @setEvalBranchQuota(5_900);
     const ModrmExt = u3;
     const Entry = struct { Mnemonic, OpEn, []const Op, []const u8, ModrmExt, Mode, Feature };
     const encodings: []const Entry = @import("encodings.zon");
@@ -1024,17 +1039,17 @@ const mnemonic_to_encodings_map = init: {
     var mnemonic_map: [mnemonic_count][]Data = @splat(&.{});
     for (encodings) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
     var data_storage: [encodings.len]Data = undefined;
-    var storage_i: usize = 0;
+    var storage_index: usize = 0;
     for (&mnemonic_map) |*value| {
-        value.ptr = data_storage[storage_i..].ptr;
-        storage_i += value.len;
+        value.ptr = data_storage[storage_index..].ptr;
+        storage_index += value.len;
     }
-    var mnemonic_i: [mnemonic_count]usize = @splat(0);
+    var mnemonic_index: [mnemonic_count]usize = @splat(0);
     const ops_len = @typeInfo(@FieldType(Data, "ops")).array.len;
     const opc_len = @typeInfo(@FieldType(Data, "opc")).array.len;
     for (encodings) |entry| {
-        const i = &mnemonic_i[@intFromEnum(entry[0])];
-        mnemonic_map[@intFromEnum(entry[0])][i.*] = .{
+        const index = &mnemonic_index[@intFromEnum(entry[0])];
+        mnemonic_map[@intFromEnum(entry[0])][index.*] = .{
             .op_en = entry[1],
             .ops = (entry[2] ++ .{.none} ** (ops_len - entry[2].len)).*,
             .opc_len = entry[3].len,
@@ -1043,14 +1058,14 @@ const mnemonic_to_encodings_map = init: {
             .mode = entry[5],
             .feature = entry[6],
         };
-        i.* += 1;
+        index.* += 1;
     }
     const final_storage = data_storage;
     var final_map: [mnemonic_count][]const Data = @splat(&.{});
-    storage_i = 0;
+    storage_index = 0;
     for (&final_map, mnemonic_map) |*final_value, value| {
-        final_value.* = final_storage[storage_i..][0..value.len];
-        storage_i += value.len;
+        final_value.* = final_storage[storage_index..][0..value.len];
+        storage_index += value.len;
     }
     break :init final_map;
 };

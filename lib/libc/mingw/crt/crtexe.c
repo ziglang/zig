@@ -4,13 +4,6 @@
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
 
-#undef CRTDLL
-#ifndef _DLL
-#define _DLL
-#endif
-
-#define SPECIAL_CRTEXE
-
 #include <oscalls.h>
 #include <internal.h>
 #include <process.h>
@@ -211,9 +204,9 @@ __tmainCRTStartup (void)
 {
     void *lock_free = NULL;
     void *fiberid = ((PNT_TIB)NtCurrentTeb())->StackBase;
-    int nested = FALSE;
-    while((lock_free = InterlockedCompareExchangePointer ((volatile PVOID *) &__native_startup_lock,
-							  fiberid, 0)) != 0)
+    BOOL nested = FALSE;
+    while((lock_free = InterlockedCompareExchangePointer (&__native_startup_lock,
+							  fiberid, NULL)) != 0)
       {
 	if (lock_free == fiberid)
 	  {
@@ -242,7 +235,7 @@ __tmainCRTStartup (void)
       }
     _ASSERTE(__native_startup_state == __initialized);
     if (! nested)
-      (VOID)InterlockedExchangePointer ((volatile PVOID *) &__native_startup_lock, 0);
+      (VOID)InterlockedExchangePointer (&__native_startup_lock, NULL);
     
     if (__dyn_tls_init_callback != NULL)
       __dyn_tls_init_callback (NULL, DLL_THREAD_ATTACH, NULL);

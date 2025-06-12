@@ -8,8 +8,6 @@ pub const fmin = math.floatMin;
 pub const imax = math.maxInt;
 pub const imin = math.minInt;
 pub const inf = math.inf;
-pub const Log2Int = math.Log2Int;
-pub const Log2IntCeil = math.Log2IntCeil;
 pub const nan = math.nan;
 pub const next = math.nextAfter;
 pub const tmin = math.floatTrueMin;
@@ -19,7 +17,7 @@ pub const Gpr = switch (builtin.cpu.arch) {
     .x86 => u32,
     .x86_64 => u64,
 };
-pub const Sse = if (std.Target.x86.featureSetHas(builtin.cpu.features, .avx))
+pub const Sse = if (builtin.cpu.has(.x86, .avx))
     @Vector(32, u8)
 else
     @Vector(16, u8);
@@ -30,38 +28,44 @@ pub fn Scalar(comptime Type: type) type {
         .vector => |info| info.child,
     };
 }
+pub fn ChangeScalar(comptime Type: type, comptime NewScalar: type) type {
+    return switch (@typeInfo(Type)) {
+        else => NewScalar,
+        .vector => |vector| @Vector(vector.len, NewScalar),
+    };
+}
+pub fn AsSignedness(comptime Type: type, comptime signedness: std.builtin.Signedness) type {
+    return ChangeScalar(Type, @Type(.{ .int = .{
+        .signedness = signedness,
+        .bits = @typeInfo(Scalar(Type)).int.bits,
+    } }));
+}
 pub fn AddOneBit(comptime Type: type) type {
-    const ResultScalar = switch (@typeInfo(Scalar(Type))) {
+    return ChangeScalar(Type, switch (@typeInfo(Scalar(Type))) {
         .int => |int| @Type(.{ .int = .{ .signedness = int.signedness, .bits = 1 + int.bits } }),
         .float => Scalar(Type),
         else => @compileError(@typeName(Type)),
-    };
-    return switch (@typeInfo(Type)) {
-        else => ResultScalar,
-        .vector => |vector| @Vector(vector.len, ResultScalar),
-    };
+    });
 }
 pub fn DoubleBits(comptime Type: type) type {
-    const ResultScalar = switch (@typeInfo(Scalar(Type))) {
+    return ChangeScalar(Type, switch (@typeInfo(Scalar(Type))) {
         .int => |int| @Type(.{ .int = .{ .signedness = int.signedness, .bits = int.bits * 2 } }),
         .float => Scalar(Type),
         else => @compileError(@typeName(Type)),
-    };
-    return switch (@typeInfo(Type)) {
-        else => ResultScalar,
-        .vector => |vector| @Vector(vector.len, ResultScalar),
-    };
+    });
 }
 pub fn RoundBitsUp(comptime Type: type, comptime multiple: u16) type {
-    const ResultScalar = switch (@typeInfo(Scalar(Type))) {
+    return ChangeScalar(Type, switch (@typeInfo(Scalar(Type))) {
         .int => |int| @Type(.{ .int = .{ .signedness = int.signedness, .bits = std.mem.alignForward(u16, int.bits, multiple) } }),
         .float => Scalar(Type),
         else => @compileError(@typeName(Type)),
-    };
-    return switch (@typeInfo(Type)) {
-        else => ResultScalar,
-        .vector => |vector| @Vector(vector.len, ResultScalar),
-    };
+    });
+}
+pub fn Log2Int(comptime Type: type) type {
+    return ChangeScalar(Type, math.Log2Int(Scalar(Type)));
+}
+pub fn Log2IntCeil(comptime Type: type) type {
+    return ChangeScalar(Type, math.Log2IntCeil(Scalar(Type)));
 }
 // inline to avoid a runtime `@splat`
 pub inline fn splat(comptime Type: type, scalar: Scalar(Type)) Type {
@@ -78,18 +82,12 @@ inline fn select(cond: anytype, lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
         else => @compileError(@typeName(@TypeOf(cond))),
     };
 }
-pub fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
-    else => bool,
-    .vector => |vector| @Vector(vector.len, bool),
-} {
+pub fn sign(rhs: anytype) ChangeScalar(@TypeOf(rhs), bool) {
     const ScalarInt = @Type(.{ .int = .{
         .signedness = .unsigned,
         .bits = @bitSizeOf(Scalar(@TypeOf(rhs))),
     } });
-    const VectorInt = switch (@typeInfo(@TypeOf(rhs))) {
-        else => ScalarInt,
-        .vector => |vector| @Vector(vector.len, ScalarInt),
-    };
+    const VectorInt = ChangeScalar(@TypeOf(rhs), ScalarInt);
     return @as(VectorInt, @bitCast(rhs)) & splat(VectorInt, @as(ScalarInt, 1) << @bitSizeOf(ScalarInt) - 1) != splat(VectorInt, 0);
 }
 fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
@@ -125,7 +123,7 @@ fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     @compileError("unsupported boolOr type: " ++ @typeName(@TypeOf(lhs)));
 }
 
-pub const Compare = enum { strict, relaxed, approx, approx_int };
+pub const Compare = enum { strict, relaxed, approx, approx_int, approx_or_overflow };
 // noinline for a more helpful stack trace
 pub noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected), comptime compare: Compare) !void {
     const Expected = @TypeOf(expected);
@@ -137,20 +135,32 @@ pub noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected), comp
                 break :unexpected switch (compare) {
                     .strict => boolOr(unequal, sign(expected) != sign(actual)),
                     .relaxed => unequal,
-                    .approx, .approx_int => comptime unreachable,
+                    .approx, .approx_int, .approx_or_overflow => comptime unreachable,
                 };
             },
-            .approx, .approx_int => {
+            .approx, .approx_int, .approx_or_overflow => {
                 const epsilon = math.floatEps(Scalar(Expected));
-                const tolerance = @sqrt(epsilon);
-                break :unexpected @abs(expected - actual) > @max(
+                const tolerance = switch (compare) {
+                    .strict, .relaxed => comptime unreachable,
+                    .approx, .approx_int => @sqrt(epsilon),
+                    .approx_or_overflow => @exp2(@log2(epsilon) * 0.4),
+                };
+                const approx_unequal = @abs(expected - actual) > @max(
                     @abs(expected) * splat(Expected, tolerance),
                     splat(Expected, switch (compare) {
                         .strict, .relaxed => comptime unreachable,
-                        .approx => tolerance,
+                        .approx, .approx_or_overflow => tolerance,
                         .approx_int => 1,
                     }),
                 );
+                break :unexpected switch (compare) {
+                    .strict, .relaxed => comptime unreachable,
+                    .approx, .approx_int => approx_unequal,
+                    .approx_or_overflow => boolAnd(approx_unequal, boolOr(boolAnd(
+                        @abs(expected) != splat(Expected, inf(Expected)),
+                        @abs(actual) != splat(Expected, inf(Expected)),
+                    ), sign(expected) != sign(actual))),
+                };
             },
         },
         .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {

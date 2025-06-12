@@ -96,7 +96,6 @@ test "@abs big int <= 128 bits" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     try comptime testAbsSignedBigInt();
     try testAbsSignedBigInt();
@@ -211,7 +210,6 @@ fn testAbsFloats(comptime T: type) !void {
 test "@abs int vectors" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -344,11 +342,6 @@ test "@abs float vectors" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
-
-    // https://github.com/ziglang/zig/issues/12827
-    if (builtin.zig_backend == .stage2_llvm and
-        builtin.os.tag == .macos and
-        builtin.target.cpu.arch == .x86_64) return error.SkipZigTest;
 
     @setEvalBranchQuota(2000);
     try comptime testAbsFloatVectors(f16, 1);

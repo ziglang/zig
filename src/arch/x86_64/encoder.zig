@@ -111,7 +111,7 @@ pub const Instruction = struct {
         };
 
         pub fn initMoffs(reg: Register, offset: u64) Memory {
-            assert(reg.class() == .segment);
+            assert(reg.isClass(.segment));
             return .{ .moffs = .{ .seg = reg, .offset = offset } };
         }
 
@@ -138,8 +138,8 @@ pub const Instruction = struct {
                 .moffs => true,
                 .rip => false,
                 .sib => |s| switch (s.base) {
-                    .none, .frame, .table, .reloc, .rip_inst => false,
-                    .reg => |reg| reg.class() == .segment,
+                    .none, .frame, .table, .reloc, .pcrel, .rip_inst => false,
+                    .reg => |reg| reg.isClass(.segment),
                 },
             };
         }
@@ -199,7 +199,7 @@ pub const Instruction = struct {
         pub fn isSegmentRegister(op: Operand) bool {
             return switch (op) {
                 .none => unreachable,
-                .reg => |reg| reg.class() == .segment,
+                .reg => |reg| reg.isClass(.segment),
                 .mem => |mem| mem.isSegmentRegister(),
                 .imm => unreachable,
                 .bytes => unreachable,
@@ -211,7 +211,7 @@ pub const Instruction = struct {
                 .none, .imm => 0b00,
                 .reg => |reg| @truncate(reg.enc() >> 3),
                 .mem => |mem| switch (mem.base()) {
-                    .none, .frame, .table, .reloc, .rip_inst => 0b00, // rsp, rbp, and rip are not extended
+                    .none, .frame, .table, .reloc, .pcrel, .rip_inst => 0b00, // rsp, rbp, and rip are not extended
                     .reg => |reg| @truncate(reg.enc() >> 3),
                 },
                 .bytes => unreachable,
@@ -282,6 +282,7 @@ pub const Instruction = struct {
                             .frame => |frame_index| try writer.print("{}", .{frame_index}),
                             .table => try writer.print("Table", .{}),
                             .reloc => |sym_index| try writer.print("Symbol({d})", .{sym_index}),
+                            .pcrel => |sym_index| try writer.print("PcRelSymbol({d})", .{sym_index}),
                             .rip_inst => |inst_index| try writer.print("RipInst({d})", .{inst_index}),
                         }
                         if (mem.scaleIndex()) |si| {
@@ -721,7 +722,7 @@ pub const Instruction = struct {
                     try encoder.modRm_indirectDisp32(operand_enc, 0);
                     try encoder.disp32(undefined);
                 } else return error.CannotEncode,
-                .rip_inst => {
+                .pcrel, .rip_inst => {
                     try encoder.modRm_RIPDisp32(operand_enc);
                     try encoder.disp32(sib.disp);
                 },
@@ -776,7 +777,7 @@ pub const LegacyPrefixes = packed struct {
     padding: u5 = 0,
 
     pub fn setSegmentOverride(self: *LegacyPrefixes, reg: Register) void {
-        assert(reg.class() == .segment);
+        assert(reg.isClass(.segment));
         switch (reg) {
             .cs => self.prefix_2e = true,
             .ss => self.prefix_36 = true,
@@ -2457,7 +2458,7 @@ const Assembler = struct {
                 .general_purpose, .segment => {
                     const tok = try as.expect(.string);
                     const base = registerFromString(as.source(tok)) orelse return error.InvalidMemoryOperand;
-                    if (base.class() != cond) return error.InvalidMemoryOperand;
+                    if (!base.isClass(cond)) return error.InvalidMemoryOperand;
                     res.base = base;
                 },
                 .rip => {
@@ -2498,7 +2499,7 @@ const Assembler = struct {
                         error.Overflow => {
                             if (is_neg) return err;
                             if (res.base) |base| {
-                                if (base.class() != .segment) return err;
+                                if (!base.isClass(.segment)) return err;
                             }
                             const offset = try std.fmt.parseInt(u64, as.source(tok), 0);
                             res.offset = offset;

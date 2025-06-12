@@ -528,7 +528,10 @@ test "sub-aligned pointer field access" {
 }
 
 test "alignment of zero-bit types is respected" {
-    if (true) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     const S = struct { arr: [0]usize = .{} };
 
@@ -595,4 +598,11 @@ test "function pointer @intFromPtr/@ptrFromInt roundtrip" {
     const nothing_ptr2: *const fn () callconv(.c) void = @ptrFromInt(nothing_int);
 
     try std.testing.expectEqual(nothing_ptr, nothing_ptr2);
+}
+
+test "function pointer align mask" {
+    const int = if (builtin.cpu.arch.isArm() or builtin.cpu.arch.isMIPS()) 0x20202021 else 0x20202020;
+    const unaligned: *const fn () callconv(.c) void = @ptrFromInt(int);
+    const aligned: *align(16) const fn () callconv(.c) void = @alignCast(unaligned);
+    try expect(@intFromPtr(aligned) == int);
 }

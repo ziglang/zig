@@ -497,14 +497,14 @@ fn dynAbsRelocAction(symbol: *const Symbol, elf_file: *Elf) RelocAction {
 }
 
 fn outputType(elf_file: *Elf) u2 {
-    const comp = elf_file.base.comp;
     assert(!elf_file.base.isRelocatable());
-    return switch (elf_file.base.comp.config.output_mode) {
+    const config = &elf_file.base.comp.config;
+    return switch (config.output_mode) {
         .Obj => unreachable,
         .Lib => 0,
         .Exe => switch (elf_file.getTarget().os.tag) {
             .haiku => 0,
-            else => if (comp.config.pie) 1 else 2,
+            else => if (config.pie) 1 else 2,
         },
     };
 }

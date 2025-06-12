@@ -9,7 +9,6 @@ pub const Options = struct {
     lldb: ?[]const u8,
     optimize_modes: []const std.builtin.OptimizeMode,
     skip_single_threaded: bool,
-    skip_non_native: bool,
     skip_libc: bool,
 };
 
@@ -2442,8 +2441,10 @@ fn addTest(
     db_argv2: []const []const u8,
     expected_output: []const []const u8,
 ) void {
-    for (db.options.test_filters) |test_filter| {
-        if (std.mem.indexOf(u8, name, test_filter)) |_| return;
+    if (db.options.test_filters.len > 0) {
+        for (db.options.test_filters) |test_filter| {
+            if (std.mem.indexOf(u8, name, test_filter) != null) break;
+        } else return;
     }
     if (db.options.test_target_filters.len > 0) {
         const triple_txt = target.resolved.result.zigTriple(db.b.allocator) catch @panic("OOM");

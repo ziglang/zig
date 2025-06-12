@@ -218,7 +218,7 @@ typedef exception_handler_t     exception_port_t;
 typedef exception_handler_array_t exception_port_arrary_t;
 typedef char vfs_path_t[4096];
 /*
- * 8K, c.f. FSGETPATH_MAXBUFLEN in bsd/vfs/vfs_syscalls.c.
+ * 8K, c.f. MAXLONGPATHLEN in sys/syslimits.h.
  * These types should NEVER be allocated on the stack.
  */
 typedef char nspace_path_t[8192];

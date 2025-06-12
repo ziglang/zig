@@ -34,6 +34,16 @@ pub const Inst = struct {
         /// ___ 4
         _4,
 
+        /// ___ Demote
+        _demote,
+        /// ___ Flush
+        _flush,
+        /// ___ Flush Optimized
+        _flushopt,
+        /// ___ Instructions With T0 Hint
+        _it0,
+        /// ___ Instructions With T0 Hint
+        _it1,
         /// ___ With NTA Hint
         _nta,
         /// System Call ___
@@ -44,6 +54,8 @@ pub const Inst = struct {
         _t1,
         /// ___ With T2 Hint
         _t2,
+        /// ___ Write Back
+        _wb,
         /// ___ With Intent to Write and T1 Hint
         _wt1,
 
@@ -53,6 +65,8 @@ pub const Inst = struct {
         _csspq,
         /// ___ FS Segment Base
         _fsbase,
+        /// ___ GS
+        _gs,
         /// ___ GS Segment Base
         _gsbase,
         /// ___ Model Specific Register
@@ -67,8 +81,14 @@ pub const Inst = struct {
         _pmc,
         /// ___ Random Number
         _rand,
+        /// ___ r Busy Flag in a Supervisor Shadow Stack token
+        _rssbsy,
         /// ___ Random Seed
         _seed,
+        /// ___ Shadow Stack Doubleword
+        _ssd,
+        /// ___ Shadow Stack Quadword
+        _ssq,
         /// ___ Shadow Stack Pointer Doubleword
         _sspd,
         /// ___ Shadow Stack Pointer Quadword
@@ -77,9 +97,15 @@ pub const Inst = struct {
         _tsc,
         /// ___ Time-Stamp Counter And Processor ID
         _tscp,
+        /// ___ User Shadow Stack Doubleword
+        _ussd,
+        /// ___ User Shadow Stack Quadword
+        _ussq,
         /// VEX-Encoded ___ MXCSR
         v_mxcsr,
 
+        /// Byte ___
+        b_,
         /// Interrupt ___
         /// Integer ___
         i_,
@@ -118,6 +144,8 @@ pub const Inst = struct {
         _ld,
         /// ___ Left Without Affecting Flags
         _lx,
+        /// ___ Mask
+        _msk,
         /// ___ Right
         /// ___ For Reading
         /// ___ Register
@@ -139,6 +167,7 @@ pub const Inst = struct {
         /// ___ Below
         _b,
         /// ___ Below Or Equal
+        /// ___ Big Endian
         _be,
         /// ___ Carry
         /// ___ Carry Flag
@@ -212,8 +241,12 @@ pub const Inst = struct {
         _w,
         /// ___ Doubleword
         //_d,
+        /// ___ Double Quadword to Quadword
+        _dq2q,
         /// ___ QuadWord
         _q,
+        /// ___ Quadword to Double Quadword
+        _q2dq,
 
         /// ___ String
         //_s,
@@ -369,6 +402,8 @@ pub const Inst = struct {
         fn_sw,
         /// Float Extended ___
         fx_,
+        /// Float Extended ___ 64
+        fx_64,
 
         /// ___ in 32-bit and Compatibility Mode
         _32,
@@ -386,7 +421,18 @@ pub const Inst = struct {
         /// Packed ___ Quadword
         p_q,
         /// Packed ___ Double Quadword
+        /// Packed ___ Doubleword to Quadword
         p_dq,
+        /// Packed ___ Unsigned Doubleword to Quadword
+        p_udq,
+        /// Packed Carry-Less ___ Quadword to Double Quadword
+        pcl_qdq,
+        /// Packed Half ___ Doubleword
+        ph_d,
+        /// Packed Half ___ Saturate Word
+        ph_sw,
+        /// Packed Half ___ Word
+        ph_w,
         /// ___ Aligned Packed Integer Values
         _dqa,
         /// ___ Unaligned Packed Integer Values
@@ -400,6 +446,10 @@ pub const Inst = struct {
         //_sd,
         /// ___ Packed Double-Precision Values
         _pd,
+        /// Half ___ Packed Single-Precision Values
+        h_ps,
+        /// Half ___ Packed Double-Precision Values
+        h_pd,
 
         /// ___ Internal Caches
         //_d,
@@ -427,7 +477,7 @@ pub const Inst = struct {
         v_w,
         /// VEX-Encoded ___ Doubleword
         v_d,
-        /// VEX-Encoded ___ QuadWord
+        /// VEX-Encoded ___ Quadword
         v_q,
         /// VEX-Encoded ___ Aligned Packed Integer Values
         v_dqa,
@@ -446,7 +496,18 @@ pub const Inst = struct {
         /// VEX-Encoded Packed ___ Quadword
         vp_q,
         /// VEX-Encoded Packed ___ Double Quadword
+        /// VEX-Encoded Packed ___ Doubleword to Quadword
         vp_dq,
+        /// VEX-Encoded Packed ___ Unsigned Doubleword to Quadword
+        vp_udq,
+        /// VEx-Encoded Packed Carry-Less ___ Quadword to Double Quadword
+        vpcl_qdq,
+        /// VEX-Encoded Packed Half ___ Doubleword
+        vph_d,
+        /// VEX-Encoded Packed Half ___ Saturate Word
+        vph_sw,
+        /// VEX-Encoded Packed Half ___ Word
+        vph_w,
         /// VEX-Encoded ___ Scalar Single-Precision Values
         v_ss,
         /// VEX-Encoded ___ Packed Single-Precision Values
@@ -457,6 +518,10 @@ pub const Inst = struct {
         v_pd,
         /// VEX-Encoded ___ 128-Bits Of Floating-Point Data
         v_f128,
+        /// VEX-Encoded Half ___ Packed Single-Precision Values
+        vh_ps,
+        /// VEX-Encoded Half ___ Packed Double-Precision Values
+        vh_pd,
 
         /// ___ 128-bit key with key locker
         _128,
@@ -504,6 +569,10 @@ pub const Inst = struct {
         /// Add scalar single-precision floating-point values
         /// Add packed double-precision floating-point values
         /// Add scalar double-precision floating-point values
+        /// Packed single-precision floating-point horizontal add
+        /// Packed double-precision floating-point horizontal add
+        /// Packed horizontal add
+        /// Packed horizontal add and saturate
         add,
         /// Logical and
         /// Bitwise logical and of packed single-precision floating-point values
@@ -515,12 +584,15 @@ pub const Inst = struct {
         /// Bit scan reverse
         bs,
         /// Byte swap
-        bswap,
+        /// Swap GS base register
+        swap,
         /// Bit test
         /// Bit test and complement
         /// Bit test and reset
         /// Bit test and set
         bt,
+        /// Check array index against bounds
+        bound,
         /// Call
         /// Fast system call
         call,
@@ -536,17 +608,12 @@ pub const Inst = struct {
         /// Clear interrupt flag
         /// Clear task-switched flag in CR0
         /// Clear user interrupt flag
-        cl,
         /// Cache line demote
-        cldemote,
         /// Flush cache line
-        clflush,
         /// Flush cache line optimized
-        clflushopt,
         /// Clear busy flag in a supervisor shadow stack token
-        clrssbsy,
         /// Cache line write back
-        clwb,
+        cl,
         /// Complement carry flag
         cmc,
         /// Conditional move
@@ -644,15 +711,16 @@ pub const Inst = struct {
         lzcnt,
         /// Move
         /// Move data from string to string
+        /// Move data after swapping bytes
         /// Move scalar single-precision floating-point value
         /// Move scalar double-precision floating-point value
         /// Move doubleword
         /// Move quadword
         /// Move aligned packed integer values
         /// Move unaligned packed integer values
+        /// Move quadword from XMM to MMX technology register
+        /// Move quadword from MMX technology to XMM register
         mov,
-        /// Move data after swapping bytes
-        movbe,
         /// Move with sign extension
         movsx,
         /// Move with zero extension
@@ -663,6 +731,9 @@ pub const Inst = struct {
         /// Multiply scalar single-precision floating-point values
         /// Multiply packed double-precision floating-point values
         /// Multiply scalar double-precision floating-point values
+        /// Multiply packed unsigned doubleword integers
+        /// Multiply packed doubleword integers
+        /// Carry-less multiplication quadword
         mul,
         /// Two's complement negation
         neg,
@@ -729,6 +800,8 @@ pub const Inst = struct {
         sca,
         /// Send user interprocessor interrupt
         senduipi,
+        /// Serialize instruction execution
+        serialize,
         /// Set byte on condition
         set,
         /// Logical shift left
@@ -750,6 +823,10 @@ pub const Inst = struct {
         /// Subtract scalar single-precision floating-point values
         /// Subtract packed double-precision floating-point values
         /// Subtract scalar double-precision floating-point values
+        /// Packed single-precision floating-point horizontal subtract
+        /// Packed double-precision floating-point horizontal subtract
+        /// Packed horizontal subtract
+        /// Packed horizontal subtract and saturate
         sub,
         /// Set carry flag
         /// Set direction flag
@@ -764,8 +841,6 @@ pub const Inst = struct {
         st,
         /// Store string
         sto,
-        /// Swap GS base register
-        swapgs,
         /// Test condition
         /// Logical compare
         /// Packed bit test
@@ -780,6 +855,8 @@ pub const Inst = struct {
         /// Write to model specific register
         /// Write to model specific register
         /// Write to model specific register
+        /// Write to shadow stack
+        /// Write to user shadow stack
         wr,
         /// Exchange and add
         xadd,
@@ -896,6 +973,10 @@ pub const Inst = struct {
         cmpgt,
         /// Empty MMX technology state
         emms,
+        /// Multiply and add packed signed and unsigned bytes
+        maddubs,
+        /// Multiply and add packed integers
+        maddw,
         /// Multiply packed signed integers and store low result
         mull,
         /// Multiply packed signed integers and store high result
@@ -924,6 +1005,8 @@ pub const Inst = struct {
         unpcklwd,
 
         // SSE
+        /// Average packed integers
+        avg,
         /// Convert packed doubleword integers to packed single-precision floating-point values
         /// Convert packed doubleword integers to packed double-precision floating-point values
         cvtpi2,
@@ -986,9 +1069,13 @@ pub const Inst = struct {
         /// Move unaligned packed single-precision floating-point values
         /// Move unaligned packed double-precision floating-point values
         movu,
+        /// Multiply packed unsigned integers and store high result
+        mulhu,
         /// Prefetch data into caches
         /// Prefetch data into caches with intent to write
         prefetch,
+        /// Compute sum of absolute differences
+        sadb,
         /// Packed interleave shuffle of quadruplets of single-precision floating-point values
         /// Packed interleave shuffle of pairs of double-precision floating-point values
         /// Shuffle packed doublewords
@@ -1048,9 +1135,6 @@ pub const Inst = struct {
         /// Packed single-precision floating-point add/subtract
         /// Packed double-precision floating-point add/subtract
         addsub,
-        /// Packed single-precision floating-point horizontal add
-        /// Packed double-precision floating-point horizontal add
-        hadd,
         /// Replicate double floating-point values
         movddup,
         /// Replicate single floating-point values
@@ -1061,6 +1145,10 @@ pub const Inst = struct {
         // SSSE3
         /// Packed align right
         alignr,
+        /// Packed multiply high with round and scale
+        mulhrs,
+        /// Packed sign
+        sign,
 
         // SSE4.1
         /// Pack with unsigned saturation
@@ -1085,6 +1173,8 @@ pub const Inst = struct {
         /// Insert scalar single-precision floating-point value
         /// Insert packed floating-point values
         insert,
+        /// Packed horizontal word minimum
+        minposu,
         /// Packed move with sign extend
         movsxb,
         movsxd,
@@ -1102,10 +1192,6 @@ pub const Inst = struct {
         // SSE4.2
         /// Accumulate CRC32 value
         crc32,
-
-        // PCLMUL
-        /// Carry-less multiplication quadword
-        clmulq,
 
         // AES
         /// Perform one round of an AES decryption flow
@@ -1626,11 +1712,50 @@ pub const Inst = struct {
         reg_list: RegisterList,
     };
 
-    // Make sure we don't accidentally make instructions bigger than expected.
-    // Note that in safety builds, Zig is allowed to insert a secret field for safety checks.
     comptime {
         if (!std.debug.runtime_safety) {
+            // Make sure we don't accidentally make instructions bigger than expected.
+            // Note that in safety builds, Zig is allowed to insert a secret field for safety checks.
             assert(@sizeOf(Data) == 8);
+        }
+        const Mnemonic = @import("Encoding.zig").Mnemonic;
+        if (@typeInfo(Mnemonic).@"enum".fields.len != 977 or
+            @typeInfo(Fixes).@"enum".fields.len != 231 or
+            @typeInfo(Tag).@"enum".fields.len != 251)
+        {
+            const cond_src = (struct {
+                fn src() std.builtin.SourceLocation {
+                    return @src();
+                }
+            }).src();
+            @setEvalBranchQuota(1_750_000);
+            for (@typeInfo(Mnemonic).@"enum".fields) |mnemonic| {
+                if (mnemonic.name[0] == '.') continue;
+                for (@typeInfo(Fixes).@"enum".fields) |fixes| {
+                    const pattern = fixes.name[if (std.mem.indexOfScalar(u8, fixes.name, ' ')) |index| index + " ".len else 0..];
+                    const wildcard_index = std.mem.indexOfScalar(u8, pattern, '_').?;
+                    const mnem_prefix = pattern[0..wildcard_index];
+                    const mnem_suffix = pattern[wildcard_index + "_".len ..];
+                    if (!std.mem.startsWith(u8, mnemonic.name, mnem_prefix)) continue;
+                    if (!std.mem.endsWith(u8, mnemonic.name, mnem_suffix)) continue;
+                    if (@hasField(
+                        Tag,
+                        mnemonic.name[mnem_prefix.len .. mnemonic.name.len - mnem_suffix.len],
+                    )) break;
+                } else @compileError("'" ++ mnemonic.name ++ "' is not encodable in Mir");
+            }
+            @compileError(std.fmt.comptimePrint(
+                \\All mnemonics are encodable in Mir! You may now change the condition at {s}:{d} to:
+                \\if (@typeInfo(Mnemonic).@"enum".fields.len != {d} or
+                \\    @typeInfo(Fixes).@"enum".fields.len != {d} or
+                \\    @typeInfo(Tag).@"enum".fields.len != {d})
+            , .{
+                cond_src.file,
+                cond_src.line - 6,
+                @typeInfo(Mnemonic).@"enum".fields.len,
+                @typeInfo(Fixes).@"enum".fields.len,
+                @typeInfo(Tag).@"enum".fields.len,
+            }));
         }
     }
 };
@@ -1741,7 +1866,7 @@ pub const Memory = struct {
                 .none, .table => undefined,
                 .reg => |reg| @intFromEnum(reg),
                 .frame => |frame_index| @intFromEnum(frame_index),
-                .reloc => |sym_index| sym_index,
+                .reloc, .pcrel => |sym_index| sym_index,
                 .rip_inst => |inst_index| inst_index,
             },
             .off = switch (mem.mod) {
@@ -1770,6 +1895,7 @@ pub const Memory = struct {
                         .frame => .{ .frame = @enumFromInt(mem.base) },
                         .table => .table,
                         .reloc => .{ .reloc = mem.base },
+                        .pcrel => .{ .pcrel = mem.base },
                         .rip_inst => .{ .rip_inst = mem.base },
                     },
                     .scale_index = switch (mem.info.index) {
@@ -1834,7 +1960,7 @@ pub fn resolveFrameAddr(mir: Mir, frame_addr: bits.FrameAddr) bits.RegisterOffse
 
 pub fn resolveFrameLoc(mir: Mir, mem: Memory) Memory {
     return switch (mem.info.base) {
-        .none, .reg, .table, .reloc, .rip_inst => mem,
+        .none, .reg, .table, .reloc, .pcrel, .rip_inst => mem,
         .frame => if (mir.frame_locs.len > 0) .{
             .info = .{
                 .base = .reg,

@@ -282,6 +282,7 @@ test "cast union to tag type of union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     try testCastUnionToTag();
     try comptime testCastUnionToTag();
@@ -1606,9 +1607,13 @@ test "packed union field pointer has correct alignment" {
     const bp = &b.u.x;
     const cp = &c.u.x;
 
-    comptime assert(@TypeOf(ap) == *align(4:2:3) u20);
-    comptime assert(@TypeOf(bp) == *align(1:2:3) u20);
-    comptime assert(@TypeOf(cp) == *align(64:2:3) u20);
+    const host_size = switch (builtin.zig_backend) {
+        else => comptime std.math.divCeil(comptime_int, @bitSizeOf(S), 8) catch unreachable,
+        .stage2_x86_64 => @sizeOf(S),
+    };
+    comptime assert(@TypeOf(ap) == *align(4:2:host_size) u20);
+    comptime assert(@TypeOf(bp) == *align(1:2:host_size) u20);
+    comptime assert(@TypeOf(cp) == *align(64:2:host_size) u20);
 
     a.u = .{ .x = 123 };
     b.u = .{ .x = 456 };
@@ -2129,7 +2134,6 @@ test "copied union field doesn't alias source" {
 }
 
 test "create union(enum) from other union(enum)" {
-    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
@@ -2254,7 +2258,6 @@ test "matching captures causes union equivalence" {
 }
 
 test "signed enum tag with negative value" {
-    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;

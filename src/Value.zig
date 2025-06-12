@@ -1325,21 +1325,6 @@ pub fn isLazySize(val: Value, zcu: *Zcu) bool {
     };
 }
 
-pub fn isPtrRuntimeValue(val: Value, zcu: *Zcu) bool {
-    const ip = &zcu.intern_pool;
-    const nav = ip.getBackingNav(val.toIntern()).unwrap() orelse return false;
-    const nav_val = switch (ip.getNav(nav).status) {
-        .unresolved => unreachable,
-        .type_resolved => |r| return r.is_threadlocal,
-        .fully_resolved => |r| r.val,
-    };
-    return switch (ip.indexToKey(nav_val)) {
-        .@"extern" => |e| e.is_threadlocal or e.is_dll_import,
-        .variable => |v| v.is_threadlocal,
-        else => false,
-    };
-}
-
 // Asserts that the provided start/end are in-bounds.
 pub fn sliceArray(
     val: Value,
@@ -2910,19 +2895,25 @@ pub fn intValueBounds(val: Value, pt: Zcu.PerThread) !?[2]Value {
 
 pub const BigIntSpace = InternPool.Key.Int.Storage.BigIntSpace;
 
-pub const zero_usize: Value = .{ .ip_index = .zero_usize };
-pub const zero_u8: Value = .{ .ip_index = .zero_u8 };
-pub const zero_comptime_int: Value = .{ .ip_index = .zero };
-pub const one_comptime_int: Value = .{ .ip_index = .one };
-pub const negative_one_comptime_int: Value = .{ .ip_index = .negative_one };
 pub const undef: Value = .{ .ip_index = .undef };
+pub const undef_bool: Value = .{ .ip_index = .undef_bool };
+pub const undef_usize: Value = .{ .ip_index = .undef_usize };
+pub const undef_u1: Value = .{ .ip_index = .undef_u1 };
+pub const zero_comptime_int: Value = .{ .ip_index = .zero };
+pub const zero_usize: Value = .{ .ip_index = .zero_usize };
+pub const zero_u1: Value = .{ .ip_index = .zero_u1 };
+pub const zero_u8: Value = .{ .ip_index = .zero_u8 };
+pub const one_comptime_int: Value = .{ .ip_index = .one };
+pub const one_usize: Value = .{ .ip_index = .one_usize };
+pub const one_u1: Value = .{ .ip_index = .one_u1 };
+pub const one_u8: Value = .{ .ip_index = .one_u8 };
+pub const four_u8: Value = .{ .ip_index = .four_u8 };
+pub const negative_one_comptime_int: Value = .{ .ip_index = .negative_one };
 pub const @"void": Value = .{ .ip_index = .void_value };
-pub const @"null": Value = .{ .ip_index = .null_value };
-pub const @"false": Value = .{ .ip_index = .bool_false };
-pub const @"true": Value = .{ .ip_index = .bool_true };
 pub const @"unreachable": Value = .{ .ip_index = .unreachable_value };
-
-pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type };
+pub const @"null": Value = .{ .ip_index = .null_value };
+pub const @"true": Value = .{ .ip_index = .bool_true };
+pub const @"false": Value = .{ .ip_index = .bool_false };
 pub const empty_tuple: Value = .{ .ip_index = .empty_tuple };
 
 pub fn makeBool(x: bool) Value {
@@ -3814,7 +3805,7 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
         .@"enum" => switch (interpret_mode) {
             .direct => {
                 const int = val.getUnsignedInt(zcu) orelse return error.TypeMismatch;
-                return std.meta.intToEnum(T, int) catch error.TypeMismatch;
+                return std.enums.fromInt(T, int) orelse error.TypeMismatch;
             },
             .by_name => {
                 const field_index = ty.enumTagFieldIndex(val, zcu) orelse return error.TypeMismatch;

@@ -94,9 +94,12 @@
 #define	_REGEX_H_
 #define	__REGEX_H_
 
+#include <_bounds.h>
 #include <_types.h>
 #include <Availability.h>
 #include <sys/_types/_size_t.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 /*********/
 /* types */
@@ -110,7 +113,7 @@ typedef __darwin_off_t regoff_t;
 typedef struct {
 	int re_magic;
 	size_t re_nsub;		/* number of parenthesized subexpressions */
-	const char *re_endp;	/* end pointer for REG_PEND */
+	const char *_LIBC_UNSAFE_INDEXABLE	re_endp;	/* end pointer for REG_PEND */
 	struct re_guts *re_g;	/* none of your business :-) */
 } regex_t;
 
@@ -207,32 +210,32 @@ typedef struct {
 
 __BEGIN_DECLS
 int	regcomp(regex_t * __restrict, const char * __restrict, int) __DARWIN_ALIAS(regcomp);
-size_t	regerror(int, const regex_t * __restrict, char * __restrict, size_t) __cold;
+size_t	regerror(int, const regex_t * __restrict, char *_LIBC_COUNT(__errbuf_size) __restrict, size_t __errbuf_size) __cold;
 /*
  * gcc under c99 mode won't compile "[ __restrict]" by itself.  As a workaround,
  * a dummy argument name is added.
  */
-int	regexec(const regex_t * __restrict, const char * __restrict, size_t,
-		regmatch_t __pmatch[ __restrict], int);
+int	regexec(const regex_t * __restrict, const char * __restrict, size_t __nmatch,
+		regmatch_t __pmatch[ __restrict _LIBC_COUNT(__nmatch)], int);
 void	regfree(regex_t *);
 
 #if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
 
 /* Darwin extensions */
-int	regncomp(regex_t * __restrict, const char * __restrict, size_t, int)
+int	regncomp(regex_t * __restrict, const char *_LIBC_COUNT(__len) __restrict, size_t __len, int)
 		__OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_6_0);
-int	regnexec(const regex_t * __restrict, const char * __restrict, size_t,
-		size_t, regmatch_t __pmatch[ __restrict], int)
+int	regnexec(const regex_t * __restrict, const char *_LIBC_COUNT(__len) __restrict, size_t __len,
+		size_t __nmatch, regmatch_t __pmatch[ __restrict _LIBC_COUNT(__nmatch)], int)
 		__OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_6_0);
 int	regwcomp(regex_t * __restrict, const wchar_t * __restrict, int)
 		__OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_6_0);
-int	regwexec(const regex_t * __restrict, const wchar_t * __restrict, size_t,
-		regmatch_t __pmatch[ __restrict], int)
+int	regwexec(const regex_t * __restrict, const wchar_t * __restrict, size_t __nmatch,
+		regmatch_t __pmatch[ __restrict _LIBC_COUNT(__nmatch)], int)
 		__OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_6_0);
-int	regwncomp(regex_t * __restrict, const wchar_t * __restrict, size_t, int)
+int	regwncomp(regex_t * __restrict, const wchar_t * _LIBC_COUNT(__len) __restrict, size_t __len, int)
 		__OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_6_0);
-int	regwnexec(const regex_t * __restrict, const wchar_t * __restrict,
-		size_t, size_t, regmatch_t __pmatch[ __restrict], int)
+int	regwnexec(const regex_t * __restrict, const wchar_t * _LIBC_COUNT(__len) __restrict,
+		size_t __len, size_t __nmatch, regmatch_t __pmatch[ __restrict _LIBC_COUNT(__nmatch)], int)
 		__OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_6_0);
 
 #endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */

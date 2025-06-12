@@ -55,6 +55,7 @@ test {
     _ = @import("behavior/member_func.zig");
     _ = @import("behavior/memcpy.zig");
     _ = @import("behavior/memset.zig");
+    _ = @import("behavior/memmove.zig");
     _ = @import("behavior/merge_error_sets.zig");
     _ = @import("behavior/muladd.zig");
     _ = @import("behavior/multiple_externs_with_conflicting_types.zig");
@@ -116,7 +117,7 @@ test {
 
     _ = @import("behavior/x86_64.zig");
 
-    if (builtin.zig_backend != .stage2_spirv64 and builtin.cpu.arch == .wasm32) {
+    if (builtin.cpu.arch == .wasm32) {
         _ = @import("behavior/wasm.zig");
     }
 

@@ -19,7 +19,7 @@ typedef enum {
   IpDadStateTentative,
   IpDadStateDuplicate,
   IpDadStateDeprecated,
-  IpDadStatePreferred,
+  IpDadStatePreferred
 } NL_DAD_STATE;
 
 #define MAKE_ROUTE_PROTOCOL(N, V) MIB_IPPROTO_ ## N = V, PROTO_IP_ ## N = V
@@ -98,7 +98,7 @@ typedef enum _NL_ROUTE_ORIGIN {
   NlroWellKnown,
   NlroDHCP,
   NlroRouterAdvertisement,
-  Nlro6to4,
+  Nlro6to4
 } NL_ROUTE_ORIGIN, *PNL_ROUTE_ORIGIN;
 
 typedef enum _NL_NEIGHBOR_STATE {
@@ -109,7 +109,7 @@ typedef enum _NL_NEIGHBOR_STATE {
   NlnsStale,
   NlnsReachable,
   NlnsPermanent,
-  NlnsMaximum,
+  NlnsMaximum
 } NL_NEIGHBOR_STATE, *PNL_NEIGHBOR_STATE;
 
 typedef enum _NL_LINK_LOCAL_ADDRESS_BEHAVIOR {

@@ -92,6 +92,12 @@ pub fn build(b: *std.Build) !void {
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
     const skip_translate_c = b.option(bool, "skip-translate-c", "Main test suite skips translate-c tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
+    const skip_freebsd = b.option(bool, "skip-freebsd", "Main test suite skips targets with freebsd OS") orelse false;
+    const skip_netbsd = b.option(bool, "skip-netbsd", "Main test suite skips targets with netbsd OS") orelse false;
+    const skip_windows = b.option(bool, "skip-windows", "Main test suite skips targets with windows OS") orelse false;
+    const skip_macos = b.option(bool, "skip-macos", "Main test suite skips targets with macos OS") orelse false;
+    const skip_linux = b.option(bool, "skip-linux", "Main test suite skips targets with linux OS") orelse false;
+    const skip_llvm = b.option(bool, "skip-llvm", "Main test suite skips targets that use LLVM backend") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
@@ -435,9 +441,15 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        .use_llvm = use_llvm,
-        .max_rss = 2 * 1024 * 1024 * 1024,
+        // 2923515904 was observed on an x86_64-linux-gnu host.
+        .max_rss = 3100000000,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
@@ -451,8 +463,13 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{"test/c_import"},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        .use_llvm = use_llvm,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
@@ -466,8 +483,13 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = true,
-        .use_llvm = use_llvm,
         .no_builtin = true,
     }));
 
@@ -482,8 +504,13 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = true,
-        .use_llvm = use_llvm,
         .no_builtin = true,
     }));
 
@@ -498,8 +525,13 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        .use_llvm = use_llvm,
         // I observed a value of 5605064704 on the M2 CI.
         .max_rss = 6165571174,
     }));
@@ -508,11 +540,9 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(unit_tests_step);
 
     const unit_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+        .root_module = addCompilerMod(b, .{
             .optimize = optimize,
             .target = target,
-            .link_libc = link_libc,
             .single_threaded = single_threaded,
         }),
         .filters = test_filters,
@@ -520,6 +550,9 @@ pub fn build(b: *std.Build) !void {
         .use_lld = use_llvm,
         .zig_lib_dir = b.path("lib"),
     });
+    if (link_libc) {
+        unit_tests.root_module.link_libc = true;
+    }
     unit_tests.root_module.addOptions("build_options", exe_options);
     unit_tests_step.dependOn(&b.addRunArtifact(unit_tests).step);
 
@@ -534,6 +567,12 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(tests.addCAbiTests(b, .{
         .test_target_filters = test_target_filters,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_release = skip_release,
     }));
     test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
@@ -547,9 +586,13 @@ pub fn build(b: *std.Build) !void {
         .lldb = b.option([]const u8, "lldb", "path to lldb binary"),
         .optimize_modes = optimization_modes,
         .skip_single_threaded = skip_single_threaded,
-        .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
     })) |test_debugger_step| test_step.dependOn(test_debugger_step);
+    if (tests.addLlvmIrTests(b, .{
+        .enable_llvm = enable_llvm,
+        .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+    })) |test_llvm_ir_step| test_step.dependOn(test_llvm_ir_step);
 
     try addWasiUpdateStep(b, version);
 
@@ -645,7 +688,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     update_zig1_step.dependOn(&copy_zig_h.step);
 }
 
-const AddCompilerStepOptions = struct {
+const AddCompilerModOptions = struct {
     optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
     strip: ?bool = null,
@@ -654,7 +697,7 @@ const AddCompilerStepOptions = struct {
     single_threaded: ?bool = null,
 };
 
-fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
+fn addCompilerMod(b: *std.Build, options: AddCompilerModOptions) *std.Build.Module {
     const compiler_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = options.target,
@@ -677,10 +720,14 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
     compiler_mod.addImport("aro", aro_mod);
     compiler_mod.addImport("aro_translate_c", aro_translate_c_mod);
 
+    return compiler_mod;
+}
+
+fn addCompilerStep(b: *std.Build, options: AddCompilerModOptions) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "zig",
         .max_rss = 7_800_000_000,
-        .root_module = compiler_mod,
+        .root_module = addCompilerMod(b, options),
     });
     exe.stack_size = stack_size;
 

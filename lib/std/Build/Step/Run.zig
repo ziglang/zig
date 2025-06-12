@@ -138,7 +138,7 @@ pub const StdIo = union(enum) {
 pub const Arg = union(enum) {
     artifact: PrefixedArtifact,
     lazy_path: PrefixedLazyPath,
-    directory_source: PrefixedLazyPath,
+    decorated_directory: DecoratedLazyPath,
     bytes: []u8,
     output_file: *Output,
     output_directory: *Output,
@@ -152,6 +152,12 @@ pub const PrefixedArtifact = struct {
 pub const PrefixedLazyPath = struct {
     prefix: []const u8,
     lazy_path: std.Build.LazyPath,
+};
+
+pub const DecoratedLazyPath = struct {
+    prefix: []const u8,
+    lazy_path: std.Build.LazyPath,
+    suffix: []const u8,
 };
 
 pub const Output = struct {
@@ -360,19 +366,33 @@ pub fn addPrefixedOutputDirectoryArg(
     return .{ .generated = .{ .file = &output.generated_file } };
 }
 
-pub fn addDirectoryArg(run: *Run, directory_source: std.Build.LazyPath) void {
-    run.addPrefixedDirectoryArg("", directory_source);
+pub fn addDirectoryArg(run: *Run, lazy_directory: std.Build.LazyPath) void {
+    run.addDecoratedDirectoryArg("", lazy_directory, "");
 }
 
-pub fn addPrefixedDirectoryArg(run: *Run, prefix: []const u8, directory_source: std.Build.LazyPath) void {
+pub fn addPrefixedDirectoryArg(run: *Run, prefix: []const u8, lazy_directory: std.Build.LazyPath) void {
     const b = run.step.owner;
-
-    const prefixed_directory_source: PrefixedLazyPath = .{
+    run.argv.append(b.allocator, .{ .decorated_directory = .{
         .prefix = b.dupe(prefix),
-        .lazy_path = directory_source.dupe(b),
-    };
-    run.argv.append(b.allocator, .{ .directory_source = prefixed_directory_source }) catch @panic("OOM");
-    directory_source.addStepDependencies(&run.step);
+        .lazy_path = lazy_directory.dupe(b),
+        .suffix = "",
+    } }) catch @panic("OOM");
+    lazy_directory.addStepDependencies(&run.step);
+}
+
+pub fn addDecoratedDirectoryArg(
+    run: *Run,
+    prefix: []const u8,
+    lazy_directory: std.Build.LazyPath,
+    suffix: []const u8,
+) void {
+    const b = run.step.owner;
+    run.argv.append(b.allocator, .{ .decorated_directory = .{
+        .prefix = b.dupe(prefix),
+        .lazy_path = lazy_directory.dupe(b),
+        .suffix = b.dupe(suffix),
+    } }) catch @panic("OOM");
+    lazy_directory.addStepDependencies(&run.step);
 }
 
 /// Add a path argument to a dep file (.d) for the child process to write its
@@ -661,11 +681,11 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 man.hash.addBytes(file.prefix);
                 _ = try man.addFile(file_path, null);
             },
-            .directory_source => |file| {
-                const file_path = file.lazy_path.getPath2(b, step);
-                try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
-                man.hash.addBytes(file.prefix);
-                man.hash.addBytes(file_path);
+            .decorated_directory => |dd| {
+                const file_path = dd.lazy_path.getPath3(b, step);
+                const resolved_arg = b.fmt("{s}{}{s}", .{ dd.prefix, file_path, dd.suffix });
+                try argv_list.append(resolved_arg);
+                man.hash.addBytes(resolved_arg);
             },
             .artifact => |pa| {
                 const artifact = pa.artifact;
@@ -882,9 +902,9 @@ pub fn rerunInFuzzMode(
                 const file_path = file.lazy_path.getPath2(b, step);
                 try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, file_path }));
             },
-            .directory_source => |file| {
-                const file_path = file.lazy_path.getPath2(b, step);
-                try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, file_path }));
+            .decorated_directory => |dd| {
+                const file_path = dd.lazy_path.getPath3(b, step);
+                try argv_list.append(arena, b.fmt("{s}{}{s}", .{ dd.prefix, file_path, dd.suffix }));
             },
             .artifact => |pa| {
                 const artifact = pa.artifact;
@@ -1026,11 +1046,11 @@ fn runCommand(
             }
 
             const root_target = exe.rootModuleTarget();
-            const need_cross_glibc = root_target.isGnuLibC() and
-                exe.is_linking_libc;
+            const need_cross_libc = exe.is_linking_libc and
+                (root_target.isGnuLibC() or (root_target.isMuslLibC() and exe.linkage == .dynamic));
             const other_target = exe.root_module.resolved_target.?.result;
             switch (std.zig.system.getExternalExecutor(b.graph.host.result, &other_target, .{
-                .qemu_fixes_dl = need_cross_glibc and b.glibc_runtimes_dir != null,
+                .qemu_fixes_dl = need_cross_libc and b.libc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
                 .native, .rosetta => {
@@ -1047,31 +1067,29 @@ fn runCommand(
                 },
                 .qemu => |bin_name| {
                     if (b.enable_qemu) {
-                        const glibc_dir_arg = if (need_cross_glibc)
-                            b.glibc_runtimes_dir orelse
-                                return failForeign(run, "--glibc-runtimes", argv[0], exe)
-                        else
-                            null;
-
                         try interp_argv.append(bin_name);
 
-                        if (glibc_dir_arg) |dir| {
-                            try interp_argv.append("-L");
-                            try interp_argv.append(b.pathJoin(&.{
-                                dir,
-                                try std.zig.target.glibcRuntimeTriple(
-                                    b.allocator,
-                                    root_target.cpu.arch,
-                                    root_target.os.tag,
-                                    root_target.abi,
-                                ),
-                            }));
+                        if (need_cross_libc) {
+                            if (b.libc_runtimes_dir) |dir| {
+                                try interp_argv.append("-L");
+                                try interp_argv.append(b.pathJoin(&.{
+                                    dir,
+                                    try if (root_target.isGnuLibC()) std.zig.target.glibcRuntimeTriple(
+                                        b.allocator,
+                                        root_target.cpu.arch,
+                                        root_target.os.tag,
+                                        root_target.abi,
+                                    ) else if (root_target.isMuslLibC()) std.zig.target.muslRuntimeTriple(
+                                        b.allocator,
+                                        root_target.cpu.arch,
+                                        root_target.abi,
+                                    ) else unreachable,
+                                }));
+                            } else return failForeign(run, "--libc-runtimes", argv[0], exe);
                         }
 
                         try interp_argv.appendSlice(argv);
-                    } else {
-                        return failForeign(run, "-fqemu", argv[0], exe);
-                    }
+                    } else return failForeign(run, "-fqemu", argv[0], exe);
                 },
                 .darling => |bin_name| {
                     if (b.enable_darling) {
@@ -1336,9 +1354,6 @@ fn spawnChildAndCollect(
     var child = std.process.Child.init(argv, arena);
     if (run.cwd) |lazy_cwd| {
         child.cwd = lazy_cwd.getPath2(b, &run.step);
-    } else {
-        child.cwd = b.build_root.path;
-        child.cwd_dir = b.build_root.handle;
     }
     child.env_map = run.env_map orelse &b.graph.env_map;
     child.request_resource_usage_statistics = true;

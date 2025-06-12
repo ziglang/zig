@@ -526,10 +526,10 @@ pub const Nav = struct {
         /// The type of this `Nav` is resolved; the value is queued for resolution.
         type_resolved: struct {
             type: InternPool.Index,
+            is_const: bool,
             alignment: Alignment,
             @"linksection": OptionalNullTerminatedString,
             @"addrspace": std.builtin.AddressSpace,
-            is_const: bool,
             is_threadlocal: bool,
             /// This field is whether this `Nav` is a literal `extern` definition.
             /// It does *not* tell you whether this might alias an extern fn (see #21027).
@@ -538,6 +538,7 @@ pub const Nav = struct {
         /// The value of this `Nav` is resolved.
         fully_resolved: struct {
             val: InternPool.Index,
+            is_const: bool,
             alignment: Alignment,
             @"linksection": OptionalNullTerminatedString,
             @"addrspace": std.builtin.AddressSpace,
@@ -727,11 +728,11 @@ pub const Nav = struct {
         const Bits = packed struct(u16) {
             status: enum(u2) { unresolved, type_resolved, fully_resolved, type_resolved_extern_decl },
             /// Populated only if `bits.status != .unresolved`.
+            is_const: bool,
+            /// Populated only if `bits.status != .unresolved`.
             alignment: Alignment,
             /// Populated only if `bits.status != .unresolved`.
             @"addrspace": std.builtin.AddressSpace,
-            /// Populated only if `bits.status == .type_resolved`.
-            is_const: bool,
             /// Populated only if `bits.status == .type_resolved`.
             is_threadlocal: bool,
             is_usingnamespace: bool,
@@ -753,15 +754,16 @@ pub const Nav = struct {
                     .unresolved => .unresolved,
                     .type_resolved, .type_resolved_extern_decl => .{ .type_resolved = .{
                         .type = repr.type_or_val,
+                        .is_const = repr.bits.is_const,
                         .alignment = repr.bits.alignment,
                         .@"linksection" = repr.@"linksection",
                         .@"addrspace" = repr.bits.@"addrspace",
-                        .is_const = repr.bits.is_const,
                         .is_threadlocal = repr.bits.is_threadlocal,
                         .is_extern_decl = repr.bits.status == .type_resolved_extern_decl,
                     } },
                     .fully_resolved => .{ .fully_resolved = .{
                         .val = repr.type_or_val,
+                        .is_const = repr.bits.is_const,
                         .alignment = repr.bits.alignment,
                         .@"linksection" = repr.@"linksection",
                         .@"addrspace" = repr.bits.@"addrspace",
@@ -792,26 +794,26 @@ pub const Nav = struct {
             .bits = switch (nav.status) {
                 .unresolved => .{
                     .status = .unresolved,
+                    .is_const = false,
                     .alignment = .none,
                     .@"addrspace" = .generic,
                     .is_usingnamespace = nav.is_usingnamespace,
-                    .is_const = false,
                     .is_threadlocal = false,
                 },
                 .type_resolved => |r| .{
                     .status = if (r.is_extern_decl) .type_resolved_extern_decl else .type_resolved,
+                    .is_const = r.is_const,
                     .alignment = r.alignment,
                     .@"addrspace" = r.@"addrspace",
                     .is_usingnamespace = nav.is_usingnamespace,
-                    .is_const = r.is_const,
                     .is_threadlocal = r.is_threadlocal,
                 },
                 .fully_resolved => |r| .{
                     .status = .fully_resolved,
+                    .is_const = r.is_const,
                     .alignment = r.alignment,
                     .@"addrspace" = r.@"addrspace",
                     .is_usingnamespace = nav.is_usingnamespace,
-                    .is_const = false,
                     .is_threadlocal = false,
                 },
             },
@@ -1723,6 +1725,19 @@ pub const FileIndex = enum(u32) {
             .index = @intFromEnum(file_index) & ip.getIndexMask(u32),
         };
     }
+    pub fn toOptional(i: FileIndex) Optional {
+        return @enumFromInt(@intFromEnum(i));
+    }
+    pub const Optional = enum(u32) {
+        none = std.math.maxInt(u32),
+        _,
+        pub fn unwrap(opt: Optional) ?FileIndex {
+            return switch (opt) {
+                .none => null,
+                _ => @enumFromInt(@intFromEnum(opt)),
+            };
+        }
+    };
 };
 
 const File = struct {
@@ -2208,7 +2223,6 @@ pub const Key = union(enum) {
         init: Index,
         owner_nav: Nav.Index,
         is_threadlocal: bool,
-        is_weak_linkage: bool,
     };
 
     pub const Extern = struct {
@@ -2221,10 +2235,12 @@ pub const Key = union(enum) {
         /// For example `extern "c" fn write(...) usize` would have 'c' as library name.
         /// Index into the string table bytes.
         lib_name: OptionalNullTerminatedString,
-        is_const: bool,
+        linkage: std.builtin.GlobalLinkage,
+        visibility: std.builtin.SymbolVisibility,
         is_threadlocal: bool,
-        is_weak_linkage: bool,
         is_dll_import: bool,
+        relocation: std.builtin.ExternOptions.Relocation,
+        is_const: bool,
         alignment: Alignment,
         @"addrspace": std.builtin.AddressSpace,
         /// The ZIR instruction which created this extern; used only for source locations.
@@ -2831,9 +2847,10 @@ pub const Key = union(enum) {
 
             .@"extern" => |e| Hash.hash(seed, asBytes(&e.name) ++
                 asBytes(&e.ty) ++ asBytes(&e.lib_name) ++
-                asBytes(&e.is_const) ++ asBytes(&e.is_threadlocal) ++
-                asBytes(&e.is_weak_linkage) ++ asBytes(&e.alignment) ++
-                asBytes(&e.is_dll_import) ++ asBytes(&e.@"addrspace") ++
+                asBytes(&e.linkage) ++ asBytes(&e.visibility) ++
+                asBytes(&e.is_threadlocal) ++ asBytes(&e.is_dll_import) ++
+                asBytes(&e.relocation) ++
+                asBytes(&e.is_const) ++ asBytes(&e.alignment) ++ asBytes(&e.@"addrspace") ++
                 asBytes(&e.zir_index)),
         };
     }
@@ -2915,21 +2932,22 @@ pub const Key = union(enum) {
 
             .variable => |a_info| {
                 const b_info = b.variable;
-                return a_info.owner_nav == b_info.owner_nav and
-                    a_info.ty == b_info.ty and
+                return a_info.ty == b_info.ty and
                     a_info.init == b_info.init and
-                    a_info.is_threadlocal == b_info.is_threadlocal and
-                    a_info.is_weak_linkage == b_info.is_weak_linkage;
+                    a_info.owner_nav == b_info.owner_nav and
+                    a_info.is_threadlocal == b_info.is_threadlocal;
             },
             .@"extern" => |a_info| {
                 const b_info = b.@"extern";
                 return a_info.name == b_info.name and
                     a_info.ty == b_info.ty and
                     a_info.lib_name == b_info.lib_name and
-                    a_info.is_const == b_info.is_const and
+                    a_info.linkage == b_info.linkage and
+                    a_info.visibility == b_info.visibility and
                     a_info.is_threadlocal == b_info.is_threadlocal and
-                    a_info.is_weak_linkage == b_info.is_weak_linkage and
                     a_info.is_dll_import == b_info.is_dll_import and
+                    a_info.relocation == b_info.relocation and
+                    a_info.is_const == b_info.is_const and
                     a_info.alignment == b_info.alignment and
                     a_info.@"addrspace" == b_info.@"addrspace" and
                     a_info.zir_index == b_info.zir_index;
@@ -4535,6 +4553,7 @@ pub const Index = enum(u32) {
     u80_type,
     u128_type,
     i128_type,
+    u256_type,
     usize_type,
     isize_type,
     c_char_type,
@@ -4565,40 +4584,61 @@ pub const Index = enum(u32) {
     undefined_type,
     enum_literal_type,
 
+    ptr_usize_type,
+    ptr_const_comptime_int_type,
     manyptr_u8_type,
     manyptr_const_u8_type,
     manyptr_const_u8_sentinel_0_type,
-    single_const_pointer_to_comptime_int_type,
     slice_const_u8_type,
     slice_const_u8_sentinel_0_type,
 
+    vector_8_i8_type,
     vector_16_i8_type,
     vector_32_i8_type,
+    vector_64_i8_type,
     vector_1_u8_type,
     vector_2_u8_type,
     vector_4_u8_type,
     vector_8_u8_type,
     vector_16_u8_type,
     vector_32_u8_type,
+    vector_64_u8_type,
+    vector_2_i16_type,
+    vector_4_i16_type,
     vector_8_i16_type,
     vector_16_i16_type,
+    vector_32_i16_type,
+    vector_4_u16_type,
     vector_8_u16_type,
     vector_16_u16_type,
+    vector_32_u16_type,
+    vector_2_i32_type,
     vector_4_i32_type,
     vector_8_i32_type,
+    vector_16_i32_type,
     vector_4_u32_type,
     vector_8_u32_type,
+    vector_16_u32_type,
     vector_2_i64_type,
     vector_4_i64_type,
+    vector_8_i64_type,
     vector_2_u64_type,
     vector_4_u64_type,
+    vector_8_u64_type,
+    vector_1_u128_type,
+    vector_2_u128_type,
+    vector_1_u256_type,
     vector_4_f16_type,
     vector_8_f16_type,
+    vector_16_f16_type,
+    vector_32_f16_type,
     vector_2_f32_type,
     vector_4_f32_type,
     vector_8_f32_type,
+    vector_16_f32_type,
     vector_2_f64_type,
     vector_4_f64_type,
+    vector_8_f64_type,
 
     optional_noreturn_type,
     anyerror_void_error_union_type,
@@ -4615,19 +4655,29 @@ pub const Index = enum(u32) {
 
     /// `undefined` (untyped)
     undef,
+    /// `@as(bool, undefined)`
+    undef_bool,
+    /// `@as(usize, undefined)`
+    undef_usize,
+    /// `@as(u1, undefined)`
+    undef_u1,
     /// `0` (comptime_int)
     zero,
-    /// `0` (usize)
+    /// `@as(usize, 0)`
     zero_usize,
-    /// `0` (u8)
+    /// `@as(u1, 0)`
+    zero_u1,
+    /// `@as(u8, 0)`
     zero_u8,
     /// `1` (comptime_int)
     one,
-    /// `1` (usize)
+    /// `@as(usize, 1)`
     one_usize,
-    /// `1` (u8)
+    /// `@as(u1, 1)`
+    one_u1,
+    /// `@as(u8, 1)`
     one_u8,
-    /// `4` (u8)
+    /// `@as(u8, 4)`
     four_u8,
     /// `-1` (comptime_int)
     negative_one,
@@ -4844,6 +4894,7 @@ pub const Index = enum(u32) {
         float_c_longdouble_f128: struct { data: *Float128 },
         float_comptime_float: struct { data: *Float128 },
         variable: struct { data: *Tag.Variable },
+        threadlocal_variable: struct { data: *Tag.Variable },
         @"extern": struct { data: *Tag.Extern },
         func_decl: struct {
             const @"data.analysis.inferred_error_set" = opaque {};
@@ -4929,7 +4980,7 @@ pub const Index = enum(u32) {
     }
 };
 
-pub const static_keys = [_]Key{
+pub const static_keys: [static_len]Key = .{
     .{ .int_type = .{
         .signedness = .unsigned,
         .bits = 0,
@@ -5005,6 +5056,11 @@ pub const static_keys = [_]Key{
         .bits = 128,
     } },
 
+    .{ .int_type = .{
+        .signedness = .unsigned,
+        .bits = 256,
+    } },
+
     .{ .simple_type = .usize },
     .{ .simple_type = .isize },
     .{ .simple_type = .c_char },
@@ -5035,6 +5091,20 @@ pub const static_keys = [_]Key{
     .{ .simple_type = .undefined },
     .{ .simple_type = .enum_literal },
 
+    // *usize
+    .{ .ptr_type = .{
+        .child = .usize_type,
+        .flags = .{},
+    } },
+
+    // *const comptime_int
+    .{ .ptr_type = .{
+        .child = .comptime_int_type,
+        .flags = .{
+            .is_const = true,
+        },
+    } },
+
     // [*]u8
     .{ .ptr_type = .{
         .child = .u8_type,
@@ -5062,15 +5132,6 @@ pub const static_keys = [_]Key{
         },
     } },
 
-    // *const comptime_int
-    .{ .ptr_type = .{
-        .child = .comptime_int_type,
-        .flags = .{
-            .size = .one,
-            .is_const = true,
-        },
-    } },
-
     // []const u8
     .{ .ptr_type = .{
         .child = .u8_type,
@@ -5090,10 +5151,14 @@ pub const static_keys = [_]Key{
         },
     } },
 
+    // @Vector(8, i8)
+    .{ .vector_type = .{ .len = 8, .child = .i8_type } },
     // @Vector(16, i8)
     .{ .vector_type = .{ .len = 16, .child = .i8_type } },
     // @Vector(32, i8)
     .{ .vector_type = .{ .len = 32, .child = .i8_type } },
+    // @Vector(64, i8)
+    .{ .vector_type = .{ .len = 64, .child = .i8_type } },
     // @Vector(1, u8)
     .{ .vector_type = .{ .len = 1, .child = .u8_type } },
     // @Vector(2, u8)
@@ -5106,44 +5171,80 @@ pub const static_keys = [_]Key{
     .{ .vector_type = .{ .len = 16, .child = .u8_type } },
     // @Vector(32, u8)
     .{ .vector_type = .{ .len = 32, .child = .u8_type } },
+    // @Vector(64, u8)
+    .{ .vector_type = .{ .len = 64, .child = .u8_type } },
+    // @Vector(2, i16)
+    .{ .vector_type = .{ .len = 2, .child = .i16_type } },
+    // @Vector(4, i16)
+    .{ .vector_type = .{ .len = 4, .child = .i16_type } },
     // @Vector(8, i16)
     .{ .vector_type = .{ .len = 8, .child = .i16_type } },
     // @Vector(16, i16)
     .{ .vector_type = .{ .len = 16, .child = .i16_type } },
+    // @Vector(32, i16)
+    .{ .vector_type = .{ .len = 32, .child = .i16_type } },
+    // @Vector(4, u16)
+    .{ .vector_type = .{ .len = 4, .child = .u16_type } },
     // @Vector(8, u16)
     .{ .vector_type = .{ .len = 8, .child = .u16_type } },
     // @Vector(16, u16)
     .{ .vector_type = .{ .len = 16, .child = .u16_type } },
+    // @Vector(32, u16)
+    .{ .vector_type = .{ .len = 32, .child = .u16_type } },
+    // @Vector(2, i32)
+    .{ .vector_type = .{ .len = 2, .child = .i32_type } },
     // @Vector(4, i32)
     .{ .vector_type = .{ .len = 4, .child = .i32_type } },
     // @Vector(8, i32)
     .{ .vector_type = .{ .len = 8, .child = .i32_type } },
+    // @Vector(16, i32)
+    .{ .vector_type = .{ .len = 16, .child = .i32_type } },
     // @Vector(4, u32)
     .{ .vector_type = .{ .len = 4, .child = .u32_type } },
     // @Vector(8, u32)
     .{ .vector_type = .{ .len = 8, .child = .u32_type } },
+    // @Vector(16, u32)
+    .{ .vector_type = .{ .len = 16, .child = .u32_type } },
     // @Vector(2, i64)
     .{ .vector_type = .{ .len = 2, .child = .i64_type } },
     // @Vector(4, i64)
     .{ .vector_type = .{ .len = 4, .child = .i64_type } },
+    // @Vector(8, i64)
+    .{ .vector_type = .{ .len = 8, .child = .i64_type } },
     // @Vector(2, u64)
     .{ .vector_type = .{ .len = 2, .child = .u64_type } },
-    // @Vector(8, u64)
+    // @Vector(4, u64)
     .{ .vector_type = .{ .len = 4, .child = .u64_type } },
+    // @Vector(8, u64)
+    .{ .vector_type = .{ .len = 8, .child = .u64_type } },
+    // @Vector(1, u128)
+    .{ .vector_type = .{ .len = 1, .child = .u128_type } },
+    // @Vector(2, u128)
+    .{ .vector_type = .{ .len = 2, .child = .u128_type } },
+    // @Vector(1, u256)
+    .{ .vector_type = .{ .len = 1, .child = .u256_type } },
     // @Vector(4, f16)
     .{ .vector_type = .{ .len = 4, .child = .f16_type } },
     // @Vector(8, f16)
     .{ .vector_type = .{ .len = 8, .child = .f16_type } },
+    // @Vector(16, f16)
+    .{ .vector_type = .{ .len = 16, .child = .f16_type } },
+    // @Vector(32, f16)
+    .{ .vector_type = .{ .len = 32, .child = .f16_type } },
     // @Vector(2, f32)
     .{ .vector_type = .{ .len = 2, .child = .f32_type } },
     // @Vector(4, f32)
     .{ .vector_type = .{ .len = 4, .child = .f32_type } },
     // @Vector(8, f32)
     .{ .vector_type = .{ .len = 8, .child = .f32_type } },
+    // @Vector(16, f32)
+    .{ .vector_type = .{ .len = 16, .child = .f32_type } },
     // @Vector(2, f64)
     .{ .vector_type = .{ .len = 2, .child = .f64_type } },
     // @Vector(4, f64)
     .{ .vector_type = .{ .len = 4, .child = .f64_type } },
+    // @Vector(8, f64)
+    .{ .vector_type = .{ .len = 8, .child = .f64_type } },
 
     // ?noreturn
     .{ .opt_type = .noreturn_type },
@@ -5166,6 +5267,9 @@ pub const static_keys = [_]Key{
     } },
 
     .{ .simple_value = .undefined },
+    .{ .undef = .bool_type },
+    .{ .undef = .usize_type },
+    .{ .undef = .u1_type },
 
     .{ .int = .{
         .ty = .comptime_int_type,
@@ -5174,6 +5278,11 @@ pub const static_keys = [_]Key{
 
     .{ .int = .{
         .ty = .usize_type,
+        .storage = .{ .u64 = 0 },
+    } },
+
+    .{ .int = .{
+        .ty = .u1_type,
         .storage = .{ .u64 = 0 },
     } },
 
@@ -5192,17 +5301,21 @@ pub const static_keys = [_]Key{
         .storage = .{ .u64 = 1 },
     } },
 
-    // one_u8
+    .{ .int = .{
+        .ty = .u1_type,
+        .storage = .{ .u64 = 1 },
+    } },
+
     .{ .int = .{
         .ty = .u8_type,
         .storage = .{ .u64 = 1 },
     } },
-    // four_u8
+
     .{ .int = .{
         .ty = .u8_type,
         .storage = .{ .u64 = 4 },
     } },
-    // negative_one
+
     .{ .int = .{
         .ty = .comptime_int_type,
         .storage = .{ .i64 = -1 },
@@ -5221,10 +5334,6 @@ pub const static_keys = [_]Key{
 /// assert below to break an unfortunate and arguably incorrect dependency loop
 /// when compiling.
 pub const static_len = Zir.Inst.Index.static_len;
-comptime {
-    //@compileLog(static_keys.len);
-    assert(static_len == static_keys.len);
-}
 
 pub const Tag = enum(u8) {
     /// This special tag represents a value which was removed from this pool via
@@ -5445,6 +5554,9 @@ pub const Tag = enum(u8) {
     /// A global variable.
     /// data is extra index to Variable.
     variable,
+    /// A global threadlocal variable.
+    /// data is extra index to Variable.
+    threadlocal_variable,
     /// An extern function or variable.
     /// data is extra index to Extern.
     /// Some parts of the key are stored in `owner_nav`.
@@ -5760,6 +5872,7 @@ pub const Tag = enum(u8) {
         .float_c_longdouble_f128 = .{ .summary = .@"@as(c_longdouble, {.payload%value})", .payload = f128 },
         .float_comptime_float = .{ .summary = .@"{.payload%value}", .payload = f128 },
         .variable = .{ .summary = .@"{.payload.owner_nav.fqn%summary#\"}", .payload = Variable },
+        .threadlocal_variable = .{ .summary = .@"{.payload.owner_nav.fqn%summary#\"}", .payload = Variable },
         .@"extern" = .{ .summary = .@"{.payload.owner_nav.fqn%summary#\"}", .payload = Extern },
         .func_decl = .{
             .summary = .@"{.payload.owner_nav.fqn%summary#\"}",
@@ -5810,24 +5923,24 @@ pub const Tag = enum(u8) {
         /// May be `none`.
         init: Index,
         owner_nav: Nav.Index,
-        flags: Flags,
-
-        pub const Flags = packed struct(u32) {
-            is_const: bool,
-            is_threadlocal: bool,
-            is_weak_linkage: bool,
-            is_dll_import: bool,
-            _: u28 = 0,
-        };
     };
 
     pub const Extern = struct {
-        // name, alignment, addrspace come from `owner_nav`.
+        // name, is_const, alignment, addrspace come from `owner_nav`.
         ty: Index,
         lib_name: OptionalNullTerminatedString,
-        flags: Variable.Flags,
+        flags: Flags,
         owner_nav: Nav.Index,
         zir_index: TrackedInst.Index,
+
+        pub const Flags = packed struct(u32) {
+            linkage: std.builtin.GlobalLinkage,
+            visibility: std.builtin.SymbolVisibility,
+            is_threadlocal: bool,
+            is_dll_import: bool,
+            relocation: std.builtin.ExternOptions.Relocation,
+            _: u25 = 0,
+        };
     };
 
     /// Trailing:
@@ -7145,14 +7258,17 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             .ty = .comptime_float_type,
             .storage = .{ .f128 = extraData(unwrapped_index.getExtra(ip), Float128, data).get() },
         } },
-        .variable => {
+        .variable, .threadlocal_variable => {
             const extra = extraData(unwrapped_index.getExtra(ip), Tag.Variable, data);
             return .{ .variable = .{
                 .ty = extra.ty,
                 .init = extra.init,
                 .owner_nav = extra.owner_nav,
-                .is_threadlocal = extra.flags.is_threadlocal,
-                .is_weak_linkage = extra.flags.is_weak_linkage,
+                .is_threadlocal = switch (item.tag) {
+                    else => unreachable,
+                    .variable => false,
+                    .threadlocal_variable => true,
+                },
             } };
         },
         .@"extern" => {
@@ -7162,10 +7278,12 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .name = nav.name,
                 .ty = extra.ty,
                 .lib_name = extra.lib_name,
-                .is_const = extra.flags.is_const,
+                .linkage = extra.flags.linkage,
+                .visibility = extra.flags.visibility,
                 .is_threadlocal = extra.flags.is_threadlocal,
-                .is_weak_linkage = extra.flags.is_weak_linkage,
                 .is_dll_import = extra.flags.is_dll_import,
+                .relocation = extra.flags.relocation,
+                .is_const = nav.status.fully_resolved.is_const,
                 .alignment = nav.status.fully_resolved.alignment,
                 .@"addrspace" = nav.status.fully_resolved.@"addrspace",
                 .zir_index = extra.zir_index,
@@ -7792,17 +7910,14 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             const has_init = variable.init != .none;
             if (has_init) assert(variable.ty == ip.typeOf(variable.init));
             items.appendAssumeCapacity(.{
-                .tag = .variable,
+                .tag = switch (variable.is_threadlocal) {
+                    false => .variable,
+                    true => .threadlocal_variable,
+                },
                 .data = try addExtra(extra, Tag.Variable{
                     .ty = variable.ty,
                     .init = variable.init,
                     .owner_nav = variable.owner_nav,
-                    .flags = .{
-                        .is_const = false,
-                        .is_threadlocal = variable.is_threadlocal,
-                        .is_weak_linkage = variable.is_weak_linkage,
-                        .is_dll_import = false,
-                    },
                 }),
             });
         },
@@ -9025,6 +9140,7 @@ pub fn getExtern(
         .name = key.name,
         .fqn = key.name,
         .val = extern_index,
+        .is_const = key.is_const,
         .alignment = key.alignment,
         .@"linksection" = .none,
         .@"addrspace" = key.@"addrspace",
@@ -9033,10 +9149,11 @@ pub fn getExtern(
         .ty = key.ty,
         .lib_name = key.lib_name,
         .flags = .{
-            .is_const = key.is_const,
+            .linkage = key.linkage,
+            .visibility = key.visibility,
             .is_threadlocal = key.is_threadlocal,
-            .is_weak_linkage = key.is_weak_linkage,
             .is_dll_import = key.is_dll_import,
+            .relocation = key.relocation,
         },
         .zir_index = key.zir_index,
         .owner_nav = owner_nav,
@@ -9611,6 +9728,7 @@ fn finishFuncInstance(
         .name = nav_name,
         .fqn = try ip.namespacePtr(fn_namespace).internFullyQualifiedName(ip, gpa, tid, nav_name),
         .val = func_index,
+        .is_const = fn_owner_nav.status.fully_resolved.is_const,
         .alignment = fn_owner_nav.status.fully_resolved.alignment,
         .@"linksection" = fn_owner_nav.status.fully_resolved.@"linksection",
         .@"addrspace" = fn_owner_nav.status.fully_resolved.@"addrspace",
@@ -10197,13 +10315,13 @@ fn addExtraAssumeCapacity(extra: Local.Extra.Mutable, item: anytype) u32 {
             u32,
             i32,
             FuncAnalysis,
+            Tag.Extern.Flags,
             Tag.TypePointer.Flags,
             Tag.TypeFunction.Flags,
             Tag.TypePointer.PackedOffset,
             Tag.TypeUnion.Flags,
             Tag.TypeStruct.Flags,
             Tag.TypeStructPacked.Flags,
-            Tag.Variable.Flags,
             => @bitCast(@field(item, field.name)),
 
             else => @compileError("bad field type: " ++ @typeName(field.type)),
@@ -10258,13 +10376,13 @@ fn extraDataTrail(extra: Local.Extra, comptime T: type, index: u32) struct { dat
 
             u32,
             i32,
+            Tag.Extern.Flags,
             Tag.TypePointer.Flags,
             Tag.TypeFunction.Flags,
             Tag.TypePointer.PackedOffset,
             Tag.TypeUnion.Flags,
             Tag.TypeStruct.Flags,
             Tag.TypeStructPacked.Flags,
-            Tag.Variable.Flags,
             FuncAnalysis,
             => @bitCast(extra_item),
 
@@ -10407,7 +10525,7 @@ pub fn getCoerced(
                         .base_addr = .int,
                         .byte_offset = 0,
                     } }),
-                    .len = try ip.get(gpa, tid, .{ .undef = .usize_type }),
+                    .len = .undef_usize,
                 } }),
             };
         },
@@ -10526,7 +10644,7 @@ pub fn getCoerced(
                             .base_addr = .int,
                             .byte_offset = 0,
                         } }),
-                        .len = try ip.get(gpa, tid, .{ .undef = .usize_type }),
+                        .len = .undef_usize,
                     } }),
                 },
                 else => |payload| try ip.getCoerced(gpa, tid, payload, new_ty),
@@ -11059,7 +11177,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                 .float_c_longdouble_f80 => @sizeOf(Float80),
                 .float_c_longdouble_f128 => @sizeOf(Float128),
                 .float_comptime_float => @sizeOf(Float128),
-                .variable => @sizeOf(Tag.Variable),
+                .variable, .threadlocal_variable => @sizeOf(Tag.Variable),
                 .@"extern" => @sizeOf(Tag.Extern),
                 .func_decl => @sizeOf(Tag.FuncDecl),
                 .func_instance => b: {
@@ -11179,6 +11297,7 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
                 .float_c_longdouble_f128,
                 .float_comptime_float,
                 .variable,
+                .threadlocal_variable,
                 .@"extern",
                 .func_decl,
                 .func_instance,
@@ -11311,6 +11430,7 @@ pub fn createNav(
         name: NullTerminatedString,
         fqn: NullTerminatedString,
         val: InternPool.Index,
+        is_const: bool,
         alignment: Alignment,
         @"linksection": OptionalNullTerminatedString,
         @"addrspace": std.builtin.AddressSpace,
@@ -11327,6 +11447,7 @@ pub fn createNav(
         .analysis = null,
         .status = .{ .fully_resolved = .{
             .val = opts.val,
+            .is_const = opts.is_const,
             .alignment = opts.alignment,
             .@"linksection" = opts.@"linksection",
             .@"addrspace" = opts.@"addrspace",
@@ -11379,10 +11500,10 @@ pub fn resolveNavType(
     nav: Nav.Index,
     resolved: struct {
         type: InternPool.Index,
+        is_const: bool,
         alignment: Alignment,
         @"linksection": OptionalNullTerminatedString,
         @"addrspace": std.builtin.AddressSpace,
-        is_const: bool,
         is_threadlocal: bool,
         is_extern_decl: bool,
     },
@@ -11409,9 +11530,9 @@ pub fn resolveNavType(
 
     var bits = nav_bits[unwrapped.index];
     bits.status = if (resolved.is_extern_decl) .type_resolved_extern_decl else .type_resolved;
+    bits.is_const = resolved.is_const;
     bits.alignment = resolved.alignment;
     bits.@"addrspace" = resolved.@"addrspace";
-    bits.is_const = resolved.is_const;
     bits.is_threadlocal = resolved.is_threadlocal;
     @atomicStore(Nav.Repr.Bits, &nav_bits[unwrapped.index], bits, .release);
 }
@@ -11423,6 +11544,7 @@ pub fn resolveNavValue(
     nav: Nav.Index,
     resolved: struct {
         val: InternPool.Index,
+        is_const: bool,
         alignment: Alignment,
         @"linksection": OptionalNullTerminatedString,
         @"addrspace": std.builtin.AddressSpace,
@@ -11450,6 +11572,7 @@ pub fn resolveNavValue(
 
     var bits = nav_bits[unwrapped.index];
     bits.status = .fully_resolved;
+    bits.is_const = resolved.is_const;
     bits.alignment = resolved.alignment;
     bits.@"addrspace" = resolved.@"addrspace";
     @atomicStore(Nav.Repr.Bits, &nav_bits[unwrapped.index], bits, .release);
@@ -11742,6 +11865,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .u80_type,
         .u128_type,
         .i128_type,
+        .u256_type,
         .usize_type,
         .isize_type,
         .c_char_type,
@@ -11771,39 +11895,60 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .null_type,
         .undefined_type,
         .enum_literal_type,
+        .ptr_usize_type,
+        .ptr_const_comptime_int_type,
         .manyptr_u8_type,
         .manyptr_const_u8_type,
         .manyptr_const_u8_sentinel_0_type,
-        .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
+        .vector_8_i8_type,
         .vector_16_i8_type,
         .vector_32_i8_type,
+        .vector_64_i8_type,
         .vector_1_u8_type,
         .vector_2_u8_type,
         .vector_4_u8_type,
         .vector_8_u8_type,
         .vector_16_u8_type,
         .vector_32_u8_type,
+        .vector_64_u8_type,
+        .vector_2_i16_type,
+        .vector_4_i16_type,
         .vector_8_i16_type,
         .vector_16_i16_type,
+        .vector_32_i16_type,
+        .vector_4_u16_type,
         .vector_8_u16_type,
         .vector_16_u16_type,
+        .vector_32_u16_type,
+        .vector_2_i32_type,
         .vector_4_i32_type,
         .vector_8_i32_type,
+        .vector_16_i32_type,
         .vector_4_u32_type,
         .vector_8_u32_type,
+        .vector_16_u32_type,
         .vector_2_i64_type,
         .vector_4_i64_type,
+        .vector_8_i64_type,
         .vector_2_u64_type,
         .vector_4_u64_type,
+        .vector_8_u64_type,
+        .vector_1_u128_type,
+        .vector_2_u128_type,
+        .vector_1_u256_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
+        .vector_16_f16_type,
+        .vector_32_f16_type,
         .vector_2_f32_type,
         .vector_4_f32_type,
         .vector_8_f32_type,
+        .vector_16_f32_type,
         .vector_2_f64_type,
         .vector_4_f64_type,
+        .vector_8_f64_type,
         .optional_noreturn_type,
         .anyerror_void_error_union_type,
         .adhoc_inferred_error_set_type,
@@ -11813,12 +11958,13 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
 
         .undef => .undefined_type,
         .zero, .one, .negative_one => .comptime_int_type,
-        .zero_usize, .one_usize => .usize_type,
+        .undef_usize, .zero_usize, .one_usize => .usize_type,
+        .undef_u1, .zero_u1, .one_u1 => .u1_type,
         .zero_u8, .one_u8, .four_u8 => .u8_type,
         .void_value => .void_type,
         .unreachable_value => .noreturn_type,
         .null_value => .null_type,
-        .bool_true, .bool_false => .bool_type,
+        .undef_bool, .bool_true, .bool_false => .bool_type,
         .empty_tuple => .empty_tuple_type,
 
         // This optimization on tags is needed so that indexToKey can call
@@ -11881,6 +12027,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
                 .error_union_error,
                 .enum_tag,
                 .variable,
+                .threadlocal_variable,
                 .@"extern",
                 .func_decl,
                 .func_instance,
@@ -12007,30 +12154,6 @@ pub fn isVariable(ip: *const InternPool, val: Index) bool {
     return val.unwrap(ip).getTag(ip) == .variable;
 }
 
-pub fn getBackingNav(ip: *const InternPool, val: Index) Nav.Index.Optional {
-    var base = val;
-    while (true) {
-        const unwrapped_base = base.unwrap(ip);
-        const base_item = unwrapped_base.getItem(ip);
-        switch (base_item.tag) {
-            .ptr_nav => return @enumFromInt(unwrapped_base.getExtra(ip).view().items(.@"0")[
-                base_item.data + std.meta.fieldIndex(PtrNav, "nav").?
-            ]),
-            inline .ptr_eu_payload,
-            .ptr_opt_payload,
-            .ptr_elem,
-            .ptr_field,
-            => |tag| base = @enumFromInt(unwrapped_base.getExtra(ip).view().items(.@"0")[
-                base_item.data + std.meta.fieldIndex(tag.Payload(), "base").?
-            ]),
-            .ptr_slice => base = @enumFromInt(unwrapped_base.getExtra(ip).view().items(.@"0")[
-                base_item.data + std.meta.fieldIndex(PtrSlice, "ptr").?
-            ]),
-            else => return .none,
-        }
-    }
-}
-
 pub fn getBackingAddrTag(ip: *const InternPool, val: Index) ?Key.Ptr.BaseAddr.Tag {
     var base = val;
     while (true) {
@@ -12079,6 +12202,7 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .u80_type,
         .u128_type,
         .i128_type,
+        .u256_type,
         .usize_type,
         .isize_type,
         .c_char_type,
@@ -12113,41 +12237,62 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .undefined_type => .undefined,
         .enum_literal_type => .enum_literal,
 
+        .ptr_usize_type,
+        .ptr_const_comptime_int_type,
         .manyptr_u8_type,
         .manyptr_const_u8_type,
         .manyptr_const_u8_sentinel_0_type,
-        .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
         => .pointer,
 
+        .vector_8_i8_type,
         .vector_16_i8_type,
         .vector_32_i8_type,
+        .vector_64_i8_type,
         .vector_1_u8_type,
         .vector_2_u8_type,
         .vector_4_u8_type,
         .vector_8_u8_type,
         .vector_16_u8_type,
         .vector_32_u8_type,
+        .vector_64_u8_type,
+        .vector_2_i16_type,
+        .vector_4_i16_type,
         .vector_8_i16_type,
         .vector_16_i16_type,
+        .vector_32_i16_type,
+        .vector_4_u16_type,
         .vector_8_u16_type,
         .vector_16_u16_type,
+        .vector_32_u16_type,
+        .vector_2_i32_type,
         .vector_4_i32_type,
         .vector_8_i32_type,
+        .vector_16_i32_type,
         .vector_4_u32_type,
         .vector_8_u32_type,
+        .vector_16_u32_type,
         .vector_2_i64_type,
         .vector_4_i64_type,
+        .vector_8_i64_type,
         .vector_2_u64_type,
         .vector_4_u64_type,
+        .vector_8_u64_type,
+        .vector_1_u128_type,
+        .vector_2_u128_type,
+        .vector_1_u256_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
+        .vector_16_f16_type,
+        .vector_32_f16_type,
         .vector_2_f32_type,
         .vector_4_f32_type,
         .vector_8_f32_type,
+        .vector_16_f32_type,
         .vector_2_f64_type,
         .vector_4_f64_type,
+        .vector_8_f64_type,
         => .vector,
 
         .optional_noreturn_type => .optional,
@@ -12158,11 +12303,16 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
 
         // values, not types
         .undef => unreachable,
+        .undef_bool => unreachable,
+        .undef_usize => unreachable,
+        .undef_u1 => unreachable,
         .zero => unreachable,
         .zero_usize => unreachable,
+        .zero_u1 => unreachable,
         .zero_u8 => unreachable,
         .one => unreachable,
         .one_usize => unreachable,
+        .one_u1 => unreachable,
         .one_u8 => unreachable,
         .four_u8 => unreachable,
         .negative_one => unreachable,
@@ -12262,6 +12412,7 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
             .float_c_longdouble_f128,
             .float_comptime_float,
             .variable,
+            .threadlocal_variable,
             .@"extern",
             .func_decl,
             .func_instance,

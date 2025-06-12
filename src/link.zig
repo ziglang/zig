@@ -6,7 +6,7 @@ const fs = std.fs;
 const mem = std.mem;
 const log = std.log.scoped(.link);
 const trace = @import("tracy.zig").trace;
-const wasi_libc = @import("wasi_libc.zig");
+const wasi_libc = @import("libs/wasi_libc.zig");
 
 const Air = @import("Air.zig");
 const Allocator = std.mem.Allocator;
@@ -15,7 +15,6 @@ const Path = std.Build.Cache.Path;
 const Directory = std.Build.Cache.Directory;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = std.zig.LibCInstallation;
-const Liveness = @import("Liveness.zig");
 const Zcu = @import("Zcu.zig");
 const InternPool = @import("InternPool.zig");
 const Type = @import("Type.zig");
@@ -192,7 +191,7 @@ pub const Diags = struct {
                 current_err.?.* = .{ .msg = duped_msg };
             } else if (current_err != null) {
                 const context_prefix = ">>> ";
-                var trimmed = mem.trimRight(u8, line, &std.ascii.whitespace);
+                var trimmed = mem.trimEnd(u8, line, &std.ascii.whitespace);
                 if (mem.startsWith(u8, trimmed, context_prefix)) {
                     trimmed = trimmed[context_prefix.len..];
                 }
@@ -556,9 +555,9 @@ pub const File = struct {
         const comp = base.comp;
         const gpa = comp.gpa;
         switch (base.tag) {
-            .coff, .elf, .macho, .plan9, .wasm => {
+            .coff, .elf, .macho, .plan9, .wasm, .goff, .xcoff => {
                 if (base.file != null) return;
-                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker });
+                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
                 const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
@@ -597,7 +596,7 @@ pub const File = struct {
                     .mode = determineMode(use_lld, output_mode, link_mode),
                 });
             },
-            .c, .spirv, .nvptx => dev.checkAny(&.{ .c_linker, .spirv_linker, .nvptx_linker }),
+            .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
         }
     }
 
@@ -650,8 +649,8 @@ pub const File = struct {
                     }
                 }
             },
-            .coff, .macho, .plan9, .wasm => if (base.file) |f| {
-                dev.checkAny(&.{ .coff_linker, .macho_linker, .plan9_linker, .wasm_linker });
+            .coff, .macho, .plan9, .wasm, .goff, .xcoff => if (base.file) |f| {
+                dev.checkAny(&.{ .coff_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
                 if (base.zcu_object_sub_path != null) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
@@ -670,7 +669,7 @@ pub const File = struct {
                     }
                 }
             },
-            .c, .spirv, .nvptx => dev.checkAny(&.{ .c_linker, .spirv_linker, .nvptx_linker }),
+            .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
         }
     }
 
@@ -697,7 +696,6 @@ pub const File = struct {
             .plan9 => unreachable,
             .spirv => unreachable,
             .c => unreachable,
-            .nvptx => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getGlobalSymbol(name, lib_name);
@@ -739,7 +737,7 @@ pub const File = struct {
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
         air: Air,
-        liveness: Liveness,
+        liveness: Air.Liveness,
     ) UpdateNavError!void {
         switch (base.tag) {
             inline else => |tag| {
@@ -766,7 +764,8 @@ pub const File = struct {
         }
 
         switch (base.tag) {
-            .spirv, .nvptx => {},
+            .spirv => {},
+            .goff, .xcoff => {},
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateLineNumber(pt, ti_id);
@@ -900,8 +899,8 @@ pub const File = struct {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
-            .nvptx => unreachable,
             .wasm => unreachable,
+            .goff, .xcoff => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getNavVAddr(pt, nav_index, reloc_info);
@@ -919,8 +918,8 @@ pub const File = struct {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
-            .nvptx => unreachable,
             .wasm => unreachable,
+            .goff, .xcoff => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerUav(pt, decl_val, decl_align, src_loc);
@@ -932,8 +931,8 @@ pub const File = struct {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
-            .nvptx => unreachable,
             .wasm => unreachable,
+            .goff, .xcoff => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getUavVAddr(decl_val, reloc_info);
@@ -949,7 +948,8 @@ pub const File = struct {
         switch (base.tag) {
             .plan9,
             .spirv,
-            .nvptx,
+            .goff,
+            .xcoff,
             => {},
 
             inline else => |tag| {
@@ -1245,7 +1245,8 @@ pub const File = struct {
         wasm,
         spirv,
         plan9,
-        nvptx,
+        goff,
+        xcoff,
 
         pub fn Type(comptime tag: Tag) type {
             return switch (tag) {
@@ -1256,7 +1257,8 @@ pub const File = struct {
                 .wasm => Wasm,
                 .spirv => SpirV,
                 .plan9 => Plan9,
-                .nvptx => NvPtx,
+                .goff => Goff,
+                .xcoff => Xcoff,
             };
         }
 
@@ -1269,9 +1271,8 @@ pub const File = struct {
                 .plan9 => .plan9,
                 .c => .c,
                 .spirv => .spirv,
-                .nvptx => .nvptx,
-                .goff => @panic("TODO implement goff object format"),
-                .xcoff => @panic("TODO implement xcoff object format"),
+                .goff => .goff,
+                .xcoff => .xcoff,
                 .hex => @panic("TODO implement hex object format"),
                 .raw => @panic("TODO implement raw object format"),
             };
@@ -1376,7 +1377,8 @@ pub const File = struct {
     pub const MachO = @import("link/MachO.zig");
     pub const SpirV = @import("link/SpirV.zig");
     pub const Wasm = @import("link/Wasm.zig");
-    pub const NvPtx = @import("link/NvPtx.zig");
+    pub const Goff = @import("link/Goff.zig");
+    pub const Xcoff = @import("link/Xcoff.zig");
     pub const Dwarf = @import("link/Dwarf.zig");
 };
 
@@ -1598,8 +1600,9 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             if (comp.remaining_prelink_tasks == 0) {
                 const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
                 defer pt.deactivate();
-                // This call takes ownership of `func.air`.
-                pt.linkerUpdateFunc(func.func, func.air) catch |err| switch (err) {
+                var air = func.air;
+                defer air.deinit(comp.gpa);
+                pt.linkerUpdateFunc(func.func, &air) catch |err| switch (err) {
                     error.OutOfMemory => diags.setAllocFailure(),
                 };
             } else {
@@ -1672,8 +1675,8 @@ pub fn spawnLld(
                 const rand_int = std.crypto.random.int(u64);
                 const rsp_path = "tmp" ++ s ++ std.fmt.hex(rand_int) ++ ".rsp";
 
-                const rsp_file = try comp.local_cache_directory.handle.createFileZ(rsp_path, .{});
-                defer comp.local_cache_directory.handle.deleteFileZ(rsp_path) catch |err|
+                const rsp_file = try comp.dirs.local_cache.handle.createFileZ(rsp_path, .{});
+                defer comp.dirs.local_cache.handle.deleteFileZ(rsp_path) catch |err|
                     log.warn("failed to delete response file {s}: {s}", .{ rsp_path, @errorName(err) });
                 {
                     defer rsp_file.close();
@@ -1697,7 +1700,7 @@ pub fn spawnLld(
                 var rsp_child = std.process.Child.init(&.{ argv[0], argv[1], try std.fmt.allocPrint(
                     arena,
                     "@{s}",
-                    .{try comp.local_cache_directory.join(arena, &.{rsp_path})},
+                    .{try comp.dirs.local_cache.join(arena, &.{rsp_path})},
                 ) }, arena);
                 if (comp.clang_passthrough_mode) {
                     rsp_child.stdin_behavior = .Inherit;
@@ -2291,9 +2294,10 @@ fn resolvePathInputLib(
     const test_path: Path = pq.path;
     // In the case of shared libraries, they might actually be "linker scripts"
     // that contain references to other libraries.
-    if (pq.query.allow_so_scripts and target.ofmt == .elf and
-        Compilation.classifyFileExt(test_path.sub_path) == .shared_library)
-    {
+    if (pq.query.allow_so_scripts and target.ofmt == .elf and switch (Compilation.classifyFileExt(test_path.sub_path)) {
+        .static_library, .shared_library => true,
+        else => false,
+    }) {
         var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => return .no_match,
             else => |e| fatal("unable to search for {s} library '{'}': {s}", .{
@@ -2301,14 +2305,13 @@ fn resolvePathInputLib(
             }),
         };
         errdefer file.close();
-        try ld_script_bytes.resize(gpa, @sizeOf(std.elf.Elf64_Ehdr));
+        try ld_script_bytes.resize(gpa, @max(std.elf.MAGIC.len, std.elf.ARMAG.len));
         const n = file.preadAll(ld_script_bytes.items, 0) catch |err| fatal("failed to read '{'}': {s}", .{
             test_path, @errorName(err),
         });
-        elf_file: {
-            if (n != ld_script_bytes.items.len) break :elf_file;
-            if (!mem.eql(u8, ld_script_bytes.items[0..4], "\x7fELF")) break :elf_file;
-            // Appears to be an ELF file.
+        const buf = ld_script_bytes.items[0..n];
+        if (mem.startsWith(u8, buf, std.elf.MAGIC) or mem.startsWith(u8, buf, std.elf.ARMAG)) {
+            // Appears to be an ELF or archive file.
             return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, pq.query);
         }
         const stat = file.stat() catch |err|
@@ -2316,10 +2319,10 @@ fn resolvePathInputLib(
         const size = std.math.cast(u32, stat.size) orelse
             fatal("{}: linker script too big", .{test_path});
         try ld_script_bytes.resize(gpa, size);
-        const buf = ld_script_bytes.items[n..];
-        const n2 = file.preadAll(buf, n) catch |err|
+        const buf2 = ld_script_bytes.items[n..];
+        const n2 = file.preadAll(buf2, n) catch |err|
             fatal("failed to read {}: {s}", .{ test_path, @errorName(err) });
-        if (n2 != buf.len) fatal("failed to read {}: unexpected end of file", .{test_path});
+        if (n2 != buf2.len) fatal("failed to read {}: unexpected end of file", .{test_path});
         var diags = Diags.init(gpa);
         defer diags.deinit();
         const ld_script_result = LdScript.parse(gpa, &diags, test_path, ld_script_bytes.items);

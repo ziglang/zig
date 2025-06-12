@@ -17,6 +17,7 @@ test {
     try testing.expectEqual(void, @TypeOf(@breakpoint()));
     try testing.expectEqual({}, @export(&x, .{ .name = "x" }));
     try testing.expectEqual({}, @memcpy(@as([*]u8, @ptrFromInt(1))[0..0], @as([*]u8, @ptrFromInt(1))[0..0]));
+    try testing.expectEqual({}, @memmove(@as([*]u8, @ptrFromInt(1))[0..0], @as([*]u8, @ptrFromInt(1))[0..0]));
     try testing.expectEqual({}, @memset(@as([*]u8, @ptrFromInt(1))[0..0], undefined));
     try testing.expectEqual(noreturn, @TypeOf(if (true) @panic("") else {}));
     try testing.expectEqual({}, @prefetch(&val, .{}));

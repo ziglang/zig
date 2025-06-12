@@ -198,10 +198,10 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn comdatGroup(file: File, ind: Elf.ComdatGroup.Index) *Elf.ComdatGroup {
+    pub fn group(file: File, ind: Elf.Group.Index) *Elf.Group {
         return switch (file) {
             .linker_defined, .shared_object, .zig_object => unreachable,
-            .object => |x| x.comdatGroup(ind),
+            .object => |x| x.group(ind),
         };
     }
 

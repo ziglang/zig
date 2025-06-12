@@ -66,6 +66,7 @@ pub const Reloc = struct {
         inst: Mir.Inst.Index,
         table,
         linker_reloc: u32,
+        linker_pcrel: u32,
         linker_tlsld: u32,
         linker_dtpoff: u32,
         linker_extern_fn: u32,
@@ -421,9 +422,9 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
     for (emit_ops, ops, 0..) |*emit_op, op, op_index| {
         emit_op.* = switch (op) {
             else => op,
-            .mem => |mem_op| switch (mem_op.base()) {
+            .mem => |mem_op| op: switch (mem_op.base()) {
                 else => op,
-                .reloc => |sym_index| op: {
+                .reloc => |sym_index| {
                     assert(prefix == .none);
                     assert(mem_op.sib.disp == 0);
                     assert(mem_op.sib.scale_index.scale == 0);
@@ -559,6 +560,22 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                         return lower.fail("TODO: bin format '{s}'", .{@tagName(lower.bin_file.tag)});
                     }
                 },
+                .pcrel => |sym_index| {
+                    assert(prefix == .none);
+                    assert(mem_op.sib.disp == 0);
+                    assert(mem_op.sib.scale_index.scale == 0);
+
+                    _ = lower.reloc(@intCast(op_index), .{ .linker_pcrel = sym_index }, 0);
+                    break :op switch (lower.bin_file.tag) {
+                        .elf => op,
+                        .macho => switch (mnemonic) {
+                            .lea => .{ .mem = Memory.initRip(.none, 0) },
+                            .mov => .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
+                            else => unreachable,
+                        },
+                        else => |tag| return lower.fail("TODO: bin format '{s}'", .{@tagName(tag)}),
+                    };
+                },
             },
         };
     }
@@ -567,7 +584,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
 }
 
 fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
-    @setEvalBranchQuota(2_500);
+    @setEvalBranchQuota(2_800);
     const fixes = switch (inst.ops) {
         .none => inst.data.none.fixes,
         .inst => inst.data.inst.fixes,
@@ -601,9 +618,9 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         var buf: [max_len]u8 = undefined;
 
         const fixes_name = @tagName(fixes);
-        const pattern = fixes_name[if (std.mem.indexOfScalar(u8, fixes_name, ' ')) |i| i + 1 else 0..];
-        const wildcard_i = std.mem.indexOfScalar(u8, pattern, '_').?;
-        const parts = .{ pattern[0..wildcard_i], @tagName(inst.tag), pattern[wildcard_i + 1 ..] };
+        const pattern = fixes_name[if (std.mem.indexOfScalar(u8, fixes_name, ' ')) |i| i + " ".len else 0..];
+        const wildcard_index = std.mem.indexOfScalar(u8, pattern, '_').?;
+        const parts = .{ pattern[0..wildcard_index], @tagName(inst.tag), pattern[wildcard_index + "_".len ..] };
         const err_msg = "unsupported mnemonic: ";
         const mnemonic = std.fmt.bufPrint(&buf, "{s}{s}{s}", parts) catch
             return lower.fail(err_msg ++ "'{s}{s}{s}'", parts);

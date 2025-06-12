@@ -657,6 +657,7 @@ pub fn scanRelocs(self: *ZigObject, elf_file: *Elf, undefs: anytype) !void {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
+        if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
         if (atom_ptr.scanRelocsRequiresCode(elf_file)) {
             // TODO ideally we don't have to fetch the code here.
@@ -1201,7 +1202,7 @@ fn getNavShdrIndex(
         return osec;
     }
     if (nav_init != .none and Value.fromInterned(nav_init).isUndefDeep(zcu))
-        return switch (zcu.navFileScope(nav_index).mod.optimize_mode) {
+        return switch (zcu.navFileScope(nav_index).mod.?.optimize_mode) {
             .Debug, .ReleaseSafe => {
                 if (self.data_index) |symbol_index|
                     return self.symbol(symbol_index).outputShndx(elf_file).?;
@@ -1271,7 +1272,7 @@ fn updateNavCode(
 
     log.debug("updateNavCode {}({d})", .{ nav.fqn.fmt(ip), nav_index });
 
-    const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
+    const target = zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const required_alignment = switch (pt.navAlignment(nav_index)) {
         .none => target_util.defaultFunctionAlignment(target),
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
@@ -1416,7 +1417,7 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
 ) link.File.UpdateNavError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -2367,7 +2368,6 @@ const Dwarf = @import("../Dwarf.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const InternPool = @import("../../InternPool.zig");
-const Liveness = @import("../../Liveness.zig");
 const Zcu = @import("../../Zcu.zig");
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");

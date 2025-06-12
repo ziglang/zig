@@ -37,6 +37,10 @@ static void assert_or_panic(bool ok) {
 #  define ZIG_NO_I128
 #endif
 
+#ifdef __hexagon__
+#  define ZIG_NO_I128
+#endif
+
 #ifdef __mips__
 #  define ZIG_NO_I128
 #endif
@@ -77,11 +81,23 @@ static void assert_or_panic(bool ok) {
 #define ZIG_NO_RAW_F16
 #endif
 
+#ifdef __hexagon__
+#define ZIG_NO_RAW_F16
+#endif
+
+#ifdef __loongarch__
+#define ZIG_NO_RAW_F16
+#endif
+
 #ifdef __mips__
 #define ZIG_NO_RAW_F16
 #endif
 
 #ifdef __riscv
+#define ZIG_NO_RAW_F16
+#endif
+
+#ifdef __s390x__
 #define ZIG_NO_RAW_F16
 #endif
 
@@ -101,6 +117,14 @@ static void assert_or_panic(bool ok) {
 #define ZIG_NO_F128
 #endif
 
+#ifdef __hexagon__
+#define ZIG_NO_F128
+#endif
+
+#ifdef __loongarch__
+#define ZIG_NO_F128
+#endif
+
 #ifdef __mips__
 #define ZIG_NO_F128
 #endif
@@ -110,6 +134,10 @@ static void assert_or_panic(bool ok) {
 #endif
 
 #ifdef __powerpc__
+#define ZIG_NO_F128
+#endif
+
+#ifdef __s390x__
 #define ZIG_NO_F128
 #endif
 
@@ -227,6 +255,38 @@ void c_struct_u64_u64_8(size_t, size_t, size_t, size_t, size_t, size_t, size_t, 
     assert_or_panic(s.b == 40);
 }
 
+struct Struct_f32 {
+    float a;
+};
+
+struct Struct_f32 zig_ret_struct_f32(void);
+
+void zig_struct_f32(struct Struct_f32);
+
+struct Struct_f32 c_ret_struct_f32(void) {
+    return (struct Struct_f32){ 2.5f };
+}
+
+void c_struct_f32(struct Struct_f32 s) {
+    assert_or_panic(s.a == 2.5f);
+}
+
+struct Struct_f64 {
+    double a;
+};
+
+struct Struct_f64 zig_ret_struct_f64(void);
+
+void zig_struct_f64(struct Struct_f64);
+
+struct Struct_f64 c_ret_struct_f64(void) {
+    return (struct Struct_f64){ 2.5 };
+}
+
+void c_struct_f64(struct Struct_f64 s) {
+    assert_or_panic(s.a == 2.5);
+}
+
 struct Struct_f32f32_f32 {
     struct {
         float b, c;
@@ -295,6 +355,13 @@ void c_struct_u32_union_u32_u32u32(struct Struct_u32_Union_u32_u32u32 s) {
     assert_or_panic(s.b.c.d == 2);
     assert_or_panic(s.b.c.e == 3);
 }
+
+struct Struct_i32_i32 {
+    int32_t a;
+    int32_t b;
+};
+
+void zig_struct_i32_i32(struct Struct_i32_i32);
 
 struct BigStruct {
     uint64_t a;
@@ -2674,6 +2741,24 @@ void run_c_tests(void) {
     }
 
 #if !defined(ZIG_RISCV64)
+#if !defined(__mips64__)
+    {
+        struct Struct_f32 s = zig_ret_struct_f32();
+        assert_or_panic(s.a == 2.5f);
+        zig_struct_f32((struct Struct_f32){ 2.5f });
+    }
+#endif
+
+#if !(defined(__arm__) && defined(__SOFTFP__))
+#if !defined(ZIG_RISCV32)
+    {
+        struct Struct_f64 s = zig_ret_struct_f64();
+        assert_or_panic(s.a == 2.5);
+        zig_struct_f64((struct Struct_f64){ 2.5 });
+    }
+#endif
+
+#if !defined(__loongarch__) && !defined(__mips64__)
     {
         struct Struct_f32f32_f32 s = zig_ret_struct_f32f32_f32();
         assert_or_panic(s.a.b == 1.0f);
@@ -2690,8 +2775,10 @@ void run_c_tests(void) {
         zig_struct_f32_f32f32((struct Struct_f32_f32f32){ 1.0f, { 2.0f, 3.0f } });
     }
 #endif
+#endif
+#endif
 
-#if !defined(__powerpc__)
+#if !defined(__powerpc__) && !defined(__loongarch__) && !defined(__mips64__)
     {
         struct Struct_u32_Union_u32_u32u32 s = zig_ret_struct_u32_union_u32_u32u32();
         assert_or_panic(s.a == 1);
@@ -2699,16 +2786,24 @@ void run_c_tests(void) {
         assert_or_panic(s.b.c.e == 3);
         zig_struct_u32_union_u32_u32u32(s);
     }
+
+    {
+        struct Struct_i32_i32 s = {1, 2};
+        zig_struct_i32_i32(s);
+    }
 #endif
 
+#if !defined(__powerpc64__) && !defined(__loongarch__) && !defined(__mips64__)
     {
         struct BigStruct s = {1, 2, 3, 4, 5};
         zig_big_struct(s);
     }
 #endif
+#endif
 
 #if !defined __i386__ && !defined __arm__ && !defined __aarch64__ && \
-    !defined __powerpc__ && !defined ZIG_RISCV64
+    !defined __powerpc__ && !defined ZIG_RISCV64 && !defined(__loongarch__) && \
+    !defined(__mips64__)
     {
         struct SmallStructInts s = {1, 2, 3, 4};
         zig_small_struct_ints(s);
@@ -2716,7 +2811,8 @@ void run_c_tests(void) {
 #endif
 
 #if !defined __arm__ && !defined __aarch64__ && \
-    !defined __powerpc__ && !defined ZIG_RISCV64
+    !defined __powerpc__ && !defined ZIG_RISCV64 && !defined(__loongarch__) && \
+    !defined(__mips64__)
     {
         struct MedStructInts s = {1, 2, 3};
         zig_med_struct_ints(s);
@@ -2742,14 +2838,16 @@ void run_c_tests(void) {
     }
 
 #if !defined __i386__ && !defined __arm__ && \
-    !defined ZIG_PPC32 && !defined _ARCH_PPC64
+    !defined ZIG_PPC32 && !defined _ARCH_PPC64 && !defined(__loongarch__) && \
+    !defined(__mips64__)
     {
         struct SplitStructInts s = {1234, 100, 1337};
         zig_split_struct_ints(s);
     }
 #endif
 
-#if !defined __arm__ && !defined ZIG_PPC32 && !defined _ARCH_PPC64
+#if !defined __arm__ && !defined ZIG_PPC32 && !defined _ARCH_PPC64 && !defined(__loongarch__) && \
+    !defined(__mips64__)
     {
         struct MedStructMixed s = {1234, 100.0f, 1337.0f};
         zig_med_struct_mixed(s);
@@ -2757,14 +2855,15 @@ void run_c_tests(void) {
 #endif
 
 #if !defined __i386__ && !defined __arm__ && \
-    !defined ZIG_PPC32 && !defined _ARCH_PPC64
+    !defined ZIG_PPC32 && !defined _ARCH_PPC64 && !defined(__loongarch__) && \
+    !defined(__mips64__)
     {
         struct SplitStructMixed s = {1234, 100, 1337.0f};
         zig_split_struct_mixed(s);
     }
 #endif
 
-#if !defined ZIG_PPC32
+#if !defined(__powerpc__) && !defined(__loongarch__) && !defined(__mips64__)
     {
         struct BigStruct s = {30, 31, 32, 33, 34};
         struct BigStruct res = zig_big_struct_both(s);
@@ -2776,7 +2875,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined ZIG_PPC32 && !defined _ARCH_PPC64
+#if !defined ZIG_PPC32 && !defined _ARCH_PPC64 && !defined(__loongarch__) && !defined(__mips64__)
     {
         struct Rect r1 = {1, 21, 16, 4};
         struct Rect r2 = {178, 189, 21, 15};
@@ -2784,7 +2883,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined ZIG_PPC32
+#if !defined ZIG_PPC32 && !defined(__loongarch__) && !defined(__mips64__)
     {
         struct FloatRect r1 = {1, 21, 16, 4};
         struct FloatRect r2 = {178, 189, 21, 15};
@@ -5022,6 +5121,21 @@ double complex c_cmultd(double complex a, double complex b) {
     assert_or_panic(cimag(b) == -1.5);
 
     return 1.5 + I * 13.5;
+}
+
+struct Struct_i32_i32 c_mut_struct_i32_i32(struct Struct_i32_i32 s) {
+    assert_or_panic(s.a == 1);
+    assert_or_panic(s.b == 2);
+    s.a += 100;
+    s.b += 250;
+    assert_or_panic(s.a == 101);
+    assert_or_panic(s.b == 252);
+    return s;
+}
+
+void c_struct_i32_i32(struct Struct_i32_i32 s) {
+    assert_or_panic(s.a == 1);
+    assert_or_panic(s.b == 2);
 }
 
 void c_big_struct(struct BigStruct x) {

@@ -8,11 +8,9 @@
 	.file	"sincos.S"
 	.text
 	.align 2
-	.globl __MINGW_USYMBOL(sincos)
+	/* zig patch: remove sincos symbol because sincos in compiler_rt is used instead */
 	.globl __MINGW_USYMBOL(sincosl)
-	.def	__MINGW_USYMBOL(sincos);	.scl	2;	.type	32;	.endef
 	.def	__MINGW_USYMBOL(sincosl);	.scl	2;	.type	32;	.endef
-__MINGW_USYMBOL(sincos):
 __MINGW_USYMBOL(sincosl):
 	push {r4, r5, r11, lr}
 	add r11, sp, #8

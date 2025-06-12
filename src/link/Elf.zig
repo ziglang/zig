@@ -99,7 +99,7 @@ copy_rel: CopyRelSection = .{},
 rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
 /// SHT_GROUP sections
 /// Applies only to a relocatable.
-comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .empty,
+group_sections: std.ArrayListUnmanaged(GroupSection) = .empty,
 
 resolver: SymbolResolver = .{},
 
@@ -510,7 +510,7 @@ pub fn deinit(self: *Elf) void {
     self.copy_rel.deinit(gpa);
     self.rela_dyn.deinit(gpa);
     self.rela_plt.deinit(gpa);
-    self.comdat_group_sections.deinit(gpa);
+    self.group_sections.deinit(gpa);
     self.dump_argv_list.deinit(gpa);
 }
 
@@ -919,7 +919,7 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
         &self.sections,
         self.shstrtab.items,
         self.merge_sections.items,
-        self.comdat_group_sections.items,
+        self.group_sections.items,
         self.zigObjectPtr(),
         self.files,
     );
@@ -959,6 +959,12 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     self.rela_plt.clearRetainingCapacity();
 
     if (self.zigObjectPtr()) |zo| {
+        var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
+        defer {
+            for (undefs.values()) |*refs| refs.deinit();
+            undefs.deinit();
+        }
+
         var has_reloc_errors = false;
         for (zo.atoms_indexes.items) |atom_index| {
             const atom_ptr = zo.atom(atom_index) orelse continue;
@@ -969,7 +975,10 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
             const code = try zo.codeAlloc(self, atom_index);
             defer gpa.free(code);
             const file_offset = atom_ptr.offset(self);
-            atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
+            (if (shdr.sh_flags & elf.SHF_ALLOC == 0)
+                atom_ptr.resolveRelocsNonAlloc(self, code, &undefs)
+            else
+                atom_ptr.resolveRelocsAlloc(self, code)) catch |err| switch (err) {
                 error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
                 error.UnsupportedCpuArch => {
                     try self.reportUnsupportedCpuArch();
@@ -979,6 +988,8 @@ fn flushModuleInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
             };
             try self.pwriteAll(code, file_offset);
         }
+
+        try self.reportUndefinedSymbols(&undefs);
 
         if (has_reloc_errors) return error.LinkFailure;
     }
@@ -1315,16 +1326,16 @@ pub fn resolveSymbols(self: *Elf) !void {
     }
 
     {
-        // Dedup comdat groups.
+        // Dedup groups.
         var table = std.StringHashMap(Ref).init(self.base.comp.gpa);
         defer table.deinit();
 
         for (self.objects.items) |index| {
-            try self.file(index).?.object.resolveComdatGroups(self, &table);
+            try self.file(index).?.object.resolveGroups(self, &table);
         }
 
         for (self.objects.items) |index| {
-            self.file(index).?.object.markComdatGroupsDead(self);
+            self.file(index).?.object.markGroupsDead(self);
         }
     }
 
@@ -1392,11 +1403,9 @@ fn scanRelocs(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const shared_objects = self.shared_objects.values();
 
-    var undefs = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)).init(gpa);
+    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
     defer {
-        for (undefs.values()) |*refs| {
-            refs.deinit();
-        }
+        for (undefs.values()) |*refs| refs.deinit();
         undefs.deinit();
     }
 
@@ -1533,8 +1542,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
     const link_mode = comp.config.link_mode;
     const is_dyn_lib = link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
-    const have_dynamic_linker = comp.config.link_libc and
-        link_mode == .dynamic and is_exe_or_dyn_lib;
+    const have_dynamic_linker = link_mode == .dynamic and is_exe_or_dyn_lib;
     const target = self.getTarget();
     const compiler_rt_path: ?Path = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
@@ -1616,9 +1624,9 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             if (comp.libc_installation) |libc_installation| {
                 man.hash.addBytes(libc_installation.crt_dir.?);
             }
-            if (have_dynamic_linker) {
-                man.hash.addOptionalBytes(target.dynamic_linker.get());
-            }
+        }
+        if (have_dynamic_linker) {
+            man.hash.addOptionalBytes(target.dynamic_linker.get());
         }
         man.hash.addOptionalBytes(self.soname);
         man.hash.addOptional(comp.version);
@@ -1663,7 +1671,18 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
     // copy when generating relocatables. Normally, we would expect `lld -r` to work.
     // However, because LLD wants to resolve BPF relocations which it shouldn't, it fails
     // before even generating the relocatable.
-    if (output_mode == .Obj and (comp.config.lto != .none or target.cpu.arch.isBpf())) {
+    //
+    // For m68k, we go through this path because LLD doesn't support it yet, but LLVM can
+    // produce usable object files.
+    if (output_mode == .Obj and
+        (comp.config.lto != .none or
+            target.cpu.arch.isBpf() or
+            target.cpu.arch == .lanai or
+            target.cpu.arch == .m68k or
+            target.cpu.arch.isSPARC() or
+            target.cpu.arch == .ve or
+            target.cpu.arch == .xcore))
+    {
         // In this case we must do a simple file copy
         // here. TODO: think carefully about how we can avoid this redundant operation when doing
         // build-obj. See also the corresponding TODO in linkAsArchive.
@@ -1897,12 +1916,14 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                 try argv.append("-L");
                 try argv.append(libc_installation.crt_dir.?);
             }
+        }
 
-            if (have_dynamic_linker) {
-                if (target.dynamic_linker.get()) |dynamic_linker| {
-                    try argv.append("-dynamic-linker");
-                    try argv.append(dynamic_linker);
-                }
+        if (have_dynamic_linker and
+            (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker))
+        {
+            if (target.dynamic_linker.get()) |dynamic_linker| {
+                try argv.append("-dynamic-linker");
+                try argv.append(dynamic_linker);
             }
         }
 
@@ -2047,11 +2068,25 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                         try argv.append(lib_path);
                     }
                     try argv.append(try comp.crtFileAsString(arena, "libc_nonshared.a"));
-                } else if (target.abi.isMusl()) {
+                } else if (target.isMuslLibC()) {
                     try argv.append(try comp.crtFileAsString(arena, switch (link_mode) {
                         .static => "libc.a",
                         .dynamic => "libc.so",
                     }));
+                } else if (target.isFreeBSDLibC()) {
+                    for (freebsd.libs) |lib| {
+                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                            comp.freebsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
+                        });
+                        try argv.append(lib_path);
+                    }
+                } else if (target.isNetBSDLibC()) {
+                    for (netbsd.libs) |lib| {
+                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                            comp.netbsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
+                        });
+                        try argv.append(lib_path);
+                    }
                 } else {
                     diags.flags.missing_libc = true;
                 }
@@ -2359,7 +2394,7 @@ pub fn updateFunc(
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     air: Air,
-    liveness: Liveness,
+    liveness: Air.Liveness,
 ) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -2676,15 +2711,16 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    const needs_interp = blk: {
-        // On Ubuntu with musl-gcc, we get a weird combo of options looking like this:
-        // -dynamic-linker=<path> -static
-        // In this case, if we do generate .interp section and segment, we will get
-        // a segfault in the dynamic linker trying to load a binary that is static
-        // and doesn't contain .dynamic section.
-        if (self.base.isStatic() and !comp.config.pie) break :blk false;
-        break :blk target.dynamic_linker.get() != null;
+    const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
+        .Exe => true,
+        .Lib => comp.config.link_mode == .dynamic,
+        .Obj => false,
     };
+    const have_dynamic_linker = comp.config.link_mode == .dynamic and is_exe_or_dyn_lib and !target.dynamic_linker.eql(.none);
+
+    const needs_interp = have_dynamic_linker and
+        (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker);
+
     if (needs_interp and self.section_indexes.interp == null) {
         self.section_indexes.interp = try self.addSection(.{
             .name = try self.insertShString(".interp"),
@@ -3099,7 +3135,7 @@ pub fn sortShdrs(
     sections: *std.MultiArrayList(Section),
     shstrtab: []const u8,
     merge_sections: []Merge.Section,
-    comdat_group_sections: []ComdatGroupSection,
+    comdat_group_sections: []GroupSection,
     zig_object_ptr: ?*ZigObject,
     files: std.MultiArrayList(File.Entry),
 ) !void {
@@ -3681,11 +3717,9 @@ fn allocateSpecialPhdrs(self: *Elf) void {
 fn writeAtoms(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var undefs = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)).init(gpa);
+    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
     defer {
-        for (undefs.values()) |*refs| {
-            refs.deinit();
-        }
+        for (undefs.values()) |*refs| refs.deinit();
         undefs.deinit();
     }
 
@@ -4174,7 +4208,6 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
         .s390x => "elf64_s390",
         .sparc64 => "elf64_sparc",
         .x86 => switch (target.os.tag) {
-            .elfiamcu => "elf_iamcu",
             .freebsd => "elf_i386_fbsd",
             else => "elf_i386",
         },
@@ -4421,8 +4454,8 @@ pub fn atom(self: *Elf, ref: Ref) ?*Atom {
     return file_ptr.atom(ref.index);
 }
 
-pub fn comdatGroup(self: *Elf, ref: Ref) *ComdatGroup {
-    return self.file(ref.file).?.comdatGroup(ref.index);
+pub fn group(self: *Elf, ref: Ref) *Group {
+    return self.file(ref.file).?.group(ref.index);
 }
 
 pub fn symbol(self: *Elf, ref: Ref) ?*Symbol {
@@ -4789,7 +4822,7 @@ fn fmtDumpState(
             object.fmtCies(self),
             object.fmtFdes(self),
             object.fmtSymtab(self),
-            object.fmtComdatGroups(self),
+            object.fmtGroups(self),
         });
     }
 
@@ -4827,9 +4860,9 @@ fn fmtDumpState(
     try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.plt.fmt(self)});
 
-    try writer.writeAll("Output COMDAT groups\n");
-    for (self.comdat_group_sections.items) |cg| {
-        try writer.print("  shdr({d}) : COMDAT({})\n", .{ cg.shndx, cg.cg_ref });
+    try writer.writeAll("Output groups\n");
+    for (self.group_sections.items) |cg| {
+        try writer.print("  shdr({d}) : GROUP({})\n", .{ cg.shndx, cg.cg_ref });
     }
 
     try writer.writeAll("\nOutput merge sections\n");
@@ -4909,25 +4942,26 @@ const default_entry_addr = 0x8000000;
 
 pub const base_tag: link.File.Tag = .elf;
 
-pub const ComdatGroup = struct {
+pub const Group = struct {
     signature_off: u32,
     file_index: File.Index,
     shndx: u32,
     members_start: u32,
     members_len: u32,
+    is_comdat: bool,
     alive: bool = true,
 
-    pub fn file(cg: ComdatGroup, elf_file: *Elf) File {
+    pub fn file(cg: Group, elf_file: *Elf) File {
         return elf_file.file(cg.file_index).?;
     }
 
-    pub fn signature(cg: ComdatGroup, elf_file: *Elf) [:0]const u8 {
+    pub fn signature(cg: Group, elf_file: *Elf) [:0]const u8 {
         return cg.file(elf_file).object.getString(cg.signature_off);
     }
 
-    pub fn comdatGroupMembers(cg: ComdatGroup, elf_file: *Elf) []const u32 {
+    pub fn members(cg: Group, elf_file: *Elf) []const u32 {
         const object = cg.file(elf_file).object;
-        return object.comdat_group_data.items[cg.members_start..][0..cg.members_len];
+        return object.group_data.items[cg.members_start..][0..cg.members_len];
     }
 
     pub const Index = u32;
@@ -5269,9 +5303,11 @@ const codegen = @import("../codegen.zig");
 const dev = @import("../dev.zig");
 const eh_frame = @import("Elf/eh_frame.zig");
 const gc = @import("Elf/gc.zig");
-const glibc = @import("../glibc.zig");
+const glibc = @import("../libs/glibc.zig");
+const musl = @import("../libs/musl.zig");
+const freebsd = @import("../libs/freebsd.zig");
+const netbsd = @import("../libs/netbsd.zig");
 const link = @import("../link.zig");
-const musl = @import("../musl.zig");
 const relocatable = @import("Elf/relocatable.zig");
 const relocation = @import("Elf/relocation.zig");
 const target_util = @import("../target.zig");
@@ -5283,7 +5319,7 @@ const Air = @import("../Air.zig");
 const Archive = @import("Elf/Archive.zig");
 const AtomList = @import("Elf/AtomList.zig");
 const Compilation = @import("../Compilation.zig");
-const ComdatGroupSection = synthetic_sections.ComdatGroupSection;
+const GroupSection = synthetic_sections.GroupSection;
 const CopyRelSection = synthetic_sections.CopyRelSection;
 const Diags = @import("../link.zig").Diags;
 const DynamicSection = synthetic_sections.DynamicSection;
@@ -5296,7 +5332,6 @@ const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
 const HashSection = synthetic_sections.HashSection;
 const LinkerDefined = @import("Elf/LinkerDefined.zig");
-const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
 const Object = @import("Elf/Object.zig");
