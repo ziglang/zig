@@ -10661,7 +10661,7 @@ fn fnTypeAssumeCapacity(
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = std.hash.Wyhash.init(comptime std.hash.uint32(@intFromEnum(tag)));
+            var hasher = std.hash.Wyhash.init(comptime std.hash.int(@intFromEnum(tag)));
             hasher.update(std.mem.asBytes(&key.ret));
             hasher.update(std.mem.sliceAsBytes(key.params));
             return @truncate(hasher.final());
@@ -10721,7 +10721,7 @@ fn vectorTypeAssumeCapacity(
         builder: *const Builder,
         pub fn hash(_: @This(), key: Type.Vector) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(tag)),
+                comptime std.hash.int(@intFromEnum(tag)),
                 std.mem.asBytes(&key),
             ));
         }
@@ -10750,7 +10750,7 @@ fn arrayTypeAssumeCapacity(self: *Builder, len: u64, child: Type) Type {
             builder: *const Builder,
             pub fn hash(_: @This(), key: Type.Vector) u32 {
                 return @truncate(std.hash.Wyhash.hash(
-                    comptime std.hash.uint32(@intFromEnum(Type.Tag.small_array)),
+                    comptime std.hash.int(@intFromEnum(Type.Tag.small_array)),
                     std.mem.asBytes(&key),
                 ));
             }
@@ -10776,7 +10776,7 @@ fn arrayTypeAssumeCapacity(self: *Builder, len: u64, child: Type) Type {
             builder: *const Builder,
             pub fn hash(_: @This(), key: Type.Array) u32 {
                 return @truncate(std.hash.Wyhash.hash(
-                    comptime std.hash.uint32(@intFromEnum(Type.Tag.array)),
+                    comptime std.hash.int(@intFromEnum(Type.Tag.array)),
                     std.mem.asBytes(&key),
                 ));
             }
@@ -10817,7 +10817,7 @@ fn structTypeAssumeCapacity(
         builder: *const Builder,
         pub fn hash(_: @This(), key: []const Type) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(tag)),
+                comptime std.hash.int(@intFromEnum(tag)),
                 std.mem.sliceAsBytes(key),
             ));
         }
@@ -10849,7 +10849,7 @@ fn opaqueTypeAssumeCapacity(self: *Builder, name: String) Type {
         builder: *const Builder,
         pub fn hash(_: @This(), key: String) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Type.Tag.named_structure)),
+                comptime std.hash.int(@intFromEnum(Type.Tag.named_structure)),
                 std.mem.asBytes(&key),
             ));
         }
@@ -10910,7 +10910,7 @@ fn getOrPutTypeNoExtraAssumeCapacity(self: *Builder, item: Type.Item) struct { n
         builder: *const Builder,
         pub fn hash(_: @This(), key: Type.Item) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Type.Tag.simple)),
+                comptime std.hash.int(@intFromEnum(Type.Tag.simple)),
                 std.mem.asBytes(&key),
             ));
         }
@@ -11044,7 +11044,7 @@ fn bigIntConstAssumeCapacity(
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(key.tag)));
+            var hasher = std.hash.Wyhash.init(std.hash.int(@intFromEnum(key.tag)));
             hasher.update(std.mem.asBytes(&key.type));
             hasher.update(std.mem.sliceAsBytes(key.limbs));
             return @truncate(hasher.final());
@@ -11107,7 +11107,7 @@ fn doubleConstAssumeCapacity(self: *Builder, val: f64) Constant {
         builder: *const Builder,
         pub fn hash(_: @This(), key: f64) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Constant.Tag.double)),
+                comptime std.hash.int(@intFromEnum(Constant.Tag.double)),
                 std.mem.asBytes(&key),
             ));
         }
@@ -11138,7 +11138,7 @@ fn fp128ConstAssumeCapacity(self: *Builder, val: f128) Constant {
         builder: *const Builder,
         pub fn hash(_: @This(), key: f128) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Constant.Tag.fp128)),
+                comptime std.hash.int(@intFromEnum(Constant.Tag.fp128)),
                 std.mem.asBytes(&key),
             ));
         }
@@ -11172,7 +11172,7 @@ fn x86_fp80ConstAssumeCapacity(self: *Builder, val: f80) Constant {
         builder: *const Builder,
         pub fn hash(_: @This(), key: f80) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Constant.Tag.x86_fp80)),
+                comptime std.hash.int(@intFromEnum(Constant.Tag.x86_fp80)),
                 std.mem.asBytes(&key)[0..10],
             ));
         }
@@ -11205,7 +11205,7 @@ fn ppc_fp128ConstAssumeCapacity(self: *Builder, val: [2]f64) Constant {
         builder: *const Builder,
         pub fn hash(_: @This(), key: [2]f64) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Constant.Tag.ppc_fp128)),
+                comptime std.hash.int(@intFromEnum(Constant.Tag.ppc_fp128)),
                 std.mem.asBytes(&key),
             ));
         }
@@ -11340,7 +11340,7 @@ fn splatConstAssumeCapacity(self: *Builder, ty: Type, val: Constant) Constant {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Constant.Splat) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Constant.Tag.splat)),
+                comptime std.hash.int(@intFromEnum(Constant.Tag.splat)),
                 std.mem.asBytes(&key),
             ));
         }
@@ -11443,7 +11443,7 @@ fn blockAddrConstAssumeCapacity(
         builder: *const Builder,
         pub fn hash(_: @This(), key: Constant.BlockAddress) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                comptime std.hash.uint32(@intFromEnum(Constant.Tag.blockaddress)),
+                comptime std.hash.int(@intFromEnum(Constant.Tag.blockaddress)),
                 std.mem.asBytes(&key),
             ));
         }
@@ -11569,7 +11569,7 @@ fn castConstAssumeCapacity(self: *Builder, tag: Constant.Tag, val: Constant, ty:
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                std.hash.uint32(@intFromEnum(key.tag)),
+                std.hash.int(@intFromEnum(key.tag)),
                 std.mem.asBytes(&key.cast),
             ));
         }
@@ -11644,7 +11644,7 @@ fn gepConstAssumeCapacity(
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = std.hash.Wyhash.init(comptime std.hash.uint32(@intFromEnum(tag)));
+            var hasher = std.hash.Wyhash.init(comptime std.hash.int(@intFromEnum(tag)));
             hasher.update(std.mem.asBytes(&key.type));
             hasher.update(std.mem.asBytes(&key.base));
             hasher.update(std.mem.asBytes(&key.inrange));
@@ -11708,7 +11708,7 @@ fn binConstAssumeCapacity(
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                std.hash.uint32(@intFromEnum(key.tag)),
+                std.hash.int(@intFromEnum(key.tag)),
                 std.mem.asBytes(&key.extra),
             ));
         }
@@ -11746,7 +11746,7 @@ fn asmConstAssumeCapacity(
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                std.hash.uint32(@intFromEnum(key.tag)),
+                std.hash.int(@intFromEnum(key.tag)),
                 std.mem.asBytes(&key.extra),
             ));
         }
@@ -11796,7 +11796,7 @@ fn getOrPutConstantNoExtraAssumeCapacity(
         builder: *const Builder,
         pub fn hash(_: @This(), key: Constant.Item) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                std.hash.uint32(@intFromEnum(key.tag)),
+                std.hash.int(@intFromEnum(key.tag)),
                 std.mem.asBytes(&key.data),
             ));
         }
@@ -11827,7 +11827,7 @@ fn getOrPutConstantAggregateAssumeCapacity(
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(key.tag)));
+            var hasher = std.hash.Wyhash.init(std.hash.int(@intFromEnum(key.tag)));
             hasher.update(std.mem.asBytes(&key.type));
             hasher.update(std.mem.sliceAsBytes(key.vals));
             return @truncate(hasher.final());
@@ -12444,7 +12444,7 @@ fn metadataSimpleAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anytyp
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(key.tag)));
+            var hasher = std.hash.Wyhash.init(std.hash.int(@intFromEnum(key.tag)));
             inline for (std.meta.fields(@TypeOf(value))) |field| {
                 hasher.update(std.mem.asBytes(&@field(key.value, field.name)));
             }
@@ -12480,7 +12480,7 @@ fn metadataDistinctAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anyt
     const Adapter = struct {
         pub fn hash(_: @This(), key: Key) u32 {
             return @truncate(std.hash.Wyhash.hash(
-                std.hash.uint32(@intFromEnum(key.tag)),
+                std.hash.int(@intFromEnum(key.tag)),
                 std.mem.asBytes(&key.index),
             ));
         }
@@ -12876,7 +12876,7 @@ fn debugEnumeratorAssumeCapacity(
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(key.tag)));
+            var hasher = std.hash.Wyhash.init(std.hash.int(@intFromEnum(key.tag)));
             hasher.update(std.mem.asBytes(&key.name));
             hasher.update(std.mem.asBytes(&key.bit_width));
             hasher.update(std.mem.sliceAsBytes(key.value.limbs));
@@ -12958,7 +12958,7 @@ fn debugExpressionAssumeCapacity(
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = comptime std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(Metadata.Tag.expression)));
+            var hasher = comptime std.hash.Wyhash.init(std.hash.int(@intFromEnum(Metadata.Tag.expression)));
             hasher.update(std.mem.sliceAsBytes(key.elements));
             return @truncate(hasher.final());
         }
@@ -13004,7 +13004,7 @@ fn metadataTupleAssumeCapacity(
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = comptime std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(Metadata.Tag.tuple)));
+            var hasher = comptime std.hash.Wyhash.init(std.hash.int(@intFromEnum(Metadata.Tag.tuple)));
             hasher.update(std.mem.sliceAsBytes(key.elements));
             return @truncate(hasher.final());
         }
@@ -13052,7 +13052,7 @@ fn strTupleAssumeCapacity(
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = comptime std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(Metadata.Tag.tuple)));
+            var hasher = comptime std.hash.Wyhash.init(std.hash.int(@intFromEnum(Metadata.Tag.tuple)));
             hasher.update(std.mem.sliceAsBytes(key.elements));
             return @truncate(hasher.final());
         }
@@ -13182,7 +13182,7 @@ fn metadataConstantAssumeCapacity(self: *Builder, constant: Constant) Metadata {
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Constant) u32 {
-            var hasher = comptime std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(Metadata.Tag.constant)));
+            var hasher = comptime std.hash.Wyhash.init(std.hash.int(@intFromEnum(Metadata.Tag.constant)));
             hasher.update(std.mem.asBytes(&key));
             return @truncate(hasher.final());
         }

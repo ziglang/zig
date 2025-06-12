@@ -4,7 +4,7 @@ const Watch = @This();
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
 
 dir_table: DirTable,
 os: Os,
