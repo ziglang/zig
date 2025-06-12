@@ -876,7 +876,6 @@ uint32_t wasi_snapshot_preview1_path_open(uint32_t fd, uint32_t dirflags, uint32
     FILE *stream;
     if (directory) stream = NULL;
     else {
-      if (lookup_errno == wasi_errno_success) panic("unimplemented");
       const enum wasi_errno open_errno = FileDescriptor_open(de, oflags, fs_rights_base, fdflags, &stream);
       if (open_errno != wasi_errno_success) {
         if (lookup_errno == wasi_errno_noent) {
