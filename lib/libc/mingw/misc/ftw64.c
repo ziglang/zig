@@ -3,6 +3,8 @@
  * No warranty is given; refer to the file DISCLAIMER within this package.
  */
 
-#define IMPL_FTW64 1
-
+#define FUNC_FTW ftw64
+#define FUNC_NFTW nftw64
+#define FUNC_STAT stat64
+#define STRUCT_STAT struct stat64
 #include "ftw.c"

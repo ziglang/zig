@@ -25,7 +25,7 @@ _CRTIMP void __cdecl _set_app_type(_crt_app_type _Type);
 typedef enum _crt_argv_mode {
     _crt_argv_no_arguments,
     _crt_argv_unexpanded_arguments,
-    _crt_argv_expanded_arguments,
+    _crt_argv_expanded_arguments
 } _crt_argv_mode;
 
 _CRTIMP errno_t __cdecl _configure_narrow_argv(_crt_argv_mode mode);

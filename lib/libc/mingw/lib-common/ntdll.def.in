@@ -2,7 +2,7 @@
 
 LIBRARY "ntdll.dll"
 EXPORTS
-#ifdef DEF_X64
+#ifdef __x86_64__
 PropertyLengthAsVariant
 RtlConvertPropertyToVariant
 RtlConvertVariantToProperty
@@ -38,7 +38,7 @@ CsrClientConnectToServer
 CsrFreeCaptureBuffer
 CsrGetProcessId
 CsrIdentifyAlertableThread
-#if defined(DEF_I386) || defined(DEF_X64)
+#if defined(__i386__) || defined(__x86_64__)
 CsrNewThread
 CsrProbeForRead
 CsrProbeForWrite
@@ -65,12 +65,12 @@ DbgUiStopDebugging
 DbgUiWaitStateChange
 DbgUserBreakPoint
 EtwCheckCoverage
-#ifdef DEF_X64
+#ifdef __x86_64__
 EtwControlTraceA
 EtwControlTraceW
 #endif
 EtwCreateTraceInstanceId
-#ifdef DEF_X64
+#ifdef __x86_64__
 EtwEnableTrace
 EtwEnumerateTraceGuids
 EtwFlushTraceA
@@ -95,7 +95,7 @@ EtwEventWriteTransfer
 EtwGetTraceEnableFlags
 EtwGetTraceEnableLevel
 EtwGetTraceLoggerHandle
-#ifdef DEF_X64
+#ifdef __x86_64__
 EtwNotificationRegistrationA
 EtwNotificationRegistrationW
 EtwQueryAllTracesA
@@ -112,7 +112,7 @@ EtwProcessPrivateLoggerRequest
 EtwRegisterSecurityProvider
 EtwRegisterTraceGuidsA
 EtwRegisterTraceGuidsW
-#ifdef DEF_X64
+#ifdef __x86_64__
 EtwStartTraceA
 EtwStartTraceW
 EtwStopTraceA
@@ -126,7 +126,7 @@ EtwTraceEventInstance
 EtwTraceMessage
 EtwTraceMessageVa
 EtwUnregisterTraceGuids
-#ifdef DEF_X64
+#ifdef __x86_64__
 EtwUpdateTraceA
 EtwUpdateTraceW
 EtwpGetTraceBuffer
@@ -138,7 +138,7 @@ EtwpGetCpuSpeed
 F_X64(EtwpNotificationThread)
 EvtIntReportAuthzEventAndSourceAsync
 EvtIntReportEventAndSourceAsync
-#ifndef DEF_ARM32
+#ifndef __arm__
 ExpInterlockedPopEntrySListEnd
 F_X64(ExpInterlockedPopEntrySListEnd16)
 ExpInterlockedPopEntrySListFault
@@ -729,7 +729,7 @@ NtWaitForWorkViaWorkerFactory
 NtWaitHighEventPair
 NtWaitLowEventPair
 NtWorkerFactoryWorkerReady
-#ifdef DEF_ARM32
+#ifdef __arm__
 NtWow64AllocateVirtualMemory64
 NtWow64CallFunction64
 NtWow64CsrAllocateCaptureBuffer
@@ -946,7 +946,7 @@ RtlCreateSystemVolumeInformationFolder
 RtlCreateTagHeap
 RtlCreateTimer
 RtlCreateTimerQueue
-#ifdef DEF_X64
+#ifdef __x86_64__
 RtlCreateUmsCompletionList
 RtlCreateUmsThread
 RtlCreateUmsThreadContext
@@ -995,7 +995,7 @@ RtlDeleteSecurityObject
 RtlDeleteTimer
 RtlDeleteTimerQueue
 RtlDeleteTimerQueueEx
-#ifdef DEF_X64
+#ifdef __x86_64__
 RtlDeleteUmsCompletionList
 RtlDeleteUmsThreadContext
 RtlDequeueUmsCompletionListItems
@@ -1732,7 +1732,7 @@ F64(RtlWow64GetThreadContext)
 F64(RtlWow64GetThreadSelectorEntry)
 RtlWow64IsWowGuestMachineSupported
 RtlWow64LogMessageInEventLogger
-#if defined(DEF_X64) || defined(DEF_ARM64)
+#if defined(__x86_64__) || defined(__aarch64__)
 RtlWow64PopAllCrossProcessWorkFromWorkList
 RtlWow64PopCrossProcessWorkFromFreeList
 RtlWow64PushCrossProcessWorkOntoFreeList
@@ -1794,7 +1794,7 @@ F_X64(RtlpUmsThreadYield)
 RtlpUnWaitCriticalSection
 RtlpVerifyAndCommitUILanguageSettings
 RtlpWaitForCriticalSection
-#ifdef DEF_X64
+#ifdef __x86_64__
 RtlpWow64CtxFromAmd64
 RtlpWow64GetContextOnAmd64
 RtlpWow64SetContextOnAmd64
@@ -2388,7 +2388,7 @@ ZwWaitForWorkViaWorkerFactory
 ZwWaitHighEventPair
 ZwWaitLowEventPair
 ZwWorkerFactoryWorkerReady
-#ifdef DEF_ARM32
+#ifdef __arm__
 ZwWow64AllocateVirtualMemory64
 ZwWow64CallFunction64
 ZwWow64CsrAllocateCaptureBuffer
