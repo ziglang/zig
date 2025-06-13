@@ -4861,6 +4861,15 @@ pub fn getParamBody(zir: Zir, fn_inst: Inst.Index) []const Zir.Inst.Index {
     }
 }
 
+pub fn getParamName(zir: Zir, param_inst: Inst.Index) ?NullTerminatedString {
+    const inst = zir.instructions.get(@intFromEnum(param_inst));
+    return switch (inst.tag) {
+        .param, .param_comptime => zir.extraData(Inst.Param, inst.data.pl_tok.payload_index).data.name,
+        .param_anytype, .param_anytype_comptime => inst.data.str_tok.start,
+        else => null,
+    };
+}
+
 pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
     const tags = zir.instructions.items(.tag);
     const datas = zir.instructions.items(.data);

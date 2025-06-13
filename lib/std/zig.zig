@@ -884,6 +884,35 @@ pub const SimpleComptimeReason = enum(u32) {
     }
 };
 
+/// Every kind of artifact which the compiler can emit.
+pub const EmitArtifact = enum {
+    bin,
+    @"asm",
+    implib,
+    llvm_ir,
+    llvm_bc,
+    docs,
+    pdb,
+    h,
+
+    /// If using `Server` to communicate with the compiler, it will place requested artifacts in
+    /// paths under the output directory, where those paths are named according to this function.
+    /// Returned string is allocated with `gpa` and owned by the caller.
+    pub fn cacheName(ea: EmitArtifact, gpa: Allocator, opts: BinNameOptions) Allocator.Error![]const u8 {
+        const suffix: []const u8 = switch (ea) {
+            .bin => return binNameAlloc(gpa, opts),
+            .@"asm" => ".s",
+            .implib => ".lib",
+            .llvm_ir => ".ll",
+            .llvm_bc => ".bc",
+            .docs => "-docs",
+            .pdb => ".pdb",
+            .h => ".h",
+        };
+        return std.fmt.allocPrint(gpa, "{s}{s}", .{ opts.root_name, suffix });
+    }
+};
+
 test {
     _ = Ast;
     _ = AstRlAnnotate;

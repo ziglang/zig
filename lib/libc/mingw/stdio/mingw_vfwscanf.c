@@ -7,8 +7,6 @@
 int
 __mingw_vfwscanf (FILE *s, const wchar_t *format, va_list argp)
 {
-  _IFPW ifp;
-  memset (&ifp, 0, sizeof (_IFPW));
-  ifp.fp = s;
+  _IFPW ifp = { .fp = s };
   return __mingw_swformat (&ifp, format, argp);
 }

@@ -69,7 +69,7 @@ typedef enum MEDIA_SAMPLE_CONTENT
 
 typedef enum ISDBCAS_REQUEST_ID {
   ISDBCAS_REQUEST_ID_EMG = 0x38,
-  ISDBCAS_REQUEST_ID_EMD = 0x3a,
+  ISDBCAS_REQUEST_ID_EMD = 0x3a
 } ISDBCAS_REQUEST_ID;
 
 typedef enum MUX_PID_TYPE {
@@ -299,7 +299,7 @@ typedef enum tagScanModulationTypes
   ScanModulationTypesMask_DVBC = BDA_MOD_64QAM | BDA_SCAN_MOD_128QAM |
   BDA_MOD_256QAM,
   BDA_SCAN_MOD_16APSK = 0x10000000,
-  BDA_SCAN_MOD_32APSK = 0x20000000,
+  BDA_SCAN_MOD_32APSK = 0x20000000
 } ScanModulationTypes;
 
 #ifdef __WIDL__
@@ -460,7 +460,7 @@ typedef enum ApplicationTypeType {
   SCTE28_CopyProtection,
   SCTE28_Diagnostic,
   SCTE28_Undesignated,
-  SCTE28_Reserved,
+  SCTE28_Reserved
 } ApplicationTypeType;
 
 #ifdef __WIDL__

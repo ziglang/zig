@@ -4,12 +4,24 @@
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include <assert.h>
 #include <errno.h>
 #include <time.h>
+
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+
+#define WINPTHREAD_NANOSLEEP_DECL WINPTHREAD_API
+
+/* public header files */
 #include "pthread.h"
 #include "pthread_time.h"
-#include "winpthread_internal.h"
+/* internal header files */
+#include "thread.h"
 
 #define POW10_3                 1000
 #define POW10_4                 10000
@@ -25,7 +37,7 @@
  *         If the function fails, the return value is -1,
  *         with errno set to indicate the error.
  */
-int nanosleep(const struct timespec *request, struct timespec *remain)
+static int __nanosleep(const struct _timespec64 *request, struct _timespec64 *remain)
 {
     unsigned long ms, rc = 0;
     unsigned __int64 u64, want, real;
@@ -48,7 +60,7 @@ int nanosleep(const struct timespec *request, struct timespec *remain)
         else ms = (unsigned long) u64;
 
         u64 -= ms;
-        rc = pthread_delay_np_ms(ms);
+        rc = _pthread_delay_np_ms(ms);
     }
 
     if (rc != 0) { /* WAIT_IO_COMPLETION (192) */
@@ -65,6 +77,32 @@ int nanosleep(const struct timespec *request, struct timespec *remain)
 
         errno = EINTR;
         return -1;
+    }
+
+    return 0;
+}
+
+int nanosleep64(const struct _timespec64 *request, struct _timespec64 *remain)
+{
+    return __nanosleep (request, remain);
+}
+
+int nanosleep32(const struct _timespec32 *request, struct _timespec32 *remain)
+{
+    struct _timespec64 request64 = {
+        .tv_sec = request->tv_sec,
+        .tv_nsec = request->tv_nsec
+    };
+    struct _timespec64 remain64 = {0};
+
+    if (__nanosleep (&request64, &remain64) == -1)
+        return -1;
+
+    assert (remain64.tv_sec <= INT_MAX);
+
+    if (remain != NULL) {
+        remain->tv_sec = (__time32_t)remain64.tv_sec;
+        remain->tv_nsec = remain64.tv_nsec;
     }
 
     return 0;

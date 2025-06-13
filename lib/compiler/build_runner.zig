@@ -415,7 +415,7 @@ pub fn main() !void {
         else => return err,
     };
 
-    var w = if (watch) try Watch.init() else undefined;
+    var w: Watch = if (watch and Watch.have_impl) try Watch.init() else undefined;
 
     try run.thread_pool.init(thread_pool_options);
     defer run.thread_pool.deinit();
@@ -435,6 +435,9 @@ pub fn main() !void {
             else => return err,
         };
         if (fuzz) {
+            if (builtin.single_threaded) {
+                fatal("--fuzz not yet implemented for single-threaded builds", .{});
+            }
             switch (builtin.os.tag) {
                 // Current implementation depends on two things that need to be ported to Windows:
                 // * Memory-mapping to share data between the fuzzer and build runner.

@@ -7,7 +7,7 @@
 #define __SQLTYPES
 
 #ifndef ODBCVER
-#define ODBCVER 0x0351
+#define ODBCVER 0x0380
 #endif
 
 #ifdef __cplusplus

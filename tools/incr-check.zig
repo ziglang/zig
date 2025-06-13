@@ -314,7 +314,7 @@ const Eval = struct {
                     const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
                     const result_dir = ".local-cache" ++ std.fs.path.sep_str ++ "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*);
 
-                    const bin_name = try std.zig.binNameAlloc(arena, .{
+                    const bin_name = try std.zig.EmitArtifact.bin.cacheName(arena, .{
                         .root_name = "root", // corresponds to the module name "root"
                         .target = eval.target.resolved,
                         .output_mode = .Exe,

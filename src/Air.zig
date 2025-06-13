@@ -1153,9 +1153,7 @@ pub const Inst = struct {
         ty: Type,
         arg: struct {
             ty: Ref,
-            /// Index into `extra` of a null-terminated string representing the parameter name.
-            /// This is `.none` if debug info is stripped.
-            name: NullTerminatedString,
+            zir_param_index: u32,
         },
         ty_op: struct {
             ty: Ref,

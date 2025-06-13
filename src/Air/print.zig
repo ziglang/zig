@@ -363,10 +363,7 @@ const Writer = struct {
     fn writeArg(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const arg = w.air.instructions.items(.data)[@intFromEnum(inst)].arg;
         try w.writeType(s, arg.ty.toType());
-        switch (arg.name) {
-            .none => {},
-            _ => try s.print(", \"{}\"", .{std.zig.fmtEscapes(arg.name.toSlice(w.air))}),
-        }
+        try s.print(", {d}", .{arg.zir_param_index});
     }
 
     fn writeTyOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

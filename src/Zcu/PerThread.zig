@@ -27,6 +27,7 @@ const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Zcu = @import("../Zcu.zig");
 const Compilation = @import("../Compilation.zig");
+const codegen = @import("../codegen.zig");
 const Zir = std.zig.Zir;
 const Zoir = std.zig.Zoir;
 const ZonGen = std.zig.ZonGen;
@@ -795,8 +796,8 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
         info.deps.clearRetainingCapacity();
     }
 
-    const unit_prog_node = zcu.sema_prog_node.start("comptime", 0);
-    defer unit_prog_node.end();
+    const unit_prog_node = zcu.startSemaProgNode("comptime");
+    defer unit_prog_node.end(zcu);
 
     return pt.analyzeComptimeUnit(cu_id) catch |err| switch (err) {
         error.AnalysisFail => {
@@ -975,8 +976,8 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
         info.deps.clearRetainingCapacity();
     }
 
-    const unit_prog_node = zcu.sema_prog_node.start(nav.fqn.toSlice(ip), 0);
-    defer unit_prog_node.end();
+    const unit_prog_node = zcu.startSemaProgNode(nav.fqn.toSlice(ip));
+    defer unit_prog_node.end(zcu);
 
     const invalidate_value: bool, const new_failed: bool = if (pt.analyzeNavVal(nav_id)) |result| res: {
         break :res .{
@@ -1320,7 +1321,8 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
         }
 
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_nav = nav_id });
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+        try zcu.comp.queueJob(.{ .link_nav = nav_id });
     }
 
     switch (old_nav.status) {
@@ -1395,8 +1397,8 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
         info.deps.clearRetainingCapacity();
     }
 
-    const unit_prog_node = zcu.sema_prog_node.start(nav.fqn.toSlice(ip), 0);
-    defer unit_prog_node.end();
+    const unit_prog_node = zcu.startSemaProgNode(nav.fqn.toSlice(ip));
+    defer unit_prog_node.end(zcu);
 
     const invalidate_type: bool, const new_failed: bool = if (pt.analyzeNavType(nav_id)) |result| res: {
         break :res .{
@@ -1616,8 +1618,8 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         info.deps.clearRetainingCapacity();
     }
 
-    const func_prog_node = zcu.sema_prog_node.start(ip.getNav(func.owner_nav).fqn.toSlice(ip), 0);
-    defer func_prog_node.end();
+    const func_prog_node = zcu.startSemaProgNode(ip.getNav(func.owner_nav).fqn.toSlice(ip));
+    defer func_prog_node.end(zcu);
 
     const ies_outdated, const new_failed = if (pt.analyzeFuncBody(func_index)) |result|
         .{ prev_failed or result.ies_outdated, false }
@@ -1716,93 +1718,14 @@ fn analyzeFuncBody(
     }
 
     // This job depends on any resolve_type_fully jobs queued up before it.
+    zcu.codegen_prog_node.increaseEstimatedTotalItems(1);
+    comp.link_prog_node.increaseEstimatedTotalItems(1);
     try comp.queueJob(.{ .codegen_func = .{
         .func = func_index,
         .air = air,
     } });
 
     return .{ .ies_outdated = ies_outdated };
-}
-
-/// Takes ownership of `air`, even on error.
-/// If any types referenced by `air` are unresolved, marks the codegen as failed.
-pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) Allocator.Error!void {
-    const zcu = pt.zcu;
-    const gpa = zcu.gpa;
-    const ip = &zcu.intern_pool;
-    const comp = zcu.comp;
-
-    const func = zcu.funcInfo(func_index);
-    const nav_index = func.owner_nav;
-    const nav = ip.getNav(nav_index);
-
-    const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(ip), 0);
-    defer codegen_prog_node.end();
-
-    if (!air.typesFullyResolved(zcu)) {
-        // A type we depend on failed to resolve. This is a transitive failure.
-        // Correcting this failure will involve changing a type this function
-        // depends on, hence triggering re-analysis of this function, so this
-        // interacts correctly with incremental compilation.
-        return;
-    }
-
-    legalize: {
-        try air.legalize(pt, @import("../codegen.zig").legalizeFeatures(pt, nav_index) orelse break :legalize);
-    }
-
-    var liveness = try Air.Liveness.analyze(zcu, air.*, ip);
-    defer liveness.deinit(gpa);
-
-    if (build_options.enable_debug_extensions and comp.verbose_air) {
-        std.debug.print("# Begin Function AIR: {}:\n", .{nav.fqn.fmt(ip)});
-        air.dump(pt, liveness);
-        std.debug.print("# End Function AIR: {}\n\n", .{nav.fqn.fmt(ip)});
-    }
-
-    if (std.debug.runtime_safety) {
-        var verify: Air.Liveness.Verify = .{
-            .gpa = gpa,
-            .zcu = zcu,
-            .air = air.*,
-            .liveness = liveness,
-            .intern_pool = ip,
-        };
-        defer verify.deinit();
-
-        verify.verify() catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => {
-                try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
-                    gpa,
-                    zcu.navSrcLoc(nav_index),
-                    "invalid liveness: {s}",
-                    .{@errorName(err)},
-                ));
-                return;
-            },
-        };
-    }
-
-    if (comp.bin_file) |lf| {
-        lf.updateFunc(pt, func_index, air.*, liveness) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
-            error.Overflow, error.RelocationNotByteAligned => {
-                try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
-                    gpa,
-                    zcu.navSrcLoc(nav_index),
-                    "unable to codegen: {s}",
-                    .{@errorName(err)},
-                ));
-                // Not a retryable failure.
-            },
-        };
-    } else if (zcu.llvm_object) |llvm_object| {
-        llvm_object.updateFunc(pt, func_index, air.*, liveness) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-        };
-    }
 }
 
 pub fn semaMod(pt: Zcu.PerThread, mod: *Module) !void {
@@ -1867,7 +1790,7 @@ fn createFileRootStruct(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, try file.internFullyQualifiedName(pt));
+    wip_ty.setName(ip, try file.internFullyQualifiedName(pt), .none);
     ip.namespacePtr(namespace_index).owner_type = wip_ty.index;
 
     if (zcu.comp.incremental) {
@@ -1877,10 +1800,10 @@ fn createFileRootStruct(
     try pt.scanNamespace(namespace_index, decls);
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     codegen_type: {
-        if (zcu.comp.config.use_llvm) break :codegen_type;
         if (file.mod.?.strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     zcu.setFileRootType(file_index, wip_ty.index);
     if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
@@ -2574,7 +2497,7 @@ fn newEmbedFile(
     cache: {
         const whole = switch (zcu.comp.cache_use) {
             .whole => |whole| whole,
-            .incremental => break :cache,
+            .incremental, .none => break :cache,
         };
         const man = whole.cache_manifest orelse break :cache;
         const ip_str = opt_ip_str orelse break :cache; // this will be a compile error
@@ -2974,16 +2897,9 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
         runtime_params_len;
 
     var runtime_param_index: usize = 0;
-    for (fn_info.param_body[0..src_params_len]) |inst| {
+    for (fn_info.param_body[0..src_params_len], 0..) |inst, zir_param_index| {
         const gop = sema.inst_map.getOrPutAssumeCapacity(inst);
         if (gop.found_existing) continue; // provided above by comptime arg
-
-        const param_inst_info = sema.code.instructions.get(@intFromEnum(inst));
-        const param_name: Zir.NullTerminatedString = switch (param_inst_info.tag) {
-            .param_anytype => param_inst_info.data.str_tok.start,
-            .param => sema.code.extraData(Zir.Inst.Param, param_inst_info.data.pl_tok.payload_index).data.name,
-            else => unreachable,
-        };
 
         const param_ty = fn_ty_info.param_types.get(ip)[runtime_param_index];
         runtime_param_index += 1;
@@ -3004,10 +2920,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
             .tag = .arg,
             .data = .{ .arg = .{
                 .ty = Air.internedToRef(param_ty),
-                .name = if (inner_block.ownerModule().strip)
-                    .none
-                else
-                    try sema.appendAirString(sema.code.nullTerminatedString(param_name)),
+                .zir_param_index = @intCast(zir_param_index),
             } },
         });
     }
@@ -3189,7 +3102,9 @@ pub fn processExports(pt: Zcu.PerThread) !void {
             // This export might already have been sent to the linker on a previous update, in which case we need to delete it.
             // The linker export API should be modified to eliminate this call. #23616
             if (zcu.comp.bin_file) |lf| {
-                lf.deleteExport(exp.exported, exp.opts.name);
+                if (zcu.llvm_object == null) {
+                    lf.deleteExport(exp.exported, exp.opts.name);
+                }
             }
             continue;
         }
@@ -3213,8 +3128,10 @@ pub fn processExports(pt: Zcu.PerThread) !void {
             // This export might already have been sent to the linker on a previous update, in which case we need to delete it.
             // The linker export API should be modified to eliminate this loop. #23616
             if (zcu.comp.bin_file) |lf| {
-                for (exports) |exp| {
-                    lf.deleteExport(exp.exported, exp.opts.name);
+                if (zcu.llvm_object == null) {
+                    for (exports) |exp| {
+                        lf.deleteExport(exp.exported, exp.opts.name);
+                    }
                 }
             }
             continue;
@@ -3309,45 +3226,48 @@ fn processExportsInner(
         .uav => {},
     }
 
-    if (zcu.comp.bin_file) |lf| {
-        try zcu.handleUpdateExports(export_indices, lf.updateExports(pt, exported, export_indices));
-    } else if (zcu.llvm_object) |llvm_object| {
+    if (zcu.llvm_object) |llvm_object| {
         try zcu.handleUpdateExports(export_indices, llvm_object.updateExports(pt, exported, export_indices));
+    } else if (zcu.comp.bin_file) |lf| {
+        try zcu.handleUpdateExports(export_indices, lf.updateExports(pt, exported, export_indices));
     }
 }
 
-pub fn populateTestFunctions(
-    pt: Zcu.PerThread,
-    main_progress_node: std.Progress.Node,
-) Allocator.Error!void {
+pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
+
+    // Our job is to correctly set the value of the `test_functions` declaration if it has been
+    // analyzed and sent to codegen, It usually will have been, because the test runner will
+    // reference it, and `std.builtin` shouldn't have type errors. However, if it hasn't been
+    // analyzed, we will just terminate early, since clearly the test runner hasn't referenced
+    // `test_functions` so there's no point populating it. More to the the point, we potentially
+    // *can't* populate it without doing some type resolution, and... let's try to leave Sema in
+    // the past here.
+
     const builtin_mod = zcu.builtin_modules.get(zcu.root_mod.getBuiltinOptions(zcu.comp.config).hash()).?;
     const builtin_file_index = zcu.module_roots.get(builtin_mod).?.unwrap().?;
-    pt.ensureFileAnalyzed(builtin_file_index) catch |err| switch (err) {
-        error.AnalysisFail => unreachable, // builtin module is generated so cannot be corrupt
-        error.OutOfMemory => |e| return e,
-    };
-    const builtin_root_type = Type.fromInterned(zcu.fileRootType(builtin_file_index));
-    const builtin_namespace = builtin_root_type.getNamespace(zcu).unwrap().?;
+    const builtin_root_type = zcu.fileRootType(builtin_file_index);
+    if (builtin_root_type == .none) return; // `@import("builtin")` never analyzed
+    const builtin_namespace = Type.fromInterned(builtin_root_type).getNamespace(zcu).unwrap().?;
+    // We know that the namespace has a `test_functions`...
     const nav_index = zcu.namespacePtr(builtin_namespace).pub_decls.getKeyAdapted(
         try ip.getOrPutString(gpa, pt.tid, "test_functions", .no_embedded_nulls),
         Zcu.Namespace.NameAdapter{ .zcu = zcu },
     ).?;
+    // ...but it might not be populated, so let's check that!
+    if (zcu.failed_analysis.contains(.wrap(.{ .nav_val = nav_index })) or
+        zcu.transitive_failed_analysis.contains(.wrap(.{ .nav_val = nav_index })) or
+        ip.getNav(nav_index).status != .fully_resolved)
     {
-        // We have to call `ensureNavValUpToDate` here in case `builtin.test_functions`
-        // was not referenced by start code.
-        zcu.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
-        defer {
-            zcu.sema_prog_node.end();
-            zcu.sema_prog_node = std.Progress.Node.none;
-        }
-        pt.ensureNavValUpToDate(nav_index) catch |err| switch (err) {
-            error.AnalysisFail => return,
-            error.OutOfMemory => return error.OutOfMemory,
-        };
+        // The value of `builtin.test_functions` was either never referenced, or failed analysis.
+        // Either way, we don't need to do anything.
+        return;
     }
+
+    // Okay, `builtin.test_functions` is (potentially) referenced and valid. Our job now is to swap
+    // its placeholder `&.{}` value for the actual list of all test functions.
 
     const test_fns_val = zcu.navValue(nav_index);
     const test_fn_ty = test_fns_val.typeOf(zcu).slicePtrFieldType(zcu).childType(zcu);
@@ -3450,81 +3370,8 @@ pub fn populateTestFunctions(
         } });
         ip.mutateVarInit(test_fns_val.toIntern(), new_init);
     }
-    {
-        zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
-        defer {
-            zcu.codegen_prog_node.end();
-            zcu.codegen_prog_node = std.Progress.Node.none;
-        }
-
-        try pt.linkerUpdateNav(nav_index);
-    }
-}
-
-pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error{OutOfMemory}!void {
-    const zcu = pt.zcu;
-    const comp = zcu.comp;
-    const gpa = zcu.gpa;
-    const ip = &zcu.intern_pool;
-
-    const nav = zcu.intern_pool.getNav(nav_index);
-    const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(ip), 0);
-    defer codegen_prog_node.end();
-
-    if (!Air.valFullyResolved(zcu.navValue(nav_index), zcu)) {
-        // The value of this nav failed to resolve. This is a transitive failure.
-        // TODO: do we need to mark this failure anywhere? I don't think so, since compilation
-        // will fail due to the type error anyway.
-    } else if (comp.bin_file) |lf| {
-        lf.updateNav(pt, nav_index) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
-            error.Overflow, error.RelocationNotByteAligned => {
-                try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
-                    gpa,
-                    zcu.navSrcLoc(nav_index),
-                    "unable to codegen: {s}",
-                    .{@errorName(err)},
-                ));
-                // Not a retryable failure.
-            },
-        };
-    } else if (zcu.llvm_object) |llvm_object| {
-        llvm_object.updateNav(pt, nav_index) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-        };
-    }
-}
-
-pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) error{OutOfMemory}!void {
-    const zcu = pt.zcu;
-    const gpa = zcu.gpa;
-    const comp = zcu.comp;
-    const ip = &zcu.intern_pool;
-
-    const codegen_prog_node = zcu.codegen_prog_node.start(Type.fromInterned(ty).containerTypeName(ip).toSlice(ip), 0);
-    defer codegen_prog_node.end();
-
-    if (zcu.failed_types.fetchSwapRemove(ty)) |*entry| entry.value.deinit(gpa);
-
-    if (!Air.typeFullyResolved(Type.fromInterned(ty), zcu)) {
-        // This type failed to resolve. This is a transitive failure.
-        return;
-    }
-
-    if (comp.bin_file) |lf| lf.updateContainerType(pt, ty) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.TypeFailureReported => assert(zcu.failed_types.contains(ty)),
-    };
-}
-
-pub fn linkerUpdateLineNumber(pt: Zcu.PerThread, ti: InternPool.TrackedInst.Index) !void {
-    if (pt.zcu.comp.bin_file) |lf| {
-        lf.updateLineNumber(pt, ti) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => |e| log.err("update line number failed: {s}", .{@errorName(e)}),
-        };
-    }
+    // The linker thread is not running, so we actually need to dispatch this task directly.
+    @import("../link.zig").linkTestFunctionsNav(pt, nav_index);
 }
 
 /// Stores an error in `pt.zcu.failed_files` for this file, and sets the file
@@ -3984,7 +3831,8 @@ pub fn getExtern(pt: Zcu.PerThread, key: InternPool.Key.Extern) Allocator.Error!
     const result = try pt.zcu.intern_pool.getExtern(pt.zcu.gpa, pt.tid, key);
     if (result.new_nav.unwrap()) |nav| {
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try pt.zcu.comp.queueJob(.{ .codegen_nav = nav });
+        pt.zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+        try pt.zcu.comp.queueJob(.{ .link_nav = nav });
         if (pt.zcu.comp.debugIncremental()) try pt.zcu.incremental_debug_state.newNav(pt.zcu, nav);
     }
     return result.index;
@@ -4122,17 +3970,17 @@ fn recreateStructType(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, struct_obj.name);
+    wip_ty.setName(ip, struct_obj.name, struct_obj.name_nav);
     try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = key.zir_index });
     zcu.namespacePtr(struct_obj.namespace).owner_type = wip_ty.index;
     // No need to re-scan the namespace -- `zirStructDecl` will ultimately do that if the type is still alive.
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
 
     codegen_type: {
-        if (zcu.comp.config.use_llvm) break :codegen_type;
         if (file.mod.?.strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
 
     if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
@@ -4215,17 +4063,17 @@ fn recreateUnionType(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, union_obj.name);
+    wip_ty.setName(ip, union_obj.name, union_obj.name_nav);
     try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = key.zir_index });
     zcu.namespacePtr(namespace_index).owner_type = wip_ty.index;
     // No need to re-scan the namespace -- `zirUnionDecl` will ultimately do that if the type is still alive.
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
 
     codegen_type: {
-        if (zcu.comp.config.use_llvm) break :codegen_type;
         if (file.mod.?.strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
 
     if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
@@ -4325,7 +4173,7 @@ fn recreateEnumType(
     var done = true;
     errdefer if (!done) wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, enum_obj.name);
+    wip_ty.setName(ip, enum_obj.name, enum_obj.name_nav);
 
     zcu.namespacePtr(namespace_index).owner_type = wip_ty.index;
     // No need to re-scan the namespace -- `zirEnumDecl` will ultimately do that if the type is still alive.
@@ -4517,4 +4365,129 @@ pub fn addDependency(pt: Zcu.PerThread, unit: AnalUnit, dependee: InternPool.Dep
         const info = try zcu.incremental_debug_state.getUnitInfo(gpa, unit);
         try info.deps.append(gpa, dependee);
     }
+}
+
+/// Performs code generation, which comes after `Sema` but before `link` in the pipeline.
+/// This part of the pipeline is self-contained/"pure", so can be run in parallel with most
+/// other code. This function is currently run either on the main thread, or on a separate
+/// codegen thread, depending on whether the backend supports `Zcu.Feature.separate_thread`.
+pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, out: *@import("../link.zig").ZcuTask.LinkFunc.SharedMir) void {
+    const zcu = pt.zcu;
+    if (runCodegenInner(pt, func_index, air)) |mir| {
+        out.value = mir;
+        out.status.store(.ready, .release);
+    } else |err| switch (err) {
+        error.OutOfMemory => {
+            zcu.comp.setAllocFailure();
+            out.status.store(.failed, .monotonic);
+        },
+        error.CodegenFail => {
+            zcu.assertCodegenFailed(zcu.funcInfo(func_index).owner_nav);
+            out.status.store(.failed, .monotonic);
+        },
+        error.NoLinkFile => {
+            assert(zcu.comp.bin_file == null);
+            out.status.store(.failed, .monotonic);
+        },
+        error.BackendDoesNotProduceMir => {
+            const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
+            switch (backend) {
+                else => unreachable, // assertion failure
+                .stage2_spirv64,
+                .stage2_llvm,
+                => {},
+            }
+            out.status.store(.failed, .monotonic);
+        },
+    }
+    zcu.comp.link_task_queue.mirReady(zcu.comp, out);
+    if (zcu.pending_codegen_jobs.rmw(.Sub, 1, .monotonic) == 1) {
+        // Decremented to 0, so all done.
+        zcu.codegen_prog_node.end();
+        zcu.codegen_prog_node = .none;
+    }
+}
+fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) error{
+    OutOfMemory,
+    CodegenFail,
+    NoLinkFile,
+    BackendDoesNotProduceMir,
+}!codegen.AnyMir {
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+    const comp = zcu.comp;
+
+    const nav = zcu.funcInfo(func_index).owner_nav;
+    const fqn = ip.getNav(nav).fqn;
+
+    const codegen_prog_node = zcu.codegen_prog_node.start(fqn.toSlice(ip), 0);
+    defer codegen_prog_node.end();
+
+    if (codegen.legalizeFeatures(pt, nav)) |features| {
+        try air.legalize(pt, features);
+    }
+
+    var liveness: Air.Liveness = try .analyze(zcu, air.*, ip);
+    defer liveness.deinit(gpa);
+
+    if (build_options.enable_debug_extensions and comp.verbose_air) {
+        std.debug.lockStdErr();
+        defer std.debug.unlockStdErr();
+        const stderr = std.io.getStdErr().writer();
+        stderr.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)}) catch {};
+        air.write(stderr, pt, liveness);
+        stderr.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)}) catch {};
+    }
+
+    if (std.debug.runtime_safety) {
+        var verify: Air.Liveness.Verify = .{
+            .gpa = gpa,
+            .zcu = zcu,
+            .air = air.*,
+            .liveness = liveness,
+            .intern_pool = ip,
+        };
+        defer verify.deinit();
+
+        verify.verify() catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return zcu.codegenFail(nav, "invalid liveness: {s}", .{@errorName(err)}),
+        };
+    }
+
+    // The LLVM backend is special, because we only need to do codegen. There is no equivalent to the
+    // "emit" step because LLVM does not support incremental linking. Our linker (LLD or self-hosted)
+    // will just see the ZCU object file which LLVM ultimately emits.
+    if (zcu.llvm_object) |llvm_object| {
+        assert(pt.tid == .main); // LLVM has a lot of shared state
+        try llvm_object.updateFunc(pt, func_index, air, &liveness);
+        return error.BackendDoesNotProduceMir;
+    }
+
+    const lf = comp.bin_file orelse return error.NoLinkFile;
+
+    // TODO: self-hosted codegen should always have a type of MIR; codegen should produce that MIR,
+    // and the linker should consume it. However, our SPIR-V backend is currently tightly coupled
+    // with our SPIR-V linker, so needs to work more like the LLVM backend. This should be fixed to
+    // unblock threaded codegen for SPIR-V.
+    if (lf.cast(.spirv)) |spirv_file| {
+        assert(pt.tid == .main); // SPIR-V has a lot of shared state
+        spirv_file.object.updateFunc(pt, func_index, air, &liveness) catch |err| {
+            switch (err) {
+                error.OutOfMemory => comp.link_diags.setAllocFailure(),
+            }
+            return error.CodegenFail;
+        };
+        return error.BackendDoesNotProduceMir;
+    }
+
+    return codegen.generateFunction(lf, pt, zcu.navSrcLoc(nav), func_index, air, &liveness) catch |err| switch (err) {
+        error.OutOfMemory,
+        error.CodegenFail,
+        => |e| return e,
+        error.Overflow,
+        error.RelocationNotByteAligned,
+        => return zcu.codegenFail(nav, "unable to codegen: {s}", .{@errorName(err)}),
+    };
 }

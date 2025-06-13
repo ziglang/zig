@@ -2963,13 +2963,14 @@ fn zirStructDecl(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, try sema.createTypeName(
+    const type_name = try sema.createTypeName(
         block,
         small.name_strategy,
         "struct",
         inst,
         wip_ty.index,
-    ));
+    );
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -2991,7 +2992,8 @@ fn zirStructDecl(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
@@ -3007,7 +3009,10 @@ pub fn createTypeName(
     inst: ?Zir.Inst.Index,
     /// This is used purely to give the type a unique name in the `anon` case.
     type_index: InternPool.Index,
-) !InternPool.NullTerminatedString {
+) !struct {
+    name: InternPool.NullTerminatedString,
+    nav: InternPool.Nav.Index.Optional,
+} {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -3015,7 +3020,10 @@ pub fn createTypeName(
 
     switch (name_strategy) {
         .anon => {}, // handled after switch
-        .parent => return block.type_name_ctx,
+        .parent => return .{
+            .name = block.type_name_ctx,
+            .nav = sema.owner.unwrap().nav_val.toOptional(),
+        },
         .func => func_strat: {
             const fn_info = sema.code.getFnInfo(ip.funcZirBodyInst(sema.func_index).resolve(ip) orelse return error.AnalysisFail);
             const zir_tags = sema.code.instructions.items(.tag);
@@ -3057,7 +3065,10 @@ pub fn createTypeName(
             };
 
             try writer.writeByte(')');
-            return ip.getOrPutString(gpa, pt.tid, buf.items, .no_embedded_nulls);
+            return .{
+                .name = try ip.getOrPutString(gpa, pt.tid, buf.items, .no_embedded_nulls),
+                .nav = .none,
+            };
         },
         .dbg_var => {
             // TODO: this logic is questionable. We ideally should be traversing the `Block` rather than relying on the order of AstGen instructions.
@@ -3066,9 +3077,12 @@ pub fn createTypeName(
             const zir_data = sema.code.instructions.items(.data);
             for (@intFromEnum(inst.?)..zir_tags.len) |i| switch (zir_tags[i]) {
                 .dbg_var_ptr, .dbg_var_val => if (zir_data[i].str_op.operand == ref) {
-                    return ip.getOrPutStringFmt(gpa, pt.tid, "{}.{s}", .{
-                        block.type_name_ctx.fmt(ip), zir_data[i].str_op.getStr(sema.code),
-                    }, .no_embedded_nulls);
+                    return .{
+                        .name = try ip.getOrPutStringFmt(gpa, pt.tid, "{}.{s}", .{
+                            block.type_name_ctx.fmt(ip), zir_data[i].str_op.getStr(sema.code),
+                        }, .no_embedded_nulls),
+                        .nav = .none,
+                    };
                 },
                 else => {},
             };
@@ -3086,9 +3100,12 @@ pub fn createTypeName(
     // types appropriately. However, `@typeName` becomes a problem then. If we remove
     // that builtin from the language, we can consider this.
 
-    return ip.getOrPutStringFmt(gpa, pt.tid, "{}__{s}_{d}", .{
-        block.type_name_ctx.fmt(ip), anon_prefix, @intFromEnum(type_index),
-    }, .no_embedded_nulls);
+    return .{
+        .name = try ip.getOrPutStringFmt(gpa, pt.tid, "{}__{s}_{d}", .{
+            block.type_name_ctx.fmt(ip), anon_prefix, @intFromEnum(type_index),
+        }, .no_embedded_nulls),
+        .nav = .none,
+    };
 }
 
 fn zirEnumDecl(
@@ -3209,7 +3226,7 @@ fn zirEnumDecl(
         inst,
         wip_ty.index,
     );
-    wip_ty.setName(ip, type_name);
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -3236,7 +3253,7 @@ fn zirEnumDecl(
         inst,
         tracked_inst,
         new_namespace_index,
-        type_name,
+        type_name.name,
         small,
         body,
         tag_type_ref,
@@ -3250,7 +3267,8 @@ fn zirEnumDecl(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     return Air.internedToRef(wip_ty.index);
 }
@@ -3340,13 +3358,14 @@ fn zirUnionDecl(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, try sema.createTypeName(
+    const type_name = try sema.createTypeName(
         block,
         small.name_strategy,
         "union",
         inst,
         wip_ty.index,
-    ));
+    );
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -3368,7 +3387,8 @@ fn zirUnionDecl(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
@@ -3432,13 +3452,14 @@ fn zirOpaqueDecl(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, try sema.createTypeName(
+    const type_name = try sema.createTypeName(
         block,
         small.name_strategy,
         "opaque",
         inst,
         wip_ty.index,
-    ));
+    );
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -3455,7 +3476,8 @@ fn zirOpaqueDecl(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     try sema.addTypeReferenceEntry(src, wip_ty.index);
     if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip_ty.index);
@@ -14412,9 +14434,9 @@ fn zirBitwise(
     const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
 
-    const is_int = scalar_tag == .int or scalar_tag == .comptime_int;
+    const is_int_or_bool = scalar_tag == .int or scalar_tag == .comptime_int or scalar_tag == .bool;
 
-    if (!is_int) {
+    if (!is_int_or_bool) {
         return sema.fail(block, src, "invalid operands to binary bitwise expression: '{s}' and '{s}'", .{ @tagName(lhs_ty.zigTypeTag(zcu)), @tagName(rhs_ty.zigTypeTag(zcu)) });
     }
 
@@ -14443,47 +14465,54 @@ fn zirBitwise(
 }
 
 fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     const pt = sema.pt;
     const zcu = pt.zcu;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
-    const src = block.nodeOffset(inst_data.src_node);
     const operand_src = block.src(.{ .node_offset_un_op = inst_data.src_node });
-
+    const src = block.nodeOffset(inst_data.src_node);
     const operand = try sema.resolveInst(inst_data.operand);
-    const operand_type = sema.typeOf(operand);
-    const scalar_type = operand_type.scalarType(zcu);
+    const operand_ty = sema.typeOf(operand);
+    const scalar_ty = operand_ty.scalarType(zcu);
+    const scalar_tag = scalar_ty.zigTypeTag(zcu);
 
-    if (scalar_type.zigTypeTag(zcu) != .int) {
-        return sema.fail(block, src, "unable to perform binary not operation on type '{}'", .{
-            operand_type.fmt(pt),
-        });
-    }
+    if (scalar_tag != .int and scalar_tag != .bool)
+        return sema.fail(block, operand_src, "bitwise not operation on type '{}'", .{operand_ty.fmt(pt)});
 
+    return analyzeBitNot(sema, block, operand, src);
+}
+
+fn analyzeBitNot(
+    sema: *Sema,
+    block: *Block,
+    operand: Air.Inst.Ref,
+    src: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const operand_ty = sema.typeOf(operand);
+    const scalar_ty = operand_ty.scalarType(zcu);
     if (try sema.resolveValue(operand)) |val| {
         if (val.isUndef(zcu)) {
-            return pt.undefRef(operand_type);
-        } else if (operand_type.zigTypeTag(zcu) == .vector) {
-            const vec_len = try sema.usizeCast(block, operand_src, operand_type.vectorLen(zcu));
+            return pt.undefRef(operand_ty);
+        } else if (operand_ty.zigTypeTag(zcu) == .vector) {
+            const vec_len = try sema.usizeCast(block, src, operand_ty.vectorLen(zcu));
             const elems = try sema.arena.alloc(InternPool.Index, vec_len);
             for (elems, 0..) |*elem, i| {
                 const elem_val = try val.elemValue(pt, i);
-                elem.* = (try elem_val.bitwiseNot(scalar_type, sema.arena, pt)).toIntern();
+                elem.* = (try elem_val.bitwiseNot(scalar_ty, sema.arena, pt)).toIntern();
             }
             return Air.internedToRef((try pt.intern(.{ .aggregate = .{
-                .ty = operand_type.toIntern(),
+                .ty = operand_ty.toIntern(),
                 .storage = .{ .elems = elems },
             } })));
         } else {
-            const result_val = try val.bitwiseNot(operand_type, sema.arena, pt);
+            const result_val = try val.bitwiseNot(operand_ty, sema.arena, pt);
             return Air.internedToRef(result_val.toIntern());
         }
     }
 
     try sema.requireRuntimeBlock(block, src, null);
-    return block.addTyOp(.not, operand_type, operand);
+    return block.addTyOp(.not, operand_ty, operand);
 }
 
 fn analyzeTupleCat(
@@ -18337,16 +18366,21 @@ fn zirTypeofPeer(
 }
 
 fn zirBoolNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
     const pt = sema.pt;
     const zcu = pt.zcu;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
     const operand_src = block.src(.{ .node_offset_un_op = inst_data.src_node });
     const uncasted_operand = try sema.resolveInst(inst_data.operand);
-
+    const uncasted_ty = sema.typeOf(uncasted_operand);
+    if (uncasted_ty.isVector(zcu)) {
+        if (uncasted_ty.scalarType(zcu).zigTypeTag(zcu) != .bool) {
+            return sema.fail(block, operand_src, "boolean not operation on type '{}'", .{
+                uncasted_ty.fmt(pt),
+            });
+        }
+        return analyzeBitNot(sema, block, uncasted_operand, src);
+    }
     const operand = try sema.coerce(block, .bool, uncasted_operand, operand_src);
     if (try sema.resolveValue(operand)) |val| {
         return if (val.isUndef(zcu)) .undef_bool else if (val.toBool()) .bool_false else .bool_true;
@@ -20062,7 +20096,8 @@ fn structInitAnon(
     }, false)) {
         .wip => |wip| ty: {
             errdefer wip.cancel(ip, pt.tid);
-            wip.setName(ip, try sema.createTypeName(block, .anon, "struct", inst, wip.index));
+            const type_name = try sema.createTypeName(block, .anon, "struct", inst, wip.index);
+            wip.setName(ip, type_name.name, type_name.nav);
 
             const struct_type = ip.loadStructType(wip.index);
 
@@ -20086,7 +20121,8 @@ fn structInitAnon(
             codegen_type: {
                 if (zcu.comp.config.use_llvm) break :codegen_type;
                 if (block.ownerModule().strip) break :codegen_type;
-                try zcu.comp.queueJob(.{ .codegen_type = wip.index });
+                zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+                try zcu.comp.queueJob(.{ .link_type = wip.index });
             }
             if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newType(zcu, wip.index);
             break :ty wip.finish(ip, new_namespace_index);
@@ -21122,13 +21158,14 @@ fn zirReify(
             };
             errdefer wip_ty.cancel(ip, pt.tid);
 
-            wip_ty.setName(ip, try sema.createTypeName(
+            const type_name = try sema.createTypeName(
                 block,
                 name_strategy,
                 "opaque",
                 inst,
                 wip_ty.index,
-            ));
+            );
+            wip_ty.setName(ip, type_name.name, type_name.nav);
 
             const new_namespace_index = try pt.createNamespace(.{
                 .parent = block.namespace.toOptional(),
@@ -21327,13 +21364,14 @@ fn reifyEnum(
         return sema.fail(block, src, "Type.Enum.tag_type must be an integer type", .{});
     }
 
-    wip_ty.setName(ip, try sema.createTypeName(
+    const type_name = try sema.createTypeName(
         block,
         name_strategy,
         "enum",
         inst,
         wip_ty.index,
-    ));
+    );
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const new_namespace_index = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
@@ -21396,7 +21434,8 @@ fn reifyEnum(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     return Air.internedToRef(wip_ty.index);
 }
@@ -21498,7 +21537,7 @@ fn reifyUnion(
         inst,
         wip_ty.index,
     );
-    wip_ty.setName(ip, type_name);
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const field_types = try sema.arena.alloc(InternPool.Index, fields_len);
     const field_aligns = if (any_aligns) try sema.arena.alloc(InternPool.Alignment, fields_len) else undefined;
@@ -21591,7 +21630,7 @@ fn reifyUnion(
             }
         }
 
-        const enum_tag_ty = try sema.generateUnionTagTypeSimple(block, field_names.keys(), wip_ty.index, type_name);
+        const enum_tag_ty = try sema.generateUnionTagTypeSimple(block, field_names.keys(), wip_ty.index, type_name.name);
         break :tag_ty .{ enum_tag_ty, false };
     };
     errdefer if (!has_explicit_tag) ip.remove(pt.tid, enum_tag_ty); // remove generated tag type on error
@@ -21650,7 +21689,8 @@ fn reifyUnion(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
@@ -21853,13 +21893,14 @@ fn reifyStruct(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    wip_ty.setName(ip, try sema.createTypeName(
+    const type_name = try sema.createTypeName(
         block,
         name_strategy,
         "struct",
         inst,
         wip_ty.index,
-    ));
+    );
+    wip_ty.setName(ip, type_name.name, type_name.nav);
 
     const struct_type = ip.loadStructType(wip_ty.index);
 
@@ -22004,7 +22045,8 @@ fn reifyStruct(
         if (zcu.comp.config.use_llvm) break :codegen_type;
         if (block.ownerModule().strip) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
-        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+        zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+        try zcu.comp.queueJob(.{ .link_type = wip_ty.index });
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
@@ -35032,7 +35074,7 @@ pub fn resolveUnionAlignment(
     union_type.setAlignment(ip, max_align);
 }
 
-/// This logic must be kept in sync with `Zcu.getUnionLayout`.
+/// This logic must be kept in sync with `Type.getUnionLayout`.
 pub fn resolveUnionLayout(sema: *Sema, ty: Type) SemaError!void {
     const pt = sema.pt;
     const ip = &pt.zcu.intern_pool;
@@ -35066,24 +35108,32 @@ pub fn resolveUnionLayout(sema: *Sema, ty: Type) SemaError!void {
     var max_align: Alignment = .@"1";
     for (0..union_type.field_types.len) |field_index| {
         const field_ty: Type = .fromInterned(union_type.field_types.get(ip)[field_index]);
+        if (field_ty.isNoReturn(pt.zcu)) continue;
 
-        if (try field_ty.comptimeOnlySema(pt) or field_ty.zigTypeTag(pt.zcu) == .noreturn) continue; // TODO: should this affect alignment?
+        // We need to call `hasRuntimeBits` before calling `abiSize` to prevent reachable `unreachable`s,
+        // but `hasRuntimeBits` only resolves field types and so may infinite recurse on a layout wip type,
+        // so we must resolve the layout manually first, instead of waiting for `abiSize` to do it for us.
+        // This is arguably just hacking around bugs in both `abiSize` for not allowing arbitrary types to
+        // be queried, enabling failures to be handled with the emission of a compile error, and also in
+        // `hasRuntimeBits` for ever being able to infinite recurse in the first place.
+        try field_ty.resolveLayout(pt);
 
-        max_size = @max(max_size, field_ty.abiSizeSema(pt) catch |err| switch (err) {
-            error.AnalysisFail => {
-                const msg = sema.err orelse return err;
-                try sema.addFieldErrNote(ty, field_index, msg, "while checking this field", .{});
-                return err;
-            },
-            else => return err,
-        });
+        if (try field_ty.hasRuntimeBitsSema(pt)) {
+            max_size = @max(max_size, field_ty.abiSizeSema(pt) catch |err| switch (err) {
+                error.AnalysisFail => {
+                    const msg = sema.err orelse return err;
+                    try sema.addFieldErrNote(ty, field_index, msg, "while checking this field", .{});
+                    return err;
+                },
+                else => return err,
+            });
+        }
 
         const explicit_align = union_type.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
             try field_ty.abiAlignmentSema(pt);
-
         max_align = max_align.max(field_align);
     }
 

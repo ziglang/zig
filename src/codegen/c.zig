@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
 const log = std.log.scoped(.c);
+const Allocator = mem.Allocator;
 
 const dev = @import("../dev.zig");
 const link = @import("../link.zig");
@@ -29,6 +30,35 @@ pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
         .expand_mul_safe,
     }) else null; // we don't currently ask zig1 to use safe optimization modes
 }
+
+/// For most backends, MIR is basically a sequence of machine code instructions, perhaps with some
+/// "pseudo instructions" thrown in. For the C backend, it is instead the generated C code for a
+/// single function. We also need to track some information to get merged into the global `link.C`
+/// state, including:
+/// * The UAVs used, so declarations can be emitted in `flush`
+/// * The types used, so declarations can be emitted in `flush`
+/// * The lazy functions used, so definitions can be emitted in `flush`
+pub const Mir = struct {
+    /// This map contains all the UAVs we saw generating this function.
+    /// `link.C` will merge them into its `uavs`/`aligned_uavs` fields.
+    /// Key is the value of the UAV; value is the UAV's alignment, or
+    /// `.none` for natural alignment. The specified alignment is never
+    /// less than the natural alignment.
+    uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+    // These remaining fields are essentially just an owned version of `link.C.AvBlock`.
+    code: []u8,
+    fwd_decl: []u8,
+    ctype_pool: CType.Pool,
+    lazy_fns: LazyFnMap,
+
+    pub fn deinit(mir: *Mir, gpa: Allocator) void {
+        mir.uavs.deinit(gpa);
+        gpa.free(mir.code);
+        gpa.free(mir.fwd_decl);
+        mir.ctype_pool.deinit(gpa);
+        mir.lazy_fns.deinit(gpa);
+    }
+};
 
 pub const CType = @import("c/Type.zig");
 
@@ -671,7 +701,7 @@ pub const Object = struct {
 
 /// This data is available both when outputting .c code and when outputting an .h file.
 pub const DeclGen = struct {
-    gpa: mem.Allocator,
+    gpa: Allocator,
     pt: Zcu.PerThread,
     mod: *Module,
     pass: Pass,
@@ -682,10 +712,12 @@ pub const DeclGen = struct {
     error_msg: ?*Zcu.ErrorMsg,
     ctype_pool: CType.Pool,
     scratch: std.ArrayListUnmanaged(u32),
-    /// Keeps track of anonymous decls that need to be rendered before this
-    /// (named) Decl in the output C code.
-    uav_deps: std.AutoArrayHashMapUnmanaged(InternPool.Index, C.AvBlock),
-    aligned_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+    /// This map contains all the UAVs we saw generating this function.
+    /// `link.C` will merge them into its `uavs`/`aligned_uavs` fields.
+    /// Key is the value of the UAV; value is the UAV's alignment, or
+    /// `.none` for natural alignment. The specified alignment is never
+    /// less than the natural alignment.
+    uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
 
     pub const Pass = union(enum) {
         nav: InternPool.Nav.Index,
@@ -753,21 +785,17 @@ pub const DeclGen = struct {
         // Indicate that the anon decl should be rendered to the output so that
         // our reference above is not undefined.
         const ptr_type = ip.indexToKey(uav.orig_ty).ptr_type;
-        const gop = try dg.uav_deps.getOrPut(dg.gpa, uav.val);
-        if (!gop.found_existing) gop.value_ptr.* = .{};
-
-        // Only insert an alignment entry if the alignment is greater than ABI
-        // alignment. If there is already an entry, keep the greater alignment.
-        const explicit_alignment = ptr_type.flags.alignment;
-        if (explicit_alignment != .none) {
-            const abi_alignment = Type.fromInterned(ptr_type.child).abiAlignment(zcu);
-            if (explicit_alignment.order(abi_alignment).compare(.gt)) {
-                const aligned_gop = try dg.aligned_uavs.getOrPut(dg.gpa, uav.val);
-                aligned_gop.value_ptr.* = if (aligned_gop.found_existing)
-                    aligned_gop.value_ptr.maxStrict(explicit_alignment)
-                else
-                    explicit_alignment;
-            }
+        const gop = try dg.uavs.getOrPut(dg.gpa, uav.val);
+        if (!gop.found_existing) gop.value_ptr.* = .none;
+        // If there is an explicit alignment, greater than the current one, use it.
+        // Note that we intentionally start at `.none`, so `gop.value_ptr.*` is never
+        // underaligned, so we don't need to worry about the `.none` case here.
+        if (ptr_type.flags.alignment != .none) {
+            // Resolve the current alignment so we can choose the bigger one.
+            const cur_alignment: Alignment = if (gop.value_ptr.* == .none) abi: {
+                break :abi Type.fromInterned(ptr_type.child).abiAlignment(zcu);
+            } else gop.value_ptr.*;
+            gop.value_ptr.* = cur_alignment.maxStrict(ptr_type.flags.alignment);
         }
     }
 
@@ -2895,7 +2923,79 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
     }
 }
 
-pub fn genFunc(f: *Function) !void {
+pub fn generate(
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    func_index: InternPool.Index,
+    air: *const Air,
+    liveness: *const Air.Liveness,
+) @import("../codegen.zig").CodeGenError!Mir {
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+
+    _ = src_loc;
+    assert(lf.tag == .c);
+
+    const func = zcu.funcInfo(func_index);
+
+    var function: Function = .{
+        .value_map = .init(gpa),
+        .air = air.*,
+        .liveness = liveness.*,
+        .func_index = func_index,
+        .object = .{
+            .dg = .{
+                .gpa = gpa,
+                .pt = pt,
+                .mod = zcu.navFileScope(func.owner_nav).mod.?,
+                .error_msg = null,
+                .pass = .{ .nav = func.owner_nav },
+                .is_naked_fn = Type.fromInterned(func.ty).fnCallingConvention(zcu) == .naked,
+                .expected_block = null,
+                .fwd_decl = .init(gpa),
+                .ctype_pool = .empty,
+                .scratch = .empty,
+                .uavs = .empty,
+            },
+            .code = .init(gpa),
+            .indent_writer = undefined, // set later so we can get a pointer to object.code
+        },
+        .lazy_fns = .empty,
+    };
+    defer {
+        function.object.code.deinit();
+        function.object.dg.fwd_decl.deinit();
+        function.object.dg.ctype_pool.deinit(gpa);
+        function.object.dg.scratch.deinit(gpa);
+        function.object.dg.uavs.deinit(gpa);
+        function.deinit();
+    }
+    try function.object.dg.ctype_pool.init(gpa);
+    function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
+
+    genFunc(&function) catch |err| switch (err) {
+        error.AnalysisFail => return zcu.codegenFailMsg(func.owner_nav, function.object.dg.error_msg.?),
+        error.OutOfMemory => |e| return e,
+    };
+
+    var mir: Mir = .{
+        .uavs = .empty,
+        .code = &.{},
+        .fwd_decl = &.{},
+        .ctype_pool = .empty,
+        .lazy_fns = .empty,
+    };
+    errdefer mir.deinit(gpa);
+    mir.uavs = function.object.dg.uavs.move();
+    mir.code = try function.object.code.toOwnedSlice();
+    mir.fwd_decl = try function.object.dg.fwd_decl.toOwnedSlice();
+    mir.ctype_pool = function.object.dg.ctype_pool.move();
+    mir.lazy_fns = function.lazy_fns.move();
+    return mir;
+}
+
+fn genFunc(f: *Function) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -8482,7 +8582,7 @@ fn iterateBigTomb(f: *Function, inst: Air.Inst.Index) BigTomb {
 
 /// A naive clone of this map would create copies of the ArrayList which is
 /// stored in the values. This function additionally clones the values.
-fn cloneFreeLocalsMap(gpa: mem.Allocator, map: *LocalsMap) !LocalsMap {
+fn cloneFreeLocalsMap(gpa: Allocator, map: *LocalsMap) !LocalsMap {
     var cloned = try map.clone(gpa);
     const values = cloned.values();
     var i: usize = 0;
@@ -8499,7 +8599,7 @@ fn cloneFreeLocalsMap(gpa: mem.Allocator, map: *LocalsMap) !LocalsMap {
     return cloned;
 }
 
-fn deinitFreeLocalsMap(gpa: mem.Allocator, map: *LocalsMap) void {
+fn deinitFreeLocalsMap(gpa: Allocator, map: *LocalsMap) void {
     for (map.values()) |*value| {
         value.deinit(gpa);
     }

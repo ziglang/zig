@@ -806,7 +806,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .bool_and => return boolBinOp(gz, scope, ri, node, .bool_br_and),
         .bool_or  => return boolBinOp(gz, scope, ri, node, .bool_br_or),
 
-        .bool_not => return simpleUnOp(gz, scope, ri, node, coerced_bool_ri, tree.nodeData(node).node, .bool_not),
+        .bool_not => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none }, tree.nodeData(node).node, .bool_not),
         .bit_not  => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none }, tree.nodeData(node).node, .bit_not),
 
         .negation      => return   negation(gz, scope, ri, node),
