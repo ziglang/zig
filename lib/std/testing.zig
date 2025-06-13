@@ -36,6 +36,7 @@ pub const backend_can_print = switch (builtin.zig_backend) {
     .stage2_powerpc,
     .stage2_riscv64,
     .stage2_spirv64,
+    .stage2_loongarch64,
     => false,
     else => true,
 };
