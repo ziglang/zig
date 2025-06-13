@@ -2233,7 +2233,7 @@ fn genCopyToMem(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !voi
         .reserved_frame,
         => unreachable,
         .air_ref => |src_ref| try cg.genCopyToMem(ty, dst_mcv, try cg.resolveRef(src_ref)),
-        .register => |reg| return cg.genCopyRegToMem(dst_mcv, reg, .fromByteSize(ty.abiSize(zcu))),
+        .register => |reg| return cg.genCopyRegToMem(dst_mcv, reg, .fromByteSize(abi_size)),
         .register_offset,
         .memory,
         .load_symbol,
@@ -2488,10 +2488,13 @@ const Select = struct {
 };
 
 fn airArg(cg: *CodeGen, inst: Air.Inst.Index) !void {
-    const arg_ty = cg.typeOfIndex(inst);
+    const arg = cg.getAirData(inst).arg;
+    const arg_ty = arg.ty.toType();
 
-    const arg_mcv = cg.args_mcv[cg.arg_index];
-    cg.arg_index += 1;
+    var arg_index = cg.arg_index;
+    while (cg.args_mcv[arg_index] == .none) arg_index += 1;
+    const arg_mcv = cg.args_mcv[arg_index];
+    cg.arg_index = arg_index + 1;
     const arg_temp = try cg.tempInit(arg_ty, arg_mcv);
 
     try arg_temp.finish(inst, &.{}, cg);
@@ -2740,7 +2743,7 @@ fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) !void {
         },
         .immediate, .register, .register_bias, .lea_symbol, .lea_frame => {
             while (try val.toMemory(cg)) {}
-            cg.temp_type[@intFromEnum(val.index)] = ty;
+            cg.temp_type[val.index.toTargetIndex()] = ty;
             try val.finish(inst, &.{val}, cg);
         },
     };
