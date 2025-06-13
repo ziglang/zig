@@ -1703,7 +1703,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .ret_ptr => try cg.airRetPtr(inst),
             .inferred_alloc, .inferred_alloc_comptime => unreachable,
             .load => try cg.airLoad(inst),
-            .store => try cg.airStore(inst),
+            .store => try cg.airStore(inst, false),
+            .store_safe => try cg.airStore(inst, true),
 
             .call => try cg.airCall(inst, .auto),
             .call_always_tail => try cg.airCall(inst, .always_tail),
@@ -2771,7 +2772,8 @@ fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) !void {
     };
 }
 
-fn airStore(cg: *CodeGen, inst: Air.Inst.Index) !void {
+fn airStore(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
+    _ = safety; // TODO: safety
     const bin_op = cg.getAirData(inst).bin_op;
     var ptr, const val = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
     const val_ty = val.typeOf(cg);
