@@ -4395,7 +4395,7 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, ou
     };
     // release `out.value` with this store; synchronizes with acquire loads in `link`
     out.status.store(if (success) .ready else .failed, .release);
-    zcu.comp.link_task_queue.mirReady(zcu.comp, out);
+    zcu.comp.link_task_queue.mirReady(zcu.comp, func_index, out);
     if (zcu.pending_codegen_jobs.rmw(.Sub, 1, .monotonic) == 1) {
         // Decremented to 0, so all done.
         zcu.codegen_prog_node.end();
