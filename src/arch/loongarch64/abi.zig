@@ -88,6 +88,18 @@ pub const CCValue = union(enum) {
             .ref_frame => |pl| try writer.print("byref:[frame + 0x{x}]", .{pl}),
         }
     }
+
+    pub fn prependReg(ccv: CCValue, reg: Register) ?CCValue {
+        return switch (ccv) {
+            .none => .{ .register = reg },
+            .register => |pl| .{ .register_pair = .{ reg, pl } },
+            .register_pair => |pl| .{ .register_triple = .{ reg, pl[0], pl[1] } },
+            .register_triple => |pl| .{ .register_quadruple = .{ reg, pl[0], pl[1], pl[2] } },
+            .register_quadruple => null,
+            .frame => |pl| .{ .split = .{ .reg = reg, .frame_off = pl } },
+            .ref_register, .ref_frame, .split => null,
+        };
+    }
 };
 
 pub const zigcc = struct {
@@ -183,37 +195,40 @@ pub const CCResolver = struct {
     pt: *const Zcu.PerThread,
     cc: std.builtin.CallingConvention,
 
-    frame_size: u32 = 0,
-    frame_align: InternPool.Alignment = .@"16",
+    state: struct {
+        frame_size: u32 = 0,
+        frame_align: InternPool.Alignment = .@"16",
 
-    reg_count: struct {
-        param_gpr: u8 = 0,
-        ret_gpr: u8 = 0,
-        param_fpr: u8 = 0,
-        ret_fpr: u8 = 0,
+        reg_count: struct {
+            param_gpr: u8 = 0,
+            ret_gpr: u8 = 0,
+            param_fpr: u8 = 0,
+            ret_fpr: u8 = 0,
+        } = .{},
     } = .{},
 
     pub fn resolve(pt: *const Zcu.PerThread, gpa: Allocator, target: *const std.Target, func: *const InternPool.Key.FuncType) !CallInfo {
         _ = target;
         var resolver: CCResolver = .{ .pt = pt, .cc = func.cc };
 
-        log.debug("C calling convention resolve:", .{});
-        const return_value = try resolver.resolveType(.fromInterned(func.return_type), .ret);
+        log.debug("Calling convention resolve:", .{});
+        log.debug("  - CC: {s}", .{@tagName(func.cc)});
+        const return_value = try resolver.resolveType(.fromInterned(func.return_type), .ret, 4);
         log.debug("  - ret: {}", .{return_value});
 
         const params = try gpa.alloc(CCValue, func.param_types.len);
         for (func.param_types.get(&pt.zcu.intern_pool), 0..) |param, i| {
-            const param_ccv = try resolver.resolveType(.fromInterned(param), .param);
+            const param_ccv = try resolver.resolveType(.fromInterned(param), .param, 4);
             log.debug("  - param {}: {}", .{ i + 1, param_ccv });
             params[i] = param_ccv;
         }
 
-        log.debug("  - frame: size: {}, align: {}", .{ resolver.frame_size, resolver.frame_align.toByteUnits().? });
+        log.debug("  - frame: size: {}, align: {}", .{ resolver.state.frame_size, resolver.state.frame_align.toByteUnits().? });
         return .{
             .params = params,
             .return_value = return_value,
-            .frame_size = resolver.frame_size,
-            .frame_align = resolver.frame_align,
+            .frame_size = resolver.state.frame_size,
+            .frame_align = resolver.state.frame_align,
             .err_ret_trace_reg = null,
         };
     }
@@ -223,12 +238,12 @@ pub const CCResolver = struct {
     fn allocRegs(self: *CCResolver, class: RegisterClass, ctx: Context, count: comptime_int) ?[count]Register {
         const count_ptr: *u8, const first_reg: Register, const last_reg: Register = switch (class) {
             .int => switch (ctx) {
-                .param => .{ &self.reg_count.param_gpr, .r4, .r11 },
-                .ret => .{ &self.reg_count.ret_gpr, .r4, .r5 },
+                .param => .{ &self.state.reg_count.param_gpr, .r4, .r11 },
+                .ret => .{ &self.state.reg_count.ret_gpr, .r4, .r5 },
             },
             .floating => switch (ctx) {
-                .param => .{ &self.reg_count.param_fpr, .x0, .x7 },
-                .ret => .{ &self.reg_count.ret_fpr, .x0, .x1 },
+                .param => .{ &self.state.reg_count.param_fpr, .x0, .x7 },
+                .ret => .{ &self.state.reg_count.ret_fpr, .x0, .x1 },
             },
         };
         if (count_ptr.* + count <= (@intFromEnum(last_reg) - @intFromEnum(first_reg) + 1)) {
@@ -260,64 +275,59 @@ pub const CCResolver = struct {
 
     /// Allocates a value on stack, returning offset to the args frame
     fn allocStack(self: *CCResolver, alignment: InternPool.Alignment, size: u64) i32 {
-        self.frame_align = self.frame_align.max(alignment);
-        const off = alignment.forward(self.frame_size);
-        self.frame_size = @intCast(off + size);
+        self.state.frame_align = self.state.frame_align.max(alignment);
+        const off = alignment.forward(self.state.frame_size);
+        self.state.frame_size = @intCast(off + size);
         return @intCast(off);
     }
 
-    fn allocPtr(self: *CCResolver, ctx: Context) CCValue {
-        if (self.allocReg(.int, ctx)) |reg| {
+    fn allocPtr(self: *CCResolver, ctx: Context, use_reg: bool) CCValue {
+        if (use_reg) if (self.allocReg(.int, ctx)) |reg| {
             return .{ .register = reg };
-        } else {
-            return .{ .frame = self.allocStackType(Type.usize) };
-        }
+        };
+        return .{ .frame = self.allocStackType(Type.usize) };
     }
 
-    fn resolveType(self: *CCResolver, ty: Type, ctx: Context) error{CCSelectFailed}!CCValue {
+    fn resolveType(self: *CCResolver, ty: Type, ctx: Context, max_regs: u8) error{CCSelectFailed}!CCValue {
         const zcu = self.pt.zcu;
         // TODO: implement vector calling convention
         // TODO: implement FP calling convention
         switch (ty.zigTypeTag(zcu)) {
             .pointer => switch (ty.ptrSize(zcu)) {
-                .one, .many, .c => return self.allocPtr(ctx),
+                .one, .many, .c => return self.allocPtr(ctx, max_regs >= 1),
                 .slice => {
-                    if (self.allocRegs(.int, ctx, 2)) |regs| {
+                    if (max_regs >= 2) if (self.allocRegs(.int, ctx, 2)) |regs| {
                         return .{ .register_pair = regs };
-                    } else {
-                        return .{ .frame = self.allocStack(.@"8", 8 * 2) };
-                    }
+                    };
+                    return .{ .frame = self.allocStack(.@"8", 8 * 2) };
                 },
             },
             .int, .@"enum", .bool => {
                 const ty_size = ty.abiSize(zcu);
                 switch (ty_size) {
-                    1...8 => return self.allocPtr(ctx),
+                    1...8 => return self.allocPtr(ctx, max_regs >= 1),
                     9...16 => {
-                        if (self.allocRegs(.int, ctx, 2)) |regs| {
+                        if (max_regs >= 2) if (self.allocRegs(.int, ctx, 2)) |regs| {
                             return .{ .register_pair = regs };
-                        } else if (self.allocReg(.int, ctx)) |reg| {
-                            return .{ .split = .{ .reg = reg, .frame_off = self.allocStackType(Type.usize) } };
-                        } else {
-                            return .{ .frame = self.allocStackType(ty) };
-                        }
+                        };
+                        if (max_regs >= 1)
+                            if (self.allocReg(.int, ctx)) |reg| {
+                                return .{ .split = .{ .reg = reg, .frame_off = self.allocStackType(Type.usize) } };
+                            };
                     },
-                    17...24 => {
+                    17...24 => if (max_regs >= 3) {
                         if (self.allocRegs(.int, ctx, 3)) |regs| {
                             return .{ .register_triple = regs };
-                        } else {
-                            return .{ .frame = self.allocStackType(ty) };
                         }
                     },
-                    25...32 => {
+                    25...32 => if (max_regs >= 4) {
                         if (self.allocRegs(.int, ctx, 4)) |regs| {
                             return .{ .register_quadruple = regs };
-                        } else {
-                            return .{ .frame = self.allocStackType(ty) };
                         }
                     },
-                    else => return .{ .frame = self.allocStackType(ty) },
+                    else => {},
                 }
+                return .{ .frame = self.allocStackType(ty) };
             },
             .void, .noreturn => return .none,
             .type => unreachable,
@@ -332,12 +342,12 @@ pub const CCResolver = struct {
                     const ip = &zcu.intern_pool;
                     if (struct_ty.field_types.len == 1) {
                         const member_ty = Type.fromInterned(struct_ty.field_types.get(ip)[0]);
-                        if (member_ty.isRuntimeFloat()) {
+                        if (member_ty.isRuntimeFloat() and max_regs >= 1) {
                             if (self.allocReg(.floating, ctx)) |reg| {
                                 return .{ .register = reg };
                             }
                         }
-                    } else if (struct_ty.field_types.len == 2) {
+                    } else if (struct_ty.field_types.len == 2 and max_regs >= 2) {
                         const member_ty1 = Type.fromInterned(struct_ty.field_types.get(ip)[0]);
                         const member_ty2 = Type.fromInterned(struct_ty.field_types.get(ip)[1]);
 
@@ -346,21 +356,21 @@ pub const CCResolver = struct {
                                 return .{ .register_pair = regs };
                             }
                         } else if (member_ty1.isRuntimeFloat() and member_ty2.isInt(zcu)) {
-                            const reg_count = self.reg_count;
+                            const state = self.state;
                             if (self.allocReg(.floating, ctx)) |reg1| {
                                 if (self.allocReg(.int, ctx)) |reg2| {
                                     return .{ .register_pair = .{ reg1, reg2 } };
                                 }
                             }
-                            self.reg_count = reg_count;
+                            self.state = state;
                         } else if (member_ty1.isInt(zcu) and member_ty2.isRuntimeFloat()) {
-                            const reg_count = self.reg_count;
+                            const state = self.state;
                             if (self.allocReg(.int, ctx)) |reg1| {
                                 if (self.allocReg(.floating, ctx)) |reg2| {
                                     return .{ .register_pair = .{ reg1, reg2 } };
                                 }
                             }
-                            self.reg_count = reg_count;
+                            self.state = state;
                         }
                     }
                 }
@@ -368,59 +378,86 @@ pub const CCResolver = struct {
                 // Structures without floating-point members and unions
                 switch (ty_size) {
                     0 => return .none,
-                    1...64 => return self.allocPtr(ctx),
+                    1...64 => return self.allocPtr(ctx, max_regs >= 1),
                     65...128 => {
-                        if (self.allocRegs(.int, ctx, 2)) |regs| {
+                        if (max_regs >= 2) if (self.allocRegs(.int, ctx, 2)) |regs| {
                             return .{ .register_pair = regs };
-                        } else if (self.allocReg(.int, ctx)) |reg| {
+                        };
+                        if (max_regs >= 1) if (self.allocReg(.int, ctx)) |reg| {
                             return .{ .split = .{ .reg = reg, .frame_off = self.allocStackType(Type.usize) } };
-                        } else {
-                            return .{ .frame = self.allocStackType(Type.usize) };
-                        }
+                        };
+                        return .{ .frame = self.allocStackType(Type.usize) };
                     },
-                    else => {
+                    else => if (max_regs >= 1) {
                         if (self.allocReg(.int, .param)) |reg| {
                             return .{ .ref_register = reg };
-                        } else {
-                            return .{ .ref_frame = self.allocStackType(Type.usize) };
                         }
-                    },
+                    } else return .{ .ref_frame = self.allocStackType(Type.usize) },
                 }
             },
             .array => {
                 const ty_size = ty.abiSize(zcu);
                 switch (ty_size) {
                     0 => return .none,
-                    1...8 => return self.allocPtr(ctx),
+                    1...8 => return self.allocPtr(ctx, max_regs >= 1),
                     9...16 => {
-                        if (self.allocRegs(.int, ctx, 2)) |regs| {
+                        if (max_regs >= 2) if (self.allocRegs(.int, ctx, 2)) |regs| {
                             return .{ .register_pair = regs };
-                        } else if (self.allocReg(.int, ctx)) |reg| {
+                        };
+                        if (max_regs >= 1) if (self.allocReg(.int, ctx)) |reg| {
                             return .{ .split = .{ .reg = reg, .frame_off = self.allocStackType(Type.usize) } };
-                        } else {
-                            return .{ .frame = self.allocStackType(ty) };
-                        }
+                        };
                     },
-                    17...24 => {
+                    17...24 => if (max_regs >= 3) {
                         if (self.allocRegs(.int, ctx, 3)) |regs| {
                             return .{ .register_triple = regs };
-                        } else {
-                            return .{ .frame = self.allocStackType(ty) };
                         }
                     },
-                    25...32 => {
+                    25...32 => if (max_regs >= 4) {
                         if (self.allocRegs(.int, ctx, 4)) |regs| {
                             return .{ .register_quadruple = regs };
-                        } else {
-                            return .{ .frame = self.allocStackType(ty) };
                         }
                     },
-                    else => return .{ .frame = self.allocStackType(ty) },
+                    else => {},
+                }
+                return .{ .frame = self.allocStackType(ty) };
+            },
+            .error_set => return self.allocPtr(ctx, max_regs >= 1),
+            .error_union => {
+                const payload_ty = ty.errorUnionPayload(zcu);
+                const payload_bits = payload_ty.bitSize(zcu);
+                if (payload_bits == 0) return self.allocPtr(ctx, max_regs >= 1);
+            },
+            .optional => {
+                const child_ty = ty.optionalChild(zcu);
+                if (child_ty.isPtrAtRuntime(zcu)) return self.allocPtr(ctx, max_regs >= 1);
+
+                // try allocate reg / reg + frame
+                if (max_regs >= 1) {
+                    const state = self.state;
+                    if (self.allocReg(.int, ctx)) |reg| {
+                        const child_ccv = try self.resolveType(child_ty, ctx, max_regs - 1);
+                        if (child_ccv.prependReg(reg)) |ccv| {
+                            return ccv;
+                        } else {
+                            self.state = state;
+                        }
+                    }
+                }
+
+                // fallback to frame
+                if (child_ty.abiSize(zcu) > 8 * 2) {
+                    const frame_off = self.allocStack(.@"8", 8);
+                    return .{ .ref_frame = frame_off };
+                } else {
+                    const frame_off = self.allocStack(.@"1", 1);
+                    _ = self.allocStackType(child_ty);
+                    return .{ .frame = frame_off };
                 }
             },
             else => {},
         }
-        log.err("Failed to select C ABI CC location of {} as {s}", .{ ty.fmt(self.pt.*), @tagName(ctx) });
+        log.err("Failed to select CC location of {} as {s}", .{ ty.fmt(self.pt.*), @tagName(ctx) });
         return error.CCSelectFailed;
     }
 };
