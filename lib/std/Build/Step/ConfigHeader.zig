@@ -748,10 +748,12 @@ fn expand_variables_cmake(
 
                 const key_start = open_pos.target + open_var.len;
                 const key = result.items[key_start..];
-                if (key.len == 0) {
-                    return error.MissingKey;
-                }
-                const value = values.get(key) orelse return error.MissingValue;
+                const value = values.get(key) orelse
+                    if (key.len == 0)
+                        .undef
+                    else
+                        return error.MissingValue;
+
                 result.shrinkRetainingCapacity(result.items.len - key.len - open_var.len);
                 switch (value) {
                     .undef, .defined => {},
@@ -952,8 +954,8 @@ test "expand_variables_cmake simple cases" {
     // line with misc content is preserved
     try testReplaceVariablesCMake(allocator, "no substitution", "no substitution", values);
 
-    // empty ${} wrapper leads to an error
-    try std.testing.expectError(error.MissingKey, testReplaceVariablesCMake(allocator, "${}", "", values));
+    // empty ${} wrapper is removed
+    try testReplaceVariablesCMake(allocator, "${}", "", values);
 
     // empty @ sigils are preserved
     try testReplaceVariablesCMake(allocator, "@", "@", values);
