@@ -456,11 +456,28 @@ pub fn addPathDir(run: *Run, search_path: []const u8) void {
     const b = run.step.owner;
     const env_map = getEnvMapInternal(run);
 
-    const key = "PATH";
+    const use_wine = b.enable_wine and b.graph.host.result.os.tag != .windows and use_wine: switch (run.argv.items[0]) {
+        .artifact => |p| p.artifact.rootModuleTarget().os.tag == .windows,
+        .lazy_path => |p| {
+            switch (p.lazy_path) {
+                .generated => |g| if (g.file.step.cast(Step.Compile)) |cs| break :use_wine cs.rootModuleTarget().os.tag == .windows,
+                else => {},
+            }
+            break :use_wine std.mem.endsWith(u8, p.lazy_path.basename(b, &run.step), ".exe");
+        },
+        .decorated_directory => false,
+        .bytes => |bytes| std.mem.endsWith(u8, bytes, ".exe"),
+        .output_file, .output_directory => false,
+    };
+    const key = if (use_wine) "WINEPATH" else "PATH";
     const prev_path = env_map.get(key);
 
     if (prev_path) |pp| {
-        const new_path = b.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
+        const new_path = b.fmt("{s}{c}{s}", .{
+            pp,
+            if (use_wine) fs.path.delimiter_windows else fs.path.delimiter,
+            search_path,
+        });
         env_map.put(key, new_path) catch @panic("OOM");
     } else {
         env_map.put(key, b.dupePath(search_path)) catch @panic("OOM");
@@ -866,7 +883,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node, null);
 
     const dep_file_dir = std.fs.cwd();
-    const dep_file_basename = dep_output_file.generated_file.getPath();
+    const dep_file_basename = dep_output_file.generated_file.getPath2(b, step);
     if (has_side_effects)
         try man.addDepFile(dep_file_dir, dep_file_basename)
     else

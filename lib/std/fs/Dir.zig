@@ -1146,6 +1146,7 @@ pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
 /// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
+/// Fails on an empty path with `error.BadPathName` as that is not a path that can be created.
 ///
 /// Paths containing `..` components are handled differently depending on the platform:
 /// - On Windows, `..` are resolved before the path is passed to NtCreateFile, meaning
@@ -1155,10 +1156,19 @@ pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
 ///   meaning a `sub_path` like "first/../second" will create both a `./first`
 ///   and a `./second` directory.
 pub fn makePath(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!void {
+    _ = try self.makePathStatus(sub_path);
+}
+
+pub const MakePathStatus = enum { existed, created };
+/// Same as `makePath` except returns whether the path already existed or was successfully created.
+pub fn makePathStatus(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!MakePathStatus {
     var it = try fs.path.componentIterator(sub_path);
-    var component = it.last() orelse return;
+    var status: MakePathStatus = .existed;
+    var component = it.last() orelse return error.BadPathName;
     while (true) {
-        self.makeDir(component.path) catch |err| switch (err) {
+        if (self.makeDir(component.path)) |_| {
+            status = .created;
+        } else |err| switch (err) {
             error.PathAlreadyExists => {
                 // stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
@@ -1177,8 +1187,8 @@ pub fn makePath(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!vo
                 continue;
             },
             else => |e| return e,
-        };
-        component = it.next() orelse return;
+        }
+        component = it.next() orelse return status;
     }
 }
 
