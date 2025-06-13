@@ -347,7 +347,7 @@ pub const MCValue = union(enum) {
     fn toLimbValue(mcv: MCValue, limb_index: usize) MCValue {
         switch (mcv) {
             else => std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
-            .register, .immediate, .register_bias, .register_offset, .lea_symbol, .lea_frame => {
+            .register, .immediate, .register_bias, .lea_symbol, .lea_frame => {
                 assert(limb_index == 0);
                 return mcv;
             },
@@ -364,6 +364,12 @@ pub const MCValue = union(enum) {
                 return .{ .load_frame = .{
                     .index = frame_addr.index,
                     .off = frame_addr.off + @as(u31, @intCast(limb_index)) * 8,
+                } };
+            },
+            .register_offset => |reg_off| {
+                return .{ .register_offset = .{
+                    .reg = reg_off.reg,
+                    .off = reg_off.off + @as(u31, @intCast(limb_index)) * 8,
                 } };
             },
         }
@@ -427,7 +433,7 @@ pub const MCValue = union(enum) {
             return .{ val.register, false };
         } else {
             const temp_reg = try cg.allocReg(ty, inst);
-            try cg.genCopyToReg(ty, temp_reg, val, .{});
+            try cg.genCopyToReg(.fromByteSize(ty.abiSize(cg.pt.zcu)), temp_reg, val, .{});
             return .{ temp_reg, true };
         }
     }
@@ -1271,7 +1277,7 @@ const Temp = struct {
     }
 
     fn getLimbCount(temp: Temp, cg: *CodeGen) u64 {
-        return std.math.divCeil(u64, temp.typeOf(cg).abiSize(cg.pt.zcu), 8) catch unreachable;
+        return cg.getLimbCount(temp.typeOf(cg));
     }
 
     fn getLimb(temp: Temp, limb_ty: Type, limb_index: u28, cg: *CodeGen) InnerError!Temp {
@@ -1302,13 +1308,13 @@ const Temp = struct {
                 const new_reg =
                     try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterClass.int);
                 new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                try cg.genCopyToReg(.usize, new_reg, temp.tracking(cg).short, .{});
+                try cg.genCopyToReg(.dword, new_reg, temp.tracking(cg).short, .{});
             },
             .load_symbol => |sym_off| {
                 const new_reg =
                     try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterClass.int);
                 new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                try cg.genCopyToReg(.usize, new_reg, .{ .load_symbol = .{
+                try cg.genCopyToReg(.dword, new_reg, .{ .load_symbol = .{
                     .index = sym_off.index,
                     .off = sym_off.off + @as(u31, limb_index) * 8,
                 } }, .{});
@@ -1321,7 +1327,7 @@ const Temp = struct {
                 const new_reg =
                     try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterClass.int);
                 new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                try cg.genCopyToReg(.usize, new_reg, .{ .load_frame = .{
+                try cg.genCopyToReg(.dword, new_reg, .{ .load_frame = .{
                     .index = frame_addr.index,
                     .off = frame_addr.off + @as(u31, limb_index) * 8,
                 } }, .{});
@@ -1347,7 +1353,7 @@ const Temp = struct {
             return val;
         } else {
             const temp_mcv = temp.tracking(cg).short;
-            try cg.genCopyToReg(temp.typeOf(cg), temp.getReg(cg), val, .{});
+            try cg.genCopyToReg(.fromByteSize(temp.typeOf(cg).abiSize(cg.pt.zcu)), temp.getReg(cg), val, .{});
             return temp_mcv;
         }
     }
@@ -1485,6 +1491,14 @@ fn typeOfIndex(self: *CodeGen, inst: Air.Inst.Index) Type {
 
 fn floatBits(cg: *CodeGen, ty: Type) ?u16 {
     return if (ty.isRuntimeFloat()) ty.floatBits(cg.target.*) else null;
+}
+
+fn getLimbCount(cg: *CodeGen, ty: Type) u64 {
+    return std.math.divCeil(u64, ty.abiSize(cg.pt.zcu), 8) catch unreachable;
+}
+
+fn getLimbSize(cg: *CodeGen, ty: Type, limb: u64) bits.Memory.Size {
+    return .fromByteSize(@min(ty.abiSize(cg.pt.zcu) - limb * 8, 8));
 }
 
 fn reuseTemp(
@@ -2131,13 +2145,13 @@ fn genCopy(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: Cop
     if (!ty.hasRuntimeBits(zcu)) return;
 
     switch (dst_mcv) {
-        .register => |reg| try cg.genCopyToReg(ty, reg, src_mcv, opts),
+        .register => |reg| try cg.genCopyToReg(.fromByteSize(ty.abiSize(zcu)), reg, src_mcv, opts),
         .load_frame => try cg.genCopyToMem(ty, dst_mcv, src_mcv),
         else => return cg.fail("TODO: genCopy {s} => {s}", .{ @tagName(src_mcv), @tagName(dst_mcv) }),
     }
 }
 
-fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: CopyOptions) !void {
+fn genCopyToReg(cg: *CodeGen, size: bits.Memory.Size, dst: Register, src_mcv: MCValue, opts: CopyOptions) !void {
     switch (src_mcv) {
         .none => {},
         .dead, .unreach => unreachable,
@@ -2151,7 +2165,6 @@ fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: C
             .reg = dst,
         } }),
         .register_offset => |ro| {
-            const size = bits.Memory.Size.fromByteSize(ty.abiSize(cg.pt.zcu));
             if (cast(i12, ro.off)) |off| {
                 switch (size) {
                     .byte => try cg.asmInst(.ld_bu(dst, ro.reg, off)),
@@ -2170,15 +2183,14 @@ fn genCopyToReg(cg: *CodeGen, ty: Type, dst: Register, src_mcv: MCValue, opts: C
                     }
                 }
             }
-            try cg.genCopyToReg(.usize, dst, .{ .register_bias = .{ .reg = ro.reg, .off = ro.off } }, .{});
-            return cg.genCopyToReg(ty, dst, .{ .register_offset = .{ .reg = dst } }, .{});
+            try cg.genCopyToReg(.dword, dst, .{ .register_bias = .{ .reg = ro.reg, .off = ro.off } }, .{});
+            return cg.genCopyToReg(size, dst, .{ .register_offset = .{ .reg = dst } }, .{});
         },
         .lea_frame => |addr| try cg.asmPseudo(.frame_addr_to_reg, .{ .frame_reg = .{
             .frame = addr,
             .reg = dst,
         } }),
         .load_frame => |addr| {
-            const size = bits.Memory.Size.fromByteSize(ty.abiSize(cg.pt.zcu));
             const op: encoding.OpCode, const opx: encoding.OpCode = switch (size) {
                 .byte => .{ .ld_bu, .ldx_bu },
                 .hword => .{ .ld_hu, .ldx_hu },
@@ -2204,7 +2216,7 @@ fn genCopyRegToMem(cg: *CodeGen, dst_mcv: MCValue, src: Register, size: bits.Mem
         .memory => |addr| {
             const tmp_reg, const tmp_reg_lock = try cg.allocRegAndLock(.usize);
             defer cg.register_manager.unlockReg(tmp_reg_lock);
-            try cg.genCopyToReg(.usize, tmp_reg, .{ .immediate = addr }, .{});
+            try cg.genCopyToReg(.dword, tmp_reg, .{ .immediate = addr }, .{});
             try cg.genCopyRegToMem(.{ .register_offset = .{ .reg = tmp_reg } }, src, size);
         },
         .register_offset => |ro| {
@@ -2261,10 +2273,10 @@ fn genCopyToMem(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !voi
         => unreachable,
         .air_ref => |src_ref| try cg.genCopyToMem(ty, dst_mcv, try cg.resolveRef(src_ref)),
         .register => |reg| return cg.genCopyRegToMem(dst_mcv, reg, .fromByteSize(abi_size)),
-        .register_offset,
         .memory,
         .load_symbol,
         .load_frame,
+        .undef,
         => return cg.fail("TODO: genCopyToMem from {s}", .{@tagName(src_mcv)}),
         inline .register_pair, .register_triple, .register_quadruple => |regs| {
             for (regs, 0..) |reg, reg_i| {
@@ -2281,7 +2293,7 @@ fn genCopyToMem(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !voi
             const tmp_reg, const tmp_reg_lock = try cg.allocRegAndLock(.usize);
             defer cg.register_manager.unlockReg(tmp_reg_lock);
 
-            try cg.genCopyToReg(.usize, tmp_reg, src_mcv, .{});
+            try cg.genCopyToReg(.dword, tmp_reg, src_mcv, .{});
             try cg.genCopyRegToMem(dst_mcv, tmp_reg, .dword);
         },
         .register_frame => |reg_frame| {
@@ -2290,7 +2302,15 @@ fn genCopyToMem(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !voi
             // copy memory
             return cg.fail("TODO: genCopyToMem from {s}", .{@tagName(src_mcv)});
         },
-        else => return cg.fail("TODO: genCopyToMem from {s}", .{@tagName(src_mcv)}),
+        .register_offset => {
+            const reg, const reg_lock = try cg.allocRegAndLock(.usize);
+            defer cg.register_manager.unlockReg(reg_lock);
+            for (0..cg.getLimbCount(ty)) |limb_i| {
+                const size = cg.getLimbSize(ty, limb_i);
+                try cg.genCopyToReg(size, reg, src_mcv.toLimbValue(limb_i), .{});
+                try cg.genCopyRegToMem(dst_mcv.toLimbValue(limb_i), reg, size);
+            }
+        },
     }
 }
 
@@ -2911,7 +2931,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
                         break :call try cg.asmInst(.jirl(.ra, ro.reg, @truncate(off18 >> 2))),
                 else => {},
             }
-            try cg.genCopyToReg(.usize, .t0, addr_mcv, .{});
+            try cg.genCopyToReg(.dword, .t0, addr_mcv, .{});
             try cg.asmInst(.jirl(.ra, .t0, 0));
         }
     }
@@ -3006,7 +3026,7 @@ fn airAsm(cg: *CodeGen, inst: Air.Inst.Index) !void {
                 }
             },
             .reg => |reg| {
-                try cg.genCopyToReg(cg.typeOf(input), reg, input_cgv, .{});
+                try cg.genCopyToReg(.fromByteSize(cg.typeOf(input).abiSize(cg.pt.zcu)), reg, input_cgv, .{});
             },
         }
     }
@@ -3211,6 +3231,7 @@ fn airBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
 
 fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const pt = cg.pt;
+    const zcu = pt.zcu;
 
     const pl_op = cg.getAirData(inst).pl_op;
     const extra = cg.air.extraData(Air.CondBr, pl_op.payload);
@@ -3235,7 +3256,7 @@ fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
         => {
             assert(cond_ty.abiSize(pt.zcu) <= 8);
             const tmp_reg = try cg.allocReg(cond_ty, null);
-            try cg.genCopyToReg(cond_ty, tmp_reg, cond_mcv, .{});
+            try cg.genCopyToReg(.fromByteSize(cond_ty.abiSize(zcu)), tmp_reg, cond_mcv, .{});
             break :gen_br try cg.asmBr(null, .{ .eq = .{ tmp_reg, .zero } });
         },
         else => unreachable,
