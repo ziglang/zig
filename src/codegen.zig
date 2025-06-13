@@ -124,6 +124,7 @@ pub const AnyMir = union {
             else => unreachable,
             inline .stage2_aarch64,
             .stage2_arm,
+            .stage2_loongarch64,
             .stage2_powerpc,
             .stage2_riscv64,
             .stage2_sparc64,

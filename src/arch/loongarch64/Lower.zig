@@ -23,7 +23,7 @@ const Register = bits.Register;
 
 const Lower = @This();
 
-bin_file: *link.File,
+link_file: *link.File,
 target: *const std.Target,
 output_mode: std.builtin.OutputMode,
 link_mode: std.builtin.LinkMode,

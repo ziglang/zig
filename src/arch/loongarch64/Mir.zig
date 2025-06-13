@@ -8,7 +8,12 @@ const bits = @import("bits.zig");
 const Register = bits.Register;
 const Lir = @import("Lir.zig");
 const encoding = @import("encoding.zig");
+const Emit = @import("Emit.zig");
+
 const InternPool = @import("../../InternPool.zig");
+const codegen = @import("../../codegen.zig");
+const link = @import("../../link.zig");
+const Zcu = @import("../../Zcu.zig");
 
 instructions: std.MultiArrayList(Inst).Slice,
 frame_locs: std.MultiArrayList(FrameLoc).Slice,
@@ -194,6 +199,58 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     mir.frame_locs.deinit(gpa);
     mir.* = undefined;
+}
+
+pub fn emit(
+    mir: Mir,
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    func_index: InternPool.Index,
+    code: *std.ArrayListUnmanaged(u8),
+    debug_output: link.File.DebugInfoOutput,
+) codegen.CodeGenError!void {
+    const zcu = pt.zcu;
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+    const func = zcu.funcInfo(func_index);
+    const fn_info = zcu.typeToFunc(.fromInterned(func.ty)).?;
+    const nav = func.owner_nav;
+    const mod = zcu.navFileScope(nav).mod.?;
+
+    var emitter: Emit = .{
+        .lower = .{
+            .link_file = lf,
+            .target = &mod.resolved_target.result,
+            .allocator = gpa,
+            .mir = mir,
+            .cc = fn_info.cc,
+            .src_loc = src_loc,
+            .output_mode = comp.config.output_mode,
+            .link_mode = comp.config.link_mode,
+            .pic = mod.pic,
+        },
+        .atom_index = sym: {
+            if (lf.cast(.elf)) |ef| break :sym try ef.zigObjectPtr().?.getOrCreateMetadataForNav(zcu, nav);
+            unreachable;
+        },
+        .debug_output = debug_output,
+        .code = code,
+        .prev_di_loc = .{
+            .line = func.lbrace_line,
+            .column = func.lbrace_column,
+            .is_stmt = switch (debug_output) {
+                .dwarf => |dwarf| dwarf.dwarf.debug_line.header.default_is_stmt,
+                .plan9 => undefined,
+                .none => undefined,
+            },
+        },
+        .prev_di_pc = 0,
+    };
+    emitter.emitMir() catch |err| switch (err) {
+        error.LowerFail, error.EmitFail => return zcu.codegenFailMsg(nav, emitter.lower.err_msg.?),
+        else => |e| return zcu.codegenFail(nav, "emit MIR failed: {s} (Zig compiler bug)", .{@errorName(e)}),
+    };
 }
 
 pub const FrameLoc = struct {

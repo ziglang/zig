@@ -6,14 +6,12 @@ const std = @import("std");
 const log = std.log.scoped(.emit);
 const R_LARCH = std.elf.R_LARCH;
 
-const Air = @import("../../Air.zig");
 const Lower = @import("Lower.zig");
 const Lir = @import("Lir.zig");
 const Mir = @import("Mir.zig");
 
 const Emit = @This();
 
-air: Air,
 lower: Lower,
 atom_index: u32,
 debug_output: link.File.DebugInfoOutput,
@@ -28,7 +26,7 @@ pub const Error = Lower.Error || error{
 } || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
-    const gpa = emit.lower.bin_file.comp.gpa;
+    const gpa = emit.lower.link_file.comp.gpa;
 
     const code_offset_mapping = try emit.lower.allocator.alloc(u32, emit.lower.mir.instructions.len);
     defer emit.lower.allocator.free(code_offset_mapping);
@@ -70,7 +68,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     });
                 },
                 .elf_symbol => |sym| {
-                    const elf_file = emit.lower.bin_file.cast(.elf).?;
+                    const elf_file = emit.lower.link_file.cast(.elf).?;
                     const zo = elf_file.zigObjectPtr().?;
                     const atom_ptr = zo.symbol(emit.atom_index).atom(elf_file).?;
                     try atom_ptr.addReloc(gpa, .{

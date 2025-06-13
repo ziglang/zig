@@ -41,7 +41,6 @@ pt: Zcu.PerThread,
 air: Air,
 liveness: Air.Liveness,
 bin_file: *link.File,
-debug_output: link.File.DebugInfoOutput,
 
 target: *const std.Target,
 owner: Owner,
@@ -676,13 +675,10 @@ pub fn generate(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
-    code: *std.ArrayListUnmanaged(u8),
-    debug_output: link.File.DebugInfoOutput,
-) codegen.CodeGenError!void {
+    air: *const Air,
+    liveness: *const Air.Liveness,
+) codegen.CodeGenError!Mir {
     const zcu = pt.zcu;
-    const comp = zcu.comp;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const func = zcu.funcInfo(func_index);
@@ -693,12 +689,11 @@ pub fn generate(
     var cg: CodeGen = .{
         .gpa = gpa,
         .pt = pt,
-        .air = air,
-        .liveness = liveness,
+        .air = air.*,
+        .liveness = liveness.*,
         .target = &mod.resolved_target.result,
         .mod = mod,
         .bin_file = bin_file,
-        .debug_output = debug_output,
         .owner = .{ .nav_index = func.owner_nav },
         .inline_func = func_index,
         .arg_index = 0,
@@ -782,7 +777,7 @@ pub fn generate(
     };
 
     // end the function at the right brace
-    if (debug_output != .none) _ = try cg.addInst(.{
+    if (!cg.mod.strip) _ = try cg.addInst(.{
         .tag = .fromPseudo(.dbg_line_line_column),
         .data = .{ .line_column = .{
             .line = func.rbrace_line,
@@ -804,50 +799,15 @@ pub fn generate(
     log.debug("Frame layout: {} bytes{}", .{ frame_size, cg.fmtFrameLocs() });
 
     // construct MIR
-    var mir: Mir = .{
+    const mir: Mir = .{
         .instructions = cg.mir_instructions.toOwnedSlice(),
         .frame_locs = cg.frame_locs.toOwnedSlice(),
         .frame_size = frame_size,
         .epilogue_begin = cg.epilogue_label,
         .spill_ra = ra_allocated,
     };
-    defer mir.deinit(gpa);
 
-    // emit MC
-    var emit: Emit = .{
-        .air = cg.air,
-        .lower = .{
-            .bin_file = bin_file,
-            .target = cg.target,
-            .allocator = gpa,
-            .mir = mir,
-            .cc = cg.fn_type.fnCallingConvention(zcu),
-            .src_loc = src_loc,
-            .output_mode = comp.config.output_mode,
-            .link_mode = comp.config.link_mode,
-            .pic = mod.pic,
-        },
-        .atom_index = cg.owner.getSymbolIndex(&cg) catch |err| switch (err) {
-            error.CodegenFail => return error.CodegenFail,
-            else => |e| return e,
-        },
-        .debug_output = debug_output,
-        .code = code,
-        .prev_di_loc = .{
-            .line = func.lbrace_line,
-            .column = func.lbrace_column,
-            .is_stmt = switch (debug_output) {
-                .dwarf => |dwarf| dwarf.dwarf.debug_line.header.default_is_stmt,
-                .plan9 => undefined,
-                .none => undefined,
-            },
-        },
-        .prev_di_pc = 0,
-    };
-    emit.emitMir() catch |err| switch (err) {
-        error.LowerFail, error.EmitFail => return cg.failMsg(emit.lower.err_msg.?),
-        else => |e| return cg.fail("emit MIR failed: {s} (Zig compiler bug)", .{@errorName(e)}),
-    };
+    return mir;
 }
 
 pub fn generateLazy(
@@ -974,9 +934,9 @@ fn gen(cg: *CodeGen) InnerError!void {
 
 /// Generates a lexical block.
 fn genBodyBlock(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
-    if (cg.debug_output != .none) try cg.asmPseudo(.dbg_enter_block, .none);
+    if (!cg.mod.strip) try cg.asmPseudo(.dbg_enter_block, .none);
     try cg.genBody(body);
-    if (cg.debug_output != .none) try cg.asmPseudo(.dbg_exit_block, .none);
+    if (!cg.mod.strip) try cg.asmPseudo(.dbg_exit_block, .none);
 }
 
 fn fail(cg: *CodeGen, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
@@ -1778,14 +1738,14 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .mul_safe,
             => return cg.fail("legalization miss (Zig compiler bug)", .{}),
 
-            .dbg_stmt => if (cg.debug_output != .none) {
+            .dbg_stmt => if (!cg.mod.strip) {
                 const dbg_stmt = cg.getAirData(inst).dbg_stmt;
                 try cg.asmPseudo(.dbg_line_stmt_line_column, .{ .line_column = .{
                     .line = dbg_stmt.line,
                     .column = dbg_stmt.column,
                 } });
             },
-            .dbg_empty_stmt => if (cg.debug_output != .none) {
+            .dbg_empty_stmt => if (!cg.mod.strip) {
                 if (cg.mir_instructions.len > 0) {
                     const prev_mir_tag = &cg.mir_instructions.items(.tag)[cg.mir_instructions.len - 1];
                     if (prev_mir_tag.* == Mir.Inst.Tag.fromPseudo(.dbg_line_line_column))
@@ -3087,9 +3047,9 @@ fn airBlock(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const ty_pl = cg.getAirData(inst).ty_pl;
     const extra = cg.air.extraData(Air.Block, ty_pl.payload);
 
-    if (cg.debug_output != .none) try cg.asmPseudo(.dbg_enter_block, .none);
+    if (!cg.mod.strip) try cg.asmPseudo(.dbg_enter_block, .none);
     try cg.lowerBlock(inst, ty_pl.ty, @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]));
-    if (cg.debug_output != .none) try cg.asmPseudo(.dbg_exit_block, .none);
+    if (!cg.mod.strip) try cg.asmPseudo(.dbg_exit_block, .none);
 }
 
 fn airDbgInlineBlock(cg: *CodeGen, inst: Air.Inst.Index) !void {
@@ -3100,9 +3060,9 @@ fn airDbgInlineBlock(cg: *CodeGen, inst: Air.Inst.Index) !void {
     defer cg.inline_func = old_inline_func;
     cg.inline_func = extra.data.func;
 
-    if (cg.debug_output != .none) try cg.asmPseudo(.dbg_enter_inline_func, .{ .func = extra.data.func });
+    if (!cg.mod.strip) try cg.asmPseudo(.dbg_enter_inline_func, .{ .func = extra.data.func });
     try cg.lowerBlock(inst, ty_pl.ty, @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]));
-    if (cg.debug_output != .none) try cg.asmPseudo(.dbg_enter_inline_func, .{ .func = old_inline_func });
+    if (!cg.mod.strip) try cg.asmPseudo(.dbg_enter_inline_func, .{ .func = old_inline_func });
 }
 
 fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, ty_ref: Air.Inst.Ref, body: []const Air.Inst.Index) !void {
