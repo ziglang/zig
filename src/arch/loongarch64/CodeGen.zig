@@ -1527,7 +1527,7 @@ fn reuseTemp(
 }
 
 fn resolveCallInfo(cg: *CodeGen, fn_ty: *const InternPool.Key.FuncType) codegen.CodeGenError!abi.CallInfo {
-    return abi.CCResolver.resolve(&cg.pt, cg.gpa, cg.target, fn_ty) catch |err| switch (err) {
+    return abi.CCResolver.resolve(cg.pt, cg.gpa, cg.target, fn_ty) catch |err| switch (err) {
         error.CCSelectFailed => return cg.fail("Failed to resolve calling convention values", .{}),
         else => |e| return e,
     };

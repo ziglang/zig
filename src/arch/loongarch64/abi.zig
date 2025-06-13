@@ -192,7 +192,7 @@ const RegisterSets = struct {
 };
 
 pub const CCResolver = struct {
-    pt: *const Zcu.PerThread,
+    pt: Zcu.PerThread,
     cc: std.builtin.CallingConvention,
 
     state: struct {
@@ -207,30 +207,26 @@ pub const CCResolver = struct {
         } = .{},
     } = .{},
 
-    pub fn resolve(pt: *const Zcu.PerThread, gpa: Allocator, target: *const std.Target, func: *const InternPool.Key.FuncType) !CallInfo {
+    pub fn resolve(pt: Zcu.PerThread, gpa: Allocator, target: *const std.Target, func: *const InternPool.Key.FuncType) !CallInfo {
         _ = target;
         var resolver: CCResolver = .{ .pt = pt, .cc = func.cc };
-
-        log.debug("Calling convention resolve:", .{});
-        log.debug("  - CC: {s}", .{@tagName(func.cc)});
         const return_value = try resolver.resolveType(.fromInterned(func.return_type), .ret, 4);
-        log.debug("  - ret: {}", .{return_value});
 
         const params = try gpa.alloc(CCValue, func.param_types.len);
         for (func.param_types.get(&pt.zcu.intern_pool), 0..) |param, i| {
             const param_ccv = try resolver.resolveType(.fromInterned(param), .param, 4);
-            log.debug("  - param {}: {}", .{ i + 1, param_ccv });
             params[i] = param_ccv;
         }
 
-        log.debug("  - frame: size: {}, align: {}", .{ resolver.state.frame_size, resolver.state.frame_align.toByteUnits().? });
-        return .{
+        const ci: CallInfo = .{
             .params = params,
             .return_value = return_value,
             .frame_size = resolver.state.frame_size,
             .frame_align = resolver.state.frame_align,
             .err_ret_trace_reg = null,
         };
+        log.debug("{}", .{fmtCallInfo(&resolver, &ci, func)});
+        return ci;
     }
 
     const Context = enum { param, ret };
@@ -457,7 +453,36 @@ pub const CCResolver = struct {
             },
             else => {},
         }
-        log.err("Failed to select CC location of {} as {s}", .{ ty.fmt(self.pt.*), @tagName(ctx) });
+        log.err("Failed to select CC location of {} as {s}", .{ ty.fmt(self.pt), @tagName(ctx) });
         return error.CCSelectFailed;
     }
 };
+
+const FormatCallInfoData = struct {
+    resolver: *const CCResolver,
+    ci: *const CallInfo,
+    func: *const InternPool.Key.FuncType,
+};
+fn formatCallInfo(
+    data: FormatCallInfoData,
+    comptime _: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    const pt = data.resolver.pt;
+    const ip = &pt.zcu.intern_pool;
+
+    try writer.writeAll("Calling convention resolve:\n");
+    try writer.print("  - CC: {s}\n", .{@tagName(data.resolver.cc)});
+    try writer.print("  - ret: {} ({})\n", .{ data.ci.return_value, Type.fromInterned(data.func.return_type).fmt(pt) });
+
+    for (data.ci.params, 0..) |param, i| {
+        const param_ty = Type.fromInterned(data.func.param_types.get(ip)[i]);
+        try writer.print("  - param {}: {} ({})\n", .{ i + 1, param, param_ty.fmt(pt) });
+    }
+
+    try writer.print("  - frame: size: {}, align: {}", .{ data.resolver.state.frame_size, data.resolver.state.frame_align.toByteUnits().? });
+}
+fn fmtCallInfo(resolver: *const CCResolver, ci: *const CallInfo, func: *const InternPool.Key.FuncType) std.fmt.Formatter(formatCallInfo) {
+    return .{ .data = .{ .resolver = resolver, .ci = ci, .func = func } };
+}
