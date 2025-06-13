@@ -2447,7 +2447,7 @@ fn addTest(
         } else return;
     }
     if (db.options.test_target_filters.len > 0) {
-        const triple_txt = target.resolved.result.zigTriple(db.b.allocator) catch @panic("OOM");
+        const triple_txt = target.resolved.query.zigTriple(db.b.allocator) catch @panic("OOM");
         for (db.options.test_target_filters) |filter| {
             if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
         } else return;

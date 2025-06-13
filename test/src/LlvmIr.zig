@@ -75,7 +75,7 @@ pub fn addExact(
 pub fn addCase(self: *LlvmIr, case: TestCase) void {
     const target = self.b.resolveTargetQuery(case.params.target);
     if (self.options.test_target_filters.len > 0) {
-        const triple_txt = target.result.zigTriple(self.b.allocator) catch @panic("OOM");
+        const triple_txt = target.query.zigTriple(self.b.allocator) catch @panic("OOM");
         for (self.options.test_target_filters) |filter| {
             if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
         } else return;

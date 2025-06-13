@@ -610,7 +610,7 @@ pub fn lowerToBuildSteps(
             if (std.mem.indexOf(u8, case.name, test_filter)) |_| break;
         } else if (test_filters.len > 0) continue;
 
-        const triple_txt = case.target.result.zigTriple(b.allocator) catch @panic("OOM");
+        const triple_txt = case.target.query.zigTriple(b.allocator) catch @panic("OOM");
 
         if (test_target_filters.len > 0) {
             for (test_target_filters) |filter| {

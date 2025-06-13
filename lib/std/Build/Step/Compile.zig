@@ -292,6 +292,13 @@ pub const Kind = enum {
     obj,
     @"test",
     test_obj,
+
+    pub fn isTest(kind: Kind) bool {
+        return switch (kind) {
+            .exe, .lib, .obj => false,
+            .@"test", .test_obj => true,
+        };
+    }
 };
 
 pub const HeaderInstallation = union(enum) {
@@ -368,19 +375,16 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         panic("invalid name: '{s}'. It looks like a file path, but it is supposed to be the library or application name.", .{name});
     }
 
-    // Avoid the common case of the step name looking like "zig test test".
-    const name_adjusted = if ((options.kind == .@"test" or options.kind == .test_obj) and mem.eql(u8, name, "test"))
-        ""
-    else
-        owner.fmt("{s} ", .{name});
-
     const resolved_target = options.root_module.resolved_target orelse
         @panic("the root Module of a Compile step must be created with a known 'target' field");
     const target = resolved_target.result;
 
-    const step_name = owner.fmt("compile {s} {s}{s} {s}", .{
-        @tagName(options.kind),
-        name_adjusted,
+    const step_name = owner.fmt("compile {s} {s} {s}", .{
+        // Avoid the common case of the step name looking like "compile test test".
+        if (options.kind.isTest() and mem.eql(u8, name, "test"))
+            @tagName(options.kind)
+        else
+            owner.fmt("{s} {s}", .{ @tagName(options.kind), name }),
         @tagName(options.root_module.optimize orelse .Debug),
         resolved_target.query.zigTriple(owner.allocator) catch @panic("OOM"),
     });

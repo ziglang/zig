@@ -2310,8 +2310,8 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (options.skip_llvm and would_use_llvm) continue;
 
         const resolved_target = b.resolveTargetQuery(test_target.target);
+        const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
         const target = resolved_target.result;
-        const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
 
         if (options.test_target_filters.len > 0) {
             for (options.test_target_filters) |filter| {
@@ -2556,8 +2556,8 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
             if (options.skip_llvm and would_use_llvm) continue;
 
             const resolved_target = b.resolveTargetQuery(c_abi_target.target);
+            const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
             const target = resolved_target.result;
-            const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
 
             if (options.test_target_filters.len > 0) {
                 for (options.test_target_filters) |filter| {
