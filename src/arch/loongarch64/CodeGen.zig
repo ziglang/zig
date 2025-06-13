@@ -2899,7 +2899,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
             else => return cg.fail("TODO implement calling bitcasted functions", .{}),
         }
     } else {
-        assert(callee.toType().zigTypeTag(zcu) == .pointer);
+        assert(cg.typeOf(callee).zigTypeTag(zcu) == .pointer);
         const addr_mcv = try cg.resolveRef(pl_op.operand);
         call: {
             switch (addr_mcv) {
