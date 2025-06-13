@@ -1756,7 +1756,11 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 try cg.asmInst(.andi(.r0, .r0, 0));
             },
             // TODO: emit debug info
-            .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => {},
+            .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => {
+                const pl_op = cg.getAirData(inst).pl_op;
+                var ops = try cg.tempsFromOperands(inst, .{pl_op.operand});
+                try ops[0].die(cg);
+            },
 
             else => return cg.fail(
                 "TODO implement {s} for LoongArch64 CodeGen",
