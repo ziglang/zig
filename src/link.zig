@@ -1249,7 +1249,7 @@ pub const ZcuTask = union(enum) {
             .update_line_number,
             => {},
             .link_func => |link_func| {
-                switch (link_func.mir.status.load(.monotonic)) {
+                switch (link_func.mir.status.load(.acquire)) {
                     .pending => unreachable, // cannot deinit until MIR done
                     .failed => {}, // MIR not populated so doesn't need freeing
                     .ready => link_func.mir.value.deinit(zcu),
@@ -1453,7 +1453,7 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
             const fqn_slice = ip.getNav(nav).fqn.toSlice(ip);
             const nav_prog_node = comp.link_prog_node.start(fqn_slice, 0);
             defer nav_prog_node.end();
-            switch (func.mir.status.load(.monotonic)) {
+            switch (func.mir.status.load(.acquire)) {
                 .pending => unreachable,
                 .ready => {},
                 .failed => return,
