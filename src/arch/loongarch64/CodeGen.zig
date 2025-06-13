@@ -2239,7 +2239,12 @@ fn genCopyToMem(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !voi
         => return cg.fail("TODO: genCopyToMem from {s}", .{@tagName(src_mcv)}),
         inline .register_pair, .register_triple, .register_quadruple => |regs| {
             for (regs, 0..) |reg, reg_i| {
-                const size: bits.Memory.Size = if (reg_i == regs.len - 1) .fromByteSize(abi_size % 8) else .dword;
+                const size: bits.Memory.Size = limb_size: {
+                    if (reg_i != regs.len - 1) break :limb_size .dword else {
+                        const size = abi_size % 8;
+                        break :limb_size if (size == 0) .dword else .fromByteSize(size);
+                    }
+                };
                 try cg.genCopyRegToMem(dst_mcv.toLimbValue(reg_i), reg, size);
             }
         },
