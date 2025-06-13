@@ -1139,8 +1139,10 @@ const Temp = struct {
             .lea_frame,
             .lea_symbol,
             => {
+                const ty = temp.typeOf(cg);
+                const mcv = temp.tracking(cg).short;
                 try temp.die(cg);
-                temp.* = try cg.tempInit(temp.typeOf(cg), temp.tracking(cg).short.deref());
+                temp.* = try cg.tempInit(ty, mcv.deref());
                 return true;
             },
             .memory,
