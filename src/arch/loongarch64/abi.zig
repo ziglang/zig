@@ -46,6 +46,10 @@ pub const CCValue = union(enum) {
     register: Register,
     /// A value stored in two registers.
     register_pair: [2]Register,
+    /// A value stored in three registers.
+    register_triple: [3]Register,
+    /// A value stored in four registers.
+    register_quadruple: [4]Register,
     /// A value stored in the call frame with given offset.
     frame: i32,
     /// A value whose lower-ordered bits are in a register and the others are in the call frame.
@@ -60,7 +64,7 @@ pub const CCValue = union(enum) {
     pub fn getRegs(ccv: *const CCValue) []const Register {
         return switch (ccv.*) {
             inline .register, .ref_register => |*reg| reg[0..1],
-            .register_pair => |*regs| regs,
+            inline .register_pair, .register_triple, .register_quadruple => |*regs| regs,
             .split => |*split| (&split.reg)[0..1],
             else => &.{},
         };
@@ -76,6 +80,8 @@ pub const CCValue = union(enum) {
             .none => try writer.print("({s})", .{@tagName(ccv)}),
             .register => |pl| try writer.print("{s}", .{@tagName(pl)}),
             .register_pair => |pl| try writer.print("{s}:{s}", .{ @tagName(pl[1]), @tagName(pl[0]) }),
+            .register_triple => |pl| try writer.print("{s}:{s}:{s}", .{ @tagName(pl[2]), @tagName(pl[1]), @tagName(pl[0]) }),
+            .register_quadruple => |pl| try writer.print("{s}:{s}:{s}:{s}", .{ @tagName(pl[3]), @tagName(pl[2]), @tagName(pl[1]), @tagName(pl[0]) }),
             .frame => |pl| try writer.print("[frame + 0x{x}]", .{pl}),
             .split => |pl| try writer.print("{{{s}, (frame + 0x{x})}}", .{ @tagName(pl.reg), pl.frame_off }),
             .ref_register => |pl| try writer.print("byref:{s}", .{@tagName(pl)}),
@@ -245,10 +251,15 @@ pub const CCResolver = struct {
     }
 
     /// Allocates a value on stack, returning offset to the args frame
-    fn allocStack(self: *CCResolver, ty: Type) i32 {
+    fn allocStackType(self: *CCResolver, ty: Type) i32 {
         const zcu = self.pt.zcu;
         const alignment = ty.abiAlignment(zcu);
         const size = ty.abiSize(zcu);
+        return self.allocStack(alignment, size);
+    }
+
+    /// Allocates a value on stack, returning offset to the args frame
+    fn allocStack(self: *CCResolver, alignment: InternPool.Alignment, size: u64) i32 {
         self.frame_align = self.frame_align.max(alignment);
         const off = alignment.forward(self.frame_size);
         self.frame_size = @intCast(off + size);
@@ -259,7 +270,7 @@ pub const CCResolver = struct {
         if (self.allocReg(.int, ctx)) |reg| {
             return .{ .register = reg };
         } else {
-            return .{ .frame = self.allocStack(Type.usize) };
+            return .{ .frame = self.allocStackType(Type.usize) };
         }
     }
 
@@ -269,30 +280,47 @@ pub const CCResolver = struct {
         // TODO: implement FP calling convention
         switch (ty.zigTypeTag(zcu)) {
             .pointer => switch (ty.ptrSize(zcu)) {
-                .c => return self.allocPtr(ctx),
-                else => {},
+                .one, .many, .c => return self.allocPtr(ctx),
+                .slice => {
+                    if (self.allocRegs(.int, ctx, 2)) |regs| {
+                        return .{ .register_pair = regs };
+                    } else {
+                        return .{ .frame = self.allocStack(.@"8", 8 * 2) };
+                    }
+                },
             },
-            .int, .@"enum", .bool => |ty_tag| {
-                const ty_size: u16 = switch (ty_tag) {
-                    .int, .@"enum" => ty.intInfo(zcu).bits,
-                    .bool => 1,
-                    else => unreachable,
-                };
+            .int, .@"enum", .bool => {
+                const ty_size = ty.abiSize(zcu);
                 switch (ty_size) {
-                    1...64 => return self.allocPtr(ctx),
-                    65...128 => {
+                    1...8 => return self.allocPtr(ctx),
+                    9...16 => {
                         if (self.allocRegs(.int, ctx, 2)) |regs| {
                             return .{ .register_pair = regs };
                         } else if (self.allocReg(.int, ctx)) |reg| {
-                            return .{ .split = .{ .reg = reg, .frame_off = self.allocStack(Type.usize) } };
+                            return .{ .split = .{ .reg = reg, .frame_off = self.allocStackType(Type.usize) } };
                         } else {
-                            return .{ .frame = self.allocStack(Type.usize) };
+                            return .{ .frame = self.allocStackType(ty) };
                         }
                     },
-                    else => {},
+                    17...24 => {
+                        if (self.allocRegs(.int, ctx, 3)) |regs| {
+                            return .{ .register_triple = regs };
+                        } else {
+                            return .{ .frame = self.allocStackType(ty) };
+                        }
+                    },
+                    25...32 => {
+                        if (self.allocRegs(.int, ctx, 4)) |regs| {
+                            return .{ .register_quadruple = regs };
+                        } else {
+                            return .{ .frame = self.allocStackType(ty) };
+                        }
+                    },
+                    else => return .{ .frame = self.allocStackType(ty) },
                 }
             },
             .void, .noreturn => return .none,
+            .type => unreachable,
             .@"struct", .@"union" => {
                 // TODO: struct flattening
                 log.warn("Structure flattenning is not implemented yet. The compiled code may misbehave.", .{});
@@ -345,21 +373,51 @@ pub const CCResolver = struct {
                         if (self.allocRegs(.int, ctx, 2)) |regs| {
                             return .{ .register_pair = regs };
                         } else if (self.allocReg(.int, ctx)) |reg| {
-                            return .{ .split = .{ .reg = reg, .frame_off = self.allocStack(Type.usize) } };
+                            return .{ .split = .{ .reg = reg, .frame_off = self.allocStackType(Type.usize) } };
                         } else {
-                            return .{ .frame = self.allocStack(Type.usize) };
+                            return .{ .frame = self.allocStackType(Type.usize) };
                         }
                     },
                     else => {
                         if (self.allocReg(.int, .param)) |reg| {
                             return .{ .ref_register = reg };
                         } else {
-                            return .{ .ref_frame = self.allocStack(Type.usize) };
+                            return .{ .ref_frame = self.allocStackType(Type.usize) };
                         }
                     },
                 }
             },
-            .array => return self.allocPtr(ctx),
+            .array => {
+                const ty_size = ty.abiSize(zcu);
+                switch (ty_size) {
+                    0 => return .none,
+                    1...8 => return self.allocPtr(ctx),
+                    9...16 => {
+                        if (self.allocRegs(.int, ctx, 2)) |regs| {
+                            return .{ .register_pair = regs };
+                        } else if (self.allocReg(.int, ctx)) |reg| {
+                            return .{ .split = .{ .reg = reg, .frame_off = self.allocStackType(Type.usize) } };
+                        } else {
+                            return .{ .frame = self.allocStackType(ty) };
+                        }
+                    },
+                    17...24 => {
+                        if (self.allocRegs(.int, ctx, 3)) |regs| {
+                            return .{ .register_triple = regs };
+                        } else {
+                            return .{ .frame = self.allocStackType(ty) };
+                        }
+                    },
+                    25...32 => {
+                        if (self.allocRegs(.int, ctx, 4)) |regs| {
+                            return .{ .register_quadruple = regs };
+                        } else {
+                            return .{ .frame = self.allocStackType(ty) };
+                        }
+                    },
+                    else => return .{ .frame = self.allocStackType(ty) },
+                }
+            },
             else => {},
         }
         log.err("Failed to select C ABI CC location of {} as {s}", .{ ty.fmt(self.pt.*), @tagName(ctx) });

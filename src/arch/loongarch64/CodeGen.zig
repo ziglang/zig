@@ -408,6 +408,8 @@ pub const MCValue = union(enum) {
             .none => .none,
             .register => |reg| .{ .register = reg },
             .register_pair => |regs| .{ .register_pair = regs },
+            .register_triple => |regs| .{ .register_triple = regs },
+            .register_quadruple => |regs| .{ .register_quadruple = regs },
             .frame => |off| .{ .load_frame = .{ .index = frame, .off = off } },
             .split => |pl| .{ .register_frame = .{
                 .reg = pl.reg,
