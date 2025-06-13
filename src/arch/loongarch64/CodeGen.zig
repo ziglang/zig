@@ -2164,6 +2164,11 @@ fn genCopy(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: Cop
 
     switch (dst_mcv) {
         .register => |reg| try cg.genCopyToReg(.fromByteSize(ty.abiSize(zcu)), reg, src_mcv, opts),
+        inline .register_pair, .register_triple, .register_quadruple => |regs| {
+            for (regs, 0..) |reg, reg_i| {
+                try cg.genCopyToReg(cg.getLimbSize(ty, reg_i), reg, src_mcv.toLimbValue(reg_i), opts);
+            }
+        },
         .load_frame => try cg.genCopyToMem(ty, dst_mcv, src_mcv),
         else => return cg.fail("TODO: genCopy {s} => {s}", .{ @tagName(src_mcv), @tagName(dst_mcv) }),
     }
