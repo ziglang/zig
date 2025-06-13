@@ -357,7 +357,15 @@ pub const BranchCondition = union(enum) {
         }
     }
 
-    pub fn compare(comptime tag: Tag, lhs: Register, rhs: Register) BranchCondition {
-        return @unionInit(BranchCondition, @tagName(tag), .{ lhs, rhs });
+    pub fn compare(tag: Tag, lhs: Register, rhs: Register) BranchCondition {
+        return switch (tag) {
+            .none => .none,
+            .eq => .{ .eq = .{ lhs, rhs } },
+            .ne => .{ .ne = .{ lhs, rhs } },
+            .le => .{ .le = .{ lhs, rhs } },
+            .gt => .{ .gt = .{ lhs, rhs } },
+            .leu => .{ .leu = .{ lhs, rhs } },
+            .gtu => .{ .gtu = .{ lhs, rhs } },
+        };
     }
 };

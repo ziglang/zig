@@ -1166,8 +1166,12 @@ const Temp = struct {
         return temp.tracking(cg).getReg().?;
     }
 
-    fn getImm(temp: Temp, cg: *CodeGen) u64 {
+    fn getUnsignedImm(temp: Temp, cg: *CodeGen) u64 {
         return temp.tracking(cg).short.immediate;
+    }
+
+    fn getSignedImm(temp: Temp, cg: *CodeGen) i64 {
+        return @bitCast(temp.tracking(cg).short.immediate);
     }
 
     fn moveToMemory(temp: *Temp, cg: *CodeGen, mut: bool) InnerError!bool {
@@ -1707,8 +1711,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 error.AsmParseFail => return error.CodegenFail,
                 else => |e| return e,
             },
-            .trap => try cg.asmInst(.@"break"(0)),
-            .breakpoint => try cg.asmInst(.@"break"(0)),
+            .trap, .breakpoint => try cg.asmInst(.@"break"(0)),
 
             .ret_addr => try cg.airRetAddr(inst),
             .frame_addr => try (try cg.tempInit(.usize, .{ .lea_frame = .{ .index = .stack_frame } })).finish(inst, &.{}, cg),
@@ -1725,18 +1728,18 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .call_never_tail => try cg.airCall(inst, .never_tail),
             .call_never_inline => try cg.airCall(inst, .never_inline),
 
-            .cmp_eq => try cg.airCompareToBool(inst, .{ .cond = .eq, .swap = false, .opti = false }),
-            .cmp_eq_optimized => try cg.airCompareToBool(inst, .{ .cond = .eq, .swap = false, .opti = true }),
-            .cmp_neq => try cg.airCompareToBool(inst, .{ .cond = .ne, .swap = false, .opti = false }),
-            .cmp_neq_optimized => try cg.airCompareToBool(inst, .{ .cond = .ne, .swap = false, .opti = true }),
-            .cmp_lt => try cg.airCompareToBool(inst, .{ .cond = .gt, .swap = true, .opti = false }),
-            .cmp_lt_optimized => try cg.airCompareToBool(inst, .{ .cond = .gt, .swap = true, .opti = true }),
-            .cmp_lte => try cg.airCompareToBool(inst, .{ .cond = .le, .swap = false, .opti = false }),
-            .cmp_lte_optimized => try cg.airCompareToBool(inst, .{ .cond = .le, .swap = false, .opti = true }),
-            .cmp_gt => try cg.airCompareToBool(inst, .{ .cond = .gt, .swap = false, .opti = false }),
-            .cmp_gt_optimized => try cg.airCompareToBool(inst, .{ .cond = .gt, .swap = false, .opti = true }),
-            .cmp_gte => try cg.airCompareToBool(inst, .{ .cond = .le, .swap = true, .opti = false }),
-            .cmp_gte_optimized => try cg.airCompareToBool(inst, .{ .cond = .le, .swap = true, .opti = true }),
+            .cmp_eq => try cg.airCmp(inst, .{ .cond = .eq, .swap = false, .opti = false }),
+            .cmp_eq_optimized => try cg.airCmp(inst, .{ .cond = .eq, .swap = false, .opti = true }),
+            .cmp_neq => try cg.airCmp(inst, .{ .cond = .ne, .swap = false, .opti = false }),
+            .cmp_neq_optimized => try cg.airCmp(inst, .{ .cond = .ne, .swap = false, .opti = true }),
+            .cmp_lt => try cg.airCmp(inst, .{ .cond = .gt, .swap = true, .opti = false }),
+            .cmp_lt_optimized => try cg.airCmp(inst, .{ .cond = .gt, .swap = true, .opti = true }),
+            .cmp_lte => try cg.airCmp(inst, .{ .cond = .le, .swap = false, .opti = false }),
+            .cmp_lte_optimized => try cg.airCmp(inst, .{ .cond = .le, .swap = false, .opti = true }),
+            .cmp_gt => try cg.airCmp(inst, .{ .cond = .gt, .swap = false, .opti = false }),
+            .cmp_gt_optimized => try cg.airCmp(inst, .{ .cond = .gt, .swap = false, .opti = true }),
+            .cmp_gte => try cg.airCmp(inst, .{ .cond = .le, .swap = true, .opti = false }),
+            .cmp_gte_optimized => try cg.airCmp(inst, .{ .cond = .le, .swap = true, .opti = true }),
 
             .block => try cg.airBlock(inst),
             .dbg_inline_block => try cg.airDbgInlineBlock(inst),
@@ -2694,7 +2697,7 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
         const dst, _ = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
         const lhs_limb = lhs.toLimbValue(0, cg);
         const dst_limb = dst.toLimbValue(0, cg);
-        try asmIntLogicBinOpRRI(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, @intCast(rhs.getImm(cg)));
+        try asmIntLogicBinOpRRI(cg, op, dst_limb.getReg().?, lhs_limb.getReg().?, @intCast(rhs.getUnsignedImm(cg)));
         try sel.finish(dst);
     } else if (try sel.match(.{
         .patterns = &.{.{ .srcs = &.{ .to_int_reg, .to_int_reg } }},
@@ -3065,28 +3068,87 @@ fn airAsm(cg: *CodeGen, inst: Air.Inst.Index) !void {
     }
 }
 
-const CmpToBoolOptions = struct {
+const CmpOptions = struct {
     cond: Mir.BranchCondition.Tag,
     swap: bool,
     opti: bool,
 };
 
 // TODO: instruction combination
-fn airCompareToBool(cg: *CodeGen, inst: Air.Inst.Index, comptime opts: CmpToBoolOptions) !void {
+fn airCmp(cg: *CodeGen, inst: Air.Inst.Index, comptime opts: CmpOptions) !void {
+    const zcu = cg.pt.zcu;
     const bin_op = cg.getAirData(inst).bin_op;
     var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs }));
     if (opts.swap) std.mem.swap(Temp, &sel.ops[0], &sel.ops[1]);
 
+    const ty = sel.ops[0].typeOf(cg);
+    const cond: Mir.BranchCondition.Tag =
+        if (ty.isSignedInt(zcu))
+            opts.cond
+        else switch (opts.cond) {
+            .none, .eq, .ne, .leu, .gtu => opts.cond,
+            .le => .leu,
+            .gt => .gtu,
+        };
+
+    // case 1: SLTI
     if (try sel.match(.{
+        .requirement = cond == .gt,
+        .patterns = &.{
+            .{ .srcs = &.{ .imm12, .to_int_reg } },
+        },
+    })) {
+        const lhs, const rhs = sel.ops[0..2].*;
+        const dst = try cg.tempTryReuseOrAlloc(inst, &.{rhs}, .{ .use_frame = false });
+        try cg.asmInst(.slti(dst.getReg(cg), rhs.getReg(cg), @intCast(lhs.getSignedImm(cg))));
+        try sel.finish(dst);
+    }
+    // case 2: SLTUI
+    else if (try sel.match(.{
+        .requirement = cond == .gtu,
+        .patterns = &.{
+            .{ .srcs = &.{ .imm12, .to_int_reg } },
+        },
+    })) {
+        const lhs, const rhs = sel.ops[0..2].*;
+        const dst = try cg.tempTryReuseOrAlloc(inst, &.{rhs}, .{ .use_frame = false });
+        try cg.asmInst(.sltui(dst.getReg(cg), rhs.getReg(cg), @intCast(lhs.getSignedImm(cg))));
+        try sel.finish(dst);
+    }
+    // case 3: SLT
+    else if (try sel.match(.{
+        .requirement = cond == .gt,
         .patterns = &.{
             .{ .srcs = &.{ .to_int_reg, .to_int_reg } },
-            .{ .srcs = &.{ .to_int_reg, .to_int_reg }, .commute = .{ 0, 1 } },
+        },
+    })) {
+        const lhs, const rhs = sel.ops[0..2].*;
+        const dst = try cg.tempTryReuseOrAlloc(inst, &.{ lhs, rhs }, .{ .use_frame = false });
+        try cg.asmInst(.slt(dst.getReg(cg), rhs.getReg(cg), lhs.getReg(cg)));
+        try sel.finish(dst);
+    }
+    // case 4: SLTU
+    else if (try sel.match(.{
+        .requirement = cond == .gtu,
+        .patterns = &.{
+            .{ .srcs = &.{ .to_int_reg, .to_int_reg } },
+        },
+    })) {
+        const lhs, const rhs = sel.ops[0..2].*;
+        const dst = try cg.tempTryReuseOrAlloc(inst, &.{ lhs, rhs }, .{ .use_frame = false });
+        try cg.asmInst(.sltu(dst.getReg(cg), rhs.getReg(cg), lhs.getReg(cg)));
+        try sel.finish(dst);
+    }
+    // case 5: fallback to conditional branch
+    else if (try sel.match(.{
+        .patterns = &.{
+            .{ .srcs = &.{ .to_int_reg, .to_int_reg } },
         },
     })) {
         const lhs, const rhs = sel.ops[0..2].*;
         const dst = try cg.tempTryReuseOrAlloc(inst, &.{ lhs, rhs }, .{ .use_frame = false });
 
-        const label_if = try cg.asmBr(null, .compare(opts.cond, lhs.getReg(cg), rhs.getReg(cg)));
+        const label_if = try cg.asmBr(null, .compare(cond, lhs.getReg(cg), rhs.getReg(cg)));
         try cg.asmInst(.ori(dst.getReg(cg), .zero, 0));
         const label_fall = try cg.asmBr(null, .none);
         cg.performReloc(label_if);
