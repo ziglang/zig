@@ -377,7 +377,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     const resolved_target = options.root_module.resolved_target orelse
         @panic("the root Module of a Compile step must be created with a known 'target' field");
-    const target = resolved_target.result;
+    const target = &resolved_target.result;
 
     const step_name = owner.fmt("compile {s} {s} {s}", .{
         // Avoid the common case of the step name looking like "compile test test".
@@ -1866,7 +1866,7 @@ fn outputPath(c: *Compile, out_dir: std.Build.Cache.Path, ea: std.zig.EmitArtifa
     const arena = c.step.owner.graph.arena;
     const name = ea.cacheName(arena, .{
         .root_name = c.name,
-        .target = c.root_module.resolved_target.?.result,
+        .target = &c.root_module.resolved_target.?.result,
         .output_mode = switch (c.kind) {
             .lib => .Lib,
             .obj, .test_obj => .Obj,

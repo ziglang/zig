@@ -982,7 +982,7 @@ fn addExtraAssumeCapacity(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
 pub fn typeToValtype(ty: Type, zcu: *const Zcu, target: *const std.Target) std.wasm.Valtype {
     const ip = &zcu.intern_pool;
     return switch (ty.zigTypeTag(zcu)) {
-        .float => switch (ty.floatBits(target.*)) {
+        .float => switch (ty.floatBits(target)) {
             16 => .i32, // stored/loaded as u16
             32 => .f32,
             64 => .f64,
@@ -1715,7 +1715,7 @@ fn isByRef(ty: Type, zcu: *const Zcu, target: *const std.Target) bool {
         .vector => return determineSimdStoreStrategy(ty, zcu, target) == .unrolled,
         .int => return ty.intInfo(zcu).bits > 64,
         .@"enum" => return ty.intInfo(zcu).bits > 64,
-        .float => return ty.floatBits(target.*) > 64,
+        .float => return ty.floatBits(target) > 64,
         .error_union => {
             const pl_ty = ty.errorUnionPayload(zcu);
             if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
@@ -2904,7 +2904,7 @@ fn floatOp(cg: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) Inne
         return cg.fail("TODO: Implement floatOps for vectors", .{});
     }
 
-    const float_bits = ty.floatBits(cg.target.*);
+    const float_bits = ty.floatBits(cg.target);
 
     if (float_op == .neg) {
         return cg.floatNeg(ty, args[0]);
@@ -2931,7 +2931,7 @@ fn floatOp(cg: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) Inne
 
 /// NOTE: The result value remains on top of the stack.
 fn floatNeg(cg: *CodeGen, ty: Type, arg: WValue) InnerError!WValue {
-    const float_bits = ty.floatBits(cg.target.*);
+    const float_bits = ty.floatBits(cg.target);
     switch (float_bits) {
         16 => {
             try cg.emitWValue(arg);
@@ -3300,7 +3300,7 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
             33...64 => return .{ .imm64 = 0xaaaaaaaaaaaaaaaa },
             else => unreachable,
         },
-        .float => switch (ty.floatBits(cg.target.*)) {
+        .float => switch (ty.floatBits(cg.target)) {
             16 => return .{ .imm32 = 0xaaaaaaaa },
             32 => return .{ .float32 = @as(f32, @bitCast(@as(u32, 0xaaaaaaaa))) },
             64 => return .{ .float64 = @as(f64, @bitCast(@as(u64, 0xaaaaaaaaaaaaaaaa))) },
@@ -3507,7 +3507,7 @@ fn cmp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareOpe
 /// Compares two floats.
 /// NOTE: Leaves the result of the comparison on top of the stack.
 fn cmpFloat(cg: *CodeGen, ty: Type, lhs: WValue, rhs: WValue, cmp_op: std.math.CompareOperator) InnerError!WValue {
-    const float_bits = ty.floatBits(cg.target.*);
+    const float_bits = ty.floatBits(cg.target);
 
     const op: Op = switch (cmp_op) {
         .lt => .lt,
@@ -4919,7 +4919,7 @@ fn airIntFromFloat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const operand = try cg.resolveInst(ty_op.operand);
     const op_ty = cg.typeOf(ty_op.operand);
-    const op_bits = op_ty.floatBits(cg.target.*);
+    const op_bits = op_ty.floatBits(cg.target);
 
     const dest_ty = cg.typeOfIndex(inst);
     const dest_info = dest_ty.intInfo(zcu);
@@ -4973,7 +4973,7 @@ fn airFloatFromInt(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const op_info = op_ty.intInfo(zcu);
 
     const dest_ty = cg.typeOfIndex(inst);
-    const dest_bits = dest_ty.floatBits(cg.target.*);
+    const dest_bits = dest_ty.floatBits(cg.target);
 
     if (op_info.bits > 128) {
         return cg.fail("TODO: floatFromInt for integers/floats with bitsize {d} bits", .{op_info.bits});
@@ -5567,8 +5567,8 @@ fn airFpext(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// Extends a float from a given `Type` to a larger wanted `Type`, leaving the
 /// result on the stack.
 fn fpext(cg: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
-    const given_bits = given.floatBits(cg.target.*);
-    const wanted_bits = wanted.floatBits(cg.target.*);
+    const given_bits = given.floatBits(cg.target);
+    const wanted_bits = wanted.floatBits(cg.target);
 
     const intrinsic: Mir.Intrinsic = switch (given_bits) {
         16 => switch (wanted_bits) {
@@ -5621,8 +5621,8 @@ fn airFptrunc(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// Truncates a float from a given `Type` to its wanted `Type`, leaving the
 /// result on the stack.
 fn fptrunc(cg: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
-    const given_bits = given.floatBits(cg.target.*);
-    const wanted_bits = wanted.floatBits(cg.target.*);
+    const given_bits = given.floatBits(cg.target);
+    const wanted_bits = wanted.floatBits(cg.target);
 
     const intrinsic: Mir.Intrinsic = switch (given_bits) {
         32 => switch (wanted_bits) {
@@ -6231,7 +6231,7 @@ fn airMaxMin(
 
     if (ty.zigTypeTag(zcu) == .float) {
         const intrinsic = switch (op) {
-            inline .fmin, .fmax => |ct_op| switch (ty.floatBits(cg.target.*)) {
+            inline .fmin, .fmax => |ct_op| switch (ty.floatBits(cg.target)) {
                 inline 16, 32, 64, 80, 128 => |bits| @field(
                     Mir.Intrinsic,
                     libcFloatPrefix(bits) ++ @tagName(ct_op) ++ libcFloatSuffix(bits),
@@ -6268,7 +6268,7 @@ fn airMulAdd(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const lhs = try cg.resolveInst(bin_op.lhs);
     const rhs = try cg.resolveInst(bin_op.rhs);
 
-    const result = if (ty.floatBits(cg.target.*) == 16) fl_result: {
+    const result = if (ty.floatBits(cg.target) == 16) fl_result: {
         const rhs_ext = try cg.fpext(rhs, ty, Type.f32);
         const lhs_ext = try cg.fpext(lhs, ty, Type.f32);
         const addend_ext = try cg.fpext(addend, ty, Type.f32);
@@ -6667,7 +6667,7 @@ fn airDivFloor(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             _ = try cg.wrapOperand(.stack, ty);
         }
     } else {
-        const float_bits = ty.floatBits(cg.target.*);
+        const float_bits = ty.floatBits(cg.target);
         if (float_bits > 64) {
             return cg.fail("TODO: `@divFloor` for floats with bitsize: {d}", .{float_bits});
         }

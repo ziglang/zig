@@ -21,7 +21,7 @@ pub const Target = struct {
     test_name_suffix: []const u8,
 };
 
-pub fn addTestsForTarget(db: *Debugger, target: Target) void {
+pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
     db.addLldbTest(
         "basic",
         target,
@@ -2376,7 +2376,7 @@ const File = struct { import: ?[]const u8 = null, path: []const u8, source: []co
 fn addGdbTest(
     db: *Debugger,
     name: []const u8,
-    target: Target,
+    target: *const Target,
     files: []const File,
     commands: []const u8,
     expected_output: []const []const u8,
@@ -2402,7 +2402,7 @@ fn addGdbTest(
 fn addLldbTest(
     db: *Debugger,
     name: []const u8,
-    target: Target,
+    target: *const Target,
     files: []const File,
     commands: []const u8,
     expected_output: []const []const u8,
@@ -2433,7 +2433,7 @@ const success = 99;
 fn addTest(
     db: *Debugger,
     name: []const u8,
-    target: Target,
+    target: *const Target,
     files: []const File,
     db_argv1: []const []const u8,
     db_commands: []const u8,

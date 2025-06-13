@@ -16,7 +16,7 @@ pub fn cmdTargets(
     args: []const []const u8,
     /// Output stream
     stdout: anytype,
-    native_target: Target,
+    native_target: *const Target,
 ) !void {
     _ = args;
     var zig_lib_directory = introspect.findZigLibDir(allocator) catch |err| {

@@ -759,7 +759,7 @@ fn addCmakeCfgOptionsToExe(
     use_zig_libcxx: bool,
 ) !void {
     const mod = exe.root_module;
-    const target = mod.resolved_target.?.result;
+    const target = &mod.resolved_target.?.result;
 
     if (target.os.tag.isDarwin()) {
         // useful for package maintainers

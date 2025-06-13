@@ -58,7 +58,7 @@ pub fn createEmpty(
     options: link.File.OpenOptions,
 ) !*SpirV {
     const gpa = comp.gpa;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
 
     assert(!comp.config.use_lld); // Caught by Compilation.Config.resolve
     assert(!comp.config.use_llvm); // Caught by Compilation.Config.resolve

@@ -105,7 +105,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             emit.pt,
                             emit.lower.src_loc,
                             nav,
-                            emit.lower.target.*,
+                            emit.lower.target,
                         )) {
                             .mcv => |mcv| mcv.lea_symbol,
                             .fail => |em| {
@@ -542,7 +542,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                                     emit.pt,
                                                     emit.lower.src_loc,
                                                     nav,
-                                                    emit.lower.target.*,
+                                                    emit.lower.target,
                                                 ) catch |err| switch (err) {
                                                     error.CodegenFail,
                                                     => return emit.fail("unable to codegen: {s}", .{@errorName(err)}),

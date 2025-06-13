@@ -1319,9 +1319,9 @@ pub const Pool = struct {
             },
             else => {
                 const target = &mod.resolved_target.result;
-                const abi_align_bytes = std.zig.target.intAlignment(target.*, int_info.bits);
+                const abi_align_bytes = std.zig.target.intAlignment(target, int_info.bits);
                 const array_ctype = try pool.getArray(allocator, .{
-                    .len = @divExact(std.zig.target.intByteSize(target.*, int_info.bits), abi_align_bytes),
+                    .len = @divExact(std.zig.target.intByteSize(target, int_info.bits), abi_align_bytes),
                     .elem_ctype = try pool.fromIntInfo(allocator, .{
                         .signedness = .unsigned,
                         .bits = @intCast(abi_align_bytes * 8),
@@ -1438,13 +1438,13 @@ pub const Pool = struct {
                             .elem_ctype = .u8,
                             .@"const" = true,
                         }),
-                        .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target.*)),
+                        .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),
                     },
                     .{
                         .name = .{ .index = .len },
                         .ctype = .usize,
                         .alignas = AlignAs.fromAbiAlignment(
-                            .fromByteUnits(std.zig.target.intAlignment(target.*, target.ptrBitWidth())),
+                            .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())),
                         ),
                     },
                 };
@@ -2246,13 +2246,13 @@ pub const Pool = struct {
                                     mod,
                                     kind,
                                 ),
-                                .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target.*)),
+                                .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),
                             },
                             .{
                                 .name = .{ .index = .len },
                                 .ctype = .usize,
                                 .alignas = AlignAs.fromAbiAlignment(
-                                    .fromByteUnits(std.zig.target.intAlignment(target.*, target.ptrBitWidth())),
+                                    .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())),
                                 ),
                             },
                         };
@@ -2372,7 +2372,7 @@ pub const Pool = struct {
                             .name = .{ .index = .@"error" },
                             .ctype = error_set_ctype,
                             .alignas = AlignAs.fromAbiAlignment(
-                                .fromByteUnits(std.zig.target.intAlignment(target.*, error_set_bits)),
+                                .fromByteUnits(std.zig.target.intAlignment(target, error_set_bits)),
                             ),
                         },
                         .{

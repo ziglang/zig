@@ -1881,7 +1881,7 @@ fn memSize(func: *Func, ty: Type) Memory.Size {
     const pt = func.pt;
     const zcu = pt.zcu;
     return switch (ty.zigTypeTag(zcu)) {
-        .float => Memory.Size.fromBitSize(ty.floatBits(func.target.*)),
+        .float => Memory.Size.fromBitSize(ty.floatBits(func.target)),
         else => Memory.Size.fromByteSize(ty.abiSize(zcu)),
     };
 }
@@ -2401,7 +2401,7 @@ fn binOp(
     const rhs_ty = func.typeOf(rhs_air);
 
     if (lhs_ty.isRuntimeFloat()) libcall: {
-        const float_bits = lhs_ty.floatBits(func.target.*);
+        const float_bits = lhs_ty.floatBits(func.target);
         const type_needs_libcall = switch (float_bits) {
             16 => true,
             32, 64 => false,
@@ -5189,7 +5189,7 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
                 }
             },
             .float => {
-                const float_bits = lhs_ty.floatBits(func.target.*);
+                const float_bits = lhs_ty.floatBits(func.target);
                 const float_reg_size: u32 = if (func.hasFeature(.d)) 64 else 32;
                 if (float_bits > float_reg_size) {
                     return func.fail("TODO: airCmp float > 64/32 bits", .{});
@@ -8195,7 +8195,7 @@ fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
     const result = if (val.isUndef(pt.zcu))
         try lf.lowerUav(pt, val.toIntern(), .none, src_loc)
     else
-        try codegen.genTypedValue(lf, pt, src_loc, val, func.target.*);
+        try codegen.genTypedValue(lf, pt, src_loc, val, func.target);
     const mcv: MCValue = switch (result) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
@@ -8484,7 +8484,7 @@ fn promoteInt(func: *Func, ty: Type) Type {
 
 fn promoteVarArg(func: *Func, ty: Type) Type {
     if (!ty.isRuntimeFloat()) return func.promoteInt(ty);
-    switch (ty.floatBits(func.target.*)) {
+    switch (ty.floatBits(func.target)) {
         32, 64 => return Type.f64,
         else => |float_bits| {
             assert(float_bits == func.target.cTypeBitSize(.longdouble));

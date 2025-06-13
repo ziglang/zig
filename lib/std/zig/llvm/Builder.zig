@@ -66,7 +66,7 @@ pub const Options = struct {
     allocator: Allocator,
     strip: bool = true,
     name: []const u8 = &.{},
-    target: std.Target = builtin.target,
+    target: *const std.Target = &builtin.target,
     triple: []const u8 = &.{},
 };
 

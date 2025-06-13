@@ -2311,7 +2311,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         const resolved_target = b.resolveTargetQuery(test_target.target);
         const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
-        const target = resolved_target.result;
+        const target = &resolved_target.result;
 
         if (options.test_target_filters.len > 0) {
             for (options.test_target_filters) |filter| {
@@ -2557,7 +2557,7 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
 
             const resolved_target = b.resolveTargetQuery(c_abi_target.target);
             const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
-            const target = resolved_target.result;
+            const target = &resolved_target.result;
 
             if (options.test_target_filters.len > 0) {
                 for (options.test_target_filters) |filter| {
@@ -2659,7 +2659,7 @@ pub fn addDebuggerTests(b: *std.Build, options: DebuggerContext.Options) ?*Step 
         .options = options,
         .root_step = step,
     };
-    context.addTestsForTarget(.{
+    context.addTestsForTarget(&.{
         .resolved = b.resolveTargetQuery(.{
             .cpu_arch = .x86_64,
             .os_tag = .linux,
@@ -2668,7 +2668,7 @@ pub fn addDebuggerTests(b: *std.Build, options: DebuggerContext.Options) ?*Step 
         .pic = false,
         .test_name_suffix = "x86_64-linux",
     });
-    context.addTestsForTarget(.{
+    context.addTestsForTarget(&.{
         .resolved = b.resolveTargetQuery(.{
             .cpu_arch = .x86_64,
             .os_tag = .linux,

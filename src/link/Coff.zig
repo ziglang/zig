@@ -208,7 +208,7 @@ pub fn createEmpty(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*Coff {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     assert(target.ofmt == .coff);
     const optimize_mode = comp.root_mod.optimize_mode;
     const output_mode = comp.config.output_mode;
@@ -1328,7 +1328,7 @@ fn updateNavCode(
 
     log.debug("updateNavCode {} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
 
-    const target = zcu.navFileScope(nav_index).mod.?.resolved_target.result;
+    const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const required_alignment = switch (pt.navAlignment(nav_index)) {
         .none => target_util.defaultFunctionAlignment(target),
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
@@ -2153,7 +2153,7 @@ fn writeDataDirectoriesHeaders(coff: *Coff) !void {
 }
 
 fn writeHeader(coff: *Coff) !void {
-    const target = coff.base.comp.root_mod.resolved_target.result;
+    const target = &coff.base.comp.root_mod.resolved_target.result;
     const gpa = coff.base.comp.gpa;
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
@@ -2800,7 +2800,7 @@ pub const Relocation = struct {
             .ptr_width = coff.ptr_width,
         };
 
-        const target = coff.base.comp.root_mod.resolved_target.result;
+        const target = &coff.base.comp.root_mod.resolved_target.result;
         switch (target.cpu.arch) {
             .aarch64 => reloc.resolveAarch64(ctx),
             .x86, .x86_64 => reloc.resolveX86(ctx),

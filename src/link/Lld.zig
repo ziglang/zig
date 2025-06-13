@@ -30,7 +30,7 @@ const Coff = struct {
         dllmain_crt_startup: bool,
     },
     fn init(comp: *Compilation, options: link.File.OpenOptions) !Coff {
-        const target = comp.root_mod.resolved_target.result;
+        const target = &comp.root_mod.resolved_target.result;
         const output_mode = comp.config.output_mode;
         return .{
             .image_base = options.image_base orelse switch (output_mode) {
@@ -103,7 +103,7 @@ pub const Elf = struct {
 
     fn init(comp: *Compilation, options: link.File.OpenOptions) !Elf {
         const PtrWidth = enum { p32, p64 };
-        const target = comp.root_mod.resolved_target.result;
+        const target = &comp.root_mod.resolved_target.result;
         const output_mode = comp.config.output_mode;
         const is_dyn_lib = output_mode == .Lib and comp.config.link_mode == .dynamic;
         const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
@@ -202,7 +202,7 @@ pub fn createEmpty(
     emit: Cache.Path,
     options: link.File.OpenOptions,
 ) !*Lld {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const output_mode = comp.config.output_mode;
     const optimize_mode = comp.root_mod.optimize_mode;
     const is_native_os = comp.root_mod.resolved_target.is_native_os;
@@ -342,7 +342,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
 
     const llvm_bindings = @import("../codegen/llvm/bindings.zig");
     const llvm = @import("../codegen/llvm.zig");
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     llvm.initializeLLVMTarget(target.cpu.arch);
     const bad = llvm_bindings.WriteArchive(
         full_out_path_z,
@@ -374,7 +374,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
     const is_dyn_lib = comp.config.link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or comp.config.output_mode == .Exe;
     const link_in_crt = comp.config.link_libc and is_exe_or_dyn_lib;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const optimize_mode = comp.root_mod.optimize_mode;
     const entry_name: ?[]const u8 = switch (coff.entry) {
         // This logic isn't quite right for disabled or enabled. No point in fixing it
@@ -811,7 +811,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
     const is_dyn_lib = link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
     const have_dynamic_linker = link_mode == .dynamic and is_exe_or_dyn_lib;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const compiler_rt_path: ?Cache.Path = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
@@ -1281,7 +1281,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
         try spawnLld(comp, arena, argv.items);
     }
 }
-fn getLDMOption(target: std.Target) ?[]const u8 {
+fn getLDMOption(target: *const std.Target) ?[]const u8 {
     // This should only return emulations understood by LLD's parseEmulation().
     return switch (target.cpu.arch) {
         .aarch64 => switch (target.os.tag) {
@@ -1364,7 +1364,7 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
     const shared_memory = comp.config.shared_memory;
     const export_memory = comp.config.export_memory;
     const import_memory = comp.config.import_memory;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const base = &lld.base;
     const wasm = &lld.ofmt.wasm;
 

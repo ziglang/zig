@@ -1361,7 +1361,7 @@ pub const cache_helpers = struct {
         hh: *Cache.HashHelper,
         resolved_target: Package.Module.ResolvedTarget,
     ) void {
-        const target = resolved_target.result;
+        const target = &resolved_target.result;
         hh.add(target.cpu.arch);
         hh.addBytes(target.cpu.model.name);
         hh.add(target.cpu.features.ints);
@@ -1705,7 +1705,7 @@ pub const CreateOptions = struct {
                     assert(opts.cache_mode != .none);
                     return try ea.cacheName(arena, .{
                         .root_name = opts.root_name,
-                        .target = opts.root_mod.resolved_target.result,
+                        .target = &opts.root_mod.resolved_target.result,
                         .output_mode = opts.config.output_mode,
                         .link_mode = opts.config.link_mode,
                         .version = opts.version,
@@ -1772,13 +1772,13 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     }
 
     const have_zcu = options.config.have_zcu;
+    const use_llvm = options.config.use_llvm;
+    const target = &options.root_mod.resolved_target.result;
 
     const comp: *Compilation = comp: {
         // We put the `Compilation` itself in the arena. Freeing the arena will free the module.
         // It's initialized later after we prepare the initialization options.
         const root_name = try arena.dupeZ(u8, options.root_name);
-
-        const use_llvm = options.config.use_llvm;
 
         // The "any" values provided by resolved config only account for
         // explicitly-provided settings. We now make them additionally account
@@ -1804,7 +1804,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         const libc_dirs = try std.zig.LibCDirs.detect(
             arena,
             options.dirs.zig_lib.path.?,
-            options.root_mod.resolved_target.result,
+            target,
             options.root_mod.resolved_target.is_native_abi,
             link_libc,
             options.libc_installation,
@@ -1846,7 +1846,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // approach, since the ubsan runtime uses quite a lot of the standard library
         // and this reduces unnecessary bloat.
         const ubsan_rt_strat: RtStrat = s: {
-            const can_build_ubsan_rt = target_util.canBuildLibUbsanRt(options.root_mod.resolved_target.result);
+            const can_build_ubsan_rt = target_util.canBuildLibUbsanRt(target);
             const want_ubsan_rt = options.want_ubsan_rt orelse (can_build_ubsan_rt and any_sanitize_c == .full and is_exe_or_dyn_lib);
             if (!want_ubsan_rt) break :s .none;
             if (options.skip_linker_dependencies) break :s .none;
@@ -1872,7 +1872,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
         if (options.verbose_llvm_cpu_features) {
             if (options.root_mod.resolved_target.llvm_cpu_features) |cf| print: {
-                const target = options.root_mod.resolved_target.result;
                 std.debug.lockStdErr();
                 defer std.debug.unlockStdErr();
                 const stderr = std.io.getStdErr().writer();
@@ -2244,8 +2243,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     };
     errdefer comp.destroy();
 
-    const target = comp.root_mod.resolved_target.result;
-    const can_build_compiler_rt = target_util.canBuildLibCompilerRt(target, comp.config.use_llvm, build_options.have_llvm);
+    const can_build_compiler_rt = target_util.canBuildLibCompilerRt(target, use_llvm, build_options.have_llvm);
 
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
@@ -2344,7 +2342,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                         comp.link_task_queue.pending_prelink_tasks += 1;
                     }
                     comp.queued_jobs.glibc_shared_objects = true;
-                    comp.link_task_queue.pending_prelink_tasks += glibc.sharedObjectsCount(&target);
+                    comp.link_task_queue.pending_prelink_tasks += glibc.sharedObjectsCount(target);
 
                     comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.libc_nonshared_a)] = true;
                     comp.link_task_queue.pending_prelink_tasks += 1;
@@ -2571,8 +2569,8 @@ pub fn clearMiscFailures(comp: *Compilation) void {
     comp.misc_failures = .{};
 }
 
-pub fn getTarget(self: Compilation) Target {
-    return self.root_mod.resolved_target.result;
+pub fn getTarget(self: *const Compilation) *const Target {
+    return &self.root_mod.resolved_target.result;
 }
 
 /// Only legal to call when cache mode is incremental and a link file is present.
@@ -3210,7 +3208,7 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addOptional(opts.image_base);
     man.hash.addOptional(opts.gc_sections);
     man.hash.add(opts.emit_relocs);
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     if (target.ofmt == .macho or target.ofmt == .coff) {
         // TODO remove this, libraries need to be resolved by the frontend. this is already
         // done by ELF.
@@ -6270,7 +6268,7 @@ pub fn addCCArgs(
     out_dep_path: ?[]const u8,
     mod: *Package.Module,
 ) !void {
-    const target = mod.resolved_target.result;
+    const target = &mod.resolved_target.result;
 
     // As of Clang 16.x, it will by default read extra flags from /etc/clang.
     // I'm sure the person who implemented this means well, but they have a lot
@@ -6944,7 +6942,7 @@ pub const FileExt = enum {
         };
     }
 
-    pub fn canonicalName(ext: FileExt, target: Target) [:0]const u8 {
+    pub fn canonicalName(ext: FileExt, target: *const Target) [:0]const u8 {
         return switch (ext) {
             .c => ".c",
             .cpp => ".cpp",
@@ -7187,7 +7185,7 @@ pub fn dump_argv(argv: []const []const u8) void {
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     return target_util.zigBackend(target, comp.config.use_llvm);
 }
 
@@ -7371,7 +7369,7 @@ pub fn build_crt_file(
 
     const basename = try std.zig.binNameAlloc(gpa, .{
         .root_name = root_name,
-        .target = comp.root_mod.resolved_target.result,
+        .target = &comp.root_mod.resolved_target.result,
         .output_mode = output_mode,
     });
 
@@ -7523,13 +7521,13 @@ pub fn getCrtPaths(
     comp: *Compilation,
     arena: Allocator,
 ) error{ OutOfMemory, LibCInstallationMissingCrtDir }!LibCInstallation.CrtPaths {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     return getCrtPathsInner(arena, target, comp.config, comp.libc_installation, &comp.crt_files);
 }
 
 fn getCrtPathsInner(
     arena: Allocator,
-    target: std.Target,
+    target: *const std.Target,
     config: Config,
     libc_installation: ?*const LibCInstallation,
     crt_files: *std.StringHashMapUnmanaged(CrtFile),
@@ -7558,7 +7556,7 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // then when we create a sub-Compilation for zig libc, it also tries to
     // build kernel32.lib.
     if (comp.skip_linker_dependencies) return;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     if (target.os.tag != .windows or target.ofmt == .c) return;
 
     // This happens when an `extern "foo"` function is referenced.
@@ -7574,7 +7572,7 @@ pub fn compilerRtOptMode(comp: Compilation) std.builtin.OptimizeMode {
     if (comp.debug_compiler_runtime_libs) {
         return comp.root_mod.optimize_mode;
     }
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     switch (comp.root_mod.optimize_mode) {
         .Debug, .ReleaseSafe => return target_util.defaultCompilerRtOptimizeMode(target),
         .ReleaseFast => return .ReleaseFast,

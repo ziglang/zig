@@ -65,7 +65,7 @@ fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
 pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*const Air.Legalize.Features {
     const zcu = pt.zcu;
     const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
-    switch (target_util.zigBackend(target.*, zcu.comp.config.use_llvm)) {
+    switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
         inline .stage2_llvm,
         .stage2_c,
@@ -114,7 +114,7 @@ pub const AnyMir = union {
 
     pub fn deinit(mir: *AnyMir, zcu: *const Zcu) void {
         const gpa = zcu.gpa;
-        const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
+        const backend = target_util.zigBackend(&zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
         switch (backend) {
             else => unreachable,
             inline .stage2_aarch64,
@@ -145,7 +145,7 @@ pub fn generateFunction(
 ) CodeGenError!AnyMir {
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
-    const target = zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
+    const target = &zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
     switch (target_util.zigBackend(target, false)) {
         else => unreachable,
         inline .stage2_aarch64,
@@ -183,7 +183,7 @@ pub fn emitFunction(
 ) CodeGenError!void {
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
-    const target = zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
+    const target = &zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
     switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
         inline .stage2_aarch64,
@@ -210,7 +210,7 @@ pub fn generateLazyFunction(
 ) CodeGenError!void {
     const zcu = pt.zcu;
     const target = if (Type.fromInterned(lazy_sym.ty).typeDeclInstAllowGeneratedTag(zcu)) |inst_index|
-        zcu.fileByIndex(inst_index.resolveFile(&zcu.intern_pool)).mod.?.resolved_target.result
+        &zcu.fileByIndex(inst_index.resolveFile(&zcu.intern_pool)).mod.?.resolved_target.result
     else
         zcu.getTarget();
     switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
@@ -225,7 +225,7 @@ pub fn generateLazyFunction(
     }
 }
 
-fn writeFloat(comptime F: type, f: F, target: std.Target, endian: std.builtin.Endian, code: []u8) void {
+fn writeFloat(comptime F: type, f: F, target: *const std.Target, endian: std.builtin.Endian, code: []u8) void {
     _ = target;
     const bits = @typeInfo(F).float.bits;
     const Int = @Type(.{ .int = .{ .signedness = .unsigned, .bits = bits } });
@@ -253,7 +253,7 @@ pub fn generateLazySymbol(
     const gpa = comp.gpa;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const endian = target.cpu.arch.endian();
 
     log.debug("generateLazySymbol: kind = {s}, ty = {}", .{
@@ -839,7 +839,7 @@ fn lowerNavRef(
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
-    const target = zcu.navFileScope(nav_index).mod.?.resolved_target.result;
+    const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
     const is_obj = lf.comp.config.output_mode == .Obj;
     const nav_ty = Type.fromInterned(ip.getNav(nav_index).typeOf(ip));
@@ -956,7 +956,7 @@ pub fn genNavRef(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     nav_index: InternPool.Nav.Index,
-    target: std.Target,
+    target: *const std.Target,
 ) CodeGenError!GenResult {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -1040,9 +1040,9 @@ pub fn genTypedValue(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     val: Value,
-    target: std.Target,
+    target: *const std.Target,
 ) CodeGenError!GenResult {
-    return switch (try lowerValue(pt, val, &target)) {
+    return switch (try lowerValue(pt, val, target)) {
         .none => .{ .mcv = .none },
         .undef => .{ .mcv = .undef },
         .immediate => |imm| .{ .mcv = .{ .immediate = imm } },

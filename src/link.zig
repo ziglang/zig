@@ -1321,7 +1321,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
             const prog_node = comp.link_prog_node.start("Parse Host libc", 0);
             defer prog_node.end();
 
-            const target = comp.root_mod.resolved_target.result;
+            const target = &comp.root_mod.resolved_target.result;
             const flags = target_util.libcFullLinkFlags(target);
             const crt_dir = comp.libc_installation.?.crt_dir.?;
             const sep = std.fs.path.sep_str;
@@ -1670,7 +1670,7 @@ pub fn hashInputs(man: *Cache.Manifest, link_inputs: []const Input) !void {
 pub fn resolveInputs(
     gpa: Allocator,
     arena: Allocator,
-    target: std.Target,
+    target: *const std.Target,
     /// This function mutates this array but does not take ownership.
     /// Allocated with `gpa`.
     unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
@@ -1914,7 +1914,7 @@ fn resolveLibInput(
     ld_script_bytes: *std.ArrayListUnmanaged(u8),
     lib_directory: Directory,
     name_query: UnresolvedInput.NameQuery,
-    target: std.Target,
+    target: *const std.Target,
     link_mode: std.builtin.LinkMode,
     color: std.zig.Color,
 ) Allocator.Error!ResolveLibInputResult {
@@ -2028,7 +2028,7 @@ fn resolvePathInput(
     resolved_inputs: *std.ArrayListUnmanaged(Input),
     /// Allocated via `gpa`.
     ld_script_bytes: *std.ArrayListUnmanaged(u8),
-    target: std.Target,
+    target: *const std.Target,
     pq: UnresolvedInput.PathQuery,
     color: std.zig.Color,
 ) Allocator.Error!?ResolveLibInputResult {
@@ -2070,7 +2070,7 @@ fn resolvePathInputLib(
     resolved_inputs: *std.ArrayListUnmanaged(Input),
     /// Allocated via `gpa`.
     ld_script_bytes: *std.ArrayListUnmanaged(u8),
-    target: std.Target,
+    target: *const std.Target,
     pq: UnresolvedInput.PathQuery,
     link_mode: std.builtin.LinkMode,
     color: std.zig.Color,

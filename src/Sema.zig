@@ -29912,7 +29912,7 @@ pub fn coerceInMemoryAllowed(
     /// load from the `*Src` to effectively perform an in-memory coercion from `Dest` to `Src`.
     /// Therefore, when `dest_is_mut`, the in-memory coercion must be valid in *both directions*.
     dest_is_mut: bool,
-    target: std.Target,
+    target: *const std.Target,
     dest_src: LazySrcLoc,
     src_src: LazySrcLoc,
     src_val: ?Value,
@@ -30271,7 +30271,7 @@ fn coerceInMemoryAllowedFns(
     src_ty: Type,
     /// If set, the coercion must be valid in both directions.
     dest_is_mut: bool,
-    target: std.Target,
+    target: *const std.Target,
     dest_src: LazySrcLoc,
     src_src: LazySrcLoc,
 ) !InMemoryCoercionResult {
@@ -30380,7 +30380,7 @@ fn coerceInMemoryAllowedFns(
 }
 
 fn callconvCoerceAllowed(
-    target: std.Target,
+    target: *const std.Target,
     src_cc: std.builtin.CallingConvention,
     dest_cc: std.builtin.CallingConvention,
 ) bool {
@@ -30426,7 +30426,7 @@ fn coerceInMemoryAllowedPtrs(
     src_ptr_ty: Type,
     /// If set, the coercion must be valid in both directions.
     dest_is_mut: bool,
-    target: std.Target,
+    target: *const std.Target,
     dest_src: LazySrcLoc,
     src_src: LazySrcLoc,
 ) !InMemoryCoercionResult {

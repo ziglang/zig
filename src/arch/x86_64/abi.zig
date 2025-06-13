@@ -148,7 +148,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Cont
             result[0] = .integer;
             return result;
         },
-        .float => switch (ty.floatBits(target.*)) {
+        .float => switch (ty.floatBits(target)) {
             16 => {
                 if (ctx == .field) {
                     result[0] = .memory;

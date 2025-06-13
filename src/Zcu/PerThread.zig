@@ -4382,7 +4382,7 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, ou
             error.CodegenFail => zcu.assertCodegenFailed(zcu.funcInfo(func_index).owner_nav),
             error.NoLinkFile => assert(zcu.comp.bin_file == null),
             error.BackendDoesNotProduceMir => switch (target_util.zigBackend(
-                zcu.root_mod.resolved_target.result,
+                &zcu.root_mod.resolved_target.result,
                 zcu.comp.config.use_llvm,
             )) {
                 else => unreachable, // assertion failure

@@ -433,7 +433,7 @@ fn addFromDirInner(
         // Cross-product to get all possible test combinations
         for (targets) |target_query| {
             const resolved_target = b.resolveTargetQuery(target_query);
-            const target = resolved_target.result;
+            const target = &resolved_target.result;
             for (backends) |backend| {
                 if (backend == .stage2 and
                     target.cpu.arch != .wasm32 and target.cpu.arch != .x86_64 and target.cpu.arch != .spirv64)
@@ -708,7 +708,7 @@ pub fn lowerToBuildSteps(
             },
             .Execution => |expected_stdout| no_exec: {
                 const run = if (case.target.result.ofmt == .c) run_step: {
-                    if (getExternalExecutor(host, &case.target.result, .{ .link_libc = true }) != .native) {
+                    if (getExternalExecutor(&host, &case.target.result, .{ .link_libc = true }) != .native) {
                         // We wouldn't be able to run the compiled C code.
                         break :no_exec;
                     }

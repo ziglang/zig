@@ -6175,7 +6175,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
         self.pt,
         self.src_loc,
         val,
-        self.target.*,
+        self.target,
     )) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
@@ -6379,7 +6379,7 @@ fn registerAlias(self: *Self, reg: Register, ty: Type) Register {
         },
         .stack_pointer => unreachable, // we can't store/load the sp
         .floating_point => {
-            return switch (ty.floatBits(self.target.*)) {
+            return switch (ty.floatBits(self.target)) {
                 16 => reg.toH(),
                 32 => reg.toS(),
                 64 => reg.toD(),

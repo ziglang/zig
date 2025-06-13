@@ -1602,7 +1602,7 @@ fn abiSizeInnerOptional(
     };
 }
 
-pub fn ptrAbiAlignment(target: Target) Alignment {
+pub fn ptrAbiAlignment(target: *const Target) Alignment {
     return Alignment.fromNonzeroByteUnits(@divExact(target.ptrBitWidth(), 8));
 }
 
@@ -2395,7 +2395,7 @@ pub fn isAnyFloat(ty: Type) bool {
 
 /// Asserts the type is a fixed-size float or comptime_float.
 /// Returns 128 for comptime_float types.
-pub fn floatBits(ty: Type, target: Target) u16 {
+pub fn floatBits(ty: Type, target: *const Target) u16 {
     return switch (ty.toIntern()) {
         .f16_type => 16,
         .f32_type => 32,
@@ -4188,6 +4188,6 @@ pub fn smallestUnsignedBits(max: u64) u16 {
 /// to packed struct layout to find out all the places in the codebase you need to edit!
 pub const packed_struct_layout_version = 2;
 
-fn cTypeAlign(target: Target, c_type: Target.CType) Alignment {
+fn cTypeAlign(target: *const Target, c_type: Target.CType) Alignment {
     return Alignment.fromByteUnits(target.cTypeAlignment(c_type));
 }

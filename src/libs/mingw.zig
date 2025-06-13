@@ -299,7 +299,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     var aro_comp = aro.Compilation.init(gpa, std.fs.cwd());
     defer aro_comp.deinit();
 
-    aro_comp.target = target;
+    aro_comp.target = target.*;
 
     const include_dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "def-include" });
 
@@ -373,7 +373,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
 pub fn libExists(
     allocator: Allocator,
-    target: std.Target,
+    target: *const std.Target,
     zig_lib_directory: Cache.Directory,
     lib_name: []const u8,
 ) !bool {
@@ -389,7 +389,7 @@ pub fn libExists(
 /// see if a .def file exists.
 fn findDef(
     allocator: Allocator,
-    target: std.Target,
+    target: *const std.Target,
     zig_lib_directory: Cache.Directory,
     lib_name: []const u8,
 ) ![]u8 {
