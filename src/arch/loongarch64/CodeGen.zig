@@ -1061,6 +1061,11 @@ const Temp = struct {
             return cg.temp_type[@intFromEnum(index)];
         }
 
+        fn toType(index: Index, cg: *CodeGen, ty: Type) void {
+            assert(index.isValid(cg));
+            cg.temp_type[@intFromEnum(index)] = ty;
+        }
+
         const max = std.math.maxInt(@typeInfo(Index).@"enum".tag_type);
     };
 
@@ -1297,26 +1302,26 @@ const Temp = struct {
             .register => |reg| {
                 assert(limb_index == 0);
                 const new_reg =
-                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterClass.int);
+                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
                 new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
                 try cg.asmInst(.ori(new_reg, reg, 0));
             },
             inline .register_pair, .register_triple, .register_quadruple => |regs| {
                 const new_reg =
-                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterClass.int);
+                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
                 new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
                 try cg.asmInst(.ori(new_reg, regs[limb_index], 0));
             },
             .register_bias, .register_offset => |_| {
                 assert(limb_index == 0);
                 const new_reg =
-                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterClass.int);
+                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
                 new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
                 try cg.genCopyToReg(.dword, new_reg, temp.tracking(cg).short, .{});
             },
             .load_symbol => |sym_off| {
                 const new_reg =
-                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterClass.int);
+                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
                 new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
                 try cg.genCopyToReg(.dword, new_reg, .{ .load_symbol = .{
                     .index = sym_off.index,
@@ -1329,7 +1334,7 @@ const Temp = struct {
             },
             .load_frame => |frame_addr| {
                 const new_reg =
-                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterClass.int);
+                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
                 new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
                 try cg.genCopyToReg(.dword, new_reg, .{ .load_frame = .{
                     .index = frame_addr.index,
@@ -1367,6 +1372,13 @@ const Temp = struct {
         const regs = temp_tracking.getRegs();
         assert(regs.len > 0);
         return cg.truncateRegister(temp.typeOf(cg), regs[regs.len - 1]);
+    }
+
+    fn toType(temp: Temp, cg: *CodeGen, ty: Type) void {
+        return switch (temp.unwrap(cg)) {
+            .ref, .err_ret_trace => unreachable,
+            .temp => |temp_index| temp_index.toType(cg, ty),
+        };
     }
 };
 
@@ -1745,6 +1757,9 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .dbg_inline_block => try cg.airDbgInlineBlock(inst),
             .br => try cg.airBr(inst),
             .cond_br => try cg.airCondBr(inst),
+
+            .is_err => try cg.airIsErr(inst, false),
+            .is_non_err => try cg.airIsErr(inst, true),
 
             .unreach => {},
 
@@ -2434,9 +2449,13 @@ const Select = struct {
             to_reg: Register.Class,
             mut_reg: Register.Class,
             to_mut_reg: Register.Class,
+            regs,
+            reg_frame,
 
             pub const imm12: Src = .{ .imm_fit = 12 };
             pub const imm20: Src = .{ .imm_fit = 20 };
+            pub const imm_zero: Src = .{ .imm_val = 0 };
+            pub const imm_one: Src = .{ .imm_val = 1 };
             pub const int_reg: Src = .{ .reg = .int };
             pub const to_int_reg: Src = .{ .to_reg = .int };
             pub const int_mut_reg: Src = .{ .mut_reg = .int };
@@ -2461,12 +2480,14 @@ const Select = struct {
                     .to_reg => |_| temp.typeOf(cg).abiSize(cg.pt.zcu) <= 8,
                     .mut_reg => |rc| temp.isMut(cg) and temp.tracking(cg).short.isRegisterOf(rc),
                     .to_mut_reg => |_| temp.typeOf(cg).abiSize(cg.pt.zcu) <= 8,
+                    .regs => temp.tracking(cg).short.isInRegister(),
+                    .reg_frame => temp.tracking(cg).short == .register_frame,
                 };
             }
 
             fn convert(pat: Src, temp: *Temp, cg: *CodeGen) InnerError!bool {
                 return switch (pat) {
-                    .none, .any, .imm_val, .imm_fit => false,
+                    .none, .any, .imm_val, .imm_fit, .regs, .reg_frame => false,
                     .mem, .to_mem => try temp.moveToMemory(cg, false),
                     .mut_mem, .to_mut_mem => try temp.moveToMemory(cg, true),
                     .reg, .to_reg => |rc| try temp.moveToRegister(cg, rc, false),
@@ -3425,5 +3446,52 @@ fn airIntCast(cg: *CodeGen, inst: Air.Inst.Index) !void {
         if (src_alloc) try cg.freeReg(src_limb);
         if (dst_alloc) try cg.freeReg(dst_limb);
         try dst.finish(inst, &.{src}, cg);
+    } else return sel.fail();
+}
+
+fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, inverted: bool) !void {
+    const un_op = cg.getAirData(inst).un_op;
+    var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{un_op}));
+
+    // case 1: error is in register
+    if (try sel.match(.{
+        .patterns = &.{
+            .{ .srcs = &.{.regs} },
+            .{ .srcs = &.{.reg_frame} },
+        },
+    })) {
+        const src = sel.ops[0];
+        const src_mcv = src.tracking(cg);
+        const err_reg = src_mcv.getRegs()[0];
+        const dst = dst: {
+            if (cg.liveness.operandDies(inst, 0)) {
+                try src.die(cg);
+                break :dst err_reg;
+            } else break :dst try cg.allocReg(.bool, inst);
+        };
+
+        try cg.asmInst(.sltui(dst, err_reg, 1));
+        if (!inverted)
+            try cg.asmInst(.xori(dst, dst, 1));
+
+        try sel.finish(try cg.tempInit(.bool, .{ .register = dst }));
+    }
+    // case 2: error is in memory
+    else if (try sel.match(.{
+        .patterns = &.{
+            .{ .srcs = &.{.to_mem} },
+        },
+    })) {
+        const src = sel.ops[0];
+        var limb = try src.getLimb(.bool, 0, cg);
+        while (try limb.moveToRegister(cg, .int, true)) {}
+        limb.toType(cg, .bool);
+        const limb_reg = limb.getReg(cg);
+
+        try cg.asmInst(.sltui(limb_reg, limb_reg, 1));
+        if (!inverted)
+            try cg.asmInst(.xori(limb_reg, limb_reg, 1));
+
+        try sel.finish(limb);
     } else return sel.fail();
 }

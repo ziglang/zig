@@ -178,7 +178,7 @@ pub fn getAllocatableRegSet(rc: Register.Class) RegisterBitSet {
     };
 }
 
-const RegisterSets = struct {
+pub const RegisterSets = struct {
     pub const gp: RegisterBitSet = blk: {
         var set = RegisterBitSet.initEmpty();
         for (zigcc.all_allocatable_regs, 0..) |reg, index| if (reg.class() == .int) set.set(index);
