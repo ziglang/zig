@@ -94,6 +94,7 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
 pub const AnyMir = union {
     aarch64: @import("arch/aarch64/Mir.zig"),
     arm: @import("arch/arm/Mir.zig"),
+    loongarch64: @import("arch/loongarch64/Mir.zig"),
     powerpc: noreturn, //@import("arch/powerpc/Mir.zig"),
     riscv64: @import("arch/riscv64/Mir.zig"),
     sparc64: @import("arch/sparc64/Mir.zig"),
@@ -105,6 +106,7 @@ pub const AnyMir = union {
         return switch (backend) {
             .stage2_aarch64 => "aarch64",
             .stage2_arm => "arm",
+            .stage2_loongarch64 => "loongarch64",
             .stage2_powerpc => "powerpc",
             .stage2_riscv64 => "riscv64",
             .stage2_sparc64 => "sparc64",
@@ -153,6 +155,7 @@ pub fn generateFunction(
         else => unreachable,
         inline .stage2_aarch64,
         .stage2_arm,
+        .stage2_loongarch64,
         .stage2_powerpc,
         .stage2_riscv64,
         .stage2_sparc64,
