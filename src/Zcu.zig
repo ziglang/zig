@@ -56,9 +56,8 @@ comptime {
 /// General-purpose allocator. Used for both temporary and long-term storage.
 gpa: Allocator,
 comp: *Compilation,
-/// Usually, the LlvmObject is managed by linker code, however, in the case
-/// that -fno-emit-bin is specified, the linker code never executes, so we
-/// store the LlvmObject here.
+/// If the ZCU is emitting an LLVM object (i.e. we are using the LLVM backend), then this is the
+/// `LlvmObject` we are emitting to.
 llvm_object: ?LlvmObject.Ptr,
 
 /// Pointer to externally managed resource.
@@ -67,8 +66,18 @@ root_mod: *Package.Module,
 /// `root_mod` is the test runner, and `main_mod` is the user's source file which has the tests.
 main_mod: *Package.Module,
 std_mod: *Package.Module,
-sema_prog_node: std.Progress.Node = std.Progress.Node.none,
-codegen_prog_node: std.Progress.Node = std.Progress.Node.none,
+sema_prog_node: std.Progress.Node = .none,
+codegen_prog_node: std.Progress.Node = .none,
+/// The number of codegen jobs which are pending or in-progress. Whichever thread drops this value
+/// to 0 is responsible for ending `codegen_prog_node`. While semantic analysis is happening, this
+/// value bottoms out at 1 instead of 0, to ensure that it can only drop to 0 after analysis is
+/// completed (since semantic analysis could trigger more codegen work).
+pending_codegen_jobs: std.atomic.Value(u32) = .init(0),
+
+/// This is the progress node *under* `sema_prog_node` which is currently running.
+/// When we have to pause to analyze something else, we just temporarily rename this node.
+/// Eventually, when we thread semantic analysis, we will want one of these per thread.
+cur_sema_prog_node: std.Progress.Node = .none,
 
 /// Used by AstGen worker to load and store ZIR cache.
 global_zir_cache: Cache.Directory,
@@ -172,6 +181,8 @@ transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .emp
 /// This `Nav` succeeded analysis, but failed codegen.
 /// This may be a simple "value" `Nav`, or it may be a function.
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
+/// While multiple threads are active (most of the time!), this is guarded by `zcu.comp.mutex`, as
+/// codegen and linking run on a separate thread.
 failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .empty,
 failed_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, *ErrorMsg) = .empty,
 /// Keep track of `@compileLog`s per `AnalUnit`.
@@ -266,16 +277,6 @@ resolved_references: ?std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = n
 /// Essentially the entire pipeline after AstGen, including Sema, codegen, and link, is skipped.
 /// Reset to `false` at the start of each update in `Compilation.update`.
 skip_analysis_this_update: bool = false,
-
-stage1_flags: packed struct {
-    have_winmain: bool = false,
-    have_wwinmain: bool = false,
-    have_winmain_crt_startup: bool = false,
-    have_wwinmain_crt_startup: bool = false,
-    have_dllmain_crt_startup: bool = false,
-    have_c_main: bool = false,
-    reserved: u2 = 0,
-} = .{},
 
 test_functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
 
@@ -3828,7 +3829,36 @@ pub const Feature = enum {
     is_named_enum_value,
     error_set_has_value,
     field_reordering,
-    /// If the backend supports running from another thread.
+    /// In theory, backends are supposed to work like this:
+    ///
+    /// * The AIR emitted by `Sema` is converted into MIR by `codegen.generateFunction`. This pass
+    ///   is "pure", in that it does not depend on or modify any external mutable state.
+    ///
+    /// * That MIR is sent to the linker, which calls `codegen.emitFunction` to convert the MIR to
+    ///   finalized machine code. This process is permitted to query and modify linker state.
+    ///
+    /// * The linker stores the resulting machine code in the binary as needed.
+    ///
+    /// The first stage described above can run in parallel to the rest of the compiler, and even to
+    /// other code generation work; we can run as many codegen threads as we want in parallel because
+    /// of the fact that this pass is pure. Emit and link must be single-threaded, but are generally
+    /// very fast, so that isn't a problem.
+    ///
+    /// Unfortunately, some code generation implementations currently query and/or mutate linker state
+    /// or even (in the case of the LLVM backend) semantic analysis state. Such backends cannot be run
+    /// in parallel with each other, with linking, or (potentially) with semantic analysis.
+    ///
+    /// Additionally, some backends continue to need the AIR in the "emit" stage, despite this pass
+    /// operating on MIR. This complicates memory management under the threading model above.
+    ///
+    /// These are both **bugs** in backend implementations, left over from legacy code. However, they
+    /// are difficult to fix. So, this `Feature` currently guards correct threading of code generation:
+    ///
+    /// * With this feature enabled, the backend is threaded as described above. The "emit" stage does
+    ///   not have access to AIR (it will be `undefined`; see `codegen.emitFunction`).
+    ///
+    /// * With this feature disabled, semantic analysis, code generation, and linking all occur on the
+    ///   same thread, and the "emit" stage has access to AIR.
     separate_thread,
 };
 
@@ -4577,20 +4607,27 @@ pub fn codegenFail(
     comptime format: []const u8,
     args: anytype,
 ) CodegenFailError {
-    const gpa = zcu.gpa;
-    try zcu.failed_codegen.ensureUnusedCapacity(gpa, 1);
-    const msg = try Zcu.ErrorMsg.create(gpa, zcu.navSrcLoc(nav_index), format, args);
-    zcu.failed_codegen.putAssumeCapacityNoClobber(nav_index, msg);
-    return error.CodegenFail;
+    const msg = try Zcu.ErrorMsg.create(zcu.gpa, zcu.navSrcLoc(nav_index), format, args);
+    return zcu.codegenFailMsg(nav_index, msg);
 }
 
+/// Takes ownership of `msg`, even on OOM.
 pub fn codegenFailMsg(zcu: *Zcu, nav_index: InternPool.Nav.Index, msg: *ErrorMsg) CodegenFailError {
     const gpa = zcu.gpa;
     {
+        zcu.comp.mutex.lock();
+        defer zcu.comp.mutex.unlock();
         errdefer msg.deinit(gpa);
         try zcu.failed_codegen.putNoClobber(gpa, nav_index, msg);
     }
     return error.CodegenFail;
+}
+
+/// Asserts that `zcu.failed_codegen` contains the key `nav`, with the necessary lock held.
+pub fn assertCodegenFailed(zcu: *Zcu, nav: InternPool.Nav.Index) void {
+    zcu.comp.mutex.lock();
+    defer zcu.comp.mutex.unlock();
+    assert(zcu.failed_codegen.contains(nav));
 }
 
 pub fn codegenFailType(
@@ -4724,5 +4761,29 @@ fn explainWhyFileIsInModule(
         }));
 
         import = importer_ref.import;
+    }
+}
+
+const SemaProgNode = struct {
+    /// `null` means we created the node, so should end it.
+    old_name: ?[std.Progress.Node.max_name_len]u8,
+    pub fn end(spn: SemaProgNode, zcu: *Zcu) void {
+        if (spn.old_name) |old_name| {
+            zcu.sema_prog_node.completeOne(); // we're just renaming, but it's effectively completion
+            zcu.cur_sema_prog_node.setName(&old_name);
+        } else {
+            zcu.cur_sema_prog_node.end();
+            zcu.cur_sema_prog_node = .none;
+        }
+    }
+};
+pub fn startSemaProgNode(zcu: *Zcu, name: []const u8) SemaProgNode {
+    if (zcu.cur_sema_prog_node.index != .none) {
+        const old_name = zcu.cur_sema_prog_node.getName();
+        zcu.cur_sema_prog_node.setName(name);
+        return .{ .old_name = old_name };
+    } else {
+        zcu.cur_sema_prog_node = zcu.sema_prog_node.start(name, 0);
+        return .{ .old_name = null };
     }
 }

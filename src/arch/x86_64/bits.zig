@@ -4,6 +4,8 @@ const expect = std.testing.expect;
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const InternPool = @import("../../InternPool.zig");
+const link = @import("../../link.zig");
 const Mir = @import("Mir.zig");
 
 /// EFLAGS condition codes
@@ -684,8 +686,6 @@ test "Register id - different classes" {
     try expect(Register.xmm0.id() == Register.ymm0.id());
     try expect(Register.xmm0.id() != Register.mm0.id());
     try expect(Register.mm0.id() != Register.st0.id());
-
-    try expect(Register.es.id() == 0b110000);
 }
 
 test "Register enc - different classes" {
@@ -750,20 +750,22 @@ pub const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
 
 pub const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 
-pub const SymbolOffset = struct { sym_index: u32, off: i32 = 0 };
+pub const NavOffset = struct { index: InternPool.Nav.Index, off: i32 = 0 };
 
 pub const Memory = struct {
     base: Base = .none,
     mod: Mod = .{ .rm = .{} },
 
-    pub const Base = union(enum(u3)) {
+    pub const Base = union(enum(u4)) {
         none,
         reg: Register,
         frame: FrameIndex,
         table,
-        reloc: u32,
-        pcrel: u32,
         rip_inst: Mir.Inst.Index,
+        nav: InternPool.Nav.Index,
+        uav: InternPool.Key.Ptr.BaseAddr.Uav,
+        lazy_sym: link.File.LazySymbol,
+        extern_func: Mir.NullTerminatedString,
 
         pub const Tag = @typeInfo(Base).@"union".tag_type.?;
     };
@@ -899,7 +901,10 @@ pub const Memory = struct {
 pub const Immediate = union(enum) {
     signed: i32,
     unsigned: u64,
-    reloc: SymbolOffset,
+    nav: NavOffset,
+    uav: InternPool.Key.Ptr.BaseAddr.Uav,
+    lazy_sym: link.File.LazySymbol,
+    extern_func: Mir.NullTerminatedString,
 
     pub fn u(x: u64) Immediate {
         return .{ .unsigned = x };
@@ -907,10 +912,6 @@ pub const Immediate = union(enum) {
 
     pub fn s(x: i32) Immediate {
         return .{ .signed = x };
-    }
-
-    pub fn rel(sym_off: SymbolOffset) Immediate {
-        return .{ .reloc = sym_off };
     }
 
     pub fn format(
@@ -921,7 +922,10 @@ pub const Immediate = union(enum) {
     ) @TypeOf(writer).Error!void {
         switch (imm) {
             inline else => |int| try writer.print("{d}", .{int}),
-            .reloc => |sym_off| try writer.print("Symbol({[sym_index]d}) + {[off]d}", sym_off),
+            .nav => |nav_off| try writer.print("Nav({d}) + {d}", .{ @intFromEnum(nav_off.nav), nav_off.off }),
+            .uav => |uav| try writer.print("Uav({d})", .{@intFromEnum(uav.val)}),
+            .lazy_sym => |lazy_sym| try writer.print("LazySym({s}, {d})", .{ @tagName(lazy_sym.kind), @intFromEnum(lazy_sym.ty) }),
+            .extern_func => |extern_func| try writer.print("ExternFunc({d})", .{@intFromEnum(extern_func)}),
         }
     }
 };

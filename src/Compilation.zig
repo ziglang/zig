@@ -43,7 +43,6 @@ const Air = @import("Air.zig");
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
-const ThreadSafeQueue = @import("ThreadSafeQueue.zig").ThreadSafeQueue;
 
 pub const Config = @import("Compilation/Config.zig");
 
@@ -56,8 +55,7 @@ gpa: Allocator,
 arena: Allocator,
 /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
 zcu: ?*Zcu,
-/// Contains different state depending on whether the Compilation uses
-/// incremental or whole cache mode.
+/// Contains different state depending on the `CacheMode` used by this `Compilation`.
 cache_use: CacheUse,
 /// All compilations have a root module because this is where some important
 /// settings are stored, such as target and optimization mode. This module
@@ -68,17 +66,13 @@ root_mod: *Package.Module,
 config: Config,
 
 /// The main output file.
-/// In whole cache mode, this is null except for during the body of the update
-/// function. In incremental cache mode, this is a long-lived object.
-/// In both cases, this is `null` when `-fno-emit-bin` is used.
+/// In `CacheMode.whole`, this is null except for during the body of `update`.
+/// In `CacheMode.none` and `CacheMode.incremental`, this is long-lived.
+/// Regardless of cache mode, this is `null` when `-fno-emit-bin` is used.
 bin_file: ?*link.File,
 
 /// The root path for the dynamic linker and system libraries (as well as frameworks on Darwin)
 sysroot: ?[]const u8,
-/// This is `null` when not building a Windows DLL, or when `-fno-emit-implib` is used.
-implib_emit: ?Cache.Path,
-/// This is non-null when `-femit-docs` is provided.
-docs_emit: ?Cache.Path,
 root_name: [:0]const u8,
 compiler_rt_strat: RtStrat,
 ubsan_rt_strat: RtStrat,
@@ -113,17 +107,7 @@ win32_resource_table: if (dev.env.supports(.win32_resource)) std.AutoArrayHashMa
 } = .{},
 
 link_diags: link.Diags,
-link_task_queue: ThreadSafeQueue(link.Task) = .empty,
-/// Ensure only 1 simultaneous call to `flushTaskQueue`.
-link_task_queue_safety: std.debug.SafetyLock = .{},
-/// If any tasks are queued up that depend on prelink being finished, they are moved
-/// here until prelink finishes.
-link_task_queue_postponed: std.ArrayListUnmanaged(link.Task) = .empty,
-/// Initialized with how many link input tasks are expected. After this reaches zero
-/// the linker will begin the prelink phase.
-/// Initialized in the Compilation main thread before the pipeline; modified only in
-/// the linker task thread.
-remaining_prelink_tasks: u32,
+link_task_queue: link.Queue = .empty,
 
 /// Set of work that can be represented by only flags to determine whether the
 /// work is queued or not.
@@ -270,12 +254,8 @@ mutex: if (builtin.single_threaded) struct {
 test_filters: []const []const u8,
 test_name_prefix: ?[]const u8,
 
-emit_asm: ?EmitLoc,
-emit_llvm_ir: ?EmitLoc,
-emit_llvm_bc: ?EmitLoc,
-
 link_task_wait_group: WaitGroup = .{},
-work_queue_progress_node: std.Progress.Node = .none,
+link_prog_node: std.Progress.Node = std.Progress.Node.none,
 
 llvm_opt_bisect_limit: c_int,
 
@@ -284,6 +264,31 @@ file_system_inputs: ?*std.ArrayListUnmanaged(u8),
 /// This is the digest of the cache for the current compilation.
 /// This digest will be known after update() is called.
 digest: ?[Cache.bin_digest_len]u8 = null,
+
+/// Non-`null` iff we are emitting a binary.
+/// Does not change for the lifetime of this `Compilation`.
+/// Cwd-relative if `cache_use == .none`. Otherwise, relative to our subdirectory in the cache.
+emit_bin: ?[]const u8,
+/// Non-`null` iff we are emitting assembly.
+/// Does not change for the lifetime of this `Compilation`.
+/// Cwd-relative if `cache_use == .none`. Otherwise, relative to our subdirectory in the cache.
+emit_asm: ?[]const u8,
+/// Non-`null` iff we are emitting an implib.
+/// Does not change for the lifetime of this `Compilation`.
+/// Cwd-relative if `cache_use == .none`. Otherwise, relative to our subdirectory in the cache.
+emit_implib: ?[]const u8,
+/// Non-`null` iff we are emitting LLVM IR.
+/// Does not change for the lifetime of this `Compilation`.
+/// Cwd-relative if `cache_use == .none`. Otherwise, relative to our subdirectory in the cache.
+emit_llvm_ir: ?[]const u8,
+/// Non-`null` iff we are emitting LLVM bitcode.
+/// Does not change for the lifetime of this `Compilation`.
+/// Cwd-relative if `cache_use == .none`. Otherwise, relative to our subdirectory in the cache.
+emit_llvm_bc: ?[]const u8,
+/// Non-`null` iff we are emitting documentation.
+/// Does not change for the lifetime of this `Compilation`.
+/// Cwd-relative if `cache_use == .none`. Otherwise, relative to our subdirectory in the cache.
+emit_docs: ?[]const u8,
 
 const QueuedJobs = struct {
     compiler_rt_lib: bool = false,
@@ -785,13 +790,6 @@ pub const CrtFile = struct {
     lock: Cache.Lock,
     full_object_path: Cache.Path,
 
-    pub fn isObject(cf: CrtFile) bool {
-        return switch (classifyFileExt(cf.full_object_path.sub_path)) {
-            .object => true,
-            else => false,
-        };
-    }
-
     pub fn deinit(self: *CrtFile, gpa: Allocator) void {
         self.lock.release();
         gpa.free(self.full_object_path.sub_path);
@@ -846,19 +844,34 @@ pub const RcIncludes = enum {
 };
 
 const Job = union(enum) {
-    /// Corresponds to the task in `link.Task`.
-    /// Only needed for backends that haven't yet been updated to not race against Sema.
-    codegen_nav: InternPool.Nav.Index,
-    /// Corresponds to the task in `link.Task`.
-    /// Only needed for backends that haven't yet been updated to not race against Sema.
-    codegen_func: link.Task.CodegenFunc,
-    /// Corresponds to the task in `link.Task`.
-    /// Only needed for backends that haven't yet been updated to not race against Sema.
-    codegen_type: InternPool.Index,
+    /// Given the generated AIR for a function, put it onto the code generation queue.
+    /// This `Job` exists (instead of the `link.ZcuTask` being directly queued) to ensure that
+    /// all types are resolved before the linker task is queued.
+    /// If the backend does not support `Zcu.Feature.separate_thread`, codegen and linking happen immediately.
+    /// Before queueing this `Job`, increase the estimated total item count for both
+    /// `comp.zcu.?.codegen_prog_node` and `comp.link_prog_node`.
+    codegen_func: struct {
+        func: InternPool.Index,
+        /// The AIR emitted from analyzing `func`; owned by this `Job` in `gpa`.
+        air: Air,
+    },
+    /// Queue a `link.ZcuTask` to emit this non-function `Nav` into the output binary.
+    /// This `Job` exists (instead of the `link.ZcuTask` being directly queued) to ensure that
+    /// all types are resolved before the linker task is queued.
+    /// If the backend does not support `Zcu.Feature.separate_thread`, the task is run immediately.
+    /// Before queueing this `Job`, increase the estimated total item count for `comp.link_prog_node`.
+    link_nav: InternPool.Nav.Index,
+    /// Queue a `link.ZcuTask` to emit debug information for this container type.
+    /// This `Job` exists (instead of the `link.ZcuTask` being directly queued) to ensure that
+    /// all types are resolved before the linker task is queued.
+    /// If the backend does not support `Zcu.Feature.separate_thread`, the task is run immediately.
+    /// Before queueing this `Job`, increase the estimated total item count for `comp.link_prog_node`.
+    link_type: InternPool.Index,
+    /// Before queueing this `Job`, increase the estimated total item count for `comp.link_prog_node`.
     update_line_number: InternPool.TrackedInst.Index,
     /// The `AnalUnit`, which is *not* a `func`, must be semantically analyzed.
     /// This may be its first time being analyzed, or it may be outdated.
-    /// If the unit is a function, a `codegen_func` job will then be queued.
+    /// If the unit is a test function, an `analyze_func` job will then be queued.
     analyze_comptime_unit: InternPool.AnalUnit,
     /// This function must be semantically analyzed.
     /// This may be its first time being analyzed, or it may be outdated.
@@ -1322,14 +1335,6 @@ pub const MiscError = struct {
     }
 };
 
-pub const EmitLoc = struct {
-    /// If this is `null` it means the file will be output to the cache directory.
-    /// When provided, both the open file handle and the path name must outlive the `Compilation`.
-    directory: ?Cache.Directory,
-    /// This may not have sub-directories in it.
-    basename: []const u8,
-};
-
 pub const cache_helpers = struct {
     pub fn addModule(hh: *Cache.HashHelper, mod: *const Package.Module) void {
         addResolvedTarget(hh, mod.resolved_target);
@@ -1367,15 +1372,6 @@ pub const cache_helpers = struct {
         hh.add(resolved_target.is_native_os);
         hh.add(resolved_target.is_native_abi);
         hh.add(resolved_target.is_explicit_dynamic_linker);
-    }
-
-    pub fn addEmitLoc(hh: *Cache.HashHelper, emit_loc: EmitLoc) void {
-        hh.addBytes(emit_loc.basename);
-    }
-
-    pub fn addOptionalEmitLoc(hh: *Cache.HashHelper, optional_emit_loc: ?EmitLoc) void {
-        hh.add(optional_emit_loc != null);
-        addEmitLoc(hh, optional_emit_loc orelse return);
     }
 
     pub fn addOptionalDebugFormat(hh: *Cache.HashHelper, x: ?Config.DebugFormat) void {
@@ -1424,7 +1420,38 @@ pub const ClangPreprocessorMode = enum {
 pub const Framework = link.File.MachO.Framework;
 pub const SystemLib = link.SystemLib;
 
-pub const CacheMode = enum { incremental, whole };
+pub const CacheMode = enum {
+    /// The results of this compilation are not cached. The compilation is always performed, and the
+    /// results are emitted directly to their output locations. Temporary files will be placed in a
+    /// temporary directory in the cache, but deleted after the compilation is done.
+    ///
+    /// This mode is typically used for direct CLI invocations like `zig build-exe`, because such
+    /// processes are typically low-level usages which would not make efficient use of the cache.
+    none,
+    /// The compilation is cached based only on the options given when creating the `Compilation`.
+    /// In particular, Zig source file contents are not included in the cache manifest. This mode
+    /// allows incremental compilation, because the old cached compilation state can be restored
+    /// and the old binary patched up with the changes. All files, including temporary files, are
+    /// stored in the cache directory like '<cache>/o/<hash>/'. Temporary files are not deleted.
+    ///
+    /// At the time of writing, incremental compilation is only supported with the `-fincremental`
+    /// command line flag, so this mode is rarely used. However, it is required in order to use
+    /// incremental compilation.
+    incremental,
+    /// The compilation is cached based on the `Compilation` options and every input, including Zig
+    /// source files, linker inputs, and `@embedFile` targets. If any of them change, we will see a
+    /// cache miss, and the entire compilation will be re-run. On a cache miss, we initially write
+    /// all output files to a directory under '<cache>/tmp/', because we don't know the final
+    /// manifest digest until the update is almost done. Once we can compute the final digest, this
+    /// directory is moved to '<cache>/o/<hash>/'. Temporary files are not deleted.
+    ///
+    /// At the time of writing, this is the most commonly used cache mode: it is used by the build
+    /// system (and any other parent using `--listen`) unless incremental compilation is enabled.
+    /// Once incremental compilation is more mature, it will be replaced by `incremental` in many
+    /// cases, but still has use cases, such as for release binaries, particularly globally cached
+    /// artifacts like compiler_rt.
+    whole,
+};
 
 pub const ParentWholeCache = struct {
     manifest: *Cache.Manifest,
@@ -1433,22 +1460,33 @@ pub const ParentWholeCache = struct {
 };
 
 const CacheUse = union(CacheMode) {
+    none: *None,
     incremental: *Incremental,
     whole: *Whole,
 
+    const None = struct {
+        /// User-requested artifacts are written directly to their output path in this cache mode.
+        /// However, if we need to emit any temporary files, they are placed in this directory.
+        /// We will recursively delete this directory at the end of this update. This field is
+        /// non-`null` only inside `update`.
+        tmp_artifact_directory: ?Cache.Directory,
+    };
+
+    const Incremental = struct {
+        /// All output files, including artifacts and incremental compilation metadata, are placed
+        /// in this directory, which is some 'o/<hash>' in a cache directory.
+        artifact_directory: Cache.Directory,
+    };
+
     const Whole = struct {
-        /// This is a pointer to a local variable inside `update()`.
-        cache_manifest: ?*Cache.Manifest = null,
-        cache_manifest_mutex: std.Thread.Mutex = .{},
-        /// null means -fno-emit-bin.
-        /// This is mutable memory allocated into the Compilation-lifetime arena (`arena`)
-        /// of exactly the correct size for "o/[digest]/[basename]".
-        /// The basename is of the outputted binary file in case we don't know the directory yet.
-        bin_sub_path: ?[]u8,
-        /// Same as `bin_sub_path` but for implibs.
-        implib_sub_path: ?[]u8,
-        docs_sub_path: ?[]u8,
+        /// Since we don't open the output file until `update`, we must save these options for then.
         lf_open_opts: link.File.OpenOptions,
+        /// This is a pointer to a local variable inside `update`.
+        cache_manifest: ?*Cache.Manifest,
+        cache_manifest_mutex: std.Thread.Mutex,
+        /// This is non-`null` for most of the body of `update`. It is the temporary directory which
+        /// we initially emit our artifacts to. After the main part of the update is done, it will
+        /// be closed and moved to its final location, and this field set to `null`.
         tmp_artifact_directory: ?Cache.Directory,
         /// Prevents other processes from clobbering files in the output directory.
         lock: ?Cache.Lock,
@@ -1467,17 +1505,16 @@ const CacheUse = union(CacheMode) {
         }
     };
 
-    const Incremental = struct {
-        /// Where build artifacts and incremental compilation metadata serialization go.
-        artifact_directory: Cache.Directory,
-    };
-
     fn deinit(cu: CacheUse) void {
         switch (cu) {
+            .none => |none| {
+                assert(none.tmp_artifact_directory == null);
+            },
             .incremental => |incremental| {
                 incremental.artifact_directory.handle.close();
             },
             .whole => |whole| {
+                assert(whole.tmp_artifact_directory == null);
                 whole.releaseLock();
             },
         }
@@ -1504,28 +1541,14 @@ pub const CreateOptions = struct {
     std_mod: ?*Package.Module = null,
     root_name: []const u8,
     sysroot: ?[]const u8 = null,
-    /// `null` means to not emit a binary file.
-    emit_bin: ?EmitLoc,
-    /// `null` means to not emit a C header file.
-    emit_h: ?EmitLoc = null,
-    /// `null` means to not emit assembly.
-    emit_asm: ?EmitLoc = null,
-    /// `null` means to not emit LLVM IR.
-    emit_llvm_ir: ?EmitLoc = null,
-    /// `null` means to not emit LLVM module bitcode.
-    emit_llvm_bc: ?EmitLoc = null,
-    /// `null` means to not emit docs.
-    emit_docs: ?EmitLoc = null,
-    /// `null` means to not emit an import lib.
-    emit_implib: ?EmitLoc = null,
-    /// Normally when using LLD to link, Zig uses a file named "lld.id" in the
-    /// same directory as the output binary which contains the hash of the link
-    /// operation, allowing Zig to skip linking when the hash would be unchanged.
-    /// In the case that the output binary is being emitted into a directory which
-    /// is externally modified - essentially anything other than zig-cache - then
-    /// this flag would be set to disable this machinery to avoid false positives.
-    disable_lld_caching: bool = false,
-    cache_mode: CacheMode = .incremental,
+    cache_mode: CacheMode,
+    emit_h: Emit = .no,
+    emit_bin: Emit,
+    emit_asm: Emit = .no,
+    emit_implib: Emit = .no,
+    emit_llvm_ir: Emit = .no,
+    emit_llvm_bc: Emit = .no,
+    emit_docs: Emit = .no,
     /// This field is intended to be removed.
     /// The ELF implementation no longer uses this data, however the MachO and COFF
     /// implementations still do.
@@ -1591,9 +1614,9 @@ pub const CreateOptions = struct {
     linker_tsaware: bool = false,
     linker_nxcompat: bool = false,
     linker_dynamicbase: bool = true,
-    linker_compress_debug_sections: ?link.File.Elf.CompressDebugSections = null,
+    linker_compress_debug_sections: ?link.File.Lld.Elf.CompressDebugSections = null,
     linker_module_definition_file: ?[]const u8 = null,
-    linker_sort_section: ?link.File.Elf.SortSection = null,
+    linker_sort_section: ?link.File.Lld.Elf.SortSection = null,
     major_subsystem_version: ?u16 = null,
     minor_subsystem_version: ?u16 = null,
     clang_passthrough_mode: bool = false,
@@ -1615,7 +1638,7 @@ pub const CreateOptions = struct {
     /// building such dependencies themselves, this flag must be set to avoid
     /// infinite recursion.
     skip_linker_dependencies: bool = false,
-    hash_style: link.File.Elf.HashStyle = .both,
+    hash_style: link.File.Lld.Elf.HashStyle = .both,
     entry: Entry = .default,
     force_undefined_symbols: std.StringArrayHashMapUnmanaged(void) = .empty,
     stack_size: ?u64 = null,
@@ -1663,6 +1686,38 @@ pub const CreateOptions = struct {
     parent_whole_cache: ?ParentWholeCache = null,
 
     pub const Entry = link.File.OpenOptions.Entry;
+
+    /// Which fields are valid depends on the `cache_mode` given.
+    pub const Emit = union(enum) {
+        /// Do not emit this file. Always valid.
+        no,
+        /// Emit this file into its default name in the cache directory.
+        /// Requires `cache_mode` to not be `.none`.
+        yes_cache,
+        /// Emit this file to the given path (absolute or cwd-relative).
+        /// Requires `cache_mode` to be `.none`.
+        yes_path: []const u8,
+
+        fn resolve(emit: Emit, arena: Allocator, opts: *const CreateOptions, ea: std.zig.EmitArtifact) Allocator.Error!?[]const u8 {
+            switch (emit) {
+                .no => return null,
+                .yes_cache => {
+                    assert(opts.cache_mode != .none);
+                    return try ea.cacheName(arena, .{
+                        .root_name = opts.root_name,
+                        .target = opts.root_mod.resolved_target.result,
+                        .output_mode = opts.config.output_mode,
+                        .link_mode = opts.config.link_mode,
+                        .version = opts.version,
+                    });
+                },
+                .yes_path => |path| {
+                    assert(opts.cache_mode == .none);
+                    return try arena.dupe(u8, path);
+                },
+            }
+        }
+    };
 };
 
 fn addModuleTableToCacheHash(
@@ -1870,13 +1925,18 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache.hash.add(options.config.link_libunwind);
         cache.hash.add(output_mode);
         cache_helpers.addDebugFormat(&cache.hash, options.config.debug_format);
-        cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_bin);
-        cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_implib);
-        cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_docs);
         cache.hash.addBytes(options.root_name);
         cache.hash.add(options.config.wasi_exec_model);
         cache.hash.add(options.config.san_cov_trace_pc_guard);
         cache.hash.add(options.debug_compiler_runtime_libs);
+        // The actual emit paths don't matter. They're only user-specified if we aren't using the
+        // cache! However, it does matter whether the files are emitted at all.
+        cache.hash.add(options.emit_bin != .no);
+        cache.hash.add(options.emit_asm != .no);
+        cache.hash.add(options.emit_implib != .no);
+        cache.hash.add(options.emit_llvm_ir != .no);
+        cache.hash.add(options.emit_llvm_bc != .no);
+        cache.hash.add(options.emit_docs != .no);
         // TODO audit this and make sure everything is in it
 
         const main_mod = options.main_mod orelse options.root_mod;
@@ -1926,7 +1986,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             try zcu.init(options.thread_pool.getIdCount());
             break :blk zcu;
         } else blk: {
-            if (options.emit_h != null) return error.NoZigModuleForCHeader;
+            if (options.emit_h != .no) return error.NoZigModuleForCHeader;
             break :blk null;
         };
         errdefer if (opt_zcu) |zcu| zcu.deinit();
@@ -1939,18 +1999,13 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .arena = arena,
             .zcu = opt_zcu,
             .cache_use = undefined, // populated below
-            .bin_file = null, // populated below
-            .implib_emit = null, // handled below
-            .docs_emit = null, // handled below
+            .bin_file = null, // populated below if necessary
             .root_mod = options.root_mod,
             .config = options.config,
             .dirs = options.dirs,
-            .emit_asm = options.emit_asm,
-            .emit_llvm_ir = options.emit_llvm_ir,
-            .emit_llvm_bc = options.emit_llvm_bc,
             .work_queues = @splat(.init(gpa)),
-            .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
-            .win32_resource_work_queue = if (dev.env.supports(.win32_resource)) std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa) else .{},
+            .c_object_work_queue = .init(gpa),
+            .win32_resource_work_queue = if (dev.env.supports(.win32_resource)) .init(gpa) else .{},
             .c_source_files = options.c_source_files,
             .rc_source_files = options.rc_source_files,
             .cache_parent = cache,
@@ -2003,7 +2058,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .file_system_inputs = options.file_system_inputs,
             .parent_whole_cache = options.parent_whole_cache,
             .link_diags = .init(gpa),
-            .remaining_prelink_tasks = 0,
+            .emit_bin = try options.emit_bin.resolve(arena, &options, .bin),
+            .emit_asm = try options.emit_asm.resolve(arena, &options, .@"asm"),
+            .emit_implib = try options.emit_implib.resolve(arena, &options, .implib),
+            .emit_llvm_ir = try options.emit_llvm_ir.resolve(arena, &options, .llvm_ir),
+            .emit_llvm_bc = try options.emit_llvm_bc.resolve(arena, &options, .llvm_bc),
+            .emit_docs = try options.emit_docs.resolve(arena, &options, .docs),
         };
 
         // Prevent some footguns by making the "any" fields of config reflect
@@ -2070,7 +2130,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .soname = options.soname,
             .compatibility_version = options.compatibility_version,
             .build_id = build_id,
-            .disable_lld_caching = options.disable_lld_caching or options.cache_mode == .whole,
             .subsystem = options.subsystem,
             .hash_style = options.hash_style,
             .enable_link_snapshots = options.enable_link_snapshots,
@@ -2089,6 +2148,17 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         };
 
         switch (options.cache_mode) {
+            .none => {
+                const none = try arena.create(CacheUse.None);
+                none.* = .{ .tmp_artifact_directory = null };
+                comp.cache_use = .{ .none = none };
+                if (comp.emit_bin) |path| {
+                    comp.bin_file = try link.File.open(arena, comp, .{
+                        .root_dir = .cwd(),
+                        .sub_path = path,
+                    }, lf_open_opts);
+                }
+            },
             .incremental => {
                 // Options that are specific to zig source files, that cannot be
                 // modified between incremental updates.
@@ -2102,7 +2172,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 hash.addListOfBytes(options.test_filters);
                 hash.addOptionalBytes(options.test_name_prefix);
                 hash.add(options.skip_linker_dependencies);
-                hash.add(options.emit_h != null);
+                hash.add(options.emit_h != .no);
                 hash.add(error_limit);
 
                 // Here we put the root source file path name, but *not* with addFile.
@@ -2137,49 +2207,26 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 };
                 comp.cache_use = .{ .incremental = incremental };
 
-                if (options.emit_bin) |emit_bin| {
+                if (comp.emit_bin) |cache_rel_path| {
                     const emit: Cache.Path = .{
-                        .root_dir = emit_bin.directory orelse artifact_directory,
-                        .sub_path = emit_bin.basename,
+                        .root_dir = artifact_directory,
+                        .sub_path = cache_rel_path,
                     };
                     comp.bin_file = try link.File.open(arena, comp, emit, lf_open_opts);
                 }
-
-                if (options.emit_implib) |emit_implib| {
-                    comp.implib_emit = .{
-                        .root_dir = emit_implib.directory orelse artifact_directory,
-                        .sub_path = emit_implib.basename,
-                    };
-                }
-
-                if (options.emit_docs) |emit_docs| {
-                    comp.docs_emit = .{
-                        .root_dir = emit_docs.directory orelse artifact_directory,
-                        .sub_path = emit_docs.basename,
-                    };
-                }
             },
             .whole => {
-                // For whole cache mode, we don't know where to put outputs from
-                // the linker until the final cache hash, which is available after
-                // the compilation is complete.
+                // For whole cache mode, we don't know where to put outputs from the linker until
+                // the final cache hash, which is available after the compilation is complete.
                 //
-                // Therefore, bin_file is left null until the beginning of update(),
-                // where it may find a cache hit, or use a temporary directory to
-                // hold output artifacts.
+                // Therefore, `comp.bin_file` is left `null` (already done) until `update`, where
+                // it may find a cache hit, or else will use a temporary directory to hold output
+                // artifacts.
                 const whole = try arena.create(CacheUse.Whole);
                 whole.* = .{
-                    // This is kept here so that link.File.open can be called later.
                     .lf_open_opts = lf_open_opts,
-                    // This is so that when doing `CacheMode.whole`, the mechanism in update()
-                    // can use it for communicating the result directory via `bin_file.emit`.
-                    // This is used to distinguish between -fno-emit-bin and -femit-bin
-                    // for `CacheMode.whole`.
-                    // This memory will be overwritten with the real digest in update() but
-                    // the basename will be preserved.
-                    .bin_sub_path = try prepareWholeEmitSubPath(arena, options.emit_bin),
-                    .implib_sub_path = try prepareWholeEmitSubPath(arena, options.emit_implib),
-                    .docs_sub_path = try prepareWholeEmitSubPath(arena, options.emit_docs),
+                    .cache_manifest = null,
+                    .cache_manifest_mutex = .{},
                     .tmp_artifact_directory = null,
                     .lock = null,
                 };
@@ -2187,14 +2234,10 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             },
         }
 
-        // Handle the case of e.g. -fno-emit-bin -femit-llvm-ir.
-        if (options.emit_bin == null and (comp.verbose_llvm_ir != null or
-            comp.verbose_llvm_bc != null or
-            (use_llvm and comp.emit_asm != null) or
-            comp.emit_llvm_ir != null or
-            comp.emit_llvm_bc != null))
-        {
-            if (opt_zcu) |zcu| zcu.llvm_object = try LlvmObject.create(arena, comp);
+        if (use_llvm) {
+            if (opt_zcu) |zcu| {
+                zcu.llvm_object = try LlvmObject.create(arena, comp);
+            }
         }
 
         break :comp comp;
@@ -2216,7 +2259,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         };
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
-    comp.remaining_prelink_tasks += @intCast(comp.c_object_table.count());
+    comp.link_task_queue.pending_prelink_tasks += @intCast(comp.c_object_table.count());
 
     // Add a `Win32Resource` for each `rc_source_files` and one for `manifest_file`.
     const win32_resource_count =
@@ -2227,7 +2270,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // Add this after adding logic to updateWin32Resource to pass the
         // result into link.loadInput. loadInput integration is not implemented
         // for Windows linking logic yet.
-        //comp.remaining_prelink_tasks += @intCast(win32_resource_count);
+        //comp.link_task_queue.pending_prelink_tasks += @intCast(win32_resource_count);
         for (options.rc_source_files) |rc_source_file| {
             const win32_resource = try gpa.create(Win32Resource);
             errdefer gpa.destroy(win32_resource);
@@ -2251,12 +2294,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         }
     }
 
-    const have_bin_emit = switch (comp.cache_use) {
-        .whole => |whole| whole.bin_sub_path != null,
-        .incremental => comp.bin_file != null,
-    };
-
-    if (have_bin_emit and target.ofmt != .c) {
+    if (comp.emit_bin != null and target.ofmt != .c) {
         if (!comp.skip_linker_dependencies) {
             // If we need to build libc for the target, add work items for it.
             // We go through the work queue so that building can be done in parallel.
@@ -2278,78 +2316,76 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     const paths = try lci.resolveCrtPaths(arena, basenames, target);
 
                     const fields = @typeInfo(@TypeOf(paths)).@"struct".fields;
-                    try comp.link_task_queue.shared.ensureUnusedCapacity(gpa, fields.len + 1);
+                    try comp.link_task_queue.queued_prelink.ensureUnusedCapacity(gpa, fields.len + 1);
                     inline for (fields) |field| {
                         if (@field(paths, field.name)) |path| {
-                            comp.link_task_queue.shared.appendAssumeCapacity(.{ .load_object = path });
-                            comp.remaining_prelink_tasks += 1;
+                            comp.link_task_queue.queued_prelink.appendAssumeCapacity(.{ .load_object = path });
                         }
                     }
                     // Loads the libraries provided by `target_util.libcFullLinkFlags(target)`.
-                    comp.link_task_queue.shared.appendAssumeCapacity(.load_host_libc);
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.queued_prelink.appendAssumeCapacity(.load_host_libc);
                 } else if (target.isMuslLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (musl.needsCrt0(comp.config.output_mode, comp.config.link_mode, comp.config.pie)) |f| {
                         comp.queued_jobs.musl_crt_file[@intFromEnum(f)] = true;
-                        comp.remaining_prelink_tasks += 1;
+                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
                     switch (comp.config.link_mode) {
                         .static => comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.libc_a)] = true,
                         .dynamic => comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.libc_so)] = true,
                     }
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (target.isGnuLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (glibc.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.glibc_crt_file[@intFromEnum(f)] = true;
-                        comp.remaining_prelink_tasks += 1;
+                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
                     comp.queued_jobs.glibc_shared_objects = true;
-                    comp.remaining_prelink_tasks += glibc.sharedObjectsCount(&target);
+                    comp.link_task_queue.pending_prelink_tasks += glibc.sharedObjectsCount(&target);
 
                     comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.libc_nonshared_a)] = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (target.isFreeBSDLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (freebsd.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.freebsd_crt_file[@intFromEnum(f)] = true;
-                        comp.remaining_prelink_tasks += 1;
+                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
 
                     comp.queued_jobs.freebsd_shared_objects = true;
-                    comp.remaining_prelink_tasks += freebsd.sharedObjectsCount();
+                    comp.link_task_queue.pending_prelink_tasks += freebsd.sharedObjectsCount();
                 } else if (target.isNetBSDLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (netbsd.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.netbsd_crt_file[@intFromEnum(f)] = true;
-                        comp.remaining_prelink_tasks += 1;
+                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
 
                     comp.queued_jobs.netbsd_shared_objects = true;
-                    comp.remaining_prelink_tasks += netbsd.sharedObjectsCount();
+                    comp.link_task_queue.pending_prelink_tasks += netbsd.sharedObjectsCount();
                 } else if (target.isWasiLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     for (comp.wasi_emulated_libs) |crt_file| {
                         comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(crt_file)] = true;
                     }
-                    comp.remaining_prelink_tasks += @intCast(comp.wasi_emulated_libs.len);
+                    comp.link_task_queue.pending_prelink_tasks += @intCast(comp.wasi_emulated_libs.len);
 
                     comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(wasi_libc.execModelCrtFile(comp.config.wasi_exec_model))] = true;
                     comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(wasi_libc.CrtFile.libc_a)] = true;
-                    comp.remaining_prelink_tasks += 2;
+                    comp.link_task_queue.pending_prelink_tasks += 2;
                 } else if (target.isMinGW()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     const main_crt_file: mingw.CrtFile = if (is_dyn_lib) .dllcrt2_o else .crt2_o;
                     comp.queued_jobs.mingw_crt_file[@intFromEnum(main_crt_file)] = true;
                     comp.queued_jobs.mingw_crt_file[@intFromEnum(mingw.CrtFile.libmingw32_lib)] = true;
-                    comp.remaining_prelink_tasks += 2;
+                    comp.link_task_queue.pending_prelink_tasks += 2;
 
                     // When linking mingw-w64 there are some import libs we always need.
                     try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
@@ -2363,7 +2399,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     target.isMinGW())
                 {
                     comp.queued_jobs.zigc_lib = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
             }
 
@@ -2380,59 +2416,63 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             }
             if (comp.wantBuildLibUnwindFromSource()) {
                 comp.queued_jobs.libunwind = true;
-                comp.remaining_prelink_tasks += 1;
+                comp.link_task_queue.pending_prelink_tasks += 1;
             }
             if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.link_libcpp) {
                 comp.queued_jobs.libcxx = true;
                 comp.queued_jobs.libcxxabi = true;
-                comp.remaining_prelink_tasks += 2;
+                comp.link_task_queue.pending_prelink_tasks += 2;
             }
             if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.any_sanitize_thread) {
                 comp.queued_jobs.libtsan = true;
-                comp.remaining_prelink_tasks += 1;
+                comp.link_task_queue.pending_prelink_tasks += 1;
             }
 
             if (can_build_compiler_rt) {
                 if (comp.compiler_rt_strat == .lib) {
                     log.debug("queuing a job to build compiler_rt_lib", .{});
                     comp.queued_jobs.compiler_rt_lib = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (comp.compiler_rt_strat == .obj) {
                     log.debug("queuing a job to build compiler_rt_obj", .{});
                     // In this case we are making a static library, so we ask
                     // for a compiler-rt object to put in it.
                     comp.queued_jobs.compiler_rt_obj = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
 
                 if (comp.ubsan_rt_strat == .lib) {
                     log.debug("queuing a job to build ubsan_rt_lib", .{});
                     comp.queued_jobs.ubsan_rt_lib = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (comp.ubsan_rt_strat == .obj) {
                     log.debug("queuing a job to build ubsan_rt_obj", .{});
                     comp.queued_jobs.ubsan_rt_obj = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
 
                 if (is_exe_or_dyn_lib and comp.config.any_fuzz) {
                     log.debug("queuing a job to build libfuzzer", .{});
                     comp.queued_jobs.fuzzer_lib = true;
-                    comp.remaining_prelink_tasks += 1;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
             }
         }
 
-        try comp.link_task_queue.shared.append(gpa, .load_explicitly_provided);
-        comp.remaining_prelink_tasks += 1;
+        try comp.link_task_queue.queued_prelink.append(gpa, .load_explicitly_provided);
     }
-    log.debug("total prelink tasks: {d}", .{comp.remaining_prelink_tasks});
+    log.debug("queued prelink tasks: {d}", .{comp.link_task_queue.queued_prelink.items.len});
+    log.debug("pending prelink tasks: {d}", .{comp.link_task_queue.pending_prelink_tasks});
 
     return comp;
 }
 
 pub fn destroy(comp: *Compilation) void {
     const gpa = comp.gpa;
+
+    // This needs to be destroyed first, because it might contain MIR which we only know
+    // how to interpret (which kind of MIR it is) from `comp.bin_file`.
+    comp.link_task_queue.deinit(comp);
 
     if (comp.bin_file) |lf| lf.destroy();
     if (comp.zcu) |zcu| zcu.deinit();
@@ -2515,8 +2555,6 @@ pub fn destroy(comp: *Compilation) void {
     comp.failed_win32_resources.deinit(gpa);
 
     comp.link_diags.deinit();
-    comp.link_task_queue.deinit(gpa);
-    comp.link_task_queue_postponed.deinit(gpa);
 
     comp.clearMiscFailures();
 
@@ -2550,8 +2588,28 @@ pub fn hotCodeSwap(
     try lf.makeExecutable();
 }
 
-fn cleanupAfterUpdate(comp: *Compilation) void {
+fn cleanupAfterUpdate(comp: *Compilation, tmp_dir_rand_int: u64) void {
     switch (comp.cache_use) {
+        .none => |none| {
+            if (none.tmp_artifact_directory) |*tmp_dir| {
+                tmp_dir.handle.close();
+                none.tmp_artifact_directory = null;
+                if (dev.env == .bootstrap) {
+                    // zig1 uses `CacheMode.none`, but it doesn't need to know how to delete
+                    // temporary directories; it doesn't have a real cache directory anyway.
+                    return;
+                }
+                const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
+                comp.dirs.local_cache.handle.deleteTree(tmp_dir_sub_path) catch |err| {
+                    log.warn("failed to delete temporary directory '{s}{c}{s}': {s}", .{
+                        comp.dirs.local_cache.path orelse ".",
+                        std.fs.path.sep,
+                        tmp_dir_sub_path,
+                        @errorName(err),
+                    });
+                };
+            }
+        },
         .incremental => return,
         .whole => |whole| {
             if (whole.cache_manifest) |man| {
@@ -2562,10 +2620,18 @@ fn cleanupAfterUpdate(comp: *Compilation) void {
                 lf.destroy();
                 comp.bin_file = null;
             }
-            if (whole.tmp_artifact_directory) |*directory| {
-                directory.handle.close();
-                if (directory.path) |p| comp.gpa.free(p);
+            if (whole.tmp_artifact_directory) |*tmp_dir| {
+                tmp_dir.handle.close();
                 whole.tmp_artifact_directory = null;
+                const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
+                comp.dirs.local_cache.handle.deleteTree(tmp_dir_sub_path) catch |err| {
+                    log.warn("failed to delete temporary directory '{s}{c}{s}': {s}", .{
+                        comp.dirs.local_cache.path orelse ".",
+                        std.fs.path.sep,
+                        tmp_dir_sub_path,
+                        @errorName(err),
+                    });
+                };
             }
         },
     }
@@ -2585,14 +2651,27 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     comp.clearMiscFailures();
     comp.last_update_was_cache_hit = false;
 
-    var man: Cache.Manifest = undefined;
-    defer cleanupAfterUpdate(comp);
-
     var tmp_dir_rand_int: u64 = undefined;
+    var man: Cache.Manifest = undefined;
+    defer cleanupAfterUpdate(comp, tmp_dir_rand_int);
 
     // If using the whole caching strategy, we check for *everything* up front, including
     // C source files.
+    log.debug("Compilation.update for {s}, CacheMode.{s}", .{ comp.root_name, @tagName(comp.cache_use) });
     switch (comp.cache_use) {
+        .none => |none| {
+            assert(none.tmp_artifact_directory == null);
+            none.tmp_artifact_directory = d: {
+                tmp_dir_rand_int = std.crypto.random.int(u64);
+                const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
+                const path = try comp.dirs.local_cache.join(arena, &.{tmp_dir_sub_path});
+                break :d .{
+                    .path = path,
+                    .handle = try comp.dirs.local_cache.handle.makeOpenPath(tmp_dir_sub_path, .{}),
+                };
+            };
+        },
+        .incremental => {},
         .whole => |whole| {
             assert(comp.bin_file == null);
             // We are about to obtain this lock, so here we give other processes a chance first.
@@ -2639,10 +2718,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 comp.last_update_was_cache_hit = true;
                 log.debug("CacheMode.whole cache hit for {s}", .{comp.root_name});
                 const bin_digest = man.finalBin();
-                const hex_digest = Cache.binToHex(bin_digest);
 
                 comp.digest = bin_digest;
-                comp.wholeCacheModeSetBinFilePath(whole, &hex_digest);
 
                 assert(whole.lock == null);
                 whole.lock = man.toOwnedLock();
@@ -2651,51 +2728,22 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             log.debug("CacheMode.whole cache miss for {s}", .{comp.root_name});
 
             // Compile the artifacts to a temporary directory.
-            const tmp_artifact_directory: Cache.Directory = d: {
-                const s = std.fs.path.sep_str;
+            whole.tmp_artifact_directory = d: {
                 tmp_dir_rand_int = std.crypto.random.int(u64);
-                const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(tmp_dir_rand_int);
-
-                const path = try comp.dirs.local_cache.join(gpa, &.{tmp_dir_sub_path});
-                errdefer gpa.free(path);
-
-                const handle = try comp.dirs.local_cache.handle.makeOpenPath(tmp_dir_sub_path, .{});
-                errdefer handle.close();
-
+                const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
+                const path = try comp.dirs.local_cache.join(arena, &.{tmp_dir_sub_path});
                 break :d .{
                     .path = path,
-                    .handle = handle,
+                    .handle = try comp.dirs.local_cache.handle.makeOpenPath(tmp_dir_sub_path, .{}),
                 };
             };
-            whole.tmp_artifact_directory = tmp_artifact_directory;
-
-            // Now that the directory is known, it is time to create the Emit
-            // objects and call link.File.open.
-
-            if (whole.implib_sub_path) |sub_path| {
-                comp.implib_emit = .{
-                    .root_dir = tmp_artifact_directory,
-                    .sub_path = std.fs.path.basename(sub_path),
-                };
-            }
-
-            if (whole.docs_sub_path) |sub_path| {
-                comp.docs_emit = .{
-                    .root_dir = tmp_artifact_directory,
-                    .sub_path = std.fs.path.basename(sub_path),
-                };
-            }
-
-            if (whole.bin_sub_path) |sub_path| {
+            if (comp.emit_bin) |sub_path| {
                 const emit: Cache.Path = .{
-                    .root_dir = tmp_artifact_directory,
-                    .sub_path = std.fs.path.basename(sub_path),
+                    .root_dir = whole.tmp_artifact_directory.?,
+                    .sub_path = sub_path,
                 };
                 comp.bin_file = try link.File.createEmpty(arena, comp, emit, whole.lf_open_opts);
             }
-        },
-        .incremental => {
-            log.debug("Compilation.update for {s}, CacheMode.incremental", .{comp.root_name});
         },
     }
 
@@ -2757,6 +2805,17 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         }
     }
 
+    // The linker progress node is set up here instead of in `performAllTheWork`, because
+    // we also want it around during `flush`.
+    const have_link_node = comp.bin_file != null;
+    if (have_link_node) {
+        comp.link_prog_node = main_progress_node.start("Linking", 0);
+    }
+    defer if (have_link_node) {
+        comp.link_prog_node.end();
+        comp.link_prog_node = .none;
+    };
+
     try comp.performAllTheWork(main_progress_node);
 
     if (comp.zcu) |zcu| {
@@ -2768,7 +2827,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 // The `test_functions` decl has been intentionally postponed until now,
                 // at which point we must populate it with the list of test functions that
                 // have been discovered and not filtered out.
-                try pt.populateTestFunctions(main_progress_node);
+                try pt.populateTestFunctions();
             }
 
             try pt.processExports();
@@ -2795,11 +2854,18 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         return;
     }
 
-    // Flush below handles -femit-bin but there is still -femit-llvm-ir,
-    // -femit-llvm-bc, and -femit-asm, in the case of C objects.
-    comp.emitOthers();
+    if (comp.zcu == null and comp.config.output_mode == .Obj and comp.c_object_table.count() == 1) {
+        // This is `zig build-obj foo.c`. We can emit asm and LLVM IR/bitcode.
+        const c_obj_path = comp.c_object_table.keys()[0].status.success.object_path;
+        if (comp.emit_asm) |path| try comp.emitFromCObject(arena, c_obj_path, ".s", path);
+        if (comp.emit_llvm_ir) |path| try comp.emitFromCObject(arena, c_obj_path, ".ll", path);
+        if (comp.emit_llvm_bc) |path| try comp.emitFromCObject(arena, c_obj_path, ".bc", path);
+    }
 
     switch (comp.cache_use) {
+        .none, .incremental => {
+            try flush(comp, arena, .main);
+        },
         .whole => |whole| {
             if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
             if (comp.parent_whole_cache) |pwc| {
@@ -2810,18 +2876,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
             const bin_digest = man.finalBin();
             const hex_digest = Cache.binToHex(bin_digest);
-
-            // Rename the temporary directory into place.
-            // Close tmp dir and link.File to avoid open handle during rename.
-            if (whole.tmp_artifact_directory) |*tmp_directory| {
-                tmp_directory.handle.close();
-                if (tmp_directory.path) |p| gpa.free(p);
-                whole.tmp_artifact_directory = null;
-            } else unreachable;
-
-            const s = std.fs.path.sep_str;
-            const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(tmp_dir_rand_int);
-            const o_sub_path = "o" ++ s ++ hex_digest;
 
             // Work around windows `AccessDenied` if any files within this
             // directory are open by closing and reopening the file handles.
@@ -2847,6 +2901,13 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 break :w .no;
             };
 
+            // Rename the temporary directory into place.
+            // Close tmp dir and link.File to avoid open handle during rename.
+            whole.tmp_artifact_directory.?.handle.close();
+            whole.tmp_artifact_directory = null;
+            const s = std.fs.path.sep_str;
+            const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(tmp_dir_rand_int);
+            const o_sub_path = "o" ++ s ++ hex_digest;
             renameTmpIntoCache(comp.dirs.local_cache, tmp_dir_sub_path, o_sub_path) catch |err| {
                 return comp.setMiscFailure(
                     .rename_results,
@@ -2859,7 +2920,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 );
             };
             comp.digest = bin_digest;
-            comp.wholeCacheModeSetBinFilePath(whole, &hex_digest);
 
             // The linker flush functions need to know the final output path
             // for debug info purposes because executable debug info contains
@@ -2867,10 +2927,9 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             if (comp.bin_file) |lf| {
                 lf.emit = .{
                     .root_dir = comp.dirs.local_cache,
-                    .sub_path = whole.bin_sub_path.?,
+                    .sub_path = try std.fs.path.join(arena, &.{ o_sub_path, comp.emit_bin.? }),
                 };
 
-                // Has to be after the `wholeCacheModeSetBinFilePath` above.
                 switch (need_writable_dance) {
                     .no => {},
                     .lf_only => try lf.makeWritable(),
@@ -2881,10 +2940,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 }
             }
 
-            try flush(comp, arena, .{
-                .root_dir = comp.dirs.local_cache,
-                .sub_path = o_sub_path,
-            }, .main, main_progress_node);
+            try flush(comp, arena, .main);
 
             // Calling `flush` may have produced errors, in which case the
             // cache manifest must not be written.
@@ -2902,11 +2958,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
             assert(whole.lock == null);
             whole.lock = man.toOwnedLock();
-        },
-        .incremental => |incremental| {
-            try flush(comp, arena, .{
-                .root_dir = incremental.artifact_directory,
-            }, .main, main_progress_node);
         },
     }
 }
@@ -2937,27 +2988,98 @@ pub fn appendFileSystemInput(comp: *Compilation, path: Compilation.Path) Allocat
     fsi.appendSliceAssumeCapacity(path.sub_path);
 }
 
+fn resolveEmitPath(comp: *Compilation, path: []const u8) Cache.Path {
+    return .{
+        .root_dir = switch (comp.cache_use) {
+            .none => .cwd(),
+            .incremental => |i| i.artifact_directory,
+            .whole => |w| w.tmp_artifact_directory.?,
+        },
+        .sub_path = path,
+    };
+}
+/// Like `resolveEmitPath`, but for calling during `flush`. The returned `Cache.Path` may reference
+/// memory from `arena`, and may reference `path` itself.
+/// If `kind == .temp`, then the returned path will be in a temporary or cache directory. This is
+/// useful for intermediate files, such as the ZCU object file emitted by the LLVM backend.
+pub fn resolveEmitPathFlush(
+    comp: *Compilation,
+    arena: Allocator,
+    kind: enum { temp, artifact },
+    path: []const u8,
+) Allocator.Error!Cache.Path {
+    switch (comp.cache_use) {
+        .none => |none| return .{
+            .root_dir = switch (kind) {
+                .temp => none.tmp_artifact_directory.?,
+                .artifact => .cwd(),
+            },
+            .sub_path = path,
+        },
+        .incremental, .whole => return .{
+            .root_dir = comp.dirs.local_cache,
+            .sub_path = try fs.path.join(arena, &.{
+                "o",
+                &Cache.binToHex(comp.digest.?),
+                path,
+            }),
+        },
+    }
+}
 fn flush(
     comp: *Compilation,
     arena: Allocator,
-    default_artifact_directory: Cache.Path,
     tid: Zcu.PerThread.Id,
-    prog_node: std.Progress.Node,
 ) !void {
+    if (comp.zcu) |zcu| {
+        if (zcu.llvm_object) |llvm_object| {
+            // Emit the ZCU object from LLVM now; it's required to flush the output file.
+            // If there's an output file, it wants to decide where the LLVM object goes!
+            const sub_prog_node = comp.link_prog_node.start("LLVM Emit Object", 0);
+            defer sub_prog_node.end();
+            try llvm_object.emit(.{
+                .pre_ir_path = comp.verbose_llvm_ir,
+                .pre_bc_path = comp.verbose_llvm_bc,
+
+                .bin_path = p: {
+                    const lf = comp.bin_file orelse break :p null;
+                    const p = try comp.resolveEmitPathFlush(arena, .temp, lf.zcu_object_basename.?);
+                    break :p try p.toStringZ(arena);
+                },
+                .asm_path = p: {
+                    const raw = comp.emit_asm orelse break :p null;
+                    const p = try comp.resolveEmitPathFlush(arena, .artifact, raw);
+                    break :p try p.toStringZ(arena);
+                },
+                .post_ir_path = p: {
+                    const raw = comp.emit_llvm_ir orelse break :p null;
+                    const p = try comp.resolveEmitPathFlush(arena, .artifact, raw);
+                    break :p try p.toStringZ(arena);
+                },
+                .post_bc_path = p: {
+                    const raw = comp.emit_llvm_bc orelse break :p null;
+                    const p = try comp.resolveEmitPathFlush(arena, .artifact, raw);
+                    break :p try p.toStringZ(arena);
+                },
+
+                .is_debug = comp.root_mod.optimize_mode == .Debug,
+                .is_small = comp.root_mod.optimize_mode == .ReleaseSmall,
+                .time_report = comp.time_report,
+                .sanitize_thread = comp.config.any_sanitize_thread,
+                .fuzz = comp.config.any_fuzz,
+                .lto = comp.config.lto,
+            });
+        }
+    }
     if (comp.bin_file) |lf| {
         // This is needed before reading the error flags.
-        lf.flush(arena, tid, prog_node) catch |err| switch (err) {
+        lf.flush(arena, tid, comp.link_prog_node) catch |err| switch (err) {
             error.LinkFailure => {}, // Already reported.
             error.OutOfMemory => return error.OutOfMemory,
         };
     }
-
     if (comp.zcu) |zcu| {
         try link.File.C.flushEmitH(zcu);
-
-        if (zcu.llvm_object) |llvm_object| {
-            try emitLlvmObject(comp, arena, default_artifact_directory, null, llvm_object, prog_node);
-        }
     }
 }
 
@@ -3009,45 +3131,6 @@ fn renameTmpIntoCache(
     }
 }
 
-/// Communicate the output binary location to parent Compilations.
-fn wholeCacheModeSetBinFilePath(
-    comp: *Compilation,
-    whole: *CacheUse.Whole,
-    digest: *const [Cache.hex_digest_len]u8,
-) void {
-    const digest_start = 2; // "o/[digest]/[basename]"
-
-    if (whole.bin_sub_path) |sub_path| {
-        @memcpy(sub_path[digest_start..][0..digest.len], digest);
-    }
-
-    if (whole.implib_sub_path) |sub_path| {
-        @memcpy(sub_path[digest_start..][0..digest.len], digest);
-
-        comp.implib_emit = .{
-            .root_dir = comp.dirs.local_cache,
-            .sub_path = sub_path,
-        };
-    }
-
-    if (whole.docs_sub_path) |sub_path| {
-        @memcpy(sub_path[digest_start..][0..digest.len], digest);
-
-        comp.docs_emit = .{
-            .root_dir = comp.dirs.local_cache,
-            .sub_path = sub_path,
-        };
-    }
-}
-
-fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemory}!?[]u8 {
-    const emit = opt_emit orelse return null;
-    if (emit.directory != null) return null;
-    const s = std.fs.path.sep_str;
-    const format = "o" ++ s ++ ("x" ** Cache.hex_digest_len) ++ s ++ "{s}";
-    return try std.fmt.allocPrint(arena, format, .{emit.basename});
-}
-
 /// This is only observed at compile-time and used to emit a compile error
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
@@ -3068,7 +3151,7 @@ fn addNonIncrementalStuffToCacheManifest(
         man.hash.addListOfBytes(comp.test_filters);
         man.hash.addOptionalBytes(comp.test_name_prefix);
         man.hash.add(comp.skip_linker_dependencies);
-        //man.hash.add(zcu.emit_h != null);
+        //man.hash.add(zcu.emit_h != .no);
         man.hash.add(zcu.error_limit);
     } else {
         cache_helpers.addModule(&man.hash, comp.root_mod);
@@ -3113,10 +3196,6 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
     man.hash.addListOfBytes(comp.framework_dirs);
     man.hash.addListOfBytes(comp.windows_libs.keys());
-
-    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
-    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
-    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
 
     man.hash.addListOfBytes(comp.global_cc_argv);
 
@@ -3195,82 +3274,39 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addOptional(opts.minor_subsystem_version);
 }
 
-fn emitOthers(comp: *Compilation) void {
-    if (comp.config.output_mode != .Obj or comp.zcu != null or
-        comp.c_object_table.count() == 0)
-    {
-        return;
-    }
-    const obj_path = comp.c_object_table.keys()[0].status.success.object_path;
-    const ext = std.fs.path.extension(obj_path.sub_path);
-    const dirname = obj_path.sub_path[0 .. obj_path.sub_path.len - ext.len];
-    // This obj path always ends with the object file extension, but if we change the
-    // extension to .ll, .bc, or .s, then it will be the path to those things.
-    const outs = [_]struct {
-        emit: ?EmitLoc,
-        ext: []const u8,
-    }{
-        .{ .emit = comp.emit_asm, .ext = ".s" },
-        .{ .emit = comp.emit_llvm_ir, .ext = ".ll" },
-        .{ .emit = comp.emit_llvm_bc, .ext = ".bc" },
-    };
-    for (outs) |out| {
-        if (out.emit) |loc| {
-            if (loc.directory) |directory| {
-                const src_path = std.fmt.allocPrint(comp.gpa, "{s}{s}", .{
-                    dirname, out.ext,
-                }) catch |err| {
-                    log.err("unable to copy {s}{s}: {s}", .{ dirname, out.ext, @errorName(err) });
-                    continue;
-                };
-                defer comp.gpa.free(src_path);
-                obj_path.root_dir.handle.copyFile(src_path, directory.handle, loc.basename, .{}) catch |err| {
-                    log.err("unable to copy {s}: {s}", .{ src_path, @errorName(err) });
-                };
-            }
-        }
-    }
-}
-
-pub fn emitLlvmObject(
+fn emitFromCObject(
     comp: *Compilation,
     arena: Allocator,
-    default_artifact_directory: Cache.Path,
-    bin_emit_loc: ?EmitLoc,
-    llvm_object: LlvmObject.Ptr,
-    prog_node: std.Progress.Node,
-) !void {
-    const sub_prog_node = prog_node.start("LLVM Emit Object", 0);
-    defer sub_prog_node.end();
+    c_obj_path: Cache.Path,
+    new_ext: []const u8,
+    unresolved_emit_path: []const u8,
+) Allocator.Error!void {
+    // The dirname and stem (i.e. everything but the extension), of the sub path of the C object.
+    // We'll append `new_ext` to it to get the path to the right thing (asm, LLVM IR, etc).
+    const c_obj_dir_and_stem: []const u8 = p: {
+        const p = c_obj_path.sub_path;
+        const ext_len = fs.path.extension(p).len;
+        break :p p[0 .. p.len - ext_len];
+    };
+    const src_path: Cache.Path = .{
+        .root_dir = c_obj_path.root_dir,
+        .sub_path = try std.fmt.allocPrint(arena, "{s}{s}", .{
+            c_obj_dir_and_stem,
+            new_ext,
+        }),
+    };
+    const emit_path = comp.resolveEmitPath(unresolved_emit_path);
 
-    try llvm_object.emit(.{
-        .pre_ir_path = comp.verbose_llvm_ir,
-        .pre_bc_path = comp.verbose_llvm_bc,
-        .bin_path = try resolveEmitLoc(arena, default_artifact_directory, bin_emit_loc),
-        .asm_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_asm),
-        .post_ir_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_llvm_ir),
-        .post_bc_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_llvm_bc),
-
-        .is_debug = comp.root_mod.optimize_mode == .Debug,
-        .is_small = comp.root_mod.optimize_mode == .ReleaseSmall,
-        .time_report = comp.time_report,
-        .sanitize_thread = comp.config.any_sanitize_thread,
-        .fuzz = comp.config.any_fuzz,
-        .lto = comp.config.lto,
+    src_path.root_dir.handle.copyFile(
+        src_path.sub_path,
+        emit_path.root_dir.handle,
+        emit_path.sub_path,
+        .{},
+    ) catch |err| log.err("unable to copy '{}' to '{}': {s}", .{
+        src_path,
+        emit_path,
+        @errorName(err),
     });
-}
-
-fn resolveEmitLoc(
-    arena: Allocator,
-    default_artifact_directory: Cache.Path,
-    opt_loc: ?EmitLoc,
-) Allocator.Error!?[*:0]const u8 {
-    const loc = opt_loc orelse return null;
-    const slice = if (loc.directory) |directory|
-        try directory.joinZ(arena, &.{loc.basename})
-    else
-        try default_artifact_directory.joinStringZ(arena, loc.basename);
-    return slice.ptr;
 }
 
 /// Having the file open for writing is problematic as far as executing the
@@ -3512,7 +3548,7 @@ pub fn saveState(comp: *Compilation) !void {
             // TODO handle the union safety field
             //addBuf(&bufs, mem.sliceAsBytes(wasm.mir_instructions.items(.data)));
             addBuf(&bufs, mem.sliceAsBytes(wasm.mir_extra.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.all_zcu_locals.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.mir_locals.items));
             addBuf(&bufs, mem.sliceAsBytes(wasm.tag_name_bytes.items));
             addBuf(&bufs, mem.sliceAsBytes(wasm.tag_name_offs.items));
 
@@ -4156,28 +4192,15 @@ pub fn addWholeFileError(
     }
 }
 
-pub fn performAllTheWork(
+fn performAllTheWork(
     comp: *Compilation,
     main_progress_node: std.Progress.Node,
 ) JobError!void {
-    comp.work_queue_progress_node = main_progress_node;
-    defer comp.work_queue_progress_node = .none;
-
+    // Regardless of errors, `comp.zcu` needs to update its generation number.
     defer if (comp.zcu) |zcu| {
-        zcu.sema_prog_node.end();
-        zcu.sema_prog_node = .none;
-        zcu.codegen_prog_node.end();
-        zcu.codegen_prog_node = .none;
-
         zcu.generation += 1;
     };
-    try comp.performAllTheWorkInner(main_progress_node);
-}
 
-fn performAllTheWorkInner(
-    comp: *Compilation,
-    main_progress_node: std.Progress.Node,
-) JobError!void {
     // Here we queue up all the AstGen tasks first, followed by C object compilation.
     // We wait until the AstGen tasks are all completed before proceeding to the
     // (at least for now) single-threaded main work queue. However, C object compilation
@@ -4189,11 +4212,13 @@ fn performAllTheWorkInner(
     comp.link_task_wait_group.reset();
     defer comp.link_task_wait_group.wait();
 
-    if (comp.link_task_queue.start()) {
-        comp.thread_pool.spawnWgId(&comp.link_task_wait_group, link.flushTaskQueue, .{comp});
-    }
+    comp.link_prog_node.increaseEstimatedTotalItems(
+        comp.link_task_queue.queued_prelink.items.len + // already queued prelink tasks
+            comp.link_task_queue.pending_prelink_tasks, // prelink tasks which will be queued
+    );
+    comp.link_task_queue.start(comp);
 
-    if (comp.docs_emit != null) {
+    if (comp.emit_docs != null) {
         dev.check(.docs_emit);
         comp.thread_pool.spawnWg(&work_queue_wait_group, workerDocsCopy, .{comp});
         work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
@@ -4471,7 +4496,7 @@ fn performAllTheWorkInner(
                     };
                 }
             },
-            .incremental => {},
+            .none, .incremental => {},
         }
 
         if (any_fatal_files or
@@ -4499,15 +4524,31 @@ fn performAllTheWorkInner(
         }
 
         zcu.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
-        zcu.codegen_prog_node = if (comp.bin_file != null) main_progress_node.start("Code Generation", 0) else .none;
+        if (comp.bin_file != null) {
+            zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
+        }
+        // We increment `pending_codegen_jobs` so that it doesn't reach 0 until after analysis finishes.
+        // That prevents the "Code Generation" node from constantly disappearing and reappearing when
+        // we're probably going to analyze more functions at some point.
+        assert(zcu.pending_codegen_jobs.swap(1, .monotonic) == 0); // don't let this become 0 until analysis finishes
     }
+    // When analysis ends, delete the progress nodes for "Semantic Analysis" and possibly "Code Generation".
+    defer if (comp.zcu) |zcu| {
+        zcu.sema_prog_node.end();
+        zcu.sema_prog_node = .none;
+        if (zcu.pending_codegen_jobs.rmw(.Sub, 1, .monotonic) == 1) {
+            // Decremented to 0, so all done.
+            zcu.codegen_prog_node.end();
+            zcu.codegen_prog_node = .none;
+        }
+    };
 
     if (!comp.separateCodegenThreadOk()) {
         // Waits until all input files have been parsed.
         comp.link_task_wait_group.wait();
         comp.link_task_wait_group.reset();
         std.log.scoped(.link).debug("finished waiting for link_task_wait_group", .{});
-        if (comp.remaining_prelink_tasks > 0) {
+        if (comp.link_task_queue.pending_prelink_tasks > 0) {
             // Indicates an error occurred preventing prelink phase from completing.
             return;
         }
@@ -4552,26 +4593,91 @@ pub fn queueJobs(comp: *Compilation, jobs: []const Job) !void {
 
 fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
     switch (job) {
-        .codegen_nav => |nav_index| {
+        .codegen_func => |func| {
+            const zcu = comp.zcu.?;
+            const gpa = zcu.gpa;
+            var air = func.air;
+            errdefer {
+                zcu.codegen_prog_node.completeOne();
+                comp.link_prog_node.completeOne();
+                air.deinit(gpa);
+            }
+            if (!air.typesFullyResolved(zcu)) {
+                // Type resolution failed in a way which affects this function. This is a transitive
+                // failure, but it doesn't need recording, because this function semantically depends
+                // on the failed type, so when it is changed the function is updated.
+                zcu.codegen_prog_node.completeOne();
+                comp.link_prog_node.completeOne();
+                air.deinit(gpa);
+                return;
+            }
+            const shared_mir = try gpa.create(link.ZcuTask.LinkFunc.SharedMir);
+            shared_mir.* = .{
+                .status = .init(.pending),
+                .value = undefined,
+            };
+            assert(zcu.pending_codegen_jobs.rmw(.Add, 1, .monotonic) > 0); // the "Code Generation" node hasn't been ended
+            // This value is used as a heuristic to avoid queueing too much AIR/MIR at once (hence
+            // using a lot of memory). If this would cause too many AIR bytes to be in-flight, we
+            // will block on the `dispatchZcuLinkTask` call below.
+            const air_bytes: u32 = @intCast(air.instructions.len * 5 + air.extra.items.len * 4);
+            if (comp.separateCodegenThreadOk()) {
+                // `workerZcuCodegen` takes ownership of `air`.
+                comp.thread_pool.spawnWgId(&comp.link_task_wait_group, workerZcuCodegen, .{ comp, func.func, air, shared_mir });
+                comp.dispatchZcuLinkTask(tid, .{ .link_func = .{
+                    .func = func.func,
+                    .mir = shared_mir,
+                    .air_bytes = air_bytes,
+                } });
+            } else {
+                {
+                    const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+                    defer pt.deactivate();
+                    pt.runCodegen(func.func, &air, shared_mir);
+                }
+                assert(shared_mir.status.load(.monotonic) != .pending);
+                comp.dispatchZcuLinkTask(tid, .{ .link_func = .{
+                    .func = func.func,
+                    .mir = shared_mir,
+                    .air_bytes = air_bytes,
+                } });
+                air.deinit(gpa);
+            }
+        },
+        .link_nav => |nav_index| {
             const zcu = comp.zcu.?;
             const nav = zcu.intern_pool.getNav(nav_index);
             if (nav.analysis != null) {
                 const unit: InternPool.AnalUnit = .wrap(.{ .nav_val = nav_index });
                 if (zcu.failed_analysis.contains(unit) or zcu.transitive_failed_analysis.contains(unit)) {
+                    comp.link_prog_node.completeOne();
                     return;
                 }
             }
             assert(nav.status == .fully_resolved);
-            comp.dispatchCodegenTask(tid, .{ .codegen_nav = nav_index });
+            if (!Air.valFullyResolved(zcu.navValue(nav_index), zcu)) {
+                // Type resolution failed in a way which affects this `Nav`. This is a transitive
+                // failure, but it doesn't need recording, because this `Nav` semantically depends
+                // on the failed type, so when it is changed the `Nav` will be updated.
+                comp.link_prog_node.completeOne();
+                return;
+            }
+            comp.dispatchZcuLinkTask(tid, .{ .link_nav = nav_index });
         },
-        .codegen_func => |func| {
-            comp.dispatchCodegenTask(tid, .{ .codegen_func = func });
-        },
-        .codegen_type => |ty| {
-            comp.dispatchCodegenTask(tid, .{ .codegen_type = ty });
+        .link_type => |ty| {
+            const zcu = comp.zcu.?;
+            if (zcu.failed_types.fetchSwapRemove(ty)) |*entry| entry.value.deinit(zcu.gpa);
+            if (!Air.typeFullyResolved(.fromInterned(ty), zcu)) {
+                // Type resolution failed in a way which affects this type. This is a transitive
+                // failure, but it doesn't need recording, because this type semantically depends
+                // on the failed type, so when that is changed, this type will be updated.
+                comp.link_prog_node.completeOne();
+                return;
+            }
+            comp.dispatchZcuLinkTask(tid, .{ .link_type = ty });
         },
         .update_line_number => |ti| {
-            comp.dispatchCodegenTask(tid, .{ .update_line_number = ti });
+            comp.dispatchZcuLinkTask(tid, .{ .update_line_number = ti });
         },
         .analyze_func => |func| {
             const named_frame = tracy.namedFrame("analyze_func");
@@ -4663,18 +4769,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
     }
 }
 
-/// The reason for the double-queue here is that the first queue ensures any
-/// resolve_type_fully tasks are complete before this dispatch function is called.
-fn dispatchCodegenTask(comp: *Compilation, tid: usize, link_task: link.Task) void {
-    if (comp.separateCodegenThreadOk()) {
-        comp.queueLinkTasks(&.{link_task});
-    } else {
-        assert(comp.remaining_prelink_tasks == 0);
-        link.doTask(comp, tid, link_task);
-    }
-}
-
-fn separateCodegenThreadOk(comp: *const Compilation) bool {
+pub fn separateCodegenThreadOk(comp: *const Compilation) bool {
     if (InternPool.single_threaded) return false;
     const zcu = comp.zcu orelse return true;
     return zcu.backendSupportsFeature(.separate_thread);
@@ -4694,12 +4789,12 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     const zcu = comp.zcu orelse
         return comp.lockAndSetMiscFailure(.docs_copy, "no Zig code to document", .{});
 
-    const emit = comp.docs_emit.?;
-    var out_dir = emit.root_dir.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
+    const docs_path = comp.resolveEmitPath(comp.emit_docs.?);
+    var out_dir = docs_path.root_dir.handle.makeOpenPath(docs_path.sub_path, .{}) catch |err| {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
-            "unable to create output directory '{}{s}': {s}",
-            .{ emit.root_dir, emit.sub_path, @errorName(err) },
+            "unable to create output directory '{}': {s}",
+            .{ docs_path, @errorName(err) },
         );
     };
     defer out_dir.close();
@@ -4718,8 +4813,8 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     var tar_file = out_dir.createFile("sources.tar", .{}) catch |err| {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
-            "unable to create '{}{s}/sources.tar': {s}",
-            .{ emit.root_dir, emit.sub_path, @errorName(err) },
+            "unable to create '{}/sources.tar': {s}",
+            .{ docs_path, @errorName(err) },
         );
     };
     defer tar_file.close();
@@ -4869,11 +4964,6 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         .parent = root_mod,
     });
     try root_mod.deps.put(arena, "Walk", walk_mod);
-    const bin_basename = try std.zig.binNameAlloc(arena, .{
-        .root_name = root_name,
-        .target = resolved_target.result,
-        .output_mode = output_mode,
-    });
 
     const sub_compilation = try Compilation.create(gpa, arena, .{
         .dirs = dirs,
@@ -4885,10 +4975,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         .root_name = root_name,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
-        .emit_bin = .{
-            .directory = null, // Put it in the cache directory.
-            .basename = bin_basename,
-        },
+        .emit_bin = .yes_cache,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
@@ -4903,27 +4990,31 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
 
     try comp.updateSubCompilation(sub_compilation, .docs_wasm, prog_node);
 
-    const emit = comp.docs_emit.?;
-    var out_dir = emit.root_dir.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
+    var crt_file = try sub_compilation.toCrtFile();
+    defer crt_file.deinit(gpa);
+
+    const docs_bin_file = crt_file.full_object_path;
+    assert(docs_bin_file.sub_path.len > 0); // emitted binary is not a directory
+
+    const docs_path = comp.resolveEmitPath(comp.emit_docs.?);
+    var out_dir = docs_path.root_dir.handle.makeOpenPath(docs_path.sub_path, .{}) catch |err| {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
-            "unable to create output directory '{}{s}': {s}",
-            .{ emit.root_dir, emit.sub_path, @errorName(err) },
+            "unable to create output directory '{}': {s}",
+            .{ docs_path, @errorName(err) },
         );
     };
     defer out_dir.close();
 
-    sub_compilation.dirs.local_cache.handle.copyFile(
-        sub_compilation.cache_use.whole.bin_sub_path.?,
+    crt_file.full_object_path.root_dir.handle.copyFile(
+        crt_file.full_object_path.sub_path,
         out_dir,
         "main.wasm",
         .{},
     ) catch |err| {
-        return comp.lockAndSetMiscFailure(.docs_copy, "unable to copy '{}{s}' to '{}{s}': {s}", .{
-            sub_compilation.dirs.local_cache,
-            sub_compilation.cache_use.whole.bin_sub_path.?,
-            emit.root_dir,
-            emit.sub_path,
+        return comp.lockAndSetMiscFailure(.docs_copy, "unable to copy '{}' to '{}': {s}", .{
+            crt_file.full_object_path,
+            docs_path,
             @errorName(err),
         });
     };
@@ -5185,7 +5276,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
                 defer whole.cache_manifest_mutex.unlock();
                 try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
             },
-            .incremental => {},
+            .incremental, .none => {},
         }
 
         const bin_digest = man.finalBin();
@@ -5260,6 +5351,21 @@ pub const RtOptions = struct {
     checks_valgrind: bool = false,
     allow_lto: bool = true,
 };
+
+fn workerZcuCodegen(
+    tid: usize,
+    comp: *Compilation,
+    func_index: InternPool.Index,
+    orig_air: Air,
+    out: *link.ZcuTask.LinkFunc.SharedMir,
+) void {
+    var air = orig_air;
+    // We own `air` now, so we are responsbile for freeing it.
+    defer air.deinit(comp.gpa);
+    const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+    defer pt.deactivate();
+    pt.runCodegen(func_index, &air, out);
+}
 
 fn buildRt(
     comp: *Compilation,
@@ -5515,9 +5621,9 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
     defer man.deinit();
 
     man.hash.add(comp.clang_preprocessor_mode);
-    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_asm);
-    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_ir);
-    cache_helpers.addOptionalEmitLoc(&man.hash, comp.emit_llvm_bc);
+    man.hash.addOptionalBytes(comp.emit_asm);
+    man.hash.addOptionalBytes(comp.emit_llvm_ir);
+    man.hash.addOptionalBytes(comp.emit_llvm_bc);
 
     try cache_helpers.hashCSource(&man, c_object.src);
 
@@ -5751,7 +5857,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
                         try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
                     }
                 },
-                .incremental => {},
+                .incremental, .none => {},
             }
         }
 
@@ -5792,7 +5898,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         },
     };
 
-    comp.queueLinkTasks(&.{.{ .load_object = c_object.status.success.object_path }});
+    comp.queuePrelinkTasks(&.{.{ .load_object = c_object.status.success.object_path }});
 }
 
 fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32_resource_prog_node: std.Progress.Node) !void {
@@ -5995,7 +6101,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
                         defer whole.cache_manifest_mutex.unlock();
                         try whole_cache_manifest.addFilePost(dep_file_path);
                     },
-                    .incremental => {},
+                    .incremental, .none => {},
                 }
             }
         }
@@ -7167,12 +7273,6 @@ fn buildOutputFromZig(
         .cc_argv = &.{},
         .parent = null,
     });
-    const target = comp.getTarget();
-    const bin_basename = try std.zig.binNameAlloc(arena, .{
-        .root_name = root_name,
-        .target = target,
-        .output_mode = output_mode,
-    });
 
     const parent_whole_cache: ?ParentWholeCache = switch (comp.cache_use) {
         .whole => |whole| .{
@@ -7185,7 +7285,7 @@ fn buildOutputFromZig(
                 3, // global cache is the same
             },
         },
-        .incremental => null,
+        .incremental, .none => null,
     };
 
     const sub_compilation = try Compilation.create(gpa, arena, .{
@@ -7198,13 +7298,9 @@ fn buildOutputFromZig(
         .root_name = root_name,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
-        .emit_bin = .{
-            .directory = null, // Put it in the cache directory.
-            .basename = bin_basename,
-        },
+        .emit_bin = .yes_cache,
         .function_sections = true,
         .data_sections = true,
-        .emit_h = null,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
@@ -7225,7 +7321,7 @@ fn buildOutputFromZig(
     assert(out.* == null);
     out.* = crt_file;
 
-    comp.queueLinkTaskMode(crt_file.full_object_path, &config);
+    comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
 }
 
 pub const CrtFileOptions = struct {
@@ -7324,13 +7420,9 @@ pub fn build_crt_file(
         .root_name = root_name,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
-        .emit_bin = .{
-            .directory = null, // Put it in the cache directory.
-            .basename = basename,
-        },
+        .emit_bin = .yes_cache,
         .function_sections = options.function_sections orelse false,
         .data_sections = options.data_sections orelse false,
-        .emit_h = null,
         .c_source_files = c_source_files,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
@@ -7349,7 +7441,7 @@ pub fn build_crt_file(
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
     const crt_file = try sub_compilation.toCrtFile();
-    comp.queueLinkTaskMode(crt_file.full_object_path, &config);
+    comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
 
     {
         comp.mutex.lock();
@@ -7359,8 +7451,8 @@ pub fn build_crt_file(
     }
 }
 
-pub fn queueLinkTaskMode(comp: *Compilation, path: Cache.Path, config: *const Compilation.Config) void {
-    comp.queueLinkTasks(switch (config.output_mode) {
+pub fn queuePrelinkTaskMode(comp: *Compilation, path: Cache.Path, config: *const Compilation.Config) void {
+    comp.queuePrelinkTasks(switch (config.output_mode) {
         .Exe => unreachable,
         .Obj => &.{.{ .load_object = path }},
         .Lib => &.{switch (config.link_mode) {
@@ -7372,19 +7464,41 @@ pub fn queueLinkTaskMode(comp: *Compilation, path: Cache.Path, config: *const Co
 
 /// Only valid to call during `update`. Automatically handles queuing up a
 /// linker worker task if there is not already one.
-pub fn queueLinkTasks(comp: *Compilation, tasks: []const link.Task) void {
-    if (comp.link_task_queue.enqueue(comp.gpa, tasks) catch |err| switch (err) {
+pub fn queuePrelinkTasks(comp: *Compilation, tasks: []const link.PrelinkTask) void {
+    comp.link_task_queue.enqueuePrelink(comp, tasks) catch |err| switch (err) {
         error.OutOfMemory => return comp.setAllocFailure(),
-    }) {
-        comp.thread_pool.spawnWgId(&comp.link_task_wait_group, link.flushTaskQueue, .{comp});
+    };
+}
+
+/// The reason for the double-queue here is that the first queue ensures any
+/// resolve_type_fully tasks are complete before this dispatch function is called.
+fn dispatchZcuLinkTask(comp: *Compilation, tid: usize, task: link.ZcuTask) void {
+    if (!comp.separateCodegenThreadOk()) {
+        assert(tid == 0);
+        if (task == .link_func) {
+            assert(task.link_func.mir.status.load(.monotonic) != .pending);
+        }
+        link.doZcuTask(comp, tid, task);
+        task.deinit(comp.zcu.?);
+        return;
     }
+    comp.link_task_queue.enqueueZcu(comp, task) catch |err| switch (err) {
+        error.OutOfMemory => {
+            task.deinit(comp.zcu.?);
+            comp.setAllocFailure();
+        },
+    };
 }
 
 pub fn toCrtFile(comp: *Compilation) Allocator.Error!CrtFile {
     return .{
         .full_object_path = .{
             .root_dir = comp.dirs.local_cache,
-            .sub_path = try comp.gpa.dupe(u8, comp.cache_use.whole.bin_sub_path.?),
+            .sub_path = try std.fs.path.join(comp.gpa, &.{
+                "o",
+                &Cache.binToHex(comp.digest.?),
+                comp.emit_bin.?,
+            }),
         },
         .lock = comp.cache_use.whole.moveLock(),
     };

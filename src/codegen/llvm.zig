@@ -1121,8 +1121,8 @@ pub const Object = struct {
         o: *Object,
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
-        air: Air,
-        liveness: Air.Liveness,
+        air: *const Air,
+        liveness: *const Air.Liveness,
     ) !void {
         assert(std.meta.eql(pt, o.pt));
         const zcu = pt.zcu;
@@ -1479,8 +1479,8 @@ pub const Object = struct {
 
         var fg: FuncGen = .{
             .gpa = gpa,
-            .air = air,
-            .liveness = liveness,
+            .air = air.*,
+            .liveness = liveness.*,
             .ng = &ng,
             .wip = wip,
             .is_naked = fn_info.cc == .naked,
@@ -1506,10 +1506,9 @@ pub const Object = struct {
         deinit_wip = false;
 
         fg.genBody(air.getMainBody(), .poi) catch |err| switch (err) {
-            error.CodegenFail => {
-                try zcu.failed_codegen.put(gpa, func.owner_nav, ng.err_msg.?);
-                ng.err_msg = null;
-                return;
+            error.CodegenFail => switch (zcu.codegenFailMsg(func.owner_nav, ng.err_msg.?)) {
+                error.CodegenFail => return,
+                error.OutOfMemory => |e| return e,
             },
             else => |e| return e,
         };
@@ -1561,10 +1560,9 @@ pub const Object = struct {
             .err_msg = null,
         };
         ng.genDecl() catch |err| switch (err) {
-            error.CodegenFail => {
-                try pt.zcu.failed_codegen.put(pt.zcu.gpa, nav_index, ng.err_msg.?);
-                ng.err_msg = null;
-                return;
+            error.CodegenFail => switch (pt.zcu.codegenFailMsg(nav_index, ng.err_msg.?)) {
+                error.CodegenFail => return,
+                error.OutOfMemory => |e| return e,
             },
             else => |e| return e,
         };
@@ -1585,6 +1583,27 @@ pub const Object = struct {
         const ip = &zcu.intern_pool;
         const global_index = self.nav_map.get(nav_index).?;
         const comp = zcu.comp;
+
+        // If we're on COFF and linking with LLD, the linker cares about our exports to determine the subsystem in use.
+        coff_export_flags: {
+            const lf = comp.bin_file orelse break :coff_export_flags;
+            const lld = lf.cast(.lld) orelse break :coff_export_flags;
+            const coff = switch (lld.ofmt) {
+                .elf, .wasm => break :coff_export_flags,
+                .coff => |*coff| coff,
+            };
+            if (!ip.isFunctionType(ip.getNav(nav_index).typeOf(ip))) break :coff_export_flags;
+            const flags = &coff.lld_export_flags;
+            for (export_indices) |export_index| {
+                const name = export_index.ptr(zcu).opts.name;
+                if (name.eqlSlice("main", ip)) flags.c_main = true;
+                if (name.eqlSlice("WinMain", ip)) flags.winmain = true;
+                if (name.eqlSlice("wWinMain", ip)) flags.wwinmain = true;
+                if (name.eqlSlice("WinMainCRTStartup", ip)) flags.winmain_crt_startup = true;
+                if (name.eqlSlice("wWinMainCRTStartup", ip)) flags.wwinmain_crt_startup = true;
+                if (name.eqlSlice("DllMainCRTStartup", ip)) flags.dllmain_crt_startup = true;
+            }
+        }
 
         if (export_indices.len != 0) {
             return updateExportedGlobal(self, zcu, global_index, export_indices);
@@ -9490,15 +9509,21 @@ pub const FuncGen = struct {
 
         const inst_ty = self.typeOfIndex(inst);
 
-        const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
-        if (name == .none) return arg_val;
-
         const func = zcu.funcInfo(zcu.navValue(self.ng.nav_index).toIntern());
+        const func_zir = func.zir_body_inst.resolveFull(&zcu.intern_pool).?;
+        const file = zcu.fileByIndex(func_zir.file);
+
+        const mod = file.mod.?;
+        if (mod.strip) return arg_val;
+        const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
+        const zir = &file.zir.?;
+        const name = zir.nullTerminatedString(zir.getParamName(zir.getParamBody(func_zir.inst)[arg.zir_param_index]).?);
+
         const lbrace_line = zcu.navSrcLine(func.owner_nav) + func.lbrace_line + 1;
         const lbrace_col = func.lbrace_column + 1;
 
         const debug_parameter = try o.builder.debugParameter(
-            try o.builder.metadataString(name.toSlice(self.air)),
+            try o.builder.metadataString(name),
             self.file,
             self.scope,
             lbrace_line,
@@ -9516,7 +9541,6 @@ pub const FuncGen = struct {
             },
         };
 
-        const mod = self.ng.ownerModule();
         if (isByRef(inst_ty, zcu)) {
             _ = try self.wip.callIntrinsic(
                 .normal,

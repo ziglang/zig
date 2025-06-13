@@ -9,16 +9,53 @@
 const Mir = @This();
 const InternPool = @import("../../InternPool.zig");
 const Wasm = @import("../../link/Wasm.zig");
+const Emit = @import("Emit.zig");
+const Alignment = InternPool.Alignment;
 
 const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
+const leb = std.leb;
 
-instruction_tags: []const Inst.Tag,
-instruction_datas: []const Inst.Data,
+instructions: std.MultiArrayList(Inst).Slice,
 /// A slice of indexes where the meaning of the data is determined by the
 /// `Inst.Tag` value.
 extra: []const u32,
+locals: []const std.wasm.Valtype,
+prologue: Prologue,
+
+/// Not directly used by `Emit`, but the linker needs this to merge it with a global set.
+/// Value is the explicit alignment if greater than natural alignment, `.none` otherwise.
+uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+/// Not directly used by `Emit`, but the linker needs this to merge it with a global set.
+indirect_function_set: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void),
+/// Not directly used by `Emit`, but the linker needs this to ensure these types are interned.
+func_tys: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
+/// Not directly used by `Emit`, but the linker needs this to add it to its own refcount.
+error_name_table_ref_count: u32,
+
+pub const Prologue = extern struct {
+    flags: Flags,
+    sp_local: u32,
+    stack_size: u32,
+    bottom_stack_local: u32,
+
+    pub const Flags = packed struct(u32) {
+        stack_alignment: Alignment,
+        padding: u26 = 0,
+    };
+
+    pub const none: Prologue = .{
+        .sp_local = 0,
+        .flags = .{ .stack_alignment = .none },
+        .stack_size = 0,
+        .bottom_stack_local = 0,
+    };
+
+    pub fn isNone(p: *const Prologue) bool {
+        return p.flags.stack_alignment != .none;
+    }
+};
 
 pub const Inst = struct {
     /// The opcode that represents this instruction
@@ -80,7 +117,7 @@ pub const Inst = struct {
         /// Lowers to an i32_const which is the index of the function in the
         /// table section.
         ///
-        /// Uses `indirect_function_table_index`.
+        /// Uses `nav_index`.
         func_ref,
         /// Inserts debug information about the current line and column
         /// of the source code
@@ -123,7 +160,7 @@ pub const Inst = struct {
         /// Calls a function pointer by its function signature
         /// and index into the function table.
         ///
-        /// Uses `func_ty`
+        /// Uses `ip_index`; the `InternPool.Index` is the function type.
         call_indirect,
         /// Calls a function by its index.
         ///
@@ -611,11 +648,7 @@ pub const Inst = struct {
 
         ip_index: InternPool.Index,
         nav_index: InternPool.Nav.Index,
-        func_ty: Wasm.FunctionType.Index,
         intrinsic: Intrinsic,
-        uav_obj: Wasm.UavsObjIndex,
-        uav_exe: Wasm.UavsExeIndex,
-        indirect_function_table_index: Wasm.ZcuIndirectFunctionSetIndex,
 
         comptime {
             switch (builtin.mode) {
@@ -626,10 +659,66 @@ pub const Inst = struct {
     };
 };
 
-pub fn deinit(self: *Mir, gpa: std.mem.Allocator) void {
-    self.instructions.deinit(gpa);
-    gpa.free(self.extra);
-    self.* = undefined;
+pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
+    mir.instructions.deinit(gpa);
+    gpa.free(mir.extra);
+    gpa.free(mir.locals);
+    mir.uavs.deinit(gpa);
+    mir.indirect_function_set.deinit(gpa);
+    mir.func_tys.deinit(gpa);
+    mir.* = undefined;
+}
+
+pub fn lower(mir: *const Mir, wasm: *Wasm, code: *std.ArrayListUnmanaged(u8)) std.mem.Allocator.Error!void {
+    const gpa = wasm.base.comp.gpa;
+
+    // Write the locals in the prologue of the function body.
+    try code.ensureUnusedCapacity(gpa, 5 + mir.locals.len * 6 + 38);
+
+    std.leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(mir.locals.len))) catch unreachable;
+    for (mir.locals) |local| {
+        std.leb.writeUleb128(code.fixedWriter(), @as(u32, 1)) catch unreachable;
+        code.appendAssumeCapacity(@intFromEnum(local));
+    }
+
+    // Stack management section of function prologue.
+    const stack_alignment = mir.prologue.flags.stack_alignment;
+    if (stack_alignment.toByteUnits()) |align_bytes| {
+        const sp_global: Wasm.GlobalIndex = .stack_pointer;
+        // load stack pointer
+        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_get));
+        std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+        // store stack pointer so we can restore it when we return from the function
+        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
+        leb.writeUleb128(code.fixedWriter(), mir.prologue.sp_local) catch unreachable;
+        // get the total stack size
+        const aligned_stack: i32 = @intCast(stack_alignment.forward(mir.prologue.stack_size));
+        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+        leb.writeIleb128(code.fixedWriter(), aligned_stack) catch unreachable;
+        // subtract it from the current stack pointer
+        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_sub));
+        // Get negative stack alignment
+        const neg_stack_align = @as(i32, @intCast(align_bytes)) * -1;
+        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+        leb.writeIleb128(code.fixedWriter(), neg_stack_align) catch unreachable;
+        // Bitwise-and the value to get the new stack pointer to ensure the
+        // pointers are aligned with the abi alignment.
+        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_and));
+        // The bottom will be used to calculate all stack pointer offsets.
+        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
+        leb.writeUleb128(code.fixedWriter(), mir.prologue.bottom_stack_local) catch unreachable;
+        // Store the current stack pointer value into the global stack pointer so other function calls will
+        // start from this value instead and not overwrite the current stack.
+        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
+        std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+    }
+
+    var emit: Emit = .{
+        .mir = mir.*,
+        .wasm = wasm,
+        .code = code,
+    };
+    try emit.lowerToCode();
 }
 
 pub fn extraData(self: *const Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
@@ -643,6 +732,7 @@ pub fn extraData(self: *const Mir, comptime T: type, index: usize) struct { data
             Wasm.UavsObjIndex,
             Wasm.UavsExeIndex,
             InternPool.Nav.Index,
+            InternPool.Index,
             => @enumFromInt(self.extra[i]),
             else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
         };
@@ -695,13 +785,8 @@ pub const MemArg = struct {
     alignment: u32,
 };
 
-pub const UavRefOffObj = struct {
-    uav_obj: Wasm.UavsObjIndex,
-    offset: i32,
-};
-
-pub const UavRefOffExe = struct {
-    uav_exe: Wasm.UavsExeIndex,
+pub const UavRefOff = struct {
+    value: InternPool.Index,
     offset: i32,
 };
 

@@ -19,19 +19,15 @@ pub fn generate(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
-    code: *std.ArrayListUnmanaged(u8),
-    debug_output: link.File.DebugInfoOutput,
-) codegen.CodeGenError!void {
+    air: *const Air,
+    liveness: *const Air.Liveness,
+) codegen.CodeGenError!noreturn {
     _ = bin_file;
     _ = pt;
     _ = src_loc;
     _ = func_index;
     _ = air;
     _ = liveness;
-    _ = code;
-    _ = debug_output;
 
     unreachable;
 }

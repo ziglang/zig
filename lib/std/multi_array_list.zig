@@ -135,6 +135,22 @@ pub fn MultiArrayList(comptime T: type) type {
                 self.* = undefined;
             }
 
+            /// Returns a `Slice` representing a range of elements in `s`, analagous to `arr[off..len]`.
+            /// It is illegal to call `deinit` or `toMultiArrayList` on the returned `Slice`.
+            /// Asserts that `off + len <= s.len`.
+            pub fn subslice(s: Slice, off: usize, len: usize) Slice {
+                assert(off + len <= s.len);
+                var ptrs: [fields.len][*]u8 = undefined;
+                inline for (s.ptrs, &ptrs, fields) |in, *out, field| {
+                    out.* = in + (off * @sizeOf(field.type));
+                }
+                return .{
+                    .ptrs = ptrs,
+                    .len = len,
+                    .capacity = len,
+                };
+            }
+
             /// This function is used in the debugger pretty formatters in tools/ to fetch the
             /// child field order and entry type to facilitate fancy debug printing for this type.
             fn dbHelper(self: *Slice, child: *Elem, field: *Field, entry: *Entry) void {
