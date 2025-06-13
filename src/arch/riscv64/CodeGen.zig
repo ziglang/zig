@@ -5962,10 +5962,14 @@ fn airBr(func: *Func, inst: Air.Inst.Index) !void {
             if (first_br) break :result src_mcv;
 
             try func.getValue(block_tracking.short, br.block_inst);
-            // .long = .none to avoid merging operand and block result stack frames.
-            const current_tracking: InstTracking = .{ .long = .none, .short = src_mcv };
-            try current_tracking.materializeUnsafe(func, br.block_inst, block_tracking.*);
-            for (current_tracking.getRegs()) |src_reg| func.register_manager.freeReg(src_reg);
+            try InstTracking.materializeUnsafe(
+                // .long = .none to avoid merging operand and block result stack frames.
+                .{ .long = .none, .short = src_mcv },
+                func,
+                br.block_inst,
+                block_tracking.*,
+            );
+            try func.freeValue(src_mcv);
             break :result block_tracking.short;
         }
 
@@ -8192,8 +8196,11 @@ fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
     const lf = func.bin_file;
     const src_loc = func.src_loc;
 
-    const result = if (val.isUndef(pt.zcu))
-        try lf.lowerUav(pt, val.toIntern(), .none, src_loc)
+    const result: codegen.GenResult = if (val.isUndef(pt.zcu))
+        switch (try lf.lowerUav(pt, val.toIntern(), .none, src_loc)) {
+            .sym_index => |sym_index| .{ .mcv = .{ .load_symbol = sym_index } },
+            .fail => |em| .{ .fail = em },
+        }
     else
         try codegen.genTypedValue(lf, pt, src_loc, val, func.target);
     const mcv: MCValue = switch (result) {

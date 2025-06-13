@@ -920,7 +920,7 @@ pub const File = struct {
         decl_val: InternPool.Index,
         decl_align: InternPool.Alignment,
         src_loc: Zcu.LazySrcLoc,
-    ) !codegen.GenResult {
+    ) !codegen.SymbolResult {
         assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             .lld => unreachable,

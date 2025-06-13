@@ -113,6 +113,51 @@ pub fn build(b: *std.Build) void {
             .cpu_arch = .x86_64,
             .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v4 },
         },
+
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64 },
+            .os_tag = .windows,
+            .abi = .none,
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64 },
+            .cpu_features_add = std.Target.x86.featureSet(&.{.ssse3}),
+            .os_tag = .windows,
+            .abi = .none,
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+            .os_tag = .windows,
+            .abi = .none,
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
+            .os_tag = .windows,
+            .abi = .none,
+        },
+
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64 },
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
     }) |query| {
         const target = b.resolveTargetQuery(query);
         const triple = query.zigTriple(b.allocator) catch @panic("OOM");

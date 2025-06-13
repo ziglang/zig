@@ -752,7 +752,7 @@ fn shrinkAtom(coff: *Coff, atom_index: Atom.Index, new_block_size: u32) void {
     // capacity, insert a free list node for it.
 }
 
-fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8) !void {
+fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8, resolve_relocs: bool) !void {
     const atom = coff.getAtom(atom_index);
     const sym = atom.getSymbol(coff);
     const section = coff.sections.get(@intFromEnum(sym.section_number) - 1);
@@ -774,11 +774,13 @@ fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8) !void {
     var relocs = std.ArrayList(*Relocation).init(gpa);
     defer relocs.deinit();
 
-    if (coff.relocs.getPtr(atom_index)) |rels| {
-        try relocs.ensureTotalCapacityPrecise(rels.items.len);
-        for (rels.items) |*reloc| {
-            if (reloc.isResolvable(coff) and reloc.dirty) {
-                relocs.appendAssumeCapacity(reloc);
+    if (resolve_relocs) {
+        if (coff.relocs.getPtr(atom_index)) |rels| {
+            try relocs.ensureTotalCapacityPrecise(rels.items.len);
+            for (rels.items) |*reloc| {
+                if (reloc.isResolvable(coff) and reloc.dirty) {
+                    relocs.appendAssumeCapacity(reloc);
+                }
             }
         }
     }
@@ -812,12 +814,15 @@ fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8) !void {
         }
     }
 
-    coff.resolveRelocs(atom_index, relocs.items, code, coff.image_base);
+    if (resolve_relocs) {
+        coff.resolveRelocs(atom_index, relocs.items, code, coff.image_base);
+    }
     try coff.pwriteAll(code, file_offset);
-
-    // Now we can mark the relocs as resolved.
-    while (relocs.pop()) |reloc| {
-        reloc.dirty = false;
+    if (resolve_relocs) {
+        // Now we can mark the relocs as resolved.
+        while (relocs.pop()) |reloc| {
+            reloc.dirty = false;
+        }
     }
 }
 
@@ -914,6 +919,7 @@ fn writeOffsetTableEntry(coff: *Coff, index: usize) !void {
 }
 
 fn markRelocsDirtyByTarget(coff: *Coff, target: SymbolWithLoc) void {
+    if (!coff.base.comp.incremental) return;
     // TODO: reverse-lookup might come in handy here
     for (coff.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
@@ -924,6 +930,7 @@ fn markRelocsDirtyByTarget(coff: *Coff, target: SymbolWithLoc) void {
 }
 
 fn markRelocsDirtyByAddress(coff: *Coff, addr: u32) void {
+    if (!coff.base.comp.incremental) return;
     const got_moved = blk: {
         const sect_id = coff.got_section_index orelse break :blk false;
         break :blk coff.sections.items(.header)[sect_id].virtual_address >= addr;
@@ -1129,7 +1136,7 @@ fn lowerConst(
     log.debug("allocated atom for {s} at 0x{x}", .{ name, atom.getSymbol(coff).value });
     log.debug("  (required alignment 0x{x})", .{required_alignment});
 
-    try coff.writeAtom(atom_index, code);
+    try coff.writeAtom(atom_index, code, coff.base.comp.incremental);
 
     return .{ .ok = atom_index };
 }
@@ -1212,8 +1219,7 @@ fn updateLazySymbolAtom(
     });
     defer gpa.free(name);
 
-    const atom = coff.getAtomPtr(atom_index);
-    const local_sym_index = atom.getSymbolIndex().?;
+    const local_sym_index = coff.getAtomPtr(atom_index).getSymbolIndex().?;
 
     const src = Type.fromInterned(sym.ty).srcLocOrNull(zcu) orelse Zcu.LazySrcLoc.unneeded;
     try codegen.generateLazySymbol(
@@ -1228,12 +1234,13 @@ fn updateLazySymbolAtom(
     );
     const code = code_buffer.items;
 
-    const code_len: u32 = @intCast(code.len);
+    const atom = coff.getAtomPtr(atom_index);
     const symbol = atom.getSymbolPtr(coff);
     try coff.setSymbolName(symbol, name);
     symbol.section_number = @enumFromInt(section_index + 1);
     symbol.type = .{ .complex_type = .NULL, .base_type = .NULL };
 
+    const code_len: u32 = @intCast(code.len);
     const vaddr = try coff.allocateAtom(atom_index, code_len, @intCast(required_alignment.toByteUnits() orelse 0));
     errdefer coff.freeAtom(atom_index);
 
@@ -1244,7 +1251,7 @@ fn updateLazySymbolAtom(
     symbol.value = vaddr;
 
     try coff.addGotEntry(.{ .sym_index = local_sym_index });
-    try coff.writeAtom(atom_index, code);
+    try coff.writeAtom(atom_index, code, coff.base.comp.incremental);
 }
 
 pub fn getOrCreateAtomForLazySymbol(
@@ -1392,7 +1399,7 @@ fn updateNavCode(
         };
     }
 
-    coff.writeAtom(atom_index, code) catch |err| switch (err) {
+    coff.writeAtom(atom_index, code, coff.base.comp.incremental) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |e| return coff.base.cgFail(nav_index, "failed to write atom: {s}", .{@errorName(e)}),
     };
@@ -1430,7 +1437,7 @@ pub fn updateExports(
             const first_exp = export_indices[0].ptr(zcu);
             const res = try coff.lowerUav(pt, uav, .none, first_exp.src);
             switch (res) {
-                .mcv => {},
+                .sym_index => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Module.processExportsInner
                     // handle the error?
@@ -1677,7 +1684,7 @@ fn flushInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void {
         const amt = try coff.base.file.?.preadAll(code.items, file_offset);
         if (amt != code.items.len) return error.InputOutput;
 
-        try coff.writeAtom(atom_index, code.items);
+        try coff.writeAtom(atom_index, code.items, true);
     }
 
     // Update GOT if it got moved in memory.
@@ -1770,7 +1777,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const val = Value.fromInterned(uav);
@@ -1782,7 +1789,7 @@ pub fn lowerUav(
         const atom = coff.getAtom(metadata.atom);
         const existing_addr = atom.getSymbol(coff).value;
         if (uav_alignment.check(existing_addr))
-            return .{ .mcv = .{ .load_symbol = atom.getSymbolIndex().? } };
+            return .{ .sym_index = atom.getSymbolIndex().? };
     }
 
     var name_buf: [32]u8 = undefined;
@@ -1813,9 +1820,7 @@ pub fn lowerUav(
         .atom = atom_index,
         .section = coff.rdata_section_index.?,
     });
-    return .{ .mcv = .{
-        .load_symbol = coff.getAtom(atom_index).getSymbolIndex().?,
-    } };
+    return .{ .sym_index = coff.getAtom(atom_index).getSymbolIndex().? };
 }
 
 pub fn getUavVAddr(
@@ -2478,11 +2483,6 @@ const GetOrPutGlobalPtrResult = struct {
     found_existing: bool,
     value_ptr: *SymbolWithLoc,
 };
-
-/// Used only for disambiguating local from global at relocation level.
-/// TODO this must go away.
-pub const global_symbol_bit: u32 = 0x80000000;
-pub const global_symbol_mask: u32 = 0x7fffffff;
 
 /// Return pointer to the global entry for `name` if one exists.
 /// Puts a new global entry for `name` if one doesn't exist, and

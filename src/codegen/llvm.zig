@@ -12115,7 +12115,7 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: *const st
     return switch (fn_info.cc) {
         .auto => returnTypeByRef(zcu, target, return_type),
         .x86_64_sysv => firstParamSRetSystemV(return_type, zcu, target),
-        .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
+        .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu, target) == .memory,
         .x86_sysv, .x86_win => isByRef(return_type, zcu),
         .x86_stdcall => !isScalar(zcu, return_type),
         .wasm_mvp => wasm_c_abi.classifyType(return_type, zcu) == .indirect,
@@ -12215,7 +12215,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
 fn lowerWin64FnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Builder.Type {
     const zcu = o.pt.zcu;
     const return_type = Type.fromInterned(fn_info.return_type);
-    switch (x86_64_abi.classifyWindows(return_type, zcu)) {
+    switch (x86_64_abi.classifyWindows(return_type, zcu, zcu.getTarget())) {
         .integer => {
             if (isScalar(zcu, return_type)) {
                 return o.lowerType(return_type);
@@ -12239,7 +12239,6 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
         return o.lowerType(return_type);
     }
     const classes = x86_64_abi.classifySystemV(return_type, zcu, zcu.getTarget(), .ret);
-    if (classes[0] == .memory) return .void;
     var types_index: u32 = 0;
     var types_buffer: [8]Builder.Type = undefined;
     for (classes) |class| {
@@ -12274,15 +12273,9 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
                 types_index += 1;
             },
             .x87up => continue,
-            .complex_x87 => {
-                @panic("TODO");
-            },
-            .memory => unreachable, // handled above
-            .win_i128 => unreachable, // windows only
             .none => break,
-            .integer_per_element => {
-                @panic("TODO");
-            },
+            .memory, .integer_per_element => return .void,
+            .win_i128 => unreachable, // windows only
         }
     }
     const first_non_integer = std.mem.indexOfNone(x86_64_abi.Class, &classes, &.{.integer});
@@ -12492,7 +12485,7 @@ const ParamTypeIterator = struct {
 
     fn nextWin64(it: *ParamTypeIterator, ty: Type) ?Lowering {
         const zcu = it.object.pt.zcu;
-        switch (x86_64_abi.classifyWindows(ty, zcu)) {
+        switch (x86_64_abi.classifyWindows(ty, zcu, zcu.getTarget())) {
             .integer => {
                 if (isScalar(zcu, ty)) {
                     it.zig_index += 1;
@@ -12573,12 +12566,9 @@ const ParamTypeIterator = struct {
                     return .byref;
                 },
                 .x87up => unreachable,
-                .complex_x87 => {
-                    @panic("TODO");
-                },
+                .none => break,
                 .memory => unreachable, // handled above
                 .win_i128 => unreachable, // windows only
-                .none => break,
                 .integer_per_element => {
                     @panic("TODO");
                 },

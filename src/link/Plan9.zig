@@ -1358,7 +1358,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     _ = explicit_alignment;
     // example:
     // const ty = mod.intern_pool.typeOf(decl_val).toType();
@@ -1370,7 +1370,7 @@ pub fn lowerUav(
     // ...
     const gpa = self.base.comp.gpa;
     const gop = try self.uavs.getOrPut(gpa, uav);
-    if (gop.found_existing) return .{ .mcv = .{ .load_direct = gop.value_ptr.* } };
+    if (gop.found_existing) return .{ .sym_index = gop.value_ptr.* };
     const val = Value.fromInterned(uav);
     const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(uav)});
 
@@ -1395,7 +1395,7 @@ pub fn lowerUav(
         .value = undefined,
         .name = name,
     };
-    return .{ .mcv = .{ .load_direct = index } };
+    return .{ .sym_index = index };
 }
 
 pub fn getUavVAddr(self: *Plan9, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {

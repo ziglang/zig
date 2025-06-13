@@ -997,7 +997,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const val = Value.fromInterned(uav);
@@ -1010,7 +1010,7 @@ pub fn lowerUav(
         const sym = self.symbol(metadata.symbol_index);
         const existing_alignment = sym.atom(elf_file).?.alignment;
         if (uav_alignment.order(existing_alignment).compare(.lte))
-            return .{ .mcv = .{ .load_symbol = metadata.symbol_index } };
+            return .{ .sym_index = metadata.symbol_index };
     }
 
     const osec = if (self.data_relro_index) |sym_index|
@@ -1047,12 +1047,11 @@ pub fn lowerUav(
             .{@errorName(e)},
         ) },
     };
-    const sym_index = switch (res) {
-        .ok => |sym_index| sym_index,
-        .fail => |em| return .{ .fail = em },
-    };
-    try self.uavs.put(gpa, uav, .{ .symbol_index = sym_index, .allocated = true });
-    return .{ .mcv = .{ .load_symbol = sym_index } };
+    switch (res) {
+        .sym_index => |sym_index| try self.uavs.put(gpa, uav, .{ .symbol_index = sym_index, .allocated = true }),
+        .fail => {},
+    }
+    return res;
 }
 
 pub fn getOrCreateMetadataForLazySymbol(
@@ -1692,11 +1691,6 @@ fn updateLazySymbol(
     try elf_file.pwriteAll(code, atom_ptr.offset(elf_file));
 }
 
-const LowerConstResult = union(enum) {
-    ok: Symbol.Index,
-    fail: *Zcu.ErrorMsg,
-};
-
 fn lowerConst(
     self: *ZigObject,
     elf_file: *Elf,
@@ -1706,7 +1700,7 @@ fn lowerConst(
     required_alignment: InternPool.Alignment,
     output_section_index: u32,
     src_loc: Zcu.LazySrcLoc,
-) !LowerConstResult {
+) !codegen.SymbolResult {
     const gpa = pt.zcu.gpa;
 
     var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
@@ -1740,7 +1734,7 @@ fn lowerConst(
 
     try elf_file.pwriteAll(code, atom_ptr.offset(elf_file));
 
-    return .{ .ok = sym_index };
+    return .{ .sym_index = sym_index };
 }
 
 pub fn updateExports(
@@ -1764,7 +1758,7 @@ pub fn updateExports(
             const first_exp = export_indices[0].ptr(zcu);
             const res = try self.lowerUav(elf_file, pt, uav, .none, first_exp.src);
             switch (res) {
-                .mcv => {},
+                .sym_index => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Zcu.processExportsInner
                     // handle the error?

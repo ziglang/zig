@@ -1562,6 +1562,15 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .windows,
+                .abi = .gnu,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
                 .abi = .none,
             },
         },

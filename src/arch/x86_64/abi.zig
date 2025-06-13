@@ -1,20 +1,86 @@
 pub const Class = enum {
+    /// INTEGER: This class consists of integral types that fit into one of the general
+    ///     purpose registers.
     integer,
+    /// SSE: The class consists of types that fit into a vector register.
     sse,
+    /// SSEUP: The class consists of types that fit into a vector register and can be passed
+    ///     and returned in the upper bytes of it.
     sseup,
+    /// X87, X87UP: These classes consist of types that will be returned via the
+    ///     x87 FPU.
     x87,
+    /// The 15-bit exponent, 1-bit sign, and 6 bytes of padding of an `f80`.
     x87up,
-    complex_x87,
-    memory,
+    /// NO_CLASS: This class is used as initializer in the algorithms. It will be used for
+    ///     padding and empty structures and unions.
     none,
+    /// MEMORY: This class consists of types that will be passed and returned in mem-
+    ///     ory via the stack.
+    memory,
+    /// Win64 passes 128-bit integers as `Class.memory` but returns them as `Class.sse`.
     win_i128,
+    /// A `Class.sse` containing one `f32`.
     float,
+    /// A `Class.sse` containing two `f32`s.
     float_combine,
+    /// Clang passes each vector element in a separate `Class.integer`, but returns as `Class.memory`.
     integer_per_element,
 
-    fn isX87(class: Class) bool {
+    pub const one_integer: [8]Class = .{
+        .integer, .none, .none, .none,
+        .none,    .none, .none, .none,
+    };
+    pub const two_integers: [8]Class = .{
+        .integer, .integer, .none, .none,
+        .none,    .none,    .none, .none,
+    };
+    pub const three_integers: [8]Class = .{
+        .integer, .integer, .integer, .none,
+        .none,    .none,    .none,    .none,
+    };
+    pub const four_integers: [8]Class = .{
+        .integer, .integer, .integer, .integer,
+        .none,    .none,    .none,    .none,
+    };
+    pub const len_integers: [8]Class = .{
+        .integer_per_element, .none, .none, .none,
+        .none,                .none, .none, .none,
+    };
+
+    pub const @"f16" = @"f64";
+    pub const @"f32": [8]Class = .{
+        .float, .none, .none, .none,
+        .none,  .none, .none, .none,
+    };
+    pub const @"f64": [8]Class = .{
+        .sse,  .none, .none, .none,
+        .none, .none, .none, .none,
+    };
+    pub const @"f80": [8]Class = .{
+        .x87,  .x87up, .none, .none,
+        .none, .none,  .none, .none,
+    };
+    pub const @"f128": [8]Class = .{
+        .sse,  .sseup, .none, .none,
+        .none, .none,  .none, .none,
+    };
+
+    /// COMPLEX_X87: This class consists of types that will be returned via the x87
+    ///     FPU.
+    pub const complex_x87: [8]Class = .{
+        .x87,  .x87up, .x87,  .x87up,
+        .none, .none,  .none, .none,
+    };
+
+    pub const stack: [8]Class = .{
+        .memory, .none, .none, .none,
+        .none,   .none, .none, .none,
+    };
+
+    pub fn isX87(class: Class) bool {
         return switch (class) {
-            .x87, .x87up, .complex_x87 => true,
+            .x87, .x87up => true,
             else => false,
         };
     }
@@ -44,7 +110,7 @@ pub const Class = enum {
     }
 };
 
-pub fn classifyWindows(ty: Type, zcu: *Zcu) Class {
+pub fn classifyWindows(ty: Type, zcu: *Zcu, target: *const std.Target) Class {
     // https://docs.microsoft.com/en-gb/cpp/build/x64-calling-convention?view=vs-2017
     // "There's a strict one-to-one correspondence between a function call's arguments
     // and the registers used for those arguments. Any argument that doesn't fit in 8
@@ -53,7 +119,7 @@ pub fn classifyWindows(ty: Type, zcu: *Zcu) Class {
     // "All floating point operations are done using the 16 XMM registers."
     // "Structs and unions of size 8, 16, 32, or 64 bits, and __m64 types, are passed
     // as if they were integers of the same size."
-    switch (ty.zigTypeTag(zcu)) {
+    return switch (ty.zigTypeTag(zcu)) {
         .pointer,
         .int,
         .bool,
@@ -70,19 +136,23 @@ pub fn classifyWindows(ty: Type, zcu: *Zcu) Class {
         .frame,
         => switch (ty.abiSize(zcu)) {
             0 => unreachable,
-            1, 2, 4, 8 => return .integer,
+            1, 2, 4, 8 => .integer,
             else => switch (ty.zigTypeTag(zcu)) {
-                .int => return .win_i128,
-                .@"struct", .@"union" => if (ty.containerLayout(zcu) == .@"packed") {
-                    return .win_i128;
-                } else {
-                    return .memory;
-                },
-                else => return .memory,
+                .int => .win_i128,
+                .@"struct", .@"union" => if (ty.containerLayout(zcu) == .@"packed")
+                    .win_i128
+                else
+                    .memory,
+                else => .memory,
             },
         },
 
-        .float, .vector => return .sse,
+        .float => switch (ty.floatBits(target)) {
+            16, 32, 64, 128 => .sse,
+            80 => .memory,
+            else => unreachable,
+        },
+        .vector => .sse,
 
         .type,
         .comptime_float,
@@ -93,171 +163,109 @@ pub fn classifyWindows(ty: Type, zcu: *Zcu) Class {
         .@"opaque",
         .enum_literal,
         => unreachable,
-    }
+    };
 }
 
-pub const Context = enum { ret, arg, field, other };
+pub const Context = enum { ret, arg, other };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
 pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Context) [8]Class {
-    const memory_class = [_]Class{
-        .memory, .none, .none, .none,
-        .none,   .none, .none, .none,
-    };
-    var result = [1]Class{.none} ** 8;
     switch (ty.zigTypeTag(zcu)) {
         .pointer => switch (ty.ptrSize(zcu)) {
-            .slice => {
-                result[0] = .integer;
-                result[1] = .integer;
-                return result;
-            },
-            else => {
-                result[0] = .integer;
-                return result;
-            },
+            .slice => return Class.two_integers,
+            else => return Class.one_integer,
         },
         .int, .@"enum", .error_set => {
             const bits = ty.intInfo(zcu).bits;
-            if (bits <= 64) {
-                result[0] = .integer;
-                return result;
-            }
-            if (bits <= 128) {
-                result[0] = .integer;
-                result[1] = .integer;
-                return result;
-            }
-            if (bits <= 192) {
-                result[0] = .integer;
-                result[1] = .integer;
-                result[2] = .integer;
-                return result;
-            }
-            if (bits <= 256) {
-                result[0] = .integer;
-                result[1] = .integer;
-                result[2] = .integer;
-                result[3] = .integer;
-                return result;
-            }
-            return memory_class;
+            if (bits <= 64 * 1) return Class.one_integer;
+            if (bits <= 64 * 2) return Class.two_integers;
+            if (bits <= 64 * 3) return Class.three_integers;
+            if (bits <= 64 * 4) return Class.four_integers;
+            return Class.stack;
         },
-        .bool, .void, .noreturn => {
-            result[0] = .integer;
-            return result;
-        },
+        .bool, .void, .noreturn => return Class.one_integer,
         .float => switch (ty.floatBits(target)) {
             16 => {
-                if (ctx == .field) {
-                    result[0] = .memory;
-                } else {
-                    // TODO clang doesn't allow __fp16 as .ret or .arg
-                    result[0] = .sse;
-                }
-                return result;
+                if (ctx == .other) return Class.stack;
+                // TODO clang doesn't allow __fp16 as .ret or .arg
+                return Class.f16;
             },
-            32 => {
-                result[0] = .float;
-                return result;
-            },
-            64 => {
-                result[0] = .sse;
-                return result;
-            },
-            128 => {
-                // "Arguments of types __float128, _Decimal128 and __m128 are
-                // split into two halves.  The least significant ones belong
-                // to class SSE, the most significant one to class SSEUP."
-                result[0] = .sse;
-                result[1] = .sseup;
-                return result;
-            },
-            80 => {
-                // "The 64-bit mantissa of arguments of type long double
-                // belongs to classX87, the 16-bit exponent plus 6 bytes
-                // of padding belongs to class X87UP."
-                result[0] = .x87;
-                result[1] = .x87up;
-                return result;
-            },
+            32 => return Class.f32,
+            64 => return Class.f64,
+            // "Arguments of types __float128, _Decimal128 and __m128 are
+            // split into two halves.  The least significant ones belong
+            // to class SSE, the most significant one to class SSEUP."
+            128 => return Class.f128,
+            // "The 64-bit mantissa of arguments of type long double
+            // belongs to class X87, the 16-bit exponent plus 6 bytes
+            // of padding belongs to class X87UP."
+            80 => return Class.f80,
             else => unreachable,
         },
         .vector => {
             const elem_ty = ty.childType(zcu);
             const bits = elem_ty.bitSize(zcu) * ty.arrayLen(zcu);
             if (elem_ty.toIntern() == .bool_type) {
-                if (bits <= 32) return .{
-                    .integer, .none, .none, .none,
-                    .none,    .none, .none, .none,
-                };
-                if (bits <= 64) return .{
-                    .sse,  .none, .none, .none,
-                    .none, .none, .none, .none,
-                };
-                if (ctx == .arg) {
-                    if (bits <= 128) return .{
-                        .integer_per_element, .none, .none, .none,
-                        .none,                .none, .none, .none,
-                    };
-                    if (bits <= 256 and target.cpu.has(.x86, .avx)) return .{
-                        .integer_per_element, .none, .none, .none,
-                        .none,                .none, .none, .none,
-                    };
-                    if (bits <= 512 and target.cpu.has(.x86, .avx512f)) return .{
-                        .integer_per_element, .none, .none, .none,
-                        .none,                .none, .none, .none,
-                    };
-                }
-                return memory_class;
+                if (bits <= 32) return Class.one_integer;
+                if (bits <= 64) return Class.f64;
+                if (ctx == .other) return Class.stack;
+                if (bits <= 128) return Class.len_integers;
+                if (bits <= 256 and target.cpu.has(.x86, .avx)) return Class.len_integers;
+                if (bits <= 512 and target.cpu.has(.x86, .avx512f)) return Class.len_integers;
+                return Class.stack;
             }
-            if (bits <= 64) return .{
+            if (elem_ty.isRuntimeFloat() and elem_ty.floatBits(target) == 80) {
+                if (bits <= 80 * 1) return Class.f80;
+                if (bits <= 80 * 2) return Class.complex_x87;
+                return Class.stack;
+            }
+            if (bits <= 64 * 1) return .{
                 .sse,  .none, .none, .none,
                 .none, .none, .none, .none,
             };
-            if (bits <= 128) return .{
+            if (bits <= 64 * 2) return .{
                 .sse,  .sseup, .none, .none,
                 .none, .none,  .none, .none,
             };
-            if (ctx == .arg and !target.cpu.has(.x86, .avx)) return memory_class;
-            if (bits <= 192) return .{
+            if (ctx == .arg and !target.cpu.has(.x86, .avx)) return Class.stack;
+            if (bits <= 64 * 3) return .{
                 .sse,  .sseup, .sseup, .none,
                 .none, .none,  .none,  .none,
             };
-            if (bits <= 256) return .{
+            if (bits <= 64 * 4) return .{
                 .sse,  .sseup, .sseup, .sseup,
                 .none, .none,  .none,  .none,
             };
-            if (ctx == .arg and !target.cpu.has(.x86, .avx512f)) return memory_class;
-            if (bits <= 320) return .{
+            if (ctx == .arg and !target.cpu.has(.x86, .avx512f)) return Class.stack;
+            if (bits <= 64 * 5) return .{
                 .sse,   .sseup, .sseup, .sseup,
                 .sseup, .none,  .none,  .none,
             };
-            if (bits <= 384) return .{
+            if (bits <= 64 * 6) return .{
                 .sse,   .sseup, .sseup, .sseup,
                 .sseup, .sseup, .none,  .none,
             };
-            if (bits <= 448) return .{
+            if (bits <= 64 * 7) return .{
                 .sse,   .sseup, .sseup, .sseup,
                 .sseup, .sseup, .sseup, .none,
             };
-            if (bits <= 512 or (ctx == .ret and bits <= @as(u64, if (target.cpu.has(.x86, .avx512f))
-                2048
+            if (bits <= 64 * 8 or (ctx == .ret and bits <= @as(u64, if (target.cpu.has(.x86, .avx512f))
+                64 * 32
             else if (target.cpu.has(.x86, .avx))
-                1024
+                64 * 16
             else
-                512))) return .{
+                64 * 8))) return .{
                 .sse,   .sseup, .sseup, .sseup,
                 .sseup, .sseup, .sseup, .sseup,
             };
-            return memory_class;
+            return Class.stack;
         },
         .optional => {
             if (ty.optionalReprIsPayload(zcu)) {
                 return classifySystemV(ty.optionalChild(zcu), zcu, target, ctx);
             }
-            return memory_class;
+            return Class.stack;
         },
         .@"struct", .@"union" => {
             // "If the size of an object is larger than eight eightbytes, or
@@ -269,15 +277,14 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Cont
                 .auto => unreachable,
                 .@"extern" => {},
                 .@"packed" => {
-                    assert(ty_size <= 16);
-                    result[0] = .integer;
-                    if (ty_size > 8) result[1] = .integer;
-                    return result;
+                    if (ty_size <= 8) return Class.one_integer;
+                    if (ty_size <= 16) return Class.two_integers;
+                    unreachable; // frontend should not have allowed this type as extern
                 },
             }
-            if (ty_size > 64)
-                return memory_class;
+            if (ty_size > 64) return Class.stack;
 
+            var result: [8]Class = @splat(.none);
             _ = if (zcu.typeToStruct(ty)) |loaded_struct|
                 classifySystemVStruct(&result, 0, loaded_struct, zcu, target)
             else if (zcu.typeToUnion(ty)) |loaded_union|
@@ -290,15 +297,15 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Cont
             // "If one of the classes is MEMORY, the whole argument is passed in memory"
             // "If X87UP is not preceded by X87, the whole argument is passed in memory."
             for (result, 0..) |class, i| switch (class) {
-                .memory => return memory_class,
-                .x87up => if (i == 0 or result[i - 1] != .x87) return memory_class,
+                .memory => return Class.stack,
+                .x87up => if (i == 0 or result[i - 1] != .x87) return Class.stack,
                 else => continue,
             };
             // "If the size of the aggregate exceeds two eightbytes and the first eight-
             // byte isn’t SSE or any other eightbyte isn’t SSEUP, the whole argument
             // is passed in memory."
             if (ty_size > 16 and (result[0] != .sse or
-                std.mem.indexOfNone(Class, result[1..], &.{ .sseup, .none }) != null)) return memory_class;
+                std.mem.indexOfNone(Class, result[1..], &.{ .sseup, .none }) != null)) return Class.stack;
 
             // "If SSEUP is not preceded by SSE or SSEUP, it is converted to SSE."
             for (&result, 0..) |*item, i| {
@@ -311,16 +318,9 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Cont
         },
         .array => {
             const ty_size = ty.abiSize(zcu);
-            if (ty_size <= 8) {
-                result[0] = .integer;
-                return result;
-            }
-            if (ty_size <= 16) {
-                result[0] = .integer;
-                result[1] = .integer;
-                return result;
-            }
-            return memory_class;
+            if (ty_size <= 8) return Class.one_integer;
+            if (ty_size <= 16) return Class.two_integers;
+            return Class.stack;
         },
         else => unreachable,
     }
@@ -363,7 +363,7 @@ fn classifySystemVStruct(
                 .@"packed" => {},
             }
         }
-        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, zcu, target, .field), .none);
+        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, zcu, target, .other), .none);
         for (result[@intCast(byte_offset / 8)..][0..field_classes.len], field_classes) |*result_class, field_class|
             result_class.* = result_class.combineSystemV(field_class);
         byte_offset += field_ty.abiSize(zcu);
@@ -406,7 +406,7 @@ fn classifySystemVUnion(
                 .@"packed" => {},
             }
         }
-        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, zcu, target, .field), .none);
+        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, zcu, target, .other), .none);
         for (result[@intCast(starting_byte_offset / 8)..][0..field_classes.len], field_classes) |*result_class, field_class|
             result_class.* = result_class.combineSystemV(field_class);
     }

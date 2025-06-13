@@ -3092,7 +3092,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     return self.getZigObject().?.lowerUav(self, pt, uav, explicit_alignment, src_loc);
 }
 
