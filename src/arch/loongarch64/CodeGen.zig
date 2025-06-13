@@ -1511,15 +1511,9 @@ fn reuseTemp(
 }
 
 fn resolveCallInfo(cg: *CodeGen, fn_ty: *const InternPool.Key.FuncType) codegen.CodeGenError!abi.CallInfo {
-    const cc_tag: std.builtin.CallingConvention.Tag = fn_ty.cc;
-    return switch (cc_tag) {
-        inline .auto,
-        .loongarch64_lp64,
-        => |cc| abi.getAbiInfo(cc).CCResolver.resolve(&cg.pt, cg.gpa, cg.target, fn_ty) catch |err| switch (err) {
-            error.CCSelectFailed => return cg.fail("Failed to resolve calling convention values", .{}),
-            else => |e| return e,
-        },
-        else => unreachable,
+    return abi.CCResolver.resolve(&cg.pt, cg.gpa, cg.target, fn_ty) catch |err| switch (err) {
+        error.CCSelectFailed => return cg.fail("Failed to resolve calling convention values", .{}),
+        else => |e| return e,
     };
 }
 

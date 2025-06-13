@@ -111,9 +111,6 @@ pub const zigcc = struct {
         // zig fmt: on
         pub const static_regs = [_]Register{ .x24, .x25, .x26, .x27, .x28, .x29, .x30, .x31 };
     };
-
-    // TODO: implement zigcc
-    pub const CCResolver = c_abi.CCResolver;
 };
 
 pub const c_abi = struct {
@@ -141,199 +138,6 @@ pub const c_abi = struct {
         };
         // zig fmt: on
         pub const static_regs = [_]Register{ .x24, .x25, .x26, .x27, .x28, .x29, .x30, .x31 };
-    };
-
-    pub const CCResolver = struct {
-        pt: *const Zcu.PerThread,
-
-        frame_size: u32 = 0,
-        frame_align: InternPool.Alignment = .@"16",
-
-        reg_count: struct {
-            param_gpr: u8 = 0,
-            ret_gpr: u8 = 0,
-            param_fpr: u8 = 0,
-            ret_fpr: u8 = 0,
-        } = .{},
-
-        pub fn resolve(pt: *const Zcu.PerThread, gpa: Allocator, target: *const std.Target, func: *const InternPool.Key.FuncType) !CallInfo {
-            _ = target;
-            var resolver: CCResolver = .{ .pt = pt };
-
-            log.debug("C calling convention resolve:", .{});
-            const return_value = try resolver.resolveType(.fromInterned(func.return_type), .ret);
-            log.debug("  - ret: {}", .{return_value});
-
-            const params = try gpa.alloc(CCValue, func.param_types.len);
-            for (func.param_types.get(&pt.zcu.intern_pool), 0..) |param, i| {
-                const param_ccv = try resolver.resolveType(.fromInterned(param), .param);
-                log.debug("  - param {}: {}", .{ i + 1, param_ccv });
-                params[i] = param_ccv;
-            }
-
-            log.debug("  - frame: size: {}, align: {}", .{ resolver.frame_size, resolver.frame_align.toByteUnits().? });
-            return .{
-                .params = params,
-                .return_value = return_value,
-                .frame_size = resolver.frame_size,
-                .frame_align = resolver.frame_align,
-                .err_ret_trace_reg = null,
-            };
-        }
-
-        const Context = enum { param, ret };
-
-        fn allocRegs(self: *CCResolver, class: RegisterClass, ctx: Context, count: comptime_int) ?[count]Register {
-            const count_ptr: *u8, const first_reg: Register, const last_reg: Register = switch (class) {
-                .int => switch (ctx) {
-                    .param => .{ &self.reg_count.param_gpr, .r4, .r11 },
-                    .ret => .{ &self.reg_count.ret_gpr, .r4, .r5 },
-                },
-                .floating => switch (ctx) {
-                    .param => .{ &self.reg_count.param_fpr, .x0, .x7 },
-                    .ret => .{ &self.reg_count.ret_fpr, .x0, .x1 },
-                },
-            };
-            if (count_ptr.* + count <= (@intFromEnum(last_reg) - @intFromEnum(first_reg) + 1)) {
-                var ret: [count]Register = undefined;
-                for (0..count, count_ptr.*..) |i, off| {
-                    ret[i] = @enumFromInt(@intFromEnum(first_reg) + off);
-                }
-                count_ptr.* += count;
-                return ret;
-            } else {
-                return null;
-            }
-        }
-
-        fn allocReg(self: *CCResolver, class: RegisterClass, ctx: Context) ?Register {
-            return if (self.allocRegs(class, ctx, 1)) |regs|
-                regs[0]
-            else
-                null;
-        }
-
-        /// Allocates a value on stack, returning offset to the args frame
-        fn allocStack(self: *CCResolver, ty: Type) i32 {
-            const zcu = self.pt.zcu;
-            const alignment = ty.abiAlignment(zcu);
-            const size = ty.abiSize(zcu);
-            self.frame_align = self.frame_align.max(alignment);
-            const off = alignment.forward(self.frame_size);
-            self.frame_size = @intCast(off + size);
-            return @intCast(off);
-        }
-
-        fn allocPtr(self: *CCResolver, ctx: Context) CCValue {
-            if (self.allocReg(.int, ctx)) |reg| {
-                return .{ .register = reg };
-            } else {
-                return .{ .frame = self.allocStack(Type.usize) };
-            }
-        }
-
-        fn resolveType(self: *CCResolver, ty: Type, ctx: Context) error{CCSelectFailed}!CCValue {
-            const zcu = self.pt.zcu;
-            // TODO: implement vector calling convention
-            // TODO: implement FP calling convention
-            switch (ty.zigTypeTag(zcu)) {
-                .pointer => switch (ty.ptrSize(zcu)) {
-                    .c => return self.allocPtr(ctx),
-                    else => {},
-                },
-                .int, .@"enum", .bool => |ty_tag| {
-                    const ty_size: u16 = switch (ty_tag) {
-                        .int, .@"enum" => ty.intInfo(zcu).bits,
-                        .bool => 1,
-                        else => unreachable,
-                    };
-                    switch (ty_size) {
-                        1...64 => return self.allocPtr(ctx),
-                        65...128 => {
-                            if (self.allocRegs(.int, ctx, 2)) |regs| {
-                                return .{ .register_pair = regs };
-                            } else if (self.allocReg(.int, ctx)) |reg| {
-                                return .{ .split = .{ .reg = reg, .frame_off = self.allocStack(Type.usize) } };
-                            } else {
-                                return .{ .frame = self.allocStack(Type.usize) };
-                            }
-                        },
-                        else => {},
-                    }
-                },
-                .void, .noreturn => return .none,
-                .@"struct", .@"union" => {
-                    // TODO: struct flattening
-                    log.warn("Structure flattenning is not implemented yet. The compiled code may misbehave.", .{});
-
-                    const ty_size = ty.bitSize(zcu);
-
-                    if (zcu.typeToStruct(ty)) |struct_ty| {
-                        // Structures with floating-point members
-                        const ip = &zcu.intern_pool;
-                        if (struct_ty.field_types.len == 1) {
-                            const member_ty = Type.fromInterned(struct_ty.field_types.get(ip)[0]);
-                            if (member_ty.isRuntimeFloat()) {
-                                if (self.allocReg(.floating, ctx)) |reg| {
-                                    return .{ .register = reg };
-                                }
-                            }
-                        } else if (struct_ty.field_types.len == 2) {
-                            const member_ty1 = Type.fromInterned(struct_ty.field_types.get(ip)[0]);
-                            const member_ty2 = Type.fromInterned(struct_ty.field_types.get(ip)[1]);
-
-                            if (member_ty1.isRuntimeFloat() and member_ty2.isRuntimeFloat()) {
-                                if (self.allocRegs(.floating, ctx, 2)) |regs| {
-                                    return .{ .register_pair = regs };
-                                }
-                            } else if (member_ty1.isRuntimeFloat() and member_ty2.isInt(zcu)) {
-                                const reg_count = self.reg_count;
-                                if (self.allocReg(.floating, ctx)) |reg1| {
-                                    if (self.allocReg(.int, ctx)) |reg2| {
-                                        return .{ .register_pair = .{ reg1, reg2 } };
-                                    }
-                                }
-                                self.reg_count = reg_count;
-                            } else if (member_ty1.isInt(zcu) and member_ty2.isRuntimeFloat()) {
-                                const reg_count = self.reg_count;
-                                if (self.allocReg(.int, ctx)) |reg1| {
-                                    if (self.allocReg(.floating, ctx)) |reg2| {
-                                        return .{ .register_pair = .{ reg1, reg2 } };
-                                    }
-                                }
-                                self.reg_count = reg_count;
-                            }
-                        }
-                    }
-
-                    // Structures without floating-point members and unions
-                    switch (ty_size) {
-                        0 => return .none,
-                        1...64 => return self.allocPtr(ctx),
-                        65...128 => {
-                            if (self.allocRegs(.int, ctx, 2)) |regs| {
-                                return .{ .register_pair = regs };
-                            } else if (self.allocReg(.int, ctx)) |reg| {
-                                return .{ .split = .{ .reg = reg, .frame_off = self.allocStack(Type.usize) } };
-                            } else {
-                                return .{ .frame = self.allocStack(Type.usize) };
-                            }
-                        },
-                        else => {
-                            if (self.allocReg(.int, .param)) |reg| {
-                                return .{ .ref_register = reg };
-                            } else {
-                                return .{ .ref_frame = self.allocStack(Type.usize) };
-                            }
-                        },
-                    }
-                },
-                .array => return self.allocPtr(ctx),
-                else => {},
-            }
-            log.err("Failed to select C ABI CC location of {} as {s}", .{ ty.fmt(self.pt.*), @tagName(ctx) });
-            return error.CCSelectFailed;
-        }
     };
 };
 
@@ -367,4 +171,198 @@ const RegisterSets = struct {
         for (zigcc.all_allocatable_regs, 0..) |reg, index| if (reg.class() == .float) set.set(index);
         break :blk set;
     };
+};
+
+pub const CCResolver = struct {
+    pt: *const Zcu.PerThread,
+    cc: std.builtin.CallingConvention,
+
+    frame_size: u32 = 0,
+    frame_align: InternPool.Alignment = .@"16",
+
+    reg_count: struct {
+        param_gpr: u8 = 0,
+        ret_gpr: u8 = 0,
+        param_fpr: u8 = 0,
+        ret_fpr: u8 = 0,
+    } = .{},
+
+    pub fn resolve(pt: *const Zcu.PerThread, gpa: Allocator, target: *const std.Target, func: *const InternPool.Key.FuncType) !CallInfo {
+        _ = target;
+        var resolver: CCResolver = .{ .pt = pt, .cc = func.cc };
+
+        log.debug("C calling convention resolve:", .{});
+        const return_value = try resolver.resolveType(.fromInterned(func.return_type), .ret);
+        log.debug("  - ret: {}", .{return_value});
+
+        const params = try gpa.alloc(CCValue, func.param_types.len);
+        for (func.param_types.get(&pt.zcu.intern_pool), 0..) |param, i| {
+            const param_ccv = try resolver.resolveType(.fromInterned(param), .param);
+            log.debug("  - param {}: {}", .{ i + 1, param_ccv });
+            params[i] = param_ccv;
+        }
+
+        log.debug("  - frame: size: {}, align: {}", .{ resolver.frame_size, resolver.frame_align.toByteUnits().? });
+        return .{
+            .params = params,
+            .return_value = return_value,
+            .frame_size = resolver.frame_size,
+            .frame_align = resolver.frame_align,
+            .err_ret_trace_reg = null,
+        };
+    }
+
+    const Context = enum { param, ret };
+
+    fn allocRegs(self: *CCResolver, class: RegisterClass, ctx: Context, count: comptime_int) ?[count]Register {
+        const count_ptr: *u8, const first_reg: Register, const last_reg: Register = switch (class) {
+            .int => switch (ctx) {
+                .param => .{ &self.reg_count.param_gpr, .r4, .r11 },
+                .ret => .{ &self.reg_count.ret_gpr, .r4, .r5 },
+            },
+            .floating => switch (ctx) {
+                .param => .{ &self.reg_count.param_fpr, .x0, .x7 },
+                .ret => .{ &self.reg_count.ret_fpr, .x0, .x1 },
+            },
+        };
+        if (count_ptr.* + count <= (@intFromEnum(last_reg) - @intFromEnum(first_reg) + 1)) {
+            var ret: [count]Register = undefined;
+            for (0..count, count_ptr.*..) |i, off| {
+                ret[i] = @enumFromInt(@intFromEnum(first_reg) + off);
+            }
+            count_ptr.* += count;
+            return ret;
+        } else {
+            return null;
+        }
+    }
+
+    fn allocReg(self: *CCResolver, class: RegisterClass, ctx: Context) ?Register {
+        return if (self.allocRegs(class, ctx, 1)) |regs|
+            regs[0]
+        else
+            null;
+    }
+
+    /// Allocates a value on stack, returning offset to the args frame
+    fn allocStack(self: *CCResolver, ty: Type) i32 {
+        const zcu = self.pt.zcu;
+        const alignment = ty.abiAlignment(zcu);
+        const size = ty.abiSize(zcu);
+        self.frame_align = self.frame_align.max(alignment);
+        const off = alignment.forward(self.frame_size);
+        self.frame_size = @intCast(off + size);
+        return @intCast(off);
+    }
+
+    fn allocPtr(self: *CCResolver, ctx: Context) CCValue {
+        if (self.allocReg(.int, ctx)) |reg| {
+            return .{ .register = reg };
+        } else {
+            return .{ .frame = self.allocStack(Type.usize) };
+        }
+    }
+
+    fn resolveType(self: *CCResolver, ty: Type, ctx: Context) error{CCSelectFailed}!CCValue {
+        const zcu = self.pt.zcu;
+        // TODO: implement vector calling convention
+        // TODO: implement FP calling convention
+        switch (ty.zigTypeTag(zcu)) {
+            .pointer => switch (ty.ptrSize(zcu)) {
+                .c => return self.allocPtr(ctx),
+                else => {},
+            },
+            .int, .@"enum", .bool => |ty_tag| {
+                const ty_size: u16 = switch (ty_tag) {
+                    .int, .@"enum" => ty.intInfo(zcu).bits,
+                    .bool => 1,
+                    else => unreachable,
+                };
+                switch (ty_size) {
+                    1...64 => return self.allocPtr(ctx),
+                    65...128 => {
+                        if (self.allocRegs(.int, ctx, 2)) |regs| {
+                            return .{ .register_pair = regs };
+                        } else if (self.allocReg(.int, ctx)) |reg| {
+                            return .{ .split = .{ .reg = reg, .frame_off = self.allocStack(Type.usize) } };
+                        } else {
+                            return .{ .frame = self.allocStack(Type.usize) };
+                        }
+                    },
+                    else => {},
+                }
+            },
+            .void, .noreturn => return .none,
+            .@"struct", .@"union" => {
+                // TODO: struct flattening
+                log.warn("Structure flattenning is not implemented yet. The compiled code may misbehave.", .{});
+
+                const ty_size = ty.bitSize(zcu);
+
+                if (zcu.typeToStruct(ty)) |struct_ty| {
+                    // Structures with floating-point members
+                    const ip = &zcu.intern_pool;
+                    if (struct_ty.field_types.len == 1) {
+                        const member_ty = Type.fromInterned(struct_ty.field_types.get(ip)[0]);
+                        if (member_ty.isRuntimeFloat()) {
+                            if (self.allocReg(.floating, ctx)) |reg| {
+                                return .{ .register = reg };
+                            }
+                        }
+                    } else if (struct_ty.field_types.len == 2) {
+                        const member_ty1 = Type.fromInterned(struct_ty.field_types.get(ip)[0]);
+                        const member_ty2 = Type.fromInterned(struct_ty.field_types.get(ip)[1]);
+
+                        if (member_ty1.isRuntimeFloat() and member_ty2.isRuntimeFloat()) {
+                            if (self.allocRegs(.floating, ctx, 2)) |regs| {
+                                return .{ .register_pair = regs };
+                            }
+                        } else if (member_ty1.isRuntimeFloat() and member_ty2.isInt(zcu)) {
+                            const reg_count = self.reg_count;
+                            if (self.allocReg(.floating, ctx)) |reg1| {
+                                if (self.allocReg(.int, ctx)) |reg2| {
+                                    return .{ .register_pair = .{ reg1, reg2 } };
+                                }
+                            }
+                            self.reg_count = reg_count;
+                        } else if (member_ty1.isInt(zcu) and member_ty2.isRuntimeFloat()) {
+                            const reg_count = self.reg_count;
+                            if (self.allocReg(.int, ctx)) |reg1| {
+                                if (self.allocReg(.floating, ctx)) |reg2| {
+                                    return .{ .register_pair = .{ reg1, reg2 } };
+                                }
+                            }
+                            self.reg_count = reg_count;
+                        }
+                    }
+                }
+
+                // Structures without floating-point members and unions
+                switch (ty_size) {
+                    0 => return .none,
+                    1...64 => return self.allocPtr(ctx),
+                    65...128 => {
+                        if (self.allocRegs(.int, ctx, 2)) |regs| {
+                            return .{ .register_pair = regs };
+                        } else if (self.allocReg(.int, ctx)) |reg| {
+                            return .{ .split = .{ .reg = reg, .frame_off = self.allocStack(Type.usize) } };
+                        } else {
+                            return .{ .frame = self.allocStack(Type.usize) };
+                        }
+                    },
+                    else => {
+                        if (self.allocReg(.int, .param)) |reg| {
+                            return .{ .ref_register = reg };
+                        } else {
+                            return .{ .ref_frame = self.allocStack(Type.usize) };
+                        }
+                    },
+                }
+            },
+            .array => return self.allocPtr(ctx),
+            else => {},
+        }
+        log.err("Failed to select C ABI CC location of {} as {s}", .{ ty.fmt(self.pt.*), @tagName(ctx) });
+        return error.CCSelectFailed;
+    }
 };
