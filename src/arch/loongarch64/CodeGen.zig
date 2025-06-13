@@ -2094,6 +2094,32 @@ fn feed(cg: *CodeGen, bt: *Air.Liveness.BigTomb, op: Air.Inst.Ref) !void {
     if (bt.feed()) if (op.toIndex()) |inst| try cg.inst_tracking.getPtr(inst).?.die(cg, inst);
 }
 
+fn finishAirResult(cg: *CodeGen, inst: Air.Inst.Index, result: MCValue) !void {
+    if (cg.liveness.isUnused(inst) and cg.air.instructions.items(.tag)[@intFromEnum(inst)] != .arg) switch (result) {
+        .none, .dead, .unreach => {},
+        else => unreachable, // Why didn't the result die?
+    } else {
+        tracking_log.debug("{} => {} (birth)", .{ inst, result });
+        cg.inst_tracking.putAssumeCapacityNoClobber(inst, .init(result));
+        try cg.getValueIfFree(result, inst);
+    }
+}
+
+fn finishAir(
+    cg: *CodeGen,
+    inst: Air.Inst.Index,
+    result: MCValue,
+    operands: [Air.Liveness.bpi - 1]Air.Inst.Ref,
+) !void {
+    const tomb_bits = cg.liveness.getTombBits(inst);
+    for (0.., operands) |op_index, op| {
+        if (tomb_bits & @as(Air.Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
+        if (cg.reused_operands.isSet(op_index)) continue;
+        try cg.inst_tracking.getPtr(op.toIndexAllowNone() orelse continue).?.die(cg, inst);
+    }
+    cg.finishAirResult(inst, result);
+}
+
 const CopyOptions = struct {
     safety: bool = false,
 };
@@ -2488,16 +2514,12 @@ const Select = struct {
 };
 
 fn airArg(cg: *CodeGen, inst: Air.Inst.Index) !void {
-    const arg = cg.getAirData(inst).arg;
-    const arg_ty = arg.ty.toType();
-
     var arg_index = cg.arg_index;
     while (cg.args_mcv[arg_index] == .none) arg_index += 1;
     const arg_mcv = cg.args_mcv[arg_index];
     cg.arg_index = arg_index + 1;
-    const arg_temp = try cg.tempInit(arg_ty, arg_mcv);
 
-    try arg_temp.finish(inst, &.{}, cg);
+    try cg.finishAirResult(inst, arg_mcv);
 }
 
 fn airRet(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
