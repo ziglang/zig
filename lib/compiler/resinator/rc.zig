@@ -47,9 +47,8 @@ pub const ResourceType = enum {
     fontdir_num,
     manifest_num,
 
-    const map = std.StaticStringMapWithEql(
+    const map = std.StaticStringMapIgnoreCaseAscii(
         ResourceType,
-        std.static_string_map.eqlAsciiIgnoreCase,
     ).initComptime(.{
         .{ "ACCELERATORS", .accelerators },
         .{ "BITMAP", .bitmap },
@@ -160,18 +159,16 @@ pub const OptionalStatements = enum {
     menu,
     style,
 
-    pub const map = std.StaticStringMapWithEql(
+    pub const map = std.StaticStringMapIgnoreCaseAscii(
         OptionalStatements,
-        std.static_string_map.eqlAsciiIgnoreCase,
     ).initComptime(.{
         .{ "CHARACTERISTICS", .characteristics },
         .{ "LANGUAGE", .language },
         .{ "VERSION", .version },
     });
 
-    pub const dialog_map = std.StaticStringMapWithEql(
+    pub const dialog_map = std.StaticStringMapIgnoreCaseAscii(
         OptionalStatements,
-        std.static_string_map.eqlAsciiIgnoreCase,
     ).initComptime(.{
         .{ "CAPTION", .caption },
         .{ "CLASS", .class },
@@ -206,9 +203,8 @@ pub const Control = enum {
     state3,
     userbutton,
 
-    pub const map = std.StaticStringMapWithEql(
+    pub const map = std.StaticStringMapIgnoreCaseAscii(
         Control,
-        std.static_string_map.eqlAsciiIgnoreCase,
     ).initComptime(.{
         .{ "AUTO3STATE", .auto3state },
         .{ "AUTOCHECKBOX", .autocheckbox },
@@ -243,9 +239,8 @@ pub const Control = enum {
 };
 
 pub const ControlClass = struct {
-    pub const map = std.StaticStringMapWithEql(
+    pub const map = std.StaticStringMapIgnoreCaseAscii(
         res.ControlClass,
-        std.static_string_map.eqlAsciiIgnoreCase,
     ).initComptime(.{
         .{ "BUTTON", .button },
         .{ "EDIT", .edit },
@@ -295,9 +290,8 @@ pub const MenuItem = enum {
     menuitem,
     popup,
 
-    pub const map = std.StaticStringMapWithEql(
+    pub const map = std.StaticStringMapIgnoreCaseAscii(
         MenuItem,
-        std.static_string_map.eqlAsciiIgnoreCase,
     ).initComptime(.{
         .{ "MENUITEM", .menuitem },
         .{ "POPUP", .popup },
@@ -315,9 +309,8 @@ pub const MenuItem = enum {
         menubarbreak,
         menubreak,
 
-        pub const map = std.StaticStringMapWithEql(
+        pub const map = std.StaticStringMapIgnoreCaseAscii(
             Option,
-            std.static_string_map.eqlAsciiIgnoreCase,
         ).initComptime(.{
             .{ "CHECKED", .checked },
             .{ "GRAYED", .grayed },
@@ -333,9 +326,8 @@ pub const ToolbarButton = enum {
     button,
     separator,
 
-    pub const map = std.StaticStringMapWithEql(
+    pub const map = std.StaticStringMapIgnoreCaseAscii(
         ToolbarButton,
-        std.static_string_map.eqlAsciiIgnoreCase,
     ).initComptime(.{
         .{ "BUTTON", .button },
         .{ "SEPARATOR", .separator },
@@ -351,9 +343,8 @@ pub const VersionInfo = enum {
     file_type,
     file_subtype,
 
-    pub const map = std.StaticStringMapWithEql(
+    pub const map = std.StaticStringMapIgnoreCaseAscii(
         VersionInfo,
-        std.static_string_map.eqlAsciiIgnoreCase,
     ).initComptime(.{
         .{ "FILEVERSION", .file_version },
         .{ "PRODUCTVERSION", .product_version },
@@ -369,9 +360,8 @@ pub const VersionBlock = enum {
     block,
     value,
 
-    pub const map = std.StaticStringMapWithEql(
+    pub const map = std.StaticStringMapIgnoreCaseAscii(
         VersionBlock,
-        std.static_string_map.eqlAsciiIgnoreCase,
     ).initComptime(.{
         .{ "BLOCK", .block },
         .{ "VALUE", .value },
@@ -386,9 +376,8 @@ pub const TopLevelKeywords = enum {
     characteristics,
     stringtable,
 
-    pub const map = std.StaticStringMapWithEql(
+    pub const map = std.StaticStringMapIgnoreCaseAscii(
         TopLevelKeywords,
-        std.static_string_map.eqlAsciiIgnoreCase,
     ).initComptime(.{
         .{ "LANGUAGE", .language },
         .{ "VERSION", .version },
@@ -408,9 +397,8 @@ pub const CommonResourceAttributes = enum {
     shared,
     nonshared,
 
-    pub const map = std.StaticStringMapWithEql(
+    pub const map = std.StaticStringMapIgnoreCaseAscii(
         CommonResourceAttributes,
-        std.static_string_map.eqlAsciiIgnoreCase,
     ).initComptime(.{
         .{ "PRELOAD", .preload },
         .{ "LOADONCALL", .loadoncall },
@@ -432,9 +420,8 @@ pub const AcceleratorTypeAndOptions = enum {
     shift,
     control,
 
-    pub const map = std.StaticStringMapWithEql(
+    pub const map = std.StaticStringMapIgnoreCaseAscii(
         AcceleratorTypeAndOptions,
-        std.static_string_map.eqlAsciiIgnoreCase,
     ).initComptime(.{
         .{ "VIRTKEY", .virtkey },
         .{ "ASCII", .ascii },
