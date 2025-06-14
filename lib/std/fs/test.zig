@@ -991,6 +991,30 @@ test "Dir.rename file <-> dir" {
     }.impl);
 }
 
+test "Dir.rename circular loop" {
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const parent_path = try ctx.transformPath("parent");
+            const subdir_path = try ctx.transformPath("parent/subdir");
+            try ctx.dir.makeDir(parent_path);
+            try testing.expectError(error.CircularLoop, ctx.dir.rename(parent_path, subdir_path));
+
+            if (ctx.path_type == .relative) {
+                var parent = try ctx.dir.openDir("parent", .{});
+                defer parent.close();
+                try testing.expectError(error.CircularLoop, parent.rename("../parent", "subdir"));
+            }
+
+            if (ctx.path_type == .absolute) {
+                try testing.expectError(error.CircularLoop, std.fs.renameAbsolute(
+                    parent_path,
+                    subdir_path,
+                ));
+            }
+        }
+    }.impl);
+}
+
 test "rename" {
     var tmp_dir1 = tmpDir(.{});
     defer tmp_dir1.cleanup();
