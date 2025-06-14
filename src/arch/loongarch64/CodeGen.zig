@@ -337,7 +337,7 @@ pub const MCValue = union(enum) {
                 else => unreachable, // not offsettable
             },
             .immediate => |imm| .{ .immediate = @bitCast(@as(i64, @bitCast(imm)) +% off) },
-            .register => |reg| .{ .register_offset = .{ .reg = reg, .off = off } },
+            .register => |reg| .{ .register_bias = .{ .reg = reg, .off = off } },
             .register_bias => |reg_off| .{
                 .register_bias = .{ .reg = reg_off.reg, .off = reg_off.off + off },
             },
@@ -1125,6 +1125,14 @@ const Temp = struct {
         return cg.inst_tracking.get(temp.index).?;
     }
 
+    fn maybeTracking(temp: Temp, cg: *CodeGen) ?InstTracking {
+        switch (temp.index.unwrap()) {
+            .ref => |temp_ref| if (temp_ref.toInternedAllowNone() != null) return null,
+            else => {},
+        }
+        return cg.inst_tracking.get(temp.index).?;
+    }
+
     fn isMut(temp: Temp, cg: *CodeGen) bool {
         return switch (temp.unwrap(cg)) {
             .ref, .err_ret_trace => false,
@@ -1272,6 +1280,7 @@ const Temp = struct {
 
     const AccessOptions = struct {
         safety: bool = false,
+        off: i32 = 0,
     };
 
     fn load(ptr: Temp, cg: *CodeGen, ty: Type, opts: AccessOptions) InnerError!Temp {
@@ -1281,11 +1290,43 @@ const Temp = struct {
     }
 
     fn loadTo(ptr: Temp, dst: Temp, cg: *CodeGen, ty: Type, opts: AccessOptions) InnerError!void {
-        try cg.genCopy(ty, dst.tracking(cg).short, ptr.tracking(cg).short.deref(), .{ .safety = opts.safety });
+        const addr, _ = try ptr.ensureOffsetable(cg);
+        addr.toOffset(cg, opts.off);
+        try cg.genCopy(ty, dst.tracking(cg).short, addr.tracking(cg).short.deref(), .{ .safety = opts.safety });
     }
 
     fn storeTo(val: Temp, ptr: Temp, cg: *CodeGen, ty: Type, opts: AccessOptions) InnerError!void {
-        try cg.genCopy(ty, ptr.tracking(cg).short.deref(), val.tracking(cg).short, .{ .safety = opts.safety });
+        const addr, _ = try ptr.ensureOffsetable(cg);
+        addr.toOffset(cg, opts.off);
+        try cg.genCopy(ty, addr.tracking(cg).short.deref(), val.tracking(cg).short, .{ .safety = opts.safety });
+    }
+
+    fn read(val: Temp, cg: *CodeGen, ty: Type, opts: AccessOptions) InnerError!Temp {
+        const dst = try cg.tempAlloc(ty, .{});
+        try val.readTo(dst, cg, ty, opts);
+        return dst;
+    }
+
+    fn readTo(val: Temp, dst: Temp, cg: *CodeGen, ty: Type, opts: AccessOptions) InnerError!void {
+        const val_mcv = val.tracking(cg).short;
+        switch (val_mcv) {
+            else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
+            .register, .register_bias => {
+                assert(opts.off == 0);
+                try val.copy(dst, cg, ty);
+            },
+            inline .register_pair, .register_triple, .register_quadruple => |regs| {
+                assert(@rem(opts.off, 8) == 0);
+                assert(opts.off >= 0);
+                assert(ty.abiSize(cg.pt.zcu) <= 8); // TODO not implemented yet
+                try cg.genCopy(ty, dst.tracking(cg).short, .{ .register = regs[@as(u32, @intCast(opts.off)) / 8] }, .{ .safety = opts.safety });
+            },
+            .memory, .register_offset, .load_frame, .load_nav, .load_uav, .load_lazy_sym => {
+                var addr_ptr = try cg.tempInit(.usize, val_mcv.address());
+                try addr_ptr.loadTo(dst, cg, ty, opts);
+                try addr_ptr.die(cg);
+            },
+        }
     }
 
     fn getLimbCount(temp: Temp, cg: *CodeGen) u64 {
@@ -1413,6 +1454,19 @@ const Temp = struct {
         }
     }
 
+    /// Loads `temp` to a newly allocated register if it is not in register yet.
+    fn ensureOffsetable(temp: Temp, cg: *CodeGen) InnerError!struct { Temp, bool } {
+        const mcv = temp.tracking(cg).short;
+        if (!mcv.isMemory()) {
+            return .{ temp, false };
+        } else {
+            const ty = temp.typeOf(cg);
+            const new_temp = try cg.tempAlloc(ty, .{ .use_frame = false });
+            try temp.copy(new_temp, cg, ty);
+            return .{ new_temp, true };
+        }
+    }
+
     fn truncateRegister(temp: Temp, cg: *CodeGen) !void {
         const temp_tracking = temp.tracking(cg);
         const regs = temp_tracking.getRegs();
@@ -1460,7 +1514,7 @@ fn freeReg(cg: *CodeGen, reg: Register) !void {
 }
 
 fn freeFrame(cg: *CodeGen, frame: FrameIndex) !void {
-    tracking_log.debug("Free frame {}", .{frame});
+    tracking_log.debug("free frame {}", .{frame});
     try cg.free_frame_indices.append(cg.gpa, frame);
 }
 
@@ -1526,13 +1580,13 @@ fn allocFrameIndex(cg: *CodeGen, alloc: FrameAlloc) !FrameIndex {
         const abi_align = &frame_align[@intFromEnum(frame_index)];
         abi_align.* = abi_align.max(alloc.abi_align);
         _ = cg.free_frame_indices.swapRemove(i);
-        tracking_log.debug("Reuse frame {}", .{frame_index});
+        tracking_log.debug("reuse frame {}", .{frame_index});
         return frame_index;
     }
 
     const frame_index: FrameIndex = @enumFromInt(cg.frame_allocs.len);
     try cg.frame_allocs.append(cg.gpa, alloc);
-    tracking_log.debug("New frame {}", .{frame_index});
+    tracking_log.debug("new frame {}", .{frame_index});
     return frame_index;
 }
 
@@ -1841,6 +1895,15 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .struct_field_ptr_index_1 => try cg.airStructFieldPtrConst(inst, 1),
             .struct_field_ptr_index_2 => try cg.airStructFieldPtrConst(inst, 2),
             .struct_field_ptr_index_3 => try cg.airStructFieldPtrConst(inst, 3),
+
+            .unwrap_errunion_payload => try cg.airUnwrapErrUnionPayload(inst),
+            .unwrap_errunion_err => try cg.airUnwrapErrUnionErr(inst),
+            .unwrap_errunion_payload_ptr => try cg.airUnwrapErrUnionPayloadPtr(inst),
+            .unwrap_errunion_err_ptr => try cg.airUnwrapErrUnionErrPtr(inst),
+            .errunion_payload_ptr_set,
+            .wrap_errunion_payload,
+            .wrap_errunion_err,
+            => unreachable,
 
             .unreach => {},
 
@@ -2699,29 +2762,33 @@ fn airRet(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
     const zcu = pt.zcu;
     const un_op = cg.getAirData(inst).un_op;
 
-    const un_temp = try cg.tempFromOperand(un_op, false);
+    const op_temp = try cg.tempFromOperand(un_op, false);
 
-    if (!std.meta.eql(un_temp.tracking(cg).short, cg.ret_mcv)) {
-        // copy return values into proper location
-        const ret_ty = cg.fn_type.fnReturnType(zcu);
-        const ret_temp = switch (cg.call_info.return_value) {
-            .ref_frame => |_| deref_ret: {
-                // load pointer
-                const ret_ptr = try cg.tempInit(.usize, cg.ret_mcv);
-                const ret_temp = try ret_ptr.load(cg, ret_ty, .{ .safety = safety });
-                try ret_ptr.die(cg);
-                break :deref_ret ret_temp;
-            },
-            else => try cg.tempInit(ret_ty, cg.ret_mcv),
-        };
-        try un_temp.copy(ret_temp, cg, ret_ty);
-
-        try ret_temp.finish(inst, &.{un_temp}, cg);
-        try cg.finishReturn(inst);
-    } else {
-        try un_temp.finish(inst, &.{un_temp}, cg);
-        try cg.finishReturn(inst);
+    // try to skip the copy
+    if (op_temp.maybeTracking(cg)) |op_tracking| {
+        if (std.meta.eql(op_tracking.short, cg.ret_mcv)) {
+            try op_temp.finish(inst, &.{op_temp}, cg);
+            try cg.finishReturn(inst);
+            return;
+        }
     }
+
+    // copy return values into proper location
+    const ret_ty = cg.fn_type.fnReturnType(zcu);
+    const ret_temp = switch (cg.call_info.return_value) {
+        .ref_frame => |_| deref_ret: {
+            // load pointer
+            const ret_ptr = try cg.tempInit(.usize, cg.ret_mcv);
+            const ret_temp = try ret_ptr.load(cg, ret_ty, .{ .safety = safety });
+            try ret_ptr.die(cg);
+            break :deref_ret ret_temp;
+        },
+        else => try cg.tempInit(ret_ty, cg.ret_mcv),
+    };
+    try op_temp.copy(ret_temp, cg, ret_ty);
+
+    try ret_temp.finish(inst, &.{op_temp}, cg);
+    try cg.finishReturn(inst);
 }
 
 fn airRetLoad(cg: *CodeGen, inst: Air.Inst.Index) !void {
@@ -3760,33 +3827,74 @@ fn airStructFieldPtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const ty_pl = cg.getAirData(inst).ty_pl;
     const struct_field = cg.air.extraData(Air.StructField, ty_pl.payload).data;
     const ops = try cg.tempsFromOperands(inst, .{struct_field.struct_operand});
-    if (ops[0].tracking(cg).short.isMemory()) {
-        var ptr = try ops[0].load(cg, .usize, .{});
-        ptr.toOffset(cg, cg.fieldOffset(
-            cg.typeOf(struct_field.struct_operand),
-            ty_pl.ty.toType(),
-            struct_field.field_index,
-        ));
-        try ptr.finish(inst, &ops, cg);
-    } else {
-        ops[0].toOffset(cg, cg.fieldOffset(
-            cg.typeOf(struct_field.struct_operand),
-            ty_pl.ty.toType(),
-            struct_field.field_index,
-        ));
-        try ops[0].finish(inst, &ops, cg);
-    }
+    const off = cg.fieldOffset(
+        cg.typeOf(struct_field.struct_operand),
+        ty_pl.ty.toType(),
+        struct_field.field_index,
+    );
+    const dst, _ = try ops[0].ensureOffsetable(cg);
+    dst.toOffset(cg, off);
+    try dst.finish(inst, &ops, cg);
 }
 
 fn airStructFieldPtrConst(cg: *CodeGen, inst: Air.Inst.Index, index: u32) !void {
     const ty_op = cg.getAirData(inst).ty_op;
     const ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
-    if (ops[0].tracking(cg).short.isMemory()) {
-        var ptr = try ops[0].load(cg, .usize, .{});
-        ptr.toOffset(cg, cg.fieldOffset(cg.typeOf(ty_op.operand), ty_op.ty.toType(), index));
-        try ptr.finish(inst, &ops, cg);
-    } else {
-        ops[0].toOffset(cg, cg.fieldOffset(cg.typeOf(ty_op.operand), ty_op.ty.toType(), index));
-        try ops[0].finish(inst, &ops, cg);
-    }
+    const off = cg.fieldOffset(cg.typeOf(ty_op.operand), ty_op.ty.toType(), index);
+    const dst, _ = try ops[0].ensureOffsetable(cg);
+    dst.toOffset(cg, off);
+    try dst.finish(inst, &ops, cg);
+}
+
+fn airUnwrapErrUnionPayload(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
+    const ty_op = cg.getAirData(inst).ty_op;
+    const payload_ty = ty_op.ty.toType();
+    const field_off: i32 = @intCast(codegen.errUnionPayloadOffset(payload_ty, zcu));
+
+    var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
+    const dst = if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu))
+        try ops[0].read(cg, payload_ty, .{ .off = field_off })
+    else
+        try cg.tempInit(payload_ty, .none);
+    try dst.finish(inst, &ops, cg);
+}
+
+fn airUnwrapErrUnionErr(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
+    const ty_op = cg.getAirData(inst).ty_op;
+    const eu_ty = cg.typeOf(ty_op.operand);
+    const eu_err_ty = ty_op.ty.toType();
+    const payload_ty = eu_ty.errorUnionPayload(zcu);
+    const field_off: i32 = @intCast(codegen.errUnionErrorOffset(payload_ty, zcu));
+
+    var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
+    const dst = try ops[0].read(cg, eu_err_ty, .{ .off = field_off });
+    try dst.finish(inst, &ops, cg);
+}
+
+fn airUnwrapErrUnionPayloadPtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
+    const ty_op = cg.getAirData(inst).ty_op;
+    const eu_ty = cg.typeOf(ty_op.operand).childType(zcu);
+    const eu_pl_ty = eu_ty.errorUnionPayload(zcu);
+    const eu_pl_off: i32 = @intCast(codegen.errUnionPayloadOffset(eu_pl_ty, zcu));
+
+    var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
+    const dst, _ = try ops[0].ensureOffsetable(cg);
+    dst.toOffset(cg, eu_pl_off);
+    try dst.finish(inst, &ops, cg);
+}
+
+fn airUnwrapErrUnionErrPtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
+    const ty_op = cg.getAirData(inst).ty_op;
+    const eu_ty = cg.typeOf(ty_op.operand).childType(zcu);
+    const eu_err_ty = ty_op.ty.toType();
+    const eu_pl_ty = eu_ty.errorUnionPayload(zcu);
+    const eu_err_off: i32 = @intCast(codegen.errUnionErrorOffset(eu_pl_ty, zcu));
+
+    var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
+    const dst = try ops[0].load(cg, eu_err_ty, .{ .off = eu_err_off });
+    try dst.finish(inst, &ops, cg);
 }
