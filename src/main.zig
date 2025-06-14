@@ -351,7 +351,12 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "env")) {
         dev.check(.env_command);
         verifyLibcxxCorrectlyLinked();
-        return @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
+        return @import("print_env.zig").cmdEnv(
+            arena,
+            args,
+            if (native_os == .wasi) wasi_preopens,
+            io.getStdOut().writer(),
+        );
     } else if (mem.eql(u8, cmd, "reduce")) {
         return jitCmd(gpa, arena, cmd_args, .{
             .cmd_name = "reduce",
