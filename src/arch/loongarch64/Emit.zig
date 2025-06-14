@@ -173,19 +173,18 @@ pub fn emitMir(emit: *Emit) Error!void {
 
     for (relocs.items) |reloc| {
         const target = @as(i32, @intCast(code_offset_mapping[reloc.target])) + reloc.off;
-        const target_u32 = @as(u32, @intCast(target));
-        const offset = @as(i32, @intCast(@as(usize, target_u32) - reloc.source));
-        const offset_u32 = @as(u32, @intCast(offset));
+        const offset = target - @as(i32, @intCast(reloc.source));
+        const offset_u32 = @as(u32, @bitCast(offset));
 
         const inst_bytes = emit.code.items[reloc.source..][0..4];
         var inst_u32 = std.mem.readInt(u32, inst_bytes, .little);
 
         switch (reloc.loc) {
             .b26 => inst_u32 = inst_u32 |
-                (@as(u32, @as(u16, @intCast((offset_u32 >> 2) & 0xffff))) << 10) |
-                @as(u32, @as(u10, @intCast((offset_u32 >> 2) >> 16))),
+                (@as(u32, @as(u16, @truncate((offset_u32 >> 2) & 0xffff))) << 10) |
+                @as(u32, @as(u10, @truncate((offset_u32 >> 2) >> 16))),
             .k16 => inst_u32 = inst_u32 |
-                (@as(u32, @as(u16, @intCast((offset_u32 >> 2) & 0xffff))) << 10),
+                (@as(u32, @as(u16, @truncate((offset_u32 >> 2) & 0xffff))) << 10),
         }
 
         std.mem.writeInt(u32, inst_bytes, inst_u32, .little);

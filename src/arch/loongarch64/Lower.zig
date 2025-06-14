@@ -201,6 +201,20 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     lower.emit(.{ .opcode = data.op.toOpCodeRI(), .data = .{ .DJSk12 = .{ data.reg, data.tmp_reg, 0 } } });
                     lower.relocElfUav(.PCALA_LO12, data.uav);
                 },
+                .nav_addr_to_reg => {
+                    const data = inst.data.nav_reg;
+                    lower.emit(.pcalau12i(data.reg, 0));
+                    lower.relocElfNav(.PCALA_HI20, data.nav);
+                    lower.emit(.addi_d(data.reg, data.reg, 0));
+                    lower.relocElfNav(.PCALA_LO12, data.nav);
+                },
+                .uav_addr_to_reg => {
+                    const data = inst.data.uav_reg;
+                    lower.emit(.pcalau12i(data.reg, 0));
+                    lower.relocElfUav(.PCALA_HI20, data.uav);
+                    lower.emit(.addi_d(data.reg, data.reg, 0));
+                    lower.relocElfUav(.PCALA_LO12, data.uav);
+                },
                 .call => {
                     const nav = inst.data.nav;
                     lower.emit(.pcaddu18i(.ra, 0));

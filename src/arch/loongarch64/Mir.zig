@@ -66,6 +66,10 @@ pub const Inst = struct {
         nav_memop,
         /// UAV memory load/store operations, uses `memop_uav_reg` payload.
         uav_memop,
+        /// Load NAV address to register, uses `nav_reg` payload.
+        nav_addr_to_reg,
+        /// Load UAV address to register, uses `uav_reg` payload.
+        uav_addr_to_reg,
         /// Function call, uses `nav` payload.
         call,
         /// Loads spilled $ra back to $ra, no payload.
@@ -150,6 +154,16 @@ pub const Inst = struct {
             reg: Register,
             tmp_reg: Register,
         },
+        /// NAV offset and register
+        nav_reg: struct {
+            nav: bits.NavOffset,
+            reg: Register,
+        },
+        /// UAV offset and register
+        uav_reg: struct {
+            uav: bits.UavOffset,
+            reg: Register,
+        },
         /// NAV offset
         nav: bits.NavOffset,
         /// Function index
@@ -203,6 +217,16 @@ pub const Inst = struct {
                         @tagName(inst.data.memop_uav_reg.tmp_reg),
                         inst.data.memop_uav_reg.uav.index,
                         inst.data.memop_uav_reg.uav.off,
+                    }),
+                    .nav_addr_to_reg => try writer.print(".nav_addr_to_reg {} + 0x{x} => {s}", .{
+                        inst.data.nav_reg.nav.index,
+                        inst.data.nav_reg.nav.off,
+                        @tagName(inst.data.nav_reg.reg),
+                    }),
+                    .uav_addr_to_reg => try writer.print(".uav_addr_to_reg {} + 0x{x} => {s}", .{
+                        inst.data.uav_reg.uav.index,
+                        inst.data.uav_reg.uav.off,
+                        @tagName(inst.data.uav_reg.reg),
                     }),
                     .call => try writer.print(".call nav:{} + 0x{x}", .{ inst.data.nav.index, inst.data.nav.off }),
                     .spill_int_regs => try writer.print(".spill_int_regs {}", .{inst.data.reg_list.fmt(.int)}),

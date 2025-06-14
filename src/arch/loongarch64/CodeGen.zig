@@ -2301,6 +2301,10 @@ fn genCopyToReg(cg: *CodeGen, size: bits.Memory.Size, dst: Register, src_mcv: MC
                 .tmp_reg = dst,
             } });
         },
+        .lea_nav => |nav| try cg.asmPseudo(.nav_addr_to_reg, .{ .nav_reg = .{
+            .nav = nav,
+            .reg = dst,
+        } }),
         .load_nav => |nav| {
             try cg.asmPseudo(.nav_memop, .{ .memop_nav_reg = .{
                 .op = .{
@@ -2313,6 +2317,10 @@ fn genCopyToReg(cg: *CodeGen, size: bits.Memory.Size, dst: Register, src_mcv: MC
                 .tmp_reg = dst,
             } });
         },
+        .lea_uav => |uav| try cg.asmPseudo(.uav_addr_to_reg, .{ .uav_reg = .{
+            .uav = uav,
+            .reg = dst,
+        } }),
         .load_uav => |uav| {
             try cg.asmPseudo(.uav_memop, .{ .memop_uav_reg = .{
                 .op = .{
@@ -2520,7 +2528,7 @@ const Select = struct {
 
     fn fail(sel: *Select) error{ OutOfMemory, CodegenFail } {
         cg_select_log.debug("select failed after {} cases", .{sel.case_i});
-        return sel.cg.fail("failed to select", .{});
+        return sel.cg.fail("Failed to select", .{});
     }
 
     inline fn match(sel: *Select, case: Case) !bool {
