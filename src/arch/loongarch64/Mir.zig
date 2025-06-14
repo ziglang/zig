@@ -134,18 +134,21 @@ pub const Inst = struct {
             op: Lir.SizedMemOp,
             frame: bits.FrameAddr,
             reg: Register,
+            tmp_reg: Register,
         },
         /// Mem op, NAV offset and register
         memop_nav_reg: struct {
             op: Lir.SizedMemOp,
             nav: bits.NavOffset,
             reg: Register,
+            tmp_reg: Register,
         },
         /// Mem op, UAV offset and register
         memop_uav_reg: struct {
             op: Lir.SizedMemOp,
             uav: bits.UavOffset,
             reg: Register,
+            tmp_reg: Register,
         },
         /// NAV offset
         nav: bits.NavOffset,
@@ -181,20 +184,23 @@ pub const Inst = struct {
                         @tagName(inst.data.frame_reg.reg),
                         inst.data.frame_reg.frame,
                     }),
-                    .frame_addr_reg_mem => try writer.print(".frame_addr_reg_mem {} {s}, {}", .{
+                    .frame_addr_reg_mem => try writer.print(".frame_addr_reg_mem {} {s} (tmp {s}), {}", .{
                         inst.data.memop_frame_reg.op,
                         @tagName(inst.data.memop_frame_reg.reg),
+                        @tagName(inst.data.memop_frame_reg.tmp_reg),
                         inst.data.memop_frame_reg.frame,
                     }),
-                    .nav_memop => try writer.print(".nav_memop {} {s}, {} + 0x{x}", .{
+                    .nav_memop => try writer.print(".nav_memop {} {s} (tmp {s}), {} + 0x{x}", .{
                         inst.data.memop_nav_reg.op,
                         @tagName(inst.data.memop_nav_reg.reg),
+                        @tagName(inst.data.memop_nav_reg.tmp_reg),
                         inst.data.memop_nav_reg.nav.index,
                         inst.data.memop_nav_reg.nav.off,
                     }),
-                    .uav_memop => try writer.print(".uav_memop {} {s}, {} + 0x{x}", .{
+                    .uav_memop => try writer.print(".uav_memop {} {s} (tmp {s}), {} + 0x{x}", .{
                         inst.data.memop_uav_reg.op,
                         @tagName(inst.data.memop_uav_reg.reg),
+                        @tagName(inst.data.memop_uav_reg.tmp_reg),
                         inst.data.memop_uav_reg.uav.index,
                         inst.data.memop_uav_reg.uav.off,
                     }),

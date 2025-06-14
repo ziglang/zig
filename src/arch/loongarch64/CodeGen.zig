@@ -2212,7 +2212,7 @@ fn genCopy(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: Cop
                 try cg.genCopyToReg(cg.getLimbSize(ty, reg_i), reg, src_mcv.toLimbValue(reg_i), opts);
             }
         },
-        .load_frame => try cg.genCopyToMem(ty, dst_mcv, src_mcv),
+        .load_frame, .load_nav, .load_uav => try cg.genCopyToMem(ty, dst_mcv, src_mcv),
         else => return cg.fail("TODO: genCopy {s} => {s}", .{ @tagName(src_mcv), @tagName(dst_mcv) }),
     }
 }
@@ -2265,6 +2265,7 @@ fn genCopyToReg(cg: *CodeGen, size: bits.Memory.Size, dst: Register, src_mcv: MC
                 },
                 .frame = addr,
                 .reg = dst,
+                .tmp_reg = dst,
             } });
         },
         .load_nav => |nav| {
@@ -2276,6 +2277,7 @@ fn genCopyToReg(cg: *CodeGen, size: bits.Memory.Size, dst: Register, src_mcv: MC
                 },
                 .nav = nav,
                 .reg = dst,
+                .tmp_reg = dst,
             } });
         },
         .load_uav => |uav| {
@@ -2287,6 +2289,7 @@ fn genCopyToReg(cg: *CodeGen, size: bits.Memory.Size, dst: Register, src_mcv: MC
                 },
                 .uav = uav,
                 .reg = dst,
+                .tmp_reg = dst,
             } });
         },
         else => return cg.fail("TODO: genCopyToReg from {s}", .{@tagName(src_mcv)}),
@@ -2326,6 +2329,8 @@ fn genCopyRegToMem(cg: *CodeGen, dst_mcv: MCValue, src: Register, size: bits.Mem
             return cg.fail("TODO: genCopyRegToMem to {s}", .{@tagName(dst_mcv)});
         },
         .load_frame => |addr| {
+            const tmp_reg, const tmp_reg_lock = try cg.allocRegAndLock(.usize);
+            defer cg.register_manager.unlockReg(tmp_reg_lock);
             try cg.asmPseudo(.frame_addr_reg_mem, .{ .memop_frame_reg = .{
                 .op = .{
                     .op = .store,
@@ -2334,11 +2339,38 @@ fn genCopyRegToMem(cg: *CodeGen, dst_mcv: MCValue, src: Register, size: bits.Mem
                 },
                 .frame = addr,
                 .reg = src,
+                .tmp_reg = tmp_reg,
+            } });
+        },
+        .load_nav => |nav_off| {
+            const tmp_reg, const tmp_reg_lock = try cg.allocRegAndLock(.usize);
+            defer cg.register_manager.unlockReg(tmp_reg_lock);
+            try cg.asmPseudo(.nav_memop, .{ .memop_nav_reg = .{
+                .op = .{
+                    .op = .store,
+                    .size = size,
+                    .signedness = undefined,
+                },
+                .nav = nav_off,
+                .reg = src,
+                .tmp_reg = tmp_reg,
+            } });
+        },
+        .load_uav => |uav_off| {
+            const tmp_reg, const tmp_reg_lock = try cg.allocRegAndLock(.usize);
+            defer cg.register_manager.unlockReg(tmp_reg_lock);
+            try cg.asmPseudo(.uav_memop, .{ .memop_uav_reg = .{
+                .op = .{
+                    .op = .store,
+                    .size = size,
+                    .signedness = undefined,
+                },
+                .uav = uav_off,
+                .reg = src,
+                .tmp_reg = tmp_reg,
             } });
         },
         .undef,
-        .load_nav,
-        .load_uav,
         .load_lazy_sym,
         => return cg.fail("TODO: genCopyRegToMem to {s}", .{@tagName(dst_mcv)}),
     }
@@ -2858,15 +2890,17 @@ fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) !void {
         .air_ref,
         => unreachable,
         .memory, .register_offset, .load_frame, .load_nav, .load_uav, .load_lazy_sym => {
-            const tmp = try cg.tempAlloc(.usize, .{ .use_frame = false });
+            var tmp = try cg.tempAlloc(.usize, .{ .use_frame = false });
             try val.copy(tmp, cg, .usize);
-            while (try val.toMemory(cg)) {}
+            while (try tmp.toMemory(cg)) {}
+            try tmp.copy(tmp, cg, .usize);
             try tmp.finish(inst, &.{val}, cg);
         },
         .immediate, .register, .register_bias, .lea_frame, .lea_nav, .lea_uav, .lea_lazy_sym => {
             while (try val.toMemory(cg)) {}
-            cg.temp_type[val.index.toTargetIndex()] = ty;
-            try val.finish(inst, &.{val}, cg);
+            const tmp = try cg.tempAlloc(ty, .{});
+            try val.copy(tmp, cg, ty);
+            try tmp.finish(inst, &.{val}, cg);
         },
     };
 }

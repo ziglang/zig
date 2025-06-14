@@ -118,11 +118,11 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                         lower.emitRegBiasToReg(.sp, .sp, off);
                     }
                     if (lower.mir.spill_ra)
-                        lower.emitRegFrameOp(.ra, .{ .index = .ret_addr_frame }, .st_d, .stx_d);
+                        lower.emitRegFrameOp(.ra, .{ .index = .ret_addr_frame }, .t0, .st_d, .stx_d);
                 },
                 .func_epilogue => {
                     if (lower.mir.spill_ra)
-                        lower.emitRegFrameOp(.ra, .{ .index = .ret_addr_frame }, .ld_d, .ldx_d);
+                        lower.emitRegFrameOp(.ra, .{ .index = .ret_addr_frame }, .t0, .ld_d, .ldx_d);
                     if (lower.mir.frame_size != 0)
                         lower.emitRegBiasToReg(.sp, .sp, @intCast(lower.mir.frame_size));
                     lower.emit(.jirl(.ra, .ra, 0));
@@ -185,20 +185,20 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 },
                 .frame_addr_reg_mem => {
                     const data = inst.data.memop_frame_reg;
-                    lower.emitRegFrameOp(data.reg, data.frame, data.op.toOpCodeRI(), data.op.toOpCodeRR());
+                    lower.emitRegFrameOp(data.reg, data.frame, data.tmp_reg, data.op.toOpCodeRI(), data.op.toOpCodeRR());
                 },
                 .nav_memop => {
                     const data = inst.data.memop_nav_reg;
-                    lower.emit(.pcalau12i(data.reg, 0));
+                    lower.emit(.pcalau12i(data.tmp_reg, 0));
                     lower.relocElfNav(.PCALA_HI20, data.nav);
-                    lower.emit(.{ .opcode = data.op.toOpCodeRI(), .data = .{ .DJSk12 = .{ data.reg, data.reg, 0 } } });
+                    lower.emit(.{ .opcode = data.op.toOpCodeRI(), .data = .{ .DJSk12 = .{ data.reg, data.tmp_reg, 0 } } });
                     lower.relocElfNav(.PCALA_LO12, data.nav);
                 },
                 .uav_memop => {
                     const data = inst.data.memop_uav_reg;
-                    lower.emit(.pcalau12i(data.reg, 0));
+                    lower.emit(.pcalau12i(data.tmp_reg, 0));
                     lower.relocElfUav(.PCALA_HI20, data.uav);
-                    lower.emit(.{ .opcode = data.op.toOpCodeRI(), .data = .{ .DJSk12 = .{ data.reg, data.reg, 0 } } });
+                    lower.emit(.{ .opcode = data.op.toOpCodeRI(), .data = .{ .DJSk12 = .{ data.reg, data.tmp_reg, 0 } } });
                     lower.relocElfUav(.PCALA_LO12, data.uav);
                 },
                 .call => {
@@ -208,7 +208,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     lower.emit(.jirl(.ra, .ra, 0));
                 },
                 .load_ra => if (lower.mir.spill_ra)
-                    lower.emitRegFrameOp(.ra, .{ .index = .ret_addr_frame }, .ld_d, .ldx_d),
+                    lower.emitRegFrameOp(.ra, .{ .index = .ret_addr_frame }, .ra, .ld_d, .ldx_d),
                 .spill_int_regs => lower.emitRegSpill(inst.data.reg_list, .{
                     .frame = .spill_int_frame,
                     .reg_class = .int,
@@ -360,7 +360,14 @@ fn emitRegBiasToReg(lower: *Lower, dst: Register, src: Register, imm: i64) void 
 
 /// Emits up to 6 instructions.
 /// See Mir.Inst.PseudoTag.frame_addr_reg_mem.
-fn emitRegFrameOp(lower: *Lower, reg: Register, frame: bits.FrameAddr, op_ri: encoding.OpCode, op_rr: encoding.OpCode) void {
+fn emitRegFrameOp(
+    lower: *Lower,
+    reg: Register,
+    frame: bits.FrameAddr,
+    tmp_reg: Register,
+    op_ri: encoding.OpCode,
+    op_rr: encoding.OpCode,
+) void {
     const frame_loc = lower.resolveFrame(frame.index);
     const offset = @as(i64, frame_loc.offset + frame.off);
     if (cast(i12, offset)) |off12| {
@@ -369,10 +376,10 @@ fn emitRegFrameOp(lower: *Lower, reg: Register, frame: bits.FrameAddr, op_ri: en
             .data = .{ .DJSk12 = .{ reg, frame_loc.base, off12 } },
         });
     } else {
-        lower.emitImmToReg(@bitCast(@as(i64, frame_loc.offset + frame.off)), reg);
+        lower.emitImmToReg(@bitCast(@as(i64, frame_loc.offset + frame.off)), tmp_reg);
         lower.emit(.{
             .opcode = op_rr,
-            .data = .{ .DJK = .{ reg, frame_loc.base, reg } },
+            .data = .{ .DJK = .{ reg, frame_loc.base, tmp_reg } },
         });
     }
 }
