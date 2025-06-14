@@ -184,12 +184,12 @@ pub const CompileCommands = struct {
             try writer.writeAll("\n  {\n");
 
             try writer.writeAll("    \"directory\": \"");
-            try std.json.encodeJsonString(entry.working_directory, .{}, writer);
+            try std.json.encodeJsonStringChars(entry.working_directory, .{}, writer);
             try writer.writeAll("\",\n");
 
             try writer.writeAll("    \"file\": \"");
             const full_path = b.pathJoin(&.{ entry.working_directory, entry.relative_path });
-            try std.json.encodeJsonString(full_path, .{}, writer);
+            try std.json.encodeJsonStringChars(full_path, .{}, writer);
             try writer.writeAll("\",\n");
 
             try writer.writeAll("    \"command\": \"");
@@ -206,7 +206,7 @@ pub const CompileCommands = struct {
             try temp_writer.writeAll(" ");
             try temp_writer.writeAll(entry.relative_path);
 
-            try std.json.encodeJsonString(temp.items, .{}, writer);
+            try std.json.encodeJsonStringChars(temp.items, .{}, writer);
             try writer.writeAll("\"\n  }");
         }
 
