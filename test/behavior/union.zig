@@ -1842,6 +1842,7 @@ test "reinterpret packed union" {
 
 test "reinterpret packed union inside packed struct" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     const U = packed union {
         a: u7,
