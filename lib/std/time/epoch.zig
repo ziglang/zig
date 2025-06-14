@@ -191,6 +191,50 @@ pub const Seconds = struct {
     }
 };
 
+/// Deprecated: use `YearAndDays`.
+pub const YearAndDay = struct {
+    year: Year,
+    day: u9,
+    pub fn calculateMonthDay(self: YearAndDay) MonthAndDay {
+        var month: Month = .jan;
+        var days_left = self.day;
+        while (true) {
+            const days_in_month = getDaysInMonth(self.year, month);
+            if (days_left < days_in_month)
+                break;
+            days_left -= days_in_month;
+            month = @as(Month, @enumFromInt(@intFromEnum(month) + 1));
+        }
+        return .{ .month = month, .day_index = @as(u5, @intCast(days_left)) };
+    }
+};
+/// Deprecated: use `Days`.
+pub const EpochDay = struct {
+    day: u47,
+    pub fn calculateYearDay(self: EpochDay) YearAndDay {
+        var year_day = self.day;
+        var year: Year = epoch_year;
+        while (true) {
+            const year_size = getDaysInYear(year);
+            if (year_day < year_size)
+                break;
+            year_day -= year_size;
+            year += 1;
+        }
+        return .{ .year = year, .day = @as(u9, @intCast(year_day)) };
+    }
+};
+/// Deprecated: use `Seconds`.
+pub const EpochSeconds = struct {
+    secs: u64,
+    pub fn getEpochDay(self: EpochSeconds) EpochDay {
+        return EpochDay{ .day = @as(u47, @intCast(@divTrunc(self.secs, secs_per_day))) };
+    }
+    pub fn getDaySeconds(self: EpochSeconds) DaySeconds {
+        return DaySeconds{ .secs = math.comptimeMod(self.secs, secs_per_day) };
+    }
+};
+
 fn testDecode(secs: u64, expected_year_day: YearAndDays, expected_month_day: MonthAndDay, expected_day_seconds: struct {
     /// 0 to 23.
     hours_into_day: u5,
