@@ -593,7 +593,7 @@ const Parser = struct {
         switch (node.get(self.zoir)) {
             .int_literal => |int| switch (int) {
                 .small => |val| return @floatFromInt(val),
-                .big => |val| return val.toFloat(T),
+                .big => |val| return val.toFloat(T, .nearest_even)[0],
             },
             .float_literal => |val| return @floatCast(val),
             .pos_inf => return std.math.inf(T),

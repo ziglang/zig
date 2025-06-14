@@ -898,7 +898,7 @@ pub fn readFromPackedMemory(
 pub fn toFloat(val: Value, comptime T: type, zcu: *const Zcu) T {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .int => |int| switch (int.storage) {
-            .big_int => |big_int| big_int.toFloat(T),
+            .big_int => |big_int| big_int.toFloat(T, .nearest_even)[0],
             inline .u64, .i64 => |x| {
                 if (T == f80) {
                     @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
@@ -995,16 +995,6 @@ pub fn floatCast(val: Value, dest_ty: Type, pt: Zcu.PerThread) !Value {
             else => unreachable,
         },
     } }));
-}
-
-/// Asserts the value is a float
-pub fn floatHasFraction(self: Value, zcu: *const Zcu) bool {
-    return switch (zcu.intern_pool.indexToKey(self.toIntern())) {
-        .float => |float| switch (float.storage) {
-            inline else => |x| @rem(x, 1) != 0,
-        },
-        else => unreachable,
-    };
 }
 
 pub fn orderAgainstZero(lhs: Value, zcu: *Zcu) std.math.Order {
@@ -1557,17 +1547,13 @@ pub fn floatFromIntAdvanced(
 }
 
 pub fn floatFromIntScalar(val: Value, float_ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) !Value {
-    const zcu = pt.zcu;
-    return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
+    return switch (pt.zcu.intern_pool.indexToKey(val.toIntern())) {
         .undef => try pt.undefValue(float_ty),
         .int => |int| switch (int.storage) {
-            .big_int => |big_int| {
-                const float = big_int.toFloat(f128);
-                return pt.floatValue(float_ty, float);
-            },
+            .big_int => |big_int| pt.floatValue(float_ty, big_int.toFloat(f128, .nearest_even)[0]),
             inline .u64, .i64 => |x| floatFromIntInner(x, float_ty, pt),
-            .lazy_align => |ty| return floatFromIntInner((try Type.fromInterned(ty).abiAlignmentInner(strat.toLazy(), pt.zcu, pt.tid)).scalar.toByteUnits() orelse 0, float_ty, pt),
-            .lazy_size => |ty| return floatFromIntInner((try Type.fromInterned(ty).abiSizeInner(strat.toLazy(), pt.zcu, pt.tid)).scalar, float_ty, pt),
+            .lazy_align => |ty| floatFromIntInner((try Type.fromInterned(ty).abiAlignmentInner(strat.toLazy(), pt.zcu, pt.tid)).scalar.toByteUnits() orelse 0, float_ty, pt),
+            .lazy_size => |ty| floatFromIntInner((try Type.fromInterned(ty).abiSizeInner(strat.toLazy(), pt.zcu, pt.tid)).scalar, float_ty, pt),
         },
         else => unreachable,
     };

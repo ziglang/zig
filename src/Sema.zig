@@ -32843,24 +32843,21 @@ fn cmpNumeric(
             }
         }
         if (lhs_is_float) {
-            if (lhs_val.floatHasFraction(zcu)) {
-                switch (op) {
+            const float = lhs_val.toFloat(f128, zcu);
+            var big_int: std.math.big.int.Mutable = .{
+                .limbs = try sema.arena.alloc(std.math.big.Limb, std.math.big.int.calcLimbLen(float)),
+                .len = undefined,
+                .positive = undefined,
+            };
+            switch (big_int.setFloat(float, .away)) {
+                .inexact => switch (op) {
                     .eq => return .bool_false,
                     .neq => return .bool_true,
                     else => {},
-                }
+                },
+                .exact => {},
             }
-
-            var bigint = try float128IntPartToBigInt(sema.gpa, lhs_val.toFloat(f128, zcu));
-            defer bigint.deinit();
-            if (lhs_val.floatHasFraction(zcu)) {
-                if (lhs_is_signed) {
-                    try bigint.addScalar(&bigint, -1);
-                } else {
-                    try bigint.addScalar(&bigint, 1);
-                }
-            }
-            lhs_bits = bigint.toConst().bitCountTwosComp();
+            lhs_bits = big_int.toConst().bitCountTwosComp();
         } else {
             lhs_bits = lhs_val.intBitCountTwosComp(zcu);
         }
@@ -32890,24 +32887,21 @@ fn cmpNumeric(
             }
         }
         if (rhs_is_float) {
-            if (rhs_val.floatHasFraction(zcu)) {
-                switch (op) {
+            const float = rhs_val.toFloat(f128, zcu);
+            var big_int: std.math.big.int.Mutable = .{
+                .limbs = try sema.arena.alloc(std.math.big.Limb, std.math.big.int.calcLimbLen(float)),
+                .len = undefined,
+                .positive = undefined,
+            };
+            switch (big_int.setFloat(float, .away)) {
+                .inexact => switch (op) {
                     .eq => return .bool_false,
                     .neq => return .bool_true,
                     else => {},
-                }
+                },
+                .exact => {},
             }
-
-            var bigint = try float128IntPartToBigInt(sema.gpa, rhs_val.toFloat(f128, zcu));
-            defer bigint.deinit();
-            if (rhs_val.floatHasFraction(zcu)) {
-                if (rhs_is_signed) {
-                    try bigint.addScalar(&bigint, -1);
-                } else {
-                    try bigint.addScalar(&bigint, 1);
-                }
-            }
-            rhs_bits = bigint.toConst().bitCountTwosComp();
+            rhs_bits = big_int.toConst().bitCountTwosComp();
         } else {
             rhs_bits = rhs_val.intBitCountTwosComp(zcu);
         }
@@ -36955,31 +36949,6 @@ fn intFromFloat(
     return sema.intFromFloatScalar(block, src, val, int_ty, mode);
 }
 
-// float is expected to be finite and non-NaN
-fn float128IntPartToBigInt(
-    arena: Allocator,
-    float: f128,
-) !std.math.big.int.Managed {
-    const is_negative = std.math.signbit(float);
-    const floored = @floor(@abs(float));
-
-    var rational = try std.math.big.Rational.init(arena);
-    defer rational.q.deinit();
-    rational.setFloat(f128, floored) catch |err| switch (err) {
-        error.NonFiniteFloat => unreachable,
-        error.OutOfMemory => return error.OutOfMemory,
-    };
-
-    // The float is reduced in rational.setFloat, so we assert that denominator is equal to one
-    const big_one = std.math.big.int.Const{ .limbs = &.{1}, .positive = true };
-    assert(rational.q.toConst().eqlAbs(big_one));
-
-    if (is_negative) {
-        rational.negate();
-    }
-    return rational.p;
-}
-
 fn intFromFloatScalar(
     sema: *Sema,
     block: *Block,
@@ -36993,13 +36962,6 @@ fn intFromFloatScalar(
 
     if (val.isUndef(zcu)) return sema.failWithUseOfUndef(block, src);
 
-    if (mode == .exact and val.floatHasFraction(zcu)) return sema.fail(
-        block,
-        src,
-        "fractional component prevents float value '{}' from coercion to type '{}'",
-        .{ val.fmtValueSema(pt, sema), int_ty.fmt(pt) },
-    );
-
     const float = val.toFloat(f128, zcu);
     if (std.math.isNan(float)) {
         return sema.fail(block, src, "float value NaN cannot be stored in integer type '{}'", .{
@@ -37012,12 +36974,28 @@ fn intFromFloatScalar(
         });
     }
 
-    var big_int = try float128IntPartToBigInt(sema.arena, float);
-    defer big_int.deinit();
-
+    var big_int: std.math.big.int.Mutable = .{
+        .limbs = try sema.arena.alloc(std.math.big.Limb, std.math.big.int.calcLimbLen(float)),
+        .len = undefined,
+        .positive = undefined,
+    };
+    switch (big_int.setFloat(float, .trunc)) {
+        .inexact => switch (mode) {
+            .exact => return sema.fail(
+                block,
+                src,
+                "fractional component prevents float value '{}' from coercion to type '{}'",
+                .{ val.fmtValueSema(pt, sema), int_ty.fmt(pt) },
+            ),
+            .truncate => {},
+        },
+        .exact => {},
+    }
     const cti_result = try pt.intValue_big(.comptime_int, big_int.toConst());
+    if (int_ty.toIntern() == .comptime_int_type) return cti_result;
 
-    if (!(try sema.intFitsInType(cti_result, int_ty, null))) {
+    const int_info = int_ty.intInfo(zcu);
+    if (!big_int.toConst().fitsInTwosComp(int_info.signedness, int_info.bits)) {
         return sema.fail(block, src, "float value '{}' cannot be stored in integer type '{}'", .{
             val.fmtValueSema(pt, sema), int_ty.fmt(pt),
         });
