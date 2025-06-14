@@ -2233,6 +2233,15 @@ const loongarch = struct {
                 try writeImmSlot(code_buf[4..][0..4], .k, i16, .trunc, val >> 2);
             },
 
+            .PCALA_HI20 => {
+                // TODO: relax
+                try writeImmSlot(code_buf[0..4], .j, i20, .cast, (S + A + 0x800 - P) >> 12);
+            },
+            .PCALA_LO12 => {
+                // TODO: relax
+                try writeImmSlot(code_buf[0..4], .k, i12, .trunc, S + A);
+            },
+
             else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
