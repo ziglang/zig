@@ -4373,34 +4373,29 @@ pub fn addDependency(pt: Zcu.PerThread, unit: AnalUnit, dependee: InternPool.Dep
 /// codegen thread, depending on whether the backend supports `Zcu.Feature.separate_thread`.
 pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, out: *@import("../link.zig").ZcuTask.LinkFunc.SharedMir) void {
     const zcu = pt.zcu;
-    if (runCodegenInner(pt, func_index, air)) |mir| {
+    const success: bool = if (runCodegenInner(pt, func_index, air)) |mir| success: {
         out.value = mir;
-        out.status.store(.ready, .release);
-    } else |err| switch (err) {
-        error.OutOfMemory => {
-            zcu.comp.setAllocFailure();
-            out.status.store(.failed, .monotonic);
-        },
-        error.CodegenFail => {
-            zcu.assertCodegenFailed(zcu.funcInfo(func_index).owner_nav);
-            out.status.store(.failed, .monotonic);
-        },
-        error.NoLinkFile => {
-            assert(zcu.comp.bin_file == null);
-            out.status.store(.failed, .monotonic);
-        },
-        error.BackendDoesNotProduceMir => {
-            const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
-            switch (backend) {
+        break :success true;
+    } else |err| success: {
+        switch (err) {
+            error.OutOfMemory => zcu.comp.setAllocFailure(),
+            error.CodegenFail => zcu.assertCodegenFailed(zcu.funcInfo(func_index).owner_nav),
+            error.NoLinkFile => assert(zcu.comp.bin_file == null),
+            error.BackendDoesNotProduceMir => switch (target_util.zigBackend(
+                zcu.root_mod.resolved_target.result,
+                zcu.comp.config.use_llvm,
+            )) {
                 else => unreachable, // assertion failure
                 .stage2_spirv64,
                 .stage2_llvm,
                 => {},
-            }
-            out.status.store(.failed, .monotonic);
-        },
-    }
-    zcu.comp.link_task_queue.mirReady(zcu.comp, out);
+            },
+        }
+        break :success false;
+    };
+    // release `out.value` with this store; synchronizes with acquire loads in `link`
+    out.status.store(if (success) .ready else .failed, .release);
+    zcu.comp.link_task_queue.mirReady(zcu.comp, func_index, out);
     if (zcu.pending_codegen_jobs.rmw(.Sub, 1, .monotonic) == 1) {
         // Decremented to 0, so all done.
         zcu.codegen_prog_node.end();
