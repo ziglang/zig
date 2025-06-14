@@ -1338,13 +1338,13 @@ const Temp = struct {
                 const new_reg =
                     try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
                 new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                try cg.asmInst(.ori(new_reg, reg, 0));
+                try cg.asmInst(.@"or"(new_reg, reg, .zero));
             },
             inline .register_pair, .register_triple, .register_quadruple => |regs| {
                 const new_reg =
                     try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
                 new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                try cg.asmInst(.ori(new_reg, regs[limb_index], 0));
+                try cg.asmInst(.@"or"(new_reg, regs[limb_index], .zero));
             },
             .register_bias, .register_offset => |_| {
                 assert(limb_index == 0);
@@ -2222,7 +2222,7 @@ fn genCopyToReg(cg: *CodeGen, size: bits.Memory.Size, dst: Register, src_mcv: MC
         .none => {},
         .dead, .unreach => unreachable,
         .undef => if (opts.safety) try cg.asmInst(.lu12i_w(dst, 0xaaaa)),
-        .register => |src| if (dst != src) try cg.asmInst(.ori(dst, src, 0)),
+        .register => |src| if (dst != src) try cg.asmInst(.@"or"(dst, src, .zero)),
         .register_bias => |ro| {
             try cg.asmInst(.addi_d(dst, ro.reg, cast(i12, ro.off) orelse return cg.fail("TODO copy reg_bias to reg", .{})));
         },
