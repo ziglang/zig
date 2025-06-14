@@ -60,10 +60,12 @@ pub const Inst = struct {
         imm_to_reg,
         /// Load frame address to register, uses `frame_reg` payload.
         frame_addr_to_reg,
-        /// Memory load/store operations, uses `op_frame_reg` payload.
-        /// This may be lowered to `op` (DJSk12 format), rd is the `reg`, rj + si12 is the frame addr.
-        /// Or `opx` (DJK format), rd is the `reg`, rj + rk is the frame addr.
+        /// Frame memory load/store operations, uses `memop_frame_reg` payload.
         frame_addr_reg_mem,
+        /// NAV memory load/store operations, uses `memop_nav_reg` payload.
+        nav_memop,
+        /// UAV memory load/store operations, uses `memop_uav_reg` payload.
+        uav_memop,
         /// Function call, uses `nav` payload.
         call,
         /// Loads spilled $ra back to $ra, no payload.
@@ -127,15 +129,26 @@ pub const Inst = struct {
             frame: bits.FrameAddr,
             reg: Register,
         },
-        /// Opcode, opcode, frame address and register
-        op_frame_reg: struct {
-            op: encoding.OpCode,
-            opx: encoding.OpCode,
+        /// Mem op, frame address and register
+        memop_frame_reg: struct {
+            op: Lir.SizedMemOp,
             frame: bits.FrameAddr,
             reg: Register,
         },
-        /// NAV index
-        nav: InternPool.Nav.Index,
+        /// Mem op, NAV offset and register
+        memop_nav_reg: struct {
+            op: Lir.SizedMemOp,
+            nav: bits.NavOffset,
+            reg: Register,
+        },
+        /// Mem op, UAV offset and register
+        memop_uav_reg: struct {
+            op: Lir.SizedMemOp,
+            uav: bits.UavOffset,
+            reg: Register,
+        },
+        /// NAV offset
+        nav: bits.NavOffset,
         /// Function index
         func: InternPool.Index,
     };
@@ -168,13 +181,24 @@ pub const Inst = struct {
                         @tagName(inst.data.frame_reg.reg),
                         inst.data.frame_reg.frame,
                     }),
-                    .frame_addr_reg_mem => try writer.print(".frame_addr_reg_mem {s}/{s} {s}, {}", .{
-                        @tagName(inst.data.op_frame_reg.op),
-                        @tagName(inst.data.op_frame_reg.opx),
-                        @tagName(inst.data.op_frame_reg.reg),
-                        inst.data.op_frame_reg.frame,
+                    .frame_addr_reg_mem => try writer.print(".frame_addr_reg_mem {} {s}, {}", .{
+                        inst.data.memop_frame_reg.op,
+                        @tagName(inst.data.memop_frame_reg.reg),
+                        inst.data.memop_frame_reg.frame,
                     }),
-                    .call => try writer.print(".call nav:{}", .{inst.data.nav}),
+                    .nav_memop => try writer.print(".nav_memop {} {s}, {} + 0x{x}", .{
+                        inst.data.memop_nav_reg.op,
+                        @tagName(inst.data.memop_nav_reg.reg),
+                        inst.data.memop_nav_reg.nav.index,
+                        inst.data.memop_nav_reg.nav.off,
+                    }),
+                    .uav_memop => try writer.print(".uav_memop {} {s}, {} + 0x{x}", .{
+                        inst.data.memop_uav_reg.op,
+                        @tagName(inst.data.memop_uav_reg.reg),
+                        inst.data.memop_uav_reg.uav.index,
+                        inst.data.memop_uav_reg.uav.off,
+                    }),
+                    .call => try writer.print(".call nav:{} + 0x{x}", .{ inst.data.nav.index, inst.data.nav.off }),
                     .spill_int_regs => try writer.print(".spill_int_regs {}", .{inst.data.reg_list.fmt(.int)}),
                     .spill_float_regs => try writer.print(".spill_float_regs {}", .{inst.data.reg_list.fmt(.float)}),
                     .restore_int_regs => try writer.print(".restore_int_regs {}", .{inst.data.reg_list.fmt(.int)}),

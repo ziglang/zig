@@ -184,13 +184,27 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     lower.emitRegBiasToReg(reg, frame_loc.base, @as(i64, frame_loc.offset + frame_addr.off));
                 },
                 .frame_addr_reg_mem => {
-                    const data = inst.data.op_frame_reg;
-                    lower.emitRegFrameOp(data.reg, data.frame, data.op, data.opx);
+                    const data = inst.data.memop_frame_reg;
+                    lower.emitRegFrameOp(data.reg, data.frame, data.op.toOpCodeRI(), data.op.toOpCodeRR());
+                },
+                .nav_memop => {
+                    const data = inst.data.memop_nav_reg;
+                    lower.emit(.pcalau12i(data.reg, 0));
+                    lower.relocElfNav(.PCALA_HI20, data.nav);
+                    lower.emit(.{ .opcode = data.op.toOpCodeRI(), .data = .{ .DJSk12 = .{ data.reg, data.reg, 0 } } });
+                    lower.relocElfNav(.PCALA_LO12, data.nav);
+                },
+                .uav_memop => {
+                    const data = inst.data.memop_uav_reg;
+                    lower.emit(.pcalau12i(data.reg, 0));
+                    lower.relocElfUav(.PCALA_HI20, data.uav);
+                    lower.emit(.{ .opcode = data.op.toOpCodeRI(), .data = .{ .DJSk12 = .{ data.reg, data.reg, 0 } } });
+                    lower.relocElfUav(.PCALA_LO12, data.uav);
                 },
                 .call => {
                     const nav = inst.data.nav;
                     lower.emit(.pcaddu18i(.ra, 0));
-                    lower.relocElfNav(.CALL36, nav, 0);
+                    lower.relocElfNav(.CALL36, nav);
                     lower.emit(.jirl(.ra, .ra, 0));
                 },
                 .load_ra => if (lower.mir.spill_ra)
@@ -245,8 +259,12 @@ fn reloc(lower: *Lower, target: Reloc.Target, off: i32) void {
     lower.result_relocs_len += 1;
 }
 
-inline fn relocElfNav(lower: *Lower, ty: R_LARCH, sym: InternPool.Nav.Index, off: i64) void {
-    lower.reloc(.{ .elf_nav = .{ .ty = ty, .symbol = sym } }, off);
+inline fn relocElfNav(lower: *Lower, ty: R_LARCH, sym: bits.NavOffset) void {
+    lower.reloc(.{ .elf_nav = .{ .ty = ty, .symbol = sym.index } }, sym.off);
+}
+
+inline fn relocElfUav(lower: *Lower, ty: R_LARCH, sym: bits.UavOffset) void {
+    lower.reloc(.{ .elf_uav = .{ .ty = ty, .symbol = sym.index } }, sym.off);
 }
 
 inline fn relocInst(lower: *Lower, loc: Reloc.Type, inst: Mir.Inst.Index, off: i32) void {
@@ -342,18 +360,18 @@ fn emitRegBiasToReg(lower: *Lower, dst: Register, src: Register, imm: i64) void 
 
 /// Emits up to 6 instructions.
 /// See Mir.Inst.PseudoTag.frame_addr_reg_mem.
-fn emitRegFrameOp(lower: *Lower, reg: Register, frame: bits.FrameAddr, op: encoding.OpCode, opx: encoding.OpCode) void {
+fn emitRegFrameOp(lower: *Lower, reg: Register, frame: bits.FrameAddr, op_ri: encoding.OpCode, op_rr: encoding.OpCode) void {
     const frame_loc = lower.resolveFrame(frame.index);
     const offset = @as(i64, frame_loc.offset + frame.off);
     if (cast(i12, offset)) |off12| {
         lower.emit(.{
-            .opcode = op,
+            .opcode = op_ri,
             .data = .{ .DJSk12 = .{ reg, frame_loc.base, off12 } },
         });
     } else {
         lower.emitImmToReg(@bitCast(@as(i64, frame_loc.offset + frame.off)), reg);
         lower.emit(.{
-            .opcode = opx,
+            .opcode = op_rr,
             .data = .{ .DJK = .{ reg, frame_loc.base, reg } },
         });
     }

@@ -128,13 +128,13 @@ pub const MCValue = union(enum) {
     /// The value is in memory at a constant offset from the address in a register.
     register_offset: bits.RegisterOffset,
     /// The value is stored as a NAV.
-    load_nav: NavOffset,
+    load_nav: bits.NavOffset,
     /// The value is the address of a NAV.
-    lea_nav: NavOffset,
+    lea_nav: bits.NavOffset,
     /// The value is stored as a UAV.
-    load_uav: UavOffset,
+    load_uav: bits.UavOffset,
     /// The value is the address of a UAV.
-    lea_uav: UavOffset,
+    lea_uav: bits.UavOffset,
     /// The value is a lazy symbol.
     load_lazy_sym: link.File.LazySymbol,
     /// The value is the address of a lazy symbol.
@@ -456,9 +456,6 @@ pub const MCValue = union(enum) {
         }
     }
 };
-
-const NavOffset = struct { index: InternPool.Nav.Index, off: i32 = 0 };
-const UavOffset = struct { index: InternPool.Key.Ptr.BaseAddr.Uav, off: i32 = 0 };
 
 const InstTrackingMap = std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InstTracking);
 const ConstTrackingMap = std.AutoArrayHashMapUnmanaged(InternPool.Index, InstTracking);
@@ -2260,16 +2257,35 @@ fn genCopyToReg(cg: *CodeGen, size: bits.Memory.Size, dst: Register, src_mcv: MC
             .reg = dst,
         } }),
         .load_frame => |addr| {
-            const op: encoding.OpCode, const opx: encoding.OpCode = switch (size) {
-                .byte => .{ .ld_bu, .ldx_bu },
-                .hword => .{ .ld_hu, .ldx_hu },
-                .word => .{ .ld_w, .ldx_w },
-                .dword => .{ .ld_d, .ldx_d },
-            };
-            try cg.asmPseudo(.frame_addr_reg_mem, .{ .op_frame_reg = .{
-                .op = op,
-                .opx = opx,
+            try cg.asmPseudo(.frame_addr_reg_mem, .{ .memop_frame_reg = .{
+                .op = .{
+                    .op = .load,
+                    .signedness = .unsigned,
+                    .size = size,
+                },
                 .frame = addr,
+                .reg = dst,
+            } });
+        },
+        .load_nav => |nav| {
+            try cg.asmPseudo(.nav_memop, .{ .memop_nav_reg = .{
+                .op = .{
+                    .op = .load,
+                    .signedness = .unsigned,
+                    .size = size,
+                },
+                .nav = nav,
+                .reg = dst,
+            } });
+        },
+        .load_uav => |uav| {
+            try cg.asmPseudo(.uav_memop, .{ .memop_uav_reg = .{
+                .op = .{
+                    .op = .load,
+                    .signedness = .unsigned,
+                    .size = size,
+                },
+                .uav = uav,
                 .reg = dst,
             } });
         },
@@ -2310,15 +2326,12 @@ fn genCopyRegToMem(cg: *CodeGen, dst_mcv: MCValue, src: Register, size: bits.Mem
             return cg.fail("TODO: genCopyRegToMem to {s}", .{@tagName(dst_mcv)});
         },
         .load_frame => |addr| {
-            const op: encoding.OpCode, const opx: encoding.OpCode = switch (size) {
-                .byte => .{ .st_b, .stx_b },
-                .hword => .{ .st_h, .stx_h },
-                .word => .{ .st_w, .stx_w },
-                .dword => .{ .st_d, .stx_d },
-            };
-            try cg.asmPseudo(.frame_addr_reg_mem, .{ .op_frame_reg = .{
-                .op = op,
-                .opx = opx,
+            try cg.asmPseudo(.frame_addr_reg_mem, .{ .memop_frame_reg = .{
+                .op = .{
+                    .op = .store,
+                    .size = size,
+                    .signedness = undefined,
+                },
                 .frame = addr,
                 .reg = src,
             } });
@@ -2972,8 +2985,8 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
                 else => func_key,
             } else func_key,
         }) {
-            .func => |func| try cg.asmPseudo(.call, .{ .nav = func.owner_nav }),
-            .@"extern" => |ext| try cg.asmPseudo(.call, .{ .nav = ext.owner_nav }),
+            .func => |func| try cg.asmPseudo(.call, .{ .nav = .{ .index = func.owner_nav } }),
+            .@"extern" => |ext| try cg.asmPseudo(.call, .{ .nav = .{ .index = ext.owner_nav } }),
             // TODO what's this
             else => return cg.fail("TODO implement calling bitcasted functions", .{}),
         }

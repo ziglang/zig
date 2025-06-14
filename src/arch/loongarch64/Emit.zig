@@ -8,6 +8,7 @@ const R_LARCH = std.elf.R_LARCH;
 const link = @import("../../link.zig");
 const codegen = @import("../../codegen.zig");
 const Zcu = @import("../../Zcu.zig");
+const Type = @import("../../Type.zig");
 
 const Lower = @import("Lower.zig");
 const Lir = @import("Lir.zig");
@@ -95,7 +96,29 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .r_addend = lir_relocs[0].off,
                     }, zo);
                 },
-                .elf_uav => return emit.fail("TODO UAV relocations for ELF", .{}),
+                .elf_uav => |sym| {
+                    const sym_index = switch (try emit.bin_file.lowerUav(
+                        emit.pt,
+                        sym.symbol.val,
+                        Type.fromInterned(sym.symbol.orig_ty).ptrAlignment(emit.pt.zcu),
+                        emit.lower.src_loc,
+                    )) {
+                        .mcv => |mcv| mcv.load_symbol,
+                        .fail => |em| {
+                            assert(emit.lower.err_msg == null);
+                            emit.lower.err_msg = em;
+                            return error.EmitFail;
+                        },
+                    };
+                    const elf_file = emit.lower.link_file.cast(.elf).?;
+                    const zo = elf_file.zigObjectPtr().?;
+                    const atom_ptr = zo.symbol(emit.atom_index).atom(elf_file).?;
+                    try atom_ptr.addReloc(gpa, .{
+                        .r_offset = start_offset,
+                        .r_info = (@as(u64, sym_index) << 32) | @intFromEnum(sym.ty),
+                        .r_addend = lir_relocs[0].off,
+                    }, zo);
+                },
             };
         }
         std.debug.assert(lir_relocs.len == 0);

@@ -91,3 +91,72 @@ test "instruction formatting" {
         .DJK = .{ .fcc0, .f1, .f2 },
     } }}));
 }
+
+pub const MemOp = enum { store, load };
+
+pub const SizedMemOp = struct {
+    op: MemOp,
+    size: bits.Memory.Size,
+    signedness: std.builtin.Signedness,
+
+    pub fn toOpCodeRI(op: SizedMemOp) encoding.OpCode {
+        return switch (op.op) {
+            .store => switch (op.size) {
+                .byte => .st_b,
+                .hword => .st_h,
+                .word => .st_w,
+                .dword => .st_d,
+            },
+            .load => switch (op.size) {
+                .byte => switch (op.signedness) {
+                    .signed => .ld_b,
+                    .unsigned => .ld_bu,
+                },
+                .hword => switch (op.signedness) {
+                    .signed => .ld_h,
+                    .unsigned => .ld_hu,
+                },
+                .word => switch (op.signedness) {
+                    .signed => .ld_w,
+                    .unsigned => .ld_wu,
+                },
+                .dword => .ld_d,
+            },
+        };
+    }
+
+    pub fn toOpCodeRR(op: SizedMemOp) encoding.OpCode {
+        return switch (op.op) {
+            .store => switch (op.size) {
+                .byte => .stx_b,
+                .hword => .stx_h,
+                .word => .stx_w,
+                .dword => .stx_d,
+            },
+            .load => switch (op.size) {
+                .byte => switch (op.signedness) {
+                    .signed => .ldx_b,
+                    .unsigned => .ldx_bu,
+                },
+                .hword => switch (op.signedness) {
+                    .signed => .ldx_h,
+                    .unsigned => .ldx_hu,
+                },
+                .word => switch (op.signedness) {
+                    .signed => .ldx_w,
+                    .unsigned => .ldx_wu,
+                },
+                .dword => .ldx_d,
+            },
+        };
+    }
+
+    pub fn format(
+        op: SizedMemOp,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        try writer.print("{s}", .{@tagName(op.toOpCodeRI())});
+    }
+};

@@ -2,6 +2,8 @@ const std = @import("std");
 const Target = std.Target;
 const expectEqual = std.testing.expectEqual;
 
+const InternPool = @import("../../InternPool.zig");
+
 pub const Register = enum(u8) {
     // zig fmt: off
     // integer registers
@@ -282,6 +284,10 @@ pub const FrameAddr = struct {
 pub const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 
 pub const RegisterFrame = struct { reg: Register, frame: FrameAddr };
+
+pub const NavOffset = struct { index: InternPool.Nav.Index, off: i32 = 0 };
+
+pub const UavOffset = struct { index: InternPool.Key.Ptr.BaseAddr.Uav, off: i32 = 0 };
 
 pub const Memory = struct {
     pub const Size = enum(u4) {
