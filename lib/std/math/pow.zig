@@ -30,13 +30,27 @@ const expect = std.testing.expect;
 ///  - pow(+inf, y)   = +0 for y < 0
 ///  - pow(-inf, y)   = pow(-0, -y)
 ///  - pow(x, y)      = nan for finite x < 0 and finite non-integer y
-pub fn pow(comptime T: type, x: T, y: T) T {
+pub fn pow(comptime T: type, x: T, y: T) if (T == comptime_float) f128 else T {
     if (@typeInfo(T) == .int) {
         return math.powi(T, x, y) catch unreachable;
     }
 
-    if (T != f32 and T != f64) {
+    if (@typeInfo(T) != .float and @typeInfo(T) != .comptime_float) {
         @compileError("pow not implemented for " ++ @typeName(T));
+    }
+    
+    if (T == comptime_float) {
+        const x_f128: f128 = @floatCast(x);
+        const y_f128: f128 = @floatCast(y);
+
+        if ((comptime math.isNan(x_f128)) or (comptime math.isNan(y_f128))) {
+            @compileError("comptime_float cannot have NaN value");
+        }
+        if (math.isInf(x_f128) or math.isInf(y_f128)) {
+            @compileError("comptime_float cannot have Inf value");
+        }
+        
+        return pow(f128, x_f128, y_f128);
     }
 
     // pow(x, +-0) = 1      for all x
@@ -60,7 +74,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     if (x == 0) {
         if (y < 0) {
             // pow(+-0, y) = +-inf  for y an odd integer
-            if (isOddInteger(y)) {
+            if (isOddInteger(T, y)) {
                 return math.copysign(math.inf(T), x);
             }
             // pow(+-0, y) = +inf   for y an even integer
@@ -68,7 +82,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
                 return math.inf(T);
             }
         } else {
-            if (isOddInteger(y)) {
+            if (isOddInteger(T, y)) {
                 return x;
             } else {
                 return 0;
@@ -178,29 +192,37 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     return math.scalbn(a1, ae);
 }
 
-fn isOddInteger(x: f64) bool {
-    if (@abs(x) >= 1 << 53) {
-        // From https://golang.org/src/math/pow.go
-        // 1 << 53 is the largest exact integer in the float64 format.
+fn isOddInteger(comptime T: type, x: T) bool {
+    if (@abs(x) >= 1 << (math.floatFractionalBits(T) + 1)) {
+        // From https://golang.org/src/math/pow.go (adapted for generic type T)
+        // 1 << (floatFractionalBits(T) + 1) is the largest exact integer in the floating point format.
         // Any number outside this range will be truncated before the decimal point and therefore will always be
         // an even integer.
-        // Without this check and if x overflows i64 the @intFromFloat(r.ipart) conversion below will panic
+        // Without this check and if x overflows i128 the @intFromFloat(r.ipart) conversion below will panic
         return false;
     }
     const r = math.modf(x);
-    return r.fpart == 0.0 and @as(i64, @intFromFloat(r.ipart)) & 1 == 1;
+    return r.fpart == 0.0 and @as(i128, @intFromFloat(r.ipart)) & 1 == 1;
 }
 
 test isOddInteger {
-    try expect(isOddInteger(math.maxInt(i64) * 2) == false);
-    try expect(isOddInteger(math.maxInt(i64) * 2 + 1) == false);
-    try expect(isOddInteger(1 << 53) == false);
-    try expect(isOddInteger(12.0) == false);
-    try expect(isOddInteger(15.0) == true);
+    try expect(isOddInteger(f64, math.maxInt(i64) * 2) == false);
+    try expect(isOddInteger(f64, math.maxInt(i64) * 2 + 1) == false);
+    try expect(isOddInteger(f64, 1 << 53) == false);
+    try expect(isOddInteger(f64, 12.0) == false);
+    try expect(isOddInteger(f64, 15.0) == true);
 }
 
 test pow {
     const epsilon = 0.000001;
+    const epsilon16 = 0.01;
+
+    try expect(math.approxEqAbs(f16, pow(f16, 0.0, 3.3), 0.0, epsilon16));
+    try expect(math.approxEqAbs(f16, pow(f16, 0.8923, 3.3), 0.686572, epsilon16));
+    try expect(math.approxEqAbs(f16, pow(f16, 0.2, 3.3), 0.004936, epsilon16));
+    try expect(math.approxEqAbs(f16, pow(f16, 1.5, 3.3), 3.811546, epsilon16));
+    try expect(math.approxEqAbs(f16, pow(f16, 37.45, 3.3), 155736.7160616, epsilon16));
+    try expect(math.approxEqAbs(f16, pow(f16, 89.123, 3.3), 2722490.231436, epsilon16));
 
     try expect(math.approxEqAbs(f32, pow(f32, 0.0, 3.3), 0.0, epsilon));
     try expect(math.approxEqAbs(f32, pow(f32, 0.8923, 3.3), 0.686572, epsilon));
@@ -215,6 +237,28 @@ test pow {
     try expect(math.approxEqAbs(f64, pow(f64, 1.5, 3.3), 3.811546, epsilon));
     try expect(math.approxEqAbs(f64, pow(f64, 37.45, 3.3), 155736.7160616, epsilon));
     try expect(math.approxEqAbs(f64, pow(f64, 89.123, 3.3), 2722490.231436, epsilon));
+
+    try expect(math.approxEqAbs(f80, pow(f80, 0.0, 3.3), 0.0, epsilon));
+    try expect(math.approxEqAbs(f80, pow(f80, 0.8923, 3.3), 0.686572, epsilon));
+    try expect(math.approxEqAbs(f80, pow(f80, 0.2, 3.3), 0.004936, epsilon));
+    try expect(math.approxEqAbs(f80, pow(f80, 1.5, 3.3), 3.811546, epsilon));
+    try expect(math.approxEqAbs(f80, pow(f80, 37.45, 3.3), 155736.7160616, epsilon));
+    try expect(math.approxEqAbs(f80, pow(f80, 89.123, 3.3), 2722490.231436, epsilon));
+
+    try expect(math.approxEqAbs(f128, pow(f128, 0.0, 3.3), 0.0, epsilon));
+    try expect(math.approxEqAbs(f128, pow(f128, 0.8923, 3.3), 0.686572, epsilon));
+    try expect(math.approxEqAbs(f128, pow(f128, 0.2, 3.3), 0.004936, epsilon));
+    try expect(math.approxEqAbs(f128, pow(f128, 1.5, 3.3), 3.811546, epsilon));
+    try expect(math.approxEqAbs(f128, pow(f128, 37.45, 3.3), 155736.7160616, epsilon));
+    try expect(math.approxEqAbs(f128, pow(f128, 89.123, 3.3), 2722490.231436, epsilon));
+
+    try expect(@TypeOf(pow(comptime_float, 0.0, 3.3)) == f128);
+    try expect(math.approxEqAbs(f128, pow(comptime_float, 0.0, 3.3), 0.0, epsilon));
+    try expect(math.approxEqAbs(f128, pow(comptime_float, 0.8923, 3.3), 0.686572, epsilon));
+    try expect(math.approxEqAbs(f128, pow(comptime_float, 0.2, 3.3), 0.004936, epsilon));
+    try expect(math.approxEqAbs(f128, pow(comptime_float, 1.5, 3.3), 3.811546, epsilon));
+    try expect(math.approxEqAbs(f128, pow(comptime_float, 37.45, 3.3), 155736.7160616, epsilon));
+    try expect(math.approxEqAbs(f128, pow(comptime_float, 89.123, 3.3), 2722490.231436, epsilon));
 }
 
 test "special" {
