@@ -355,7 +355,7 @@ pub const MCValue = union(enum) {
 
     /// Returns MCV of a limb.
     /// Caller does not own returned values.
-    fn toLimbValue(mcv: MCValue, limb_index: usize) MCValue {
+    fn toLimbValue(mcv: MCValue, limb_index: u64) MCValue {
         switch (mcv) {
             else => std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
             .register, .immediate, .register_bias, .lea_frame, .lea_nav, .lea_uav, .lea_lazy_sym => {
@@ -363,7 +363,7 @@ pub const MCValue = union(enum) {
                 return mcv;
             },
             inline .register_pair, .register_triple, .register_quadruple => |regs| {
-                return .{ .register = regs[limb_index] };
+                return .{ .register = regs[@intCast(limb_index)] };
             },
             .load_frame => |frame_addr| {
                 return .{ .load_frame = .{
@@ -1381,12 +1381,12 @@ const Temp = struct {
             },
             inline .register_pair, .register_triple, .register_quadruple => |regs| {
                 if (reuse)
-                    new_temp_index.tracking(cg).* = .init(.{ .register = regs[limb_index] })
+                    new_temp_index.tracking(cg).* = .init(.{ .register = regs[@intCast(limb_index)] })
                 else {
                     const new_reg =
                         try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
                     new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                    try cg.asmInst(.@"or"(new_reg, regs[limb_index], .zero));
+                    try cg.asmInst(.@"or"(new_reg, regs[@intCast(limb_index)], .zero));
                 }
             },
             .register_bias, .register_offset => |_| {
@@ -1461,7 +1461,7 @@ const Temp = struct {
 
     /// Returns MCV of a limb.
     /// Caller does not own return values.
-    fn toLimbValue(temp: Temp, limb_index: usize, cg: *CodeGen) MCValue {
+    fn toLimbValue(temp: Temp, limb_index: u64, cg: *CodeGen) MCValue {
         return temp.tracking(cg).short.toLimbValue(limb_index);
     }
 
@@ -2550,7 +2550,7 @@ fn genCopyToMem(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !voi
         .register_offset, .load_frame, .load_nav, .load_uav, .load_lazy_sym => {
             const reg, const reg_lock = try cg.allocRegAndLock(.usize);
             defer cg.register_manager.unlockReg(reg_lock);
-            for (0..cg.getLimbCount(ty)) |limb_i| {
+            for (0..@intCast(cg.getLimbCount(ty))) |limb_i| {
                 const size = cg.getLimbSize(ty, limb_i);
                 try cg.genCopyToReg(size, reg, src_mcv.toLimbValue(limb_i), .{});
                 try cg.genCopyRegToMem(dst_mcv.toLimbValue(limb_i), reg, size);
@@ -2954,7 +2954,7 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
     })) {
         const lhs, const rhs = sel.ops[0..2].*;
         const dst, _ = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
-        for (0..lhs.getLimbCount(cg)) |limb_i| {
+        for (0..@intCast(lhs.getLimbCount(cg))) |limb_i| {
             const lhs_limb = lhs.toLimbValue(limb_i, cg);
             const rhs_limb = rhs.toLimbValue(limb_i, cg);
             const dst_limb = dst.toLimbValue(limb_i, cg);
@@ -2970,7 +2970,7 @@ fn airLogicBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: LogicBinOpKind) !void {
         const lhs, const rhs = sel.ops[0..2].*;
         const tmp1, const tmp2 = sel.temps[0..2].*;
         const dst, _ = try cg.tempReuseOrAlloc(inst, lhs, 0, ty, .{ .use_frame = false });
-        for (0..lhs.getLimbCount(cg)) |limb_i| {
+        for (0..@intCast(lhs.getLimbCount(cg))) |limb_i| {
             const lhs_limb = try tmp1.ensureReg(cg, lhs.toLimbValue(limb_i, cg));
             const rhs_limb = try tmp2.ensureReg(cg, rhs.toLimbValue(limb_i, cg));
             const dst_limb = dst.toLimbValue(limb_i, cg);
@@ -3019,7 +3019,7 @@ fn airNot(cg: *CodeGen, inst: Air.Inst.Index) !void {
         const op = sel.ops[0];
         const tmp = sel.temps[0];
         const dst, _ = try cg.tempReuseOrAlloc(inst, op, 0, ty, .{ .use_frame = false });
-        for (0..op.getLimbCount(cg)) |limb_i| {
+        for (0..@intCast(op.getLimbCount(cg))) |limb_i| {
             const op_limb = try tmp.ensureReg(cg, op.toLimbValue(limb_i, cg));
             const dst_limb = dst.toLimbValue(limb_i, cg);
             try cg.asmInst(.nor(dst_limb.getReg().?, op_limb.getReg().?, .zero));
