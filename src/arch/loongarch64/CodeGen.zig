@@ -1329,6 +1329,29 @@ const Temp = struct {
         }
     }
 
+    fn write(dst: Temp, val: Temp, cg: *CodeGen, opts: AccessOptions) InnerError!void {
+        const ty = val.typeOf(cg);
+        const dst_mcv = dst.tracking(cg).short;
+        switch (dst_mcv) {
+            else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
+            .register, .register_bias => {
+                assert(opts.off == 0);
+                try val.copy(dst, cg, ty);
+            },
+            inline .register_pair, .register_triple, .register_quadruple => |regs| {
+                assert(@rem(opts.off, 8) == 0);
+                assert(opts.off >= 0);
+                assert(ty.abiSize(cg.pt.zcu) <= 8); // TODO not implemented yet
+                try cg.genCopy(ty, dst.tracking(cg).short, .{ .register = regs[@as(u32, @intCast(opts.off)) / 8] }, .{ .safety = opts.safety });
+            },
+            .memory, .register_offset, .load_frame, .load_nav, .load_uav, .load_lazy_sym => {
+                var addr_ptr = try cg.tempInit(.usize, dst_mcv.address());
+                try val.storeTo(addr_ptr, cg, ty, opts);
+                try addr_ptr.die(cg);
+            },
+        }
+    }
+
     fn getLimbCount(temp: Temp, cg: *CodeGen) u64 {
         return cg.getLimbCount(temp.typeOf(cg));
     }
@@ -1900,10 +1923,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .unwrap_errunion_err => try cg.airUnwrapErrUnionErr(inst),
             .unwrap_errunion_payload_ptr => try cg.airUnwrapErrUnionPayloadPtr(inst),
             .unwrap_errunion_err_ptr => try cg.airUnwrapErrUnionErrPtr(inst),
-            .errunion_payload_ptr_set,
-            .wrap_errunion_payload,
-            .wrap_errunion_err,
-            => unreachable,
+            .wrap_errunion_payload => try cg.airWrapErrUnionPayload(inst),
+            .wrap_errunion_err => try cg.airWrapErrUnionErr(inst),
 
             .unreach => {},
 
@@ -3897,4 +3918,38 @@ fn airUnwrapErrUnionErrPtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
     var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
     const dst = try ops[0].load(cg, eu_err_ty, .{ .off = eu_err_off });
     try dst.finish(inst, &ops, cg);
+}
+
+fn airWrapErrUnionPayload(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
+    const ty_op = cg.getAirData(inst).ty_op;
+    const eu_ty = ty_op.ty.toType();
+    const eu_err_ty = eu_ty.errorUnionSet(zcu);
+    const eu_pl_ty = cg.typeOf(ty_op.operand);
+    const eu_err_off: i32 = @intCast(codegen.errUnionErrorOffset(eu_pl_ty, zcu));
+    const eu_pl_off: i32 = @intCast(codegen.errUnionPayloadOffset(eu_pl_ty, zcu));
+
+    var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
+    var eu = try cg.tempAlloc(eu_ty, .{});
+    try eu.write(ops[0], cg, .{ .off = eu_pl_off });
+
+    var err = try cg.tempInit(eu_err_ty, .{ .immediate = 0 });
+    try eu.write(err, cg, .{ .off = eu_err_off });
+    try err.die(cg);
+
+    try eu.finish(inst, &ops, cg);
+}
+
+fn airWrapErrUnionErr(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
+    const ty_op = cg.getAirData(inst).ty_op;
+    const eu_ty = ty_op.ty.toType();
+    const eu_pl_ty = eu_ty.errorUnionPayload(zcu);
+    const eu_err_off: i32 = @intCast(codegen.errUnionErrorOffset(eu_pl_ty, zcu));
+
+    var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
+
+    var eu = try cg.tempAlloc(eu_ty, .{});
+    try eu.write(ops[0], cg, .{ .off = eu_err_off });
+    try eu.finish(inst, &ops, cg);
 }
