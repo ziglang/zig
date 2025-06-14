@@ -394,3 +394,67 @@ test "negative zero" {
 fn smallBufferJsonReader(allocator: Allocator, io_reader: anytype) JsonReader(16, @TypeOf(io_reader)) {
     return JsonReader(16, @TypeOf(io_reader)).init(allocator, io_reader);
 }
+
+test "JSON to ZON" {
+    const json_input =
+        \\{
+        \\  "Image": {
+        \\      "Width":  800,
+        \\      "Height": 600,
+        \\      "Title":  "View from 15th Floor",
+        \\      "Thumbnail": {
+        \\          "Url":    "http://www.example.com/image/481989943",
+        \\          "Height": 125,
+        \\          "Width":  100
+        \\      },
+        \\      "Animated" : false,
+        \\      "IDs": [116, 943, 234, 38793],
+        \\      "ArrayOfObject": [{"n": "m"}],
+        \\      "double": 1.3412,
+        \\      "LargeInt": 18446744073709551615
+        \\    }
+        \\}
+    ;
+
+    const expected =
+        \\.{ .Image = .{
+        \\    .Width = 800,
+        \\    .Height = 600,
+        \\    .Title = "View from 15th Floor",
+        \\    .Thumbnail = .{
+        \\        .Url = "http://www.example.com/image/481989943",
+        \\        .Height = 125,
+        \\        .Width = 100,
+        \\    },
+        \\    .Animated = false,
+        \\    .IDs = .{
+        \\        116,
+        \\        943,
+        \\        234,
+        \\        38793,
+        \\    },
+        \\    .ArrayOfObject = .{.{ .n = "m" }},
+        \\    .double = 1.3412,
+        \\    .LargeInt = "18446744073709551615",
+        \\} }
+        \\
+    ;
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const json_parsed = try std.json.parseFromSliceLeaky(std.json.Value, allocator, json_input, .{});
+
+    var buffer = std.ArrayList(u8).init(allocator);
+    try std.zon.stringify.serializeArbitraryDepth(json_parsed, .{}, buffer.writer());
+    try buffer.append(0);
+
+    const zon_parsed = try std.zig.Ast.parse(allocator, buffer.items[0 .. buffer.items.len - 1 :0], .zon);
+
+    try testing.expect(zon_parsed.errors.len == 0);
+
+    const formatted = try zon_parsed.render(allocator);
+
+    try testing.expect(std.mem.eql(u8, formatted, expected));
+}
