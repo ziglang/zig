@@ -1132,41 +1132,6 @@ const Temp = struct {
         };
     }
 
-    fn toLea(temp: *Temp, cg: *CodeGen) InnerError!bool {
-        switch (temp.tracking(cg).short) {
-            .none,
-            .unreach,
-            .dead,
-            .undef,
-            .register_pair,
-            .register_triple,
-            .register_quadruple,
-            .reserved_frame,
-            .air_ref,
-            => unreachable, // not a valid pointer
-            .immediate,
-            .register,
-            .register_bias,
-            .lea_frame,
-            .register_frame,
-            .lea_nav,
-            .lea_uav,
-            .lea_lazy_sym,
-            => return false,
-            .memory,
-            .register_offset,
-            .load_frame,
-            .load_nav,
-            .load_uav,
-            .load_lazy_sym,
-            => {
-                try temp.die(cg);
-                temp.* = try cg.tempInit(temp.typeOf(cg), temp.tracking(cg).short.address());
-                return true;
-            },
-        }
-    }
-
     fn toMemory(temp: *Temp, cg: *CodeGen) InnerError!bool {
         switch (temp.tracking(cg).short) {
             .none,
@@ -1188,9 +1153,10 @@ const Temp = struct {
             .lea_lazy_sym,
             => {
                 const ty = temp.typeOf(cg);
-                const mcv = temp.tracking(cg).short;
+                const new_temp = try cg.tempAllocMem(ty);
+                temp.copy(new_temp, cg, ty);
                 try temp.die(cg);
-                temp.* = try cg.tempInit(ty, mcv.deref());
+                temp.* = new_temp;
                 return true;
             },
             .memory,
@@ -1308,18 +1274,18 @@ const Temp = struct {
         safety: bool = false,
     };
 
-    fn load(ptr: *Temp, val_ty: Type, opts: AccessOptions, cg: *CodeGen) InnerError!Temp {
-        const val = try cg.tempAlloc(val_ty, .{});
-        while (try ptr.toLea(cg)) {}
-        const val_mcv = val.tracking(cg).short;
-
-        // TODO: safety check
-        _ = opts;
-
-        switch (val_mcv) {
-            else => |mcv| return cg.fail("{s}: {}\n", .{ @src().fn_name, mcv }),
-        }
+    fn load(ptr: Temp, cg: *CodeGen, ty: Type, opts: AccessOptions) InnerError!Temp {
+        const val = try cg.tempAlloc(ty, .{});
+        try ptr.loadTo(val, cg, ty, opts);
         return val;
+    }
+
+    fn loadTo(ptr: Temp, dst: Temp, cg: *CodeGen, ty: Type, opts: AccessOptions) InnerError!void {
+        try cg.genCopy(ty, dst.tracking(cg).short, ptr.tracking(cg).short.deref(), .{ .safety = opts.safety });
+    }
+
+    fn storeTo(val: Temp, ptr: Temp, cg: *CodeGen, ty: Type, opts: AccessOptions) InnerError!void {
+        try cg.genCopy(ty, ptr.tracking(cg).short.deref(), val.tracking(cg).short, .{ .safety = opts.safety });
     }
 
     fn getLimbCount(temp: Temp, cg: *CodeGen) u64 {
@@ -1494,6 +1460,7 @@ fn freeReg(cg: *CodeGen, reg: Register) !void {
 }
 
 fn freeFrame(cg: *CodeGen, frame: FrameIndex) !void {
+    tracking_log.debug("Free frame {}", .{frame});
     try cg.free_frame_indices.append(cg.gpa, frame);
 }
 
@@ -1559,11 +1526,13 @@ fn allocFrameIndex(cg: *CodeGen, alloc: FrameAlloc) !FrameIndex {
         const abi_align = &frame_align[@intFromEnum(frame_index)];
         abi_align.* = abi_align.max(alloc.abi_align);
         _ = cg.free_frame_indices.swapRemove(i);
+        tracking_log.debug("Reuse frame {}", .{frame_index});
         return frame_index;
     }
 
     const frame_index: FrameIndex = @enumFromInt(cg.frame_allocs.len);
     try cg.frame_allocs.append(cg.gpa, alloc);
+    tracking_log.debug("New frame {}", .{frame_index});
     return frame_index;
 }
 
@@ -1600,6 +1569,18 @@ fn getLimbCount(cg: *CodeGen, ty: Type) u64 {
 
 fn getLimbSize(cg: *CodeGen, ty: Type, limb: u64) bits.Memory.Size {
     return .fromByteSize(@min(ty.abiSize(cg.pt.zcu) - limb * 8, 8));
+}
+
+fn fieldOffset(cg: *CodeGen, ptr_agg_ty: Type, ptr_field_ty: Type, field_index: u32) i32 {
+    const pt = cg.pt;
+    const zcu = pt.zcu;
+    const agg_ty = ptr_agg_ty.childType(zcu);
+    return switch (agg_ty.containerLayout(zcu)) {
+        .auto, .@"extern" => @intCast(agg_ty.structFieldOffset(field_index, zcu)),
+        .@"packed" => @divExact(@as(i32, ptr_agg_ty.ptrInfo(zcu).packed_offset.bit_offset) +
+            (if (zcu.typeToStruct(agg_ty)) |loaded_struct| pt.structPackedFieldBitOffset(loaded_struct, field_index) else 0) -
+            ptr_field_ty.ptrInfo(zcu).packed_offset.bit_offset, 8),
+    };
 }
 
 fn reuseTemp(
@@ -1854,6 +1835,12 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .ptr_elem_ptr => try cg.airPtrElemPtr(inst),
             .slice_elem_val => try cg.airPtrElemVal(inst),
             .ptr_elem_val => try cg.airPtrElemVal(inst),
+
+            .struct_field_ptr => try cg.airStructFieldPtr(inst),
+            .struct_field_ptr_index_0 => try cg.airStructFieldPtrConst(inst, 0),
+            .struct_field_ptr_index_1 => try cg.airStructFieldPtrConst(inst, 1),
+            .struct_field_ptr_index_2 => try cg.airStructFieldPtrConst(inst, 2),
+            .struct_field_ptr_index_3 => try cg.airStructFieldPtrConst(inst, 3),
 
             .unreach => {},
 
@@ -2720,8 +2707,8 @@ fn airRet(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
         const ret_temp = switch (cg.call_info.return_value) {
             .ref_frame => |_| deref_ret: {
                 // load pointer
-                var ret_ptr = try cg.tempInit(.usize, cg.ret_mcv);
-                const ret_temp = try ret_ptr.load(ret_ty, .{ .safety = safety }, cg);
+                const ret_ptr = try cg.tempInit(.usize, cg.ret_mcv);
+                const ret_temp = try ret_ptr.load(cg, ret_ty, .{ .safety = safety });
                 try ret_ptr.die(cg);
                 break :deref_ret ret_temp;
             },
@@ -2750,14 +2737,12 @@ fn airRetLoad(cg: *CodeGen, inst: Air.Inst.Index) !void {
         else => {
             const ret_ty = cg.fn_type.fnReturnType(zcu);
             const ret_temp = try cg.tempInit(ret_ty, cg.ret_mcv);
-
-            while (try un_temp.toMemory(cg)) {}
-            try un_temp.copy(ret_temp, cg, ret_ty);
+            try un_temp.loadTo(ret_temp, cg, ret_ty, .{});
             try ret_temp.die(cg);
         },
     }
 
-    try (try cg.tempInit(.noreturn, .undef)).finish(inst, &.{un_temp}, cg);
+    try (try cg.tempInit(.noreturn, .unreach)).finish(inst, &.{un_temp}, cg);
     try cg.finishReturn(inst);
 }
 
@@ -2903,8 +2888,9 @@ fn airRetAddr(cg: *CodeGen, inst: Air.Inst.Index) !void {
 fn airAlloc(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const zcu = cg.pt.zcu;
     const ty = cg.getAirData(inst).ty;
-    const frame = try cg.allocFrameIndex(.initType(ty, zcu));
-    const result = try cg.tempInit(.ptr_usize, .{ .lea_frame = .{ .index = frame } });
+    const child_ty = ty.childType(zcu);
+    const frame = try cg.allocFrameIndex(.initType(child_ty, zcu));
+    const result = try cg.tempInit(.usize, .{ .lea_frame = .{ .index = frame } });
     try result.finish(inst, &.{}, cg);
 }
 
@@ -2926,6 +2912,7 @@ fn airRetPtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
 }
 
 fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
     const ty_op = cg.getAirData(inst).ty_op;
     const ty = ty_op.ty.toType();
     const val_mcv = try cg.resolveRef(ty_op.operand);
@@ -2943,30 +2930,37 @@ fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) !void {
         .air_ref,
         => unreachable,
         .memory, .register_offset, .load_frame, .load_nav, .load_uav, .load_lazy_sym => {
-            var tmp = try cg.tempAlloc(.usize, .{ .use_frame = false });
-            try val.copy(tmp, cg, .usize);
-            while (try tmp.toMemory(cg)) {}
-            try tmp.copy(tmp, cg, .usize);
-            try tmp.finish(inst, &.{val}, cg);
+            if (ty.abiSize(zcu) == Type.usize.abiSize(zcu)) {
+                var tmp = try cg.tempAlloc(.usize, .{ .use_frame = false });
+                try val.copy(tmp, cg, .usize);
+                try tmp.loadTo(tmp, cg, ty, .{});
+                tmp.toType(cg, ty);
+                try tmp.finish(inst, &.{val}, cg);
+            } else {
+                const tmp = try cg.tempAlloc(.usize, .{ .use_frame = false });
+                try val.copy(tmp, cg, .usize);
+                const dst = try tmp.load(cg, ty, .{});
+                try tmp.die(cg);
+                try dst.finish(inst, &.{val}, cg);
+            }
         },
         .immediate, .register, .register_bias, .lea_frame, .lea_nav, .lea_uav, .lea_lazy_sym => {
-            while (try val.toMemory(cg)) {}
             const tmp = try cg.tempAlloc(ty, .{});
-            try val.copy(tmp, cg, ty);
+            try val.loadTo(tmp, cg, ty, .{});
             try tmp.finish(inst, &.{val}, cg);
         },
     };
 }
 
 fn airStore(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
-    _ = safety; // TODO: safety
     const bin_op = cg.getAirData(inst).bin_op;
     var ptr, const val = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
     const val_ty = val.typeOf(cg);
 
-    while (try ptr.toMemory(cg)) {}
-    try val.copy(ptr, cg, val_ty);
-    try (try cg.tempInit(.void, .none)).finish(inst, &.{ ptr, val }, cg);
+    try val.storeTo(ptr, cg, val_ty, .{ .safety = safety });
+
+    try ptr.die(cg);
+    try val.die(cg);
 }
 
 fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
@@ -3735,8 +3729,7 @@ fn airPtrElemVal(cg: *CodeGen, inst: Air.Inst.Index) !void {
         var ptr_temp, const index_temp = sel.ops[0..2].*;
         const dst = sel.temps[0];
         ptr_temp.toOffset(cg, @intCast(index_temp.getUnsignedImm(cg) * elem_off));
-        while (try ptr_temp.toMemory(cg)) {}
-        try ptr_temp.copy(dst, cg, elem_ty);
+        try ptr_temp.loadTo(dst, cg, elem_ty, .{});
         try sel.finish(dst);
     }
     // case 2: non-constant index
@@ -3757,10 +3750,43 @@ fn airPtrElemVal(cg: *CodeGen, inst: Air.Inst.Index) !void {
         try cg.asmInst(.mul_d(off_reg, off_reg, index_temp.getReg(cg)));
         try cg.asmInst(.add_d(off_reg, off_reg, ptr_temp.getReg(cg)));
 
-        while (try off.toMemory(cg)) {}
-        try off.copy(dst, cg, elem_ty);
-        try off.die(cg);
+        try off.loadTo(dst, cg, elem_ty, .{});
 
         try sel.finish(dst);
     } else return sel.fail();
+}
+
+fn airStructFieldPtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const ty_pl = cg.getAirData(inst).ty_pl;
+    const struct_field = cg.air.extraData(Air.StructField, ty_pl.payload).data;
+    const ops = try cg.tempsFromOperands(inst, .{struct_field.struct_operand});
+    if (ops[0].tracking(cg).short.isMemory()) {
+        var ptr = try ops[0].load(cg, .usize, .{});
+        ptr.toOffset(cg, cg.fieldOffset(
+            cg.typeOf(struct_field.struct_operand),
+            ty_pl.ty.toType(),
+            struct_field.field_index,
+        ));
+        try ptr.finish(inst, &ops, cg);
+    } else {
+        ops[0].toOffset(cg, cg.fieldOffset(
+            cg.typeOf(struct_field.struct_operand),
+            ty_pl.ty.toType(),
+            struct_field.field_index,
+        ));
+        try ops[0].finish(inst, &ops, cg);
+    }
+}
+
+fn airStructFieldPtrConst(cg: *CodeGen, inst: Air.Inst.Index, index: u32) !void {
+    const ty_op = cg.getAirData(inst).ty_op;
+    const ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
+    if (ops[0].tracking(cg).short.isMemory()) {
+        var ptr = try ops[0].load(cg, .usize, .{});
+        ptr.toOffset(cg, cg.fieldOffset(cg.typeOf(ty_op.operand), ty_op.ty.toType(), index));
+        try ptr.finish(inst, &ops, cg);
+    } else {
+        ops[0].toOffset(cg, cg.fieldOffset(cg.typeOf(ty_op.operand), ty_op.ty.toType(), index));
+        try ops[0].finish(inst, &ops, cg);
+    }
 }

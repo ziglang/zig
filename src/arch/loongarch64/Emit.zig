@@ -9,6 +9,7 @@ const link = @import("../../link.zig");
 const codegen = @import("../../codegen.zig");
 const Zcu = @import("../../Zcu.zig");
 const Type = @import("../../Type.zig");
+const InternPool = @import("../../InternPool.zig");
 
 const Lower = @import("Lower.zig");
 const Lir = @import("Lir.zig");
@@ -20,6 +21,7 @@ const Emit = @This();
 lower: Lower,
 pt: Zcu.PerThread,
 bin_file: *link.File,
+owner_nav: InternPool.Nav.Index,
 atom_index: u32,
 debug_output: link.File.DebugInfoOutput,
 code: *std.ArrayListUnmanaged(u8),
@@ -31,6 +33,8 @@ prev_di_pc: usize,
 pub const Error = Lower.Error || error{EmitFail} || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
+    const ip = &emit.pt.zcu.intern_pool;
+    log.debug("Begin Emit: {}", .{ip.getNav(emit.owner_nav).fqn.fmt(ip)});
     const gpa = emit.lower.link_file.comp.gpa;
 
     const code_offset_mapping = try emit.lower.allocator.alloc(u32, emit.lower.mir.instructions.len);
@@ -189,6 +193,7 @@ pub fn emitMir(emit: *Emit) Error!void {
 
         std.mem.writeInt(u32, inst_bytes, inst_u32, .little);
     }
+    log.debug("End Emit: {}", .{ip.getNav(emit.owner_nav).fqn.fmt(ip)});
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) Error {

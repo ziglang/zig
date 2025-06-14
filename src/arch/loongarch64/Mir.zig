@@ -286,6 +286,7 @@ pub fn emit(
         },
         .pt = pt,
         .bin_file = lf,
+        .owner_nav = nav,
         .atom_index = sym: {
             if (lf.cast(.elf)) |ef| break :sym try ef.zigObjectPtr().?.getOrCreateMetadataForNav(zcu, nav);
             unreachable;
