@@ -3489,10 +3489,13 @@ fn airBitCast(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const src_ty = cg.typeOf(ty_op.operand);
     var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{ty_op.operand}));
 
+    // case 1: no operation needed
+    // src and dst must have the same ABI size
     if (try sel.match(.{
-        .requirement = dst_ty.isAbiInt(zcu) and
-            src_ty.isAbiInt(zcu) and
-            src_ty.abiSize(zcu) == dst_ty.abiSize(zcu),
+        .requirement = src_ty.abiSize(zcu) == dst_ty.abiSize(zcu) and
+            ((dst_ty.isAbiInt(zcu) and src_ty.isAbiInt(zcu)) or
+                src_ty.isPtrAtRuntime(zcu) or
+                dst_ty.isPtrAtRuntime(zcu)),
         .patterns = &.{.{ .srcs = &.{.any} }},
     })) {
         const src = sel.ops[0];
