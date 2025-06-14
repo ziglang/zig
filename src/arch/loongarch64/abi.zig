@@ -427,9 +427,15 @@ pub const CCResolver = struct {
             .optional => {
                 const child_ty = ty.optionalChild(zcu);
                 if (child_ty.isPtrAtRuntime(zcu)) return self.allocPtr(ctx, max_regs >= 1);
+                if (ty.optionalReprIsPayload(zcu)) return self.resolveType(child_ty, ctx, max_regs);
 
                 // try allocate reg / reg + frame
                 if (max_regs >= 1) {
+                    if (child_ty.isAbiInt(zcu) and ty.abiSize(zcu) <= 8) {
+                        if (self.allocReg(.int, ctx)) |reg|
+                            return .{ .register = reg };
+                    }
+
                     const state = self.state;
                     if (self.allocReg(.int, ctx)) |reg| {
                         const child_ccv = try self.resolveType(child_ty, ctx, max_regs - 1);

@@ -1926,6 +1926,9 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .wrap_errunion_payload => try cg.airWrapErrUnionPayload(inst),
             .wrap_errunion_err => try cg.airWrapErrUnionErr(inst),
 
+            .@"try", .try_cold => try cg.airTry(inst),
+            .try_ptr, .try_ptr_cold => try cg.airTryPtr(inst),
+
             .unreach => {},
 
             .intcast_safe,
@@ -2323,6 +2326,7 @@ fn genCopy(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: Cop
     const zcu = cg.pt.zcu;
     if (!ty.hasRuntimeBits(zcu)) return;
 
+    log.debug("copying {} to {} ({}, safety = {})", .{ src_mcv, dst_mcv, ty.fmt(cg.pt), opts.safety });
     switch (dst_mcv) {
         .register => |reg| try cg.genCopyToReg(.fromByteSize(ty.abiSize(zcu)), reg, src_mcv, opts),
         inline .register_pair, .register_triple, .register_quadruple => |regs| {
@@ -2602,6 +2606,7 @@ const Select = struct {
     }
 
     fn finish(sel: *Select, result: Temp) !void {
+        cg_select_log.debug("select finished: {}", .{result});
         if (sel.inst) |inst| {
             try result.finish(inst, sel.ops[0..sel.ops_count], sel.cg);
         }
@@ -3615,10 +3620,7 @@ fn airBitCast(cg: *CodeGen, inst: Air.Inst.Index) !void {
     // case 1: no operation needed
     // src and dst must have the same ABI size
     if (try sel.match(.{
-        .requirement = src_ty.abiSize(zcu) == dst_ty.abiSize(zcu) and
-            ((dst_ty.isAbiInt(zcu) and src_ty.isAbiInt(zcu)) or
-                src_ty.isPtrAtRuntime(zcu) or
-                dst_ty.isPtrAtRuntime(zcu)),
+        .requirement = src_ty.abiSize(zcu) == dst_ty.abiSize(zcu),
         .patterns = &.{.{ .srcs = &.{.any} }},
     })) {
         const src = sel.ops[0];
@@ -3692,9 +3694,9 @@ fn airIntCast(cg: *CodeGen, inst: Air.Inst.Index) !void {
     } else return sel.fail();
 }
 
-fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, inverted: bool) !void {
-    const un_op = cg.getAirData(inst).un_op;
-    var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{un_op}));
+/// Checks if a error union value is error. Returns only register values.
+fn genIsErr(cg: *CodeGen, eu: Temp, reuse: bool, inverted: bool) !Temp {
+    var sel = Select.init(cg, null, &.{eu});
 
     // case 1: error is in register
     if (try sel.match(.{
@@ -3707,17 +3709,19 @@ fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, inverted: bool) !void {
         const src_mcv = src.tracking(cg);
         const err_reg = src_mcv.getRegs()[0];
         const dst = dst: {
-            if (cg.liveness.operandDies(inst, 0)) {
+            if (reuse) {
                 try src.die(cg);
-                break :dst err_reg;
-            } else break :dst try cg.allocReg(.bool, inst);
+                break :dst try cg.tempInit(.bool, .{ .register = err_reg });
+            } else break :dst try cg.tempAlloc(.bool, .{ .use_frame = false });
         };
+        const dst_reg = dst.getReg(cg);
 
-        try cg.asmInst(.sltui(dst, err_reg, 1));
+        try cg.asmInst(.sltui(dst_reg, err_reg, 1));
         if (!inverted)
-            try cg.asmInst(.xori(dst, dst, 1));
+            try cg.asmInst(.xori(dst_reg, dst_reg, 1));
 
-        try sel.finish(try cg.tempInit(.bool, .{ .register = dst }));
+        try sel.finish(dst);
+        return dst;
     }
     // case 2: error is in memory
     else if (try sel.match(.{
@@ -3726,7 +3730,7 @@ fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, inverted: bool) !void {
         },
     })) {
         const src = sel.ops[0];
-        var limb = try src.getLimb(.bool, 0, cg, cg.liveness.operandDies(inst, 0));
+        var limb = try src.getLimb(.bool, 0, cg, reuse);
         while (try limb.moveToRegister(cg, .int, true)) {}
         limb.toType(cg, .bool);
         const limb_reg = limb.getReg(cg);
@@ -3736,7 +3740,16 @@ fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, inverted: bool) !void {
             try cg.asmInst(.xori(limb_reg, limb_reg, 1));
 
         try sel.finish(limb);
+        return limb;
     } else return sel.fail();
+}
+
+fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, inverted: bool) !void {
+    const un_op = cg.getAirData(inst).un_op;
+    const ops = try cg.tempsFromOperands(inst, .{un_op});
+    const reuse = !cg.liveness.operandDies(inst, 0);
+    const dst = try cg.genIsErr(ops[0], reuse, inverted);
+    try dst.finish(inst, &ops, cg);
 }
 
 fn airSlicePtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
@@ -3952,4 +3965,77 @@ fn airWrapErrUnionErr(cg: *CodeGen, inst: Air.Inst.Index) !void {
     var eu = try cg.tempAlloc(eu_ty, .{});
     try eu.write(ops[0], cg, .{ .off = eu_err_off });
     try eu.finish(inst, &ops, cg);
+}
+
+fn airTry(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const pl_op = cg.getAirData(inst).pl_op;
+    const extra = cg.air.extraData(Air.Try, pl_op.payload);
+    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]);
+
+    const operand_ty = cg.typeOf(pl_op.operand);
+    const result = try cg.genTry(inst, pl_op.operand, operand_ty, false, body);
+    try result.finish(inst, &.{}, cg);
+}
+
+fn airTryPtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const ty_pl = cg.getAirData(inst).ty_pl;
+    const extra = cg.air.extraData(Air.TryPtr, ty_pl.payload);
+    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]);
+
+    const operand_ty = cg.typeOf(extra.data.ptr);
+    const result = try cg.genTry(inst, extra.data.ptr, operand_ty, true, body);
+    try result.finish(inst, &.{}, cg);
+}
+
+fn genTry(
+    cg: *CodeGen,
+    inst: Air.Inst.Index,
+    operand: Air.Inst.Ref,
+    operand_ty: Type,
+    operand_is_ptr: bool,
+    body: []const Air.Inst.Index,
+) !Temp {
+    const zcu = cg.pt.zcu;
+    const liveness_cond_br = cg.liveness.getCondBr(inst);
+    const ops = try cg.tempsFromOperands(inst, .{operand});
+    const reuse_op = !cg.liveness.operandDies(inst, 0);
+
+    const is_err_temp = if (operand_is_ptr)
+        unreachable // TODO
+    else
+        try cg.genIsErr(ops[0], reuse_op, true);
+    const is_err_reg = is_err_temp.getReg(cg);
+
+    if (!reuse_op)
+        try ops[0].die(cg);
+    try is_err_temp.die(cg);
+    try cg.resetTemps(@enumFromInt(0));
+
+    const reloc = try cg.asmBr(null, .{ .ne = .{ is_err_reg, .zero } });
+    const state = try cg.saveState();
+    for (liveness_cond_br.else_deaths) |death| try cg.resolveInst(death).die(cg, death);
+    try cg.genBodyBlock(body);
+    try cg.restoreState(state, &.{}, .{
+        .emit_instructions = false,
+        .update_tracking = true,
+        .resurrect = true,
+        .close_scope = true,
+    });
+    cg.performReloc(reloc);
+
+    for (liveness_cond_br.then_deaths) |death| try cg.resolveInst(death).die(cg, death);
+
+    const payload_ty = operand_ty.errorUnionPayload(zcu);
+    const field_off: i32 = @intCast(codegen.errUnionPayloadOffset(payload_ty, zcu));
+    const result =
+        if (cg.liveness.isUnused(inst))
+            try cg.tempInit(payload_ty, .unreach)
+        else if (operand_is_ptr)
+            unreachable // TODO
+        else if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu))
+            try ops[0].read(cg, payload_ty, .{ .off = field_off })
+        else
+            try cg.tempInit(payload_ty, .none);
+
+    return result;
 }
