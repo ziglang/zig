@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const testing = std.testing;
-const leb = std.leb;
 const mem = std.mem;
 const log = std.log.scoped(.codegen);
 
@@ -18,12 +17,10 @@ const Compilation = @import("../../Compilation.zig");
 const link = @import("../../link.zig");
 const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
-const Emit = @import("Emit.zig");
 const abi = @import("abi.zig");
 const Alignment = InternPool.Alignment;
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
-const Wasm = link.File.Wasm;
 
 const target_util = @import("../../target.zig");
 const libcFloatPrefix = target_util.libcFloatPrefix;
@@ -78,17 +75,24 @@ simd_immediates: std.ArrayListUnmanaged([16]u8) = .empty,
 /// The Target we're emitting (used to call intInfo)
 target: *const std.Target,
 ptr_size: enum { wasm32, wasm64 },
-wasm: *link.File.Wasm,
 pt: Zcu.PerThread,
 /// List of MIR Instructions
-mir_instructions: *std.MultiArrayList(Mir.Inst),
+mir_instructions: std.MultiArrayList(Mir.Inst),
 /// Contains extra data for MIR
-mir_extra: *std.ArrayListUnmanaged(u32),
-start_mir_extra_off: u32,
-start_locals_off: u32,
+mir_extra: std.ArrayListUnmanaged(u32),
 /// List of all locals' types generated throughout this declaration
 /// used to emit locals count at start of 'code' section.
-locals: *std.ArrayListUnmanaged(std.wasm.Valtype),
+mir_locals: std.ArrayListUnmanaged(std.wasm.Valtype),
+/// Set of all UAVs referenced by this function. Key is the UAV value, value is the alignment.
+/// `.none` means naturally aligned. An explicit alignment is never less than the natural alignment.
+mir_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+/// Set of all functions whose address this function has taken and which therefore might be called
+/// via a `call_indirect` function.
+mir_indirect_function_set: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void),
+/// Set of all function types used by this function. These must be interned by the linker.
+mir_func_tys: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
+/// The number of `error_name_table_ref` instructions emitted.
+error_name_table_ref_count: u32,
 /// When a function is executing, we store the the current stack pointer's value within this local.
 /// This value is then used to restore the stack pointer to the original value at the return of the function.
 initial_stack_value: WValue = .none,
@@ -219,7 +223,7 @@ const WValue = union(enum) {
         if (local_value < reserved + 2) return; // reserved locals may never be re-used. Also accounts for 2 stack locals.
 
         const index = local_value - reserved;
-        const valtype = gen.locals.items[gen.start_locals_off + index];
+        const valtype = gen.mir_locals.items[index];
         switch (valtype) {
             .i32 => gen.free_locals_i32.append(gen.gpa, local_value) catch return, // It's ok to fail any of those, a new local can be allocated instead
             .i64 => gen.free_locals_i64.append(gen.gpa, local_value) catch return,
@@ -716,6 +720,12 @@ pub fn deinit(cg: *CodeGen) void {
     cg.free_locals_f32.deinit(gpa);
     cg.free_locals_f64.deinit(gpa);
     cg.free_locals_v128.deinit(gpa);
+    cg.mir_instructions.deinit(gpa);
+    cg.mir_extra.deinit(gpa);
+    cg.mir_locals.deinit(gpa);
+    cg.mir_uavs.deinit(gpa);
+    cg.mir_indirect_function_set.deinit(gpa);
+    cg.mir_func_tys.deinit(gpa);
     cg.* = undefined;
 }
 
@@ -876,7 +886,7 @@ fn addTag(cg: *CodeGen, tag: Mir.Inst.Tag) error{OutOfMemory}!void {
 }
 
 fn addExtended(cg: *CodeGen, opcode: std.wasm.MiscOpcode) error{OutOfMemory}!void {
-    const extra_index = cg.extraLen();
+    const extra_index: u32 = @intCast(cg.mir_extra.items.len);
     try cg.mir_extra.append(cg.gpa, @intFromEnum(opcode));
     try cg.addInst(.{ .tag = .misc_prefix, .data = .{ .payload = extra_index } });
 }
@@ -887,10 +897,6 @@ fn addLabel(cg: *CodeGen, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!void
 
 fn addLocal(cg: *CodeGen, tag: Mir.Inst.Tag, local: u32) error{OutOfMemory}!void {
     try cg.addInst(.{ .tag = tag, .data = .{ .local = local } });
-}
-
-fn addFuncTy(cg: *CodeGen, tag: Mir.Inst.Tag, i: Wasm.FunctionType.Index) error{OutOfMemory}!void {
-    try cg.addInst(.{ .tag = tag, .data = .{ .func_ty = i } });
 }
 
 /// Accepts an unsigned 32bit integer rather than a signed integer to
@@ -911,7 +917,7 @@ fn addImm64(cg: *CodeGen, imm: u64) error{OutOfMemory}!void {
 /// Accepts the index into the list of 128bit-immediates
 fn addImm128(cg: *CodeGen, index: u32) error{OutOfMemory}!void {
     const simd_values = cg.simd_immediates.items[index];
-    const extra_index = cg.extraLen();
+    const extra_index: u32 = @intCast(cg.mir_extra.items.len);
     // tag + 128bit value
     try cg.mir_extra.ensureUnusedCapacity(cg.gpa, 5);
     cg.mir_extra.appendAssumeCapacity(@intFromEnum(std.wasm.SimdOpcode.v128_const));
@@ -956,15 +962,13 @@ fn addExtra(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
 /// Returns the index into `mir_extra`
 fn addExtraAssumeCapacity(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
     const fields = std.meta.fields(@TypeOf(extra));
-    const result = cg.extraLen();
+    const result: u32 = @intCast(cg.mir_extra.items.len);
     inline for (fields) |field| {
         cg.mir_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
             i32 => @bitCast(@field(extra, field.name)),
             InternPool.Index,
             InternPool.Nav.Index,
-            Wasm.UavsObjIndex,
-            Wasm.UavsExeIndex,
             => @intFromEnum(@field(extra, field.name)),
             else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
         });
@@ -1034,18 +1038,12 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
         .float32 => |val| try cg.addInst(.{ .tag = .f32_const, .data = .{ .float32 = val } }),
         .float64 => |val| try cg.addFloat64(val),
         .nav_ref => |nav_ref| {
-            const wasm = cg.wasm;
-            const comp = wasm.base.comp;
-            const zcu = comp.zcu.?;
+            const zcu = cg.pt.zcu;
             const ip = &zcu.intern_pool;
             if (ip.getNav(nav_ref.nav_index).isFn(ip)) {
                 assert(nav_ref.offset == 0);
-                const gop = try wasm.zcu_indirect_function_set.getOrPut(comp.gpa, nav_ref.nav_index);
-                if (!gop.found_existing) gop.value_ptr.* = {};
-                try cg.addInst(.{
-                    .tag = .func_ref,
-                    .data = .{ .indirect_function_table_index = @enumFromInt(gop.index) },
-                });
+                try cg.mir_indirect_function_set.put(cg.gpa, nav_ref.nav_index, {});
+                try cg.addInst(.{ .tag = .func_ref, .data = .{ .nav_index = nav_ref.nav_index } });
             } else if (nav_ref.offset == 0) {
                 try cg.addInst(.{ .tag = .nav_ref, .data = .{ .nav_index = nav_ref.nav_index } });
             } else {
@@ -1061,41 +1059,37 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
             }
         },
         .uav_ref => |uav| {
-            const wasm = cg.wasm;
-            const comp = wasm.base.comp;
-            const is_obj = comp.config.output_mode == .Obj;
-            const zcu = comp.zcu.?;
+            const zcu = cg.pt.zcu;
             const ip = &zcu.intern_pool;
-            if (ip.isFunctionType(ip.typeOf(uav.ip_index))) {
-                assert(uav.offset == 0);
-                const owner_nav = ip.toFunc(uav.ip_index).owner_nav;
-                const gop = try wasm.zcu_indirect_function_set.getOrPut(comp.gpa, owner_nav);
-                if (!gop.found_existing) gop.value_ptr.* = {};
-                try cg.addInst(.{
-                    .tag = .func_ref,
-                    .data = .{ .indirect_function_table_index = @enumFromInt(gop.index) },
-                });
-            } else if (uav.offset == 0) {
+            assert(!ip.isFunctionType(ip.typeOf(uav.ip_index)));
+            const gop = try cg.mir_uavs.getOrPut(cg.gpa, uav.ip_index);
+            const this_align: Alignment = a: {
+                if (uav.orig_ptr_ty == .none) break :a .none;
+                const ptr_type = ip.indexToKey(uav.orig_ptr_ty).ptr_type;
+                const this_align = ptr_type.flags.alignment;
+                if (this_align == .none) break :a .none;
+                const abi_align = Type.fromInterned(ptr_type.child).abiAlignment(zcu);
+                if (this_align.compare(.lte, abi_align)) break :a .none;
+                break :a this_align;
+            };
+            if (!gop.found_existing or
+                gop.value_ptr.* == .none or
+                (this_align != .none and this_align.compare(.gt, gop.value_ptr.*)))
+            {
+                gop.value_ptr.* = this_align;
+            }
+            if (uav.offset == 0) {
                 try cg.addInst(.{
                     .tag = .uav_ref,
-                    .data = if (is_obj) .{
-                        .uav_obj = try wasm.refUavObj(uav.ip_index, uav.orig_ptr_ty),
-                    } else .{
-                        .uav_exe = try wasm.refUavExe(uav.ip_index, uav.orig_ptr_ty),
-                    },
+                    .data = .{ .ip_index = uav.ip_index },
                 });
             } else {
                 try cg.addInst(.{
                     .tag = .uav_ref_off,
-                    .data = .{
-                        .payload = if (is_obj) try cg.addExtra(Mir.UavRefOffObj{
-                            .uav_obj = try wasm.refUavObj(uav.ip_index, uav.orig_ptr_ty),
-                            .offset = uav.offset,
-                        }) else try cg.addExtra(Mir.UavRefOffExe{
-                            .uav_exe = try wasm.refUavExe(uav.ip_index, uav.orig_ptr_ty),
-                            .offset = uav.offset,
-                        }),
-                    },
+                    .data = .{ .payload = try cg.addExtra(@as(Mir.UavRefOff, .{
+                        .value = uav.ip_index,
+                        .offset = uav.offset,
+                    })) },
                 });
             }
         },
@@ -1157,105 +1151,11 @@ fn allocLocal(cg: *CodeGen, ty: Type) InnerError!WValue {
 /// to use a zero-initialized local.
 fn ensureAllocLocal(cg: *CodeGen, ty: Type) InnerError!WValue {
     const zcu = cg.pt.zcu;
-    try cg.locals.append(cg.gpa, typeToValtype(ty, zcu, cg.target));
+    try cg.mir_locals.append(cg.gpa, typeToValtype(ty, zcu, cg.target));
     const initial_index = cg.local_index;
     cg.local_index += 1;
     return .{ .local = .{ .value = initial_index, .references = 1 } };
 }
-
-pub const Function = extern struct {
-    /// Index into `Wasm.mir_instructions`.
-    mir_off: u32,
-    /// This is unused except for as a safety slice bound and could be removed.
-    mir_len: u32,
-    /// Index into `Wasm.mir_extra`.
-    mir_extra_off: u32,
-    /// This is unused except for as a safety slice bound and could be removed.
-    mir_extra_len: u32,
-    locals_off: u32,
-    locals_len: u32,
-    prologue: Prologue,
-
-    pub const Prologue = extern struct {
-        flags: Flags,
-        sp_local: u32,
-        stack_size: u32,
-        bottom_stack_local: u32,
-
-        pub const Flags = packed struct(u32) {
-            stack_alignment: Alignment,
-            padding: u26 = 0,
-        };
-
-        pub const none: Prologue = .{
-            .sp_local = 0,
-            .flags = .{ .stack_alignment = .none },
-            .stack_size = 0,
-            .bottom_stack_local = 0,
-        };
-
-        pub fn isNone(p: *const Prologue) bool {
-            return p.flags.stack_alignment != .none;
-        }
-    };
-
-    pub fn lower(f: *Function, wasm: *Wasm, code: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
-        const gpa = wasm.base.comp.gpa;
-
-        // Write the locals in the prologue of the function body.
-        const locals = wasm.all_zcu_locals.items[f.locals_off..][0..f.locals_len];
-        try code.ensureUnusedCapacity(gpa, 5 + locals.len * 6 + 38);
-
-        std.leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(locals.len))) catch unreachable;
-        for (locals) |local| {
-            std.leb.writeUleb128(code.fixedWriter(), @as(u32, 1)) catch unreachable;
-            code.appendAssumeCapacity(@intFromEnum(local));
-        }
-
-        // Stack management section of function prologue.
-        const stack_alignment = f.prologue.flags.stack_alignment;
-        if (stack_alignment.toByteUnits()) |align_bytes| {
-            const sp_global: Wasm.GlobalIndex = .stack_pointer;
-            // load stack pointer
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_get));
-            std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
-            // store stack pointer so we can restore it when we return from the function
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
-            leb.writeUleb128(code.fixedWriter(), f.prologue.sp_local) catch unreachable;
-            // get the total stack size
-            const aligned_stack: i32 = @intCast(stack_alignment.forward(f.prologue.stack_size));
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-            leb.writeIleb128(code.fixedWriter(), aligned_stack) catch unreachable;
-            // subtract it from the current stack pointer
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_sub));
-            // Get negative stack alignment
-            const neg_stack_align = @as(i32, @intCast(align_bytes)) * -1;
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-            leb.writeIleb128(code.fixedWriter(), neg_stack_align) catch unreachable;
-            // Bitwise-and the value to get the new stack pointer to ensure the
-            // pointers are aligned with the abi alignment.
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_and));
-            // The bottom will be used to calculate all stack pointer offsets.
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
-            leb.writeUleb128(code.fixedWriter(), f.prologue.bottom_stack_local) catch unreachable;
-            // Store the current stack pointer value into the global stack pointer so other function calls will
-            // start from this value instead and not overwrite the current stack.
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
-            std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
-        }
-
-        var emit: Emit = .{
-            .mir = .{
-                .instruction_tags = wasm.mir_instructions.items(.tag)[f.mir_off..][0..f.mir_len],
-                .instruction_datas = wasm.mir_instructions.items(.data)[f.mir_off..][0..f.mir_len],
-                .extra = wasm.mir_extra.items[f.mir_extra_off..][0..f.mir_extra_len],
-            },
-            .wasm = wasm,
-            .code = code,
-        };
-        try emit.lowerToCode();
-    }
-};
 
 pub const Error = error{
     OutOfMemory,
@@ -1265,13 +1165,16 @@ pub const Error = error{
     CodegenFail,
 };
 
-pub fn function(
-    wasm: *Wasm,
+pub fn generate(
+    bin_file: *link.File,
     pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
-) Error!Function {
+    air: *const Air,
+    liveness: *const Air.Liveness,
+) Error!Mir {
+    _ = src_loc;
+    _ = bin_file;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const cg = zcu.funcInfo(func_index);
@@ -1279,10 +1182,8 @@ pub fn function(
     const target = &file_scope.mod.?.resolved_target.result;
     const fn_ty = zcu.navValue(cg.owner_nav).typeOf(zcu);
     const fn_info = zcu.typeToFunc(fn_ty).?;
-    const ip = &zcu.intern_pool;
-    const fn_ty_index = try wasm.internFunctionType(fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target);
-    const returns = fn_ty_index.ptr(wasm).returns.slice(wasm);
-    const any_returns = returns.len != 0;
+    const ret_ty: Type = .fromInterned(fn_info.return_type);
+    const any_returns = !firstParamSRet(fn_info.cc, ret_ty, zcu, target) and ret_ty.hasRuntimeBitsIgnoreComptime(zcu);
 
     var cc_result = try resolveCallingConventionValues(zcu, fn_ty, target);
     defer cc_result.deinit(gpa);
@@ -1290,8 +1191,8 @@ pub fn function(
     var code_gen: CodeGen = .{
         .gpa = gpa,
         .pt = pt,
-        .air = air,
-        .liveness = liveness,
+        .air = air.*,
+        .liveness = liveness.*,
         .owner_nav = cg.owner_nav,
         .target = target,
         .ptr_size = switch (target.cpu.arch) {
@@ -1299,31 +1200,33 @@ pub fn function(
             .wasm64 => .wasm64,
             else => unreachable,
         },
-        .wasm = wasm,
         .func_index = func_index,
         .args = cc_result.args,
         .return_value = cc_result.return_value,
         .local_index = cc_result.local_index,
-        .mir_instructions = &wasm.mir_instructions,
-        .mir_extra = &wasm.mir_extra,
-        .locals = &wasm.all_zcu_locals,
-        .start_mir_extra_off = @intCast(wasm.mir_extra.items.len),
-        .start_locals_off = @intCast(wasm.all_zcu_locals.items.len),
+        .mir_instructions = .empty,
+        .mir_extra = .empty,
+        .mir_locals = .empty,
+        .mir_uavs = .empty,
+        .mir_indirect_function_set = .empty,
+        .mir_func_tys = .empty,
+        .error_name_table_ref_count = 0,
     };
     defer code_gen.deinit();
 
-    return functionInner(&code_gen, any_returns) catch |err| switch (err) {
-        error.CodegenFail => return error.CodegenFail,
+    try code_gen.mir_func_tys.putNoClobber(gpa, fn_ty.toIntern(), {});
+
+    return generateInner(&code_gen, any_returns) catch |err| switch (err) {
+        error.CodegenFail,
+        error.OutOfMemory,
+        error.Overflow,
+        => |e| return e,
         else => |e| return code_gen.fail("failed to generate function: {s}", .{@errorName(e)}),
     };
 }
 
-fn functionInner(cg: *CodeGen, any_returns: bool) InnerError!Function {
-    const wasm = cg.wasm;
+fn generateInner(cg: *CodeGen, any_returns: bool) InnerError!Mir {
     const zcu = cg.pt.zcu;
-
-    const start_mir_off: u32 = @intCast(wasm.mir_instructions.len);
-
     try cg.branches.append(cg.gpa, .{});
     // clean up outer branch
     defer {
@@ -1347,20 +1250,25 @@ fn functionInner(cg: *CodeGen, any_returns: bool) InnerError!Function {
     try cg.addTag(.end);
     try cg.addTag(.dbg_epilogue_begin);
 
-    return .{
-        .mir_off = start_mir_off,
-        .mir_len = @intCast(wasm.mir_instructions.len - start_mir_off),
-        .mir_extra_off = cg.start_mir_extra_off,
-        .mir_extra_len = cg.extraLen(),
-        .locals_off = cg.start_locals_off,
-        .locals_len = @intCast(wasm.all_zcu_locals.items.len - cg.start_locals_off),
+    var mir: Mir = .{
+        .instructions = cg.mir_instructions.toOwnedSlice(),
+        .extra = &.{}, // fallible so assigned after errdefer
+        .locals = &.{}, // fallible so assigned after errdefer
         .prologue = if (cg.initial_stack_value == .none) .none else .{
             .sp_local = cg.initial_stack_value.local.value,
             .flags = .{ .stack_alignment = cg.stack_alignment },
             .stack_size = cg.stack_size,
             .bottom_stack_local = cg.bottom_stack_value.local.value,
         },
+        .uavs = cg.mir_uavs.move(),
+        .indirect_function_set = cg.mir_indirect_function_set.move(),
+        .func_tys = cg.mir_func_tys.move(),
+        .error_name_table_ref_count = cg.error_name_table_ref_count,
     };
+    errdefer mir.deinit(cg.gpa);
+    mir.extra = try cg.mir_extra.toOwnedSlice(cg.gpa);
+    mir.locals = try cg.mir_locals.toOwnedSlice(cg.gpa);
+    return mir;
 }
 
 const CallWValues = struct {
@@ -1969,7 +1877,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .dbg_inline_block => cg.airDbgInlineBlock(inst),
         .dbg_var_ptr => cg.airDbgVar(inst, .local_var, true),
         .dbg_var_val => cg.airDbgVar(inst, .local_var, false),
-        .dbg_arg_inline => cg.airDbgVar(inst, .local_arg, false),
+        .dbg_arg_inline => cg.airDbgVar(inst, .arg, false),
 
         .call => cg.airCall(inst, .auto),
         .call_always_tail => cg.airCall(inst, .always_tail),
@@ -2057,7 +1965,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .error_set_has_value => cg.airErrorSetHasValue(inst),
         .frame_addr => cg.airFrameAddress(inst),
 
-        .tlv_dllimport_ptr => cg.airTlvDllimportPtr(inst),
+        .runtime_nav_ptr => cg.airRuntimeNavPtr(inst),
 
         .assembly,
         .is_err_ptr,
@@ -2220,7 +2128,6 @@ fn airRetLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) InnerError!void {
-    const wasm = cg.wasm;
     if (modifier == .always_tail) return cg.fail("TODO implement tail calls for wasm", .{});
     const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = cg.air.extraData(Air.Call, pl_op.payload);
@@ -2277,8 +2184,11 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
         const operand = try cg.resolveInst(pl_op.operand);
         try cg.emitWValue(operand);
 
-        const fn_type_index = try wasm.internFunctionType(fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), cg.target);
-        try cg.addFuncTy(.call_indirect, fn_type_index);
+        try cg.mir_func_tys.put(cg.gpa, fn_ty.toIntern(), {});
+        try cg.addInst(.{
+            .tag = .call_indirect,
+            .data = .{ .ip_index = fn_ty.toIntern() },
+        });
     }
 
     const result_value = result_value: {
@@ -2449,7 +2359,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
                 try cg.emitWValue(lhs);
                 try cg.lowerToStack(rhs);
                 // TODO: Add helper functions for simd opcodes
-                const extra_index = cg.extraLen();
+                const extra_index: u32 = @intCast(cg.mir_extra.items.len);
                 // stores as := opcode, offset, alignment (opcode::memarg)
                 try cg.mir_extra.appendSlice(cg.gpa, &[_]u32{
                     @intFromEnum(std.wasm.SimdOpcode.v128_store),
@@ -2574,7 +2484,7 @@ fn load(cg: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValue 
 
     if (ty.zigTypeTag(zcu) == .vector) {
         // TODO: Add helper functions for simd opcodes
-        const extra_index = cg.extraLen();
+        const extra_index: u32 = @intCast(cg.mir_extra.items.len);
         // stores as := opcode, offset, alignment (opcode::memarg)
         try cg.mir_extra.appendSlice(cg.gpa, &[_]u32{
             @intFromEnum(std.wasm.SimdOpcode.v128_load),
@@ -4971,7 +4881,7 @@ fn airArrayElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
                 try cg.emitWValue(array);
 
-                const extra_index = cg.extraLen();
+                const extra_index: u32 = @intCast(cg.mir_extra.items.len);
                 try cg.mir_extra.appendSlice(cg.gpa, &operands);
                 try cg.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
 
@@ -5123,7 +5033,7 @@ fn airSplat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     else => break :blk, // Cannot make use of simd-instructions
                 };
                 try cg.emitWValue(operand);
-                const extra_index: u32 = cg.extraLen();
+                const extra_index: u32 = @intCast(cg.mir_extra.items.len);
                 // stores as := opcode, offset, alignment (opcode::memarg)
                 try cg.mir_extra.appendSlice(cg.gpa, &[_]u32{
                     opcode,
@@ -5142,7 +5052,7 @@ fn airSplat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     else => break :blk, // Cannot make use of simd-instructions
                 };
                 try cg.emitWValue(operand);
-                const extra_index = cg.extraLen();
+                const extra_index: u32 = @intCast(cg.mir_extra.items.len);
                 try cg.mir_extra.append(cg.gpa, opcode);
                 try cg.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
                 return cg.finishAir(inst, .stack, &.{ty_op.operand});
@@ -5246,7 +5156,7 @@ fn airShuffleTwo(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         }
         try cg.emitWValue(operand_a);
         try cg.emitWValue(operand_b);
-        const extra_index = cg.extraLen();
+        const extra_index: u32 = @intCast(cg.mir_extra.items.len);
         try cg.mir_extra.appendSlice(cg.gpa, &.{
             @intFromEnum(std.wasm.SimdOpcode.i8x16_shuffle),
             @bitCast(lane_map[0..4].*),
@@ -6016,9 +5926,8 @@ fn airErrorName(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const name_ty = Type.slice_const_u8_sentinel_0;
     const abi_size = name_ty.abiSize(pt.zcu);
 
-    cg.wasm.error_name_table_ref_count += 1;
-
     // Lowers to a i32.const or i64.const with the error table memory address.
+    cg.error_name_table_ref_count += 1;
     try cg.addTag(.error_name_table_ref);
     try cg.emitWValue(operand);
     switch (cg.ptr_size) {
@@ -6046,7 +5955,7 @@ fn airPtrSliceFieldPtr(cg: *CodeGen, inst: Air.Inst.Index, offset: u32) InnerErr
 
 /// NOTE: Allocates place for result on virtual stack, when integer size > 64 bits
 fn intZeroValue(cg: *CodeGen, ty: Type) InnerError!WValue {
-    const zcu = cg.wasm.base.comp.zcu.?;
+    const zcu = cg.pt.zcu;
     const int_info = ty.intInfo(zcu);
     const wasm_bits = toWasmBits(int_info.bits) orelse {
         return cg.fail("TODO: Implement intZeroValue for integer bitsize: {d}", .{int_info.bits});
@@ -6518,7 +6427,7 @@ fn airDbgInlineBlock(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airDbgVar(
     cg: *CodeGen,
     inst: Air.Inst.Index,
-    local_tag: link.File.Dwarf.WipNav.LocalTag,
+    local_tag: link.File.Dwarf.WipNav.LocalVarTag,
     is_ptr: bool,
 ) InnerError!void {
     _ = is_ptr;
@@ -7616,7 +7525,7 @@ fn airFrameAddress(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, .stack, &.{});
 }
 
-fn airTlvDllimportPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airRuntimeNavPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_nav = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
     const mod = cg.pt.zcu.navFileScope(cg.owner_nav).mod.?;
     if (mod.single_threaded) {
@@ -7672,8 +7581,4 @@ fn floatCmpIntrinsic(op: std.math.CompareOperator, bits: u16) Mir.Intrinsic {
             else => unreachable,
         },
     };
-}
-
-fn extraLen(cg: *const CodeGen) u32 {
-    return @intCast(cg.mir_extra.items.len - cg.start_mir_extra_off);
 }

@@ -15,6 +15,8 @@
 
 #include <winhvplatformdefs.h>
 
+#if defined(__x86_64__)
+
 typedef union WHV_EMULATOR_STATUS {
     __C89_NAMELESS struct {
         UINT32 EmulationSuccessful : 1;
@@ -77,6 +79,8 @@ HRESULT WINAPI WHvEmulatorTryMmioEmulation(WHV_EMULATOR_HANDLE Emulator, VOID *C
 }
 #endif
 
-#endif
+#endif  /* defined(__x86_64__) */
+
+#endif  /* WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP) */
 
 #endif

@@ -108,7 +108,7 @@ Copyright 1984, 1995 by Stephen L. Moshier
 
 long double erfl(long double x);
 
-#if defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
 long double erfcl(long double x)
 {
 	return erfc(x);

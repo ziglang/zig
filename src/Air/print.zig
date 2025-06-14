@@ -2,13 +2,15 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
-const Zcu = @import("Zcu.zig");
-const Value = @import("Value.zig");
-const Type = @import("Type.zig");
-const Air = @import("Air.zig");
-const InternPool = @import("InternPool.zig");
+const build_options = @import("build_options");
+const Zcu = @import("../Zcu.zig");
+const Value = @import("../Value.zig");
+const Type = @import("../Type.zig");
+const Air = @import("../Air.zig");
+const InternPool = @import("../InternPool.zig");
 
-pub fn write(stream: anytype, pt: Zcu.PerThread, air: Air, liveness: ?Air.Liveness) void {
+pub fn write(air: Air, stream: anytype, pt: Zcu.PerThread, liveness: ?Air.Liveness) void {
+    comptime std.debug.assert(build_options.enable_debug_extensions);
     const instruction_bytes = air.instructions.len *
         // Here we don't use @sizeOf(Air.Inst.Data) because it would include
         // the debug safety tag but we want to measure release size.
@@ -52,12 +54,13 @@ pub fn write(stream: anytype, pt: Zcu.PerThread, air: Air, liveness: ?Air.Livene
 }
 
 pub fn writeInst(
+    air: Air,
     stream: anytype,
     inst: Air.Inst.Index,
     pt: Zcu.PerThread,
-    air: Air,
     liveness: ?Air.Liveness,
 ) void {
+    comptime std.debug.assert(build_options.enable_debug_extensions);
     var writer: Writer = .{
         .pt = pt,
         .gpa = pt.zcu.gpa,
@@ -69,12 +72,12 @@ pub fn writeInst(
     writer.writeInst(stream, inst) catch return;
 }
 
-pub fn dump(pt: Zcu.PerThread, air: Air, liveness: ?Air.Liveness) void {
-    write(std.io.getStdErr().writer(), pt, air, liveness);
+pub fn dump(air: Air, pt: Zcu.PerThread, liveness: ?Air.Liveness) void {
+    air.write(std.io.getStdErr().writer(), pt, liveness);
 }
 
-pub fn dumpInst(inst: Air.Inst.Index, pt: Zcu.PerThread, air: Air, liveness: ?Air.Liveness) void {
-    writeInst(std.io.getStdErr().writer(), inst, pt, air, liveness);
+pub fn dumpInst(air: Air, inst: Air.Inst.Index, pt: Zcu.PerThread, liveness: ?Air.Liveness) void {
+    air.writeInst(std.io.getStdErr().writer(), inst, pt, liveness);
 }
 
 const Writer = struct {
@@ -320,7 +323,7 @@ const Writer = struct {
             .reduce, .reduce_optimized => try w.writeReduce(s, inst),
             .cmp_vector, .cmp_vector_optimized => try w.writeCmpVector(s, inst),
             .vector_store_elem => try w.writeVectorStoreElem(s, inst),
-            .tlv_dllimport_ptr => try w.writeTlvDllimportPtr(s, inst),
+            .runtime_nav_ptr => try w.writeRuntimeNavPtr(s, inst),
 
             .work_item_id,
             .work_group_size,
@@ -360,10 +363,7 @@ const Writer = struct {
     fn writeArg(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const arg = w.air.instructions.items(.data)[@intFromEnum(inst)].arg;
         try w.writeType(s, arg.ty.toType());
-        switch (arg.name) {
-            .none => {},
-            _ => try s.print(", \"{}\"", .{std.zig.fmtEscapes(arg.name.toSlice(w.air))}),
-        }
+        try s.print(", {d}", .{arg.zir_param_index});
     }
 
     fn writeTyOp(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -578,7 +578,7 @@ const Writer = struct {
         try w.writeOperand(s, inst, 2, extra.rhs);
     }
 
-    fn writeTlvDllimportPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
+    fn writeRuntimeNavPtr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const ip = &w.pt.zcu.intern_pool;
         const ty_nav = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
         try w.writeType(s, .fromInterned(ty_nav.ty));

@@ -7,7 +7,7 @@ int __cdecl _findnext64i32(intptr_t _FindHandle,struct _finddata64i32_t *_FindDa
   struct __finddata64_t fd;
   int ret = _findnext64(_FindHandle,&fd);
   if (ret == -1) {
-    memset(_FindData,0,sizeof(struct _finddata64i32_t));
+    *_FindData = (struct _finddata64i32_t){0};
     return -1;
   }
   _FindData->attrib=fd.attrib;

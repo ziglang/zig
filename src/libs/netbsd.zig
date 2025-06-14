@@ -650,7 +650,7 @@ fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
     assert(comp.netbsd_so_files == null);
     comp.netbsd_so_files = so_files;
 
-    var task_buffer: [libs.len]link.Task = undefined;
+    var task_buffer: [libs.len]link.PrelinkTask = undefined;
     var task_buffer_i: usize = 0;
 
     {
@@ -669,7 +669,7 @@ fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
         }
     }
 
-    comp.queueLinkTasks(task_buffer[0..task_buffer_i]);
+    comp.queuePrelinkTasks(task_buffer[0..task_buffer_i]);
 }
 
 fn buildSharedLib(
@@ -684,10 +684,6 @@ fn buildSharedLib(
     defer tracy.end();
 
     const basename = try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ lib.name, lib.sover });
-    const emit_bin = Compilation.EmitLoc{
-        .directory = bin_directory,
-        .basename = basename,
-    };
     const version: Version = .{ .major = lib.sover, .minor = 0, .patch = 0 };
     const ld_basename = path.basename(comp.getTarget().standardDynamicLinkerPath().get().?);
     const soname = if (mem.eql(u8, lib.name, "ld")) ld_basename else basename;
@@ -741,13 +737,14 @@ fn buildSharedLib(
         .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
-        .cache_mode = .incremental,
+        // Because we manually cache the whole set of objects, we don't cache the individual objects
+        // within it. In fact, we *can't* do that, because we need `emit_bin` to specify the path.
+        .cache_mode = .none,
         .config = config,
         .root_mod = root_mod,
         .root_name = lib.name,
         .libc_installation = comp.libc_installation,
-        .emit_bin = emit_bin,
-        .emit_h = null,
+        .emit_bin = .{ .yes_path = try bin_directory.join(arena, &.{basename}) },
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,

@@ -390,7 +390,9 @@ OleBuildVersion
 OleConvertIStorageToOLESTREAM
 OleConvertIStorageToOLESTREAMEx
 OleConvertOLESTREAMToIStorage
+OleConvertOLESTREAMToIStorage2
 OleConvertOLESTREAMToIStorageEx
+OleConvertOLESTREAMToIStorageEx2
 OleCreate
 OleCreateDefaultHandler
 OleCreateEmbeddingHelper
@@ -417,6 +419,7 @@ OleDuplicateData
 OleFlushClipboard
 OleGetAutoConvert
 OleGetClipboard
+OleGetClipboardWithEnterpriseInfo
 OleGetIconOfClass
 OleGetIconOfFile
 OleIconToCursorExt

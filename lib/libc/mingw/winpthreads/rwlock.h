@@ -43,7 +43,4 @@ struct rwlock_t {
 #define RWL_SET	0x01
 #define RWL_TRY	0x02
 
-void rwl_print(volatile pthread_rwlock_t *rwl, char *txt);
-void rwl_print_set(int state);
-
 #endif

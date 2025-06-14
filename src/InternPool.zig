@@ -526,10 +526,10 @@ pub const Nav = struct {
         /// The type of this `Nav` is resolved; the value is queued for resolution.
         type_resolved: struct {
             type: InternPool.Index,
+            is_const: bool,
             alignment: Alignment,
             @"linksection": OptionalNullTerminatedString,
             @"addrspace": std.builtin.AddressSpace,
-            is_const: bool,
             is_threadlocal: bool,
             /// This field is whether this `Nav` is a literal `extern` definition.
             /// It does *not* tell you whether this might alias an extern fn (see #21027).
@@ -538,6 +538,7 @@ pub const Nav = struct {
         /// The value of this `Nav` is resolved.
         fully_resolved: struct {
             val: InternPool.Index,
+            is_const: bool,
             alignment: Alignment,
             @"linksection": OptionalNullTerminatedString,
             @"addrspace": std.builtin.AddressSpace,
@@ -727,11 +728,11 @@ pub const Nav = struct {
         const Bits = packed struct(u16) {
             status: enum(u2) { unresolved, type_resolved, fully_resolved, type_resolved_extern_decl },
             /// Populated only if `bits.status != .unresolved`.
+            is_const: bool,
+            /// Populated only if `bits.status != .unresolved`.
             alignment: Alignment,
             /// Populated only if `bits.status != .unresolved`.
             @"addrspace": std.builtin.AddressSpace,
-            /// Populated only if `bits.status == .type_resolved`.
-            is_const: bool,
             /// Populated only if `bits.status == .type_resolved`.
             is_threadlocal: bool,
             is_usingnamespace: bool,
@@ -753,15 +754,16 @@ pub const Nav = struct {
                     .unresolved => .unresolved,
                     .type_resolved, .type_resolved_extern_decl => .{ .type_resolved = .{
                         .type = repr.type_or_val,
+                        .is_const = repr.bits.is_const,
                         .alignment = repr.bits.alignment,
                         .@"linksection" = repr.@"linksection",
                         .@"addrspace" = repr.bits.@"addrspace",
-                        .is_const = repr.bits.is_const,
                         .is_threadlocal = repr.bits.is_threadlocal,
                         .is_extern_decl = repr.bits.status == .type_resolved_extern_decl,
                     } },
                     .fully_resolved => .{ .fully_resolved = .{
                         .val = repr.type_or_val,
+                        .is_const = repr.bits.is_const,
                         .alignment = repr.bits.alignment,
                         .@"linksection" = repr.@"linksection",
                         .@"addrspace" = repr.bits.@"addrspace",
@@ -792,26 +794,26 @@ pub const Nav = struct {
             .bits = switch (nav.status) {
                 .unresolved => .{
                     .status = .unresolved,
+                    .is_const = false,
                     .alignment = .none,
                     .@"addrspace" = .generic,
                     .is_usingnamespace = nav.is_usingnamespace,
-                    .is_const = false,
                     .is_threadlocal = false,
                 },
                 .type_resolved => |r| .{
                     .status = if (r.is_extern_decl) .type_resolved_extern_decl else .type_resolved,
+                    .is_const = r.is_const,
                     .alignment = r.alignment,
                     .@"addrspace" = r.@"addrspace",
                     .is_usingnamespace = nav.is_usingnamespace,
-                    .is_const = r.is_const,
                     .is_threadlocal = r.is_threadlocal,
                 },
                 .fully_resolved => |r| .{
                     .status = .fully_resolved,
+                    .is_const = r.is_const,
                     .alignment = r.alignment,
                     .@"addrspace" = r.@"addrspace",
                     .is_usingnamespace = nav.is_usingnamespace,
-                    .is_const = false,
                     .is_threadlocal = false,
                 },
             },
@@ -2221,7 +2223,6 @@ pub const Key = union(enum) {
         init: Index,
         owner_nav: Nav.Index,
         is_threadlocal: bool,
-        is_weak_linkage: bool,
     };
 
     pub const Extern = struct {
@@ -2234,10 +2235,12 @@ pub const Key = union(enum) {
         /// For example `extern "c" fn write(...) usize` would have 'c' as library name.
         /// Index into the string table bytes.
         lib_name: OptionalNullTerminatedString,
-        is_const: bool,
+        linkage: std.builtin.GlobalLinkage,
+        visibility: std.builtin.SymbolVisibility,
         is_threadlocal: bool,
-        is_weak_linkage: bool,
         is_dll_import: bool,
+        relocation: std.builtin.ExternOptions.Relocation,
+        is_const: bool,
         alignment: Alignment,
         @"addrspace": std.builtin.AddressSpace,
         /// The ZIR instruction which created this extern; used only for source locations.
@@ -2844,9 +2847,10 @@ pub const Key = union(enum) {
 
             .@"extern" => |e| Hash.hash(seed, asBytes(&e.name) ++
                 asBytes(&e.ty) ++ asBytes(&e.lib_name) ++
-                asBytes(&e.is_const) ++ asBytes(&e.is_threadlocal) ++
-                asBytes(&e.is_weak_linkage) ++ asBytes(&e.alignment) ++
-                asBytes(&e.is_dll_import) ++ asBytes(&e.@"addrspace") ++
+                asBytes(&e.linkage) ++ asBytes(&e.visibility) ++
+                asBytes(&e.is_threadlocal) ++ asBytes(&e.is_dll_import) ++
+                asBytes(&e.relocation) ++
+                asBytes(&e.is_const) ++ asBytes(&e.alignment) ++ asBytes(&e.@"addrspace") ++
                 asBytes(&e.zir_index)),
         };
     }
@@ -2928,21 +2932,22 @@ pub const Key = union(enum) {
 
             .variable => |a_info| {
                 const b_info = b.variable;
-                return a_info.owner_nav == b_info.owner_nav and
-                    a_info.ty == b_info.ty and
+                return a_info.ty == b_info.ty and
                     a_info.init == b_info.init and
-                    a_info.is_threadlocal == b_info.is_threadlocal and
-                    a_info.is_weak_linkage == b_info.is_weak_linkage;
+                    a_info.owner_nav == b_info.owner_nav and
+                    a_info.is_threadlocal == b_info.is_threadlocal;
             },
             .@"extern" => |a_info| {
                 const b_info = b.@"extern";
                 return a_info.name == b_info.name and
                     a_info.ty == b_info.ty and
                     a_info.lib_name == b_info.lib_name and
-                    a_info.is_const == b_info.is_const and
+                    a_info.linkage == b_info.linkage and
+                    a_info.visibility == b_info.visibility and
                     a_info.is_threadlocal == b_info.is_threadlocal and
-                    a_info.is_weak_linkage == b_info.is_weak_linkage and
                     a_info.is_dll_import == b_info.is_dll_import and
+                    a_info.relocation == b_info.relocation and
+                    a_info.is_const == b_info.is_const and
                     a_info.alignment == b_info.alignment and
                     a_info.@"addrspace" == b_info.@"addrspace" and
                     a_info.zir_index == b_info.zir_index;
@@ -3244,6 +3249,9 @@ pub const LoadedUnionType = struct {
     name: NullTerminatedString,
     /// Represents the declarations inside this union.
     namespace: NamespaceIndex,
+    /// If this is a declared type with the `.parent` name strategy, this is the `Nav` it was named after.
+    /// Otherwise, this is `.none`.
+    name_nav: Nav.Index.Optional,
     /// The enum tag type.
     enum_tag_ty: Index,
     /// List of field types in declaration order.
@@ -3562,6 +3570,7 @@ pub fn loadUnionType(ip: *const InternPool, index: Index) LoadedUnionType {
         .tid = unwrapped_index.tid,
         .extra_index = data,
         .name = type_union.data.name,
+        .name_nav = type_union.data.name_nav,
         .namespace = type_union.data.namespace,
         .enum_tag_ty = type_union.data.tag_ty,
         .field_types = field_types,
@@ -3579,6 +3588,9 @@ pub const LoadedStructType = struct {
     /// The name of this struct type.
     name: NullTerminatedString,
     namespace: NamespaceIndex,
+    /// If this is a declared type with the `.parent` name strategy, this is the `Nav` it was named after.
+    /// Otherwise, or if this is a file's root struct type, this is `.none`.
+    name_nav: Nav.Index.Optional,
     /// Index of the `struct_decl` or `reify` ZIR instruction.
     zir_index: TrackedInst.Index,
     layout: std.builtin.Type.ContainerLayout,
@@ -4168,6 +4180,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
     switch (item.tag) {
         .type_struct => {
             const name: NullTerminatedString = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "name").?]);
+            const name_nav: Nav.Index.Optional = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "name_nav").?]);
             const namespace: NamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "namespace").?]);
             const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?]);
             const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "fields_len").?];
@@ -4254,6 +4267,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .tid = unwrapped_index.tid,
                 .extra_index = item.data,
                 .name = name,
+                .name_nav = name_nav,
                 .namespace = namespace,
                 .zir_index = zir_index,
                 .layout = if (flags.is_extern) .@"extern" else .auto,
@@ -4270,6 +4284,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
         },
         .type_struct_packed, .type_struct_packed_inits => {
             const name: NullTerminatedString = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "name").?]);
+            const name_nav: Nav.Index.Optional = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "name_nav").?]);
             const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "zir_index").?]);
             const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "fields_len").?];
             const namespace: NamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?]);
@@ -4316,6 +4331,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .tid = unwrapped_index.tid,
                 .extra_index = item.data,
                 .name = name,
+                .name_nav = name_nav,
                 .namespace = namespace,
                 .zir_index = zir_index,
                 .layout = .@"packed",
@@ -4340,6 +4356,9 @@ pub const LoadedEnumType = struct {
     name: NullTerminatedString,
     /// Represents the declarations inside this enum.
     namespace: NamespaceIndex,
+    /// If this is a declared type with the `.parent` name strategy, this is the `Nav` it was named after.
+    /// Otherwise, this is `.none`.
+    name_nav: Nav.Index.Optional,
     /// An integer type which is used for the numerical value of the enum.
     /// This field is present regardless of whether the enum has an
     /// explicitly provided tag type or auto-numbered.
@@ -4423,6 +4442,7 @@ pub fn loadEnumType(ip: *const InternPool, index: Index) LoadedEnumType {
             } else extra.data.captures_len;
             return .{
                 .name = extra.data.name,
+                .name_nav = extra.data.name_nav,
                 .namespace = extra.data.namespace,
                 .tag_ty = extra.data.int_tag_type,
                 .names = .{
@@ -4457,6 +4477,7 @@ pub fn loadEnumType(ip: *const InternPool, index: Index) LoadedEnumType {
     } else extra.data.captures_len;
     return .{
         .name = extra.data.name,
+        .name_nav = extra.data.name_nav,
         .namespace = extra.data.namespace,
         .tag_ty = extra.data.int_tag_type,
         .names = .{
@@ -4488,6 +4509,9 @@ pub const LoadedOpaqueType = struct {
     // TODO: the non-fqn will be needed by the new dwarf structure
     /// The name of this opaque type.
     name: NullTerminatedString,
+    /// If this is a declared type with the `.parent` name strategy, this is the `Nav` it was named after.
+    /// Otherwise, this is `.none`.
+    name_nav: Nav.Index.Optional,
     /// Index of the `opaque_decl` or `reify` instruction.
     zir_index: TrackedInst.Index,
     captures: CaptureValue.Slice,
@@ -4504,6 +4528,7 @@ pub fn loadOpaqueType(ip: *const InternPool, index: Index) LoadedOpaqueType {
         extra.data.captures_len;
     return .{
         .name = extra.data.name,
+        .name_nav = extra.data.name_nav,
         .namespace = extra.data.namespace,
         .zir_index = extra.data.zir_index,
         .captures = .{
@@ -4889,6 +4914,7 @@ pub const Index = enum(u32) {
         float_c_longdouble_f128: struct { data: *Float128 },
         float_comptime_float: struct { data: *Float128 },
         variable: struct { data: *Tag.Variable },
+        threadlocal_variable: struct { data: *Tag.Variable },
         @"extern": struct { data: *Tag.Extern },
         func_decl: struct {
             const @"data.analysis.inferred_error_set" = opaque {};
@@ -5548,6 +5574,9 @@ pub const Tag = enum(u8) {
     /// A global variable.
     /// data is extra index to Variable.
     variable,
+    /// A global threadlocal variable.
+    /// data is extra index to Variable.
+    threadlocal_variable,
     /// An extern function or variable.
     /// data is extra index to Extern.
     /// Some parts of the key are stored in `owner_nav`.
@@ -5863,6 +5892,7 @@ pub const Tag = enum(u8) {
         .float_c_longdouble_f128 = .{ .summary = .@"@as(c_longdouble, {.payload%value})", .payload = f128 },
         .float_comptime_float = .{ .summary = .@"{.payload%value}", .payload = f128 },
         .variable = .{ .summary = .@"{.payload.owner_nav.fqn%summary#\"}", .payload = Variable },
+        .threadlocal_variable = .{ .summary = .@"{.payload.owner_nav.fqn%summary#\"}", .payload = Variable },
         .@"extern" = .{ .summary = .@"{.payload.owner_nav.fqn%summary#\"}", .payload = Extern },
         .func_decl = .{
             .summary = .@"{.payload.owner_nav.fqn%summary#\"}",
@@ -5913,24 +5943,24 @@ pub const Tag = enum(u8) {
         /// May be `none`.
         init: Index,
         owner_nav: Nav.Index,
-        flags: Flags,
-
-        pub const Flags = packed struct(u32) {
-            is_const: bool,
-            is_threadlocal: bool,
-            is_weak_linkage: bool,
-            is_dll_import: bool,
-            _: u28 = 0,
-        };
     };
 
     pub const Extern = struct {
-        // name, alignment, addrspace come from `owner_nav`.
+        // name, is_const, alignment, addrspace come from `owner_nav`.
         ty: Index,
         lib_name: OptionalNullTerminatedString,
-        flags: Variable.Flags,
+        flags: Flags,
         owner_nav: Nav.Index,
         zir_index: TrackedInst.Index,
+
+        pub const Flags = packed struct(u32) {
+            linkage: std.builtin.GlobalLinkage,
+            visibility: std.builtin.SymbolVisibility,
+            is_threadlocal: bool,
+            is_dll_import: bool,
+            relocation: std.builtin.ExternOptions.Relocation,
+            _: u25 = 0,
+        };
     };
 
     /// Trailing:
@@ -6012,6 +6042,7 @@ pub const Tag = enum(u8) {
     /// 4. field align: Alignment for each field; declaration order
     pub const TypeUnion = struct {
         name: NullTerminatedString,
+        name_nav: Nav.Index.Optional,
         flags: Flags,
         /// This could be provided through the tag type, but it is more convenient
         /// to store it directly. This is also necessary for `dumpStatsFallible` to
@@ -6051,6 +6082,7 @@ pub const Tag = enum(u8) {
     /// 5. init: Index for each fields_len // if tag is type_struct_packed_inits
     pub const TypeStructPacked = struct {
         name: NullTerminatedString,
+        name_nav: Nav.Index.Optional,
         zir_index: TrackedInst.Index,
         fields_len: u32,
         namespace: NamespaceIndex,
@@ -6098,6 +6130,7 @@ pub const Tag = enum(u8) {
     /// 8. field_offset: u32 // for each field in declared order, undef until layout_resolved
     pub const TypeStruct = struct {
         name: NullTerminatedString,
+        name_nav: Nav.Index.Optional,
         zir_index: TrackedInst.Index,
         namespace: NamespaceIndex,
         fields_len: u32,
@@ -6141,6 +6174,7 @@ pub const Tag = enum(u8) {
     /// 0. capture: CaptureValue // for each `captures_len`
     pub const TypeOpaque = struct {
         name: NullTerminatedString,
+        name_nav: Nav.Index.Optional,
         /// Contains the declarations inside this opaque.
         namespace: NamespaceIndex,
         /// The index of the `opaque_decl` instruction.
@@ -6419,6 +6453,7 @@ pub const Array = struct {
 /// 4. tag value: Index for each fields_len; declaration order
 pub const EnumExplicit = struct {
     name: NullTerminatedString,
+    name_nav: Nav.Index.Optional,
     /// `std.math.maxInt(u32)` indicates this type is reified.
     captures_len: u32,
     namespace: NamespaceIndex,
@@ -6444,6 +6479,7 @@ pub const EnumExplicit = struct {
 /// 3. field name: NullTerminatedString for each fields_len; declaration order
 pub const EnumAuto = struct {
     name: NullTerminatedString,
+    name_nav: Nav.Index.Optional,
     /// `std.math.maxInt(u32)` indicates this type is reified.
     captures_len: u32,
     namespace: NamespaceIndex,
@@ -7248,14 +7284,17 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             .ty = .comptime_float_type,
             .storage = .{ .f128 = extraData(unwrapped_index.getExtra(ip), Float128, data).get() },
         } },
-        .variable => {
+        .variable, .threadlocal_variable => {
             const extra = extraData(unwrapped_index.getExtra(ip), Tag.Variable, data);
             return .{ .variable = .{
                 .ty = extra.ty,
                 .init = extra.init,
                 .owner_nav = extra.owner_nav,
-                .is_threadlocal = extra.flags.is_threadlocal,
-                .is_weak_linkage = extra.flags.is_weak_linkage,
+                .is_threadlocal = switch (item.tag) {
+                    else => unreachable,
+                    .variable => false,
+                    .threadlocal_variable => true,
+                },
             } };
         },
         .@"extern" => {
@@ -7265,10 +7304,12 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .name = nav.name,
                 .ty = extra.ty,
                 .lib_name = extra.lib_name,
-                .is_const = extra.flags.is_const,
+                .linkage = extra.flags.linkage,
+                .visibility = extra.flags.visibility,
                 .is_threadlocal = extra.flags.is_threadlocal,
-                .is_weak_linkage = extra.flags.is_weak_linkage,
                 .is_dll_import = extra.flags.is_dll_import,
+                .relocation = extra.flags.relocation,
+                .is_const = nav.status.fully_resolved.is_const,
                 .alignment = nav.status.fully_resolved.alignment,
                 .@"addrspace" = nav.status.fully_resolved.@"addrspace",
                 .zir_index = extra.zir_index,
@@ -7895,17 +7936,14 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             const has_init = variable.init != .none;
             if (has_init) assert(variable.ty == ip.typeOf(variable.init));
             items.appendAssumeCapacity(.{
-                .tag = .variable,
+                .tag = switch (variable.is_threadlocal) {
+                    false => .variable,
+                    true => .threadlocal_variable,
+                },
                 .data = try addExtra(extra, Tag.Variable{
                     .ty = variable.ty,
                     .init = variable.init,
                     .owner_nav = variable.owner_nav,
-                    .flags = .{
-                        .is_const = false,
-                        .is_threadlocal = variable.is_threadlocal,
-                        .is_weak_linkage = variable.is_weak_linkage,
-                        .is_dll_import = false,
-                    },
                 }),
             });
         },
@@ -8654,6 +8692,7 @@ pub fn getUnionType(
         .size = std.math.maxInt(u32),
         .padding = std.math.maxInt(u32),
         .name = undefined, // set by `finish`
+        .name_nav = undefined, // set by `finish`
         .namespace = undefined, // set by `finish`
         .tag_ty = ini.enum_tag_ty,
         .zir_index = switch (ini.key) {
@@ -8705,6 +8744,7 @@ pub fn getUnionType(
         .tid = tid,
         .index = gop.put(),
         .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "name").?,
+        .name_nav_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "name_nav").?,
         .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "namespace").?,
     } };
 }
@@ -8714,15 +8754,20 @@ pub const WipNamespaceType = struct {
     index: Index,
     type_name_extra_index: u32,
     namespace_extra_index: u32,
+    name_nav_extra_index: u32,
 
     pub fn setName(
         wip: WipNamespaceType,
         ip: *InternPool,
         type_name: NullTerminatedString,
+        /// This should be the `Nav` we are named after if we use the `.parent` name strategy; `.none` otherwise.
+        /// This is also `.none` if we use `.parent` because we are the root struct type for a file.
+        name_nav: Nav.Index.Optional,
     ) void {
         const extra = ip.getLocalShared(wip.tid).extra.acquire();
         const extra_items = extra.view().items(.@"0");
         extra_items[wip.type_name_extra_index] = @intFromEnum(type_name);
+        extra_items[wip.name_nav_extra_index] = @intFromEnum(name_nav);
     }
 
     pub fn finish(
@@ -8831,6 +8876,7 @@ pub fn getStructType(
                 ini.fields_len); // inits
             const extra_index = addExtraAssumeCapacity(extra, Tag.TypeStructPacked{
                 .name = undefined, // set by `finish`
+                .name_nav = undefined, // set by `finish`
                 .zir_index = zir_index,
                 .fields_len = ini.fields_len,
                 .namespace = undefined, // set by `finish`
@@ -8875,6 +8921,7 @@ pub fn getStructType(
                 .tid = tid,
                 .index = gop.put(),
                 .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "name").?,
+                .name_nav_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "name_nav").?,
                 .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?,
             } };
         },
@@ -8897,6 +8944,7 @@ pub fn getStructType(
         1); // names_map
     const extra_index = addExtraAssumeCapacity(extra, Tag.TypeStruct{
         .name = undefined, // set by `finish`
+        .name_nav = undefined, // set by `finish`
         .zir_index = zir_index,
         .namespace = undefined, // set by `finish`
         .fields_len = ini.fields_len,
@@ -8965,6 +9013,7 @@ pub fn getStructType(
         .tid = tid,
         .index = gop.put(),
         .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "name").?,
+        .name_nav_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "name_nav").?,
         .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "namespace").?,
     } };
 }
@@ -9128,6 +9177,7 @@ pub fn getExtern(
         .name = key.name,
         .fqn = key.name,
         .val = extern_index,
+        .is_const = key.is_const,
         .alignment = key.alignment,
         .@"linksection" = .none,
         .@"addrspace" = key.@"addrspace",
@@ -9136,10 +9186,11 @@ pub fn getExtern(
         .ty = key.ty,
         .lib_name = key.lib_name,
         .flags = .{
-            .is_const = key.is_const,
+            .linkage = key.linkage,
+            .visibility = key.visibility,
             .is_threadlocal = key.is_threadlocal,
-            .is_weak_linkage = key.is_weak_linkage,
             .is_dll_import = key.is_dll_import,
+            .relocation = key.relocation,
         },
         .zir_index = key.zir_index,
         .owner_nav = owner_nav,
@@ -9714,6 +9765,7 @@ fn finishFuncInstance(
         .name = nav_name,
         .fqn = try ip.namespacePtr(fn_namespace).internFullyQualifiedName(ip, gpa, tid, nav_name),
         .val = func_index,
+        .is_const = fn_owner_nav.status.fully_resolved.is_const,
         .alignment = fn_owner_nav.status.fully_resolved.alignment,
         .@"linksection" = fn_owner_nav.status.fully_resolved.@"linksection",
         .@"addrspace" = fn_owner_nav.status.fully_resolved.@"addrspace",
@@ -9751,6 +9803,7 @@ pub const WipEnumType = struct {
     tag_ty_index: u32,
     type_name_extra_index: u32,
     namespace_extra_index: u32,
+    name_nav_extra_index: u32,
     names_map: MapIndex,
     names_start: u32,
     values_map: OptionalMapIndex,
@@ -9760,10 +9813,13 @@ pub const WipEnumType = struct {
         wip: WipEnumType,
         ip: *InternPool,
         type_name: NullTerminatedString,
+        /// This should be the `Nav` we are named after if we use the `.parent` name strategy; `.none` otherwise.
+        name_nav: Nav.Index.Optional,
     ) void {
         const extra = ip.getLocalShared(wip.tid).extra.acquire();
         const extra_items = extra.view().items(.@"0");
         extra_items[wip.type_name_extra_index] = @intFromEnum(type_name);
+        extra_items[wip.name_nav_extra_index] = @intFromEnum(name_nav);
     }
 
     pub fn prepare(
@@ -9878,6 +9934,7 @@ pub fn getEnumType(
 
             const extra_index = addExtraAssumeCapacity(extra, EnumAuto{
                 .name = undefined, // set by `prepare`
+                .name_nav = undefined, // set by `prepare`
                 .captures_len = switch (ini.key) {
                     inline .declared, .declared_owned_captures => |d| @intCast(d.captures.len),
                     .reified => std.math.maxInt(u32),
@@ -9906,6 +9963,7 @@ pub fn getEnumType(
                 .index = gop.put(),
                 .tag_ty_index = extra_index + std.meta.fieldIndex(EnumAuto, "int_tag_type").?,
                 .type_name_extra_index = extra_index + std.meta.fieldIndex(EnumAuto, "name").?,
+                .name_nav_extra_index = extra_index + std.meta.fieldIndex(EnumAuto, "name_nav").?,
                 .namespace_extra_index = extra_index + std.meta.fieldIndex(EnumAuto, "namespace").?,
                 .names_map = names_map,
                 .names_start = @intCast(names_start),
@@ -9935,6 +9993,7 @@ pub fn getEnumType(
 
             const extra_index = addExtraAssumeCapacity(extra, EnumExplicit{
                 .name = undefined, // set by `prepare`
+                .name_nav = undefined, // set by `prepare`
                 .captures_len = switch (ini.key) {
                     inline .declared, .declared_owned_captures => |d| @intCast(d.captures.len),
                     .reified => std.math.maxInt(u32),
@@ -9972,6 +10031,7 @@ pub fn getEnumType(
                 .index = gop.put(),
                 .tag_ty_index = extra_index + std.meta.fieldIndex(EnumExplicit, "int_tag_type").?,
                 .type_name_extra_index = extra_index + std.meta.fieldIndex(EnumExplicit, "name").?,
+                .name_nav_extra_index = extra_index + std.meta.fieldIndex(EnumExplicit, "name_nav").?,
                 .namespace_extra_index = extra_index + std.meta.fieldIndex(EnumExplicit, "namespace").?,
                 .names_map = names_map,
                 .names_start = @intCast(names_start),
@@ -10040,6 +10100,7 @@ pub fn getGeneratedTagEnumType(
                 .tag = .type_enum_auto,
                 .data = addExtraAssumeCapacity(extra, EnumAuto{
                     .name = ini.name,
+                    .name_nav = .none,
                     .captures_len = 0,
                     .namespace = namespace,
                     .int_tag_type = ini.tag_ty,
@@ -10073,6 +10134,7 @@ pub fn getGeneratedTagEnumType(
                 },
                 .data = addExtraAssumeCapacity(extra, EnumExplicit{
                     .name = ini.name,
+                    .name_nav = .none,
                     .captures_len = 0,
                     .namespace = namespace,
                     .int_tag_type = ini.tag_ty,
@@ -10146,6 +10208,7 @@ pub fn getOpaqueType(
     });
     const extra_index = addExtraAssumeCapacity(extra, Tag.TypeOpaque{
         .name = undefined, // set by `finish`
+        .name_nav = undefined, // set by `finish`
         .namespace = undefined, // set by `finish`
         .zir_index = switch (ini.key) {
             inline else => |x| x.zir_index,
@@ -10168,6 +10231,7 @@ pub fn getOpaqueType(
             .tid = tid,
             .index = gop.put(),
             .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "name").?,
+            .name_nav_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "name_nav").?,
             .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "namespace").?,
         },
     };
@@ -10284,6 +10348,7 @@ fn addExtraAssumeCapacity(extra: Local.Extra.Mutable, item: anytype) u32 {
         extra.appendAssumeCapacity(.{switch (field.type) {
             Index,
             Nav.Index,
+            Nav.Index.Optional,
             NamespaceIndex,
             OptionalNamespaceIndex,
             MapIndex,
@@ -10300,13 +10365,13 @@ fn addExtraAssumeCapacity(extra: Local.Extra.Mutable, item: anytype) u32 {
             u32,
             i32,
             FuncAnalysis,
+            Tag.Extern.Flags,
             Tag.TypePointer.Flags,
             Tag.TypeFunction.Flags,
             Tag.TypePointer.PackedOffset,
             Tag.TypeUnion.Flags,
             Tag.TypeStruct.Flags,
             Tag.TypeStructPacked.Flags,
-            Tag.Variable.Flags,
             => @bitCast(@field(item, field.name)),
 
             else => @compileError("bad field type: " ++ @typeName(field.type)),
@@ -10346,6 +10411,7 @@ fn extraDataTrail(extra: Local.Extra, comptime T: type, index: u32) struct { dat
         @field(result, field.name) = switch (field.type) {
             Index,
             Nav.Index,
+            Nav.Index.Optional,
             NamespaceIndex,
             OptionalNamespaceIndex,
             MapIndex,
@@ -10361,13 +10427,13 @@ fn extraDataTrail(extra: Local.Extra, comptime T: type, index: u32) struct { dat
 
             u32,
             i32,
+            Tag.Extern.Flags,
             Tag.TypePointer.Flags,
             Tag.TypeFunction.Flags,
             Tag.TypePointer.PackedOffset,
             Tag.TypeUnion.Flags,
             Tag.TypeStruct.Flags,
             Tag.TypeStructPacked.Flags,
-            Tag.Variable.Flags,
             FuncAnalysis,
             => @bitCast(extra_item),
 
@@ -11162,7 +11228,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                 .float_c_longdouble_f80 => @sizeOf(Float80),
                 .float_c_longdouble_f128 => @sizeOf(Float128),
                 .float_comptime_float => @sizeOf(Float128),
-                .variable => @sizeOf(Tag.Variable),
+                .variable, .threadlocal_variable => @sizeOf(Tag.Variable),
                 .@"extern" => @sizeOf(Tag.Extern),
                 .func_decl => @sizeOf(Tag.FuncDecl),
                 .func_instance => b: {
@@ -11282,6 +11348,7 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
                 .float_c_longdouble_f128,
                 .float_comptime_float,
                 .variable,
+                .threadlocal_variable,
                 .@"extern",
                 .func_decl,
                 .func_instance,
@@ -11414,6 +11481,7 @@ pub fn createNav(
         name: NullTerminatedString,
         fqn: NullTerminatedString,
         val: InternPool.Index,
+        is_const: bool,
         alignment: Alignment,
         @"linksection": OptionalNullTerminatedString,
         @"addrspace": std.builtin.AddressSpace,
@@ -11430,6 +11498,7 @@ pub fn createNav(
         .analysis = null,
         .status = .{ .fully_resolved = .{
             .val = opts.val,
+            .is_const = opts.is_const,
             .alignment = opts.alignment,
             .@"linksection" = opts.@"linksection",
             .@"addrspace" = opts.@"addrspace",
@@ -11482,10 +11551,10 @@ pub fn resolveNavType(
     nav: Nav.Index,
     resolved: struct {
         type: InternPool.Index,
+        is_const: bool,
         alignment: Alignment,
         @"linksection": OptionalNullTerminatedString,
         @"addrspace": std.builtin.AddressSpace,
-        is_const: bool,
         is_threadlocal: bool,
         is_extern_decl: bool,
     },
@@ -11512,9 +11581,9 @@ pub fn resolveNavType(
 
     var bits = nav_bits[unwrapped.index];
     bits.status = if (resolved.is_extern_decl) .type_resolved_extern_decl else .type_resolved;
+    bits.is_const = resolved.is_const;
     bits.alignment = resolved.alignment;
     bits.@"addrspace" = resolved.@"addrspace";
-    bits.is_const = resolved.is_const;
     bits.is_threadlocal = resolved.is_threadlocal;
     @atomicStore(Nav.Repr.Bits, &nav_bits[unwrapped.index], bits, .release);
 }
@@ -11526,6 +11595,7 @@ pub fn resolveNavValue(
     nav: Nav.Index,
     resolved: struct {
         val: InternPool.Index,
+        is_const: bool,
         alignment: Alignment,
         @"linksection": OptionalNullTerminatedString,
         @"addrspace": std.builtin.AddressSpace,
@@ -11553,6 +11623,7 @@ pub fn resolveNavValue(
 
     var bits = nav_bits[unwrapped.index];
     bits.status = .fully_resolved;
+    bits.is_const = resolved.is_const;
     bits.alignment = resolved.alignment;
     bits.@"addrspace" = resolved.@"addrspace";
     @atomicStore(Nav.Repr.Bits, &nav_bits[unwrapped.index], bits, .release);
@@ -12007,6 +12078,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
                 .error_union_error,
                 .enum_tag,
                 .variable,
+                .threadlocal_variable,
                 .@"extern",
                 .func_decl,
                 .func_instance,
@@ -12391,6 +12463,7 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
             .float_c_longdouble_f128,
             .float_comptime_float,
             .variable,
+            .threadlocal_variable,
             .@"extern",
             .func_decl,
             .func_instance,

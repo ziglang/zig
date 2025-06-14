@@ -17,7 +17,7 @@
 //! All regular functions.
 
 // Because SPIR-V requires re-compilation anyway, and so hot swapping will not work
-// anyway, we simply generate all the code in flushModule. This keeps
+// anyway, we simply generate all the code in flush. This keeps
 // things considerably simpler.
 
 const SpirV = @This();
@@ -83,7 +83,6 @@ pub fn createEmpty(
             .stack_size = options.stack_size orelse 0,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
         .object = codegen.Object.init(gpa, comp.getTarget()),
@@ -110,24 +109,6 @@ pub fn open(
 
 pub fn deinit(self: *SpirV) void {
     self.object.deinit();
-}
-
-pub fn updateFunc(
-    self: *SpirV,
-    pt: Zcu.PerThread,
-    func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
-) link.File.UpdateNavError!void {
-    if (build_options.skip_non_native) {
-        @panic("Attempted to compile for architecture that was disabled by build configuration");
-    }
-
-    const ip = &pt.zcu.intern_pool;
-    const func = pt.zcu.funcInfo(func_index);
-    log.debug("lowering function {}", .{ip.getNav(func.owner_nav).name.fmt(ip)});
-
-    try self.object.updateFunc(pt, func_index, air, liveness);
 }
 
 pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
@@ -193,18 +174,14 @@ pub fn updateExports(
     // TODO: Export regular functions, variables, etc using Linkage attributes.
 }
 
-pub fn flush(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    return self.flushModule(arena, tid, prog_node);
-}
-
-pub fn flushModule(
+pub fn flush(
     self: *SpirV,
     arena: Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
 ) link.File.FlushError!void {
     // The goal is to never use this because it's only needed if we need to
-    // write to InternPool, but flushModule is too late to be writing to the
+    // write to InternPool, but flush is too late to be writing to the
     // InternPool.
     _ = tid;
 

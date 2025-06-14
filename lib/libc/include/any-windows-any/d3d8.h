@@ -128,7 +128,7 @@ typedef struct IDirect3DVolumeTexture8 *LPDIRECT3DVOLUMETEXTURE8, *PDIRECT3DVOLU
  */
 #undef INTERFACE
 #define INTERFACE IDirect3D8
-DECLARE_INTERFACE_(IDirect3D8,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3D8,IUnknown,"1dd9e8da-1c77-4d40-b0cf-98fefdff9512")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -195,7 +195,7 @@ DECLARE_INTERFACE_(IDirect3D8,IUnknown)
  * IDirect3DVolume8 interface
  */
 #define INTERFACE IDirect3DVolume8
-DECLARE_INTERFACE_(IDirect3DVolume8,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DVolume8,IUnknown,"bd7349f5-14f1-42e4-9c79-972380db40c0")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -247,7 +247,7 @@ DECLARE_INTERFACE_(IDirect3DVolume8,IUnknown)
  * IDirect3DSwapChain8 interface
  */
 #define INTERFACE IDirect3DSwapChain8
-DECLARE_INTERFACE_(IDirect3DSwapChain8,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DSwapChain8,IUnknown,"928c088b-76b9-4c6b-a536-a590853876cd")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -282,7 +282,7 @@ DECLARE_INTERFACE_(IDirect3DSwapChain8,IUnknown)
  * IDirect3DSurface8 interface
  */
 #define INTERFACE IDirect3DSurface8
-DECLARE_INTERFACE_(IDirect3DSurface8,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DSurface8,IUnknown,"b96eebca-b326-4ea5-882f-2ff5bae021dd")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -334,7 +334,7 @@ DECLARE_INTERFACE_(IDirect3DSurface8,IUnknown)
  * IDirect3DResource8 interface
  */
 #define INTERFACE IDirect3DResource8
-DECLARE_INTERFACE_(IDirect3DResource8,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DResource8,IUnknown,"1b36bb7b-09b7-410a-b445-7d1430d7b33f")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -386,7 +386,7 @@ DECLARE_INTERFACE_(IDirect3DResource8,IUnknown)
  * IDirect3DVertexBuffer8 interface
  */
 #define INTERFACE IDirect3DVertexBuffer8
-DECLARE_INTERFACE_(IDirect3DVertexBuffer8,IDirect3DResource8)
+DECLARE_INTERFACE_IID_(IDirect3DVertexBuffer8,IDirect3DResource8,"8aeeeac7-05f9-44d4-b591-000b0df1cb95")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -450,7 +450,7 @@ DECLARE_INTERFACE_(IDirect3DVertexBuffer8,IDirect3DResource8)
  * IDirect3DIndexBuffer8 interface
  */
 #define INTERFACE IDirect3DIndexBuffer8
-DECLARE_INTERFACE_(IDirect3DIndexBuffer8,IDirect3DResource8)
+DECLARE_INTERFACE_IID_(IDirect3DIndexBuffer8,IDirect3DResource8,"0e689c9a-053d-44a0-9d92-db0e3d750f86")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -514,7 +514,7 @@ DECLARE_INTERFACE_(IDirect3DIndexBuffer8,IDirect3DResource8)
  * IDirect3DBaseTexture8 interface
  */
 #define INTERFACE IDirect3DBaseTexture8
-DECLARE_INTERFACE_(IDirect3DBaseTexture8,IDirect3DResource8)
+DECLARE_INTERFACE_IID_(IDirect3DBaseTexture8,IDirect3DResource8,"b4211cfa-51b9-4a9f-ab78-db99b2bb678e")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -578,7 +578,7 @@ DECLARE_INTERFACE_(IDirect3DBaseTexture8,IDirect3DResource8)
  * IDirect3DCubeTexture8 interface
  */
 #define INTERFACE IDirect3DCubeTexture8
-DECLARE_INTERFACE_(IDirect3DCubeTexture8,IDirect3DBaseTexture8)
+DECLARE_INTERFACE_IID_(IDirect3DCubeTexture8,IDirect3DBaseTexture8,"3ee5b968-2aca-4c34-8bb5-7e0c3d19b750")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -661,7 +661,7 @@ DECLARE_INTERFACE_(IDirect3DCubeTexture8,IDirect3DBaseTexture8)
  * IDirect3DTexture8 interface
  */
 #define INTERFACE IDirect3DTexture8
-DECLARE_INTERFACE_(IDirect3DTexture8,IDirect3DBaseTexture8)
+DECLARE_INTERFACE_IID_(IDirect3DTexture8,IDirect3DBaseTexture8,"e4cdd575-2866-4f01-b12e-7eece1ec9358")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -743,7 +743,7 @@ DECLARE_INTERFACE_(IDirect3DTexture8,IDirect3DBaseTexture8)
  * IDirect3DVolumeTexture8 interface
  */
 #define INTERFACE IDirect3DVolumeTexture8
-DECLARE_INTERFACE_(IDirect3DVolumeTexture8,IDirect3DBaseTexture8)
+DECLARE_INTERFACE_IID_(IDirect3DVolumeTexture8,IDirect3DBaseTexture8,"4b8aaafa-140f-42ba-9131-597eafaa2ead")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -825,7 +825,7 @@ DECLARE_INTERFACE_(IDirect3DVolumeTexture8,IDirect3DBaseTexture8)
  * IDirect3DDevice8 interface
  */
 #define INTERFACE IDirect3DDevice8
-DECLARE_INTERFACE_(IDirect3DDevice8,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DDevice8,IUnknown,"7385e5df-8fe8-41d5-86b6-d7b48547b6cf")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -1115,7 +1115,7 @@ DECLARE_INTERFACE_(IDirect3DDevice8,IUnknown)
 #define IDirect3DDevice8_DrawIndexedPrimitive(p,a,b,c,d,e)         (p)->DrawIndexedPrimitive(a,b,c,d,e)
 #define IDirect3DDevice8_DrawPrimitiveUP(p,a,b,c,d)                (p)->DrawPrimitiveUP(a,b,c,d)
 #define IDirect3DDevice8_DrawIndexedPrimitiveUP(p,a,b,c,d,e,f,g,h) (p)->DrawIndexedPrimitiveUP(a,b,c,d,e,f,g,h)
-#define IDirect3DDevice8_ProcessVertices(p,a,b,c,d,e)              (p)->processVertices(a,b,c,d,e)
+#define IDirect3DDevice8_ProcessVertices(p,a,b,c,d,e)              (p)->ProcessVertices(a,b,c,d,e)
 #define IDirect3DDevice8_CreateVertexShader(p,a,b,c,d)             (p)->CreateVertexShader(a,b,c,d)
 #define IDirect3DDevice8_SetVertexShader(p,a)                      (p)->SetVertexShader(a)
 #define IDirect3DDevice8_GetVertexShader(p,a)                      (p)->GetVertexShader(a)

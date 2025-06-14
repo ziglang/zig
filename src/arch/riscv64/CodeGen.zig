@@ -68,9 +68,9 @@ gpa: Allocator,
 
 mod: *Package.Module,
 target: *const std.Target,
-debug_output: link.File.DebugInfoOutput,
 args: []MCValue,
 ret_mcv: InstTracking,
+func_index: InternPool.Index,
 fn_type: Type,
 arg_index: usize,
 src_loc: Zcu.LazySrcLoc,
@@ -746,13 +746,10 @@ pub fn generate(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
-    code: *std.ArrayListUnmanaged(u8),
-    debug_output: link.File.DebugInfoOutput,
-) CodeGenError!void {
+    air: *const Air,
+    liveness: *const Air.Liveness,
+) CodeGenError!Mir {
     const zcu = pt.zcu;
-    const comp = zcu.comp;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const func = zcu.funcInfo(func_index);
@@ -769,16 +766,16 @@ pub fn generate(
 
     var function: Func = .{
         .gpa = gpa,
-        .air = air,
+        .air = air.*,
         .pt = pt,
         .mod = mod,
         .bin_file = bin_file,
-        .liveness = liveness,
+        .liveness = liveness.*,
         .target = &mod.resolved_target.result,
-        .debug_output = debug_output,
         .owner = .{ .nav_index = func.owner_nav },
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
+        .func_index = func_index,
         .fn_type = fn_type,
         .arg_index = 0,
         .branch_stack = &branch_stack,
@@ -855,33 +852,8 @@ pub fn generate(
         .instructions = function.mir_instructions.toOwnedSlice(),
         .frame_locs = function.frame_locs.toOwnedSlice(),
     };
-    defer mir.deinit(gpa);
-
-    var emit: Emit = .{
-        .lower = .{
-            .pt = pt,
-            .allocator = gpa,
-            .mir = mir,
-            .cc = fn_info.cc,
-            .src_loc = src_loc,
-            .output_mode = comp.config.output_mode,
-            .link_mode = comp.config.link_mode,
-            .pic = mod.pic,
-        },
-        .bin_file = bin_file,
-        .debug_output = debug_output,
-        .code = code,
-        .prev_di_pc = 0,
-        .prev_di_line = func.lbrace_line,
-        .prev_di_column = func.lbrace_column,
-    };
-    defer emit.deinit();
-
-    emit.emitMir() catch |err| switch (err) {
-        error.LowerFail, error.EmitFail => return function.failMsg(emit.lower.err_msg.?),
-        error.InvalidInstruction => |e| return function.fail("emit MIR failed: {s} (Zig compiler bug)", .{@errorName(e)}),
-        else => |e| return e,
-    };
+    errdefer mir.deinit(gpa);
+    return mir;
 }
 
 pub fn generateLazy(
@@ -904,10 +876,10 @@ pub fn generateLazy(
         .bin_file = bin_file,
         .liveness = undefined,
         .target = &mod.resolved_target.result,
-        .debug_output = debug_output,
         .owner = .{ .lazy_sym = lazy_sym },
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
+        .func_index = undefined,
         .fn_type = undefined,
         .arg_index = 0,
         .branch_stack = undefined,
@@ -1041,12 +1013,7 @@ fn formatAir(
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    @import("../../print_air.zig").dumpInst(
-        data.inst,
-        data.func.pt,
-        data.func.air,
-        data.func.liveness,
-    );
+    data.func.air.dumpInst(data.inst, data.func.pt, data.func.liveness);
 }
 fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(formatAir) {
     return .{ .data = .{ .func = func, .inst = inst } };
@@ -1656,7 +1623,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .wrap_errunion_payload => try func.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try func.airWrapErrUnionErr(inst),
 
-            .tlv_dllimport_ptr => try func.airTlvDllimportPtr(inst),
+            .runtime_nav_ptr => try func.airRuntimeNavPtr(inst),
 
             .add_optimized,
             .sub_optimized,
@@ -3626,7 +3593,7 @@ fn airWrapErrUnionErr(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn airTlvDllimportPtr(func: *Func, inst: Air.Inst.Index) !void {
+fn airRuntimeNavPtr(func: *Func, inst: Air.Inst.Index) !void {
     const zcu = func.pt.zcu;
     const ip = &zcu.intern_pool;
     const ty_nav = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
@@ -3636,12 +3603,10 @@ fn airTlvDllimportPtr(func: *Func, inst: Air.Inst.Index) !void {
     const tlv_sym_index = if (func.bin_file.cast(.elf)) |elf_file| sym: {
         const zo = elf_file.zigObjectPtr().?;
         if (nav.getExtern(ip)) |e| {
-            const sym = try elf_file.getGlobalSymbol(nav.name.toSlice(ip), e.lib_name.toSlice(ip));
-            zo.symbol(sym).flags.is_extern_ptr = true;
-            break :sym sym;
+            break :sym try elf_file.getGlobalSymbol(nav.name.toSlice(ip), e.lib_name.toSlice(ip));
         }
         break :sym try zo.getOrCreateMetadataForNav(zcu, ty_nav.nav);
-    } else return func.fail("TODO tlv_dllimport_ptr on {}", .{func.bin_file.tag});
+    } else return func.fail("TODO runtime_nav_ptr on {}", .{func.bin_file.tag});
 
     const dest_mcv = try func.allocRegOrMem(ptr_ty, inst, true);
     if (dest_mcv.isRegister()) {
@@ -4760,16 +4725,17 @@ fn airFieldParentPtr(func: *Func, inst: Air.Inst.Index) !void {
     return func.fail("TODO implement codegen airFieldParentPtr", .{});
 }
 
-fn genArgDbgInfo(func: *const Func, inst: Air.Inst.Index, mcv: MCValue) InnerError!void {
-    const arg = func.air.instructions.items(.data)[@intFromEnum(inst)].arg;
-    const ty = arg.ty.toType();
-    if (arg.name == .none) return;
+fn genArgDbgInfo(func: *const Func, name: []const u8, ty: Type, mcv: MCValue) InnerError!void {
+    assert(!func.mod.strip);
 
+    // TODO: Add a pseudo-instruction or something to defer this work until Emit.
+    //       We aren't allowed to interact with linker state here.
+    if (true) return;
     switch (func.debug_output) {
         .dwarf => |dw| switch (mcv) {
             .register => |reg| dw.genLocalDebugInfo(
                 .local_arg,
-                arg.name.toSlice(func.air),
+                name,
                 ty,
                 .{ .reg = reg.dwarfNum() },
             ) catch |err| return func.fail("failed to generate debug info: {s}", .{@errorName(err)}),
@@ -4782,6 +4748,8 @@ fn genArgDbgInfo(func: *const Func, inst: Air.Inst.Index, mcv: MCValue) InnerErr
 }
 
 fn airArg(func: *Func, inst: Air.Inst.Index) InnerError!void {
+    const zcu = func.pt.zcu;
+
     var arg_index = func.arg_index;
 
     // we skip over args that have no bits
@@ -4798,7 +4766,14 @@ fn airArg(func: *Func, inst: Air.Inst.Index) InnerError!void {
 
         try func.genCopy(arg_ty, dst_mcv, src_mcv);
 
-        try func.genArgDbgInfo(inst, src_mcv);
+        const arg = func.air.instructions.items(.data)[@intFromEnum(inst)].arg;
+        // can delete `func.func_index` if this logic is moved to emit
+        const func_zir = zcu.funcInfo(func.func_index).zir_body_inst.resolveFull(&zcu.intern_pool).?;
+        const file = zcu.fileByIndex(func_zir.file);
+        const zir = &file.zir.?;
+        const name = zir.nullTerminatedString(zir.getParamName(zir.getParamBody(func_zir.inst)[arg.zir_param_index]).?);
+
+        try func.genArgDbgInfo(name, arg_ty, src_mcv);
         break :result dst_mcv;
     };
 
@@ -5278,6 +5253,9 @@ fn genVarDbgInfo(
     mcv: MCValue,
     name: []const u8,
 ) !void {
+    // TODO: Add a pseudo-instruction or something to defer this work until Emit.
+    //       We aren't allowed to interact with linker state here.
+    if (true) return;
     switch (func.debug_output) {
         .dwarf => |dwarf| {
             const loc: link.File.Dwarf.Loc = switch (mcv) {

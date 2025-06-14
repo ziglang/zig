@@ -13,6 +13,7 @@ const InternPool = @import("InternPool.zig");
 const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const Zcu = @import("Zcu.zig");
+const print = @import("Air/print.zig");
 const types_resolved = @import("Air/types_resolved.zig");
 
 pub const Legalize = @import("Air/Legalize.zig");
@@ -863,16 +864,17 @@ pub const Inst = struct {
         /// Uses the `vector_store_elem` field.
         vector_store_elem,
 
-        /// Compute a pointer to a threadlocal or dllimport `Nav`, meaning one of:
+        /// Compute a pointer to a `Nav` at runtime, always one of:
         ///
         /// * `threadlocal var`
         /// * `extern threadlocal var` (or corresponding `@extern`)
         /// * `@extern` with `.is_dll_import = true`
+        /// * `@extern` with `.relocation = .pcrel`
         ///
         /// Such pointers are runtime values, so cannot be represented with an InternPool index.
         ///
         /// Uses the `ty_nav` field.
-        tlv_dllimport_ptr,
+        runtime_nav_ptr,
 
         /// Implements @cVaArg builtin.
         /// Uses the `ty_op` field.
@@ -1151,9 +1153,7 @@ pub const Inst = struct {
         ty: Type,
         arg: struct {
             ty: Ref,
-            /// Index into `extra` of a null-terminated string representing the parameter name.
-            /// This is `.none` if debug info is stripped.
-            name: NullTerminatedString,
+            zir_param_index: u32,
         },
         ty_op: struct {
             ty: Ref,
@@ -1708,7 +1708,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
             return .fromInterned(ip.indexToKey(err_union_ty.ip_index).error_union_type.payload_type);
         },
 
-        .tlv_dllimport_ptr => return .fromInterned(datas[@intFromEnum(inst)].ty_nav.ty),
+        .runtime_nav_ptr => return .fromInterned(datas[@intFromEnum(inst)].ty_nav.ty),
 
         .work_item_id,
         .work_group_size,
@@ -1983,7 +1983,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .err_return_trace,
         .addrspace_cast,
         .save_err_return_trace_index,
-        .tlv_dllimport_ptr,
+        .runtime_nav_ptr,
         .work_item_id,
         .work_group_size,
         .work_group_id,
@@ -2141,6 +2141,10 @@ pub const typesFullyResolved = types_resolved.typesFullyResolved;
 pub const typeFullyResolved = types_resolved.checkType;
 pub const valFullyResolved = types_resolved.checkVal;
 pub const legalize = Legalize.legalize;
+pub const write = print.write;
+pub const writeInst = print.writeInst;
+pub const dump = print.dump;
+pub const dumpInst = print.dumpInst;
 
 pub const CoveragePoint = enum(u1) {
     /// Indicates the block is not a place of interest corresponding to

@@ -9,6 +9,8 @@
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 extra: []const u32,
+string_bytes: []const u8,
+locals: []const Local,
 table: []const Inst.Index,
 frame_locs: std.MultiArrayList(FrameLoc).Slice,
 
@@ -1361,9 +1363,6 @@ pub const Inst = struct {
         /// Immediate (byte), register operands.
         /// Uses `ri` payload.
         ir,
-        /// Relative displacement operand.
-        /// Uses `reloc` payload.
-        rel,
         /// Register, memory operands.
         /// Uses `rx` payload with extra data of type `Memory`.
         rm,
@@ -1409,21 +1408,18 @@ pub const Inst = struct {
         /// References another Mir instruction directly.
         /// Uses `inst` payload.
         inst,
-        /// Linker relocation - external function.
-        /// Uses `reloc` payload.
-        extern_fn_reloc,
-        /// Linker relocation - GOT indirection.
-        /// Uses `rx` payload with extra data of type `bits.SymbolOffset`.
-        got_reloc,
-        /// Linker relocation - direct reference.
-        /// Uses `rx` payload with extra data of type `bits.SymbolOffset`.
-        direct_reloc,
-        /// Linker relocation - imports table indirection (binding).
-        /// Uses `rx` payload with extra data of type `bits.SymbolOffset`.
-        import_reloc,
-        /// Linker relocation - threadlocal variable via GOT indirection.
-        /// Uses `rx` payload with extra data of type `bits.SymbolOffset`.
-        tlv_reloc,
+        /// References a nav.
+        /// Uses `nav` payload.
+        nav,
+        /// References an uav.
+        /// Uses `uav` payload.
+        uav,
+        /// References a lazy symbol.
+        /// Uses `lazy_sym` payload.
+        lazy_sym,
+        /// References an external symbol.
+        /// Uses `extern_func` payload.
+        extern_func,
 
         // Pseudo instructions:
 
@@ -1522,6 +1518,7 @@ pub const Inst = struct {
         pseudo_cfi_escape_bytes,
 
         /// End of prologue
+        /// Uses `none` payload.
         pseudo_dbg_prologue_end_none,
         /// Update debug line with is_stmt register set
         /// Uses `line_column` payload.
@@ -1530,44 +1527,70 @@ pub const Inst = struct {
         /// Uses `line_column` payload.
         pseudo_dbg_line_line_column,
         /// Start of epilogue
+        /// Uses `none` payload.
         pseudo_dbg_epilogue_begin_none,
         /// Start of lexical block
+        /// Uses `none` payload.
         pseudo_dbg_enter_block_none,
         /// End of lexical block
+        /// Uses `none` payload.
         pseudo_dbg_leave_block_none,
         /// Start of inline function
+        /// Uses `ip_index` payload.
         pseudo_dbg_enter_inline_func,
         /// End of inline function
+        /// Uses `ip_index` payload.
         pseudo_dbg_leave_inline_func,
-        /// Local argument or variable.
-        /// Uses `a` payload.
-        pseudo_dbg_local_a,
-        /// Local argument or variable.
-        /// Uses `ai` payload.
-        pseudo_dbg_local_ai_s,
-        /// Local argument or variable.
-        /// Uses `ai` payload.
-        pseudo_dbg_local_ai_u,
-        /// Local argument or variable.
-        /// Uses `ai` payload with extra data of type `Imm64`.
-        pseudo_dbg_local_ai_64,
-        /// Local argument or variable.
-        /// Uses `as` payload.
-        pseudo_dbg_local_as,
-        /// Local argument or variable.
-        /// Uses `ax` payload with extra data of type `bits.SymbolOffset`.
-        pseudo_dbg_local_aso,
-        /// Local argument or variable.
-        /// Uses `rx` payload with extra data of type `AirOffset`.
-        pseudo_dbg_local_aro,
-        /// Local argument or variable.
-        /// Uses `ax` payload with extra data of type `bits.FrameAddr`.
-        pseudo_dbg_local_af,
-        /// Local argument or variable.
-        /// Uses `ax` payload with extra data of type `Memory`.
-        pseudo_dbg_local_am,
+        /// Local argument.
+        /// Uses `none` payload.
+        pseudo_dbg_arg_none,
+        /// Local argument.
+        /// Uses `i` payload.
+        pseudo_dbg_arg_i_s,
+        /// Local argument.
+        /// Uses `i` payload.
+        pseudo_dbg_arg_i_u,
+        /// Local argument.
+        /// Uses `i64` payload.
+        pseudo_dbg_arg_i_64,
+        /// Local argument.
+        /// Uses `ro` payload.
+        pseudo_dbg_arg_ro,
+        /// Local argument.
+        /// Uses `fa` payload.
+        pseudo_dbg_arg_fa,
+        /// Local argument.
+        /// Uses `x` payload with extra data of type `Memory`.
+        pseudo_dbg_arg_m,
+        /// Local argument.
+        /// Uses `ip_index` payload.
+        pseudo_dbg_arg_val,
         /// Remaining arguments are varargs.
         pseudo_dbg_var_args_none,
+        /// Local variable.
+        /// Uses `none` payload.
+        pseudo_dbg_var_none,
+        /// Local variable.
+        /// Uses `i` payload.
+        pseudo_dbg_var_i_s,
+        /// Local variable.
+        /// Uses `i` payload.
+        pseudo_dbg_var_i_u,
+        /// Local variable.
+        /// Uses `i64` payload.
+        pseudo_dbg_var_i_64,
+        /// Local variable.
+        /// Uses `ro` payload.
+        pseudo_dbg_var_ro,
+        /// Local variable.
+        /// Uses `fa` payload.
+        pseudo_dbg_var_fa,
+        /// Local variable.
+        /// Uses `x` payload with extra data of type `Memory`.
+        pseudo_dbg_var_m,
+        /// Local variable.
+        /// Uses `ip_index` payload.
+        pseudo_dbg_var_val,
 
         /// Tombstone
         /// Emitter should skip this instruction.
@@ -1584,6 +1607,7 @@ pub const Inst = struct {
             inst: Index,
         },
         /// A 32-bit immediate value.
+        i64: u64,
         i: struct {
             fixes: Fixes = ._,
             i: u32,
@@ -1683,31 +1707,18 @@ pub const Inst = struct {
                 return std.mem.sliceAsBytes(mir.extra[bytes.payload..])[0..bytes.len];
             }
         },
-        a: struct {
-            air_inst: Air.Inst.Index,
-        },
-        ai: struct {
-            air_inst: Air.Inst.Index,
-            i: u32,
-        },
-        as: struct {
-            air_inst: Air.Inst.Index,
-            sym_index: u32,
-        },
-        ax: struct {
-            air_inst: Air.Inst.Index,
-            payload: u32,
-        },
-        /// Relocation for the linker where:
-        /// * `sym_index` is the index of the target
-        /// * `off` is the offset from the target
-        reloc: bits.SymbolOffset,
+        fa: bits.FrameAddr,
+        ro: bits.RegisterOffset,
+        nav: bits.NavOffset,
+        uav: InternPool.Key.Ptr.BaseAddr.Uav,
+        lazy_sym: link.File.LazySymbol,
+        extern_func: Mir.NullTerminatedString,
         /// Debug line and column position
         line_column: struct {
             line: u32,
             column: u32,
         },
-        func: InternPool.Index,
+        ip_index: InternPool.Index,
         /// Register list
         reg_list: RegisterList,
     };
@@ -1760,13 +1771,11 @@ pub const Inst = struct {
     }
 };
 
-pub const AirOffset = struct { air_inst: Air.Inst.Index, off: i32 };
-
 /// Used in conjunction with payload to transfer a list of used registers in a compact manner.
 pub const RegisterList = struct {
     bitset: BitSet,
 
-    const BitSet = IntegerBitSet(32);
+    const BitSet = std.bit_set.IntegerBitSet(32);
     const Self = @This();
 
     pub const empty: RegisterList = .{ .bitset = .initEmpty() };
@@ -1805,6 +1814,22 @@ pub const RegisterList = struct {
     }
 };
 
+pub const NullTerminatedString = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn toSlice(nts: NullTerminatedString, mir: *const Mir) ?[:0]const u8 {
+        if (nts == .none) return null;
+        const string_bytes = mir.string_bytes[@intFromEnum(nts)..];
+        return string_bytes[0..std.mem.indexOfScalar(u8, string_bytes, 0).? :0];
+    }
+};
+
+pub const Local = struct {
+    name: NullTerminatedString,
+    type: InternPool.Index,
+};
+
 pub const Imm32 = struct {
     imm: u32,
 };
@@ -1840,11 +1865,10 @@ pub const Memory = struct {
         size: bits.Memory.Size,
         index: Register,
         scale: bits.Memory.Scale,
-        _: u14 = undefined,
+        _: u13 = undefined,
     };
 
     pub fn encode(mem: bits.Memory) Memory {
-        assert(mem.base != .reloc or mem.mod != .off);
         return .{
             .info = .{
                 .base = mem.base,
@@ -1866,17 +1890,27 @@ pub const Memory = struct {
                 .none, .table => undefined,
                 .reg => |reg| @intFromEnum(reg),
                 .frame => |frame_index| @intFromEnum(frame_index),
-                .reloc => |sym_index| sym_index,
                 .rip_inst => |inst_index| inst_index,
+                .nav => |nav| @intFromEnum(nav),
+                .uav => |uav| @intFromEnum(uav.val),
+                .lazy_sym => |lazy_sym| @intFromEnum(lazy_sym.ty),
+                .extern_func => |extern_func| @intFromEnum(extern_func),
             },
             .off = switch (mem.mod) {
                 .rm => |rm| @bitCast(rm.disp),
                 .off => |off| @truncate(off),
             },
-            .extra = if (mem.mod == .off)
-                @intCast(mem.mod.off >> 32)
-            else
-                undefined,
+            .extra = switch (mem.mod) {
+                .rm => switch (mem.base) {
+                    else => undefined,
+                    .uav => |uav| @intFromEnum(uav.orig_ty),
+                    .lazy_sym => |lazy_sym| @intFromEnum(lazy_sym.kind),
+                },
+                .off => switch (mem.base) {
+                    .reg => @intCast(mem.mod.off >> 32),
+                    else => unreachable,
+                },
+            },
         };
     }
 
@@ -1894,8 +1928,11 @@ pub const Memory = struct {
                         .reg => .{ .reg = @enumFromInt(mem.base) },
                         .frame => .{ .frame = @enumFromInt(mem.base) },
                         .table => .table,
-                        .reloc => .{ .reloc = mem.base },
                         .rip_inst => .{ .rip_inst = mem.base },
+                        .nav => .{ .nav = @enumFromInt(mem.base) },
+                        .uav => .{ .uav = .{ .val = @enumFromInt(mem.base), .orig_ty = @enumFromInt(mem.extra) } },
+                        .lazy_sym => .{ .lazy_sym = .{ .kind = @enumFromInt(mem.extra), .ty = @enumFromInt(mem.base) } },
+                        .extern_func => .{ .extern_func = @enumFromInt(mem.base) },
                     },
                     .scale_index = switch (mem.info.index) {
                         .none => null,
@@ -1923,9 +1960,130 @@ pub const Memory = struct {
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     gpa.free(mir.extra);
+    gpa.free(mir.string_bytes);
+    gpa.free(mir.locals);
     gpa.free(mir.table);
     mir.frame_locs.deinit(gpa);
     mir.* = undefined;
+}
+
+pub fn emit(
+    mir: Mir,
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    func_index: InternPool.Index,
+    code: *std.ArrayListUnmanaged(u8),
+    debug_output: link.File.DebugInfoOutput,
+) codegen.CodeGenError!void {
+    const zcu = pt.zcu;
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+    const func = zcu.funcInfo(func_index);
+    const fn_info = zcu.typeToFunc(.fromInterned(func.ty)).?;
+    const nav = func.owner_nav;
+    const mod = zcu.navFileScope(nav).mod.?;
+    var e: Emit = .{
+        .lower = .{
+            .target = &mod.resolved_target.result,
+            .allocator = gpa,
+            .mir = mir,
+            .cc = fn_info.cc,
+            .src_loc = src_loc,
+        },
+        .bin_file = lf,
+        .pt = pt,
+        .pic = mod.pic,
+        .atom_index = sym: {
+            if (lf.cast(.elf)) |ef| break :sym try ef.zigObjectPtr().?.getOrCreateMetadataForNav(zcu, nav);
+            if (lf.cast(.macho)) |mf| break :sym try mf.getZigObject().?.getOrCreateMetadataForNav(mf, nav);
+            if (lf.cast(.coff)) |cf| {
+                const atom = try cf.getOrCreateAtomForNav(nav);
+                break :sym cf.getAtom(atom).getSymbolIndex().?;
+            }
+            if (lf.cast(.plan9)) |p9f| break :sym try p9f.seeNav(pt, nav);
+            unreachable;
+        },
+        .debug_output = debug_output,
+        .code = code,
+
+        .prev_di_loc = .{
+            .line = func.lbrace_line,
+            .column = func.lbrace_column,
+            .is_stmt = switch (debug_output) {
+                .dwarf => |dwarf| dwarf.dwarf.debug_line.header.default_is_stmt,
+                .plan9 => undefined,
+                .none => undefined,
+            },
+        },
+        .prev_di_pc = 0,
+
+        .code_offset_mapping = .empty,
+        .relocs = .empty,
+        .table_relocs = .empty,
+    };
+    defer e.deinit();
+    e.emitMir() catch |err| switch (err) {
+        error.LowerFail, error.EmitFail => return zcu.codegenFailMsg(nav, e.lower.err_msg.?),
+        error.InvalidInstruction, error.CannotEncode => return zcu.codegenFail(nav, "emit MIR failed: {s} (Zig compiler bug)", .{@errorName(err)}),
+        else => return zcu.codegenFail(nav, "emit MIR failed: {s}", .{@errorName(err)}),
+    };
+}
+
+pub fn emitLazy(
+    mir: Mir,
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    lazy_sym: link.File.LazySymbol,
+    code: *std.ArrayListUnmanaged(u8),
+    debug_output: link.File.DebugInfoOutput,
+) codegen.CodeGenError!void {
+    const zcu = pt.zcu;
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+    const mod = comp.root_mod;
+    var e: Emit = .{
+        .lower = .{
+            .target = &mod.resolved_target.result,
+            .allocator = gpa,
+            .mir = mir,
+            .cc = .auto,
+            .src_loc = src_loc,
+        },
+        .bin_file = lf,
+        .pt = pt,
+        .pic = mod.pic,
+        .atom_index = sym: {
+            if (lf.cast(.elf)) |ef| break :sym ef.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(ef, pt, lazy_sym) catch |err|
+                return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
+            if (lf.cast(.macho)) |mf| break :sym mf.getZigObject().?.getOrCreateMetadataForLazySymbol(mf, pt, lazy_sym) catch |err|
+                return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
+            if (lf.cast(.coff)) |cf| {
+                const atom = cf.getOrCreateAtomForLazySymbol(pt, lazy_sym) catch |err|
+                    return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
+                break :sym cf.getAtom(atom).getSymbolIndex().?;
+            }
+            if (lf.cast(.plan9)) |p9f| break :sym p9f.getOrCreateAtomForLazySymbol(pt, lazy_sym) catch |err|
+                return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
+            unreachable;
+        },
+        .debug_output = debug_output,
+        .code = code,
+
+        .prev_di_loc = undefined,
+        .prev_di_pc = undefined,
+
+        .code_offset_mapping = .empty,
+        .relocs = .empty,
+        .table_relocs = .empty,
+    };
+    defer e.deinit();
+    e.emitMir() catch |err| switch (err) {
+        error.LowerFail, error.EmitFail => return zcu.codegenFailTypeMsg(lazy_sym.ty, e.lower.err_msg.?),
+        error.InvalidInstruction, error.CannotEncode => return zcu.codegenFailType(lazy_sym.ty, "emit MIR failed: {s} (Zig compiler bug)", .{@errorName(err)}),
+        else => return zcu.codegenFailType(lazy_sym.ty, "emit MIR failed: {s}", .{@errorName(err)}),
+    };
 }
 
 pub fn extraData(mir: Mir, comptime T: type, index: u32) struct { data: T, end: u32 } {
@@ -1936,7 +2094,7 @@ pub fn extraData(mir: Mir, comptime T: type, index: u32) struct { data: T, end: 
         @field(result, field.name) = switch (field.type) {
             u32 => mir.extra[i],
             i32, Memory.Info => @bitCast(mir.extra[i]),
-            bits.FrameIndex, Air.Inst.Index => @enumFromInt(mir.extra[i]),
+            bits.FrameIndex => @enumFromInt(mir.extra[i]),
             else => @compileError("bad field type: " ++ field.name ++ ": " ++ @typeName(field.type)),
         };
         i += 1;
@@ -1957,9 +2115,10 @@ pub fn resolveFrameAddr(mir: Mir, frame_addr: bits.FrameAddr) bits.RegisterOffse
     return .{ .reg = frame_loc.base, .off = frame_loc.disp + frame_addr.off };
 }
 
-pub fn resolveFrameLoc(mir: Mir, mem: Memory) Memory {
+pub fn resolveMemoryExtra(mir: Mir, payload: u32) Memory {
+    const mem = mir.extraData(Mir.Memory, payload).data;
     return switch (mem.info.base) {
-        .none, .reg, .table, .reloc, .rip_inst => mem,
+        .none, .reg, .table, .rip_inst, .nav, .uav, .lazy_sym, .extern_func => mem,
         .frame => if (mir.frame_locs.len > 0) .{
             .info = .{
                 .base = .reg,
@@ -1981,8 +2140,10 @@ const builtin = @import("builtin");
 const encoder = @import("encoder.zig");
 const std = @import("std");
 
-const Air = @import("../../Air.zig");
-const IntegerBitSet = std.bit_set.IntegerBitSet;
 const InternPool = @import("../../InternPool.zig");
 const Mir = @This();
 const Register = bits.Register;
+const Emit = @import("Emit.zig");
+const codegen = @import("../../codegen.zig");
+const link = @import("../../link.zig");
+const Zcu = @import("../../Zcu.zig");

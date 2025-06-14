@@ -2774,9 +2774,9 @@ fn parsePrimaryTypeExpr(p: *Parse) !?Node.Index {
             else => {
                 const main_token = p.nextToken();
                 const period = p.eatToken(.period);
-                if (period == null) try p.warnExpected(.period);
+                if (period == null) return p.failExpected(.period);
                 const identifier = p.eatToken(.identifier);
-                if (identifier == null) try p.warnExpected(.identifier);
+                if (identifier == null) return p.failExpected(.identifier);
                 return try p.addNode(.{
                     .tag = .error_value,
                     .main_token = main_token,

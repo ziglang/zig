@@ -223,6 +223,10 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
 /// than or equal to the number of behavior tests as the respective LLVM backend.
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: std.Target) bool {
     if (target.cpu.arch.isSpirV()) return true;
+    if (target.cpu.arch == .x86_64 and target.ptrBitWidth() == 64) return switch (target.ofmt) {
+        .elf, .macho => true,
+        else => false,
+    };
     return false;
 }
 
@@ -735,7 +739,7 @@ pub fn functionPointerMask(target: std.Target) ?u64 {
 
 pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     switch (backend) {
-        .stage1, .stage2_llvm => return @import("codegen/llvm.zig").supportsTailCall(target),
+        .stage2_llvm => return @import("codegen/llvm.zig").supportsTailCall(target),
         .stage2_c => return true,
         else => return false,
     }
@@ -846,7 +850,9 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
         },
         .separate_thread => switch (backend) {
             .stage2_llvm => false,
-            else => true,
+            .stage2_c, .stage2_wasm, .stage2_x86_64 => true,
+            // TODO: most self-hosted backends should be able to support this without too much work.
+            else => false,
         },
     };
 }

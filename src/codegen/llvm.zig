@@ -1121,8 +1121,8 @@ pub const Object = struct {
         o: *Object,
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
-        air: Air,
-        liveness: Air.Liveness,
+        air: *const Air,
+        liveness: *const Air.Liveness,
     ) !void {
         assert(std.meta.eql(pt, o.pt));
         const zcu = pt.zcu;
@@ -1479,8 +1479,8 @@ pub const Object = struct {
 
         var fg: FuncGen = .{
             .gpa = gpa,
-            .air = air,
-            .liveness = liveness,
+            .air = air.*,
+            .liveness = liveness.*,
             .ng = &ng,
             .wip = wip,
             .is_naked = fn_info.cc == .naked,
@@ -1506,10 +1506,9 @@ pub const Object = struct {
         deinit_wip = false;
 
         fg.genBody(air.getMainBody(), .poi) catch |err| switch (err) {
-            error.CodegenFail => {
-                try zcu.failed_codegen.put(gpa, func.owner_nav, ng.err_msg.?);
-                ng.err_msg = null;
-                return;
+            error.CodegenFail => switch (zcu.codegenFailMsg(func.owner_nav, ng.err_msg.?)) {
+                error.CodegenFail => return,
+                error.OutOfMemory => |e| return e,
             },
             else => |e| return e,
         };
@@ -1561,10 +1560,9 @@ pub const Object = struct {
             .err_msg = null,
         };
         ng.genDecl() catch |err| switch (err) {
-            error.CodegenFail => {
-                try pt.zcu.failed_codegen.put(pt.zcu.gpa, nav_index, ng.err_msg.?);
-                ng.err_msg = null;
-                return;
+            error.CodegenFail => switch (pt.zcu.codegenFailMsg(nav_index, ng.err_msg.?)) {
+                error.CodegenFail => return,
+                error.OutOfMemory => |e| return e,
             },
             else => |e| return e,
         };
@@ -1585,6 +1583,27 @@ pub const Object = struct {
         const ip = &zcu.intern_pool;
         const global_index = self.nav_map.get(nav_index).?;
         const comp = zcu.comp;
+
+        // If we're on COFF and linking with LLD, the linker cares about our exports to determine the subsystem in use.
+        coff_export_flags: {
+            const lf = comp.bin_file orelse break :coff_export_flags;
+            const lld = lf.cast(.lld) orelse break :coff_export_flags;
+            const coff = switch (lld.ofmt) {
+                .elf, .wasm => break :coff_export_flags,
+                .coff => |*coff| coff,
+            };
+            if (!ip.isFunctionType(ip.getNav(nav_index).typeOf(ip))) break :coff_export_flags;
+            const flags = &coff.lld_export_flags;
+            for (export_indices) |export_index| {
+                const name = export_index.ptr(zcu).opts.name;
+                if (name.eqlSlice("main", ip)) flags.c_main = true;
+                if (name.eqlSlice("WinMain", ip)) flags.winmain = true;
+                if (name.eqlSlice("wWinMain", ip)) flags.wwinmain = true;
+                if (name.eqlSlice("WinMainCRTStartup", ip)) flags.winmain_crt_startup = true;
+                if (name.eqlSlice("wWinMainCRTStartup", ip)) flags.wwinmain_crt_startup = true;
+                if (name.eqlSlice("DllMainCRTStartup", ip)) flags.dllmain_crt_startup = true;
+            }
+        }
 
         if (export_indices.len != 0) {
             return updateExportedGlobal(self, zcu, global_index, export_indices);
@@ -2979,36 +2998,49 @@ pub const Object = struct {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
-        const is_extern, const is_threadlocal, const is_weak_linkage, const is_dll_import = switch (nav.status) {
+        const linkage: std.builtin.GlobalLinkage, const visibility: Builder.Visibility, const is_threadlocal, const is_dll_import = switch (nav.status) {
             .unresolved => unreachable,
             .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
-                .variable => |variable| .{ false, variable.is_threadlocal, variable.is_weak_linkage, false },
-                .@"extern" => |@"extern"| .{ true, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import },
-                else => .{ false, false, false, false },
+                .variable => |variable| .{ .internal, .default, variable.is_threadlocal, false },
+                .@"extern" => |@"extern"| .{ @"extern".linkage, .fromSymbolVisibility(@"extern".visibility), @"extern".is_threadlocal, @"extern".is_dll_import },
+                else => .{ .internal, .default, false, false },
             },
             // This means it's a source declaration which is not `extern`!
-            .type_resolved => |r| .{ false, r.is_threadlocal, false, false },
+            .type_resolved => |r| .{ .internal, .default, r.is_threadlocal, false },
         };
 
         const variable_index = try o.builder.addVariable(
-            try o.builder.strtabString((if (is_extern) nav.name else nav.fqn).toSlice(ip)),
+            try o.builder.strtabString(switch (linkage) {
+                .internal => nav.fqn,
+                .strong, .weak => nav.name,
+                .link_once => unreachable,
+            }.toSlice(ip)),
             try o.lowerType(Type.fromInterned(nav.typeOf(ip))),
             toLlvmGlobalAddressSpace(nav.getAddrspace(), zcu.getTarget()),
         );
         gop.value_ptr.* = variable_index.ptrConst(&o.builder).global;
 
         // This is needed for declarations created by `@extern`.
-        if (is_extern) {
-            variable_index.setLinkage(.external, &o.builder);
-            variable_index.setUnnamedAddr(.default, &o.builder);
-            if (is_threadlocal and !zcu.navFileScope(nav_index).mod.?.single_threaded)
-                variable_index.setThreadLocal(.generaldynamic, &o.builder);
-            if (is_weak_linkage) variable_index.setLinkage(.extern_weak, &o.builder);
-            if (is_dll_import) variable_index.setDllStorageClass(.dllimport, &o.builder);
-        } else {
-            variable_index.setLinkage(.internal, &o.builder);
-            variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
+        switch (linkage) {
+            .internal => {
+                variable_index.setLinkage(.internal, &o.builder);
+                variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
+            },
+            .strong, .weak => {
+                variable_index.setLinkage(switch (linkage) {
+                    .internal => unreachable,
+                    .strong => .external,
+                    .weak => .extern_weak,
+                    .link_once => unreachable,
+                }, &o.builder);
+                variable_index.setUnnamedAddr(.default, &o.builder);
+                if (is_threadlocal and !zcu.navFileScope(nav_index).mod.?.single_threaded)
+                    variable_index.setThreadLocal(.generaldynamic, &o.builder);
+                if (is_dll_import) variable_index.setDllStorageClass(.dllimport, &o.builder);
+            },
+            .link_once => unreachable,
         }
+        variable_index.setVisibility(visibility, &o.builder);
         return variable_index;
     }
 
@@ -4530,14 +4562,14 @@ pub const NavGen = struct {
         const nav = ip.getNav(nav_index);
         const resolved = nav.status.fully_resolved;
 
-        const is_extern, const lib_name, const is_threadlocal, const is_weak_linkage, const is_dll_import, const is_const, const init_val, const owner_nav = switch (ip.indexToKey(resolved.val)) {
-            .variable => |variable| .{ false, .none, variable.is_threadlocal, variable.is_weak_linkage, false, false, variable.init, variable.owner_nav },
-            .@"extern" => |@"extern"| .{ true, @"extern".lib_name, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import, @"extern".is_const, .none, @"extern".owner_nav },
-            else => .{ false, .none, false, false, false, true, resolved.val, nav_index },
+        const lib_name, const linkage, const visibility: Builder.Visibility, const is_threadlocal, const is_dll_import, const is_const, const init_val, const owner_nav = switch (ip.indexToKey(resolved.val)) {
+            .variable => |variable| .{ .none, .internal, .default, variable.is_threadlocal, false, false, variable.init, variable.owner_nav },
+            .@"extern" => |@"extern"| .{ @"extern".lib_name, @"extern".linkage, .fromSymbolVisibility(@"extern".visibility), @"extern".is_threadlocal, @"extern".is_dll_import, @"extern".is_const, .none, @"extern".owner_nav },
+            else => .{ .none, .internal, .default, false, false, true, resolved.val, nav_index },
         };
         const ty = Type.fromInterned(nav.typeOf(ip));
 
-        if (is_extern and ip.isFunctionType(ty.toIntern())) {
+        if (linkage != .internal and ip.isFunctionType(ty.toIntern())) {
             _ = try o.resolveLlvmFunction(owner_nav);
         } else {
             const variable_index = try o.resolveGlobalNav(nav_index);
@@ -4549,6 +4581,7 @@ pub const NavGen = struct {
                 .none => .no_init,
                 else => try o.lowerValue(init_val),
             }, &o.builder);
+            variable_index.setVisibility(visibility, &o.builder);
 
             const file_scope = zcu.navFileScopeIndex(nav_index);
             const mod = zcu.fileByIndex(file_scope).mod.?;
@@ -4568,7 +4601,7 @@ pub const NavGen = struct {
                     line_number,
                     try o.lowerDebugType(ty),
                     variable_index,
-                    .{ .local = !is_extern },
+                    .{ .local = linkage == .internal },
                 );
 
                 const debug_expression = try o.builder.debugExpression(&.{});
@@ -4583,38 +4616,47 @@ pub const NavGen = struct {
             }
         }
 
-        if (is_extern) {
-            const global_index = o.nav_map.get(nav_index).?;
+        switch (linkage) {
+            .internal => {},
+            .strong, .weak => {
+                const global_index = o.nav_map.get(nav_index).?;
 
-            const decl_name = decl_name: {
-                if (zcu.getTarget().cpu.arch.isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
-                    if (lib_name.toSlice(ip)) |lib_name_slice| {
-                        if (!std.mem.eql(u8, lib_name_slice, "c")) {
-                            break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
+                const decl_name = decl_name: {
+                    if (zcu.getTarget().cpu.arch.isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
+                        if (lib_name.toSlice(ip)) |lib_name_slice| {
+                            if (!std.mem.eql(u8, lib_name_slice, "c")) {
+                                break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
+                            }
                         }
                     }
+                    break :decl_name try o.builder.strtabString(nav.name.toSlice(ip));
+                };
+
+                if (o.builder.getGlobal(decl_name)) |other_global| {
+                    if (other_global != global_index) {
+                        // Another global already has this name; just use it in place of this global.
+                        try global_index.replace(other_global, &o.builder);
+                        return;
+                    }
                 }
-                break :decl_name try o.builder.strtabString(nav.name.toSlice(ip));
-            };
 
-            if (o.builder.getGlobal(decl_name)) |other_global| {
-                if (other_global != global_index) {
-                    // Another global already has this name; just use it in place of this global.
-                    try global_index.replace(other_global, &o.builder);
-                    return;
+                try global_index.rename(decl_name, &o.builder);
+                global_index.setUnnamedAddr(.default, &o.builder);
+                if (is_dll_import) {
+                    global_index.setDllStorageClass(.dllimport, &o.builder);
+                } else if (zcu.comp.config.dll_export_fns) {
+                    global_index.setDllStorageClass(.default, &o.builder);
                 }
-            }
 
-            try global_index.rename(decl_name, &o.builder);
-            global_index.setLinkage(.external, &o.builder);
-            global_index.setUnnamedAddr(.default, &o.builder);
-            if (is_dll_import) {
-                global_index.setDllStorageClass(.dllimport, &o.builder);
-            } else if (zcu.comp.config.dll_export_fns) {
-                global_index.setDllStorageClass(.default, &o.builder);
-            }
-
-            if (is_weak_linkage) global_index.setLinkage(.extern_weak, &o.builder);
+                global_index.setLinkage(switch (linkage) {
+                    .internal => unreachable,
+                    .strong => .external,
+                    .weak => .extern_weak,
+                    .link_once => unreachable,
+                }, &o.builder);
+                global_index.setVisibility(visibility, &o.builder);
+            },
+            .link_once => unreachable,
         }
     }
 };
@@ -5023,7 +5065,7 @@ pub const FuncGen = struct {
 
                 .vector_store_elem => try self.airVectorStoreElem(inst),
 
-                .tlv_dllimport_ptr => try self.airTlvDllimportPtr(inst),
+                .runtime_nav_ptr => try self.airRuntimeNavPtr(inst),
 
                 .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
@@ -8122,7 +8164,7 @@ pub const FuncGen = struct {
         return .none;
     }
 
-    fn airTlvDllimportPtr(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airRuntimeNavPtr(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = fg.ng.object;
         const ty_nav = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
         const llvm_ptr_const = try o.lowerNavRefValue(ty_nav.nav);
@@ -9467,15 +9509,21 @@ pub const FuncGen = struct {
 
         const inst_ty = self.typeOfIndex(inst);
 
-        const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
-        if (name == .none) return arg_val;
-
         const func = zcu.funcInfo(zcu.navValue(self.ng.nav_index).toIntern());
+        const func_zir = func.zir_body_inst.resolveFull(&zcu.intern_pool).?;
+        const file = zcu.fileByIndex(func_zir.file);
+
+        const mod = file.mod.?;
+        if (mod.strip) return arg_val;
+        const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
+        const zir = &file.zir.?;
+        const name = zir.nullTerminatedString(zir.getParamName(zir.getParamBody(func_zir.inst)[arg.zir_param_index]).?);
+
         const lbrace_line = zcu.navSrcLine(func.owner_nav) + func.lbrace_line + 1;
         const lbrace_col = func.lbrace_column + 1;
 
         const debug_parameter = try o.builder.debugParameter(
-            try o.builder.metadataString(name.toSlice(self.air)),
+            try o.builder.metadataString(name),
             self.file,
             self.scope,
             lbrace_line,
@@ -9493,7 +9541,6 @@ pub const FuncGen = struct {
             },
         };
 
-        const mod = self.ng.ownerModule();
         if (isByRef(inst_ty, zcu)) {
             _ = try self.wip.callIntrinsic(
                 .normal,

@@ -1,10 +1,10 @@
 const std = @import("std");
-const _LITNAME = @import(".NAME");
+const _NAME = @import(".NAME");
 
 pub fn main() !void {
     // Prints to stderr, ignoring potential errors.
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    try .NAME.advancedPrint();
+    try _NAME.bufferedPrint();
 }
 
 test "simple test" {

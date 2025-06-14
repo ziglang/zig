@@ -163,7 +163,7 @@ fn exit2(code: usize) noreturn {
         // exits(0)
         .plan9 => std.os.plan9.exits(null),
         .windows => {
-            std.os.windows.ntdll.RtlExitUserProcess(@as(u32, @truncate(code)));
+            std.os.windows.ntdll.RtlExitUserProcess(@truncate(code));
         },
         else => @compileError("TODO"),
     }
@@ -511,7 +511,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     // Code coverage instrumentation might try to use thread local variables.
     @disableInstrumentation();
     const argc = argc_argv_ptr[0];
-    const argv = @as([*][*:0]u8, @ptrCast(argc_argv_ptr + 1));
+    const argv: [*][*:0]u8 = @ptrCast(argc_argv_ptr + 1);
 
     const envp_optional: [*:null]?[*:0]u8 = @ptrCast(@alignCast(argv + argc + 1));
     var envp_count: usize = 0;
@@ -573,11 +573,11 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
         expandStackSize(phdrs);
     }
 
-    const opt_init_array_start = @extern([*]*const fn () callconv(.c) void, .{
+    const opt_init_array_start = @extern([*]const *const fn () callconv(.c) void, .{
         .name = "__init_array_start",
         .linkage = .weak,
     });
-    const opt_init_array_end = @extern([*]*const fn () callconv(.c) void, .{
+    const opt_init_array_end = @extern([*]const *const fn () callconv(.c) void, .{
         .name = "__init_array_end",
         .linkage = .weak,
     });
@@ -651,7 +651,7 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
 }
 
 fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.c) c_int {
-    std.os.argv = @as([*][*:0]u8, @ptrCast(c_argv))[0..@as(usize, @intCast(c_argc))];
+    std.os.argv = @as([*][*:0]u8, @ptrCast(c_argv))[0..@intCast(c_argc)];
     return callMain();
 }
 
@@ -701,7 +701,7 @@ pub inline fn callMain() u8 {
 pub fn call_wWinMain() std.os.windows.INT {
     const peb = std.os.windows.peb();
     const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).@"fn".params[0].type.?;
-    const hInstance = @as(MAIN_HINSTANCE, @ptrCast(peb.ImageBaseAddress));
+    const hInstance: MAIN_HINSTANCE = @ptrCast(peb.ImageBaseAddress);
     const lpCmdLine: [*:0]u16 = @ptrCast(peb.ProcessParameters.CommandLine.Buffer);
 
     // There are various types used for the 'show window' variable through the Win32 APIs:
