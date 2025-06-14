@@ -40,7 +40,6 @@ gpa: Allocator,
 pt: Zcu.PerThread,
 air: Air,
 liveness: Air.Liveness,
-bin_file: *link.File,
 
 target: *const std.Target,
 owner: Owner,
@@ -89,19 +88,6 @@ temp_type: [Temp.Index.max]Type = undefined,
 const Owner = union(enum) {
     nav_index: InternPool.Nav.Index,
     lazy_sym: link.File.LazySymbol,
-
-    fn getSymbolIndex(owner: Owner, cg: *CodeGen) !u32 {
-        const pt = cg.pt;
-        switch (owner) {
-            .nav_index => |nav_index| if (cg.bin_file.cast(.elf)) |elf_file| {
-                return elf_file.zigObjectPtr().?.getOrCreateMetadataForNav(pt.zcu, nav_index);
-            } else unreachable,
-            .lazy_sym => |lazy_sym| if (cg.bin_file.cast(.elf)) |elf_file| {
-                return elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
-                    cg.fail("{s} creating lazy symbol", .{@errorName(err)});
-            } else unreachable,
-        }
-    }
 };
 
 pub const MCValue = union(enum) {
@@ -131,11 +117,6 @@ pub const MCValue = union(enum) {
     /// The value is in memory at a hard-coded address.
     /// If the type is a pointer, it means the pointer address is at this memory location.
     memory: u64,
-    /// The value is in memory at an address not-yet-allocated by the linker.
-    /// This traditionally corresponds to a relocation emitted in a relocatable object file.
-    load_symbol: bits.SymbolOffset,
-    /// The address of the memory location not-yet-allocated by the linker.
-    lea_symbol: bits.SymbolOffset,
     /// The value stored at an offset from a frame index
     /// Payload is a frame address.
     load_frame: bits.FrameAddr,
@@ -146,6 +127,18 @@ pub const MCValue = union(enum) {
     register_frame: bits.RegisterFrame,
     /// The value is in memory at a constant offset from the address in a register.
     register_offset: bits.RegisterOffset,
+    /// The value is stored as a NAV.
+    load_nav: NavOffset,
+    /// The value is the address of a NAV.
+    lea_nav: NavOffset,
+    /// The value is stored as a UAV.
+    load_uav: UavOffset,
+    /// The value is the address of a UAV.
+    lea_uav: UavOffset,
+    /// The value is a lazy symbol.
+    load_lazy_sym: link.File.LazySymbol,
+    /// The value is the address of a lazy symbol.
+    lea_lazy_sym: link.File.LazySymbol,
     /// This indicates that we have already allocated a frame index for this instruction,
     /// but it has not been spilled there yet in the current control flow.
     reserved_frame: FrameIndex,
@@ -160,8 +153,13 @@ pub const MCValue = union(enum) {
             .undef,
             .immediate,
             .register_bias,
-            .lea_symbol,
             .lea_frame,
+            .load_nav,
+            .lea_nav,
+            .load_uav,
+            .lea_uav,
+            .load_lazy_sym,
+            .lea_lazy_sym,
             .reserved_frame,
             .air_ref,
             => false,
@@ -170,7 +168,6 @@ pub const MCValue = union(enum) {
             .register_triple,
             .register_quadruple,
             .memory,
-            .load_symbol,
             .register_frame,
             .register_offset,
             => true,
@@ -180,7 +177,7 @@ pub const MCValue = union(enum) {
 
     fn isMemory(mcv: MCValue) bool {
         return switch (mcv) {
-            .memory, .register_offset, .load_frame, .load_symbol => true,
+            .memory, .register_offset, .load_frame, .load_nav, .load_uav, .load_lazy_sym => true,
             else => false,
         };
     }
@@ -249,7 +246,7 @@ pub const MCValue = union(enum) {
 
     fn isAddress(mcv: MCValue) bool {
         return switch (mcv) {
-            .immediate, .register, .register_bias, .lea_symbol, .lea_frame => true,
+            .immediate, .register, .register_bias, .lea_frame, .lea_nav, .lea_uav, .lea_lazy_sym => true,
             else => false,
         };
     }
@@ -266,7 +263,9 @@ pub const MCValue = union(enum) {
             .register_triple,
             .register_quadruple,
             .register_bias,
-            .lea_symbol,
+            .lea_nav,
+            .lea_uav,
+            .lea_lazy_sym,
             .lea_frame,
             .reserved_frame,
             .air_ref,
@@ -276,9 +275,11 @@ pub const MCValue = union(enum) {
                 0 => .{ .register = reg_off.reg },
                 else => .{ .register_bias = reg_off },
             },
-            .load_symbol => |sym_off| .{ .lea_symbol = sym_off },
             .load_frame => |frame_addr| .{ .lea_frame = frame_addr },
             .register_frame => |reg_frame| .{ .lea_frame = reg_frame.frame },
+            .load_nav => |nav_off| .{ .lea_nav = nav_off },
+            .load_uav => |uav_off| .{ .lea_uav = uav_off },
+            .load_lazy_sym => |sym| .{ .lea_lazy_sym = sym },
         };
     }
 
@@ -293,17 +294,21 @@ pub const MCValue = union(enum) {
             .register_quadruple,
             .memory,
             .register_offset,
-            .load_symbol,
             .load_frame,
             .register_frame,
+            .load_nav,
+            .load_uav,
+            .load_lazy_sym,
             .reserved_frame,
             .air_ref,
             => unreachable, // not dereferenceable
             .immediate => |addr| .{ .memory = addr },
             .register => |reg| .{ .register_offset = .{ .reg = reg } },
             .register_bias => |reg_off| .{ .register_offset = reg_off },
-            .lea_symbol => |sym_index| .{ .load_symbol = sym_index },
             .lea_frame => |frame_addr| .{ .load_frame = frame_addr },
+            .lea_nav => |nav_off| .{ .load_nav = nav_off },
+            .lea_uav => |uav_off| .{ .load_uav = uav_off },
+            .lea_lazy_sym => |sym| .{ .load_lazy_sym = sym },
         };
     }
 
@@ -321,9 +326,9 @@ pub const MCValue = union(enum) {
             .register_quadruple,
             .memory,
             .register_offset,
-            .load_symbol,
             .load_frame,
             .register_frame,
+            .load_lazy_sym,
             => switch (off) {
                 0 => mcv,
                 else => unreachable, // not offsettable
@@ -333,11 +338,14 @@ pub const MCValue = union(enum) {
             .register_bias => |reg_off| .{
                 .register_bias = .{ .reg = reg_off.reg, .off = reg_off.off + off },
             },
-            .lea_symbol => |symbol_off| .{
-                .lea_symbol = .{ .index = symbol_off.index, .off = symbol_off.off + off },
-            },
             .lea_frame => |frame_addr| .{
                 .lea_frame = .{ .index = frame_addr.index, .off = frame_addr.off + off },
+            },
+            .lea_nav => |nav_off| .{
+                .lea_nav = .{ .index = nav_off.index, .off = nav_off.off + off },
+            },
+            .lea_uav => |uav_off| .{
+                .lea_uav = .{ .index = uav_off.index, .off = uav_off.off + off },
             },
         };
     }
@@ -347,18 +355,12 @@ pub const MCValue = union(enum) {
     fn toLimbValue(mcv: MCValue, limb_index: usize) MCValue {
         switch (mcv) {
             else => std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
-            .register, .immediate, .register_bias, .lea_symbol, .lea_frame => {
+            .register, .immediate, .register_bias, .lea_frame, .lea_nav, .lea_uav, .lea_lazy_sym => {
                 assert(limb_index == 0);
                 return mcv;
             },
             inline .register_pair, .register_triple, .register_quadruple => |regs| {
                 return .{ .register = regs[limb_index] };
-            },
-            .load_symbol => |sym_off| {
-                return .{ .load_symbol = .{
-                    .index = sym_off.index,
-                    .off = sym_off.off + @as(u31, @intCast(limb_index)) * 8,
-                } };
             },
             .load_frame => |frame_addr| {
                 return .{ .load_frame = .{
@@ -370,6 +372,18 @@ pub const MCValue = union(enum) {
                 return .{ .register_offset = .{
                     .reg = reg_off.reg,
                     .off = reg_off.off + @as(u31, @intCast(limb_index)) * 8,
+                } };
+            },
+            .load_nav => |nav_off| {
+                return .{ .load_nav = .{
+                    .index = nav_off.index,
+                    .off = nav_off.off + @as(u31, @intCast(limb_index)) * 8,
+                } };
+            },
+            .load_uav => |uav_off| {
+                return .{ .load_uav = .{
+                    .index = uav_off.index,
+                    .off = uav_off.off + @as(u31, @intCast(limb_index)) * 8,
                 } };
             },
         }
@@ -394,12 +408,16 @@ pub const MCValue = union(enum) {
             }),
             .register_bias => |pl| try writer.print("{s} + 0x{x}", .{ @tagName(pl.reg), pl.off }),
             .memory => |pl| try writer.print("[0x{x}]", .{pl}),
-            .load_symbol => |pl| try writer.print("[sym:{} + 0x{x}]", .{ pl.index, pl.off }),
-            .lea_symbol => |pl| try writer.print("sym:{} + 0x{x}", .{ pl.index, pl.off }),
             .load_frame => |pl| try writer.print("[frame:{} + 0x{x}]", .{ pl.index, pl.off }),
             .lea_frame => |pl| try writer.print("frame:{} + 0x{x}", .{ pl.index, pl.off }),
             .register_frame => |pl| try writer.print("{{{s}, (frame:{} + 0x{x})}}", .{ @tagName(pl.reg), pl.frame.index, pl.frame.off }),
             .register_offset => |pl| try writer.print("[{s} + 0x{x}]", .{ @tagName(pl.reg), pl.off }),
+            .load_nav => |pl| try writer.print("[nav:{} + 0x{x}]", .{ pl.index, pl.off }),
+            .lea_nav => |pl| try writer.print("nav:{} + 0x{x}", .{ pl.index, pl.off }),
+            .load_uav => |pl| try writer.print("[uav:{} + 0x{x}]", .{ pl.index, pl.off }),
+            .lea_uav => |pl| try writer.print("uav:{} + 0x{x}", .{ pl.index, pl.off }),
+            .load_lazy_sym => |pl| try writer.print("[lazy sym:{s}:{}]", .{ @tagName(pl.kind), pl.ty }),
+            .lea_lazy_sym => |pl| try writer.print("lazy sym:{s}:{}", .{ @tagName(pl.kind), pl.ty }),
             .reserved_frame => |pl| try writer.print("(dead:{})", .{pl}),
             .air_ref => |pl| try writer.print("(air:{})", .{@intFromEnum(pl)}),
         }
@@ -439,6 +457,9 @@ pub const MCValue = union(enum) {
     }
 };
 
+const NavOffset = struct { index: InternPool.Nav.Index, off: i32 = 0 };
+const UavOffset = struct { index: InternPool.Key.Ptr.BaseAddr.Uav, off: i32 = 0 };
+
 const InstTrackingMap = std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InstTracking);
 const ConstTrackingMap = std.AutoArrayHashMapUnmanaged(InternPool.Index, InstTracking);
 
@@ -453,10 +474,14 @@ const InstTracking = struct {
             .undef,
             .immediate,
             .memory,
-            .load_symbol,
-            .lea_symbol,
             .load_frame,
             .lea_frame,
+            .load_nav,
+            .lea_nav,
+            .load_uav,
+            .lea_uav,
+            .load_lazy_sym,
+            .lea_lazy_sym,
             => result,
             .dead,
             .reserved_frame,
@@ -569,8 +594,12 @@ const InstTracking = struct {
             .immediate,
             .memory,
             .lea_frame,
-            .load_symbol,
-            .lea_symbol,
+            .load_nav,
+            .lea_nav,
+            .load_uav,
+            .lea_uav,
+            .load_lazy_sym,
+            .lea_lazy_sym,
             => assert(std.meta.eql(inst_tracking.long, target.long)),
             .load_frame,
             .reserved_frame,
@@ -686,6 +715,7 @@ pub fn generate(
     air: *const Air,
     liveness: *const Air.Liveness,
 ) codegen.CodeGenError!Mir {
+    _ = bin_file;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -701,7 +731,6 @@ pub fn generate(
         .liveness = liveness.*,
         .target = &mod.resolved_target.result,
         .mod = mod,
-        .bin_file = bin_file,
         .owner = .{ .nav_index = func.owner_nav },
         .inline_func = func_index,
         .arg_index = 0,
@@ -1119,13 +1148,17 @@ const Temp = struct {
             .register,
             .register_bias,
             .lea_frame,
-            .lea_symbol,
             .register_frame,
+            .lea_nav,
+            .lea_uav,
+            .lea_lazy_sym,
             => return false,
             .memory,
             .register_offset,
-            .load_symbol,
             .load_frame,
+            .load_nav,
+            .load_uav,
+            .load_lazy_sym,
             => {
                 try temp.die(cg);
                 temp.* = try cg.tempInit(temp.typeOf(cg), temp.tracking(cg).short.address());
@@ -1150,7 +1183,9 @@ const Temp = struct {
             .register,
             .register_bias,
             .lea_frame,
-            .lea_symbol,
+            .lea_nav,
+            .lea_uav,
+            .lea_lazy_sym,
             => {
                 const ty = temp.typeOf(cg);
                 const mcv = temp.tracking(cg).short;
@@ -1160,9 +1195,11 @@ const Temp = struct {
             },
             .memory,
             .register_offset,
-            .load_symbol,
             .load_frame,
             .register_frame,
+            .load_nav,
+            .load_uav,
+            .load_lazy_sym,
             => return false,
         }
     }
@@ -1319,19 +1356,6 @@ const Temp = struct {
                 new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
                 try cg.genCopyToReg(.dword, new_reg, temp.tracking(cg).short, .{});
             },
-            .load_symbol => |sym_off| {
-                const new_reg =
-                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
-                new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                try cg.genCopyToReg(.dword, new_reg, .{ .load_symbol = .{
-                    .index = sym_off.index,
-                    .off = sym_off.off + @as(u31, limb_index) * 8,
-                } }, .{});
-            },
-            .lea_symbol => |sym_off| {
-                assert(limb_index == 0);
-                new_temp_index.tracking(cg).* = .init(.{ .lea_symbol = sym_off });
-            },
             .load_frame => |frame_addr| {
                 const new_reg =
                     try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
@@ -1344,6 +1368,32 @@ const Temp = struct {
             .lea_frame => |frame_addr| {
                 assert(limb_index == 0);
                 new_temp_index.tracking(cg).* = .init(.{ .lea_frame = frame_addr });
+            },
+            .load_nav => |nav_off| {
+                const new_reg =
+                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
+                new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
+                try cg.genCopyToReg(.dword, new_reg, .{ .load_nav = .{
+                    .index = nav_off.index,
+                    .off = nav_off.off + @as(u31, limb_index) * 8,
+                } }, .{});
+            },
+            .lea_nav => |nav_off| {
+                assert(limb_index == 0);
+                new_temp_index.tracking(cg).* = .init(.{ .lea_nav = nav_off });
+            },
+            .load_uav => |uav_off| {
+                const new_reg =
+                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
+                new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
+                try cg.genCopyToReg(.dword, new_reg, .{ .load_uav = .{
+                    .index = uav_off.index,
+                    .off = uav_off.off + @as(u31, limb_index) * 8,
+                } }, .{});
+            },
+            .lea_uav => |nav_off| {
+                assert(limb_index == 0);
+                new_temp_index.tracking(cg).* = .init(.{ .lea_uav = nav_off });
             },
         }
         return .{ .index = new_temp_index.toIndex() };
@@ -1922,7 +1972,7 @@ fn tempInit(cg: *CodeGen, ty: Type, value: MCValue) InnerError!Temp {
 }
 
 fn tempFromValue(cg: *CodeGen, value: Value) InnerError!Temp {
-    return cg.tempInit(value.typeOf(cg.pt.zcu), try cg.genTypedValue(value));
+    return cg.tempInit(value.typeOf(cg.pt.zcu), try cg.lowerValue(value));
 }
 
 fn tempMemFromValue(cg: *CodeGen, value: Value) InnerError!Temp {
@@ -1930,7 +1980,17 @@ fn tempMemFromValue(cg: *CodeGen, value: Value) InnerError!Temp {
 }
 
 fn tempMemFromAlignedValue(cg: *CodeGen, alignment: InternPool.Alignment, value: Value) InnerError!Temp {
-    return cg.tempInit(value.typeOf(cg.pt.zcu), try cg.lowerUav(value, alignment));
+    const ty = value.typeOf(cg.pt.zcu);
+    return cg.tempInit(ty, .{ .load_uav = .{
+        .val = value.toIntern(),
+        .orig_ty = (try cg.pt.ptrType(.{
+            .child = ty.toIntern(),
+            .flags = .{
+                .is_const = true,
+                .alignment = alignment,
+            },
+        })).toIntern(),
+    } });
 }
 
 fn tempFromOperand(cg: *CodeGen, op_ref: Air.Inst.Ref, op_dies: bool) InnerError!Temp {
@@ -1953,7 +2013,7 @@ fn tempFromOperand(cg: *CodeGen, op_ref: Air.Inst.Ref, op_dies: bool) InnerError
 
     if (op_ref.toIndex()) |op_inst| return .{ .index = op_inst };
     const val = op_ref.toInterned().?;
-    return cg.tempInit(.fromInterned(ip.typeOf(val)), try cg.genTypedValue(.fromInterned(val)));
+    return cg.tempInit(.fromInterned(ip.typeOf(val)), try cg.lowerValue(.fromInterned(val)));
 }
 
 fn tempsFromOperandsInner(
@@ -2054,7 +2114,7 @@ fn resolveRef(cg: *CodeGen, ref: Air.Inst.Ref) InnerError!MCValue {
     const mcv: MCValue = if (ref.toIndex()) |inst| mcv: {
         break :mcv cg.inst_tracking.getPtr(inst).?.short;
     } else mcv: {
-        break :mcv try cg.genTypedValue(.fromInterned(ref.toInterned().?));
+        break :mcv try cg.lowerValue(.fromInterned(ref.toInterned().?));
     };
 
     switch (mcv) {
@@ -2082,29 +2142,15 @@ pub fn spillInstruction(cg: *CodeGen, reg: Register, inst: Air.Inst.Index) !void
     try tracking.trackSpill(cg, inst);
 }
 
-fn handleGenResult(cg: *CodeGen, res: codegen.GenResult) InnerError!MCValue {
-    return switch (res) {
-        .mcv => |mcv| switch (mcv) {
-            .none => .none,
-            .undef => .undef,
-            .immediate => |imm| .{ .immediate = imm },
-            .memory => |addr| .{ .memory = addr },
-            .load_symbol => |sym_index| .{ .load_symbol = .{ .index = sym_index } },
-            .lea_symbol => |sym_index| .{ .lea_symbol = .{ .index = sym_index } },
-            .load_got, .load_direct, .lea_direct => {
-                return cg.fail("TODO: genTypedValue {s}", .{@tagName(mcv)});
-            },
-        },
-        .fail => |msg| return cg.failMsg(msg),
+fn lowerValue(cg: *CodeGen, val: Value) Allocator.Error!MCValue {
+    return switch (try codegen.lowerValue(cg.pt, val, cg.target)) {
+        .none => .none,
+        .undef => .undef,
+        .immediate => |imm| .{ .immediate = imm },
+        .lea_nav => |nav| .{ .lea_nav = .{ .index = nav } },
+        .lea_uav => |uav| .{ .lea_uav = .{ .index = uav } },
+        .load_uav => |uav| .{ .load_uav = .{ .index = uav } },
     };
-}
-
-fn genTypedValue(cg: *CodeGen, val: Value) InnerError!MCValue {
-    return cg.handleGenResult(try codegen.genTypedValue(cg.bin_file, cg.pt, cg.src_loc, val, cg.target.*));
-}
-
-fn lowerUav(cg: *CodeGen, val: Value, alignment: InternPool.Alignment) InnerError!MCValue {
-    return cg.handleGenResult(try cg.bin_file.lowerUav(cg.pt, val.toIntern(), alignment, cg.src_loc));
 }
 
 fn checkInvariantsAfterAirInst(cg: *CodeGen) void {
@@ -2278,7 +2324,9 @@ fn genCopyRegToMem(cg: *CodeGen, dst_mcv: MCValue, src: Register, size: bits.Mem
             } });
         },
         .undef,
-        .load_symbol,
+        .load_nav,
+        .load_uav,
+        .load_lazy_sym,
         => return cg.fail("TODO: genCopyRegToMem to {s}", .{@tagName(dst_mcv)}),
     }
 }
@@ -2297,8 +2345,10 @@ fn genCopyToMem(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !voi
         .air_ref => |src_ref| try cg.genCopyToMem(ty, dst_mcv, try cg.resolveRef(src_ref)),
         .register => |reg| return cg.genCopyRegToMem(dst_mcv, reg, .fromByteSize(abi_size)),
         .memory,
-        .load_symbol,
         .load_frame,
+        .load_nav,
+        .load_uav,
+        .load_lazy_sym,
         .undef,
         => return cg.fail("TODO: genCopyToMem from {s}", .{@tagName(src_mcv)}),
         inline .register_pair, .register_triple, .register_quadruple => |regs| {
@@ -2312,7 +2362,7 @@ fn genCopyToMem(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !voi
                 try cg.genCopyRegToMem(dst_mcv.toLimbValue(reg_i), reg, size);
             }
         },
-        .immediate, .register_bias, .lea_symbol, .lea_frame => {
+        .immediate, .register_bias, .lea_frame, .lea_nav, .lea_uav, .lea_lazy_sym => {
             const tmp_reg, const tmp_reg_lock = try cg.allocRegAndLock(.usize);
             defer cg.register_manager.unlockReg(tmp_reg_lock);
 
@@ -2511,7 +2561,6 @@ const Select = struct {
             mcv: MCValue,
             constant: Value,
             lazy_symbol: struct { kind: link.File.LazySymbol.Kind },
-            symbol: *const struct { lib: ?[]const u8 = null, name: []const u8 },
 
             pub const none: Kind = .{ .mcv = .none };
             pub const undef: Kind = .{ .mcv = .undef };
@@ -2530,7 +2579,7 @@ const Select = struct {
             return switch (spec.kind) {
                 .alloc => |alloc_opts| try cg.tempAlloc(spec.type, alloc_opts),
                 .mcv => |mcv| try cg.tempInit(spec.type, mcv),
-                .constant => |constant| try cg.tempInit(constant.typeOf(zcu), try cg.genTypedValue(constant)),
+                .constant => |constant| try cg.tempInit(constant.typeOf(zcu), try cg.lowerValue(constant)),
                 .lazy_symbol => |lazy_symbol_spec| {
                     const ip = &pt.zcu.intern_pool;
                     const ty = spec.type;
@@ -2544,20 +2593,8 @@ const Select = struct {
                             else => ty.toIntern(),
                         },
                     };
-                    return try cg.tempInit(.usize, .{ .lea_symbol = .{
-                        .index = if (cg.bin_file.cast(.elf)) |elf_file|
-                            elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_symbol) catch |err|
-                                return cg.fail("{s} creating lazy symbol", .{@errorName(err)})
-                        else
-                            return cg.fail("external symbols unimplemented for {s}", .{@tagName(cg.bin_file.tag)}),
-                    } });
+                    return try cg.tempInit(.usize, .{ .lea_lazy_sym = lazy_symbol });
                 },
-                .symbol => |symbol_spec| try cg.tempInit(spec.type, .{ .lea_symbol = .{
-                    .index = if (cg.bin_file.cast(.elf)) |elf_file|
-                        try elf_file.getGlobalSymbol(symbol_spec.name, symbol_spec.lib)
-                    else
-                        return cg.fail("external symbols unimplemented for {s}", .{@tagName(cg.bin_file.tag)}),
-                } }),
             };
         }
     };
@@ -2807,13 +2844,13 @@ fn airLoad(cg: *CodeGen, inst: Air.Inst.Index) !void {
         .reserved_frame,
         .air_ref,
         => unreachable,
-        .memory, .register_offset, .load_symbol, .load_frame => {
+        .memory, .register_offset, .load_frame, .load_nav, .load_uav, .load_lazy_sym => {
             const tmp = try cg.tempAlloc(.usize, .{ .use_frame = false });
             try val.copy(tmp, cg, .usize);
             while (try val.toMemory(cg)) {}
             try tmp.finish(inst, &.{val}, cg);
         },
-        .immediate, .register, .register_bias, .lea_symbol, .lea_frame => {
+        .immediate, .register, .register_bias, .lea_frame, .lea_nav, .lea_uav, .lea_lazy_sym => {
             while (try val.toMemory(cg)) {}
             cg.temp_type[val.index.toTargetIndex()] = ty;
             try val.finish(inst, &.{val}, cg);
@@ -2935,17 +2972,8 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
                 else => func_key,
             } else func_key,
         }) {
-            .func => |func| {
-                if (cg.bin_file.cast(.elf)) |elf_file| {
-                    const zo = elf_file.zigObjectPtr().?;
-                    const sym_index = try zo.getOrCreateMetadataForNav(zcu, func.owner_nav);
-                    try cg.asmPseudo(.call, .{ .sym = sym_index });
-                } else unreachable;
-            },
-            .@"extern" => |ext| if (cg.bin_file.cast(.elf)) |elf_file| {
-                const sym_index = try elf_file.getGlobalSymbol(ext.name.toSlice(ip), ext.lib_name.toSlice(ip));
-                try cg.asmPseudo(.call, .{ .sym = sym_index });
-            } else unreachable,
+            .func => |func| try cg.asmPseudo(.call, .{ .nav = func.owner_nav }),
+            .@"extern" => |ext| try cg.asmPseudo(.call, .{ .nav = ext.owner_nav }),
             // TODO what's this
             else => return cg.fail("TODO implement calling bitcasted functions", .{}),
         }

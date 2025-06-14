@@ -64,7 +64,7 @@ pub const Inst = struct {
         /// This may be lowered to `op` (DJSk12 format), rd is the `reg`, rj + si12 is the frame addr.
         /// Or `opx` (DJK format), rd is the `reg`, rj + rk is the frame addr.
         frame_addr_reg_mem,
-        /// Function call, uses `sym` payload.
+        /// Function call, uses `nav` payload.
         call,
         /// Loads spilled $ra back to $ra, no payload.
         load_ra,
@@ -134,8 +134,8 @@ pub const Inst = struct {
             frame: bits.FrameAddr,
             reg: Register,
         },
-        /// Symbol index
-        sym: u32,
+        /// NAV index
+        nav: InternPool.Nav.Index,
         /// Function index
         func: InternPool.Index,
     };
@@ -174,7 +174,7 @@ pub const Inst = struct {
                         @tagName(inst.data.op_frame_reg.reg),
                         inst.data.op_frame_reg.frame,
                     }),
-                    .call => try writer.print(".call {}", .{inst.data.sym}),
+                    .call => try writer.print(".call nav:{}", .{inst.data.nav}),
                     .spill_int_regs => try writer.print(".spill_int_regs {}", .{inst.data.reg_list.fmt(.int)}),
                     .spill_float_regs => try writer.print(".spill_float_regs {}", .{inst.data.reg_list.fmt(.float)}),
                     .restore_int_regs => try writer.print(".restore_int_regs {}", .{inst.data.reg_list.fmt(.int)}),
@@ -230,6 +230,8 @@ pub fn emit(
             .link_mode = comp.config.link_mode,
             .pic = mod.pic,
         },
+        .pt = pt,
+        .bin_file = lf,
         .atom_index = sym: {
             if (lf.cast(.elf)) |ef| break :sym try ef.zigObjectPtr().?.getOrCreateMetadataForNav(zcu, nav);
             unreachable;

@@ -1,18 +1,24 @@
 //! This file contains the functionality for emitting LoongArch MIR as machine code
 
-const bits = @import("bits.zig");
-const link = @import("../../link.zig");
 const std = @import("std");
+const assert = std.debug.assert;
 const log = std.log.scoped(.emit);
 const R_LARCH = std.elf.R_LARCH;
+
+const link = @import("../../link.zig");
+const codegen = @import("../../codegen.zig");
+const Zcu = @import("../../Zcu.zig");
 
 const Lower = @import("Lower.zig");
 const Lir = @import("Lir.zig");
 const Mir = @import("Mir.zig");
+const bits = @import("bits.zig");
 
 const Emit = @This();
 
 lower: Lower,
+pt: Zcu.PerThread,
+bin_file: *link.File,
 atom_index: u32,
 debug_output: link.File.DebugInfoOutput,
 code: *std.ArrayListUnmanaged(u8),
@@ -21,9 +27,7 @@ prev_di_loc: Loc,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
-pub const Error = Lower.Error || error{
-    EmitFail,
-} || link.File.UpdateDebugInfoError;
+pub const Error = Lower.Error || error{EmitFail} || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
     const gpa = emit.lower.link_file.comp.gpa;
@@ -67,16 +71,31 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .off = lir_relocs[0].off,
                     });
                 },
-                .elf_symbol => |sym| {
+                .elf_nav => |sym| {
+                    const sym_index = switch (try codegen.genNavRef(
+                        emit.bin_file,
+                        emit.pt,
+                        emit.lower.src_loc,
+                        sym.symbol,
+                        emit.lower.target.*,
+                    )) {
+                        .mcv => |mcv| mcv.lea_symbol,
+                        .fail => |em| {
+                            assert(emit.lower.err_msg == null);
+                            emit.lower.err_msg = em;
+                            return error.EmitFail;
+                        },
+                    };
                     const elf_file = emit.lower.link_file.cast(.elf).?;
                     const zo = elf_file.zigObjectPtr().?;
                     const atom_ptr = zo.symbol(emit.atom_index).atom(elf_file).?;
                     try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset,
-                        .r_info = (@as(u64, @intCast(sym.symbol)) << 32) | @intFromEnum(sym.ty),
+                        .r_info = (@as(u64, sym_index) << 32) | @intFromEnum(sym.ty),
                         .r_addend = lir_relocs[0].off,
                     }, zo);
                 },
+                .elf_uav => return emit.fail("TODO UAV relocations for ELF", .{}),
             };
         }
         std.debug.assert(lir_relocs.len == 0);
@@ -151,10 +170,10 @@ pub fn emitMir(emit: *Emit) Error!void {
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) Error {
-    return switch (emit.lower.fail(format, args)) {
-        error.LowerFail => error.EmitFail,
-        else => |e| e,
-    };
+    @branchHint(.cold);
+    assert(emit.lower.err_msg == null);
+    emit.lower.err_msg = try Zcu.ErrorMsg.create(emit.lower.allocator, emit.lower.src_loc, format, args);
+    return error.LowerFail;
 }
 
 const Reloc = struct {

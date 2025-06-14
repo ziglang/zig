@@ -281,8 +281,6 @@ pub const FrameAddr = struct {
 
 pub const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 
-pub const SymbolOffset = struct { index: u32, off: i32 = 0 };
-
 pub const RegisterFrame = struct { reg: Register, frame: FrameAddr };
 
 pub const Memory = struct {

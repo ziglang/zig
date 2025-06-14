@@ -11,6 +11,8 @@ const R_LARCH = std.elf.R_LARCH;
 const link = @import("../../link.zig");
 const Air = @import("../../Air.zig");
 const Zcu = @import("../../Zcu.zig");
+const InternPool = @import("../../InternPool.zig");
+const codegen = @import("../../codegen.zig");
 const ErrorMsg = Zcu.ErrorMsg;
 
 const Mir = @import("Mir.zig");
@@ -41,7 +43,8 @@ result_relocs: [max_result_relocs]Reloc = undefined,
 pub const Error = error{
     OutOfMemory,
     LowerFail,
-};
+    CodegenFail,
+} || codegen.GenerateSymbolError;
 
 /// Lowered relocation.
 /// The fields in instructions to be relocated must be lowered to zero.
@@ -55,9 +58,13 @@ pub const Reloc = struct {
             loc: Type,
             inst: Mir.Inst.Index,
         },
-        elf_symbol: struct {
+        elf_nav: struct {
             ty: R_LARCH,
-            symbol: u32,
+            symbol: InternPool.Nav.Index,
+        },
+        elf_uav: struct {
+            ty: R_LARCH,
+            symbol: InternPool.Key.Ptr.BaseAddr.Uav,
         },
 
         pub fn format(
@@ -67,8 +74,9 @@ pub const Reloc = struct {
             writer: anytype,
         ) @TypeOf(writer).Error!void {
             switch (target) {
-                .inst => |pl| try writer.print("MIR ref: {} ({s})", .{ pl.inst, @tagName(pl.loc) }),
-                .elf_symbol => |pl| try writer.print("ELF symbol: R_LARCH_{s} => {}", .{ @tagName(pl.ty), pl.symbol }),
+                .inst => |pl| try writer.print("MIR: {} ({s})", .{ pl.inst, @tagName(pl.loc) }),
+                .elf_nav => |pl| try writer.print("NAV: R_LARCH_{s} => {}", .{ @tagName(pl.ty), pl.symbol }),
+                .elf_uav => |pl| try writer.print("UAV: R_LARCH_{s} => {}", .{ @tagName(pl.ty), pl.symbol }),
             }
         }
     };
@@ -86,9 +94,6 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
     insts: []const Lir.Inst,
     relocs: []const Reloc,
 } {
-    // const pt = lower.pt;
-    // const zcu = pt.zcu;
-
     lower.result_insts = undefined;
     lower.result_relocs = undefined;
     errdefer lower.result_insts = undefined;
@@ -183,9 +188,9 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     lower.emitRegFrameOp(data.reg, data.frame, data.op, data.opx);
                 },
                 .call => {
-                    const sym = inst.data.sym;
+                    const nav = inst.data.nav;
                     lower.emit(.pcaddu18i(.ra, 0));
-                    lower.relocElf(.CALL36, sym, 0);
+                    lower.relocElfNav(.CALL36, nav, 0);
                     lower.emit(.jirl(.ra, .ra, 0));
                 },
                 .load_ra => if (lower.mir.spill_ra)
@@ -240,8 +245,8 @@ fn reloc(lower: *Lower, target: Reloc.Target, off: i32) void {
     lower.result_relocs_len += 1;
 }
 
-inline fn relocElf(lower: *Lower, ty: R_LARCH, sym: u32, off: i64) void {
-    lower.reloc(.{ .elf_symbol = .{ .ty = ty, .symbol = sym } }, off);
+inline fn relocElfNav(lower: *Lower, ty: R_LARCH, sym: InternPool.Nav.Index, off: i64) void {
+    lower.reloc(.{ .elf_nav = .{ .ty = ty, .symbol = sym } }, off);
 }
 
 inline fn relocInst(lower: *Lower, loc: Reloc.Type, inst: Mir.Inst.Index, off: i32) void {
