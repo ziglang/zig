@@ -288,10 +288,12 @@ pub fn mainSimple() anyerror!void {
     @disableInstrumentation();
     // is the backend capable of printing to stderr?
     const enable_print = switch (builtin.zig_backend) {
+        .stage2_riscv64 => true,
         else => false,
     };
     // is the backend capable of using std.fmt.format to print a summary at the end?
     const print_summary = switch (builtin.zig_backend) {
+        .stage2_riscv64 => true,
         else => false,
     };
 
@@ -309,7 +311,7 @@ pub fn mainSimple() anyerror!void {
                 stderr.writeAll("... ") catch {};
                 stderr.writeAll("PASS\n") catch {};
             }
-        } else |err| if (enable_print) {
+        } else |err| {
             if (enable_print) {
                 stderr.writeAll(test_fn.name) catch {};
                 stderr.writeAll("... ") catch {};
