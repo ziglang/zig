@@ -13,6 +13,7 @@ const Allocator = mem.Allocator;
 const Target = std.Target;
 const process = std.process;
 const EnvMap = std.process.EnvMap;
+const Thread = std.Thread;
 const File = fs.File;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Build = @This();
@@ -94,6 +95,8 @@ pkg_hash: []const u8,
 /// A mapping from dependency names to package hashes.
 available_deps: AvailableDeps,
 
+compile_commands: ?*CompileCommands = null,
+
 release_mode: ReleaseMode,
 
 build_id: ?std.zig.BuildId = null,
@@ -104,6 +107,132 @@ pub const ReleaseMode = enum {
     fast,
     safe,
     small,
+};
+
+pub const CompileCommands = struct {
+    step: Step,
+    entries: ArrayList(CompileCommandsEntry),
+    mutex: Thread.Mutex,
+    output_file: LazyPath,
+    generated_file: GeneratedFile,
+
+    pub const base_id: Step.Id = .custom;
+
+    pub fn create(owner: *Build, output_file: LazyPath) *CompileCommands {
+        const self = owner.allocator.create(CompileCommands) catch @panic("OOM");
+        self.* = .{
+            .step = Step.init(.{
+                .id = base_id,
+                .name = owner.fmt("compile_commands.json -> {s}", .{output_file.getDisplayName()}),
+                .owner = owner,
+                .makeFn = make,
+            }),
+            .entries = ArrayList(CompileCommandsEntry).init(owner.allocator),
+            .mutex = .{},
+            .output_file = output_file.dupe(owner),
+            .generated_file = .{ .step = undefined },
+        };
+        self.generated_file.step = &self.step;
+
+        // Set this as the global compile commands database
+        owner.compile_commands = self;
+
+        // Add dependencies from the output file's LazyPath
+        output_file.addStepDependencies(&self.step);
+
+        return self;
+    }
+
+    pub fn append(self: *CompileCommands, entry: CompileCommandsEntry) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        try self.entries.append(entry);
+    }
+
+    pub fn getEntries(self: *CompileCommands) []CompileCommandsEntry {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.entries.items;
+    }
+
+    /// Returns a LazyPath representing the generated compile_commands.json file
+    pub fn getOutput(self: *CompileCommands) LazyPath {
+        return .{ .generated = .{ .file = &self.generated_file } };
+    }
+
+    fn make(build_step: *Step, options: Step.MakeOptions) anyerror!void {
+        _ = options;
+        const self: *CompileCommands = @fieldParentPtr("step", build_step);
+        const b = build_step.owner;
+        const gpa = b.allocator;
+
+        // Create a temporary buffer for the JSON content
+        var buffer = std.ArrayList(u8).init(gpa);
+        defer buffer.deinit();
+
+        var writer = buffer.writer();
+
+        try writer.writeAll("[");
+
+        const entries = self.getEntries();
+
+        var temp = std.ArrayList(u8).init(gpa);
+        defer temp.deinit();
+
+        for (entries, 0..) |entry, i| {
+            if (i != 0) try writer.writeAll(",");
+            try writer.writeAll("\n  {\n");
+
+            try writer.writeAll("    \"directory\": \"");
+            try std.json.encodeJsonString(entry.working_directory, .{}, writer);
+            try writer.writeAll("\",\n");
+
+            try writer.writeAll("    \"file\": \"");
+            const full_path = b.pathJoin(&.{ entry.working_directory, entry.relative_path });
+            try std.json.encodeJsonString(full_path, .{}, writer);
+            try writer.writeAll("\",\n");
+
+            try writer.writeAll("    \"command\": \"");
+
+            temp.clearRetainingCapacity();
+            var temp_writer = temp.writer();
+
+            // Write the compiler command
+            try temp_writer.writeAll("zig cc");
+            for (entry.flags) |flag| {
+                try temp_writer.writeAll(" ");
+                try temp_writer.writeAll(flag);
+            }
+            try temp_writer.writeAll(" ");
+            try temp_writer.writeAll(entry.relative_path);
+
+            try std.json.encodeJsonString(temp.items, .{}, writer);
+            try writer.writeAll("\"\n  }");
+        }
+
+        try writer.writeAll("\n]\n");
+
+        // Now write the content to the output file based on its type
+        const output_path = self.output_file.getPath2(b, build_step);
+
+        // Ensure directory exists
+        if (std.fs.path.dirname(output_path)) |dirname| {
+            try b.build_root.handle.makePath(dirname);
+        }
+
+        // Write the file
+        try b.build_root.handle.writeFile(.{ .sub_path = output_path, .data = buffer.items });
+
+        // Set the generated file path for LazyPath access
+        self.generated_file.path = try b.build_root.join(gpa, &.{output_path});
+    }
+};
+
+pub const CompileCommandsEntry = struct {
+    module: *Module,
+    working_directory: []const u8,
+    relative_path: []const u8,
+    flags: []const []const u8,
 };
 
 /// Shared state among all Build instances.
@@ -400,6 +529,7 @@ fn createChildOnly(
         .named_lazy_paths = .init(allocator),
         .pkg_hash = pkg_hash,
         .available_deps = pkg_deps,
+        .compile_commands = parent.compile_commands,
         .release_mode = parent.release_mode,
     };
     try child.top_level_steps.put(allocator, child.install_tls.step.name, &child.install_tls);
@@ -2437,6 +2567,10 @@ pub fn runBuild(b: *Build, build_zig: anytype) anyerror!void {
         .error_union => try build_zig.build(b),
         else => @compileError("expected return type of build to be 'void' or '!void'"),
     }
+}
+
+pub fn addCompileCommands(b: *Build, output_file: LazyPath) *CompileCommands {
+    return CompileCommands.create(b, output_file);
 }
 
 /// A file that is generated by a build step.
