@@ -1832,7 +1832,9 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
 
             .block => try cg.airBlock(inst),
             .dbg_inline_block => try cg.airDbgInlineBlock(inst),
+            .loop => try cg.airLoop(inst),
             .br => try cg.airBr(inst),
+            .repeat => try cg.airRepeat(inst),
             .cond_br => try cg.airCondBr(inst),
 
             .is_err => try cg.airIsErr(inst, false),
@@ -3319,6 +3321,18 @@ fn airDbgInlineBlock(cg: *CodeGen, inst: Air.Inst.Index) !void {
     if (!cg.mod.strip) try cg.asmPseudo(.dbg_enter_inline_func, .{ .func = old_inline_func });
 }
 
+fn airLoop(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const ty_pl = cg.getAirData(inst).ty_pl;
+    const block = cg.air.extraData(Air.Block, ty_pl.payload);
+
+    try cg.loops.putNoClobber(cg.gpa, inst, .{
+        .state = try cg.saveState(),
+        .target = cg.label(),
+    });
+    defer assert(cg.loops.remove(inst));
+    try cg.genBodyBlock(@ptrCast(cg.air.extra.items[block.end..][0..block.data.body_len]));
+}
+
 fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, ty_ref: Air.Inst.Ref, body: []const Air.Inst.Index) !void {
     const ty = ty_ref.toType();
     const inst_tracking_i = cg.inst_tracking.count();
@@ -3427,6 +3441,19 @@ fn airBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
 
     // stop tracking block result without forgetting tracking info
     try cg.freeValue(block_tracking.short);
+}
+
+fn airRepeat(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const repeat = cg.getAirData(inst).repeat;
+    const loop = cg.loops.get(repeat.loop_inst).?;
+
+    try cg.restoreState(loop.state, &.{}, .{
+        .emit_instructions = true,
+        .update_tracking = false,
+        .resurrect = false,
+        .close_scope = false,
+    });
+    _ = try cg.asmBr(loop.target, .none);
 }
 
 fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
