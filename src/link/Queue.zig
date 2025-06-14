@@ -64,7 +64,7 @@ state: union(enum) {
     finished,
     /// The link thread is not running or queued, because it is waiting for this MIR to be populated.
     /// Once codegen completes, it must call `mirReady` which will restart the link thread.
-    wait_for_mir: *ZcuTask.LinkFunc.SharedMir,
+    wait_for_mir: InternPool.Index,
 },
 
 /// In the worst observed case, MIR is around 50 times as large as AIR. More typically, the ratio is
@@ -113,7 +113,7 @@ pub fn start(q: *Queue, comp: *Compilation) void {
 
 /// Called by codegen workers after they have populated a `ZcuTask.LinkFunc.SharedMir`. If the link
 /// thread was waiting for this MIR, it can resume.
-pub fn mirReady(q: *Queue, comp: *Compilation, mir: *ZcuTask.LinkFunc.SharedMir) void {
+pub fn mirReady(q: *Queue, comp: *Compilation, func_index: InternPool.Index, mir: *ZcuTask.LinkFunc.SharedMir) void {
     // We would like to assert that `mir` is not pending, but that would race with a worker thread
     // potentially freeing it.
     {
@@ -121,12 +121,12 @@ pub fn mirReady(q: *Queue, comp: *Compilation, mir: *ZcuTask.LinkFunc.SharedMir)
         defer q.mutex.unlock();
         switch (q.state) {
             .finished, .running => return,
-            .wait_for_mir => |wait_for| if (wait_for != mir) return,
+            .wait_for_mir => |wait_for| if (wait_for != func_index) return,
         }
         // We were waiting for `mir`, so we will restart the linker thread.
         q.state = .running;
     }
-    assert(mir.status.load(.monotonic) != .pending);
+    assert(mir.status.load(.acquire) != .pending);
     comp.thread_pool.spawnWgId(&comp.link_task_wait_group, flushTaskQueue, .{ q, comp });
 }
 
@@ -170,8 +170,8 @@ pub fn enqueueZcu(q: *Queue, comp: *Compilation, task: ZcuTask) Allocator.Error!
             .finished => if (q.pending_prelink_tasks != 0) return,
         }
         // Restart the linker thread, unless it would immediately be blocked
-        if (task == .link_func and task.link_func.mir.status.load(.monotonic) == .pending) {
-            q.state = .{ .wait_for_mir = task.link_func.mir };
+        if (task == .link_func and task.link_func.mir.status.load(.acquire) == .pending) {
+            q.state = .{ .wait_for_mir = task.link_func.func };
             return;
         }
         q.state = .running;
@@ -243,12 +243,12 @@ fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
             if (task != .link_func) break :pending;
             const status_ptr = &task.link_func.mir.status;
             // First check without the mutex to optimize for the common case where MIR is ready.
-            if (status_ptr.load(.monotonic) != .pending) break :pending;
+            if (status_ptr.load(.acquire) != .pending) break :pending;
             q.mutex.lock();
             defer q.mutex.unlock();
-            if (status_ptr.load(.monotonic) != .pending) break :pending;
+            if (status_ptr.load(.acquire) != .pending) break :pending;
             // We will stop for now, and get restarted once this MIR is ready.
-            q.state = .{ .wait_for_mir = task.link_func.mir };
+            q.state = .{ .wait_for_mir = task.link_func.func };
             q.flush_safety.unlock();
             return;
         }
@@ -273,6 +273,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Compilation = @import("../Compilation.zig");
+const InternPool = @import("../InternPool.zig");
 const link = @import("../link.zig");
 const PrelinkTask = link.PrelinkTask;
 const ZcuTask = link.ZcuTask;

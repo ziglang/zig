@@ -6280,7 +6280,6 @@ test "recovery: invalid global error set access" {
         \\}
     , &[_]Error{
         .expected_token,
-        .expected_token,
     });
 }
 

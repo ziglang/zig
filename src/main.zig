@@ -7290,34 +7290,27 @@ const Templates = struct {
                     new_line = false;
                 }
             }
+
             if (templates.strip and contents[i] == '\n') {
                 new_line = true;
-            } else if (contents[i] == '_') {
-                if (std.mem.startsWith(u8, contents[i..], "_LITNAME")) {
+            } else if (contents[i] == '_' or contents[i] == '.') {
+                // Both '_' and '.' are allowed because depending on the context
+                // one prefix will be valid, while the other might not.
+                if (std.mem.startsWith(u8, contents[i + 1 ..], "NAME")) {
                     try templates.buffer.appendSlice(root_name);
-                    i += "_LITNAME".len;
+                    i += "_NAME".len;
                     continue;
-                }
-            } else if (contents[i] == '.') {
-                if (std.mem.startsWith(u8, contents[i..], ".LITNAME")) {
-                    try templates.buffer.append('.');
-                    try templates.buffer.appendSlice(root_name);
-                    i += ".LITNAME".len;
-                    continue;
-                } else if (std.mem.startsWith(u8, contents[i..], ".NAME")) {
-                    try templates.buffer.appendSlice(root_name);
-                    i += ".NAME".len;
-                    continue;
-                } else if (std.mem.startsWith(u8, contents[i..], ".FINGERPRINT")) {
+                } else if (std.mem.startsWith(u8, contents[i + 1 ..], "FINGERPRINT")) {
                     try templates.buffer.writer().print("0x{x}", .{fingerprint.int()});
-                    i += ".FINGERPRINT".len;
+                    i += "_FINGERPRINT".len;
                     continue;
-                } else if (std.mem.startsWith(u8, contents[i..], ".ZIGVER")) {
+                } else if (std.mem.startsWith(u8, contents[i + 1 ..], "ZIGVER")) {
                     try templates.buffer.appendSlice(build_options.version);
-                    i += ".ZIGVER".len;
+                    i += "_ZIGVER".len;
                     continue;
                 }
             }
+
             try templates.buffer.append(contents[i]);
             i += 1;
         }
