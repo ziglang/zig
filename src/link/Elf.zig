@@ -4128,7 +4128,7 @@ pub fn getTarget(self: Elf) std.Target {
 fn requiresThunks(self: Elf) bool {
     return switch (self.getTarget().cpu.arch) {
         .aarch64 => true,
-        .x86_64, .riscv64 => false,
+        .x86_64, .riscv64, .loongarch64 => false,
         else => @panic("TODO unimplemented architecture"),
     };
 }
@@ -4441,7 +4441,7 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
                         _ = math.cast(i28, taddr + rel.r_addend - saddr) orelse break :r false;
                         break :r true;
                     },
-                    .x86_64, .riscv64 => unreachable,
+                    .x86_64, .riscv64, .loongarch64 => unreachable,
                     else => @panic("unsupported arch"),
                 };
                 if (is_reachable) continue;

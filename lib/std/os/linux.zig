@@ -510,6 +510,7 @@ const extern_getauxval = switch (builtin.zig_backend) {
     .stage2_powerpc,
     .stage2_riscv64,
     .stage2_sparc64,
+    .stage2_loongarch64,
     => false,
     else => !builtin.link_libc,
 };

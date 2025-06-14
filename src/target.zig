@@ -810,6 +810,7 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
     return switch (target.cpu.arch) {
         .aarch64, .aarch64_be => .stage2_aarch64,
         .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
+        .loongarch64 => .stage2_loongarch64,
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => .stage2_powerpc,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
@@ -850,7 +851,7 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
         },
         .separate_thread => switch (backend) {
             .stage2_llvm => false,
-            .stage2_c, .stage2_wasm, .stage2_x86_64 => true,
+            .stage2_c, .stage2_wasm, .stage2_x86_64, .stage2_loongarch64 => true,
             // TODO: most self-hosted backends should be able to support this without too much work.
             else => false,
         },
