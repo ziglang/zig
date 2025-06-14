@@ -1323,11 +1323,13 @@ const Temp = struct {
         return cg.getLimbCount(temp.typeOf(cg));
     }
 
-    fn getLimb(temp: Temp, limb_ty: Type, limb_index: u28, cg: *CodeGen) InnerError!Temp {
+    fn getLimb(temp: Temp, limb_ty: Type, limb_index: u28, cg: *CodeGen, reuse: bool) InnerError!Temp {
+        if (reuse) try temp.die(cg);
         const new_temp_index = cg.next_temp_index;
         cg.next_temp_index = @enumFromInt(@intFromEnum(new_temp_index) + 1);
         cg.temp_type[@intFromEnum(new_temp_index)] = limb_ty;
-        switch (temp.tracking(cg).short) {
+        const temp_mcv = temp.tracking(cg).short;
+        switch (temp_mcv) {
             else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
             .immediate => |imm| {
                 assert(limb_index == 0);
@@ -1335,64 +1337,92 @@ const Temp = struct {
             },
             .register => |reg| {
                 assert(limb_index == 0);
-                const new_reg =
-                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
-                new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                try cg.asmInst(.@"or"(new_reg, reg, .zero));
+                if (reuse)
+                    new_temp_index.tracking(cg).* = .init(.{ .register = reg })
+                else {
+                    const new_reg =
+                        try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
+                    new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
+                    try cg.asmInst(.@"or"(new_reg, reg, .zero));
+                }
             },
             inline .register_pair, .register_triple, .register_quadruple => |regs| {
-                const new_reg =
-                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
-                new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                try cg.asmInst(.@"or"(new_reg, regs[limb_index], .zero));
+                if (reuse)
+                    new_temp_index.tracking(cg).* = .init(.{ .register = regs[limb_index] })
+                else {
+                    const new_reg =
+                        try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
+                    new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
+                    try cg.asmInst(.@"or"(new_reg, regs[limb_index], .zero));
+                }
             },
             .register_bias, .register_offset => |_| {
                 assert(limb_index == 0);
-                const new_reg =
-                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
-                new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                try cg.genCopyToReg(.dword, new_reg, temp.tracking(cg).short, .{});
+                if (reuse)
+                    new_temp_index.tracking(cg).* = .init(temp_mcv)
+                else {
+                    const new_reg =
+                        try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
+                    new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
+                    try cg.genCopyToReg(.dword, new_reg, temp.tracking(cg).short, .{});
+                }
             },
             .load_frame => |frame_addr| {
-                const new_reg =
-                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
-                new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                try cg.genCopyToReg(.dword, new_reg, .{ .load_frame = .{
+                const new_mcv: MCValue = .{ .load_frame = .{
                     .index = frame_addr.index,
                     .off = frame_addr.off + @as(u31, limb_index) * 8,
-                } }, .{});
+                } };
+                if (reuse)
+                    new_temp_index.tracking(cg).* = .init(new_mcv)
+                else {
+                    const new_reg =
+                        try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
+                    new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
+                    try cg.genCopyToReg(.dword, new_reg, new_mcv, .{});
+                }
             },
             .lea_frame => |frame_addr| {
                 assert(limb_index == 0);
                 new_temp_index.tracking(cg).* = .init(.{ .lea_frame = frame_addr });
             },
             .load_nav => |nav_off| {
-                const new_reg =
-                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
-                new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                try cg.genCopyToReg(.dword, new_reg, .{ .load_nav = .{
+                const new_mcv: MCValue = .{ .load_nav = .{
                     .index = nav_off.index,
                     .off = nav_off.off + @as(u31, limb_index) * 8,
-                } }, .{});
+                } };
+                if (reuse)
+                    new_temp_index.tracking(cg).* = .init(new_mcv)
+                else {
+                    const new_reg =
+                        try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
+                    new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
+                    try cg.genCopyToReg(.dword, new_reg, new_mcv, .{});
+                }
             },
             .lea_nav => |nav_off| {
                 assert(limb_index == 0);
                 new_temp_index.tracking(cg).* = .init(.{ .lea_nav = nav_off });
             },
             .load_uav => |uav_off| {
-                const new_reg =
-                    try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
-                new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-                try cg.genCopyToReg(.dword, new_reg, .{ .load_uav = .{
+                const new_mcv: MCValue = .{ .load_uav = .{
                     .index = uav_off.index,
                     .off = uav_off.off + @as(u31, limb_index) * 8,
-                } }, .{});
+                } };
+                if (reuse)
+                    new_temp_index.tracking(cg).* = .init(new_mcv)
+                else {
+                    const new_reg =
+                        try cg.register_manager.allocReg(new_temp_index.toIndex(), abi.RegisterSets.gp);
+                    new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
+                    try cg.genCopyToReg(.dword, new_reg, new_mcv, .{});
+                }
             },
             .lea_uav => |nav_off| {
                 assert(limb_index == 0);
                 new_temp_index.tracking(cg).* = .init(.{ .lea_uav = nav_off });
             },
         }
+        try cg.getValueIfFree(new_temp_index.tracking(cg).short, new_temp_index.toIndex());
         return .{ .index = new_temp_index.toIndex() };
     }
 
@@ -3563,7 +3593,7 @@ fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, inverted: bool) !void {
         },
     })) {
         const src = sel.ops[0];
-        var limb = try src.getLimb(.bool, 0, cg);
+        var limb = try src.getLimb(.bool, 0, cg, cg.liveness.operandDies(inst, 0));
         while (try limb.moveToRegister(cg, .int, true)) {}
         limb.toType(cg, .bool);
         const limb_reg = limb.getReg(cg);
