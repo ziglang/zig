@@ -328,7 +328,10 @@ pub const MCValue = union(enum) {
             .register_offset,
             .load_frame,
             .register_frame,
+            .load_nav,
+            .load_uav,
             .load_lazy_sym,
+            .lea_lazy_sym,
             => switch (off) {
                 0 => mcv,
                 else => unreachable, // not offsettable
@@ -1457,6 +1460,11 @@ const Temp = struct {
             .temp => |temp_index| temp_index.toType(cg, ty),
         };
     }
+
+    fn toOffset(temp: Temp, cg: *CodeGen, off: i32) void {
+        const temp_tracking = cg.inst_tracking.getPtr(temp.index).?;
+        temp_tracking.short = temp_tracking.short.offset(off);
+    }
 };
 
 fn getValue(cg: *CodeGen, value: MCValue, inst: ?Air.Inst.Index) !void {
@@ -1842,6 +1850,10 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
 
             .slice_ptr => try cg.airSlicePtr(inst),
             .slice_len => try cg.airSliceLen(inst),
+            .slice_elem_ptr => try cg.airPtrElemPtr(inst),
+            .ptr_elem_ptr => try cg.airPtrElemPtr(inst),
+            .slice_elem_val => try cg.airPtrElemVal(inst),
+            .ptr_elem_val => try cg.airPtrElemVal(inst),
 
             .unreach => {},
 
@@ -2524,7 +2536,7 @@ const Select = struct {
         }
         for (sel.temps[0..sel.temps_count]) |temp| {
             if (temp.index == result.index) continue;
-            try temp.die(sel.cg);
+            if (Temp.Index.fromIndex(temp.index).isValid(sel.cg)) try temp.die(sel.cg);
         }
     }
 
@@ -2578,6 +2590,7 @@ const Select = struct {
         pub const Src = union(enum) {
             none,
             any,
+            imm,
             imm_val: i32,
             imm_fit: u5,
             mem,
@@ -2604,6 +2617,7 @@ const Select = struct {
                 return switch (pat) {
                     .none => temp.tracking(cg).short == .none,
                     .any => true,
+                    .imm => temp.tracking(cg).short == .immediate,
                     .imm_val => |val| switch (temp.tracking(cg).short) {
                         .immediate => |imm| @as(i32, @intCast(imm)) == val,
                         else => false,
@@ -2626,7 +2640,7 @@ const Select = struct {
 
             fn convert(pat: Src, temp: *Temp, cg: *CodeGen) InnerError!bool {
                 return switch (pat) {
-                    .none, .any, .imm_val, .imm_fit, .regs, .reg_frame => false,
+                    .none, .any, .imm, .imm_val, .imm_fit, .regs, .reg_frame => false,
                     .mem, .to_mem => try temp.moveToMemory(cg, false),
                     .mut_mem, .to_mut_mem => try temp.moveToMemory(cg, true),
                     .reg, .to_reg => |rc| try temp.moveToRegister(cg, rc, false),
@@ -3656,4 +3670,97 @@ fn airSliceLen(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const op = (try cg.tempsFromOperands(inst, .{ty_op.operand}))[0];
     const dst = try op.getLimb(.usize, 1, cg, cg.liveness.operandDies(inst, 0));
     try dst.finish(inst, &.{op}, cg);
+}
+
+fn airPtrElemPtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
+    const ty_pl = cg.getAirData(inst).ty_pl;
+    const bin = cg.air.extraData(Air.Bin, ty_pl.payload);
+    const elem_ty = ty_pl.ty.toType().elemType2(zcu);
+    var sel = Select.init(cg, inst, &try cg.tempsFromOperands(inst, .{ bin.data.lhs, bin.data.rhs }));
+    const elem_off = elem_ty.abiAlignment(zcu).forward(elem_ty.abiSize(zcu));
+
+    // case 1: constant index
+    if (try sel.match(.{
+        .patterns = &.{
+            .{ .srcs = &.{ .to_int_reg, .imm } },
+        },
+    })) {
+        const ptr_temp, const index_temp = sel.ops[0..2].*;
+        ptr_temp.toOffset(cg, @intCast(index_temp.getUnsignedImm(cg) * elem_off));
+        try sel.finish(ptr_temp);
+    }
+    // case 2: non-constant index
+    else if (try sel.match(.{
+        .patterns = &.{
+            .{ .srcs = &.{ .to_int_reg, .to_int_reg } },
+        },
+        .temps = &.{
+            .any_usize_reg,
+        },
+    })) {
+        const ptr_temp, const index_temp = sel.ops[0..2].*;
+        const dst = sel.temps[0];
+        const dst_reg = dst.getReg(cg);
+
+        try cg.asmInst(.ori(dst_reg, .zero, @intCast(elem_off)));
+        try cg.asmInst(.mul_d(dst_reg, dst_reg, index_temp.getReg(cg)));
+        try cg.asmInst(.add_d(dst_reg, dst_reg, ptr_temp.getReg(cg)));
+
+        try sel.finish(dst);
+    } else return sel.fail();
+}
+
+fn airPtrElemVal(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = cg.pt.zcu;
+    const bin_op = cg.getAirData(inst).bin_op;
+    const lhs_ty = cg.typeOf(bin_op.lhs);
+    const elem_ty = lhs_ty.childType(zcu);
+    const ptr_ty = if (lhs_ty.isSliceAtRuntime(zcu)) lhs_ty.slicePtrFieldType(zcu) else lhs_ty;
+    const elem_off = elem_ty.abiAlignment(zcu).forward(elem_ty.abiSize(zcu));
+
+    var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
+    ops[0] = try ops[0].getLimb(ptr_ty, 0, cg, cg.liveness.operandDies(inst, 0));
+    var sel = Select.init(cg, inst, &ops);
+
+    // case 1: constant index
+    if (try sel.match(.{
+        .patterns = &.{
+            .{ .srcs = &.{ .to_int_reg, .imm } },
+        },
+        .temps = &.{
+            .{ .type = elem_ty, .kind = .any },
+        },
+    })) {
+        var ptr_temp, const index_temp = sel.ops[0..2].*;
+        const dst = sel.temps[0];
+        ptr_temp.toOffset(cg, @intCast(index_temp.getUnsignedImm(cg) * elem_off));
+        while (try ptr_temp.toMemory(cg)) {}
+        try ptr_temp.copy(dst, cg, elem_ty);
+        try sel.finish(dst);
+    }
+    // case 2: non-constant index
+    else if (try sel.match(.{
+        .patterns = &.{
+            .{ .srcs = &.{ .to_int_reg, .to_int_reg } },
+        },
+        .temps = &.{
+            .any_usize_reg,
+            .{ .type = elem_ty, .kind = .any },
+        },
+    })) {
+        const ptr_temp, const index_temp = sel.ops[0..2].*;
+        var off, const dst = sel.temps[0..2].*;
+        const off_reg = off.getReg(cg);
+
+        try cg.asmInst(.ori(off_reg, .zero, @intCast(elem_off)));
+        try cg.asmInst(.mul_d(off_reg, off_reg, index_temp.getReg(cg)));
+        try cg.asmInst(.add_d(off_reg, off_reg, ptr_temp.getReg(cg)));
+
+        while (try off.toMemory(cg)) {}
+        try off.copy(dst, cg, elem_ty);
+        try off.die(cg);
+
+        try sel.finish(dst);
+    } else return sel.fail();
 }
