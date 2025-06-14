@@ -3816,9 +3816,14 @@ fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, inverted: bool) !void {
 fn airSlicePtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const ty_op = cg.getAirData(inst).ty_op;
     const op = (try cg.tempsFromOperands(inst, .{ty_op.operand}))[0];
-    const ptr_ty = ty_op.ty.toType().slicePtrFieldType(cg.pt.zcu);
-    const dst = try op.getLimb(ptr_ty, 0, cg, cg.liveness.operandDies(inst, 0));
-    try dst.finish(inst, &.{op}, cg);
+    const ty = ty_op.ty.toType();
+    if (ty.isSlice(cg.pt.zcu)) {
+        const ptr_ty = ty_op.ty.toType().slicePtrFieldType(cg.pt.zcu);
+        const dst = try op.getLimb(ptr_ty, 0, cg, cg.liveness.operandDies(inst, 0));
+        try dst.finish(inst, &.{op}, cg);
+    } else {
+        try op[0].finish(inst, &.{op}, cg);
+    }
 }
 
 fn airSliceLen(cg: *CodeGen, inst: Air.Inst.Index) !void {
