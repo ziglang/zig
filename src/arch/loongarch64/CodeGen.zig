@@ -1838,6 +1838,9 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .is_err => try cg.airIsErr(inst, false),
             .is_non_err => try cg.airIsErr(inst, true),
 
+            .slice_ptr => try cg.airSlicePtr(inst),
+            .slice_len => try cg.airSliceLen(inst),
+
             .unreach => {},
 
             .intcast_safe,
@@ -2420,10 +2423,6 @@ fn genCopyToMem(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !voi
         .air_ref => |src_ref| try cg.genCopyToMem(ty, dst_mcv, try cg.resolveRef(src_ref)),
         .register => |reg| return cg.genCopyRegToMem(dst_mcv, reg, .fromByteSize(abi_size)),
         .memory,
-        .load_frame,
-        .load_nav,
-        .load_uav,
-        .load_lazy_sym,
         .undef,
         => return cg.fail("TODO: genCopyToMem from {s}", .{@tagName(src_mcv)}),
         inline .register_pair, .register_triple, .register_quadruple => |regs| {
@@ -2450,7 +2449,7 @@ fn genCopyToMem(cg: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !voi
             // copy memory
             return cg.fail("TODO: genCopyToMem from {s}", .{@tagName(src_mcv)});
         },
-        .register_offset => {
+        .register_offset, .load_frame, .load_nav, .load_uav, .load_lazy_sym => {
             const reg, const reg_lock = try cg.allocRegAndLock(.usize);
             defer cg.register_manager.unlockReg(reg_lock);
             for (0..cg.getLimbCount(ty)) |limb_i| {
@@ -3604,4 +3603,19 @@ fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, inverted: bool) !void {
 
         try sel.finish(limb);
     } else return sel.fail();
+}
+
+fn airSlicePtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const ty_op = cg.getAirData(inst).ty_op;
+    const op = (try cg.tempsFromOperands(inst, .{ty_op.operand}))[0];
+    const ptr_ty = ty_op.ty.toType().slicePtrFieldType(cg.pt.zcu);
+    const dst = try op.getLimb(ptr_ty, 0, cg, cg.liveness.operandDies(inst, 0));
+    try dst.finish(inst, &.{op}, cg);
+}
+
+fn airSliceLen(cg: *CodeGen, inst: Air.Inst.Index) !void {
+    const ty_op = cg.getAirData(inst).ty_op;
+    const op = (try cg.tempsFromOperands(inst, .{ty_op.operand}))[0];
+    const dst = try op.getLimb(.usize, 1, cg, cg.liveness.operandDies(inst, 0));
+    try dst.finish(inst, &.{op}, cg);
 }
