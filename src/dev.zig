@@ -46,7 +46,7 @@ pub const Env = enum {
 
     /// - sema
     /// - `zig build-* -fincremental -fno-llvm -fno-lld -target loongarch64-linux --listen=-`
-    @"loongarch64-linux",
+    @"loongarch-linux",
 
     pub inline fn supports(comptime dev_env: Env, comptime feature: Feature) bool {
         return switch (dev_env) {
@@ -89,7 +89,7 @@ pub const Env = enum {
                 .riscv64_backend,
                 .sparc64_backend,
                 .spirv64_backend,
-                .loongarch64_backend,
+                .loongarch_backend,
                 .lld_linker,
                 .coff_linker,
                 .elf_linker,
@@ -191,11 +191,11 @@ pub const Env = enum {
                 => true,
                 else => Env.sema.supports(feature),
             },
-            .@"loongarch64-linux" => switch (feature) {
+            .@"loongarch-linux" => switch (feature) {
                 .build_command,
                 .stdio_listen,
                 .incremental,
-                .loongarch64_backend,
+                .loongarch_backend,
                 .elf_linker,
                 .legalize,
                 => true,
@@ -264,7 +264,7 @@ pub const Feature = enum {
     riscv64_backend,
     sparc64_backend,
     spirv64_backend,
-    loongarch64_backend,
+    loongarch_backend,
 
     lld_linker,
     coff_linker,
