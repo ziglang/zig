@@ -309,7 +309,7 @@ pub fn mainSimple() anyerror!void {
                 stderr.writeAll("... ") catch {};
                 stderr.writeAll("PASS\n") catch {};
             }
-        } else |err| if (enable_print) {
+        } else |err| {
             if (enable_print) {
                 stderr.writeAll(test_fn.name) catch {};
                 stderr.writeAll("... ") catch {};
