@@ -3822,7 +3822,7 @@ fn airSlicePtr(cg: *CodeGen, inst: Air.Inst.Index) !void {
         const dst = try op.getLimb(ptr_ty, 0, cg, cg.liveness.operandDies(inst, 0));
         try dst.finish(inst, &.{op}, cg);
     } else {
-        try op[0].finish(inst, &.{op}, cg);
+        try op.finish(inst, &.{op}, cg);
     }
 }
 
