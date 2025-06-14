@@ -598,7 +598,7 @@ const Date = struct {
             var year: u16 = 1970;
             while (year < date.year) : (year += 1) {
                 const days: u64 = std.time.epoch.getDaysInYear(year);
-                sec += days * std.time.epoch.secs_per_day;
+                sec += days * std.time.s_per_day;
             }
         }
 
@@ -609,11 +609,11 @@ const Date = struct {
                     date.year,
                     @enumFromInt(month),
                 );
-                sec += days * std.time.epoch.secs_per_day;
+                sec += days * std.time.s_per_day;
             }
         }
 
-        sec += (date.day - 1) * @as(u64, std.time.epoch.secs_per_day);
+        sec += (date.day - 1) * @as(u64, std.time.s_per_day);
         sec += date.hour * @as(u64, 60 * 60);
         sec += date.minute * @as(u64, 60);
         sec += date.second;
