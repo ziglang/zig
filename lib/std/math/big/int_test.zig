@@ -17,6 +17,12 @@ const minInt = std.math.minInt;
 // They will still run on larger than this and should pass, but the multi-limb code-paths
 // may be untested in some cases.
 
+fn expectNormalized(expected: comptime_int, actual: std.math.big.int.Const) !void {
+    try testing.expectEqual(expected >= 0, actual.positive);
+    try testing.expectEqual(std.math.big.int.calcLimbLen(expected), actual.limbs.len);
+    try testing.expect(actual.orderAgainstScalar(expected).compare(.eq));
+}
+
 test "comptime_int set" {
     comptime var s = 0xefffffff00000001eeeeeeefaaaaaaab;
     var a = try Managed.initSet(testing.allocator, s);
@@ -83,6 +89,408 @@ test "to target too small error" {
     defer a.deinit();
 
     try testing.expectError(error.TargetTooSmall, a.toInt(u8));
+}
+
+fn setFloat(comptime Float: type) !void {
+    var res_limbs: [std.math.big.int.calcNonZeroTwosCompLimbCount(11)]Limb = undefined;
+    var res: Mutable = .{
+        .limbs = &res_limbs,
+        .len = undefined,
+        .positive = undefined,
+    };
+
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -0x1p10), .nearest_even));
+    try expectNormalized(-1 << 10, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -0x1p10), .away));
+    try expectNormalized(-1 << 10, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -0x1p10), .trunc));
+    try expectNormalized(-1 << 10, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -0x1p10), .floor));
+    try expectNormalized(-1 << 10, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -0x1p10), .ceil));
+    try expectNormalized(-1 << 10, res.toConst());
+
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -2.0), .nearest_even));
+    try expectNormalized(-2, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -2.0), .away));
+    try expectNormalized(-2, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -2.0), .trunc));
+    try expectNormalized(-2, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -2.0), .floor));
+    try expectNormalized(-2, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -2.0), .ceil));
+    try expectNormalized(-2, res.toConst());
+
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -1.5), .nearest_even));
+    try expectNormalized(-2, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -1.5), .away));
+    try expectNormalized(-2, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -1.5), .trunc));
+    try expectNormalized(-1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -1.5), .floor));
+    try expectNormalized(-2, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -1.5), .ceil));
+    try expectNormalized(-1, res.toConst());
+
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -1.0), .nearest_even));
+    try expectNormalized(-1, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -1.0), .away));
+    try expectNormalized(-1, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -1.0), .trunc));
+    try expectNormalized(-1, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -1.0), .floor));
+    try expectNormalized(-1, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -1.0), .ceil));
+    try expectNormalized(-1, res.toConst());
+
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.75), .nearest_even));
+    try expectNormalized(-1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.75), .away));
+    try expectNormalized(-1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.75), .trunc));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.75), .floor));
+    try expectNormalized(-1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.75), .ceil));
+    try expectNormalized(0, res.toConst());
+
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.5), .nearest_even));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.5), .away));
+    try expectNormalized(-1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.5), .trunc));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.5), .floor));
+    try expectNormalized(-1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.5), .ceil));
+    try expectNormalized(0, res.toConst());
+
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.25), .nearest_even));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.25), .away));
+    try expectNormalized(-1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.25), .trunc));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.25), .floor));
+    try expectNormalized(-1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, -0.25), .ceil));
+    try expectNormalized(0, res.toConst());
+
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -0.0), .nearest_even));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -0.0), .away));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -0.0), .trunc));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -0.0), .floor));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, -0.0), .ceil));
+    try expectNormalized(0, res.toConst());
+
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 0.0), .nearest_even));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 0.0), .away));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 0.0), .trunc));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 0.0), .floor));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 0.0), .ceil));
+    try expectNormalized(0, res.toConst());
+
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.25), .nearest_even));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.25), .away));
+    try expectNormalized(1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.25), .trunc));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.25), .floor));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.25), .ceil));
+    try expectNormalized(1, res.toConst());
+
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.5), .nearest_even));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.5), .away));
+    try expectNormalized(1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.5), .trunc));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.5), .floor));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.5), .ceil));
+    try expectNormalized(1, res.toConst());
+
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.75), .nearest_even));
+    try expectNormalized(1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.75), .away));
+    try expectNormalized(1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.75), .trunc));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.75), .floor));
+    try expectNormalized(0, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 0.75), .ceil));
+    try expectNormalized(1, res.toConst());
+
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 1.0), .nearest_even));
+    try expectNormalized(1, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 1.0), .away));
+    try expectNormalized(1, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 1.0), .trunc));
+    try expectNormalized(1, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 1.0), .floor));
+    try expectNormalized(1, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 1.0), .ceil));
+    try expectNormalized(1, res.toConst());
+
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 1.5), .nearest_even));
+    try expectNormalized(2, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 1.5), .away));
+    try expectNormalized(2, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 1.5), .trunc));
+    try expectNormalized(1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 1.5), .floor));
+    try expectNormalized(1, res.toConst());
+    try testing.expectEqual(.inexact, res.setFloat(@as(Float, 1.5), .ceil));
+    try expectNormalized(2, res.toConst());
+
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 2.0), .nearest_even));
+    try expectNormalized(2, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 2.0), .away));
+    try expectNormalized(2, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 2.0), .trunc));
+    try expectNormalized(2, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 2.0), .floor));
+    try expectNormalized(2, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 2.0), .ceil));
+    try expectNormalized(2, res.toConst());
+
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 0x1p10), .nearest_even));
+    try expectNormalized(1 << 10, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 0x1p10), .away));
+    try expectNormalized(1 << 10, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 0x1p10), .trunc));
+    try expectNormalized(1 << 10, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 0x1p10), .floor));
+    try expectNormalized(1 << 10, res.toConst());
+    try testing.expectEqual(.exact, res.setFloat(@as(Float, 0x1p10), .ceil));
+    try expectNormalized(1 << 10, res.toConst());
+}
+test setFloat {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    try setFloat(f16);
+    try setFloat(f32);
+    try setFloat(f64);
+    try setFloat(f80);
+    try setFloat(f128);
+    try setFloat(c_longdouble);
+    try setFloat(comptime_float);
+}
+
+fn toFloat(comptime Float: type) !void {
+    const Result = struct { Float, std.math.big.int.Exactness };
+    const fractional_bits = std.math.floatFractionalBits(Float);
+
+    var int_limbs: [
+        std.math.big.int.calcNonZeroTwosCompLimbCount(2 + fractional_bits)
+    ]Limb = undefined;
+    var int: Mutable = .{
+        .limbs = &int_limbs,
+        .len = undefined,
+        .positive = undefined,
+    };
+
+    int.set(-(1 << (fractional_bits + 1)) - 1);
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1), .inexact },
+        int.toFloat(Float, .nearest_even),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.nextAfter(
+            Float,
+            -std.math.ldexp(@as(Float, 1), fractional_bits + 1),
+            -std.math.inf(Float),
+        ), .inexact },
+        int.toFloat(Float, .away),
+    );
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1), .inexact },
+        int.toFloat(Float, .trunc),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.nextAfter(
+            Float,
+            -std.math.ldexp(@as(Float, 1), fractional_bits + 1),
+            -std.math.inf(Float),
+        ), .inexact },
+        int.toFloat(Float, .floor),
+    );
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1), .inexact },
+        int.toFloat(Float, .ceil),
+    );
+
+    int.set(-1 << (fractional_bits + 1));
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1), .exact },
+        int.toFloat(Float, .nearest_even),
+    );
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1), .exact },
+        int.toFloat(Float, .away),
+    );
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1), .exact },
+        int.toFloat(Float, .trunc),
+    );
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1), .exact },
+        int.toFloat(Float, .floor),
+    );
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1), .exact },
+        int.toFloat(Float, .ceil),
+    );
+
+    int.set(-(1 << (fractional_bits + 1)) + 1);
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1) + 1.0, .exact },
+        int.toFloat(Float, .nearest_even),
+    );
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1) + 1.0, .exact },
+        int.toFloat(Float, .away),
+    );
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1) + 1.0, .exact },
+        int.toFloat(Float, .trunc),
+    );
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1) + 1.0, .exact },
+        int.toFloat(Float, .floor),
+    );
+    try testing.expectEqual(
+        Result{ comptime -std.math.ldexp(@as(Float, 1), fractional_bits + 1) + 1.0, .exact },
+        int.toFloat(Float, .ceil),
+    );
+
+    int.set(-1 << 10);
+    try testing.expectEqual(Result{ -0x1p10, .exact }, int.toFloat(Float, .nearest_even));
+    try testing.expectEqual(Result{ -0x1p10, .exact }, int.toFloat(Float, .away));
+    try testing.expectEqual(Result{ -0x1p10, .exact }, int.toFloat(Float, .trunc));
+    try testing.expectEqual(Result{ -0x1p10, .exact }, int.toFloat(Float, .floor));
+    try testing.expectEqual(Result{ -0x1p10, .exact }, int.toFloat(Float, .ceil));
+
+    int.set(-1);
+    try testing.expectEqual(Result{ -1.0, .exact }, int.toFloat(Float, .nearest_even));
+    try testing.expectEqual(Result{ -1.0, .exact }, int.toFloat(Float, .away));
+    try testing.expectEqual(Result{ -1.0, .exact }, int.toFloat(Float, .trunc));
+    try testing.expectEqual(Result{ -1.0, .exact }, int.toFloat(Float, .floor));
+    try testing.expectEqual(Result{ -1.0, .exact }, int.toFloat(Float, .ceil));
+
+    int.set(0);
+    try testing.expectEqual(Result{ 0.0, .exact }, int.toFloat(Float, .nearest_even));
+    try testing.expectEqual(Result{ 0.0, .exact }, int.toFloat(Float, .away));
+    try testing.expectEqual(Result{ 0.0, .exact }, int.toFloat(Float, .trunc));
+    try testing.expectEqual(Result{ 0.0, .exact }, int.toFloat(Float, .floor));
+    try testing.expectEqual(Result{ 0.0, .exact }, int.toFloat(Float, .ceil));
+
+    int.set(1);
+    try testing.expectEqual(Result{ 1.0, .exact }, int.toFloat(Float, .nearest_even));
+    try testing.expectEqual(Result{ 1.0, .exact }, int.toFloat(Float, .away));
+    try testing.expectEqual(Result{ 1.0, .exact }, int.toFloat(Float, .trunc));
+    try testing.expectEqual(Result{ 1.0, .exact }, int.toFloat(Float, .floor));
+    try testing.expectEqual(Result{ 1.0, .exact }, int.toFloat(Float, .ceil));
+
+    int.set(1 << 10);
+    try testing.expectEqual(Result{ 0x1p10, .exact }, int.toFloat(Float, .nearest_even));
+    try testing.expectEqual(Result{ 0x1p10, .exact }, int.toFloat(Float, .away));
+    try testing.expectEqual(Result{ 0x1p10, .exact }, int.toFloat(Float, .trunc));
+    try testing.expectEqual(Result{ 0x1p10, .exact }, int.toFloat(Float, .floor));
+    try testing.expectEqual(Result{ 0x1p10, .exact }, int.toFloat(Float, .ceil));
+
+    int.set((1 << (fractional_bits + 1)) - 1);
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1) - 1.0, .exact },
+        int.toFloat(Float, .nearest_even),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1) - 1.0, .exact },
+        int.toFloat(Float, .away),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1) - 1.0, .exact },
+        int.toFloat(Float, .trunc),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1) - 1.0, .exact },
+        int.toFloat(Float, .floor),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1) - 1.0, .exact },
+        int.toFloat(Float, .ceil),
+    );
+
+    int.set(1 << (fractional_bits + 1));
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1), .exact },
+        int.toFloat(Float, .nearest_even),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1), .exact },
+        int.toFloat(Float, .away),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1), .exact },
+        int.toFloat(Float, .trunc),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1), .exact },
+        int.toFloat(Float, .floor),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1), .exact },
+        int.toFloat(Float, .ceil),
+    );
+
+    int.set((1 << (fractional_bits + 1)) + 1);
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1), .inexact },
+        int.toFloat(Float, .nearest_even),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.nextAfter(
+            Float,
+            std.math.ldexp(@as(Float, 1), fractional_bits + 1),
+            std.math.inf(Float),
+        ), .inexact },
+        int.toFloat(Float, .away),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1), .inexact },
+        int.toFloat(Float, .trunc),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.ldexp(@as(Float, 1), fractional_bits + 1), .inexact },
+        int.toFloat(Float, .floor),
+    );
+    try testing.expectEqual(
+        Result{ comptime std.math.nextAfter(
+            Float,
+            std.math.ldexp(@as(Float, 1), fractional_bits + 1),
+            std.math.inf(Float),
+        ), .inexact },
+        int.toFloat(Float, .ceil),
+    );
+}
+test toFloat {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24191
+    try toFloat(f16);
+    try toFloat(f32);
+    try toFloat(f64);
+    try toFloat(f80);
+    try toFloat(f128);
+    try toFloat(c_longdouble);
 }
 
 test "normalize" {

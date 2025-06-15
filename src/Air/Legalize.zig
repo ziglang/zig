@@ -1,7 +1,36 @@
 pt: Zcu.PerThread,
 air_instructions: std.MultiArrayList(Air.Inst),
 air_extra: std.ArrayListUnmanaged(u32),
-features: *const Features,
+features: if (switch (dev.env) {
+    .bootstrap => @import("../codegen/c.zig").legalizeFeatures(undefined),
+    else => null,
+}) |bootstrap_features| struct {
+    fn init(features: *const Features) @This() {
+        assert(features.eql(bootstrap_features.*));
+        return .{};
+    }
+    /// `inline` to propagate comptime-known result.
+    inline fn has(_: @This(), comptime feature: Feature) bool {
+        return comptime bootstrap_features.contains(feature);
+    }
+    /// `inline` to propagate comptime-known result.
+    fn hasAny(_: @This(), comptime features: []const Feature) bool {
+        return comptime !bootstrap_features.intersectWith(.initMany(features)).eql(.initEmpty());
+    }
+} else struct {
+    features: *const Features,
+    /// `inline` to propagate whether `dev.check` returns.
+    inline fn init(features: *const Features) @This() {
+        dev.check(.legalize);
+        return .{ .features = features };
+    }
+    fn has(rt: @This(), comptime feature: Feature) bool {
+        return rt.features.contains(feature);
+    }
+    fn hasAny(rt: @This(), comptime features: []const Feature) bool {
+        return !rt.features.intersectWith(comptime .initMany(features)).eql(comptime .initEmpty());
+    }
+},
 
 pub const Feature = enum {
     scalarize_add,
@@ -83,6 +112,8 @@ pub const Feature = enum {
     scalarize_trunc,
     scalarize_int_from_float,
     scalarize_int_from_float_optimized,
+    scalarize_int_from_float_safe,
+    scalarize_int_from_float_optimized_safe,
     scalarize_float_from_int,
     scalarize_shuffle_one,
     scalarize_shuffle_two,
@@ -97,6 +128,12 @@ pub const Feature = enum {
     /// Replace `intcast_safe` with an explicit safety check which `call`s the panic function on failure.
     /// Not compatible with `scalarize_intcast_safe`.
     expand_intcast_safe,
+    /// Replace `int_from_float_safe` with an explicit safety check which `call`s the panic function on failure.
+    /// Not compatible with `scalarize_int_from_float_safe`.
+    expand_int_from_float_safe,
+    /// Replace `int_from_float_optimized_safe` with an explicit safety check which `call`s the panic function on failure.
+    /// Not compatible with `scalarize_int_from_float_optimized_safe`.
+    expand_int_from_float_optimized_safe,
     /// Replace `add_safe` with an explicit safety check which `call`s the panic function on failure.
     /// Not compatible with `scalarize_add_safe`.
     expand_add_safe,
@@ -196,10 +233,12 @@ pub const Feature = enum {
             .trunc => .scalarize_trunc,
             .int_from_float => .scalarize_int_from_float,
             .int_from_float_optimized => .scalarize_int_from_float_optimized,
+            .int_from_float_safe => .scalarize_int_from_float_safe,
+            .int_from_float_optimized_safe => .scalarize_int_from_float_optimized_safe,
             .float_from_int => .scalarize_float_from_int,
             .shuffle_one => .scalarize_shuffle_one,
             .shuffle_two => .scalarize_shuffle_two,
-            .select => .scalarize_selects,
+            .select => .scalarize_select,
             .mul_add => .scalarize_mul_add,
         };
     }
@@ -210,13 +249,12 @@ pub const Features = std.enums.EnumSet(Feature);
 pub const Error = std.mem.Allocator.Error;
 
 pub fn legalize(air: *Air, pt: Zcu.PerThread, features: *const Features) Error!void {
-    dev.check(.legalize);
     assert(!features.eql(comptime .initEmpty())); // backend asked to run legalize, but no features were enabled
     var l: Legalize = .{
         .pt = pt,
         .air_instructions = air.instructions.toMultiArrayList(),
         .air_extra = air.extra,
-        .features = features,
+        .features = .init(features),
     };
     defer air.* = l.getTmpAir();
     const main_extra = l.extraData(Air.Block, l.air_extra.items[@intFromEnum(Air.ExtraIndex.main_block)]);
@@ -278,28 +316,28 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .bit_and,
             .bit_or,
             .xor,
-            => |air_tag| if (l.features.contains(comptime .scalarize(air_tag))) {
+            => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
                 const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
                 if (l.typeOf(bin_op.lhs).isVector(zcu)) continue :inst try l.scalarize(inst, .bin_op);
             },
-            .add_safe => if (l.features.contains(.expand_add_safe)) {
-                assert(!l.features.contains(.scalarize_add_safe)); // it doesn't make sense to do both
+            .add_safe => if (l.features.has(.expand_add_safe)) {
+                assert(!l.features.has(.scalarize_add_safe)); // it doesn't make sense to do both
                 continue :inst l.replaceInst(inst, .block, try l.safeArithmeticBlockPayload(inst, .add_with_overflow));
-            } else if (l.features.contains(.scalarize_add_safe)) {
+            } else if (l.features.has(.scalarize_add_safe)) {
                 const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
                 if (l.typeOf(bin_op.lhs).isVector(zcu)) continue :inst try l.scalarize(inst, .bin_op);
             },
-            .sub_safe => if (l.features.contains(.expand_sub_safe)) {
-                assert(!l.features.contains(.scalarize_sub_safe)); // it doesn't make sense to do both
+            .sub_safe => if (l.features.has(.expand_sub_safe)) {
+                assert(!l.features.has(.scalarize_sub_safe)); // it doesn't make sense to do both
                 continue :inst l.replaceInst(inst, .block, try l.safeArithmeticBlockPayload(inst, .sub_with_overflow));
-            } else if (l.features.contains(.scalarize_sub_safe)) {
+            } else if (l.features.has(.scalarize_sub_safe)) {
                 const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
                 if (l.typeOf(bin_op.lhs).isVector(zcu)) continue :inst try l.scalarize(inst, .bin_op);
             },
-            .mul_safe => if (l.features.contains(.expand_mul_safe)) {
-                assert(!l.features.contains(.scalarize_mul_safe)); // it doesn't make sense to do both
+            .mul_safe => if (l.features.has(.expand_mul_safe)) {
+                assert(!l.features.has(.scalarize_mul_safe)); // it doesn't make sense to do both
                 continue :inst l.replaceInst(inst, .block, try l.safeArithmeticBlockPayload(inst, .mul_with_overflow));
-            } else if (l.features.contains(.scalarize_mul_safe)) {
+            } else if (l.features.has(.scalarize_mul_safe)) {
                 const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
                 if (l.typeOf(bin_op.lhs).isVector(zcu)) continue :inst try l.scalarize(inst, .bin_op);
             },
@@ -308,7 +346,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .sub_with_overflow,
             .mul_with_overflow,
             .shl_with_overflow,
-            => |air_tag| if (l.features.contains(comptime .scalarize(air_tag))) {
+            => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
                 const ty_pl = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_pl;
                 if (ty_pl.ty.toType().fieldType(0, zcu).isVector(zcu)) continue :inst l.replaceInst(inst, .block, try l.scalarizeOverflowBlockPayload(inst));
             },
@@ -320,13 +358,13 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .shl,
             .shl_exact,
             .shl_sat,
-            => |air_tag| if (!l.features.intersectWith(comptime .initMany(&.{
+            => |air_tag| if (l.features.hasAny(&.{
                 .unsplat_shift_rhs,
                 .scalarize(air_tag),
-            })).eql(comptime .initEmpty())) {
+            })) {
                 const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
                 if (l.typeOf(bin_op.rhs).isVector(zcu)) {
-                    if (l.features.contains(.unsplat_shift_rhs)) {
+                    if (l.features.has(.unsplat_shift_rhs)) {
                         if (bin_op.rhs.toInterned()) |rhs_ip_index| switch (ip.indexToKey(rhs_ip_index)) {
                             else => {},
                             .aggregate => |aggregate| switch (aggregate.storage) {
@@ -347,7 +385,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                             }
                         }
                     }
-                    if (l.features.contains(comptime .scalarize(air_tag))) continue :inst try l.scalarize(inst, .bin_op);
+                    if (l.features.has(comptime .scalarize(air_tag))) continue :inst try l.scalarize(inst, .bin_op);
                 }
             },
             inline .not,
@@ -364,11 +402,11 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .int_from_float,
             .int_from_float_optimized,
             .float_from_int,
-            => |air_tag| if (l.features.contains(comptime .scalarize(air_tag))) {
+            => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
                 if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
             },
-            .bitcast => if (l.features.contains(.scalarize_bitcast)) {
+            .bitcast => if (l.features.has(.scalarize_bitcast)) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
                 const to_ty = ty_op.ty.toType();
@@ -404,10 +442,24 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 };
                 if (!from_ty_legal) continue :inst l.replaceInst(inst, .block, try l.scalarizeBitcastOperandBlockPayload(inst));
             },
-            .intcast_safe => if (l.features.contains(.expand_intcast_safe)) {
-                assert(!l.features.contains(.scalarize_intcast_safe)); // it doesn't make sense to do both
+            .intcast_safe => if (l.features.has(.expand_intcast_safe)) {
+                assert(!l.features.has(.scalarize_intcast_safe)); // it doesn't make sense to do both
                 continue :inst l.replaceInst(inst, .block, try l.safeIntcastBlockPayload(inst));
-            } else if (l.features.contains(.scalarize_intcast_safe)) {
+            } else if (l.features.has(.scalarize_intcast_safe)) {
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
+            },
+            .int_from_float_safe => if (l.features.has(.expand_int_from_float_safe)) {
+                assert(!l.features.has(.scalarize_int_from_float_safe));
+                continue :inst l.replaceInst(inst, .block, try l.safeIntFromFloatBlockPayload(inst, false));
+            } else if (l.features.has(.scalarize_int_from_float_safe)) {
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
+            },
+            .int_from_float_optimized_safe => if (l.features.has(.expand_int_from_float_optimized_safe)) {
+                assert(!l.features.has(.scalarize_int_from_float_optimized_safe));
+                continue :inst l.replaceInst(inst, .block, try l.safeIntFromFloatBlockPayload(inst, true));
+            } else if (l.features.has(.scalarize_int_from_float_optimized_safe)) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
                 if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
             },
@@ -442,7 +494,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .trunc_float,
             .neg,
             .neg_optimized,
-            => |air_tag| if (l.features.contains(comptime .scalarize(air_tag))) {
+            => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
                 const un_op = l.air_instructions.items(.data)[@intFromEnum(inst)].un_op;
                 if (l.typeOf(un_op).isVector(zcu)) continue :inst try l.scalarize(inst, .un_op);
             },
@@ -459,7 +511,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .cmp_neq,
             .cmp_neq_optimized,
             => {},
-            inline .cmp_vector, .cmp_vector_optimized => |air_tag| if (l.features.contains(comptime .scalarize(air_tag))) {
+            inline .cmp_vector, .cmp_vector_optimized => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
                 const ty_pl = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_pl;
                 if (ty_pl.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .cmp_vector);
             },
@@ -513,13 +565,13 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .bool_and,
             .bool_or,
             => {},
-            .load => if (l.features.contains(.expand_packed_load)) {
+            .load => if (l.features.has(.expand_packed_load)) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
                 const ptr_info = l.typeOf(ty_op.operand).ptrInfo(zcu);
                 if (ptr_info.packed_offset.host_size > 0 and ptr_info.flags.vector_index == .none) continue :inst l.replaceInst(inst, .block, try l.packedLoadBlockPayload(inst));
             },
             .ret, .ret_safe, .ret_load => {},
-            .store, .store_safe => if (l.features.contains(.expand_packed_store)) {
+            .store, .store_safe => if (l.features.has(.expand_packed_store)) {
                 const bin_op = l.air_instructions.items(.data)[@intFromEnum(inst)].bin_op;
                 const ptr_info = l.typeOf(bin_op.lhs).ptrInfo(zcu);
                 if (ptr_info.packed_offset.host_size > 0 and ptr_info.flags.vector_index == .none) continue :inst l.replaceInst(inst, .block, try l.packedStoreBlockPayload(inst));
@@ -542,7 +594,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .struct_field_ptr_index_2,
             .struct_field_ptr_index_3,
             => {},
-            .struct_field_val => if (l.features.contains(.expand_packed_struct_field_val)) {
+            .struct_field_val => if (l.features.has(.expand_packed_struct_field_val)) {
                 const ty_pl = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_pl;
                 const extra = l.extraData(Air.StructField, ty_pl.payload).data;
                 switch (l.typeOf(extra.struct_operand).containerLayout(zcu)) {
@@ -564,7 +616,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .ptr_elem_ptr,
             .array_to_slice,
             => {},
-            .reduce, .reduce_optimized => if (l.features.contains(.reduce_one_elem_to_bitcast)) {
+            .reduce, .reduce_optimized => if (l.features.has(.reduce_one_elem_to_bitcast)) {
                 const reduce = l.air_instructions.items(.data)[@intFromEnum(inst)].reduce;
                 const vector_ty = l.typeOf(reduce.operand);
                 switch (vector_ty.vectorLen(zcu)) {
@@ -577,9 +629,9 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 }
             },
             .splat => {},
-            .shuffle_one => if (l.features.contains(.scalarize_shuffle_one)) continue :inst try l.scalarize(inst, .shuffle_one),
-            .shuffle_two => if (l.features.contains(.scalarize_shuffle_two)) continue :inst try l.scalarize(inst, .shuffle_two),
-            .select => if (l.features.contains(.scalarize_select)) continue :inst try l.scalarize(inst, .select),
+            .shuffle_one => if (l.features.has(.scalarize_shuffle_one)) continue :inst try l.scalarize(inst, .shuffle_one),
+            .shuffle_two => if (l.features.has(.scalarize_shuffle_two)) continue :inst try l.scalarize(inst, .shuffle_two),
+            .select => if (l.features.has(.scalarize_select)) continue :inst try l.scalarize(inst, .select),
             .memset,
             .memset_safe,
             .memcpy,
@@ -597,7 +649,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .error_name,
             .error_set_has_value,
             => {},
-            .aggregate_init => if (l.features.contains(.expand_packed_aggregate_init)) {
+            .aggregate_init => if (l.features.has(.expand_packed_aggregate_init)) {
                 const ty_pl = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_pl;
                 const agg_ty = ty_pl.ty.toType();
                 switch (agg_ty.zigTypeTag(zcu)) {
@@ -609,7 +661,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 }
             },
             .union_init, .prefetch => {},
-            .mul_add => if (l.features.contains(.scalarize_mul_add)) {
+            .mul_add => if (l.features.has(.scalarize_mul_add)) {
                 const pl_op = l.air_instructions.items(.data)[@intFromEnum(inst)].pl_op;
                 if (l.typeOf(pl_op.operand).isVector(zcu)) continue :inst try l.scalarize(inst, .pl_op_bin);
             },
@@ -636,6 +688,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
 }
 
 const ScalarizeForm = enum { un_op, ty_op, bin_op, pl_op_bin, bitcast, cmp_vector, shuffle_one, shuffle_two, select };
+/// inline to propagate comptime-known `replaceInst` result.
 inline fn scalarize(l: *Legalize, orig_inst: Air.Inst.Index, comptime form: ScalarizeForm) Error!Air.Inst.Tag {
     return l.replaceInst(orig_inst, .block, try l.scalarizeBlockPayload(orig_inst, form));
 }
@@ -1972,6 +2025,115 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
         .payload = try l.addBlockBody(main_block.body()),
     } };
 }
+fn safeIntFromFloatBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimized: bool) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ty_op = l.air_instructions.items(.data)[@intFromEnum(orig_inst)].ty_op;
+
+    const operand_ref = ty_op.operand;
+    const operand_ty = l.typeOf(operand_ref);
+    const dest_ty = ty_op.ty.toType();
+
+    const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
+    const dest_scalar_ty = dest_ty.scalarType(zcu);
+    const int_info = dest_scalar_ty.intInfo(zcu);
+
+    // We emit 9 instructions in the worst case.
+    var inst_buf: [9]Air.Inst.Index = undefined;
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
+    var main_block: Block = .init(&inst_buf);
+
+    // This check is a bit annoying because of floating-point rounding and the fact that this
+    // builtin truncates. We'll use a bigint for our calculations, because we need to construct
+    // integers exceeding the bounds of the result integer type, and we need to convert it to a
+    // float with a specific rounding mode to avoid errors.
+    // Our bigint may exceed the twos complement limit by one, so add an extra limb.
+    const limbs = try gpa.alloc(
+        std.math.big.Limb,
+        std.math.big.int.calcTwosCompLimbCount(int_info.bits) + 1,
+    );
+    defer gpa.free(limbs);
+    var big: std.math.big.int.Mutable = .init(limbs, 0);
+
+    // Check if the operand is lower than `min_int` when truncated to an integer.
+    big.setTwosCompIntLimit(.min, int_info.signedness, int_info.bits);
+    const below_min_inst: Air.Inst.Index = if (!big.positive or big.eqlZero()) bad: {
+        // `min_int <= 0`, so check for `x <= min_int - 1`.
+        big.addScalar(big.toConst(), -1);
+        // For `<=`, we must round the RHS down, so that this value is the first `x` which returns `true`.
+        const limit_val = try floatFromBigIntVal(pt, is_vector, operand_ty, big.toConst(), .floor);
+        break :bad try main_block.addCmp(l, .lte, operand_ref, Air.internedToRef(limit_val.toIntern()), .{
+            .vector = is_vector,
+            .optimized = optimized,
+        });
+    } else {
+        // `min_int > 0`, which is currently impossible. It would become possible under #3806, in
+        // which case we must detect `x < min_int`.
+        unreachable;
+    };
+
+    // Check if the operand is greater than `max_int` when truncated to an integer.
+    big.setTwosCompIntLimit(.max, int_info.signedness, int_info.bits);
+    const above_max_inst: Air.Inst.Index = if (big.positive or big.eqlZero()) bad: {
+        // `max_int >= 0`, so check for `x >= max_int + 1`.
+        big.addScalar(big.toConst(), 1);
+        // For `>=`, we must round the RHS up, so that this value is the first `x` which returns `true`.
+        const limit_val = try floatFromBigIntVal(pt, is_vector, operand_ty, big.toConst(), .ceil);
+        break :bad try main_block.addCmp(l, .gte, operand_ref, Air.internedToRef(limit_val.toIntern()), .{
+            .vector = is_vector,
+            .optimized = optimized,
+        });
+    } else {
+        // `max_int < 0`, which is currently impossible. It would become possible under #3806, in
+        // which case we must detect `x > max_int`.
+        unreachable;
+    };
+
+    // Combine the conditions.
+    const out_of_bounds_inst: Air.Inst.Index = main_block.add(l, .{
+        .tag = .bool_or,
+        .data = .{ .bin_op = .{
+            .lhs = below_min_inst.toRef(),
+            .rhs = above_max_inst.toRef(),
+        } },
+    });
+    const scalar_out_of_bounds_inst: Air.Inst.Index = if (is_vector) main_block.add(l, .{
+        .tag = .reduce,
+        .data = .{ .reduce = .{
+            .operand = out_of_bounds_inst.toRef(),
+            .operation = .Or,
+        } },
+    }) else out_of_bounds_inst;
+
+    // Now emit the actual condbr. "true" will be safety panic. "false" will be "ok", meaning we do
+    // the `int_from_float` and `br` the result to `orig_inst`.
+    var condbr: CondBr = .init(l, scalar_out_of_bounds_inst.toRef(), &main_block, .{ .true = .cold });
+    condbr.then_block = .init(main_block.stealRemainingCapacity());
+    try condbr.then_block.addPanic(l, .integer_part_out_of_bounds);
+    condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+    const cast_inst = condbr.else_block.add(l, .{
+        .tag = if (optimized) .int_from_float_optimized else .int_from_float,
+        .data = .{ .ty_op = .{
+            .ty = Air.internedToRef(dest_ty.toIntern()),
+            .operand = operand_ref,
+        } },
+    });
+    _ = condbr.else_block.add(l, .{
+        .tag = .br,
+        .data = .{ .br = .{
+            .block_inst = orig_inst,
+            .operand = cast_inst.toRef(),
+        } },
+    });
+    _ = condbr.else_block.stealRemainingCapacity(); // we might not have used it all
+    try condbr.finish(l);
+
+    return .{ .ty_pl = .{
+        .ty = Air.internedToRef(dest_ty.toIntern()),
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
 fn safeArithmeticBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, overflow_op_tag: Air.Inst.Tag) Error!Air.Inst.Data {
     const pt = l.pt;
     const zcu = pt.zcu;
@@ -2349,6 +2511,42 @@ fn packedAggregateInitBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Erro
     } };
 }
 
+/// Given a `std.math.big.int.Const`, converts it to a `Value` which is a float of type `float_ty`
+/// representing the same numeric value. If the integer cannot be exactly represented, `round`
+/// decides whether the value should be rounded up or down. If `is_vector`, then `float_ty` is
+/// instead a vector of floats, and the result value is a vector containing the converted scalar
+/// repeated N times.
+fn floatFromBigIntVal(
+    pt: Zcu.PerThread,
+    is_vector: bool,
+    float_ty: Type,
+    x: std.math.big.int.Const,
+    round: std.math.big.int.Round,
+) Error!Value {
+    const zcu = pt.zcu;
+    const scalar_ty = switch (is_vector) {
+        true => float_ty.childType(zcu),
+        false => float_ty,
+    };
+    assert(scalar_ty.zigTypeTag(zcu) == .float);
+    const scalar_val: Value = switch (scalar_ty.floatBits(zcu.getTarget())) {
+        16 => try pt.floatValue(scalar_ty, x.toFloat(f16, round)[0]),
+        32 => try pt.floatValue(scalar_ty, x.toFloat(f32, round)[0]),
+        64 => try pt.floatValue(scalar_ty, x.toFloat(f64, round)[0]),
+        80 => try pt.floatValue(scalar_ty, x.toFloat(f80, round)[0]),
+        128 => try pt.floatValue(scalar_ty, x.toFloat(f128, round)[0]),
+        else => unreachable,
+    };
+    if (is_vector) {
+        return .fromInterned(try pt.intern(.{ .aggregate = .{
+            .ty = float_ty.toIntern(),
+            .storage = .{ .repeated_elem = scalar_val.toIntern() },
+        } }));
+    } else {
+        return scalar_val;
+    }
+}
+
 const Block = struct {
     instructions: []Air.Inst.Index,
     len: usize,
@@ -2691,7 +2889,7 @@ fn addBlockBody(l: *Legalize, body: []const Air.Inst.Index) Error!u32 {
 }
 
 /// Returns `tag` to remind the caller to `continue :inst` the result.
-/// This is inline to propagate the comptime-known `tag`.
+/// `inline` to propagate the comptime-known `tag` result.
 inline fn replaceInst(l: *Legalize, inst: Air.Inst.Index, comptime tag: Air.Inst.Tag, data: Air.Inst.Data) Air.Inst.Tag {
     const orig_ty = if (std.debug.runtime_safety) l.typeOfIndex(inst) else {};
     l.air_instructions.set(@intFromEnum(inst), .{ .tag = tag, .data = data });
@@ -2706,4 +2904,5 @@ const InternPool = @import("../InternPool.zig");
 const Legalize = @This();
 const std = @import("std");
 const Type = @import("../Type.zig");
+const Value = @import("../Value.zig");
 const Zcu = @import("../Zcu.zig");

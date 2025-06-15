@@ -696,6 +696,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .sub_safe,
             .mul_safe,
             .intcast_safe,
+            .int_from_float_safe,
+            .int_from_float_optimized_safe,
             => @panic("TODO implement safety_checked_instructions"),
 
             .is_named_enum_value => @panic("TODO implement is_named_enum_value"),

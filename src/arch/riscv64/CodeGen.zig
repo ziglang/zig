@@ -54,6 +54,8 @@ const InnerError = CodeGenError || error{OutOfRegisters};
 pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
     return comptime &.initMany(&.{
         .expand_intcast_safe,
+        .expand_int_from_float_safe,
+        .expand_int_from_float_optimized_safe,
         .expand_add_safe,
         .expand_sub_safe,
         .expand_mul_safe,
@@ -1474,6 +1476,8 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .sub_safe,
             .mul_safe,
             .intcast_safe,
+            .int_from_float_safe,
+            .int_from_float_optimized_safe,
             => return func.fail("TODO implement safety_checked_instructions", .{}),
 
             .cmp_lt,

@@ -37,7 +37,10 @@ const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 const Error = error{ OutOfMemory, CodegenFail };
 
 pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
-    return null;
+    return comptime &.initMany(&.{
+        .expand_int_from_float_safe,
+        .expand_int_from_float_optimized_safe,
+    });
 }
 
 fn subArchName(target: std.Target, comptime family: std.Target.Cpu.Arch.Family, mappings: anytype) ?[]const u8 {
@@ -4987,6 +4990,8 @@ pub const FuncGen = struct {
 
                 .int_from_float           => try self.airIntFromFloat(inst, .normal),
                 .int_from_float_optimized => try self.airIntFromFloat(inst, .fast),
+                .int_from_float_safe           => unreachable, // handled by `legalizeFeatures`
+                .int_from_float_optimized_safe => unreachable, // handled by `legalizeFeatures`
 
                 .array_to_slice => try self.airArrayToSlice(inst),
                 .float_from_int => try self.airFloatFromInt(inst),
