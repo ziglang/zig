@@ -2296,6 +2296,13 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
     if (comp.emit_bin != null and target.ofmt != .c) {
         if (!comp.skip_linker_dependencies) {
+            // These DLLs are always loaded into every Windows process.
+            if (target.os.tag == .windows and is_exe_or_dyn_lib) {
+                try comp.windows_libs.ensureUnusedCapacity(gpa, 2);
+                comp.windows_libs.putAssumeCapacity("kernel32", {});
+                comp.windows_libs.putAssumeCapacity("ntdll", {});
+            }
+
             // If we need to build libc for the target, add work items for it.
             // We go through the work queue so that building can be done in parallel.
             // If linking against host libc installation, instead queue up jobs
@@ -7535,22 +7542,6 @@ fn getCrtPathsInner(
         .crtend = if (basenames.crtend) |basename| try crtFilePath(crt_files, basename) else null,
         .crtn = if (basenames.crtn) |basename| try crtFilePath(crt_files, basename) else null,
     };
-}
-
-pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
-    // Avoid deadlocking on building import libs such as kernel32.lib
-    // This can happen when the user uses `build-exe foo.obj -lkernel32` and
-    // then when we create a sub-Compilation for zig libc, it also tries to
-    // build kernel32.lib.
-    if (comp.skip_linker_dependencies) return;
-    const target = comp.root_mod.resolved_target.result;
-    if (target.os.tag != .windows or target.ofmt == .c) return;
-
-    // This happens when an `extern "foo"` function is referenced.
-    // If we haven't seen this library yet and we're targeting Windows, we need
-    // to queue up a work item to produce the DLL import library for this.
-    const gop = try comp.windows_libs.getOrPut(comp.gpa, lib_name);
-    if (!gop.found_existing) try comp.queueJob(.{ .windows_import_lib = comp.windows_libs.count() - 1 });
 }
 
 /// This decides the optimization mode for all zig-provided libraries, including
