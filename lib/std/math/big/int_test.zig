@@ -484,6 +484,7 @@ fn toFloat(comptime Float: type) !void {
     );
 }
 test toFloat {
+    if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24191
     try toFloat(f16);
     try toFloat(f32);
     try toFloat(f64);
