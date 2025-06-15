@@ -1627,7 +1627,7 @@ pub fn numberMin(lhs: Value, rhs: Value, zcu: *Zcu) Value {
     };
 }
 
-/// operands must be (vectors of) integers; handles undefined scalars.
+/// operands must be (vectors of) integers or bools; handles undefined scalars.
 pub fn bitwiseNot(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (ty.zigTypeTag(zcu) == .vector) {
@@ -1645,7 +1645,7 @@ pub fn bitwiseNot(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Va
     return bitwiseNotScalar(val, ty, arena, pt);
 }
 
-/// operands must be integers; handles undefined.
+/// operands must be integers or bools; handles undefined.
 pub fn bitwiseNotScalar(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (val.isUndef(zcu)) return Value.fromInterned(try pt.intern(.{ .undef = ty.toIntern() }));
@@ -1671,7 +1671,7 @@ pub fn bitwiseNotScalar(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThrea
     return pt.intValue_big(ty, result_bigint.toConst());
 }
 
-/// operands must be (vectors of) integers; handles undefined scalars.
+/// operands must be (vectors of) integers or bools; handles undefined scalars.
 pub fn bitwiseAnd(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (ty.zigTypeTag(zcu) == .vector) {
@@ -1690,7 +1690,7 @@ pub fn bitwiseAnd(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zc
     return bitwiseAndScalar(lhs, rhs, ty, allocator, pt);
 }
 
-/// operands must be integers; handles undefined.
+/// operands must be integers or bools; handles undefined.
 pub fn bitwiseAndScalar(orig_lhs: Value, orig_rhs: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     // If one operand is defined, we turn the other into `0xAA` so the bitwise AND can
@@ -1744,7 +1744,7 @@ fn intValueAa(ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     return pt.intValue_big(ty, result_bigint.toConst());
 }
 
-/// operands must be (vectors of) integers; handles undefined scalars.
+/// operands must be (vectors of) integers or bools; handles undefined scalars.
 pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (ty.zigTypeTag(zcu) == .vector) {
@@ -1763,7 +1763,7 @@ pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: Allocator, pt: Zcu.P
     return bitwiseNandScalar(lhs, rhs, ty, arena, pt);
 }
 
-/// operands must be integers; handles undefined.
+/// operands must be integers or bools; handles undefined.
 pub fn bitwiseNandScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) return Value.fromInterned(try pt.intern(.{ .undef = ty.toIntern() }));
@@ -1774,7 +1774,7 @@ pub fn bitwiseNandScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, pt:
     return bitwiseXor(anded, all_ones, ty, arena, pt);
 }
 
-/// operands must be (vectors of) integers; handles undefined scalars.
+/// operands must be (vectors of) integers or bools; handles undefined scalars.
 pub fn bitwiseOr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (ty.zigTypeTag(zcu) == .vector) {
@@ -1793,7 +1793,7 @@ pub fn bitwiseOr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu
     return bitwiseOrScalar(lhs, rhs, ty, allocator, pt);
 }
 
-/// operands must be integers; handles undefined.
+/// operands must be integers or bools; handles undefined.
 pub fn bitwiseOrScalar(orig_lhs: Value, orig_rhs: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     // If one operand is defined, we turn the other into `0xAA` so the bitwise AND can
     // still zero out some bits.
@@ -1827,7 +1827,7 @@ pub fn bitwiseOrScalar(orig_lhs: Value, orig_rhs: Value, ty: Type, arena: Alloca
     return pt.intValue_big(ty, result_bigint.toConst());
 }
 
-/// operands must be (vectors of) integers; handles undefined scalars.
+/// operands must be (vectors of) integers or bools; handles undefined scalars.
 pub fn bitwiseXor(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (ty.zigTypeTag(zcu) == .vector) {
@@ -1846,7 +1846,7 @@ pub fn bitwiseXor(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zc
     return bitwiseXorScalar(lhs, rhs, ty, allocator, pt);
 }
 
-/// operands must be integers; handles undefined.
+/// operands must be integers or bools; handles undefined.
 pub fn bitwiseXorScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) return Value.fromInterned(try pt.intern(.{ .undef = ty.toIntern() }));
@@ -2895,19 +2895,25 @@ pub fn intValueBounds(val: Value, pt: Zcu.PerThread) !?[2]Value {
 
 pub const BigIntSpace = InternPool.Key.Int.Storage.BigIntSpace;
 
-pub const zero_usize: Value = .{ .ip_index = .zero_usize };
-pub const zero_u8: Value = .{ .ip_index = .zero_u8 };
-pub const zero_comptime_int: Value = .{ .ip_index = .zero };
-pub const one_comptime_int: Value = .{ .ip_index = .one };
-pub const negative_one_comptime_int: Value = .{ .ip_index = .negative_one };
 pub const undef: Value = .{ .ip_index = .undef };
+pub const undef_bool: Value = .{ .ip_index = .undef_bool };
+pub const undef_usize: Value = .{ .ip_index = .undef_usize };
+pub const undef_u1: Value = .{ .ip_index = .undef_u1 };
+pub const zero_comptime_int: Value = .{ .ip_index = .zero };
+pub const zero_usize: Value = .{ .ip_index = .zero_usize };
+pub const zero_u1: Value = .{ .ip_index = .zero_u1 };
+pub const zero_u8: Value = .{ .ip_index = .zero_u8 };
+pub const one_comptime_int: Value = .{ .ip_index = .one };
+pub const one_usize: Value = .{ .ip_index = .one_usize };
+pub const one_u1: Value = .{ .ip_index = .one_u1 };
+pub const one_u8: Value = .{ .ip_index = .one_u8 };
+pub const four_u8: Value = .{ .ip_index = .four_u8 };
+pub const negative_one_comptime_int: Value = .{ .ip_index = .negative_one };
 pub const @"void": Value = .{ .ip_index = .void_value };
-pub const @"null": Value = .{ .ip_index = .null_value };
-pub const @"false": Value = .{ .ip_index = .bool_false };
-pub const @"true": Value = .{ .ip_index = .bool_true };
 pub const @"unreachable": Value = .{ .ip_index = .unreachable_value };
-
-pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type };
+pub const @"null": Value = .{ .ip_index = .null_value };
+pub const @"true": Value = .{ .ip_index = .bool_true };
+pub const @"false": Value = .{ .ip_index = .bool_false };
 pub const empty_tuple: Value = .{ .ip_index = .empty_tuple };
 
 pub fn makeBool(x: bool) Value {

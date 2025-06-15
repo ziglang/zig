@@ -122,17 +122,6 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     const output_mode = .Lib;
     const link_mode = .static;
     const target = comp.root_mod.resolved_target.result;
-    const basename = try std.zig.binNameAlloc(arena, .{
-        .root_name = root_name,
-        .target = target,
-        .output_mode = output_mode,
-        .link_mode = link_mode,
-    });
-
-    const emit_bin = Compilation.EmitLoc{
-        .directory = null, // Put it in the cache directory.
-        .basename = basename,
-    };
 
     const cxxabi_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxxabi", "include" });
     const cxx_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxx", "include" });
@@ -271,8 +260,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         .root_name = root_name,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
-        .emit_bin = emit_bin,
-        .emit_h = null,
+        .emit_bin = .yes_cache,
         .c_source_files = c_source_files.items,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
@@ -308,7 +296,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     assert(comp.libcxx_static_lib == null);
     const crt_file = try sub_compilation.toCrtFile();
     comp.libcxx_static_lib = crt_file;
-    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
+    comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
 }
 
 pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
@@ -327,17 +315,6 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     const output_mode = .Lib;
     const link_mode = .static;
     const target = comp.root_mod.resolved_target.result;
-    const basename = try std.zig.binNameAlloc(arena, .{
-        .root_name = root_name,
-        .target = target,
-        .output_mode = output_mode,
-        .link_mode = link_mode,
-    });
-
-    const emit_bin = Compilation.EmitLoc{
-        .directory = null, // Put it in the cache directory.
-        .basename = basename,
-    };
 
     const cxxabi_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxxabi", "include" });
     const cxx_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxx", "include" });
@@ -467,8 +444,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .root_name = root_name,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
-        .emit_bin = emit_bin,
-        .emit_h = null,
+        .emit_bin = .yes_cache,
         .c_source_files = c_source_files.items,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
@@ -504,7 +480,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     assert(comp.libcxxabi_static_lib == null);
     const crt_file = try sub_compilation.toCrtFile();
     comp.libcxxabi_static_lib = crt_file;
-    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
+    comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
 }
 
 pub fn addCxxArgs(

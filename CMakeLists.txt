@@ -205,6 +205,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/addo.zig
     lib/compiler_rt/addsf3.zig
     lib/compiler_rt/addtf3.zig
+    lib/compiler_rt/addvsi3.zig
     lib/compiler_rt/addxf3.zig
     lib/compiler_rt/arm.zig
     lib/compiler_rt/atomics.zig
@@ -323,6 +324,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/mulo.zig
     lib/compiler_rt/mulsf3.zig
     lib/compiler_rt/multf3.zig
+    lib/compiler_rt/mulvsi3.zig
     lib/compiler_rt/mulxf3.zig
     lib/compiler_rt/negXi2.zig
     lib/compiler_rt/negdf2.zig
@@ -346,6 +348,8 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/subo.zig
     lib/compiler_rt/subsf3.zig
     lib/compiler_rt/subtf3.zig
+    lib/compiler_rt/subvdi3.zig
+    lib/compiler_rt/subvsi3.zig
     lib/compiler_rt/subxf3.zig
     lib/compiler_rt/tan.zig
     lib/compiler_rt/trig.zig
@@ -515,6 +519,7 @@ set(ZIG_STAGE2_SOURCES
     src/Air/Legalize.zig
     src/Air/Liveness.zig
     src/Air/Liveness/Verify.zig
+    src/Air/print.zig
     src/Air/types_resolved.zig
     src/Builtin.zig
     src/Compilation.zig
@@ -530,7 +535,6 @@ set(ZIG_STAGE2_SOURCES
     src/Sema.zig
     src/Sema/bitcast.zig
     src/Sema/comptime_ptr_access.zig
-    src/ThreadSafeQueue.zig
     src/Type.zig
     src/Value.zig
     src/Zcu.zig
@@ -619,6 +623,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/synthetic_sections.zig
     src/link/Goff.zig
     src/link/LdScript.zig
+    src/link/Lld.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
     src/link/MachO/Atom.zig
@@ -647,6 +652,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/uuid.zig
     src/link/Plan9.zig
     src/link/Plan9/aout.zig
+    src/link/Queue.zig
     src/link/SpirV.zig
     src/link/SpirV/BinaryModule.zig
     src/link/SpirV/deduplicate.zig
@@ -671,7 +677,6 @@ set(ZIG_STAGE2_SOURCES
     src/libs/mingw.zig
     src/libs/musl.zig
     src/mutable_value.zig
-    src/print_air.zig
     src/print_env.zig
     src/print_targets.zig
     src/print_value.zig
@@ -793,13 +798,12 @@ elseif(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
   set(ZIG_HOST_TARGET_ARCH "x86_64")
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "arm64")
   set(ZIG_HOST_TARGET_ARCH "aarch64")
-elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7l")
+elseif(ZIG_HOST_TARGET_ARCH MATCHES "^arm(el)?$" OR ZIG_HOST_TARGET_ARCH MATCHES "^armv[7-8]l$")
   set(ZIG_HOST_TARGET_ARCH "arm")
-elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7b")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armeb" OR ZIG_HOST_TARGET_ARCH MATCHES "^armv[7-8]b$")
   set(ZIG_HOST_TARGET_ARCH "armeb")
 endif()
-string(REGEX REPLACE "^((arm|thumb)(hf?)?)el$" "\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
-if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(hf?)?(eb)?$")
+if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(eb)?$")
   check_symbol_exists(__thumb__ "" ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
   if(ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
     string(REGEX REPLACE "^arm" "thumb" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
@@ -995,10 +999,6 @@ endif()
 
 if(NOT "${ZIG_TARGET_DYNAMIC_LINKER}" STREQUAL "")
   list(APPEND ZIG_BUILD_ARGS "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
-endif()
-
-if(MINGW AND "${ZIG_HOST_TARGET_ARCH}" STREQUAL "x86")
-  list(APPEND ZIG_BUILD_ARGS --maxrss 7000000000)
 endif()
 
 

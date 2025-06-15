@@ -21,11 +21,22 @@
    DEALINGS IN THE SOFTWARE.
 */
 
-#include <windows.h>
-#include <stdio.h>
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <malloc.h>
 #include <stdbool.h>
+#include <stdio.h>
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+#define WINPTHREAD_MUTEX_DECL WINPTHREAD_API
+
+/* public header files */
 #include "pthread.h"
+/* internal header files */
 #include "misc.h"
 
 typedef enum {
@@ -184,7 +195,8 @@ pthread_mutex_lock (pthread_mutex_t *m)
   return pthread_mutex_lock_intern (m, INFINITE);
 }
 
-int pthread_mutex_timedlock(pthread_mutex_t *m, const struct timespec *ts)
+/* Internal version which always uses `struct _timespec64`. */
+static int __pthread_mutex_timedlock(pthread_mutex_t *m, const struct _timespec64 *ts)
 {
   unsigned long long patience;
   if (ts != NULL) {
@@ -199,8 +211,19 @@ int pthread_mutex_timedlock(pthread_mutex_t *m, const struct timespec *ts)
   return pthread_mutex_lock_intern(m, patience);
 }
 
+int pthread_mutex_timedlock64(pthread_mutex_t *m, const struct _timespec64 *ts)
+{
+  return __pthread_mutex_timedlock (m, ts);
+}
+
+int pthread_mutex_timedlock32(pthread_mutex_t *m, const struct _timespec32 *ts)
+{
+  struct _timespec64 ts64 = {.tv_sec = ts->tv_sec, .tv_nsec = ts->tv_nsec};
+  return __pthread_mutex_timedlock (m, &ts64);
+}
+
 int pthread_mutex_unlock(pthread_mutex_t *m)
-{    
+{
   /* Here m might an initialiser of an error-checking or recursive mutex, in
      which case the behaviour is well-defined, so we can't skip this check. */
   mutex_impl_t *mi = mutex_impl(m);
@@ -305,9 +328,9 @@ int pthread_mutexattr_gettype(const pthread_mutexattr_t *a, int *type)
 {
   if (!a || !type)
     return EINVAL;
-	
+
   *type = *a & 3;
-  
+
   return 0;
 }
 

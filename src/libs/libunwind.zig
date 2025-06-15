@@ -31,7 +31,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     const unwind_tables: std.builtin.UnwindTables =
         if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async";
     const config = Compilation.Config.resolve(.{
-        .output_mode = .Lib,
+        .output_mode = output_mode,
         .resolved_target = comp.root_mod.resolved_target,
         .is_test = false,
         .have_zcu = false,
@@ -85,17 +85,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     };
 
     const root_name = "unwind";
-    const link_mode = .static;
-    const basename = try std.zig.binNameAlloc(arena, .{
-        .root_name = root_name,
-        .target = target,
-        .output_mode = output_mode,
-        .link_mode = link_mode,
-    });
-    const emit_bin = Compilation.EmitLoc{
-        .directory = null, // Put it in the cache directory.
-        .basename = basename,
-    };
     var c_source_files: [unwind_src_list.len]Compilation.CSourceFile = undefined;
     for (unwind_src_list, 0..) |unwind_src, i| {
         var cflags = std.ArrayList([]const u8).init(arena);
@@ -160,7 +149,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .main_mod = null,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
-        .emit_bin = emit_bin,
+        .emit_bin = .yes_cache,
         .function_sections = comp.function_sections,
         .c_source_files = &c_source_files,
         .verbose_cc = comp.verbose_cc,
@@ -195,7 +184,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     };
 
     const crt_file = try sub_compilation.toCrtFile();
-    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
+    comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
     assert(comp.libunwind_static_lib == null);
     comp.libunwind_static_lib = crt_file;
 }

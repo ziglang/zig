@@ -15,6 +15,8 @@
 #  pragma GCC system_header
 #endif
 
+#include <xlocale.h>
+
 #include <__locale_dir/support/bsd_like.h>
 
 #endif // _LIBCPP___LOCALE_DIR_SUPPORT_FREEBSD_H

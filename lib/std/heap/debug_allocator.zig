@@ -212,8 +212,8 @@ pub fn DebugAllocator(comptime config: Config) type {
             DummyMutex{};
 
         const DummyMutex = struct {
-            inline fn lock(_: *DummyMutex) void {}
-            inline fn unlock(_: *DummyMutex) void {}
+            inline fn lock(_: DummyMutex) void {}
+            inline fn unlock(_: DummyMutex) void {}
         };
 
         const stack_n = config.stack_trace_frames;

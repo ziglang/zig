@@ -65,7 +65,7 @@ pub fn main() !void {
                 // This actually violates the DWARF specification (DWARF5 § 3.1.1, lines 24-27).
                 // The self-hosted backend uses the root Zig source file of the module (in compilance with the spec).
                 if (std.mem.eql(u8, file_name, "test") or
-                    std.mem.eql(u8, file_name, "test.exe.obj") or
+                    std.mem.eql(u8, file_name, "test_zcu.obj") or
                     std.mem.endsWith(u8, file_name, ".zig"))
                 {
                     try buf.appendSlice("[main_file]");

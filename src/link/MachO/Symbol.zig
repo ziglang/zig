@@ -389,9 +389,6 @@ pub const Flags = packed struct {
     /// ZigObject specific flags
     /// Whether the symbol has a trampoline
     trampoline: bool = false,
-
-    /// Whether the symbol is an extern pointer (as opposed to function).
-    is_extern_ptr: bool = false,
 };
 
 pub const SectionFlags = packed struct(u8) {

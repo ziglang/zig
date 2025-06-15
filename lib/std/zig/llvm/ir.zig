@@ -1064,7 +1064,7 @@ pub const MetadataBlock = struct {
     pub const Subrange = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = @intFromEnum(MetadataCode.SUBRANGE) },
-            .{ .literal = 0b10 }, // is distinct | version
+            .{ .literal = 0 | (2 << 1) }, // is distinct | version
             MetadataAbbrev, // count
             MetadataAbbrev, // lower bound
             .{ .literal = 0 }, // upper bound

@@ -6,10 +6,6 @@
  * Written by Kai Tietz  <kai.tietz@onevision.com>
  */
 
-#ifdef CRTDLL
-#undef CRTDLL
-#endif
-
 #include <sect_attribs.h>
 
 #ifndef WIN32_LEAN_AND_MEAN

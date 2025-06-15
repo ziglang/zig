@@ -1056,3 +1056,12 @@ test "unlabeled break ignores switch" {
     };
     try expect(result == 123);
 }
+
+test "switch on a signed value smaller than the smallest prong value" {
+    var v: i32 = undefined;
+    v = -1;
+    switch (v) {
+        inline 0...10 => return error.TestFailed,
+        else => {},
+    }
+}

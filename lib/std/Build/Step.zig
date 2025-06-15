@@ -247,7 +247,6 @@ pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!voi
             s.result_peak_rss, s.max_rss,
         }) catch @panic("OOM");
         s.result_error_msgs.append(arena, msg) catch @panic("OOM");
-        return error.MakeFailed;
     }
 }
 

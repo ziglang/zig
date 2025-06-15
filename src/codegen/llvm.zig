@@ -36,9 +36,13 @@ const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 
 const Error = error{ OutOfMemory, CodegenFail };
 
-fn subArchName(features: std.Target.Cpu.Feature.Set, arch: anytype, mappings: anytype) ?[]const u8 {
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
+}
+
+fn subArchName(target: std.Target, comptime family: std.Target.Cpu.Arch.Family, mappings: anytype) ?[]const u8 {
     inline for (mappings) |mapping| {
-        if (arch.featureSetHas(features, mapping[0])) return mapping[1];
+        if (target.cpu.has(family, mapping[0])) return mapping[1];
     }
 
     return null;
@@ -47,8 +51,6 @@ fn subArchName(features: std.Target.Cpu.Feature.Set, arch: anytype, mappings: an
 pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     var llvm_triple = std.ArrayList(u8).init(allocator);
     defer llvm_triple.deinit();
-
-    const features = target.cpu.features;
 
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
@@ -65,10 +67,10 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .loongarch64 => "loongarch64",
         .m68k => "m68k",
         // MIPS sub-architectures are a bit irregular, so we handle them manually here.
-        .mips => if (std.Target.mips.featureSetHas(features, .mips32r6)) "mipsisa32r6" else "mips",
-        .mipsel => if (std.Target.mips.featureSetHas(features, .mips32r6)) "mipsisa32r6el" else "mipsel",
-        .mips64 => if (std.Target.mips.featureSetHas(features, .mips64r6)) "mipsisa64r6" else "mips64",
-        .mips64el => if (std.Target.mips.featureSetHas(features, .mips64r6)) "mipsisa64r6el" else "mips64el",
+        .mips => if (target.cpu.has(.mips, .mips32r6)) "mipsisa32r6" else "mips",
+        .mipsel => if (target.cpu.has(.mips, .mips32r6)) "mipsisa32r6el" else "mipsel",
+        .mips64 => if (target.cpu.has(.mips, .mips64r6)) "mipsisa64r6" else "mips64",
+        .mips64el => if (target.cpu.has(.mips, .mips64r6)) "mipsisa64r6el" else "mips64el",
         .msp430 => "msp430",
         .powerpc => "powerpc",
         .powerpcle => "powerpcle",
@@ -105,7 +107,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     try llvm_triple.appendSlice(llvm_arch);
 
     const llvm_sub_arch: ?[]const u8 = switch (target.cpu.arch) {
-        .arm, .armeb, .thumb, .thumbeb => subArchName(features, std.Target.arm, .{
+        .arm, .armeb, .thumb, .thumbeb => subArchName(target, .arm, .{
             .{ .v4t, "v4t" },
             .{ .v5t, "v5t" },
             .{ .v5te, "v5te" },
@@ -142,13 +144,13 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
             .{ .v9_5a, "v9.5a" },
             .{ .v9_6a, "v9.6a" },
         }),
-        .powerpc => subArchName(features, std.Target.powerpc, .{
+        .powerpc => subArchName(target, .powerpc, .{
             .{ .spe, "spe" },
         }),
-        .spirv => subArchName(features, std.Target.spirv, .{
+        .spirv => subArchName(target, .spirv, .{
             .{ .v1_5, "1.5" },
         }),
-        .spirv32, .spirv64 => subArchName(features, std.Target.spirv, .{
+        .spirv32, .spirv64 => subArchName(target, .spirv, .{
             .{ .v1_5, "1.5" },
             .{ .v1_4, "1.4" },
             .{ .v1_3, "1.3" },
@@ -305,13 +307,13 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
 }
 
 pub fn supportsTailCall(target: std.Target) bool {
-    switch (target.cpu.arch) {
-        .wasm32, .wasm64 => return std.Target.wasm.featureSetHas(target.cpu.features, .tail_call),
+    return switch (target.cpu.arch) {
+        .wasm32, .wasm64 => target.cpu.has(.wasm, .tail_call),
         // Although these ISAs support tail calls, LLVM does not support tail calls on them.
-        .mips, .mipsel, .mips64, .mips64el => return false,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => return false,
-        else => return true,
-    }
+        .mips, .mipsel, .mips64, .mips64el => false,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => false,
+        else => true,
+    };
 }
 
 pub fn dataLayout(target: std.Target) []const u8 {
@@ -387,11 +389,11 @@ pub fn dataLayout(target: std.Target) []const u8 {
         .nvptx => "e-p:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64",
         .nvptx64 => "e-i64:64-i128:128-v16:16-v32:32-n16:32:64",
         .amdgcn => "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-p7:160:256:256:32-p8:128:128-p9:192:256:256:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-G1-ni:7:8:9",
-        .riscv32 => if (std.Target.riscv.featureSetHas(target.cpu.features, .e))
+        .riscv32 => if (target.cpu.has(.riscv, .e))
             "e-m:e-p:32:32-i64:64-n32-S32"
         else
             "e-m:e-p:32:32-i64:64-n32-S128",
-        .riscv64 => if (std.Target.riscv.featureSetHas(target.cpu.features, .e))
+        .riscv64 => if (target.cpu.has(.riscv, .e))
             "e-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
         else
             "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
@@ -1119,8 +1121,8 @@ pub const Object = struct {
         o: *Object,
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
-        air: Air,
-        liveness: Air.Liveness,
+        air: *const Air,
+        liveness: *const Air.Liveness,
     ) !void {
         assert(std.meta.eql(pt, o.pt));
         const zcu = pt.zcu;
@@ -1477,8 +1479,8 @@ pub const Object = struct {
 
         var fg: FuncGen = .{
             .gpa = gpa,
-            .air = air,
-            .liveness = liveness,
+            .air = air.*,
+            .liveness = liveness.*,
             .ng = &ng,
             .wip = wip,
             .is_naked = fn_info.cc == .naked,
@@ -1504,10 +1506,9 @@ pub const Object = struct {
         deinit_wip = false;
 
         fg.genBody(air.getMainBody(), .poi) catch |err| switch (err) {
-            error.CodegenFail => {
-                try zcu.failed_codegen.put(gpa, func.owner_nav, ng.err_msg.?);
-                ng.err_msg = null;
-                return;
+            error.CodegenFail => switch (zcu.codegenFailMsg(func.owner_nav, ng.err_msg.?)) {
+                error.CodegenFail => return,
+                error.OutOfMemory => |e| return e,
             },
             else => |e| return e,
         };
@@ -1559,10 +1560,9 @@ pub const Object = struct {
             .err_msg = null,
         };
         ng.genDecl() catch |err| switch (err) {
-            error.CodegenFail => {
-                try pt.zcu.failed_codegen.put(pt.zcu.gpa, nav_index, ng.err_msg.?);
-                ng.err_msg = null;
-                return;
+            error.CodegenFail => switch (pt.zcu.codegenFailMsg(nav_index, ng.err_msg.?)) {
+                error.CodegenFail => return,
+                error.OutOfMemory => |e| return e,
             },
             else => |e| return e,
         };
@@ -1583,6 +1583,27 @@ pub const Object = struct {
         const ip = &zcu.intern_pool;
         const global_index = self.nav_map.get(nav_index).?;
         const comp = zcu.comp;
+
+        // If we're on COFF and linking with LLD, the linker cares about our exports to determine the subsystem in use.
+        coff_export_flags: {
+            const lf = comp.bin_file orelse break :coff_export_flags;
+            const lld = lf.cast(.lld) orelse break :coff_export_flags;
+            const coff = switch (lld.ofmt) {
+                .elf, .wasm => break :coff_export_flags,
+                .coff => |*coff| coff,
+            };
+            if (!ip.isFunctionType(ip.getNav(nav_index).typeOf(ip))) break :coff_export_flags;
+            const flags = &coff.lld_export_flags;
+            for (export_indices) |export_index| {
+                const name = export_index.ptr(zcu).opts.name;
+                if (name.eqlSlice("main", ip)) flags.c_main = true;
+                if (name.eqlSlice("WinMain", ip)) flags.winmain = true;
+                if (name.eqlSlice("wWinMain", ip)) flags.wwinmain = true;
+                if (name.eqlSlice("WinMainCRTStartup", ip)) flags.winmain_crt_startup = true;
+                if (name.eqlSlice("wWinMainCRTStartup", ip)) flags.wwinmain_crt_startup = true;
+                if (name.eqlSlice("DllMainCRTStartup", ip)) flags.dllmain_crt_startup = true;
+            }
+        }
 
         if (export_indices.len != 0) {
             return updateExportedGlobal(self, zcu, global_index, export_indices);
@@ -2977,36 +2998,49 @@ pub const Object = struct {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
-        const is_extern, const is_threadlocal, const is_weak_linkage, const is_dll_import = switch (nav.status) {
+        const linkage: std.builtin.GlobalLinkage, const visibility: Builder.Visibility, const is_threadlocal, const is_dll_import = switch (nav.status) {
             .unresolved => unreachable,
             .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
-                .variable => |variable| .{ false, variable.is_threadlocal, variable.is_weak_linkage, false },
-                .@"extern" => |@"extern"| .{ true, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import },
-                else => .{ false, false, false, false },
+                .variable => |variable| .{ .internal, .default, variable.is_threadlocal, false },
+                .@"extern" => |@"extern"| .{ @"extern".linkage, .fromSymbolVisibility(@"extern".visibility), @"extern".is_threadlocal, @"extern".is_dll_import },
+                else => .{ .internal, .default, false, false },
             },
             // This means it's a source declaration which is not `extern`!
-            .type_resolved => |r| .{ false, r.is_threadlocal, false, false },
+            .type_resolved => |r| .{ .internal, .default, r.is_threadlocal, false },
         };
 
         const variable_index = try o.builder.addVariable(
-            try o.builder.strtabString((if (is_extern) nav.name else nav.fqn).toSlice(ip)),
+            try o.builder.strtabString(switch (linkage) {
+                .internal => nav.fqn,
+                .strong, .weak => nav.name,
+                .link_once => unreachable,
+            }.toSlice(ip)),
             try o.lowerType(Type.fromInterned(nav.typeOf(ip))),
             toLlvmGlobalAddressSpace(nav.getAddrspace(), zcu.getTarget()),
         );
         gop.value_ptr.* = variable_index.ptrConst(&o.builder).global;
 
         // This is needed for declarations created by `@extern`.
-        if (is_extern) {
-            variable_index.setLinkage(.external, &o.builder);
-            variable_index.setUnnamedAddr(.default, &o.builder);
-            if (is_threadlocal and !zcu.navFileScope(nav_index).mod.?.single_threaded)
-                variable_index.setThreadLocal(.generaldynamic, &o.builder);
-            if (is_weak_linkage) variable_index.setLinkage(.extern_weak, &o.builder);
-            if (is_dll_import) variable_index.setDllStorageClass(.dllimport, &o.builder);
-        } else {
-            variable_index.setLinkage(.internal, &o.builder);
-            variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
+        switch (linkage) {
+            .internal => {
+                variable_index.setLinkage(.internal, &o.builder);
+                variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
+            },
+            .strong, .weak => {
+                variable_index.setLinkage(switch (linkage) {
+                    .internal => unreachable,
+                    .strong => .external,
+                    .weak => .extern_weak,
+                    .link_once => unreachable,
+                }, &o.builder);
+                variable_index.setUnnamedAddr(.default, &o.builder);
+                if (is_threadlocal and !zcu.navFileScope(nav_index).mod.?.single_threaded)
+                    variable_index.setThreadLocal(.generaldynamic, &o.builder);
+                if (is_dll_import) variable_index.setDllStorageClass(.dllimport, &o.builder);
+            },
+            .link_once => unreachable,
         }
+        variable_index.setVisibility(visibility, &o.builder);
         return variable_index;
     }
 
@@ -3081,10 +3115,11 @@ pub const Object = struct {
             .undefined_type,
             .enum_literal_type,
             => unreachable,
+            .ptr_usize_type,
+            .ptr_const_comptime_int_type,
             .manyptr_u8_type,
             .manyptr_const_u8_type,
             .manyptr_const_u8_sentinel_0_type,
-            .single_const_pointer_to_comptime_int_type,
             => .ptr,
             .slice_const_u8_type,
             .slice_const_u8_sentinel_0_type,
@@ -3098,11 +3133,16 @@ pub const Object = struct {
             => unreachable,
             // values, not types
             .undef,
+            .undef_bool,
+            .undef_usize,
+            .undef_u1,
             .zero,
             .zero_usize,
+            .zero_u1,
             .zero_u8,
             .one,
             .one_usize,
+            .one_u1,
             .one_u8,
             .four_u8,
             .negative_one,
@@ -4522,14 +4562,14 @@ pub const NavGen = struct {
         const nav = ip.getNav(nav_index);
         const resolved = nav.status.fully_resolved;
 
-        const is_extern, const lib_name, const is_threadlocal, const is_weak_linkage, const is_dll_import, const is_const, const init_val, const owner_nav = switch (ip.indexToKey(resolved.val)) {
-            .variable => |variable| .{ false, .none, variable.is_threadlocal, variable.is_weak_linkage, false, false, variable.init, variable.owner_nav },
-            .@"extern" => |@"extern"| .{ true, @"extern".lib_name, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import, @"extern".is_const, .none, @"extern".owner_nav },
-            else => .{ false, .none, false, false, false, true, resolved.val, nav_index },
+        const lib_name, const linkage, const visibility: Builder.Visibility, const is_threadlocal, const is_dll_import, const is_const, const init_val, const owner_nav = switch (ip.indexToKey(resolved.val)) {
+            .variable => |variable| .{ .none, .internal, .default, variable.is_threadlocal, false, false, variable.init, variable.owner_nav },
+            .@"extern" => |@"extern"| .{ @"extern".lib_name, @"extern".linkage, .fromSymbolVisibility(@"extern".visibility), @"extern".is_threadlocal, @"extern".is_dll_import, @"extern".is_const, .none, @"extern".owner_nav },
+            else => .{ .none, .internal, .default, false, false, true, resolved.val, nav_index },
         };
         const ty = Type.fromInterned(nav.typeOf(ip));
 
-        if (is_extern and ip.isFunctionType(ty.toIntern())) {
+        if (linkage != .internal and ip.isFunctionType(ty.toIntern())) {
             _ = try o.resolveLlvmFunction(owner_nav);
         } else {
             const variable_index = try o.resolveGlobalNav(nav_index);
@@ -4541,6 +4581,7 @@ pub const NavGen = struct {
                 .none => .no_init,
                 else => try o.lowerValue(init_val),
             }, &o.builder);
+            variable_index.setVisibility(visibility, &o.builder);
 
             const file_scope = zcu.navFileScopeIndex(nav_index);
             const mod = zcu.fileByIndex(file_scope).mod.?;
@@ -4560,7 +4601,7 @@ pub const NavGen = struct {
                     line_number,
                     try o.lowerDebugType(ty),
                     variable_index,
-                    .{ .local = !is_extern },
+                    .{ .local = linkage == .internal },
                 );
 
                 const debug_expression = try o.builder.debugExpression(&.{});
@@ -4575,38 +4616,47 @@ pub const NavGen = struct {
             }
         }
 
-        if (is_extern) {
-            const global_index = o.nav_map.get(nav_index).?;
+        switch (linkage) {
+            .internal => {},
+            .strong, .weak => {
+                const global_index = o.nav_map.get(nav_index).?;
 
-            const decl_name = decl_name: {
-                if (zcu.getTarget().cpu.arch.isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
-                    if (lib_name.toSlice(ip)) |lib_name_slice| {
-                        if (!std.mem.eql(u8, lib_name_slice, "c")) {
-                            break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
+                const decl_name = decl_name: {
+                    if (zcu.getTarget().cpu.arch.isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
+                        if (lib_name.toSlice(ip)) |lib_name_slice| {
+                            if (!std.mem.eql(u8, lib_name_slice, "c")) {
+                                break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
+                            }
                         }
                     }
+                    break :decl_name try o.builder.strtabString(nav.name.toSlice(ip));
+                };
+
+                if (o.builder.getGlobal(decl_name)) |other_global| {
+                    if (other_global != global_index) {
+                        // Another global already has this name; just use it in place of this global.
+                        try global_index.replace(other_global, &o.builder);
+                        return;
+                    }
                 }
-                break :decl_name try o.builder.strtabString(nav.name.toSlice(ip));
-            };
 
-            if (o.builder.getGlobal(decl_name)) |other_global| {
-                if (other_global != global_index) {
-                    // Another global already has this name; just use it in place of this global.
-                    try global_index.replace(other_global, &o.builder);
-                    return;
+                try global_index.rename(decl_name, &o.builder);
+                global_index.setUnnamedAddr(.default, &o.builder);
+                if (is_dll_import) {
+                    global_index.setDllStorageClass(.dllimport, &o.builder);
+                } else if (zcu.comp.config.dll_export_fns) {
+                    global_index.setDllStorageClass(.default, &o.builder);
                 }
-            }
 
-            try global_index.rename(decl_name, &o.builder);
-            global_index.setLinkage(.external, &o.builder);
-            global_index.setUnnamedAddr(.default, &o.builder);
-            if (is_dll_import) {
-                global_index.setDllStorageClass(.dllimport, &o.builder);
-            } else if (zcu.comp.config.dll_export_fns) {
-                global_index.setDllStorageClass(.default, &o.builder);
-            }
-
-            if (is_weak_linkage) global_index.setLinkage(.extern_weak, &o.builder);
+                global_index.setLinkage(switch (linkage) {
+                    .internal => unreachable,
+                    .strong => .external,
+                    .weak => .extern_weak,
+                    .link_once => unreachable,
+                }, &o.builder);
+                global_index.setVisibility(visibility, &o.builder);
+            },
+            .link_once => unreachable,
         }
     }
 };
@@ -4959,7 +5009,8 @@ pub const FuncGen = struct {
                 .error_name     => try self.airErrorName(inst),
                 .splat          => try self.airSplat(inst),
                 .select         => try self.airSelect(inst),
-                .shuffle        => try self.airShuffle(inst),
+                .shuffle_one    => try self.airShuffleOne(inst),
+                .shuffle_two    => try self.airShuffleTwo(inst),
                 .aggregate_init => try self.airAggregateInit(inst),
                 .union_init     => try self.airUnionInit(inst),
                 .prefetch       => try self.airPrefetch(inst),
@@ -5014,7 +5065,7 @@ pub const FuncGen = struct {
 
                 .vector_store_elem => try self.airVectorStoreElem(inst),
 
-                .tlv_dllimport_ptr => try self.airTlvDllimportPtr(inst),
+                .runtime_nav_ptr => try self.airRuntimeNavPtr(inst),
 
                 .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
@@ -8113,7 +8164,7 @@ pub const FuncGen = struct {
         return .none;
     }
 
-    fn airTlvDllimportPtr(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airRuntimeNavPtr(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = fg.ng.object;
         const ty_nav = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
         const llvm_ptr_const = try o.lowerNavRefValue(ty_nav.nav);
@@ -8917,6 +8968,8 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(extra.rhs);
 
         const lhs_ty = self.typeOf(extra.lhs);
+        if (lhs_ty.isVector(zcu) and !self.typeOf(extra.rhs).isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
         const lhs_scalar_ty = lhs_ty.scalarType(zcu);
 
         const dest_ty = self.typeOfIndex(inst);
@@ -8986,6 +9039,8 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
 
         const lhs_ty = self.typeOf(bin_op.lhs);
+        if (lhs_ty.isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
         const lhs_scalar_ty = lhs_ty.scalarType(zcu);
 
         const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_ty), "");
@@ -8997,14 +9052,17 @@ pub const FuncGen = struct {
 
     fn airShl(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
+        const zcu = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
         const lhs = try self.resolveInst(bin_op.lhs);
         const rhs = try self.resolveInst(bin_op.rhs);
 
-        const lhs_type = self.typeOf(bin_op.lhs);
+        const lhs_ty = self.typeOf(bin_op.lhs);
+        if (lhs_ty.isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
 
-        const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_type), "");
+        const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_ty), "");
         return self.wip.bin(.shl, lhs, casted_rhs, "");
     }
 
@@ -9023,6 +9081,8 @@ pub const FuncGen = struct {
         const llvm_lhs_scalar_ty = llvm_lhs_ty.scalarType(&o.builder);
 
         const rhs_ty = self.typeOf(bin_op.rhs);
+        if (lhs_ty.isVector(zcu) and !rhs_ty.isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
         const rhs_info = rhs_ty.intInfo(zcu);
         assert(rhs_info.signedness == .unsigned);
         const llvm_rhs_ty = try o.lowerType(rhs_ty);
@@ -9095,6 +9155,8 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
 
         const lhs_ty = self.typeOf(bin_op.lhs);
+        if (lhs_ty.isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+            return self.ng.todo("implement vector shifts with scalar rhs", .{});
         const lhs_scalar_ty = lhs_ty.scalarType(zcu);
 
         const casted_rhs = try self.wip.conv(.unsigned, rhs, try o.lowerType(lhs_ty), "");
@@ -9167,11 +9229,7 @@ pub const FuncGen = struct {
             const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
             assert(is_vector == (dest_ty.zigTypeTag(zcu) == .vector));
 
-            const min_panic_id: Zcu.SimplePanicId, const max_panic_id: Zcu.SimplePanicId = id: {
-                if (dest_is_enum) break :id .{ .invalid_enum_value, .invalid_enum_value };
-                if (dest_info.signedness == .unsigned) break :id .{ .negative_to_unsigned, .cast_truncated_data };
-                break :id .{ .cast_truncated_data, .cast_truncated_data };
-            };
+            const panic_id: Zcu.SimplePanicId = if (dest_is_enum) .invalid_enum_value else .integer_out_of_bounds;
 
             if (have_min_check) {
                 const min_const_scalar = try minIntConst(&o.builder, dest_scalar, operand_scalar_llvm_ty, zcu);
@@ -9185,7 +9243,7 @@ pub const FuncGen = struct {
                 const ok_block = try fg.wip.block(1, "IntMinOk");
                 _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
                 fg.wip.cursor = .{ .block = fail_block };
-                try fg.buildSimplePanic(min_panic_id);
+                try fg.buildSimplePanic(panic_id);
                 fg.wip.cursor = .{ .block = ok_block };
             }
 
@@ -9201,7 +9259,7 @@ pub const FuncGen = struct {
                 const ok_block = try fg.wip.block(1, "IntMaxOk");
                 _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
                 fg.wip.cursor = .{ .block = fail_block };
-                try fg.buildSimplePanic(max_panic_id);
+                try fg.buildSimplePanic(panic_id);
                 fg.wip.cursor = .{ .block = ok_block };
             }
         }
@@ -9249,8 +9307,6 @@ pub const FuncGen = struct {
         const operand_ty = self.typeOf(ty_op.operand);
         const dest_ty = self.typeOfIndex(inst);
         const target = zcu.getTarget();
-        const dest_bits = dest_ty.floatBits(target);
-        const src_bits = operand_ty.floatBits(target);
 
         if (intrinsicsAllowed(dest_ty, target) and intrinsicsAllowed(operand_ty, target)) {
             return self.wip.cast(.fptrunc, operand, try o.lowerType(dest_ty), "");
@@ -9258,6 +9314,8 @@ pub const FuncGen = struct {
             const operand_llvm_ty = try o.lowerType(operand_ty);
             const dest_llvm_ty = try o.lowerType(dest_ty);
 
+            const dest_bits = dest_ty.floatBits(target);
+            const src_bits = operand_ty.floatBits(target);
             const fn_name = try o.builder.strtabStringFmt("__trunc{s}f{s}f2", .{
                 compilerRtFloatAbbrev(src_bits), compilerRtFloatAbbrev(dest_bits),
             });
@@ -9342,11 +9400,12 @@ pub const FuncGen = struct {
             return self.wip.conv(.unsigned, operand, llvm_dest_ty, "");
         }
 
-        if (operand_ty.zigTypeTag(zcu) == .int and inst_ty.isPtrAtRuntime(zcu)) {
+        const operand_scalar_ty = operand_ty.scalarType(zcu);
+        const inst_scalar_ty = inst_ty.scalarType(zcu);
+        if (operand_scalar_ty.zigTypeTag(zcu) == .int and inst_scalar_ty.isPtrAtRuntime(zcu)) {
             return self.wip.cast(.inttoptr, operand, llvm_dest_ty, "");
         }
-
-        if (operand_ty.isPtrAtRuntime(zcu) and inst_ty.zigTypeTag(zcu) == .int) {
+        if (operand_scalar_ty.isPtrAtRuntime(zcu) and inst_scalar_ty.zigTypeTag(zcu) == .int) {
             return self.wip.cast(.ptrtoint, operand, llvm_dest_ty, "");
         }
 
@@ -9450,15 +9509,21 @@ pub const FuncGen = struct {
 
         const inst_ty = self.typeOfIndex(inst);
 
-        const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
-        if (name == .none) return arg_val;
-
         const func = zcu.funcInfo(zcu.navValue(self.ng.nav_index).toIntern());
+        const func_zir = func.zir_body_inst.resolveFull(&zcu.intern_pool).?;
+        const file = zcu.fileByIndex(func_zir.file);
+
+        const mod = file.mod.?;
+        if (mod.strip) return arg_val;
+        const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
+        const zir = &file.zir.?;
+        const name = zir.nullTerminatedString(zir.getParamName(zir.getParamBody(func_zir.inst)[arg.zir_param_index]).?);
+
         const lbrace_line = zcu.navSrcLine(func.owner_nav) + func.lbrace_line + 1;
         const lbrace_col = func.lbrace_column + 1;
 
         const debug_parameter = try o.builder.debugParameter(
-            try o.builder.metadataString(name.toSlice(self.air)),
+            try o.builder.metadataString(name),
             self.file,
             self.scope,
             lbrace_line,
@@ -9476,7 +9541,6 @@ pub const FuncGen = struct {
             },
         };
 
-        const mod = self.ng.ownerModule();
         if (isByRef(inst_ty, zcu)) {
             _ = try self.wip.callIntrinsic(
                 .normal,
@@ -9644,7 +9708,7 @@ pub const FuncGen = struct {
         const zcu = o.pt.zcu;
         const ip = &zcu.intern_pool;
         for (body_tail[1..]) |body_inst| {
-            switch (fg.liveness.categorizeOperand(fg.air, body_inst, body_tail[0], ip)) {
+            switch (fg.liveness.categorizeOperand(fg.air, zcu, body_inst, body_tail[0], ip)) {
                 .none => continue,
                 .write, .noret, .complex => return false,
                 .tomb => return true,
@@ -10399,42 +10463,192 @@ pub const FuncGen = struct {
         return self.wip.select(.normal, pred, a, b, "");
     }
 
-    fn airShuffle(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
+    fn airShuffleOne(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = fg.ng.object;
         const pt = o.pt;
         const zcu = pt.zcu;
-        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-        const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
-        const a = try self.resolveInst(extra.a);
-        const b = try self.resolveInst(extra.b);
-        const mask = Value.fromInterned(extra.mask);
-        const mask_len = extra.mask_len;
-        const a_len = self.typeOf(extra.a).vectorLen(zcu);
+        const gpa = zcu.gpa;
 
-        // LLVM uses integers larger than the length of the first array to
-        // index into the second array. This was deemed unnecessarily fragile
-        // when changing code, so Zig uses negative numbers to index the
-        // second vector. These start at -1 and go down, and are easiest to use
-        // with the ~ operator. Here we convert between the two formats.
-        const values = try self.gpa.alloc(Builder.Constant, mask_len);
-        defer self.gpa.free(values);
+        const unwrapped = fg.air.unwrapShuffleOne(zcu, inst);
 
-        for (values, 0..) |*val, i| {
-            const elem = try mask.elemValue(pt, i);
-            if (elem.isUndef(zcu)) {
-                val.* = try o.builder.undefConst(.i32);
-            } else {
-                const int = elem.toSignedInt(zcu);
-                const unsigned: u32 = @intCast(if (int >= 0) int else ~int + a_len);
-                val.* = try o.builder.intConst(.i32, unsigned);
+        const operand = try fg.resolveInst(unwrapped.operand);
+        const mask = unwrapped.mask;
+        const operand_ty = fg.typeOf(unwrapped.operand);
+        const llvm_operand_ty = try o.lowerType(operand_ty);
+        const llvm_result_ty = try o.lowerType(unwrapped.result_ty);
+        const llvm_elem_ty = try o.lowerType(unwrapped.result_ty.childType(zcu));
+        const llvm_poison_elem = try o.builder.poisonConst(llvm_elem_ty);
+        const llvm_poison_mask_elem = try o.builder.poisonConst(.i32);
+        const llvm_mask_ty = try o.builder.vectorType(.normal, @intCast(mask.len), .i32);
+
+        // LLVM requires that the two input vectors have the same length, so lowering isn't trivial.
+        // And, in the words of jacobly0: "llvm sucks at shuffles so we do have to hold its hand at
+        // least a bit". So, there are two cases here.
+        //
+        // If the operand length equals the mask length, we do just the one `shufflevector`, where
+        // the second operand is a constant vector with comptime-known elements at the right indices
+        // and poison values elsewhere (in the indices which won't be selected).
+        //
+        // Otherwise, we lower to *two* `shufflevector` instructions. The first shuffles the runtime
+        // operand with an all-poison vector to extract and correctly position all of the runtime
+        // elements. We also make a constant vector with all of the comptime elements correctly
+        // positioned. Then, our second instruction selects elements from those "runtime-or-poison"
+        // and "comptime-or-poison" vectors to compute the result.
+
+        // This buffer is used primarily for the mask constants.
+        const llvm_elem_buf = try gpa.alloc(Builder.Constant, mask.len);
+        defer gpa.free(llvm_elem_buf);
+
+        // ...but first, we'll collect all of the comptime-known values.
+        var any_defined_comptime_value = false;
+        for (mask, llvm_elem_buf) |mask_elem, *llvm_elem| {
+            llvm_elem.* = switch (mask_elem.unwrap()) {
+                .elem => llvm_poison_elem,
+                .value => |val| if (!Value.fromInterned(val).isUndef(zcu)) elem: {
+                    any_defined_comptime_value = true;
+                    break :elem try o.lowerValue(val);
+                } else llvm_poison_elem,
+            };
+        }
+        // This vector is like the result, but runtime elements are replaced with poison.
+        const comptime_and_poison: Builder.Value = if (any_defined_comptime_value) vec: {
+            break :vec try o.builder.vectorValue(llvm_result_ty, llvm_elem_buf);
+        } else try o.builder.poisonValue(llvm_result_ty);
+
+        if (operand_ty.vectorLen(zcu) == mask.len) {
+            // input length equals mask/output length, so we lower to one instruction
+            for (mask, llvm_elem_buf, 0..) |mask_elem, *llvm_elem, elem_idx| {
+                llvm_elem.* = switch (mask_elem.unwrap()) {
+                    .elem => |idx| try o.builder.intConst(.i32, idx),
+                    .value => |val| if (!Value.fromInterned(val).isUndef(zcu)) mask_val: {
+                        break :mask_val try o.builder.intConst(.i32, mask.len + elem_idx);
+                    } else llvm_poison_mask_elem,
+                };
             }
+            return fg.wip.shuffleVector(
+                operand,
+                comptime_and_poison,
+                try o.builder.vectorValue(llvm_mask_ty, llvm_elem_buf),
+                "",
+            );
         }
 
-        const llvm_mask_value = try o.builder.vectorValue(
-            try o.builder.vectorType(.normal, mask_len, .i32),
-            values,
+        for (mask, llvm_elem_buf) |mask_elem, *llvm_elem| {
+            llvm_elem.* = switch (mask_elem.unwrap()) {
+                .elem => |idx| try o.builder.intConst(.i32, idx),
+                .value => llvm_poison_mask_elem,
+            };
+        }
+        // This vector is like our result, but all comptime-known elements are poison.
+        const runtime_and_poison = try fg.wip.shuffleVector(
+            operand,
+            try o.builder.poisonValue(llvm_operand_ty),
+            try o.builder.vectorValue(llvm_mask_ty, llvm_elem_buf),
+            "",
         );
-        return self.wip.shuffleVector(a, b, llvm_mask_value, "");
+
+        if (!any_defined_comptime_value) {
+            // `comptime_and_poison` is just poison; a second shuffle would be a nop.
+            return runtime_and_poison;
+        }
+
+        // In this second shuffle, the inputs, the mask, and the output all have the same length.
+        for (mask, llvm_elem_buf, 0..) |mask_elem, *llvm_elem, elem_idx| {
+            llvm_elem.* = switch (mask_elem.unwrap()) {
+                .elem => try o.builder.intConst(.i32, elem_idx),
+                .value => |val| if (!Value.fromInterned(val).isUndef(zcu)) mask_val: {
+                    break :mask_val try o.builder.intConst(.i32, mask.len + elem_idx);
+                } else llvm_poison_mask_elem,
+            };
+        }
+        // Merge the runtime and comptime elements with the mask we just built.
+        return fg.wip.shuffleVector(
+            runtime_and_poison,
+            comptime_and_poison,
+            try o.builder.vectorValue(llvm_mask_ty, llvm_elem_buf),
+            "",
+        );
+    }
+
+    fn airShuffleTwo(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = fg.ng.object;
+        const pt = o.pt;
+        const zcu = pt.zcu;
+        const gpa = zcu.gpa;
+
+        const unwrapped = fg.air.unwrapShuffleTwo(zcu, inst);
+
+        const mask = unwrapped.mask;
+        const llvm_elem_ty = try o.lowerType(unwrapped.result_ty.childType(zcu));
+        const llvm_mask_ty = try o.builder.vectorType(.normal, @intCast(mask.len), .i32);
+        const llvm_poison_mask_elem = try o.builder.poisonConst(.i32);
+
+        // This is kind of simpler than in `airShuffleOne`. We extend the shorter vector to the
+        // length of the longer one with an initial `shufflevector` if necessary, and then do the
+        // actual computation with a second `shufflevector`.
+
+        const operand_a_len = fg.typeOf(unwrapped.operand_a).vectorLen(zcu);
+        const operand_b_len = fg.typeOf(unwrapped.operand_b).vectorLen(zcu);
+        const operand_len: u32 = @max(operand_a_len, operand_b_len);
+
+        // If we need to extend an operand, this is the type that mask will have.
+        const llvm_operand_mask_ty = try o.builder.vectorType(.normal, operand_len, .i32);
+
+        const llvm_elem_buf = try gpa.alloc(Builder.Constant, @max(mask.len, operand_len));
+        defer gpa.free(llvm_elem_buf);
+
+        const operand_a: Builder.Value = extend: {
+            const raw = try fg.resolveInst(unwrapped.operand_a);
+            if (operand_a_len == operand_len) break :extend raw;
+            // Extend with a `shufflevector`, with a mask `<0, 1, ..., n, poison, poison, ..., poison>`
+            const mask_elems = llvm_elem_buf[0..operand_len];
+            for (mask_elems[0..operand_a_len], 0..) |*llvm_elem, elem_idx| {
+                llvm_elem.* = try o.builder.intConst(.i32, elem_idx);
+            }
+            @memset(mask_elems[operand_a_len..], llvm_poison_mask_elem);
+            const llvm_this_operand_ty = try o.builder.vectorType(.normal, operand_a_len, llvm_elem_ty);
+            break :extend try fg.wip.shuffleVector(
+                raw,
+                try o.builder.poisonValue(llvm_this_operand_ty),
+                try o.builder.vectorValue(llvm_operand_mask_ty, mask_elems),
+                "",
+            );
+        };
+        const operand_b: Builder.Value = extend: {
+            const raw = try fg.resolveInst(unwrapped.operand_b);
+            if (operand_b_len == operand_len) break :extend raw;
+            // Extend with a `shufflevector`, with a mask `<0, 1, ..., n, poison, poison, ..., poison>`
+            const mask_elems = llvm_elem_buf[0..operand_len];
+            for (mask_elems[0..operand_b_len], 0..) |*llvm_elem, elem_idx| {
+                llvm_elem.* = try o.builder.intConst(.i32, elem_idx);
+            }
+            @memset(mask_elems[operand_b_len..], llvm_poison_mask_elem);
+            const llvm_this_operand_ty = try o.builder.vectorType(.normal, operand_b_len, llvm_elem_ty);
+            break :extend try fg.wip.shuffleVector(
+                raw,
+                try o.builder.poisonValue(llvm_this_operand_ty),
+                try o.builder.vectorValue(llvm_operand_mask_ty, mask_elems),
+                "",
+            );
+        };
+
+        // `operand_a` and `operand_b` now have the same length (we've extended the shorter one with
+        // an initial shuffle if necessary). Now for the easy bit.
+
+        const mask_elems = llvm_elem_buf[0..mask.len];
+        for (mask, mask_elems) |mask_elem, *llvm_mask_elem| {
+            llvm_mask_elem.* = switch (mask_elem.unwrap()) {
+                .a_elem => |idx| try o.builder.intConst(.i32, idx),
+                .b_elem => |idx| try o.builder.intConst(.i32, operand_len + idx),
+                .undef => llvm_poison_mask_elem,
+            };
+        }
+        return fg.wip.shuffleVector(
+            operand_a,
+            operand_b,
+            try o.builder.vectorValue(llvm_mask_ty, mask_elems),
+            "",
+        );
     }
 
     /// Reduce a vector by repeatedly applying `llvm_fn` to produce an accumulated result.
@@ -11435,7 +11649,7 @@ pub const FuncGen = struct {
         const pt = o.pt;
         const zcu = pt.zcu;
         const target = zcu.getTarget();
-        if (!target_util.hasValgrindSupport(target)) return default_value;
+        if (!target_util.hasValgrindSupport(target, .stage2_llvm)) return default_value;
 
         const llvm_usize = try o.lowerType(Type.usize);
         const usize_alignment = Type.usize.abiAlignment(zcu).toLlvm();
@@ -11508,6 +11722,19 @@ pub const FuncGen = struct {
                 \\ or     1, 1, 1
                 ,
                 .constraints = "={r3},{r4},{r3},~{cc},~{memory}",
+            },
+            .riscv64 => .{
+                .template =
+                \\ .option push
+                \\ .option norvc
+                \\ srli zero, zero, 3
+                \\ srli zero, zero, 13
+                \\ srli zero, zero, 51
+                \\ srli zero, zero, 61
+                \\ or   a0,   a0,   a0
+                \\ .option pop
+                ,
+                .constraints = "={a3},{a4},{a3},~{cc},~{memory}",
             },
             .s390x => .{
                 .template =
@@ -11865,7 +12092,7 @@ fn returnTypeByRef(zcu: *Zcu, target: std.Target, ty: Type) bool {
     if (isByRef(ty, zcu)) {
         return true;
     } else if (target.cpu.arch.isX86() and
-        !std.Target.x86.featureSetHas(target.cpu.features, .evex512) and
+        !target.cpu.has(.x86, .evex512) and
         ty.totalVectorBits(zcu) >= 512)
     {
         // As of LLVM 18, passing a vector byval with fastcc that is 512 bits or more returns
@@ -12140,7 +12367,7 @@ const ParamTypeIterator = struct {
                 } else if (isByRef(ty, zcu)) {
                     return .byref;
                 } else if (target.cpu.arch.isX86() and
-                    !std.Target.x86.featureSetHas(target.cpu.features, .evex512) and
+                    !target.cpu.has(.x86, .evex512) and
                     ty.totalVectorBits(zcu) >= 512)
                 {
                     // As of LLVM 18, passing a vector byval with fastcc that is 512 bits or more returns
@@ -12564,7 +12791,7 @@ fn isScalar(zcu: *Zcu, ty: Type) bool {
 /// or if it produces miscompilations.
 fn backendSupportsF80(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .x86_64, .x86 => !std.Target.x86.featureSetHas(target.cpu.features, .soft_float),
+        .x86, .x86_64 => !target.cpu.has(.x86, .soft_float),
         else => false,
     };
 }
@@ -12596,11 +12823,11 @@ fn backendSupportsF16(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fullfp16),
+        => target.abi.float() == .soft or target.cpu.has(.arm, .fullfp16),
         // https://github.com/llvm/llvm-project/issues/129394
         .aarch64,
         .aarch64_be,
-        => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.cpu.has(.aarch64, .fp_armv8),
         else => true,
     };
 }
@@ -12631,7 +12858,7 @@ fn backendSupportsF128(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.abi.float() == .soft or target.cpu.has(.arm, .fp_armv8),
         else => true,
     };
 }

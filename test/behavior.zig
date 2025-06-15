@@ -117,7 +117,7 @@ test {
 
     _ = @import("behavior/x86_64.zig");
 
-    if (builtin.zig_backend != .stage2_spirv64 and builtin.cpu.arch == .wasm32) {
+    if (builtin.cpu.arch == .wasm32) {
         _ = @import("behavior/wasm.zig");
     }
 

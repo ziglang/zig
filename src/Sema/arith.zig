@@ -168,7 +168,7 @@ fn addWithOverflowScalar(
         else => unreachable,
     }
     if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) return .{
-        .overflow_bit = try pt.undefValue(.u1),
+        .overflow_bit = .undef_u1,
         .wrapped_result = try pt.undefValue(ty),
     };
     return intAddWithOverflow(sema, lhs, rhs, ty);
@@ -229,7 +229,7 @@ fn subWithOverflowScalar(
         else => unreachable,
     }
     if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) return .{
-        .overflow_bit = try pt.undefValue(.u1),
+        .overflow_bit = .undef_u1,
         .wrapped_result = try pt.undefValue(ty),
     };
     return intSubWithOverflow(sema, lhs, rhs, ty);
@@ -290,7 +290,7 @@ fn mulWithOverflowScalar(
         else => unreachable,
     }
     if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) return .{
-        .overflow_bit = try pt.undefValue(.u1),
+        .overflow_bit = .undef_u1,
         .wrapped_result = try pt.undefValue(ty),
     };
     return intMulWithOverflow(sema, lhs, rhs, ty);
@@ -1043,7 +1043,7 @@ fn comptimeIntAdd(sema: *Sema, lhs: Value, rhs: Value) !Value {
 fn intAddWithOverflow(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value.OverflowArithmeticResult {
     switch (ty.toIntern()) {
         .comptime_int_type => return .{
-            .overflow_bit = try sema.pt.intValue(.u1, 0),
+            .overflow_bit = .zero_u1,
             .wrapped_result = try comptimeIntAdd(sema, lhs, rhs),
         },
         else => return intAddWithOverflowInner(sema, lhs, rhs, ty),
@@ -1125,7 +1125,7 @@ fn comptimeIntSub(sema: *Sema, lhs: Value, rhs: Value) !Value {
 fn intSubWithOverflow(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value.OverflowArithmeticResult {
     switch (ty.toIntern()) {
         .comptime_int_type => return .{
-            .overflow_bit = try sema.pt.intValue(.u1, 0),
+            .overflow_bit = .zero_u1,
             .wrapped_result = try comptimeIntSub(sema, lhs, rhs),
         },
         else => return intSubWithOverflowInner(sema, lhs, rhs, ty),
@@ -1211,7 +1211,7 @@ fn comptimeIntMul(sema: *Sema, lhs: Value, rhs: Value) !Value {
 fn intMulWithOverflow(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value.OverflowArithmeticResult {
     switch (ty.toIntern()) {
         .comptime_int_type => return .{
-            .overflow_bit = try sema.pt.intValue(.u1, 0),
+            .overflow_bit = .zero_u1,
             .wrapped_result = try comptimeIntMul(sema, lhs, rhs),
         },
         else => return intMulWithOverflowInner(sema, lhs, rhs, ty),

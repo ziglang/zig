@@ -18,5 +18,5 @@ fn mul(a: @Vector(4, u8), b: @Vector(4, u8)) @Vector(4, u8) {
     return a * b;
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

@@ -340,21 +340,6 @@ pub extern "kernel32" fn GetExitCodeProcess(
 // TODO: Already a wrapper for this, see `windows.GetCurrentProcess`.
 pub extern "kernel32" fn GetCurrentProcess() callconv(.winapi) HANDLE;
 
-// TODO: memcpy peb().ProcessParameters.Environment, mem.span(0). Requires locking the PEB.
-pub extern "kernel32" fn GetEnvironmentStringsW() callconv(.winapi) ?LPWSTR;
-
-// TODO: RtlFreeHeap on the output of GetEnvironmentStringsW.
-pub extern "kernel32" fn FreeEnvironmentStringsW(
-    penv: LPWSTR,
-) callconv(.winapi) BOOL;
-
-// TODO: Wrapper around RtlQueryEnvironmentVariable.
-pub extern "kernel32" fn GetEnvironmentVariableW(
-    lpName: ?LPCWSTR,
-    lpBuffer: ?[*]WCHAR,
-    nSize: DWORD,
-) callconv(.winapi) DWORD;
-
 // TODO: Wrapper around RtlSetEnvironmentVar.
 pub extern "kernel32" fn SetEnvironmentVariableW(
     lpName: LPCWSTR,

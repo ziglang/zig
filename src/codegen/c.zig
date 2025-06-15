@@ -3,7 +3,9 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
 const log = std.log.scoped(.c);
+const Allocator = mem.Allocator;
 
+const dev = @import("../dev.zig");
 const link = @import("../link.zig");
 const Zcu = @import("../Zcu.zig");
 const Module = @import("../Package/Module.zig");
@@ -19,6 +21,44 @@ const Alignment = InternPool.Alignment;
 
 const BigIntLimb = std.math.big.Limb;
 const BigInt = std.math.big.int;
+
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return if (dev.env.supports(.legalize)) comptime &.initMany(&.{
+        .expand_intcast_safe,
+        .expand_add_safe,
+        .expand_sub_safe,
+        .expand_mul_safe,
+    }) else null; // we don't currently ask zig1 to use safe optimization modes
+}
+
+/// For most backends, MIR is basically a sequence of machine code instructions, perhaps with some
+/// "pseudo instructions" thrown in. For the C backend, it is instead the generated C code for a
+/// single function. We also need to track some information to get merged into the global `link.C`
+/// state, including:
+/// * The UAVs used, so declarations can be emitted in `flush`
+/// * The types used, so declarations can be emitted in `flush`
+/// * The lazy functions used, so definitions can be emitted in `flush`
+pub const Mir = struct {
+    /// This map contains all the UAVs we saw generating this function.
+    /// `link.C` will merge them into its `uavs`/`aligned_uavs` fields.
+    /// Key is the value of the UAV; value is the UAV's alignment, or
+    /// `.none` for natural alignment. The specified alignment is never
+    /// less than the natural alignment.
+    uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+    // These remaining fields are essentially just an owned version of `link.C.AvBlock`.
+    code: []u8,
+    fwd_decl: []u8,
+    ctype_pool: CType.Pool,
+    lazy_fns: LazyFnMap,
+
+    pub fn deinit(mir: *Mir, gpa: Allocator) void {
+        mir.uavs.deinit(gpa);
+        gpa.free(mir.code);
+        gpa.free(mir.fwd_decl);
+        mir.ctype_pool.deinit(gpa);
+        mir.lazy_fns.deinit(gpa);
+    }
+};
 
 pub const CType = @import("c/Type.zig");
 
@@ -206,7 +246,6 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "atomic_ushort", {} },
     .{ "atomic_wchar_t", {} },
     .{ "auto", {} },
-    .{ "bool", {} },
     .{ "break", {} },
     .{ "case", {} },
     .{ "char", {} },
@@ -265,6 +304,11 @@ const reserved_idents = std.StaticStringMap(void).initComptime(.{
     .{ "va_arg", {} },
     .{ "va_end", {} },
     .{ "va_copy", {} },
+
+    // stdbool.h
+    .{ "bool", {} },
+    .{ "false", {} },
+    .{ "true", {} },
 
     // stddef.h
     .{ "offsetof", {} },
@@ -657,7 +701,7 @@ pub const Object = struct {
 
 /// This data is available both when outputting .c code and when outputting an .h file.
 pub const DeclGen = struct {
-    gpa: mem.Allocator,
+    gpa: Allocator,
     pt: Zcu.PerThread,
     mod: *Module,
     pass: Pass,
@@ -668,10 +712,12 @@ pub const DeclGen = struct {
     error_msg: ?*Zcu.ErrorMsg,
     ctype_pool: CType.Pool,
     scratch: std.ArrayListUnmanaged(u32),
-    /// Keeps track of anonymous decls that need to be rendered before this
-    /// (named) Decl in the output C code.
-    uav_deps: std.AutoArrayHashMapUnmanaged(InternPool.Index, C.AvBlock),
-    aligned_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+    /// This map contains all the UAVs we saw generating this function.
+    /// `link.C` will merge them into its `uavs`/`aligned_uavs` fields.
+    /// Key is the value of the UAV; value is the UAV's alignment, or
+    /// `.none` for natural alignment. The specified alignment is never
+    /// less than the natural alignment.
+    uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
 
     pub const Pass = union(enum) {
         nav: InternPool.Nav.Index,
@@ -739,21 +785,17 @@ pub const DeclGen = struct {
         // Indicate that the anon decl should be rendered to the output so that
         // our reference above is not undefined.
         const ptr_type = ip.indexToKey(uav.orig_ty).ptr_type;
-        const gop = try dg.uav_deps.getOrPut(dg.gpa, uav.val);
-        if (!gop.found_existing) gop.value_ptr.* = .{};
-
-        // Only insert an alignment entry if the alignment is greater than ABI
-        // alignment. If there is already an entry, keep the greater alignment.
-        const explicit_alignment = ptr_type.flags.alignment;
-        if (explicit_alignment != .none) {
-            const abi_alignment = Type.fromInterned(ptr_type.child).abiAlignment(zcu);
-            if (explicit_alignment.order(abi_alignment).compare(.gt)) {
-                const aligned_gop = try dg.aligned_uavs.getOrPut(dg.gpa, uav.val);
-                aligned_gop.value_ptr.* = if (aligned_gop.found_existing)
-                    aligned_gop.value_ptr.maxStrict(explicit_alignment)
-                else
-                    explicit_alignment;
-            }
+        const gop = try dg.uavs.getOrPut(dg.gpa, uav.val);
+        if (!gop.found_existing) gop.value_ptr.* = .none;
+        // If there is an explicit alignment, greater than the current one, use it.
+        // Note that we intentionally start at `.none`, so `gop.value_ptr.*` is never
+        // underaligned, so we don't need to worry about the `.none` case here.
+        if (ptr_type.flags.alignment != .none) {
+            // Resolve the current alignment so we can choose the bigger one.
+            const cur_alignment: Alignment = if (gop.value_ptr.* == .none) abi: {
+                break :abi Type.fromInterned(ptr_type.child).abiAlignment(zcu);
+            } else gop.value_ptr.*;
+            gop.value_ptr.* = cur_alignment.maxStrict(ptr_type.flags.alignment);
         }
     }
 
@@ -1591,7 +1633,7 @@ pub const DeclGen = struct {
                         try writer.writeAll("((");
                         try dg.renderCType(writer, ctype);
                         return writer.print("){x})", .{
-                            try dg.fmtIntLiteral(try pt.undefValue(.usize), .Other),
+                            try dg.fmtIntLiteral(.undef_usize, .Other),
                         });
                     },
                     .slice => {
@@ -1605,7 +1647,7 @@ pub const DeclGen = struct {
                         const ptr_ty = ty.slicePtrFieldType(zcu);
                         try dg.renderType(writer, ptr_ty);
                         return writer.print("){x}, {0x}}}", .{
-                            try dg.fmtIntLiteral(try dg.pt.undefValue(.usize), .Other),
+                            try dg.fmtIntLiteral(.undef_usize, .Other),
                         });
                     },
                 },
@@ -2241,19 +2283,30 @@ pub const DeclGen = struct {
     fn renderFwdDecl(
         dg: *DeclGen,
         nav_index: InternPool.Nav.Index,
-        flags: struct {
-            is_extern: bool,
+        flags: packed struct {
             is_const: bool,
             is_threadlocal: bool,
-            is_weak_linkage: bool,
+            linkage: std.builtin.GlobalLinkage,
+            visibility: std.builtin.SymbolVisibility,
         },
     ) !void {
         const zcu = dg.pt.zcu;
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
         const fwd = dg.fwdDeclWriter();
-        try fwd.writeAll(if (flags.is_extern) "zig_extern " else "static ");
-        if (flags.is_weak_linkage) try fwd.writeAll("zig_weak_linkage ");
+        try fwd.writeAll(switch (flags.linkage) {
+            .internal => "static ",
+            .strong, .weak, .link_once => "zig_extern ",
+        });
+        switch (flags.linkage) {
+            .internal, .strong => {},
+            .weak => try fwd.writeAll("zig_weak_linkage "),
+            .link_once => return dg.fail("TODO: CBE: implement linkonce linkage?", .{}),
+        }
+        switch (flags.linkage) {
+            .internal => {},
+            .strong, .weak, .link_once => try fwd.print("zig_visibility({s}) ", .{@tagName(flags.visibility)}),
+        }
         if (flags.is_threadlocal and !dg.mod.single_threaded) try fwd.writeAll("zig_threadlocal ");
         try dg.renderTypeAndName(
             fwd,
@@ -2870,7 +2923,79 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
     }
 }
 
-pub fn genFunc(f: *Function) !void {
+pub fn generate(
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    func_index: InternPool.Index,
+    air: *const Air,
+    liveness: *const Air.Liveness,
+) @import("../codegen.zig").CodeGenError!Mir {
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+
+    _ = src_loc;
+    assert(lf.tag == .c);
+
+    const func = zcu.funcInfo(func_index);
+
+    var function: Function = .{
+        .value_map = .init(gpa),
+        .air = air.*,
+        .liveness = liveness.*,
+        .func_index = func_index,
+        .object = .{
+            .dg = .{
+                .gpa = gpa,
+                .pt = pt,
+                .mod = zcu.navFileScope(func.owner_nav).mod.?,
+                .error_msg = null,
+                .pass = .{ .nav = func.owner_nav },
+                .is_naked_fn = Type.fromInterned(func.ty).fnCallingConvention(zcu) == .naked,
+                .expected_block = null,
+                .fwd_decl = .init(gpa),
+                .ctype_pool = .empty,
+                .scratch = .empty,
+                .uavs = .empty,
+            },
+            .code = .init(gpa),
+            .indent_writer = undefined, // set later so we can get a pointer to object.code
+        },
+        .lazy_fns = .empty,
+    };
+    defer {
+        function.object.code.deinit();
+        function.object.dg.fwd_decl.deinit();
+        function.object.dg.ctype_pool.deinit(gpa);
+        function.object.dg.scratch.deinit(gpa);
+        function.object.dg.uavs.deinit(gpa);
+        function.deinit();
+    }
+    try function.object.dg.ctype_pool.init(gpa);
+    function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
+
+    genFunc(&function) catch |err| switch (err) {
+        error.AnalysisFail => return zcu.codegenFailMsg(func.owner_nav, function.object.dg.error_msg.?),
+        error.OutOfMemory => |e| return e,
+    };
+
+    var mir: Mir = .{
+        .uavs = .empty,
+        .code = &.{},
+        .fwd_decl = &.{},
+        .ctype_pool = .empty,
+        .lazy_fns = .empty,
+    };
+    errdefer mir.deinit(gpa);
+    mir.uavs = function.object.dg.uavs.move();
+    mir.code = try function.object.code.toOwnedSlice();
+    mir.fwd_decl = try function.object.dg.fwd_decl.toOwnedSlice();
+    mir.ctype_pool = function.object.dg.ctype_pool.move();
+    mir.lazy_fns = function.lazy_fns.move();
+    return mir;
+}
+
+fn genFunc(f: *Function) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2980,10 +3105,10 @@ pub fn genDecl(o: *Object) !void {
     switch (ip.indexToKey(nav.status.fully_resolved.val)) {
         .@"extern" => |@"extern"| {
             if (!ip.isFunctionType(nav_ty.toIntern())) return o.dg.renderFwdDecl(o.dg.pass.nav, .{
-                .is_extern = true,
                 .is_const = @"extern".is_const,
                 .is_threadlocal = @"extern".is_threadlocal,
-                .is_weak_linkage = @"extern".is_weak_linkage,
+                .linkage = @"extern".linkage,
+                .visibility = @"extern".visibility,
             });
 
             const fwd = o.dg.fwdDeclWriter();
@@ -3002,13 +3127,12 @@ pub fn genDecl(o: *Object) !void {
         },
         .variable => |variable| {
             try o.dg.renderFwdDecl(o.dg.pass.nav, .{
-                .is_extern = false,
                 .is_const = false,
                 .is_threadlocal = variable.is_threadlocal,
-                .is_weak_linkage = variable.is_weak_linkage,
+                .linkage = .internal,
+                .visibility = .default,
             });
             const w = o.writer();
-            if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
             if (variable.is_threadlocal and !o.dg.mod.single_threaded) try w.writeAll("zig_threadlocal ");
             if (nav.status.fully_resolved.@"linksection".toSlice(&zcu.intern_pool)) |s|
                 try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
@@ -3360,7 +3484,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .error_name       => try airErrorName(f, inst),
             .splat            => try airSplat(f, inst),
             .select           => try airSelect(f, inst),
-            .shuffle          => try airShuffle(f, inst),
+            .shuffle_one      => try airShuffleOne(f, inst),
+            .shuffle_two      => try airShuffleTwo(f, inst),
             .reduce           => try airReduce(f, inst),
             .aggregate_init   => try airAggregateInit(f, inst),
             .union_init       => try airUnionInit(f, inst),
@@ -3452,7 +3577,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .error_set_has_value => return f.fail("TODO: C backend: implement error_set_has_value", .{}),
             .vector_store_elem => return f.fail("TODO: C backend: implement vector_store_elem", .{}),
 
-            .tlv_dllimport_ptr => try airTlvDllimportPtr(f, inst),
+            .runtime_nav_ptr => try airRuntimeNavPtr(f, inst),
 
             .c_va_start => try airCVaStart(f, inst),
             .c_va_arg => try airCVaArg(f, inst),
@@ -4179,7 +4304,7 @@ fn airOverflow(f: *Function, inst: Air.Inst.Index, operation: []const u8, info: 
     try v.elem(f, w);
     try w.writeAll(", ");
     try f.writeCValue(w, rhs, .FunctionArgument);
-    try v.elem(f, w);
+    if (f.typeOf(bin_op.rhs).isVector(zcu)) try v.elem(f, w);
     try f.object.dg.renderBuiltinInfo(w, scalar_ty, info);
     try w.writeAll(");\n");
     try v.end(f, inst, w);
@@ -6376,7 +6501,7 @@ fn airArrayToSlice(f: *Function, inst: Air.Inst.Index) !CValue {
             if (operand_child_ctype.info(ctype_pool) == .array) {
                 try writer.writeByte('&');
                 try f.writeCValueDeref(writer, operand);
-                try writer.print("[{}]", .{try f.fmtIntLiteral(try pt.intValue(.usize, 0))});
+                try writer.print("[{}]", .{try f.fmtIntLiteral(.zero_usize)});
             } else try f.writeCValue(writer, operand, .Other);
         }
         try a.end(f, writer);
@@ -6536,7 +6661,7 @@ fn airBinBuiltinCall(
     try v.elem(f, writer);
     try writer.writeAll(", ");
     try f.writeCValue(writer, rhs, .FunctionArgument);
-    try v.elem(f, writer);
+    if (f.typeOf(bin_op.rhs).isVector(zcu)) try v.elem(f, writer);
     try f.object.dg.renderBuiltinInfo(writer, scalar_ty, info);
     try writer.writeAll(");\n");
     try v.end(f, inst, writer);
@@ -6907,7 +7032,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         try writer.writeAll("for (");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" = ");
-        try f.object.dg.renderValue(writer, try pt.intValue(.usize, 0), .Other);
+        try f.object.dg.renderValue(writer, .zero_usize, .Other);
         try writer.writeAll("; ");
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" != ");
@@ -7149,34 +7274,73 @@ fn airSelect(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airShuffle(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airShuffleOne(f: *Function, inst: Air.Inst.Index) !CValue {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
-    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = f.air.extraData(Air.Shuffle, ty_pl.payload).data;
 
-    const mask = Value.fromInterned(extra.mask);
-    const lhs = try f.resolveInst(extra.a);
-    const rhs = try f.resolveInst(extra.b);
-
-    const inst_ty = f.typeOfIndex(inst);
+    const unwrapped = f.air.unwrapShuffleOne(zcu, inst);
+    const mask = unwrapped.mask;
+    const operand = try f.resolveInst(unwrapped.operand);
+    const inst_ty = unwrapped.result_ty;
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
-    try reap(f, inst, &.{ extra.a, extra.b }); // local cannot alias operands
-    for (0..extra.mask_len) |index| {
+    try reap(f, inst, &.{unwrapped.operand}); // local cannot alias operand
+    for (mask, 0..) |mask_elem, out_idx| {
         try f.writeCValue(writer, local, .Other);
         try writer.writeByte('[');
-        try f.object.dg.renderValue(writer, try pt.intValue(.usize, index), .Other);
+        try f.object.dg.renderValue(writer, try pt.intValue(.usize, out_idx), .Other);
         try writer.writeAll("] = ");
+        switch (mask_elem.unwrap()) {
+            .elem => |src_idx| {
+                try f.writeCValue(writer, operand, .Other);
+                try writer.writeByte('[');
+                try f.object.dg.renderValue(writer, try pt.intValue(.usize, src_idx), .Other);
+                try writer.writeByte(']');
+            },
+            .value => |val| try f.object.dg.renderValue(writer, .fromInterned(val), .Other),
+        }
+        try writer.writeAll(";\n");
+    }
 
-        const mask_elem = (try mask.elemValue(pt, index)).toSignedInt(zcu);
-        const src_val = try pt.intValue(.usize, @as(u64, @intCast(mask_elem ^ mask_elem >> 63)));
+    return local;
+}
 
-        try f.writeCValue(writer, if (mask_elem >= 0) lhs else rhs, .Other);
+fn airShuffleTwo(f: *Function, inst: Air.Inst.Index) !CValue {
+    const pt = f.object.dg.pt;
+    const zcu = pt.zcu;
+
+    const unwrapped = f.air.unwrapShuffleTwo(zcu, inst);
+    const mask = unwrapped.mask;
+    const operand_a = try f.resolveInst(unwrapped.operand_a);
+    const operand_b = try f.resolveInst(unwrapped.operand_b);
+    const inst_ty = unwrapped.result_ty;
+    const elem_ty = inst_ty.childType(zcu);
+
+    const writer = f.object.writer();
+    const local = try f.allocLocal(inst, inst_ty);
+    try reap(f, inst, &.{ unwrapped.operand_a, unwrapped.operand_b }); // local cannot alias operands
+    for (mask, 0..) |mask_elem, out_idx| {
+        try f.writeCValue(writer, local, .Other);
         try writer.writeByte('[');
-        try f.object.dg.renderValue(writer, src_val, .Other);
-        try writer.writeAll("];\n");
+        try f.object.dg.renderValue(writer, try pt.intValue(.usize, out_idx), .Other);
+        try writer.writeAll("] = ");
+        switch (mask_elem.unwrap()) {
+            .a_elem => |src_idx| {
+                try f.writeCValue(writer, operand_a, .Other);
+                try writer.writeByte('[');
+                try f.object.dg.renderValue(writer, try pt.intValue(.usize, src_idx), .Other);
+                try writer.writeByte(']');
+            },
+            .b_elem => |src_idx| {
+                try f.writeCValue(writer, operand_b, .Other);
+                try writer.writeByte('[');
+                try f.object.dg.renderValue(writer, try pt.intValue(.usize, src_idx), .Other);
+                try writer.writeByte(']');
+            },
+            .undef => try f.object.dg.renderUndefValue(writer, elem_ty, .Other),
+        }
+        try writer.writeAll(";\n");
     }
 
     return local;
@@ -7618,7 +7782,7 @@ fn airMulAdd(f: *Function, inst: Air.Inst.Index) !CValue {
     return local;
 }
 
-fn airTlvDllimportPtr(f: *Function, inst: Air.Inst.Index) !CValue {
+fn airRuntimeNavPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     const ty_nav = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, .fromInterned(ty_nav.ty));
@@ -8311,11 +8475,11 @@ const Vectorize = struct {
 
             try writer.writeAll("for (");
             try f.writeCValue(writer, local, .Other);
-            try writer.print(" = {d}; ", .{try f.fmtIntLiteral(try pt.intValue(.usize, 0))});
+            try writer.print(" = {d}; ", .{try f.fmtIntLiteral(.zero_usize)});
             try f.writeCValue(writer, local, .Other);
             try writer.print(" < {d}; ", .{try f.fmtIntLiteral(try pt.intValue(.usize, ty.vectorLen(zcu)))});
             try f.writeCValue(writer, local, .Other);
-            try writer.print(" += {d}) {{\n", .{try f.fmtIntLiteral(try pt.intValue(.usize, 1))});
+            try writer.print(" += {d}) {{\n", .{try f.fmtIntLiteral(.one_usize)});
             f.object.indent_writer.pushIndent();
 
             break :index .{ .index = local };
@@ -8418,7 +8582,7 @@ fn iterateBigTomb(f: *Function, inst: Air.Inst.Index) BigTomb {
 
 /// A naive clone of this map would create copies of the ArrayList which is
 /// stored in the values. This function additionally clones the values.
-fn cloneFreeLocalsMap(gpa: mem.Allocator, map: *LocalsMap) !LocalsMap {
+fn cloneFreeLocalsMap(gpa: Allocator, map: *LocalsMap) !LocalsMap {
     var cloned = try map.clone(gpa);
     const values = cloned.values();
     var i: usize = 0;
@@ -8435,7 +8599,7 @@ fn cloneFreeLocalsMap(gpa: mem.Allocator, map: *LocalsMap) !LocalsMap {
     return cloned;
 }
 
-fn deinitFreeLocalsMap(gpa: mem.Allocator, map: *LocalsMap) void {
+fn deinitFreeLocalsMap(gpa: Allocator, map: *LocalsMap) void {
     for (map.values()) |*value| {
         value.deinit(gpa);
     }

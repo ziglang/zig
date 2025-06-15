@@ -234,6 +234,28 @@ pub const Node = struct {
         _ = @atomicRmw(u32, &storage.completed_count, .Add, 1, .monotonic);
     }
 
+    /// Thread-safe. Bytes after '0' in `new_name` are ignored.
+    pub fn setName(n: Node, new_name: []const u8) void {
+        const index = n.index.unwrap() orelse return;
+        const storage = storageByIndex(index);
+
+        const name_len = @min(max_name_len, std.mem.indexOfScalar(u8, new_name, 0) orelse new_name.len);
+
+        copyAtomicStore(storage.name[0..name_len], new_name[0..name_len]);
+        if (name_len < storage.name.len)
+            @atomicStore(u8, &storage.name[name_len], 0, .monotonic);
+    }
+
+    /// Gets the name of this `Node`.
+    /// A pointer to this array can later be passed to `setName` to restore the name.
+    pub fn getName(n: Node) [max_name_len]u8 {
+        var dest: [max_name_len]u8 align(@alignOf(usize)) = undefined;
+        if (n.index.unwrap()) |index| {
+            copyAtomicLoad(&dest, &storageByIndex(index).name);
+        }
+        return dest;
+    }
+
     /// Thread-safe.
     pub fn setCompletedItems(n: Node, completed_items: usize) void {
         const index = n.index.unwrap() orelse return;

@@ -103,6 +103,10 @@ extern "C" {
   _CRTIMP wchar_t *__cdecl _wsetlocale(int _Category,const wchar_t *_Locale);
 #endif
 
+#if __MSVCRT_VERSION__ >= 0xB00
+  _CRTIMP _locale_t __cdecl _wcreate_locale(int _Category, const wchar_t *_Locale);
+#endif
+
 #ifdef __CHAR_UNSIGNED__
 /* Pull in the constructor from 'charmax.c'.  */
 extern int __mingw_initcharmax;

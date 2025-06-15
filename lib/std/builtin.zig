@@ -61,7 +61,7 @@ pub const StackTrace = struct {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const GlobalLinkage = enum {
+pub const GlobalLinkage = enum(u2) {
     internal,
     strong,
     weak,
@@ -70,7 +70,7 @@ pub const GlobalLinkage = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const SymbolVisibility = enum {
+pub const SymbolVisibility = enum(u2) {
     default,
     hidden,
     protected,
@@ -1030,8 +1030,19 @@ pub const ExternOptions = struct {
     name: []const u8,
     library_name: ?[]const u8 = null,
     linkage: GlobalLinkage = .strong,
+    visibility: SymbolVisibility = .default,
+    /// Setting this to `true` makes the `@extern` a runtime value.
     is_thread_local: bool = false,
     is_dll_import: bool = false,
+    relocation: Relocation = .any,
+
+    pub const Relocation = enum(u1) {
+        /// Any type of relocation is allowed.
+        any,
+        /// A program-counter-relative relocation is required.
+        /// Using this value makes the `@extern` a runtime value.
+        pcrel,
+    };
 };
 
 /// This data structure is used by the Zig language code generation and

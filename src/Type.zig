@@ -177,6 +177,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
+        .undef => return writer.writeAll("@as(type, undefined)"),
         .int_type => |int_type| {
             const sign_char: u8 = switch (int_type.signedness) {
                 .signed => 'i',
@@ -398,7 +399,6 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
         },
 
         // values, not types
-        .undef,
         .simple_value,
         .variable,
         .@"extern",
@@ -993,8 +993,8 @@ pub fn abiAlignmentInner(
                     },
                     .stage2_x86_64 => {
                         if (vector_type.child == .bool_type) {
-                            if (vector_type.len > 256 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
-                            if (vector_type.len > 128 and std.Target.x86.featureSetHas(target.cpu.features, .avx)) return .{ .scalar = .@"32" };
+                            if (vector_type.len > 256 and target.cpu.has(.x86, .avx512f)) return .{ .scalar = .@"64" };
+                            if (vector_type.len > 128 and target.cpu.has(.x86, .avx)) return .{ .scalar = .@"32" };
                             if (vector_type.len > 64) return .{ .scalar = .@"16" };
                             const bytes = std.math.divCeil(u32, vector_type.len, 8) catch unreachable;
                             const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
@@ -1003,8 +1003,8 @@ pub fn abiAlignmentInner(
                         const elem_bytes: u32 = @intCast((try Type.fromInterned(vector_type.child).abiSizeInner(strat, zcu, tid)).scalar);
                         if (elem_bytes == 0) return .{ .scalar = .@"1" };
                         const bytes = elem_bytes * vector_type.len;
-                        if (bytes > 32 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
-                        if (bytes > 16 and std.Target.x86.featureSetHas(target.cpu.features, .avx)) return .{ .scalar = .@"32" };
+                        if (bytes > 32 and target.cpu.has(.x86, .avx512f)) return .{ .scalar = .@"64" };
+                        if (bytes > 16 and target.cpu.has(.x86, .avx)) return .{ .scalar = .@"32" };
                         return .{ .scalar = .@"16" };
                     },
                 }
@@ -1636,14 +1636,22 @@ pub fn bitSizeInner(
         .array_type => |array_type| {
             const len = array_type.lenIncludingSentinel();
             if (len == 0) return 0;
-            const elem_ty = Type.fromInterned(array_type.child);
-            const elem_size = (try elem_ty.abiSizeInner(strat_lazy, zcu, tid)).scalar;
-            if (elem_size == 0) return 0;
-            const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
-            return (len - 1) * 8 * elem_size + elem_bit_size;
+            const elem_ty: Type = .fromInterned(array_type.child);
+            switch (zcu.comp.getZigBackend()) {
+                else => {
+                    const elem_size = (try elem_ty.abiSizeInner(strat_lazy, zcu, tid)).scalar;
+                    if (elem_size == 0) return 0;
+                    const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
+                    return (len - 1) * 8 * elem_size + elem_bit_size;
+                },
+                .stage2_x86_64 => {
+                    const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
+                    return elem_bit_size * len;
+                },
+            }
         },
         .vector_type => |vector_type| {
-            const child_ty = Type.fromInterned(vector_type.child);
+            const child_ty: Type = .fromInterned(vector_type.child);
             const elem_bit_size = try child_ty.bitSizeInner(strat, zcu, tid);
             return elem_bit_size * vector_type.len;
         },
@@ -2641,10 +2649,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
                                 if (enum_type.values.len == 0) {
                                     const only = try pt.intern(.{ .enum_tag = .{
                                         .ty = ty.toIntern(),
-                                        .int = try pt.intern(.{ .int = .{
-                                            .ty = enum_type.tag_ty,
-                                            .storage = .{ .u64 = 0 },
-                                        } }),
+                                        .int = (try pt.intValue(.fromInterned(enum_type.tag_ty), 0)).toIntern(),
                                     } });
                                     return Value.fromInterned(only);
                                 } else {
@@ -3552,10 +3557,16 @@ pub fn packedStructFieldPtrInfo(struct_ty: Type, parent_ptr_ty: Type, field_idx:
         running_bits += @intCast(f_ty.bitSize(zcu));
     }
 
-    const res_host_size: u16, const res_bit_offset: u16 = if (parent_ptr_info.packed_offset.host_size != 0)
-        .{ parent_ptr_info.packed_offset.host_size, parent_ptr_info.packed_offset.bit_offset + bit_offset }
-    else
-        .{ (running_bits + 7) / 8, bit_offset };
+    const res_host_size: u16, const res_bit_offset: u16 = if (parent_ptr_info.packed_offset.host_size != 0) .{
+        parent_ptr_info.packed_offset.host_size,
+        parent_ptr_info.packed_offset.bit_offset + bit_offset,
+    } else .{
+        switch (zcu.comp.getZigBackend()) {
+            else => (running_bits + 7) / 8,
+            .stage2_x86_64 => @intCast(struct_ty.abiSize(zcu)),
+        },
+        bit_offset,
+    };
 
     // If the field happens to be byte-aligned, simplify the pointer type.
     // We can only do this if the pointee's bit size matches its ABI byte size,
@@ -3676,10 +3687,11 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .null_type,
         .undefined_type,
         .enum_literal_type,
+        .ptr_usize_type,
+        .ptr_const_comptime_int_type,
         .manyptr_u8_type,
         .manyptr_const_u8_type,
         .manyptr_const_u8_sentinel_0_type,
-        .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
         .optional_noreturn_type,
@@ -3691,9 +3703,11 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .undef => unreachable,
         .zero => unreachable,
         .zero_usize => unreachable,
+        .zero_u1 => unreachable,
         .zero_u8 => unreachable,
         .one => unreachable,
         .one_usize => unreachable,
+        .one_u1 => unreachable,
         .one_u8 => unreachable,
         .four_u8 => unreachable,
         .negative_one => unreachable,
@@ -3901,29 +3915,32 @@ fn resolveUnionInner(
 pub fn getUnionLayout(loaded_union: InternPool.LoadedUnionType, zcu: *const Zcu) Zcu.UnionLayout {
     const ip = &zcu.intern_pool;
     assert(loaded_union.haveLayout(ip));
-    var most_aligned_field: u32 = undefined;
-    var most_aligned_field_size: u64 = undefined;
-    var biggest_field: u32 = undefined;
+    var most_aligned_field: u32 = 0;
+    var most_aligned_field_align: InternPool.Alignment = .@"1";
+    var most_aligned_field_size: u64 = 0;
+    var biggest_field: u32 = 0;
     var payload_size: u64 = 0;
     var payload_align: InternPool.Alignment = .@"1";
-    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
-        if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(zcu)) continue;
+    for (loaded_union.field_types.get(ip), 0..) |field_ty_ip_index, field_index| {
+        const field_ty: Type = .fromInterned(field_ty_ip_index);
+        if (field_ty.isNoReturn(zcu)) continue;
 
         const explicit_align = loaded_union.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
-            Type.fromInterned(field_ty).abiAlignment(zcu);
-        const field_size = Type.fromInterned(field_ty).abiSize(zcu);
+            field_ty.abiAlignment(zcu);
+        const field_size = field_ty.abiSize(zcu);
         if (field_size > payload_size) {
             payload_size = field_size;
             biggest_field = @intCast(field_index);
         }
-        if (field_align.compare(.gte, payload_align)) {
-            payload_align = field_align;
+        if (field_size > 0 and field_align.compare(.gte, most_aligned_field_align)) {
             most_aligned_field = @intCast(field_index);
+            most_aligned_field_align = field_align;
             most_aligned_field_size = field_size;
         }
+        payload_align = payload_align.max(field_align);
     }
     const have_tag = loaded_union.flagsUnordered(ip).runtime_tag.hasTag();
     if (!have_tag or !Type.fromInterned(loaded_union.enum_tag_ty).hasRuntimeBits(zcu)) {
@@ -4100,10 +4117,11 @@ pub const @"c_longlong": Type = .{ .ip_index = .c_longlong_type };
 pub const @"c_ulonglong": Type = .{ .ip_index = .c_ulonglong_type };
 pub const @"c_longdouble": Type = .{ .ip_index = .c_longdouble_type };
 
+pub const ptr_usize: Type = .{ .ip_index = .ptr_usize_type };
+pub const ptr_const_comptime_int: Type = .{ .ip_index = .ptr_const_comptime_int_type };
 pub const manyptr_u8: Type = .{ .ip_index = .manyptr_u8_type };
 pub const manyptr_const_u8: Type = .{ .ip_index = .manyptr_const_u8_type };
 pub const manyptr_const_u8_sentinel_0: Type = .{ .ip_index = .manyptr_const_u8_sentinel_0_type };
-pub const single_const_pointer_to_comptime_int: Type = .{ .ip_index = .single_const_pointer_to_comptime_int_type };
 pub const slice_const_u8: Type = .{ .ip_index = .slice_const_u8_type };
 pub const slice_const_u8_sentinel_0: Type = .{ .ip_index = .slice_const_u8_sentinel_0_type };
 

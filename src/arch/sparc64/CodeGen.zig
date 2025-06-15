@@ -41,6 +41,10 @@ const Self = @This();
 
 const InnerError = CodeGenError || error{OutOfRegisters};
 
+pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
+    return null;
+}
+
 const RegisterView = enum(u1) {
     caller,
     callee,
@@ -53,8 +57,6 @@ liveness: Air.Liveness,
 bin_file: *link.File,
 target: *const std.Target,
 func_index: InternPool.Index,
-code: *std.ArrayListUnmanaged(u8),
-debug_output: link.File.DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
@@ -264,11 +266,9 @@ pub fn generate(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
-    code: *std.ArrayListUnmanaged(u8),
-    debug_output: link.File.DebugInfoOutput,
-) CodeGenError!void {
+    air: *const Air,
+    liveness: *const Air.Liveness,
+) CodeGenError!Mir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
@@ -287,13 +287,11 @@ pub fn generate(
     var function: Self = .{
         .gpa = gpa,
         .pt = pt,
-        .air = air,
-        .liveness = liveness,
+        .air = air.*,
+        .liveness = liveness.*,
         .target = target,
         .bin_file = lf,
         .func_index = func_index,
-        .code = code,
-        .debug_output = debug_output,
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
@@ -326,29 +324,13 @@ pub fn generate(
         else => |e| return e,
     };
 
-    var mir = Mir{
+    var mir: Mir = .{
         .instructions = function.mir_instructions.toOwnedSlice(),
-        .extra = try function.mir_extra.toOwnedSlice(gpa),
+        .extra = &.{}, // fallible, so populated after errdefer
     };
-    defer mir.deinit(gpa);
-
-    var emit: Emit = .{
-        .mir = mir,
-        .bin_file = lf,
-        .debug_output = debug_output,
-        .target = target,
-        .src_loc = src_loc,
-        .code = code,
-        .prev_di_pc = 0,
-        .prev_di_line = func.lbrace_line,
-        .prev_di_column = func.lbrace_column,
-    };
-    defer emit.deinit();
-
-    emit.emitMir() catch |err| switch (err) {
-        error.EmitFail => return function.failMsg(emit.err_msg.?),
-        else => |e| return e,
-    };
+    errdefer mir.deinit(gpa);
+    mir.extra = try function.mir_extra.toOwnedSlice(gpa);
+    return mir;
 }
 
 fn gen(self: *Self) !void {
@@ -617,7 +599,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .error_name      => try self.airErrorName(inst),
             .splat           => try self.airSplat(inst),
             .select          => @panic("TODO try self.airSelect(inst)"),
-            .shuffle         => @panic("TODO try self.airShuffle(inst)"),
+            .shuffle_one     => @panic("TODO try self.airShuffleOne(inst)"),
+            .shuffle_two     => @panic("TODO try self.airShuffleTwo(inst)"),
             .reduce          => @panic("TODO try self.airReduce(inst)"),
             .aggregate_init  => try self.airAggregateInit(inst),
             .union_init      => try self.airUnionInit(inst),
@@ -718,7 +701,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .is_named_enum_value => @panic("TODO implement is_named_enum_value"),
             .error_set_has_value => @panic("TODO implement error_set_has_value"),
             .vector_store_elem => @panic("TODO implement vector_store_elem"),
-            .tlv_dllimport_ptr => @panic("TODO implement tlv_dllimport_ptr"),
+            .runtime_nav_ptr => @panic("TODO implement runtime_nav_ptr"),
 
             .c_va_arg => return self.fail("TODO implement c_va_arg", .{}),
             .c_va_copy => return self.fail("TODO implement c_va_copy", .{}),
@@ -1012,23 +995,29 @@ fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!void {
     self.arg_index += 1;
 
     const ty = self.typeOfIndex(inst);
-
-    const arg = self.args[arg_index];
-    const mcv = blk: {
-        switch (arg) {
+    const mcv: MCValue = blk: {
+        switch (self.args[arg_index]) {
             .stack_offset => |off| {
                 const abi_size = math.cast(u32, ty.abiSize(zcu)) orelse {
                     return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(pt)});
                 };
                 const offset = off + abi_size;
-                break :blk MCValue{ .stack_offset = offset };
+                break :blk .{ .stack_offset = offset };
             },
-            else => break :blk arg,
+            else => |mcv| break :blk mcv,
         }
     };
 
-    self.genArgDbgInfo(inst, mcv) catch |err|
-        return self.fail("failed to generate debug info for parameter: {s}", .{@errorName(err)});
+    const func_zir = zcu.funcInfo(self.func_index).zir_body_inst.resolveFull(&zcu.intern_pool).?;
+    const file = zcu.fileByIndex(func_zir.file);
+    if (!file.mod.?.strip) {
+        const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
+        const zir = &file.zir.?;
+        const name = zir.nullTerminatedString(zir.getParamName(zir.getParamBody(func_zir.inst)[arg.zir_param_index]).?);
+
+        self.genArgDbgInfo(name, ty, mcv) catch |err|
+            return self.fail("failed to generate debug info for parameter: {s}", .{@errorName(err)});
+    }
 
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();
@@ -2270,8 +2259,14 @@ fn airSetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airShlSat(self: *Self, inst: Air.Inst.Index) !void {
+    const zcu = self.pt.zcu;
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst))
+        .dead
+    else if (self.typeOf(bin_op.lhs).isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu))
+        return self.fail("TODO implement vector shl_sat with scalar rhs for {}", .{self.target.cpu.arch})
+    else
+        return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -2287,7 +2282,10 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const rhs_ty = self.typeOf(extra.rhs);
 
         switch (lhs_ty.zigTypeTag(zcu)) {
-            .vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
+            .vector => if (!rhs_ty.isVector(zcu))
+                return self.fail("TODO implement vector shl_with_overflow with scalar rhs", .{})
+            else
+                return self.fail("TODO implement mul_with_overflow for vectors", .{}),
             .int => {
                 const int_info = lhs_ty.intInfo(zcu);
                 if (int_info.bits <= 64) {
@@ -3002,7 +3000,10 @@ fn binOp(
 
             // Truncate if necessary
             switch (lhs_ty.zigTypeTag(zcu)) {
-                .vector => return self.fail("TODO binary operations on vectors", .{}),
+                .vector => if (rhs_ty.isVector(zcu))
+                    return self.fail("TODO vector shift with scalar rhs", .{})
+                else
+                    return self.fail("TODO binary operations on vectors", .{}),
                 .int => {
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
@@ -3024,7 +3025,10 @@ fn binOp(
         .shr_exact,
         => {
             switch (lhs_ty.zigTypeTag(zcu)) {
-                .vector => return self.fail("TODO binary operations on vectors", .{}),
+                .vector => if (rhs_ty.isVector(zcu))
+                    return self.fail("TODO vector shift with scalar rhs", .{})
+                else
+                    return self.fail("TODO binary operations on vectors", .{}),
                 .int => {
                     const int_info = lhs_ty.intInfo(zcu);
                     if (int_info.bits <= 64) {
@@ -3541,16 +3545,15 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Air.
     self.finishAirBookkeeping();
 }
 
-fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
-    const ty = arg.ty.toType();
-    if (arg.name == .none) return;
-
+fn genArgDbgInfo(self: Self, name: []const u8, ty: Type, mcv: MCValue) !void {
+    // TODO: Add a pseudo-instruction or something to defer this work until Emit.
+    //       We aren't allowed to interact with linker state here.
+    if (true) return;
     switch (self.debug_output) {
         .dwarf => |dw| switch (mcv) {
             .register => |reg| try dw.genLocalDebugInfo(
                 .local_arg,
-                arg.name.toSlice(self.air),
+                name,
                 ty,
                 .{ .reg = reg.dwarfNum() },
             ),
