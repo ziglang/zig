@@ -22178,44 +22178,34 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (dest_scalar_ty.intInfo(zcu).bits == 0) {
-        if (!is_vector) {
-            if (block.wantSafety()) {
-                const ok = try block.addBinOp(if (block.float_mode == .optimized) .cmp_eq_optimized else .cmp_eq, operand, Air.internedToRef((try pt.floatValue(operand_ty, 0.0)).toIntern()));
-                try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
-            }
-            return Air.internedToRef((try pt.intValue(dest_ty, 0)).toIntern());
-        }
         if (block.wantSafety()) {
-            const len = dest_ty.vectorLen(zcu);
-            for (0..len) |i| {
-                const idx_ref = try pt.intRef(.usize, i);
-                const elem_ref = try block.addBinOp(.array_elem_val, operand, idx_ref);
-                const ok = try block.addBinOp(if (block.float_mode == .optimized) .cmp_eq_optimized else .cmp_eq, elem_ref, Air.internedToRef((try pt.floatValue(operand_scalar_ty, 0.0)).toIntern()));
-                try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
-            }
+            // Emit an explicit safety check. We can do this one like `abs(x) < 1`.
+            const abs_ref = try block.addTyOp(.abs, operand_ty, operand);
+            const max_abs_ref = if (is_vector) try block.addReduce(abs_ref, .Max) else abs_ref;
+            const one_ref = Air.internedToRef((try pt.floatValue(operand_scalar_ty, 1.0)).toIntern());
+            const ok_ref = try block.addBinOp(.cmp_lt, max_abs_ref, one_ref);
+            try sema.addSafetyCheck(block, src, ok_ref, .integer_part_out_of_bounds);
         }
+        const scalar_val = try pt.intValue(dest_scalar_ty, 0);
+        if (!is_vector) return Air.internedToRef(scalar_val.toIntern());
         return Air.internedToRef(try pt.intern(.{ .aggregate = .{
             .ty = dest_ty.toIntern(),
-            .storage = .{ .repeated_elem = (try pt.intValue(dest_scalar_ty, 0)).toIntern() },
+            .storage = .{ .repeated_elem = scalar_val.toIntern() },
         } }));
     }
-    const result = try block.addTyOp(if (block.float_mode == .optimized) .int_from_float_optimized else .int_from_float, dest_ty, operand);
     if (block.wantSafety()) {
-        const back = try block.addTyOp(.float_from_int, operand_ty, result);
-        const diff = try block.addBinOp(if (block.float_mode == .optimized) .sub_optimized else .sub, operand, back);
-        const ok = if (is_vector) ok: {
-            const ok_pos = try block.addCmpVector(diff, Air.internedToRef((try sema.splat(operand_ty, try pt.floatValue(operand_scalar_ty, 1.0))).toIntern()), .lt);
-            const ok_neg = try block.addCmpVector(diff, Air.internedToRef((try sema.splat(operand_ty, try pt.floatValue(operand_scalar_ty, -1.0))).toIntern()), .gt);
-            const ok = try block.addBinOp(.bit_and, ok_pos, ok_neg);
-            break :ok try block.addReduce(ok, .And);
-        } else ok: {
-            const ok_pos = try block.addBinOp(if (block.float_mode == .optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try pt.floatValue(operand_ty, 1.0)).toIntern()));
-            const ok_neg = try block.addBinOp(if (block.float_mode == .optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try pt.floatValue(operand_ty, -1.0)).toIntern()));
-            break :ok try block.addBinOp(.bool_and, ok_pos, ok_neg);
-        };
-        try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
+        if (zcu.backendSupportsFeature(.panic_fn)) {
+            _ = try sema.preparePanicId(src, .integer_part_out_of_bounds);
+        }
+        return block.addTyOp(switch (block.float_mode) {
+            .optimized => .int_from_float_optimized_safe,
+            .strict => .int_from_float_safe,
+        }, dest_ty, operand);
     }
-    return result;
+    return block.addTyOp(switch (block.float_mode) {
+        .optimized => .int_from_float_optimized,
+        .strict => .int_from_float,
+    }, dest_ty, operand);
 }
 
 fn zirFloatFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

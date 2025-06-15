@@ -112,6 +112,8 @@ pub const Feature = enum {
     scalarize_trunc,
     scalarize_int_from_float,
     scalarize_int_from_float_optimized,
+    scalarize_int_from_float_safe,
+    scalarize_int_from_float_optimized_safe,
     scalarize_float_from_int,
     scalarize_shuffle_one,
     scalarize_shuffle_two,
@@ -126,6 +128,12 @@ pub const Feature = enum {
     /// Replace `intcast_safe` with an explicit safety check which `call`s the panic function on failure.
     /// Not compatible with `scalarize_intcast_safe`.
     expand_intcast_safe,
+    /// Replace `int_from_float_safe` with an explicit safety check which `call`s the panic function on failure.
+    /// Not compatible with `scalarize_int_from_float_safe`.
+    expand_int_from_float_safe,
+    /// Replace `int_from_float_optimized_safe` with an explicit safety check which `call`s the panic function on failure.
+    /// Not compatible with `scalarize_int_from_float_optimized_safe`.
+    expand_int_from_float_optimized_safe,
     /// Replace `add_safe` with an explicit safety check which `call`s the panic function on failure.
     /// Not compatible with `scalarize_add_safe`.
     expand_add_safe,
@@ -225,6 +233,8 @@ pub const Feature = enum {
             .trunc => .scalarize_trunc,
             .int_from_float => .scalarize_int_from_float,
             .int_from_float_optimized => .scalarize_int_from_float_optimized,
+            .int_from_float_safe => .scalarize_int_from_float_safe,
+            .int_from_float_optimized_safe => .scalarize_int_from_float_optimized_safe,
             .float_from_int => .scalarize_float_from_int,
             .shuffle_one => .scalarize_shuffle_one,
             .shuffle_two => .scalarize_shuffle_two,
@@ -436,6 +446,20 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 assert(!l.features.has(.scalarize_intcast_safe)); // it doesn't make sense to do both
                 continue :inst l.replaceInst(inst, .block, try l.safeIntcastBlockPayload(inst));
             } else if (l.features.has(.scalarize_intcast_safe)) {
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
+            },
+            .int_from_float_safe => if (l.features.has(.expand_int_from_float_safe)) {
+                assert(!l.features.has(.scalarize_int_from_float_safe));
+                continue :inst l.replaceInst(inst, .block, try l.safeIntFromFloatBlockPayload(inst, false));
+            } else if (l.features.has(.scalarize_int_from_float_safe)) {
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
+            },
+            .int_from_float_optimized_safe => if (l.features.has(.expand_int_from_float_optimized_safe)) {
+                assert(!l.features.has(.scalarize_int_from_float_optimized_safe));
+                continue :inst l.replaceInst(inst, .block, try l.safeIntFromFloatBlockPayload(inst, true));
+            } else if (l.features.has(.scalarize_int_from_float_optimized_safe)) {
                 const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
                 if (ty_op.ty.toType().isVector(zcu)) continue :inst try l.scalarize(inst, .ty_op);
             },
@@ -2001,6 +2025,115 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.In
         .payload = try l.addBlockBody(main_block.body()),
     } };
 }
+fn safeIntFromFloatBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimized: bool) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ty_op = l.air_instructions.items(.data)[@intFromEnum(orig_inst)].ty_op;
+
+    const operand_ref = ty_op.operand;
+    const operand_ty = l.typeOf(operand_ref);
+    const dest_ty = ty_op.ty.toType();
+
+    const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
+    const dest_scalar_ty = dest_ty.scalarType(zcu);
+    const int_info = dest_scalar_ty.intInfo(zcu);
+
+    // We emit 9 instructions in the worst case.
+    var inst_buf: [9]Air.Inst.Index = undefined;
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
+    var main_block: Block = .init(&inst_buf);
+
+    // This check is a bit annoying because of floating-point rounding and the fact that this
+    // builtin truncates. We'll use a bigint for our calculations, because we need to construct
+    // integers exceeding the bounds of the result integer type, and we need to convert it to a
+    // float with a specific rounding mode to avoid errors.
+    // Our bigint may exceed the twos complement limit by one, so add an extra limb.
+    const limbs = try gpa.alloc(
+        std.math.big.Limb,
+        std.math.big.int.calcTwosCompLimbCount(int_info.bits) + 1,
+    );
+    defer gpa.free(limbs);
+    var big: std.math.big.int.Mutable = .init(limbs, 0);
+
+    // Check if the operand is lower than `min_int` when truncated to an integer.
+    big.setTwosCompIntLimit(.min, int_info.signedness, int_info.bits);
+    const below_min_inst: Air.Inst.Index = if (!big.positive or big.eqlZero()) bad: {
+        // `min_int <= 0`, so check for `x <= min_int - 1`.
+        big.addScalar(big.toConst(), -1);
+        // For `<=`, we must round the RHS down, so that this value is the first `x` which returns `true`.
+        const limit_val = try floatFromBigIntVal(pt, is_vector, operand_ty, big.toConst(), .floor);
+        break :bad try main_block.addCmp(l, .lte, operand_ref, Air.internedToRef(limit_val.toIntern()), .{
+            .vector = is_vector,
+            .optimized = optimized,
+        });
+    } else {
+        // `min_int > 0`, which is currently impossible. It would become possible under #3806, in
+        // which case we must detect `x < min_int`.
+        unreachable;
+    };
+
+    // Check if the operand is greater than `max_int` when truncated to an integer.
+    big.setTwosCompIntLimit(.max, int_info.signedness, int_info.bits);
+    const above_max_inst: Air.Inst.Index = if (big.positive or big.eqlZero()) bad: {
+        // `max_int >= 0`, so check for `x >= max_int + 1`.
+        big.addScalar(big.toConst(), 1);
+        // For `>=`, we must round the RHS up, so that this value is the first `x` which returns `true`.
+        const limit_val = try floatFromBigIntVal(pt, is_vector, operand_ty, big.toConst(), .ceil);
+        break :bad try main_block.addCmp(l, .gte, operand_ref, Air.internedToRef(limit_val.toIntern()), .{
+            .vector = is_vector,
+            .optimized = optimized,
+        });
+    } else {
+        // `max_int < 0`, which is currently impossible. It would become possible under #3806, in
+        // which case we must detect `x > max_int`.
+        unreachable;
+    };
+
+    // Combine the conditions.
+    const out_of_bounds_inst: Air.Inst.Index = main_block.add(l, .{
+        .tag = .bool_or,
+        .data = .{ .bin_op = .{
+            .lhs = below_min_inst.toRef(),
+            .rhs = above_max_inst.toRef(),
+        } },
+    });
+    const scalar_out_of_bounds_inst: Air.Inst.Index = if (is_vector) main_block.add(l, .{
+        .tag = .reduce,
+        .data = .{ .reduce = .{
+            .operand = out_of_bounds_inst.toRef(),
+            .operation = .Or,
+        } },
+    }) else out_of_bounds_inst;
+
+    // Now emit the actual condbr. "true" will be safety panic. "false" will be "ok", meaning we do
+    // the `int_from_float` and `br` the result to `orig_inst`.
+    var condbr: CondBr = .init(l, scalar_out_of_bounds_inst.toRef(), &main_block, .{ .true = .cold });
+    condbr.then_block = .init(main_block.stealRemainingCapacity());
+    try condbr.then_block.addPanic(l, .integer_part_out_of_bounds);
+    condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+    const cast_inst = condbr.else_block.add(l, .{
+        .tag = if (optimized) .int_from_float_optimized else .int_from_float,
+        .data = .{ .ty_op = .{
+            .ty = Air.internedToRef(dest_ty.toIntern()),
+            .operand = operand_ref,
+        } },
+    });
+    _ = condbr.else_block.add(l, .{
+        .tag = .br,
+        .data = .{ .br = .{
+            .block_inst = orig_inst,
+            .operand = cast_inst.toRef(),
+        } },
+    });
+    _ = condbr.else_block.stealRemainingCapacity(); // we might not have used it all
+    try condbr.finish(l);
+
+    return .{ .ty_pl = .{
+        .ty = Air.internedToRef(dest_ty.toIntern()),
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
 fn safeArithmeticBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, overflow_op_tag: Air.Inst.Tag) Error!Air.Inst.Data {
     const pt = l.pt;
     const zcu = pt.zcu;
@@ -2378,6 +2511,42 @@ fn packedAggregateInitBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Erro
     } };
 }
 
+/// Given a `std.math.big.int.Const`, converts it to a `Value` which is a float of type `float_ty`
+/// representing the same numeric value. If the integer cannot be exactly represented, `round`
+/// decides whether the value should be rounded up or down. If `is_vector`, then `float_ty` is
+/// instead a vector of floats, and the result value is a vector containing the converted scalar
+/// repeated N times.
+fn floatFromBigIntVal(
+    pt: Zcu.PerThread,
+    is_vector: bool,
+    float_ty: Type,
+    x: std.math.big.int.Const,
+    round: std.math.big.int.Round,
+) Error!Value {
+    const zcu = pt.zcu;
+    const scalar_ty = switch (is_vector) {
+        true => float_ty.childType(zcu),
+        false => float_ty,
+    };
+    assert(scalar_ty.zigTypeTag(zcu) == .float);
+    const scalar_val: Value = switch (scalar_ty.floatBits(zcu.getTarget())) {
+        16 => try pt.floatValue(scalar_ty, x.toFloat(f16, round)[0]),
+        32 => try pt.floatValue(scalar_ty, x.toFloat(f32, round)[0]),
+        64 => try pt.floatValue(scalar_ty, x.toFloat(f64, round)[0]),
+        80 => try pt.floatValue(scalar_ty, x.toFloat(f80, round)[0]),
+        128 => try pt.floatValue(scalar_ty, x.toFloat(f128, round)[0]),
+        else => unreachable,
+    };
+    if (is_vector) {
+        return .fromInterned(try pt.intern(.{ .aggregate = .{
+            .ty = float_ty.toIntern(),
+            .storage = .{ .repeated_elem = scalar_val.toIntern() },
+        } }));
+    } else {
+        return scalar_val;
+    }
+}
+
 const Block = struct {
     instructions: []Air.Inst.Index,
     len: usize,
@@ -2735,4 +2904,5 @@ const InternPool = @import("../InternPool.zig");
 const Legalize = @This();
 const std = @import("std");
 const Type = @import("../Type.zig");
+const Value = @import("../Value.zig");
 const Zcu = @import("../Zcu.zig");

@@ -31,6 +31,8 @@ const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
 pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
     return comptime &.initMany(&.{
         .expand_intcast_safe,
+        .expand_int_from_float_safe,
+        .expand_int_from_float_optimized_safe,
         .expand_add_safe,
         .expand_sub_safe,
         .expand_mul_safe,
@@ -2020,6 +2022,8 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .sub_safe,
         .mul_safe,
         .intcast_safe,
+        .int_from_float_safe,
+        .int_from_float_optimized_safe,
         => return cg.fail("TODO implement safety_checked_instructions", .{}),
 
         .work_item_id,
