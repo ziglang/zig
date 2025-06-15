@@ -41,6 +41,7 @@ fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
         .stage2_wasm => .wasm_backend,
         .stage2_x86 => .x86_backend,
         .stage2_x86_64 => .x86_64_backend,
+        .stage2_loongarch => .loongarch_backend,
         _ => unreachable,
     };
 }
@@ -52,6 +53,7 @@ fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
         .stage2_arm => @import("arch/arm/CodeGen.zig"),
         .stage2_c => @import("codegen/c.zig"),
         .stage2_llvm => @import("codegen/llvm.zig"),
+        .stage2_loongarch => @import("arch/loongarch64/CodeGen.zig"),
         .stage2_powerpc => @import("arch/powerpc/CodeGen.zig"),
         .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
         .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
@@ -77,6 +79,7 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
         .stage2_riscv64,
         .stage2_sparc64,
         .stage2_spirv64,
+        .stage2_loongarch,
         .stage2_powerpc,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
@@ -91,6 +94,7 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
 pub const AnyMir = union {
     aarch64: @import("arch/aarch64/Mir.zig"),
     arm: @import("arch/arm/Mir.zig"),
+    loongarch64: @import("arch/loongarch64/Mir.zig"),
     powerpc: noreturn, //@import("arch/powerpc/Mir.zig"),
     riscv64: @import("arch/riscv64/Mir.zig"),
     sparc64: @import("arch/sparc64/Mir.zig"),
@@ -102,6 +106,7 @@ pub const AnyMir = union {
         return switch (backend) {
             .stage2_aarch64 => "aarch64",
             .stage2_arm => "arm",
+            .stage2_loongarch => "loongarch64",
             .stage2_powerpc => "powerpc",
             .stage2_riscv64 => "riscv64",
             .stage2_sparc64 => "sparc64",
@@ -119,6 +124,7 @@ pub const AnyMir = union {
             else => unreachable,
             inline .stage2_aarch64,
             .stage2_arm,
+            .stage2_loongarch,
             .stage2_powerpc,
             .stage2_riscv64,
             .stage2_sparc64,
@@ -150,6 +156,7 @@ pub fn generateFunction(
         else => unreachable,
         inline .stage2_aarch64,
         .stage2_arm,
+        .stage2_loongarch,
         .stage2_powerpc,
         .stage2_riscv64,
         .stage2_sparc64,
@@ -188,6 +195,7 @@ pub fn emitFunction(
         else => unreachable,
         inline .stage2_aarch64,
         .stage2_arm,
+        .stage2_loongarch,
         .stage2_powerpc,
         .stage2_riscv64,
         .stage2_sparc64,

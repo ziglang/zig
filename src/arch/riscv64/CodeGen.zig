@@ -1013,7 +1013,7 @@ fn formatAir(
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    data.func.air.dumpInst(data.inst, data.func.pt, data.func.liveness);
+    data.func.air.writeInst(writer, data.inst, data.func.pt, data.func.liveness);
 }
 fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(formatAir) {
     return .{ .data = .{ .func = func, .inst = inst } };
