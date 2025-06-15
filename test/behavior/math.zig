@@ -166,6 +166,13 @@ fn testCtz() !void {
     try expect(testOneCtz(u16, 0b00000000) == 16);
 }
 
+test "@ctz comptime_int" {
+    try expectEqual(5, @ctz(0b10100000));
+    try expectEqual(1, @ctz(0b10001010));
+    try expectEqual(0, @ctz(-1));
+    try expectEqual(1, @ctz(-2));
+}
+
 fn testOneCtz(comptime T: type, x: T) u32 {
     return @ctz(x);
 }
