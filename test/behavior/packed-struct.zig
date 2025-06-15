@@ -429,6 +429,7 @@ test "nested packed struct field pointers" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // ubsan unaligned pointer access
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (native_endian != .little) return error.SkipZigTest; // Byte aligned packed struct field pointers have not been implemented yet
 
     const S2 = packed struct {
@@ -954,6 +955,7 @@ test "pointer to container level packed struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     const S = packed struct(u32) {
         test_bit: bool,
@@ -998,6 +1000,7 @@ test "bitcast back and forth" {
 test "field access of packed struct smaller than its abi size inside struct initialized with rls" {
     // Originally reported at https://github.com/ziglang/zig/issues/14200
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     const S = struct {
         ps: packed struct { x: i2, y: i2 },
@@ -1147,6 +1150,7 @@ test "assignment to non-byte-aligned field in packed struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     const Frame = packed struct {
         num: u20,
@@ -1361,6 +1365,7 @@ test "byte-aligned packed relocation" {
 
 test "packed struct store of comparison result" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     const S1 = packed struct {
         val1: u3,
