@@ -260,6 +260,10 @@ pub const Inst = struct {
         /// `[N:S]T` syntax. Source location is the array type expression node.
         /// Uses the `pl_node` union field. Payload is `ArrayTypeSentinel`.
         array_type_sentinel,
+        /// `@Int` builtin.
+        /// Uses the `pl_node` union field with `Bin` payload.
+        /// lhs is signedness, rhs is bit count.
+        int_reify,
         /// `@Vector` builtin.
         /// Uses the `pl_node` union field with `Bin` payload.
         /// lhs is length, rhs is element type.
@@ -1098,6 +1102,7 @@ pub const Inst = struct {
                 .array_mul,
                 .array_type,
                 .array_type_sentinel,
+                .int_reify,
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
@@ -1397,6 +1402,7 @@ pub const Inst = struct {
                 .array_mul,
                 .array_type,
                 .array_type_sentinel,
+                .int_reify,
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
@@ -1634,6 +1640,7 @@ pub const Inst = struct {
                 .array_mul = .pl_node,
                 .array_type = .pl_node,
                 .array_type_sentinel = .pl_node,
+                .int_reify = .pl_node,
                 .vector_type = .pl_node,
                 .elem_type = .un_node,
                 .indexable_ptr_elem_type = .un_node,
@@ -2034,10 +2041,22 @@ pub const Inst = struct {
         /// Implement builtin `@errorFromInt`.
         /// `operand` is payload index to `UnNode`.
         error_from_int,
-        /// Implement builtin `@Type`.
+        /// Implement builtin `@Enum`.
         /// `operand` is payload index to `Reify`.
         /// `small` contains `NameStrategy`.
-        reify,
+        enum_reify,
+        /// Implement builtin `@Pointer`.
+        /// `operand` is payload index to `Reify`.
+        /// `small` contains `NameStrategy`.
+        pointer_reify,
+        /// Implement builtin `@Struct`.
+        /// `operand` is payload index to `Reify`.
+        /// `small` contains `NameStrategy`.
+        struct_reify,
+        /// Implement builtin `@Union`.
+        /// `operand` is payload index to `Reify`.
+        /// `small` contains `NameStrategy`.
+        union_reify,
         /// Implements the `@asyncCall` builtin.
         /// `operand` is payload index to `AsyncCall`.
         builtin_async_call,
@@ -3502,11 +3521,16 @@ pub const Inst = struct {
         calling_convention,
         address_space,
         float_mode,
+        signedness,
         reduce_op,
         call_modifier,
         prefetch_options,
         export_options,
         extern_options,
+        enum_info,
+        pointer_info,
+        struct_info,
+        union_info,
         type_info,
         branch_hint,
         // Values
@@ -4142,6 +4166,7 @@ fn findTrackableInner(
         .array_mul,
         .array_type,
         .array_type_sentinel,
+        .int_reify,
         .vector_type,
         .elem_type,
         .indexable_ptr_elem_type,
@@ -4418,7 +4443,12 @@ fn findTrackableInner(
                 },
 
                 // Reifications and opaque declarations need tracking, but have no body.
-                .reify, .opaque_decl => return contents.other.append(gpa, inst),
+                .enum_reify,
+                .pointer_reify,
+                .struct_reify,
+                .union_reify,
+                .opaque_decl,
+                => return contents.other.append(gpa, inst),
 
                 // Struct declarations need tracking and have bodies.
                 .struct_decl => {
@@ -5173,7 +5203,10 @@ pub fn assertTrackable(zir: Zir, inst_idx: Zir.Inst.Index) void {
             .union_decl,
             .enum_decl,
             .opaque_decl,
-            .reify,
+            .enum_reify,
+            .pointer_reify,
+            .struct_reify,
+            .union_reify,
             => {}, // tracked in order, as the owner instructions of explicit container types
             else => unreachable, // assertion failure; not trackable
         },

@@ -133,26 +133,24 @@ test "array-like initializer for tuple types" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    const T = @Type(.{
-        .@"struct" = .{
-            .is_tuple = true,
-            .layout = .auto,
-            .decls = &.{},
-            .fields = &.{
-                .{
-                    .name = "0",
-                    .type = i32,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(i32),
-                },
-                .{
-                    .name = "1",
-                    .type = u8,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(u8),
-                },
+    const T = @Struct(.{
+        .is_tuple = true,
+        .layout = .auto,
+        .decls = &.{},
+        .fields = &.{
+            .{
+                .name = "0",
+                .type = i32,
+                .default_value_ptr = null,
+                .is_comptime = false,
+                .alignment = @alignOf(i32),
+            },
+            .{
+                .name = "1",
+                .type = u8,
+                .default_value_ptr = null,
+                .is_comptime = false,
+                .alignment = @alignOf(u8),
             },
         },
     });
@@ -328,19 +326,17 @@ test "tuple type with void field" {
 test "zero sized struct in tuple handled correctly" {
     const State = struct {
         const Self = @This();
-        data: @Type(.{
-            .@"struct" = .{
-                .is_tuple = true,
-                .layout = .auto,
-                .decls = &.{},
-                .fields = &.{.{
-                    .name = "0",
-                    .type = struct {},
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = 0,
-                }},
-            },
+        data: @Struct(.{
+            .is_tuple = true,
+            .layout = .auto,
+            .decls = &.{},
+            .fields = &.{.{
+                .name = "0",
+                .type = struct {},
+                .default_value_ptr = null,
+                .is_comptime = false,
+                .alignment = 0,
+            }},
         }),
 
         pub fn do(this: Self) usize {
@@ -485,12 +481,12 @@ test "coerce anon tuple to tuple" {
 }
 
 test "empty tuple type" {
-    const S = @Type(.{ .@"struct" = .{
+    const S = @Struct(.{
         .layout = .auto,
         .fields = &.{},
         .decls = &.{},
         .is_tuple = true,
-    } });
+    });
 
     const s: S = .{};
     try expect(s.len == 0);

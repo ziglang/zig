@@ -726,7 +726,10 @@ pub const EnvVar = enum {
 pub const SimpleComptimeReason = enum(u32) {
     // Evaluating at comptime because a builtin operand must be comptime-known.
     // These messages all mention a specific builtin.
-    operand_Type,
+    operand_Enum,
+    operand_Pointer,
+    operand_Struct,
+    operand_Union,
     operand_setEvalBranchQuota,
     operand_setFloatMode,
     operand_branchHint,
@@ -808,7 +811,10 @@ pub const SimpleComptimeReason = enum(u32) {
     pub fn message(r: SimpleComptimeReason) []const u8 {
         return switch (r) {
             // zig fmt: off
-            .operand_Type                => "operand to '@Type' must be comptime-known",
+            .operand_Enum                => "operand to '@Enum' must be comptime-known",
+            .operand_Pointer             => "operand to '@Pointer' must be comptime-known",
+            .operand_Struct              => "operand to '@Struct' must be comptime-known",
+            .operand_Union               => "operand to '@Union' must be comptime-known",
             .operand_setEvalBranchQuota  => "operand to '@setEvalBranchQuota' must be comptime-known",
             .operand_setFloatMode        => "operand to '@setFloatMode' must be comptime-known",
             .operand_branchHint          => "operand to '@branchHint' must be comptime-known",

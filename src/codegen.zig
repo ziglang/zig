@@ -228,7 +228,7 @@ pub fn generateLazyFunction(
 fn writeFloat(comptime F: type, f: F, target: std.Target, endian: std.builtin.Endian, code: []u8) void {
     _ = target;
     const bits = @typeInfo(F).float.bits;
-    const Int = @Type(.{ .int = .{ .signedness = .unsigned, .bits = bits } });
+    const Int = @Int(.unsigned, bits);
     const int: Int = @bitCast(f);
     mem.writeInt(Int, code[0..@divExact(bits, 8)], int, endian);
 }

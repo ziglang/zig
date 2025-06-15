@@ -821,7 +821,7 @@ fn Span(comptime T: type) type {
                 .one, .slice => @compileError("invalid type given to std.mem.span: " ++ @typeName(T)),
             }
             new_ptr_info.size = .slice;
-            return @Type(.{ .pointer = new_ptr_info });
+            return @Pointer(new_ptr_info);
         },
         else => {},
     }
@@ -913,7 +913,7 @@ fn SliceTo(comptime T: type, comptime end: std.meta.Elem(T)) type {
                     new_ptr_info.is_allowzero = false;
                 },
             }
-            return @Type(.{ .pointer = new_ptr_info });
+            return @Pointer(new_ptr_info);
         },
         else => {},
     }
@@ -3659,14 +3659,14 @@ fn ReverseIterator(comptime T: type) type {
                         new_ptr_info.size = .many;
                         new_ptr_info.child = array_info.child;
                         new_ptr_info.sentinel_ptr = array_info.sentinel_ptr;
-                        break :blk @Type(.{ .pointer = new_ptr_info });
+                        break :blk @Pointer(new_ptr_info);
                     },
                     else => {},
                 },
                 .slice => {
                     var new_ptr_info = ptr_info;
                     new_ptr_info.size = .many;
-                    break :blk @Type(.{ .pointer = new_ptr_info });
+                    break :blk @Pointer(new_ptr_info);
                 },
                 else => {},
             },
@@ -3675,13 +3675,13 @@ fn ReverseIterator(comptime T: type) type {
         @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'");
     };
     const Element = std.meta.Elem(Pointer);
-    const ElementPointer = @Type(.{ .pointer = ptr: {
+    const ElementPointer = @Pointer(ptr: {
         var ptr = @typeInfo(Pointer).pointer;
         ptr.size = .one;
         ptr.child = Element;
         ptr.sentinel_ptr = null;
         break :ptr ptr;
-    } });
+    });
     return struct {
         ptr: Pointer,
         index: usize,
@@ -4041,17 +4041,15 @@ fn CopyPtrAttrs(
     comptime child: type,
 ) type {
     const info = @typeInfo(source).pointer;
-    return @Type(.{
-        .pointer = .{
-            .size = size,
-            .is_const = info.is_const,
-            .is_volatile = info.is_volatile,
-            .is_allowzero = info.is_allowzero,
-            .alignment = info.alignment,
-            .address_space = info.address_space,
-            .child = child,
-            .sentinel_ptr = null,
-        },
+    return @Pointer(.{
+        .size = size,
+        .is_const = info.is_const,
+        .is_volatile = info.is_volatile,
+        .is_allowzero = info.is_allowzero,
+        .alignment = info.alignment,
+        .address_space = info.address_space,
+        .child = child,
+        .sentinel_ptr = null,
     });
 }
 
@@ -4623,17 +4621,15 @@ test "freeing empty string with null-terminated sentinel" {
 /// all other pointer attributes copied from `AttributeSource`.
 fn AlignedSlice(comptime AttributeSource: type, comptime new_alignment: usize) type {
     const info = @typeInfo(AttributeSource).pointer;
-    return @Type(.{
-        .pointer = .{
-            .size = .slice,
-            .is_const = info.is_const,
-            .is_volatile = info.is_volatile,
-            .is_allowzero = info.is_allowzero,
-            .alignment = new_alignment,
-            .address_space = info.address_space,
-            .child = info.child,
-            .sentinel_ptr = null,
-        },
+    return @Pointer(.{
+        .size = .slice,
+        .is_const = info.is_const,
+        .is_volatile = info.is_volatile,
+        .is_allowzero = info.is_allowzero,
+        .alignment = new_alignment,
+        .address_space = info.address_space,
+        .child = info.child,
+        .sentinel_ptr = null,
     });
 }
 

@@ -409,6 +409,7 @@ const Writer = struct {
             .splat,
             .reduce,
             .bitcast,
+            .int_reify,
             .vector_type,
             .max,
             .min,
@@ -585,7 +586,11 @@ const Writer = struct {
                 try self.writeSrcNode(stream, inst_data.node);
             },
 
-            .reify => {
+            .enum_reify,
+            .pointer_reify,
+            .struct_reify,
+            .union_reify,
+            => {
                 const inst_data = self.code.extraData(Zir.Inst.Reify, extended.operand).data;
                 try stream.print("line({d}), ", .{inst_data.src_line});
                 try self.writeInstRef(stream, inst_data.operand);

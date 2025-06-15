@@ -2328,9 +2328,9 @@ test "peer type resolution: pointer attributes are combined correctly" {
     };
 
     const NonAllowZero = comptime blk: {
-        var ti = @typeInfo(@TypeOf(r1, r2, r3, r4));
-        ti.pointer.is_allowzero = false;
-        break :blk @Type(ti);
+        var ti = @typeInfo(@TypeOf(r1, r2, r3, r4)).pointer;
+        ti.is_allowzero = false;
+        break :blk @Pointer(ti);
     };
     try expectEqualSlices(u8, std.mem.span(@volatileCast(@as(NonAllowZero, @ptrCast(r1)))), "foo");
     try expectEqualSlices(u8, std.mem.span(@volatileCast(@as(NonAllowZero, @ptrCast(r2)))), "bar");

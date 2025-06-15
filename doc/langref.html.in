@@ -637,7 +637,7 @@
       {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
       integer type is {#syntax#}65535{#endsyntax#}.
       </p>
-      {#see_also|Integers|Floats|void|Errors|@Type#}
+      {#see_also|Integers|Floats|void|Errors|@Int#}
       {#header_close#}
       {#header_open|Primitive Values#}
       <div class="table-wrapper">
@@ -3706,9 +3706,9 @@ void do_a_thing(struct Foo *foo) {
             <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@FieldType(T, "a"){#endsyntax#}</td>
           </tr>
           <tr>
-            <th scope="row">{#syntax#}@Type(x){#endsyntax#}</th>
+            <th scope="row">{#syntax#}@Struct(x){#endsyntax#}</th>
             <td>-</td>
-            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.builtin.Type{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.builtin.Type.Struct{#endsyntax#}</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}@typeInfo(x){#endsyntax#}</th>
@@ -3822,7 +3822,7 @@ void do_a_thing(struct Foo *foo) {
             <td>{#syntax#}x{#endsyntax#} has no result location (typed initializers do not propagate result locations)</td>
           </tr>
           <tr>
-            <th scope="row">{#syntax#}@Type(x){#endsyntax#}</th>
+            <th scope="row">{#syntax#}@Struct(x){#endsyntax#}</th>
             <td>{#syntax#}ptr{#endsyntax#}</td>
             <td>{#syntax#}x{#endsyntax#} has no result location</td>
           </tr>
@@ -5785,40 +5785,35 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       {#header_close#}
 
-      {#header_open|@Type#}
-      <pre>{#syntax#}@Type(comptime info: std.builtin.Type) type{#endsyntax#}</pre>
+      {#header_open|@Int#}
+      <pre>{#syntax#}@Int(comptime signedness: std.builtin.Signedness, comptime bits: u16) type{#endsyntax#}</pre>
       <p>
-      This function is the inverse of {#link|@typeInfo#}. It reifies type information
-      into a {#syntax#}type{#endsyntax#}.
+      This function reifies an integer type with the given signness and bit count.
       </p>
+      {#header_close#}
+      {#header_open|@Pointer#}
+      <pre>{#syntax#}@Pointer(comptime info: std.builtin.Type.Pointer) type{#endsyntax#}</pre>
       <p>
-      It is available for the following types:
+      This function reifies a pointer type with the given information.
       </p>
-      <ul>
-          <li>{#syntax#}type{#endsyntax#}</li>
-          <li>{#syntax#}noreturn{#endsyntax#}</li>
-          <li>{#syntax#}void{#endsyntax#}</li>
-          <li>{#syntax#}bool{#endsyntax#}</li>
-          <li>{#link|Integers#} - The maximum bit count for an integer type is {#syntax#}65535{#endsyntax#}.</li>
-          <li>{#link|Floats#}</li>
-          <li>{#link|Pointers#}</li>
-          <li>{#syntax#}comptime_int{#endsyntax#}</li>
-          <li>{#syntax#}comptime_float{#endsyntax#}</li>
-          <li>{#syntax#}@TypeOf(undefined){#endsyntax#}</li>
-          <li>{#syntax#}@TypeOf(null){#endsyntax#}</li>
-          <li>{#link|Arrays#}</li>
-          <li>{#link|Optionals#}</li>
-          <li>{#link|Error Set Type#}</li>
-          <li>{#link|Error Union Type#}</li>
-          <li>{#link|Vectors#}</li>
-          <li>{#link|opaque#}</li>
-          <li>{#syntax#}anyframe{#endsyntax#}</li>
-          <li>{#link|struct#}</li>
-          <li>{#link|enum#}</li>
-          <li>{#link|Enum Literals#}</li>
-          <li>{#link|union#}</li>
-          <li>{#link|Functions#}</li>
-      </ul>
+      {#header_close#}
+      {#header_open|@Enum#}
+      <pre>{#syntax#}@Enum(comptime info: std.builtin.Type.Enum) type{#endsyntax#}</pre>
+      <p>
+      This function reifies an enum type with the given information.
+      </p>
+      {#header_close#}
+      {#header_open|@Struct#}
+      <pre>{#syntax#}@Struct(comptime info: std.builtin.Type.Struct) type{#endsyntax#}</pre>
+      <p>
+      This function reifies an struct type with the given information.
+      </p>
+      {#header_close#}
+      {#header_open|@Union#}
+      <pre>{#syntax#}@Union(comptime info: std.builtin.Type.Union) type{#endsyntax#}</pre>
+      <p>
+      This function reifies a union type with the given information.
+      </p>
       {#header_close#}
       {#header_open|@typeInfo#}
       <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.Type{#endsyntax#}</pre>
