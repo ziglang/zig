@@ -41,6 +41,10 @@ pub const Env = enum {
     @"riscv64-linux",
 
     /// - sema
+    /// - `zig build-* -fno-llvm -fno-lld -target spirv(32/64)-* --listen=-`
+    spirv,
+
+    /// - sema
     /// - `zig build-* -fno-llvm -fno-lld -target wasm32-* --listen=-`
     wasm,
 
@@ -175,6 +179,12 @@ pub const Env = enum {
             .@"riscv64-linux" => switch (feature) {
                 .riscv64_backend,
                 .elf_linker,
+                => true,
+                else => Env.sema.supports(feature),
+            },
+            .spirv => switch (feature) {
+                .spirv64_backend,
+                .spirv_linker,
                 => true,
                 else => Env.sema.supports(feature),
             },
