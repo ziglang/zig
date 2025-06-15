@@ -110,6 +110,7 @@ pub fn main() !void {
     var steps_menu = false;
     var output_tmp_nonce: ?[16]u8 = null;
     var watch = false;
+    var watch_clear = false;
     var fuzz = false;
     var debounce_interval_ms: u16 = 50;
     var listen_port: u16 = 0;
@@ -266,6 +267,19 @@ pub fn main() !void {
                 prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "--watch")) {
                 watch = true;
+            } else if (mem.startsWith(u8, arg, "--watch=")) {
+                watch = true;
+                const text = arg["--watch=".len..];
+                const option = std.meta.stringToEnum(std.Build.Watch.Options, text) orelse {
+                    fatalWithHint("expected [clear] in '{s}', found '{s}'", .{
+                        arg, text,
+                    });
+                };
+                switch (option) {
+                    .clear => {
+                        watch_clear = true;
+                    },
+                }
             } else if (mem.eql(u8, arg, "--fuzz")) {
                 fuzz = true;
             } else if (mem.eql(u8, arg, "-fincremental")) {
@@ -487,6 +501,10 @@ pub fn main() !void {
         var debounce_timeout: Watch.Timeout = .none;
         while (true) switch (try w.wait(gpa, debounce_timeout)) {
             .timeout => {
+                if (watch_clear) {
+                    try std.io.getStdOut().writeAll("\x1B[2J\x1B[H");
+                }
+
                 debouncing_node.end();
                 markFailedStepsDirty(gpa, run.step_stack.keys());
                 continue :rebuild;
@@ -1307,7 +1325,8 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
         \\    needed                     (Default) Lazy dependencies are fetched as needed
         \\    all                        Lazy dependencies are always fetched
-        \\  --watch                      Continuously rebuild when source files are modified
+        \\  --watch[=option]             Continuously rebuild when source files are modified
+        \\    clear                      Clear screen before each rebuild. (default: no clear)
         \\  --fuzz                       Continuously search for unit test failures
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
         \\     -fincremental             Enable incremental compilation
