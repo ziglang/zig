@@ -37,7 +37,7 @@ fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
         .stage2_powerpc => .powerpc_backend,
         .stage2_riscv64 => .riscv64_backend,
         .stage2_sparc64 => .sparc64_backend,
-        .stage2_spirv64 => .spirv64_backend,
+        .stage2_spirv => .spirv64_backend,
         .stage2_wasm => .wasm_backend,
         .stage2_x86 => .x86_backend,
         .stage2_x86_64 => .x86_64_backend,
@@ -55,7 +55,7 @@ fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
         .stage2_powerpc => @import("arch/powerpc/CodeGen.zig"),
         .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
         .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
-        .stage2_spirv64 => @import("codegen/spirv.zig"),
+        .stage2_spirv => @import("codegen/spirv.zig"),
         .stage2_wasm => @import("arch/wasm/CodeGen.zig"),
         .stage2_x86, .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
         _ => unreachable,
@@ -76,7 +76,7 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
         .stage2_x86,
         .stage2_riscv64,
         .stage2_sparc64,
-        .stage2_spirv64,
+        .stage2_spirv,
         .stage2_powerpc,
         => |backend| {
             dev.check(devFeatureForBackend(backend));

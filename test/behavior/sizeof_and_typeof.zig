@@ -80,7 +80,7 @@ const P = packed struct {
 
 test "@offsetOf" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     // Packed structs have fixed memory layout
     try expect(@offsetOf(P, "a") == 0);
@@ -233,7 +233,7 @@ test "@sizeOf comparison against zero" {
 }
 
 test "hardcoded address in typeof expression" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn func() @TypeOf(@as(*[]u8, @ptrFromInt(0x10)).*[0]) {
@@ -328,7 +328,7 @@ test "lazy abi size used in comparison" {
 test "peer type resolution with @TypeOf doesn't trigger dependency loop check" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const T = struct {
         next: @TypeOf(null, @as(*const @This(), undefined)),
@@ -386,7 +386,7 @@ comptime {
 }
 
 test "Extern function calls in @TypeOf" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = extern struct {
         state: c_short,

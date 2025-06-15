@@ -4585,7 +4585,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
             .naked => true,
             else => false,
         },
-        .stage2_spirv64 => switch (cc) {
+        .stage2_spirv => switch (cc) {
             .spirv_device, .spirv_kernel => true,
             .spirv_fragment, .spirv_vertex => target.os.tag == .vulkan,
             else => false,
