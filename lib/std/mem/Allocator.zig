@@ -335,8 +335,10 @@ pub fn remap(self: Allocator, allocation: anytype, new_len: usize) t: {
     return mem.bytesAsSlice(T, new_memory);
 }
 
-/// This function requests a new byte size for an existing allocation, which
+/// This function requests a new size for an existing allocation, which
 /// can be larger, smaller, or the same size as the old memory allocation.
+/// The result is an array of `new_n` items of the same type as the existing
+/// allocation.
 ///
 /// If `new_n` is 0, this is the same as `free` and it always succeeds.
 ///
