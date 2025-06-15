@@ -622,6 +622,18 @@ fn checksContainStderr(checks: []const StdIo.Check) bool {
     return false;
 }
 
+/// If `path` is cwd-relative, make it relative to the cwd of the child instead.
+///
+/// Whenever a path is included in the argv of a child, it should be put through this function first
+/// to make sure the child doesn't see paths relative to a cwd other than its own.
+fn convertPathArg(run: *Run, path: Build.Cache.Path) []const u8 {
+    const b = run.step.owner;
+    const path_str = path.toString(b.graph.arena) catch @panic("OOM");
+    const child_lazy_cwd = run.cwd orelse return path_str;
+    const child_cwd = child_lazy_cwd.getPath3(b, &run.step).toString(b.graph.arena) catch @panic("OOM");
+    return std.fs.path.relative(b.graph.arena, child_cwd, path_str) catch @panic("OOM");
+}
+
 const IndexedOutput = struct {
     index: usize,
     tag: @typeInfo(Arg).@"union".tag_type.?,
@@ -676,14 +688,14 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 man.hash.addBytes(bytes);
             },
             .lazy_path => |file| {
-                const file_path = file.lazy_path.getPath2(b, step);
-                try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
+                const file_path = file.lazy_path.getPath3(b, step);
+                try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, run.convertPathArg(file_path) }));
                 man.hash.addBytes(file.prefix);
-                _ = try man.addFile(file_path, null);
+                _ = try man.addFilePath(file_path, null);
             },
             .decorated_directory => |dd| {
                 const file_path = dd.lazy_path.getPath3(b, step);
-                const resolved_arg = b.fmt("{s}{}{s}", .{ dd.prefix, file_path, dd.suffix });
+                const resolved_arg = b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(file_path), dd.suffix });
                 try argv_list.append(resolved_arg);
                 man.hash.addBytes(resolved_arg);
             },
@@ -696,7 +708,10 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 }
                 const file_path = artifact.installed_path orelse artifact.generated_bin.?.path.?;
 
-                try argv_list.append(b.fmt("{s}{s}", .{ pa.prefix, file_path }));
+                try argv_list.append(b.fmt("{s}{s}", .{
+                    pa.prefix,
+                    run.convertPathArg(.{ .root_dir = .cwd(), .sub_path = file_path }),
+                }));
 
                 _ = try man.addFile(file_path, null);
             },
@@ -787,11 +802,14 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                     b.cache_root, output_sub_dir_path, @errorName(err),
                 });
             };
-            const output_path = placeholder.output.generated_file.path.?;
+            const arg_output_path = run.convertPathArg(.{
+                .root_dir = .cwd(),
+                .sub_path = placeholder.output.generated_file.getPath(),
+            });
             argv_list.items[placeholder.index] = if (placeholder.output.prefix.len == 0)
-                output_path
+                arg_output_path
             else
-                b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
+                b.fmt("{s}{s}", .{ placeholder.output.prefix, arg_output_path });
         }
 
         try runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node, null);
@@ -816,12 +834,15 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 b.cache_root, output_sub_dir_path, @errorName(err),
             });
         };
-        const output_path = try b.cache_root.join(arena, &output_components);
-        placeholder.output.generated_file.path = output_path;
-        argv_list.items[placeholder.index] = if (placeholder.output.prefix.len == 0)
-            output_path
-        else
-            b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
+        const raw_output_path: Build.Cache.Path = .{
+            .root_dir = b.cache_root,
+            .sub_path = b.pathJoin(&output_components),
+        };
+        placeholder.output.generated_file.path = raw_output_path.toString(b.graph.arena) catch @panic("OOM");
+        argv_list.items[placeholder.index] = b.fmt("{s}{s}", .{
+            placeholder.output.prefix,
+            run.convertPathArg(raw_output_path),
+        });
     }
 
     try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node, null);
@@ -899,20 +920,23 @@ pub fn rerunInFuzzMode(
                 try argv_list.append(arena, bytes);
             },
             .lazy_path => |file| {
-                const file_path = file.lazy_path.getPath2(b, step);
-                try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, file_path }));
+                const file_path = file.lazy_path.getPath3(b, step);
+                try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, run.convertPathArg(file_path) }));
             },
             .decorated_directory => |dd| {
                 const file_path = dd.lazy_path.getPath3(b, step);
-                try argv_list.append(arena, b.fmt("{s}{}{s}", .{ dd.prefix, file_path, dd.suffix }));
+                try argv_list.append(arena, b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(file_path), dd.suffix }));
             },
             .artifact => |pa| {
                 const artifact = pa.artifact;
-                const file_path = if (artifact == run.producer.?)
-                    b.fmt("{}", .{run.rebuilt_executable.?})
-                else
-                    (artifact.installed_path orelse artifact.generated_bin.?.path.?);
-                try argv_list.append(arena, b.fmt("{s}{s}", .{ pa.prefix, file_path }));
+                const file_path: []const u8 = p: {
+                    if (artifact == run.producer.?) break :p b.fmt("{}", .{run.rebuilt_executable.?});
+                    break :p artifact.installed_path orelse artifact.generated_bin.?.path.?;
+                };
+                try argv_list.append(arena, b.fmt("{s}{s}", .{
+                    pa.prefix,
+                    run.convertPathArg(.{ .root_dir = .cwd(), .sub_path = file_path }),
+                }));
             },
             .output_file, .output_directory => unreachable,
         }
