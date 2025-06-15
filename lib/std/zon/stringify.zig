@@ -35,6 +35,8 @@ pub const SerializeOptions = struct {
     /// If false, struct fields are not written if they are equal to their default value. Comparison
     /// is done by `std.meta.eql`.
     emit_default_optional_fields: bool = true,
+    /// If true, unicode characters are escaped.
+    escape_unicode: bool = false,
 };
 
 /// Serialize the given value as ZON.
@@ -52,6 +54,7 @@ pub fn serialize(
         .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
+        .escape_unicode = options.escape_unicode,
     });
 }
 
@@ -72,6 +75,7 @@ pub fn serializeMaxDepth(
         .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
+        .escape_unicode = options.escape_unicode,
     }, depth);
 }
 
@@ -90,6 +94,7 @@ pub fn serializeArbitraryDepth(
         .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
+        .escape_unicode = options.escape_unicode,
     });
 }
 
@@ -397,6 +402,7 @@ pub const ValueOptions = struct {
     emit_codepoint_literals: EmitCodepointLiterals = .never,
     emit_strings_as_containers: bool = false,
     emit_default_optional_fields: bool = true,
+    escape_unicode: bool = false,
 };
 
 /// Options for manual serialization of container types.
@@ -493,7 +499,7 @@ pub fn Serializer(Writer: type) type {
             comptime assert(canSerializeType(@TypeOf(val)));
             switch (@typeInfo(@TypeOf(val))) {
                 .int, .comptime_int => if (options.emit_codepoint_literals.emitAsCodepoint(val)) |c| {
-                    self.codePoint(c) catch |err| switch (err) {
+                    self.codePoint(c, .{ .escape_unicode = options.escape_unicode }) catch |err| switch (err) {
                         error.InvalidCodepoint => unreachable, // Already validated
                         else => |e| return e,
                     };
@@ -514,7 +520,7 @@ pub fn Serializer(Writer: type) type {
                         (pointer.sentinel() == null or pointer.sentinel() == 0) and
                         !options.emit_strings_as_containers)
                     {
-                        return try self.string(val);
+                        return try self.string(val, .{ .escape_unicode = options.escape_unicode });
                     }
 
                     // Serialize as either a tuple or as the child type
@@ -648,17 +654,57 @@ pub fn Serializer(Writer: type) type {
             try self.writer.print(".{p_}", .{std.zig.fmtId(name)});
         }
 
+        /// Options for formatting code points.
+        pub const CodePointOptions = struct {
+            escape_unicode: bool = false,
+        };
+
         /// Serialize `val` as a Unicode codepoint.
         ///
         /// Returns `error.InvalidCodepoint` if `val` is not a valid Unicode codepoint.
         pub fn codePoint(
             self: *Self,
             val: u21,
+            options: CodePointOptions,
         ) (Writer.Error || error{InvalidCodepoint})!void {
-            var buf: [8]u8 = undefined;
-            const len = std.unicode.utf8Encode(val, &buf) catch return error.InvalidCodepoint;
-            const str = buf[0..len];
-            try std.fmt.format(self.writer, "'{'}'", .{std.zig.fmtEscapes(str)});
+            if (options.escape_unicode) {
+                switch (val) {
+                    // Normal ASCII characters
+                    ' '...'!', '#'...'[', ']'...'~' => try self.writer.print(
+                        "'{c}'",
+                        .{@as(u8, @intCast(val))},
+                    ),
+                    // ASCII characters that always need to be escaped
+                    0x0...0x1F, '\\', '\"' => {
+                        try self.writer.writeAll("'");
+                        try self.outputSpecialEscape(val);
+                        try self.writer.writeAll("'");
+                    },
+                    // Non-ASCII characters
+                    0x7F...std.math.maxInt(u21) => {
+                        if (val > 0x10FFFF) return error.InvalidCodepoint;
+                        try self.writer.writeAll("'");
+                        try self.outputUnicodeEscape(val);
+                        try self.writer.writeAll("'");
+                    },
+                }
+            } else {
+                switch (val) {
+                    // ASCII characters that always need to be escaped
+                    0x00...0x1F, '\\', '\"' => {
+                        try self.writer.writeAll("'");
+                        try self.outputSpecialEscape(val);
+                        try self.writer.writeAll("'");
+                    },
+                    // All other characters
+                    0x20...0x21, 0x23...0x5B, 0x5D...std.math.maxInt(u21) => {
+                        var buf: [8]u8 = undefined;
+                        const len = std.unicode.utf8Encode(val, &buf) catch return error.InvalidCodepoint;
+                        const str = buf[0..len];
+                        try self.writer.print("'{s}'", .{str});
+                    },
+                }
+            }
         }
 
         /// Like `value`, but always serializes `val` as a tuple.
@@ -714,9 +760,79 @@ pub fn Serializer(Writer: type) type {
             }
         }
 
+        /// Options for formatting strings.
+        pub const StringOptions = struct {
+            escape_unicode: bool = false,
+        };
+
+        fn outputSpecialEscape(self: *Self, c: u21) !void {
+            switch (c) {
+                '\n' => try self.writer.writeAll("\\n"),
+                '\r' => try self.writer.writeAll("\\r"),
+                '\t' => try self.writer.writeAll("\\t"),
+                '\\' => try self.writer.writeAll("\\\\"),
+                '\'' => try self.writer.writeAll("\\\'"),
+                '\"' => try self.writer.writeAll("\\\""),
+                else => try self.outputUnicodeEscape(c),
+            }
+        }
+
+        fn outputUnicodeEscape(self: *Self, codepoint: u21) !void {
+            if (codepoint <= 0xFF) {
+                try self.writer.print("\\x{x}", .{codepoint});
+            } else if (codepoint <= 0xFFFF) {
+                assert(codepoint <= 0x10FFFF);
+                try self.writer.print("\\u{{{x}}}", .{codepoint});
+            }
+        }
+
         /// Like `value`, but always serializes `val` as a string.
-        pub fn string(self: *Self, val: []const u8) Writer.Error!void {
-            try std.fmt.format(self.writer, "\"{}\"", .{std.zig.fmtEscapes(val)});
+        pub fn string(
+            self: *Self,
+            val: []const u8,
+            options: StringOptions,
+        ) Writer.Error!void {
+            try self.writer.writeByte('"');
+            var write_cursor: usize = 0;
+            var i: usize = 0;
+            if (options.escape_unicode) {
+                while (i < val.len) : (i += 1) {
+                    switch (val[i]) {
+                        // Normal ASCII characters
+                        ' '...'!', '#'...'[', ']'...'~' => {},
+                        // ASCII characters that always need to be escaped
+                        0x0...0x1F, '\\', '\"' => {
+                            try self.writer.writeAll(val[write_cursor..i]);
+                            try self.outputSpecialEscape(val[i]);
+                            write_cursor = i + 1;
+                        },
+                        // Non-ASCII characters
+                        0x7F...0xFF => {
+                            try self.writer.writeAll(val[write_cursor..i]);
+                            const ulen = std.unicode.utf8ByteSequenceLength(val[i]) catch unreachable;
+                            const codepoint = std.unicode.utf8Decode(val[i..][0..ulen]) catch unreachable;
+                            try self.outputUnicodeEscape(codepoint);
+                            i += ulen - 1;
+                            write_cursor = i + 1;
+                        },
+                    }
+                }
+            } else {
+                while (i < val.len) : (i += 1) {
+                    switch (val[i]) {
+                        // Normal characters
+                        0x20...0x21, 0x23...0x5B, 0x5D...0xFF => {},
+                        // ASCII characters that always need to be escaped
+                        0x00...0x1F, '\\', '\"' => {
+                            try self.writer.writeAll(val[write_cursor..i]);
+                            try self.outputSpecialEscape(val[i]);
+                            write_cursor = i + 1;
+                        },
+                    }
+                }
+            }
+            try self.writer.writeAll(val[write_cursor..val.len]);
+            try self.writer.writeByte('"');
         }
 
         /// Options for formatting multiline strings.
@@ -1540,7 +1656,11 @@ test "std.zon stringify utf8 codepoints" {
     try std.testing.expectEqualStrings("97", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.codePoint('a');
+    try sz.codePoint('a', .{});
+    try std.testing.expectEqualStrings("'a'", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.codePoint('a', .{ .escape_unicode = true });
     try std.testing.expectEqualStrings("'a'", buf.items);
     buf.clearRetainingCapacity();
 
@@ -1561,7 +1681,11 @@ test "std.zon stringify utf8 codepoints" {
     try std.testing.expectEqualStrings("10", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.codePoint('\n');
+    try sz.codePoint('\n', .{});
+    try std.testing.expectEqualStrings("'\\n'", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.codePoint('\n', .{ .escape_unicode = true });
     try std.testing.expectEqualStrings("'\\n'", buf.items);
     buf.clearRetainingCapacity();
 
@@ -1582,12 +1706,20 @@ test "std.zon stringify utf8 codepoints" {
     try std.testing.expectEqualStrings("9889", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.codePoint('⚡');
-    try std.testing.expectEqualStrings("'\\xe2\\x9a\\xa1'", buf.items);
+    try sz.codePoint('⚡', .{ .escape_unicode = true });
+    try std.testing.expectEqualStrings("'\\u{26a1}'", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.codePoint('⚡', .{});
+    try std.testing.expectEqualStrings("'⚡'", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.value('⚡', .{ .emit_codepoint_literals = .always });
-    try std.testing.expectEqualStrings("'\\xe2\\x9a\\xa1'", buf.items);
+    try std.testing.expectEqualStrings("'⚡'", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.value('⚡', .{ .emit_codepoint_literals = .always, .escape_unicode = true });
+    try std.testing.expectEqualStrings("'\\u{26a1}'", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.value('⚡', .{ .emit_codepoint_literals = .printable_ascii });
@@ -1599,7 +1731,7 @@ test "std.zon stringify utf8 codepoints" {
     buf.clearRetainingCapacity();
 
     // Invalid codepoint
-    try std.testing.expectError(error.InvalidCodepoint, sz.codePoint(0x110000 + 1));
+    try std.testing.expectError(error.InvalidCodepoint, sz.codePoint(0x110000 + 1, .{}));
 
     try sz.int(0x110000 + 1);
     try std.testing.expectEqualStrings("1114113", buf.items);
@@ -1632,7 +1764,7 @@ test "std.zon stringify utf8 codepoints" {
 
     // Make sure value options are passed to children
     try sz.value(.{ .c = '⚡' }, .{ .emit_codepoint_literals = .always });
-    try std.testing.expectEqualStrings(".{ .c = '\\xe2\\x9a\\xa1' }", buf.items);
+    try std.testing.expectEqualStrings(".{ .c = '⚡' }", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.value(.{ .c = '⚡' }, .{ .emit_codepoint_literals = .never });
@@ -1645,9 +1777,26 @@ test "std.zon stringify strings" {
     defer buf.deinit();
     var sz = serializer(buf.writer(), .{});
 
-    // Minimal case
-    try sz.string("abc⚡\n");
-    try std.testing.expectEqualStrings("\"abc\\xe2\\x9a\\xa1\\n\"", buf.items);
+    // Minimal case escape_unicode = true
+    try sz.string("abc⚡\u{1}\u{FFFFF}\n", .{ .escape_unicode = true });
+    try std.testing.expectEqualStrings("\"abc\\u{26a1}\\x1\\n\"", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.string(
+        \\a"b\c⚡
+    , .{ .escape_unicode = true });
+    try std.testing.expectEqualStrings("\"a\\\"b\\\\c\\u{26a1}\"", buf.items);
+    buf.clearRetainingCapacity();
+
+    // Minimal case escape_unicode = false
+    try sz.string("abc⚡\n", .{});
+    try std.testing.expectEqualStrings("\"abc⚡\\n\"", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.string(
+        \\a"b\c⚡
+    , .{});
+    try std.testing.expectEqualStrings("\"a\\\"b\\\\c⚡\"", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.tuple("abc⚡\n", .{});
@@ -1664,8 +1813,16 @@ test "std.zon stringify strings" {
     , buf.items);
     buf.clearRetainingCapacity();
 
+    try sz.value("abc⚡\n", .{ .escape_unicode = true });
+    try std.testing.expectEqualStrings("\"abc\\u{26a1}\\n\"", buf.items);
+    buf.clearRetainingCapacity();
+
     try sz.value("abc⚡\n", .{});
-    try std.testing.expectEqualStrings("\"abc\\xe2\\x9a\\xa1\\n\"", buf.items);
+    try std.testing.expectEqualStrings("\"abc⚡\\n\"", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.value("⚡", .{});
+    try std.testing.expectEqualStrings("\"⚡\"", buf.items);
     buf.clearRetainingCapacity();
 
     try sz.value("abc⚡\n", .{ .emit_strings_as_containers = true });
@@ -1766,7 +1923,7 @@ test "std.zon stringify multiline strings" {
 
         {
             const str: []const u8 = &.{ 'a', '\r', 'c' };
-            try sz.string(str);
+            try sz.string(str, .{ .escape_unicode = true });
             try std.testing.expectEqualStrings("\"a\\rc\"", buf.items);
             buf.clearRetainingCapacity();
         }
