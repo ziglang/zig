@@ -28,14 +28,16 @@ const UefiPoolAllocator = struct {
 
         const full_len = metadata_len + len;
 
-        var unaligned_ptr: [*]align(8) u8 = undefined;
-        if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, full_len, &unaligned_ptr) != .success) return null;
+        const unaligned_slice = uefi.system_table.boot_services.?.allocatePool(
+            uefi.efi_pool_memory_type,
+            full_len,
+        ) catch return null;
 
-        const unaligned_addr = @intFromPtr(unaligned_ptr);
+        const unaligned_addr = @intFromPtr(unaligned_slice.ptr);
         const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), ptr_align);
 
-        const aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
-        getHeader(aligned_ptr).* = unaligned_ptr;
+        const aligned_ptr = unaligned_slice.ptr + (aligned_addr - unaligned_addr);
+        getHeader(aligned_ptr).* = unaligned_slice.ptr;
 
         return aligned_ptr;
     }
@@ -76,7 +78,7 @@ const UefiPoolAllocator = struct {
     ) void {
         _ = alignment;
         _ = ret_addr;
-        _ = uefi.system_table.boot_services.?.freePool(getHeader(buf.ptr).*);
+        uefi.system_table.boot_services.?.freePool(getHeader(buf.ptr).*) catch unreachable;
     }
 };
 
@@ -117,10 +119,12 @@ fn uefi_alloc(
 
     std.debug.assert(@intFromEnum(alignment) <= 3);
 
-    var ptr: [*]align(8) u8 = undefined;
-    if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, len, &ptr) != .success) return null;
+    const slice = uefi.system_table.boot_services.?.allocatePool(
+        uefi.efi_pool_memory_type,
+        len,
+    ) catch return null;
 
-    return ptr;
+    return slice.ptr;
 }
 
 fn uefi_resize(
@@ -161,5 +165,5 @@ fn uefi_free(
 ) void {
     _ = alignment;
     _ = ret_addr;
-    _ = uefi.system_table.boot_services.?.freePool(@alignCast(buf.ptr));
+    uefi.system_table.boot_services.?.freePool(@alignCast(buf.ptr)) catch unreachable;
 }
