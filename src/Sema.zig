@@ -8934,9 +8934,7 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety()) {
-        if (zcu.backendSupportsFeature(.panic_fn)) {
-            _ = try sema.preparePanicId(src, .invalid_enum_value);
-        }
+        try sema.preparePanicId(src, .invalid_enum_value);
         return block.addTyOp(.intcast_safe, dest_ty, operand);
     }
     return block.addTyOp(.intcast, dest_ty, operand);
@@ -10340,9 +10338,7 @@ fn intCast(
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety()) {
-        if (zcu.backendSupportsFeature(.panic_fn)) {
-            _ = try sema.preparePanicId(src, .integer_out_of_bounds);
-        }
+        try sema.preparePanicId(src, .integer_out_of_bounds);
         return block.addTyOp(.intcast_safe, dest_ty, operand);
     }
     return block.addTyOp(.intcast, dest_ty, operand);
@@ -16395,9 +16391,7 @@ fn analyzeArithmetic(
     }
 
     if (block.wantSafety() and want_safety and scalar_tag == .int) {
-        if (air_tag != air_tag_safe and zcu.backendSupportsFeature(.panic_fn)) {
-            _ = try sema.preparePanicId(src, .integer_overflow);
-        }
+        if (air_tag != air_tag_safe) try sema.preparePanicId(src, .integer_overflow);
         return block.addBinOp(air_tag_safe, casted_lhs, casted_rhs);
     }
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
@@ -22194,9 +22188,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
         } }));
     }
     if (block.wantSafety()) {
-        if (zcu.backendSupportsFeature(.panic_fn)) {
-            _ = try sema.preparePanicId(src, .integer_part_out_of_bounds);
-        }
+        try sema.preparePanicId(src, .integer_part_out_of_bounds);
         return block.addTyOp(switch (block.float_mode) {
             .optimized => .int_from_float_optimized_safe,
             .strict => .int_from_float_safe,
@@ -26861,7 +26853,15 @@ fn explainWhyTypeIsNotPacked(
 /// Backends depend on panic decls being available when lowering safety-checked
 /// instructions. This function ensures the panic function will be available to
 /// be called during that time.
-fn preparePanicId(sema: *Sema, src: LazySrcLoc, panic_id: Zcu.SimplePanicId) !InternPool.Index {
+fn preparePanicId(sema: *Sema, src: LazySrcLoc, panic_id: Zcu.SimplePanicId) !void {
+    // If the backend doesn't support `.panic_fn`, it doesn't want us to lower the panic handlers.
+    // The backend will transform panics into traps instead.
+    if (sema.pt.zcu.backendSupportsFeature(.panic_fn)) {
+        _ = try sema.getPanicIdFunc(src, panic_id);
+    }
+}
+
+fn getPanicIdFunc(sema: *Sema, src: LazySrcLoc, panic_id: Zcu.SimplePanicId) !InternPool.Index {
     const zcu = sema.pt.zcu;
     try sema.ensureMemoizedStateResolved(src, .panic);
     const panic_func = zcu.builtin_decl_values.get(panic_id.toBuiltin());
@@ -27110,7 +27110,7 @@ fn safetyPanic(sema: *Sema, block: *Block, src: LazySrcLoc, panic_id: Zcu.Simple
     if (!sema.pt.zcu.backendSupportsFeature(.panic_fn)) {
         _ = try block.addNoOp(.trap);
     } else {
-        const panic_fn = try sema.preparePanicId(src, panic_id);
+        const panic_fn = try sema.getPanicIdFunc(src, panic_id);
         try sema.callBuiltin(block, src, Air.internedToRef(panic_fn), .auto, &.{}, .@"safety check");
     }
 }
