@@ -680,7 +680,7 @@ const eqlBytes_allowed = switch (builtin.zig_backend) {
     .stage2_riscv64,
     => false,
     // The SPIR-V backend does not support the optimized path yet.
-    .stage2_spirv64 => false,
+    .stage2_spirv => false,
     // The naive memory comparison implementation is more useful for fuzzers to
     // find interesting inputs.
     else => !builtin.fuzz,

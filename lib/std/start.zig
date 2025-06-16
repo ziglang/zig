@@ -19,7 +19,7 @@ pub const simplified_logic = switch (builtin.zig_backend) {
     .stage2_arm,
     .stage2_powerpc,
     .stage2_sparc64,
-    .stage2_spirv64,
+    .stage2_spirv,
     .stage2_x86,
     => true,
     else => false,

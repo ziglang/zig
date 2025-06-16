@@ -4386,7 +4386,7 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, ou
                 zcu.comp.config.use_llvm,
             )) {
                 else => unreachable, // assertion failure
-                .stage2_spirv64,
+                .stage2_spirv,
                 .stage2_llvm,
                 => {},
             },

@@ -121,18 +121,18 @@ test {
         _ = @import("behavior/wasm.zig");
     }
 
-    if (builtin.zig_backend != .stage2_spirv64 and builtin.os.tag != .wasi) {
+    if (builtin.zig_backend != .stage2_spirv and builtin.os.tag != .wasi) {
         _ = @import("behavior/asm.zig");
     }
 
     if (builtin.zig_backend != .stage2_arm and
         builtin.zig_backend != .stage2_aarch64 and
-        builtin.zig_backend != .stage2_spirv64)
+        builtin.zig_backend != .stage2_spirv)
     {
         _ = @import("behavior/export_keyword.zig");
     }
 
-    if (builtin.zig_backend != .stage2_spirv64 and !builtin.cpu.arch.isWasm()) {
+    if (builtin.zig_backend != .stage2_spirv and !builtin.cpu.arch.isWasm()) {
         // Due to lack of import/export of global support
         // (https://github.com/ziglang/zig/issues/4866), these tests correctly
         // cause linker errors, since a data symbol cannot be exported when
@@ -145,7 +145,7 @@ test {
 
 // This bug only repros in the root file
 test "deference @embedFile() of a file full of zero bytes" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const contents = @embedFile("behavior/zero.bin").*;
     try @import("std").testing.expect(contents.len == 456);

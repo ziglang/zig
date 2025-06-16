@@ -607,7 +607,7 @@ pub fn defaultPanic(
         .stage2_arm,
         .stage2_powerpc,
         .stage2_riscv64,
-        .stage2_spirv64,
+        .stage2_spirv,
         .stage2_wasm,
         .stage2_x86,
         => @trap(),
