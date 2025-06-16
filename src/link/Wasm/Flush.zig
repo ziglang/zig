@@ -9,6 +9,7 @@ const Alignment = Wasm.Alignment;
 const String = Wasm.String;
 const Relocation = Wasm.Relocation;
 const InternPool = @import("../../InternPool.zig");
+const Mir = @import("../../arch/wasm/Mir.zig");
 
 const build_options = @import("build_options");
 
@@ -868,7 +869,21 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     .enum_type => {
                         try emitTagNameFunction(wasm, binary_bytes, f.data_segments.get(.__zig_tag_name_table).?, i.value(wasm).tag_name.table_index, ip_index);
                     },
-                    else => try i.value(wasm).function.lower(wasm, binary_bytes),
+                    else => {
+                        const func = i.value(wasm).function;
+                        const mir: Mir = .{
+                            .instructions = wasm.mir_instructions.slice().subslice(func.instructions_off, func.instructions_len),
+                            .extra = wasm.mir_extra.items[func.extra_off..][0..func.extra_len],
+                            .locals = wasm.mir_locals.items[func.locals_off..][0..func.locals_len],
+                            .prologue = func.prologue,
+                            // These fields are unused by `lower`.
+                            .uavs = undefined,
+                            .indirect_function_set = undefined,
+                            .func_tys = undefined,
+                            .error_name_table_ref_count = undefined,
+                        };
+                        try mir.lower(wasm, binary_bytes);
+                    },
                 }
             },
         };

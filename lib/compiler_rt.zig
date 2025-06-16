@@ -265,7 +265,8 @@ comptime {
         _ = @import("compiler_rt/ssp.zig");
     }
 
-    if (!builtin.link_libc and builtin.os.tag == .windows and (builtin.abi == .none or builtin.abi == .msvc)) {
+    // Temporarily used for uefi until https://github.com/ziglang/zig/issues/21630 is addressed.
+    if (!builtin.link_libc and (builtin.os.tag == .windows or builtin.os.tag == .uefi) and (builtin.abi == .none or builtin.abi == .msvc)) {
         @export(&_fltused, .{ .name = "_fltused", .linkage = common.linkage, .visibility = common.visibility });
     }
 }

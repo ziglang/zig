@@ -85,13 +85,99 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
     }
 }
 
+/// Every code generation backend has a different MIR representation. However, we want to pass
+/// MIR from codegen to the linker *regardless* of which backend is in use. So, we use this: a
+/// union of all MIR types. The active tag is known from the backend in use; see `AnyMir.tag`.
+pub const AnyMir = union {
+    aarch64: @import("arch/aarch64/Mir.zig"),
+    arm: @import("arch/arm/Mir.zig"),
+    powerpc: noreturn, //@import("arch/powerpc/Mir.zig"),
+    riscv64: @import("arch/riscv64/Mir.zig"),
+    sparc64: @import("arch/sparc64/Mir.zig"),
+    x86_64: @import("arch/x86_64/Mir.zig"),
+    wasm: @import("arch/wasm/Mir.zig"),
+    c: @import("codegen/c.zig").Mir,
+
+    pub inline fn tag(comptime backend: std.builtin.CompilerBackend) []const u8 {
+        return switch (backend) {
+            .stage2_aarch64 => "aarch64",
+            .stage2_arm => "arm",
+            .stage2_powerpc => "powerpc",
+            .stage2_riscv64 => "riscv64",
+            .stage2_sparc64 => "sparc64",
+            .stage2_x86_64 => "x86_64",
+            .stage2_wasm => "wasm",
+            .stage2_c => "c",
+            else => unreachable,
+        };
+    }
+
+    pub fn deinit(mir: *AnyMir, zcu: *const Zcu) void {
+        const gpa = zcu.gpa;
+        const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
+        switch (backend) {
+            else => unreachable,
+            inline .stage2_aarch64,
+            .stage2_arm,
+            .stage2_powerpc,
+            .stage2_riscv64,
+            .stage2_sparc64,
+            .stage2_x86_64,
+            .stage2_wasm,
+            .stage2_c,
+            => |backend_ct| @field(mir, tag(backend_ct)).deinit(gpa),
+        }
+    }
+};
+
+/// Runs code generation for a function. This process converts the `Air` emitted by `Sema`,
+/// alongside annotated `Liveness` data, to machine code in the form of MIR (see `AnyMir`).
+///
+/// This is supposed to be a "pure" process, but some backends are currently buggy; see
+/// `Zcu.Feature.separate_thread` for details.
 pub fn generateFunction(
     lf: *link.File,
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
+    air: *const Air,
+    liveness: *const Air.Liveness,
+) CodeGenError!AnyMir {
+    const zcu = pt.zcu;
+    const func = zcu.funcInfo(func_index);
+    const target = zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
+    switch (target_util.zigBackend(target, false)) {
+        else => unreachable,
+        inline .stage2_aarch64,
+        .stage2_arm,
+        .stage2_powerpc,
+        .stage2_riscv64,
+        .stage2_sparc64,
+        .stage2_x86_64,
+        .stage2_wasm,
+        .stage2_c,
+        => |backend| {
+            dev.check(devFeatureForBackend(backend));
+            const CodeGen = importBackend(backend);
+            const mir = try CodeGen.generate(lf, pt, src_loc, func_index, air, liveness);
+            return @unionInit(AnyMir, AnyMir.tag(backend), mir);
+        },
+    }
+}
+
+/// Converts the MIR returned by `generateFunction` to finalized machine code to be placed in
+/// the output binary. This is called from linker implementations, and may query linker state.
+///
+/// This function is not called for the C backend, as `link.C` directly understands its MIR.
+///
+/// The `air` parameter is not supposed to exist, but some backends are currently buggy; see
+/// `Zcu.Feature.separate_thread` for details.
+pub fn emitFunction(
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    func_index: InternPool.Index,
+    any_mir: *const AnyMir,
     code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!void {
@@ -108,7 +194,8 @@ pub fn generateFunction(
         .stage2_x86_64,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
-            return importBackend(backend).generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output);
+            const mir = &@field(any_mir, AnyMir.tag(backend));
+            return mir.emit(lf, pt, src_loc, func_index, code, debug_output);
         },
     }
 }
@@ -695,7 +782,6 @@ fn lowerUavRef(
     const comp = lf.comp;
     const target = &comp.root_mod.resolved_target.result;
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
-    const is_obj = comp.config.output_mode == .Obj;
     const uav_val = uav.val;
     const uav_ty = Type.fromInterned(ip.typeOf(uav_val));
     const is_fn_body = uav_ty.zigTypeTag(zcu) == .@"fn";
@@ -715,21 +801,7 @@ fn lowerUavRef(
             dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
             assert(reloc_parent == .none);
-            if (is_obj) {
-                try wasm.out_relocs.append(gpa, .{
-                    .offset = @intCast(code.items.len),
-                    .pointee = .{ .symbol_index = try wasm.uavSymbolIndex(uav.val) },
-                    .tag = if (ptr_width_bytes == 4) .memory_addr_i32 else .memory_addr_i64,
-                    .addend = @intCast(offset),
-                });
-            } else {
-                try wasm.uav_fixups.ensureUnusedCapacity(gpa, 1);
-                wasm.uav_fixups.appendAssumeCapacity(.{
-                    .uavs_exe_index = try wasm.refUavExe(uav.val, uav.orig_ty),
-                    .offset = @intCast(code.items.len),
-                    .addend = @intCast(offset),
-                });
-            }
+            try wasm.addUavReloc(code.items.len, uav.val, uav.orig_ty, @intCast(offset));
             code.appendNTimesAssumeCapacity(0, ptr_width_bytes);
             return;
         },
@@ -879,73 +951,39 @@ pub const GenResult = union(enum) {
     };
 };
 
-fn genNavRef(
+pub fn genNavRef(
     lf: *link.File,
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
-    val: Value,
     nav_index: InternPool.Nav.Index,
     target: std.Target,
 ) CodeGenError!GenResult {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-    const ty = val.typeOf(zcu);
-    log.debug("genNavRef: val = {}", .{val.fmtValue(pt)});
-
-    if (!ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
-        const imm: u64 = switch (@divExact(target.ptrBitWidth(), 8)) {
-            1 => 0xaa,
-            2 => 0xaaaa,
-            4 => 0xaaaaaaaa,
-            8 => 0xaaaaaaaaaaaaaaaa,
-            else => unreachable,
-        };
-        return .{ .mcv = .{ .immediate = imm } };
-    }
-
-    const comp = lf.comp;
-    const gpa = comp.gpa;
-
-    // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
-    if (ty.castPtrToFn(zcu)) |fn_ty| {
-        if (zcu.typeToFunc(fn_ty).?.is_generic) {
-            return .{ .mcv = .{ .immediate = fn_ty.abiAlignment(zcu).toByteUnits().? } };
-        }
-    } else if (ty.zigTypeTag(zcu) == .pointer) {
-        const elem_ty = ty.elemType2(zcu);
-        if (!elem_ty.hasRuntimeBits(zcu)) {
-            return .{ .mcv = .{ .immediate = elem_ty.abiAlignment(zcu).toByteUnits().? } };
-        }
-    }
-
     const nav = ip.getNav(nav_index);
-    assert(!nav.isThreadlocal(ip));
+    log.debug("genNavRef({})", .{nav.fqn.fmt(ip)});
 
-    const lib_name, const linkage, const visibility = if (nav.getExtern(ip)) |e|
-        .{ e.lib_name, e.linkage, e.visibility }
+    const lib_name, const linkage, const is_threadlocal = if (nav.getExtern(ip)) |e|
+        .{ e.lib_name, e.linkage, e.is_threadlocal and zcu.comp.config.any_non_single_threaded }
     else
-        .{ .none, .internal, .default };
-
-    const name = nav.name;
+        .{ .none, .internal, false };
     if (lf.cast(.elf)) |elf_file| {
         const zo = elf_file.zigObjectPtr().?;
         switch (linkage) {
             .internal => {
                 const sym_index = try zo.getOrCreateMetadataForNav(zcu, nav_index);
+                if (is_threadlocal) zo.symbol(sym_index).flags.is_tls = true;
                 return .{ .mcv = .{ .lea_symbol = sym_index } };
             },
             .strong, .weak => {
-                const sym_index = try elf_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
+                const sym_index = try elf_file.getGlobalSymbol(nav.name.toSlice(ip), lib_name.toSlice(ip));
                 switch (linkage) {
                     .internal => unreachable,
                     .strong => {},
                     .weak => zo.symbol(sym_index).flags.weak = true,
                     .link_once => unreachable,
                 }
-                switch (visibility) {
-                    .default => zo.symbol(sym_index).flags.is_extern_ptr = true,
-                    .hidden, .protected => {},
-                }
+                if (is_threadlocal) zo.symbol(sym_index).flags.is_tls = true;
                 return .{ .mcv = .{ .lea_symbol = sym_index } };
             },
             .link_once => unreachable,
@@ -955,21 +993,18 @@ fn genNavRef(
         switch (linkage) {
             .internal => {
                 const sym_index = try zo.getOrCreateMetadataForNav(macho_file, nav_index);
-                const sym = zo.symbols.items[sym_index];
-                return .{ .mcv = .{ .lea_symbol = sym.nlist_idx } };
+                if (is_threadlocal) zo.symbols.items[sym_index].flags.tlv = true;
+                return .{ .mcv = .{ .lea_symbol = sym_index } };
             },
             .strong, .weak => {
-                const sym_index = try macho_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
+                const sym_index = try macho_file.getGlobalSymbol(nav.name.toSlice(ip), lib_name.toSlice(ip));
                 switch (linkage) {
                     .internal => unreachable,
                     .strong => {},
                     .weak => zo.symbols.items[sym_index].flags.weak = true,
                     .link_once => unreachable,
                 }
-                switch (visibility) {
-                    .default => zo.symbols.items[sym_index].flags.is_extern_ptr = true,
-                    .hidden, .protected => {},
-                }
+                if (is_threadlocal) zo.symbols.items[sym_index].flags.tlv = true;
                 return .{ .mcv = .{ .lea_symbol = sym_index } };
             },
             .link_once => unreachable,
@@ -980,12 +1015,12 @@ fn genNavRef(
             .internal => {
                 const atom_index = try coff_file.getOrCreateAtomForNav(nav_index);
                 const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
-                return .{ .mcv = .{ .load_got = sym_index } };
+                return .{ .mcv = .{ .lea_symbol = sym_index } };
             },
             .strong, .weak => {
-                const global_index = try coff_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
-                try coff_file.need_got_table.put(gpa, global_index, {}); // needs GOT
-                return .{ .mcv = .{ .load_got = link.File.Coff.global_symbol_bit | global_index } };
+                const global_index = try coff_file.getGlobalSymbol(nav.name.toSlice(ip), lib_name.toSlice(ip));
+                try coff_file.need_got_table.put(zcu.gpa, global_index, {}); // needs GOT
+                return .{ .mcv = .{ .lea_symbol = global_index } };
             },
             .link_once => unreachable,
         }
@@ -994,11 +1029,12 @@ fn genNavRef(
         const atom = p9.getAtom(atom_index);
         return .{ .mcv = .{ .memory = atom.getOffsetTableAddress(p9) } };
     } else {
-        const msg = try ErrorMsg.create(gpa, src_loc, "TODO genNavRef for target {}", .{target});
+        const msg = try ErrorMsg.create(zcu.gpa, src_loc, "TODO genNavRef for target {}", .{target});
         return .{ .fail = msg };
     }
 }
 
+/// deprecated legacy code path
 pub fn genTypedValue(
     lf: *link.File,
     pt: Zcu.PerThread,
@@ -1006,45 +1042,96 @@ pub fn genTypedValue(
     val: Value,
     target: std.Target,
 ) CodeGenError!GenResult {
+    return switch (try lowerValue(pt, val, &target)) {
+        .none => .{ .mcv = .none },
+        .undef => .{ .mcv = .undef },
+        .immediate => |imm| .{ .mcv = .{ .immediate = imm } },
+        .lea_nav => |nav| genNavRef(lf, pt, src_loc, nav, target),
+        .lea_uav => |uav| switch (try lf.lowerUav(
+            pt,
+            uav.val,
+            Type.fromInterned(uav.orig_ty).ptrAlignment(pt.zcu),
+            src_loc,
+        )) {
+            .mcv => |mcv| .{ .mcv = switch (mcv) {
+                else => unreachable,
+                .load_direct => |sym_index| .{ .lea_direct = sym_index },
+                .load_symbol => |sym_index| .{ .lea_symbol = sym_index },
+            } },
+            .fail => |em| .{ .fail = em },
+        },
+        .load_uav => |uav| lf.lowerUav(
+            pt,
+            uav.val,
+            Type.fromInterned(uav.orig_ty).ptrAlignment(pt.zcu),
+            src_loc,
+        ),
+    };
+}
+
+const LowerResult = union(enum) {
+    none,
+    undef,
+    /// The bit-width of the immediate may be smaller than `u64`. For example, on 32-bit targets
+    /// such as ARM, the immediate will never exceed 32-bits.
+    immediate: u64,
+    lea_nav: InternPool.Nav.Index,
+    lea_uav: InternPool.Key.Ptr.BaseAddr.Uav,
+    load_uav: InternPool.Key.Ptr.BaseAddr.Uav,
+};
+
+pub fn lowerValue(pt: Zcu.PerThread, val: Value, target: *const std.Target) Allocator.Error!LowerResult {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const ty = val.typeOf(zcu);
 
-    log.debug("genTypedValue: val = {}", .{val.fmtValue(pt)});
+    log.debug("lowerValue(@as({}, {}))", .{ ty.fmt(pt), val.fmtValue(pt) });
 
-    if (val.isUndef(zcu)) return .{ .mcv = .undef };
+    if (val.isUndef(zcu)) return .undef;
 
     switch (ty.zigTypeTag(zcu)) {
-        .void => return .{ .mcv = .none },
+        .void => return .none,
         .pointer => switch (ty.ptrSize(zcu)) {
             .slice => {},
             else => switch (val.toIntern()) {
                 .null_value => {
-                    return .{ .mcv = .{ .immediate = 0 } };
+                    return .{ .immediate = 0 };
                 },
                 else => switch (ip.indexToKey(val.toIntern())) {
                     .int => {
-                        return .{ .mcv = .{ .immediate = val.toUnsignedInt(zcu) } };
+                        return .{ .immediate = val.toUnsignedInt(zcu) };
                     },
                     .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
-                        .nav => |nav| return genNavRef(lf, pt, src_loc, val, nav, target),
-                        .uav => |uav| if (Value.fromInterned(uav.val).typeOf(zcu).hasRuntimeBits(zcu))
-                            return switch (try lf.lowerUav(
-                                pt,
-                                uav.val,
-                                Type.fromInterned(uav.orig_ty).ptrAlignment(zcu),
-                                src_loc,
-                            )) {
-                                .mcv => |mcv| return .{ .mcv = switch (mcv) {
-                                    .load_direct => |sym_index| .{ .lea_direct = sym_index },
-                                    .load_symbol => |sym_index| .{ .lea_symbol = sym_index },
+                        .nav => |nav| {
+                            if (!ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
+                                const imm: u64 = switch (@divExact(target.ptrBitWidth(), 8)) {
+                                    1 => 0xaa,
+                                    2 => 0xaaaa,
+                                    4 => 0xaaaaaaaa,
+                                    8 => 0xaaaaaaaaaaaaaaaa,
                                     else => unreachable,
-                                } },
-                                .fail => |em| return .{ .fail = em },
+                                };
+                                return .{ .immediate = imm };
                             }
+
+                            if (ty.castPtrToFn(zcu)) |fn_ty| {
+                                if (zcu.typeToFunc(fn_ty).?.is_generic) {
+                                    return .{ .immediate = fn_ty.abiAlignment(zcu).toByteUnits().? };
+                                }
+                            } else if (ty.zigTypeTag(zcu) == .pointer) {
+                                const elem_ty = ty.elemType2(zcu);
+                                if (!elem_ty.hasRuntimeBits(zcu)) {
+                                    return .{ .immediate = elem_ty.abiAlignment(zcu).toByteUnits().? };
+                                }
+                            }
+
+                            return .{ .lea_nav = nav };
+                        },
+                        .uav => |uav| if (Value.fromInterned(uav.val).typeOf(zcu).hasRuntimeBits(zcu))
+                            return .{ .lea_uav = uav }
                         else
-                            return .{ .mcv = .{ .immediate = Type.fromInterned(uav.orig_ty).ptrAlignment(zcu)
-                                .forward(@intCast((@as(u66, 1) << @intCast(target.ptrBitWidth() | 1)) / 3)) } },
+                            return .{ .immediate = Type.fromInterned(uav.orig_ty).ptrAlignment(zcu)
+                                .forward(@intCast((@as(u66, 1) << @intCast(target.ptrBitWidth() | 1)) / 3)) },
                         else => {},
                     },
                     else => {},
@@ -1058,39 +1145,35 @@ pub fn genTypedValue(
                     .signed => @bitCast(val.toSignedInt(zcu)),
                     .unsigned => val.toUnsignedInt(zcu),
                 };
-                return .{ .mcv = .{ .immediate = unsigned } };
+                return .{ .immediate = unsigned };
             }
         },
         .bool => {
-            return .{ .mcv = .{ .immediate = @intFromBool(val.toBool()) } };
+            return .{ .immediate = @intFromBool(val.toBool()) };
         },
         .optional => {
             if (ty.isPtrLikeOptional(zcu)) {
-                return genTypedValue(
-                    lf,
+                return lowerValue(
                     pt,
-                    src_loc,
-                    val.optionalValue(zcu) orelse return .{ .mcv = .{ .immediate = 0 } },
+                    val.optionalValue(zcu) orelse return .{ .immediate = 0 },
                     target,
                 );
             } else if (ty.abiSize(zcu) == 1) {
-                return .{ .mcv = .{ .immediate = @intFromBool(!val.isNull(zcu)) } };
+                return .{ .immediate = @intFromBool(!val.isNull(zcu)) };
             }
         },
         .@"enum" => {
             const enum_tag = ip.indexToKey(val.toIntern()).enum_tag;
-            return genTypedValue(
-                lf,
+            return lowerValue(
                 pt,
-                src_loc,
                 Value.fromInterned(enum_tag.int),
                 target,
             );
         },
         .error_set => {
             const err_name = ip.indexToKey(val.toIntern()).err.name;
-            const error_index = try pt.getErrorValue(err_name);
-            return .{ .mcv = .{ .immediate = error_index } };
+            const error_index = ip.getErrorValueIfExists(err_name).?;
+            return .{ .immediate = error_index };
         },
         .error_union => {
             const err_type = ty.errorUnionSet(zcu);
@@ -1099,20 +1182,16 @@ pub fn genTypedValue(
                 // We use the error type directly as the type.
                 const err_int_ty = try pt.errorIntType();
                 switch (ip.indexToKey(val.toIntern()).error_union.val) {
-                    .err_name => |err_name| return genTypedValue(
-                        lf,
+                    .err_name => |err_name| return lowerValue(
                         pt,
-                        src_loc,
                         Value.fromInterned(try pt.intern(.{ .err = .{
                             .ty = err_type.toIntern(),
                             .name = err_name,
                         } })),
                         target,
                     ),
-                    .payload => return genTypedValue(
-                        lf,
+                    .payload => return lowerValue(
                         pt,
-                        src_loc,
                         try pt.intValue(err_int_ty, 0),
                         target,
                     ),
@@ -1132,7 +1211,10 @@ pub fn genTypedValue(
         else => {},
     }
 
-    return lf.lowerUav(pt, val.toIntern(), .none, src_loc);
+    return .{ .load_uav = .{
+        .val = val.toIntern(),
+        .orig_ty = (try pt.singleConstPtrType(ty)).toIntern(),
+    } };
 }
 
 pub fn errUnionPayloadOffset(payload_ty: Type, zcu: *Zcu) u64 {

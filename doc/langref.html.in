@@ -1926,8 +1926,10 @@ or
       Vector types are created with the builtin function {#link|@Vector#}.
       </p>
       <p>
-      Vectors support the same builtin operators as their underlying base types.
-      These operations are performed element-wise, and return a vector of the same length
+      Vectors generally support the same builtin operators as their underlying base types.
+      The only exception to this is the keywords `and` and `or` on vectors of bools, since
+      these operators affect control flow, which is not allowed for vectors.
+      All other operations are performed element-wise, and return a vector of the same length
       as the input vectors. This includes:
       </p>
       <ul>
@@ -1937,6 +1939,7 @@ or
           <li>Bitwise operators ({#syntax#}>>{#endsyntax#}, {#syntax#}<<{#endsyntax#}, {#syntax#}&{#endsyntax#},
                                  {#syntax#}|{#endsyntax#}, {#syntax#}~{#endsyntax#}, etc.)</li>
           <li>Comparison operators ({#syntax#}<{#endsyntax#}, {#syntax#}>{#endsyntax#}, {#syntax#}=={#endsyntax#}, etc.)</li>
+          <li>Boolean not ({#syntax#}!{#endsyntax#})</li>
       </ul>
       <p>
       It is prohibited to use a math operator on a mixture of scalars (individual numbers)

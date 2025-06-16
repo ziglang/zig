@@ -13,6 +13,14 @@ const assert = std.debug.assert;
 
 const bits = @import("bits.zig");
 const Register = bits.Register;
+const InternPool = @import("../../InternPool.zig");
+const Emit = @import("Emit.zig");
+const codegen = @import("../../codegen.zig");
+const link = @import("../../link.zig");
+const Zcu = @import("../../Zcu.zig");
+
+max_end_stack: u32,
+saved_regs_stack_space: u32,
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
@@ -276,6 +284,39 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     gpa.free(mir.extra);
     mir.* = undefined;
+}
+
+pub fn emit(
+    mir: Mir,
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    func_index: InternPool.Index,
+    code: *std.ArrayListUnmanaged(u8),
+    debug_output: link.File.DebugInfoOutput,
+) codegen.CodeGenError!void {
+    const zcu = pt.zcu;
+    const func = zcu.funcInfo(func_index);
+    const nav = func.owner_nav;
+    const mod = zcu.navFileScope(nav).mod.?;
+    var e: Emit = .{
+        .mir = mir,
+        .bin_file = lf,
+        .debug_output = debug_output,
+        .target = &mod.resolved_target.result,
+        .src_loc = src_loc,
+        .code = code,
+        .prev_di_pc = 0,
+        .prev_di_line = func.lbrace_line,
+        .prev_di_column = func.lbrace_column,
+        .stack_size = mir.max_end_stack,
+        .saved_regs_stack_space = mir.saved_regs_stack_space,
+    };
+    defer e.deinit();
+    e.emitMir() catch |err| switch (err) {
+        error.EmitFail => return zcu.codegenFailMsg(nav, e.err_msg.?),
+        else => |e1| return e1,
+    };
 }
 
 /// Returns the requested data, as well as the new index which is at the start of the

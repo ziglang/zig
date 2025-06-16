@@ -1474,21 +1474,56 @@ pub const WipNav = struct {
         try cfa.write(wip_nav);
     }
 
-    pub const LocalTag = enum { local_arg, local_var };
-    pub fn genLocalDebugInfo(
+    pub const LocalVarTag = enum { arg, local_var };
+    pub fn genLocalVarDebugInfo(
         wip_nav: *WipNav,
-        tag: LocalTag,
-        name: []const u8,
+        tag: LocalVarTag,
+        opt_name: ?[]const u8,
         ty: Type,
         loc: Loc,
     ) UpdateError!void {
         assert(wip_nav.func != .none);
         try wip_nav.abbrevCode(switch (tag) {
-            inline else => |ct_tag| @field(AbbrevCode, @tagName(ct_tag)),
+            .arg => if (opt_name) |_| .arg else .unnamed_arg,
+            .local_var => if (opt_name) |_| .local_var else unreachable,
         });
-        try wip_nav.strp(name);
+        if (opt_name) |name| try wip_nav.strp(name);
         try wip_nav.refType(ty);
         try wip_nav.infoExprLoc(loc);
+        wip_nav.any_children = true;
+    }
+
+    pub const LocalConstTag = enum { comptime_arg, local_const };
+    pub fn genLocalConstDebugInfo(
+        wip_nav: *WipNav,
+        src_loc: Zcu.LazySrcLoc,
+        tag: LocalConstTag,
+        opt_name: ?[]const u8,
+        val: Value,
+    ) UpdateError!void {
+        assert(wip_nav.func != .none);
+        const pt = wip_nav.pt;
+        const zcu = pt.zcu;
+        const ty = val.typeOf(zcu);
+        const has_runtime_bits = ty.hasRuntimeBits(zcu);
+        const has_comptime_state = ty.comptimeOnly(zcu) and try ty.onePossibleValue(pt) == null;
+        try wip_nav.abbrevCode(if (has_runtime_bits and has_comptime_state) switch (tag) {
+            .comptime_arg => if (opt_name) |_| .comptime_arg_runtime_bits_comptime_state else .unnamed_comptime_arg_runtime_bits_comptime_state,
+            .local_const => if (opt_name) |_| .local_const_runtime_bits_comptime_state else unreachable,
+        } else if (has_comptime_state) switch (tag) {
+            .comptime_arg => if (opt_name) |_| .comptime_arg_comptime_state else .unnamed_comptime_arg_comptime_state,
+            .local_const => if (opt_name) |_| .local_const_comptime_state else unreachable,
+        } else if (has_runtime_bits) switch (tag) {
+            .comptime_arg => if (opt_name) |_| .comptime_arg_runtime_bits else .unnamed_comptime_arg_runtime_bits,
+            .local_const => if (opt_name) |_| .local_const_runtime_bits else unreachable,
+        } else switch (tag) {
+            .comptime_arg => if (opt_name) |_| .comptime_arg else .unnamed_comptime_arg,
+            .local_const => if (opt_name) |_| .local_const else unreachable,
+        });
+        if (opt_name) |name| try wip_nav.strp(name);
+        try wip_nav.refType(ty);
+        if (has_runtime_bits) try wip_nav.blockValue(src_loc, val);
+        if (has_comptime_state) try wip_nav.refValue(val);
         wip_nav.any_children = true;
     }
 
@@ -1825,7 +1860,8 @@ pub const WipNav = struct {
     fn getNavEntry(wip_nav: *WipNav, nav_index: InternPool.Nav.Index) UpdateError!struct { Unit.Index, Entry.Index } {
         const zcu = wip_nav.pt.zcu;
         const ip = &zcu.intern_pool;
-        const unit = try wip_nav.dwarf.getUnit(zcu.fileByIndex(ip.getNav(nav_index).srcInst(ip).resolveFile(ip)).mod.?);
+        const nav = ip.getNav(nav_index);
+        const unit = try wip_nav.dwarf.getUnit(zcu.fileByIndex(nav.srcInst(ip).resolveFile(ip)).mod.?);
         const gop = try wip_nav.dwarf.navs.getOrPut(wip_nav.dwarf.gpa, nav_index);
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
         const entry = try wip_nav.dwarf.addCommonEntry(unit);
@@ -1842,10 +1878,16 @@ pub const WipNav = struct {
         const zcu = wip_nav.pt.zcu;
         const ip = &zcu.intern_pool;
         const maybe_inst_index = ty.typeDeclInst(zcu);
-        const unit = if (maybe_inst_index) |inst_index|
-            try wip_nav.dwarf.getUnit(zcu.fileByIndex(inst_index.resolveFile(ip)).mod.?)
-        else
-            .main;
+        const unit = if (maybe_inst_index) |inst_index| switch (switch (ip.indexToKey(ty.toIntern())) {
+            else => unreachable,
+            .struct_type => ip.loadStructType(ty.toIntern()).name_nav,
+            .union_type => ip.loadUnionType(ty.toIntern()).name_nav,
+            .enum_type => ip.loadEnumType(ty.toIntern()).name_nav,
+            .opaque_type => ip.loadOpaqueType(ty.toIntern()).name_nav,
+        }) {
+            .none => try wip_nav.dwarf.getUnit(zcu.fileByIndex(inst_index.resolveFile(ip)).mod.?),
+            else => |name_nav| return wip_nav.getNavEntry(name_nav.unwrap().?),
+        } else .main;
         const gop = try wip_nav.dwarf.types.getOrPut(wip_nav.dwarf.gpa, ty.toIntern());
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
         const entry = try wip_nav.dwarf.addCommonEntry(unit);
@@ -1864,10 +1906,8 @@ pub const WipNav = struct {
         const ip = &zcu.intern_pool;
         const ty = value.typeOf(zcu);
         if (std.debug.runtime_safety) assert(ty.comptimeOnly(zcu) and try ty.onePossibleValue(wip_nav.pt) == null);
-        if (!value.isUndef(zcu)) {
-            if (ty.toIntern() == .type_type) return wip_nav.getTypeEntry(value.toType());
-            if (ip.isFunctionType(ty.toIntern())) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
-        }
+        if (ty.toIntern() == .type_type) return wip_nav.getTypeEntry(value.toType());
+        if (ip.isFunctionType(ty.toIntern()) and !value.isUndef(zcu)) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
         const gop = try wip_nav.dwarf.values.getOrPut(wip_nav.dwarf.gpa, value.toIntern());
         const unit: Unit.Index = .main;
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
@@ -1916,7 +1956,10 @@ pub const WipNav = struct {
             &wip_nav.debug_info,
             .{ .debug_output = .{ .dwarf = wip_nav } },
         );
-        assert(old_len + bytes == wip_nav.debug_info.items.len);
+        if (old_len + bytes != wip_nav.debug_info.items.len) {
+            std.debug.print("{} [{}]: {} != {}\n", .{ ty.fmt(wip_nav.pt), ty.toIntern(), bytes, wip_nav.debug_info.items.len - old_len });
+            unreachable;
+        }
     }
 
     const AbbrevCodeForForm = struct {
@@ -2788,6 +2831,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
             const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
             if (type_gop.found_existing) {
                 if (dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).len > 0) break :tag .decl_alias;
+                assert(!nav_gop.found_existing);
                 nav_gop.value_ptr.* = type_gop.value_ptr.*;
             } else {
                 if (nav_gop.found_existing)
@@ -2890,6 +2934,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
             const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
             if (type_gop.found_existing) {
                 if (dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).len > 0) break :tag .decl_alias;
+                assert(!nav_gop.found_existing);
                 nav_gop.value_ptr.* = type_gop.value_ptr.*;
             } else {
                 if (nav_gop.found_existing)
@@ -2928,6 +2973,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
             const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
             if (type_gop.found_existing) {
                 if (dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).len > 0) break :tag .decl_alias;
+                assert(!nav_gop.found_existing);
                 nav_gop.value_ptr.* = type_gop.value_ptr.*;
             } else {
                 if (nav_gop.found_existing)
@@ -2998,6 +3044,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
             const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
             if (type_gop.found_existing) {
                 if (dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).len > 0) break :tag .decl_alias;
+                assert(!nav_gop.found_existing);
                 nav_gop.value_ptr.* = type_gop.value_ptr.*;
             } else {
                 if (nav_gop.found_existing)
@@ -3164,6 +3211,7 @@ fn updateLazyType(
 ) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
+    assert(ip.typeOf(type_index) == .type_type);
     const ty: Type = .fromInterned(type_index);
     switch (type_index) {
         .generic_poison_type => log.debug("updateLazyType({s})", .{"anytype"}),
@@ -3200,6 +3248,10 @@ fn updateLazyType(
     defer dwarf.gpa.free(name);
 
     switch (ip.indexToKey(type_index)) {
+        .undef => {
+            try wip_nav.abbrevCode(.undefined_comptime_value);
+            try wip_nav.refType(.type);
+        },
         .int_type => |int_type| {
             try wip_nav.abbrevCode(.numeric_type);
             try wip_nav.strp(name);
@@ -3633,7 +3685,6 @@ fn updateLazyType(
         },
 
         // values, not types
-        .undef,
         .simple_value,
         .variable,
         .@"extern",
@@ -3666,7 +3717,11 @@ fn updateLazyValue(
 ) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-    log.debug("updateLazyValue({})", .{Value.fromInterned(value_index).fmtValue(pt)});
+    assert(ip.typeOf(value_index) != .type_type);
+    log.debug("updateLazyValue(@as({}, {}))", .{
+        Value.fromInterned(value_index).typeOf(zcu).fmt(pt),
+        Value.fromInterned(value_index).fmtValue(pt),
+    });
     var wip_nav: WipNav = .{
         .dwarf = dwarf,
         .pt = pt,
@@ -3710,9 +3765,8 @@ fn updateLazyValue(
         .inferred_error_set_type,
         => unreachable, // already handled
         .undef => |ty| {
-            try wip_nav.abbrevCode(.aggregate_comptime_value);
+            try wip_nav.abbrevCode(.undefined_comptime_value);
             try wip_nav.refType(.fromInterned(ty));
-            try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
         .simple_value => unreachable, // opv state
         .variable, .@"extern" => unreachable, // not a value
@@ -4391,7 +4445,7 @@ fn refAbbrevCode(dwarf: *Dwarf, abbrev_code: AbbrevCode) UpdateError!@typeInfo(A
     return @intFromEnum(abbrev_code);
 }
 
-pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
+pub fn flush(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
@@ -4890,8 +4944,22 @@ const AbbrevCode = enum {
     block,
     empty_inlined_func,
     inlined_func,
-    local_arg,
+    arg,
+    unnamed_arg,
+    comptime_arg,
+    unnamed_comptime_arg,
+    comptime_arg_runtime_bits,
+    unnamed_comptime_arg_runtime_bits,
+    comptime_arg_comptime_state,
+    unnamed_comptime_arg_comptime_state,
+    comptime_arg_runtime_bits_comptime_state,
+    unnamed_comptime_arg_runtime_bits_comptime_state,
     local_var,
+    local_const,
+    local_const_runtime_bits,
+    local_const_comptime_state,
+    local_const_runtime_bits_comptime_state,
+    undefined_comptime_value,
     data2_comptime_value,
     data4_comptime_value,
     data8_comptime_value,
@@ -5663,12 +5731,87 @@ const AbbrevCode = enum {
                 .{ .high_pc, .data4 },
             },
         },
-        .local_arg = .{
+        .arg = .{
             .tag = .formal_parameter,
             .attrs = &.{
                 .{ .name, .strp },
                 .{ .type, .ref_addr },
                 .{ .location, .exprloc },
+            },
+        },
+        .unnamed_arg = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .type, .ref_addr },
+                .{ .location, .exprloc },
+            },
+        },
+        .comptime_arg = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .const_expr, .flag_present },
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+            },
+        },
+        .unnamed_comptime_arg = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .const_expr, .flag_present },
+                .{ .type, .ref_addr },
+            },
+        },
+        .comptime_arg_runtime_bits = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .const_expr, .flag_present },
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .const_value, .block },
+            },
+        },
+        .unnamed_comptime_arg_runtime_bits = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .const_expr, .flag_present },
+                .{ .type, .ref_addr },
+                .{ .const_value, .block },
+            },
+        },
+        .comptime_arg_comptime_state = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .const_expr, .flag_present },
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
+            },
+        },
+        .unnamed_comptime_arg_comptime_state = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .const_expr, .flag_present },
+                .{ .type, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
+            },
+        },
+        .comptime_arg_runtime_bits_comptime_state = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .const_expr, .flag_present },
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .const_value, .block },
+                .{ .ZIG_comptime_value, .ref_addr },
+            },
+        },
+        .unnamed_comptime_arg_runtime_bits_comptime_state = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .const_expr, .flag_present },
+                .{ .type, .ref_addr },
+                .{ .const_value, .block },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .local_var = .{
@@ -5677,6 +5820,44 @@ const AbbrevCode = enum {
                 .{ .name, .strp },
                 .{ .type, .ref_addr },
                 .{ .location, .exprloc },
+            },
+        },
+        .local_const = .{
+            .tag = .constant,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+            },
+        },
+        .local_const_runtime_bits = .{
+            .tag = .constant,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .const_value, .block },
+            },
+        },
+        .local_const_comptime_state = .{
+            .tag = .constant,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
+            },
+        },
+        .local_const_runtime_bits_comptime_state = .{
+            .tag = .constant,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .const_value, .block },
+                .{ .ZIG_comptime_value, .ref_addr },
+            },
+        },
+        .undefined_comptime_value = .{
+            .tag = .ZIG_comptime_value,
+            .attrs = &.{
+                .{ .type, .ref_addr },
             },
         },
         .data2_comptime_value = .{
