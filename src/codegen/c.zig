@@ -7966,7 +7966,7 @@ fn arrayListWriter(list: *std.ArrayList(u8)) ArrayListWriter {
         .context = list,
         .writeFn = struct {
             fn write(context: *const anyopaque, bytes: []const u8) anyerror!usize {
-                const l: *std.ArrayList(u8) = @alignCast(@constCast(@ptrCast(context)));
+                const l: *std.ArrayList(u8) = @ptrCast(@alignCast(@constCast(context)));
                 return l.writer().write(bytes);
             }
         }.write,
@@ -8005,7 +8005,7 @@ fn IndentWriter(comptime UnderlyingWriter: type) type {
         }
 
         fn writeAny(context: *const anyopaque, bytes: []const u8) anyerror!usize {
-            const self: *Self = @alignCast(@constCast(@ptrCast(context)));
+            const self: *Self = @ptrCast(@alignCast(@constCast(context)));
             return self.write(bytes);
         }
 

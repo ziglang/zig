@@ -205,7 +205,7 @@ fn free(context: *anyopaque, memory: []u8, alignment: mem.Alignment, ra: usize) 
         return PageAllocator.unmap(@alignCast(memory));
     }
 
-    const node: *usize = @alignCast(@ptrCast(memory.ptr));
+    const node: *usize = @ptrCast(@alignCast(memory.ptr));
 
     const t = Thread.lock();
     defer t.unlock();
