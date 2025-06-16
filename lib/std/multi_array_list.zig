@@ -32,12 +32,12 @@ pub fn MultiArrayList(comptime T: type) type {
         const Elem = switch (@typeInfo(T)) {
             .@"struct" => T,
             .@"union" => |u| struct {
-                pub const Bare = @Type(.{ .@"union" = .{
+                pub const Bare = @Union(.{
                     .layout = u.layout,
                     .tag_type = null,
                     .fields = u.fields,
                     .decls = &.{},
-                } });
+                });
                 pub const Tag =
                     u.tag_type orelse @compileError("MultiArrayList does not support untagged unions");
                 tags: Tag,
@@ -586,12 +586,12 @@ pub fn MultiArrayList(comptime T: type) type {
                 .is_comptime = fields[i].is_comptime,
                 .alignment = fields[i].alignment,
             };
-            break :entry @Type(.{ .@"struct" = .{
+            break :entry @Struct(.{
                 .layout = .@"extern",
                 .fields = &entry_fields,
                 .decls = &.{},
                 .is_tuple = false,
-            } });
+            });
         };
         /// This function is used in the debugger pretty formatters in tools/ to fetch the
         /// child field order and entry type to facilitate fancy debug printing for this type.
@@ -1001,13 +1001,12 @@ test "struct with many fields" {
                     .alignment = @alignOf(u32),
                 };
             }
-            const info: std.builtin.Type = .{ .@"struct" = .{
+            return @Struct(.{
                 .layout = .auto,
                 .fields = &fields,
                 .decls = &.{},
                 .is_tuple = false,
-            } };
-            return @Type(info);
+            });
         }
 
         fn doTest(ally: std.mem.Allocator, count: comptime_int) !void {

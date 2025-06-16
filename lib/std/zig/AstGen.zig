@@ -1193,11 +1193,17 @@ fn nameStratExpr(
         => {
             const builtin_token = tree.nodeMainToken(node);
             const builtin_name = tree.tokenSlice(builtin_token);
-            if (!std.mem.eql(u8, builtin_name, "@Type")) return null;
+            const info = BuiltinFn.list.get(builtin_name) orelse return null;
+            const zir_tag, const builtin_val = switch (info.tag) {
+                .Enum => .{ Zir.Inst.Extended.enum_reify, Zir.Inst.BuiltinValue.enum_info },
+                .Struct => .{ Zir.Inst.Extended.struct_reify, Zir.Inst.BuiltinValue.struct_info },
+                .Union => .{ Zir.Inst.Extended.union_reify, Zir.Inst.BuiltinValue.union_info },
+                else => return null,
+            };
             var buf: [2]Ast.Node.Index = undefined;
             const params = tree.builtinCallParams(&buf, node).?;
             if (params.len != 1) return null; // let `builtinCall` error
-            return try builtinReify(gz, scope, ri, node, params[0], name_strat);
+            return try builtinReify(gz, scope, ri, node, params[0], name_strat, zir_tag, builtin_val);
         },
         else => return null,
     }
@@ -2730,6 +2736,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .elem_type,
             .indexable_ptr_elem_type,
             .vec_arr_elem_type,
+            .int_reify,
             .vector_type,
             .indexable_ptr_len,
             .anyframe_type,
@@ -9518,9 +9525,19 @@ fn builtinCall(
             return rvalue(gz, ri, try gz.addNodeExtended(.in_comptime, node), node);
         },
 
-        .Type => {
-            return builtinReify(gz, scope, ri, node, params[0], .anon);
+        .Int => {
+            const signedness_ty = try gz.addBuiltinValue(node, .signedness);
+            const result = try gz.addPlNode(.int_reify, node, Zir.Inst.Bin{
+                .lhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = signedness_ty } }, params[0], .type),
+                .rhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u16_type } }, params[1], .type),
+            });
+            return rvalue(gz, ri, result, node);
         },
+        .Enum => return builtinReify(gz, scope, ri, node, params[0], .anon, .enum_reify, .enum_info),
+        .Pointer => return builtinReify(gz, scope, ri, node, params[0], .anon, .pointer_reify, .pointer_info),
+        .Struct => return builtinReify(gz, scope, ri, node, params[0], .anon, .struct_reify, .struct_info),
+        .Union => return builtinReify(gz, scope, ri, node, params[0], .anon, .union_reify, .union_info),
+
         .panic => {
             try emitDbgNode(gz, node);
             return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[0], .panic);
@@ -9857,11 +9874,13 @@ fn builtinReify(
     node: Ast.Node.Index,
     arg_node: Ast.Node.Index,
     name_strat: Zir.Inst.NameStrategy,
+    tag: Zir.Inst.Extended,
+    builtin_val: Zir.Inst.BuiltinValue,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
 
-    const type_info_ty = try gz.addBuiltinValue(node, .type_info);
+    const type_info_ty = try gz.addBuiltinValue(node, builtin_val);
     const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = type_info_ty } }, arg_node);
 
     try gz.instructions.ensureUnusedCapacity(gpa, 1);
@@ -9876,7 +9895,7 @@ fn builtinReify(
     astgen.instructions.appendAssumeCapacity(.{
         .tag = .extended,
         .data = .{ .extended = .{
-            .opcode = .reify,
+            .opcode = tag,
             .small = @intFromEnum(name_strat),
             .operand = payload_index,
         } },

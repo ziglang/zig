@@ -872,12 +872,12 @@ pub const ErrorDetailsWithoutCodePage = blk: {
         i += 1;
     }
     std.debug.assert(i == fields_without_codepage.len);
-    break :blk @Type(.{ .@"struct" = .{
+    break :blk @Struct(.{
         .layout = .auto,
         .fields = &fields_without_codepage,
         .decls = &.{},
         .is_tuple = false,
-    } });
+    });
 };
 
 fn cellCount(code_page: SupportedCodePage, source: []const u8, start_index: usize, end_index: usize) usize {
