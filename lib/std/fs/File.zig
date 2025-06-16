@@ -993,7 +993,7 @@ pub const Reader = struct {
                 };
                 var remaining = std.math.cast(u64, offset) orelse return seek_err;
                 while (remaining > 0) {
-                    const n = discard(r, .limited(remaining)) catch |err| {
+                    const n = discard(&r.interface, .limited(remaining)) catch |err| {
                         r.seek_err = err;
                         return err;
                     };
@@ -1252,22 +1252,26 @@ pub const Writer = struct {
     /// vectors through the underlying write calls as possible.
     const max_buffers_len = 16;
 
-    pub fn init(file: File, buffer: []u8) std.io.Writer {
+    pub fn init(file: File, buffer: []u8) Writer {
         return initMode(file, buffer, .positional);
     }
 
-    pub fn initMode(file: File, buffer: []u8, init_mode: Writer.Mode) std.io.Writer {
+    pub fn initMode(file: File, buffer: []u8, init_mode: Writer.Mode) Writer {
         return .{
             .file = file,
-            .interface = .{
-                .context = undefined,
-                .vtable = &.{
-                    .drain = drain,
-                    .sendFile = sendFile,
-                },
-                .buffer = buffer,
-            },
+            .interface = initInterface(buffer),
             .mode = init_mode,
+        };
+    }
+
+    pub fn initInterface(buffer: []u8) std.io.Writer {
+        return .{
+            .context = undefined,
+            .vtable = &.{
+                .drain = drain,
+                .sendFile = sendFile,
+            },
+            .buffer = buffer,
         };
     }
 
@@ -1335,7 +1339,11 @@ pub const Writer = struct {
         };
     }
 
-    pub fn sendFile(io_writer: *Writer, file_reader: *Reader, limit: std.io.Limit) std.io.Writer.FileError!usize {
+    pub fn sendFile(
+        io_writer: *std.io.Writer,
+        file_reader: *Reader,
+        limit: std.io.Limit,
+    ) std.io.Writer.FileError!usize {
         const w: *Writer = @fieldParentPtr("interface", io_writer);
         const out_fd = w.file.handle;
         const in_fd = file_reader.file.handle;

@@ -611,7 +611,7 @@ pub fn unlockStdErr() void {
 const stderr_writer: *Writer = &stderr_file_writer.interface;
 /// Protected by `stderr_mutex`.
 var stderr_file_writer: std.fs.File.Writer = .{
-    .interface = std.fs.File.Writer.init_interface(&.{}),
+    .interface = std.fs.File.Writer.initInterface(&.{}),
     .file = if (is_windows) undefined else .stderr(),
     .mode = .streaming,
 };
@@ -628,7 +628,7 @@ pub fn lockStderrWriter(buffer: []u8) *Writer {
     if (is_windows) stderr_file_writer.file = .stderr();
     stderr_writer.flush() catch {};
     stderr_writer.buffer = buffer;
-    return &stderr_writer;
+    return stderr_writer;
 }
 
 pub fn unlockStderrWriter() void {
