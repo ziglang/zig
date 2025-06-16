@@ -1109,9 +1109,19 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
         // Positional arguments to the linker such as object files.
         var whole_archive = false;
 
+        var lib_directories = std.StringArrayHashMap(void).init(gpa);
+        defer lib_directories.deinit();
+
         for (base.comp.link_inputs) |link_input| switch (link_input) {
             .res => unreachable, // Windows-only
-            .dso => continue,
+            .dso => |dso| {
+                if (dso.path.root_dir.path) |root_dir| {
+                    const lib_dir = try lib_directories.getOrPut(root_dir);
+                    if (lib_dir.found_existing) continue;
+                    try argv.append("-L");
+                    try argv.append(root_dir);
+                }
+            },
             .object, .archive => |obj| {
                 if (obj.must_link and !whole_archive) {
                     try argv.append("-whole-archive");
