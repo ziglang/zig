@@ -162,7 +162,7 @@ pub fn defaultDiscard(r: *Reader, limit: Limit) Error!usize {
     };
     if (n > @intFromEnum(limit)) {
         const over_amt = n - @intFromEnum(limit);
-        assert(over_amt <= w.buffer.end); // limit may be exceeded only by an amount within buffer capacity.
+        assert(over_amt <= w.buffer.len); // limit may be exceeded only by an amount within buffer capacity.
         r.seek = w.end - over_amt;
         r.end = w.end;
         return @intFromEnum(limit);
