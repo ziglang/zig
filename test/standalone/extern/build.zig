@@ -31,8 +31,8 @@ pub fn build(b: *std.Build) void {
         .target = b.graph.host,
         .optimize = optimize,
     }) });
-    test_exe.addObject(obj);
-    test_exe.linkLibrary(shared);
+    test_exe.root_module.addObject(obj);
+    test_exe.root_module.linkLibrary(shared);
 
     test_step.dependOn(&b.addRunArtifact(test_exe).step);
 }

@@ -89,7 +89,7 @@ pub fn addCase(self: *RunTranslatedCContext, case: *const TestCase) void {
         .root_module = translate_c.createModule(),
     });
     exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
-    exe.linkLibC();
+    exe.root_module.link_libc = true;
     const run = b.addRunArtifact(exe);
     run.step.name = b.fmt("{s} run", .{annotated_case_name});
     if (!case.allow_warnings) {
