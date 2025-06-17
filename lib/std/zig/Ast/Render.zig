@@ -2142,14 +2142,13 @@ fn renderArrayInit(
 
         const section_exprs = row_exprs[0..section_end];
 
-        var sub_expr_buffer: std.io.AllocatingWriter = undefined;
-        sub_expr_buffer.init(gpa);
+        var sub_expr_buffer: std.io.Writer.Allocating = .init(gpa);
         defer sub_expr_buffer.deinit();
 
         const sub_expr_buffer_starts = try gpa.alloc(usize, section_exprs.len + 1);
         defer gpa.free(sub_expr_buffer_starts);
 
-        var auto_indenting_stream: AutoIndentingStream = .init(gpa, &sub_expr_buffer.buffered_writer, indent_delta);
+        var auto_indenting_stream: AutoIndentingStream = .init(gpa, &sub_expr_buffer.interface, indent_delta);
         defer auto_indenting_stream.deinit();
         var sub_render: Render = .{
             .gpa = r.gpa,

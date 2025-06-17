@@ -471,9 +471,8 @@ const Parse = struct {
         offset: u32,
     ) InnerError!void {
         const raw_string = bytes[offset..];
-        var aw: std.io.AllocatingWriter = undefined;
-        const bw = aw.fromArrayList(p.gpa, buf);
-        const result = std.zig.string_literal.parseWrite(bw, raw_string);
+        var aw: std.io.Writer.Allocating = .fromArrayList(p.gpa, buf);
+        const result = std.zig.string_literal.parseWrite(&aw.interface, raw_string);
         buf.* = aw.toArrayList();
         switch (result catch return error.OutOfMemory) {
             .success => {},

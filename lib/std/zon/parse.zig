@@ -638,10 +638,9 @@ const Parser = struct {
         if (pointer.sentinel() != null) size_hint += 1;
         const gpa = self.gpa;
 
-        var aw: std.io.AllocatingWriter = undefined;
-        try aw.initCapacity(gpa, size_hint);
+        var aw = try std.io.Writer.Allocating.initCapacity(gpa, size_hint);
         defer aw.deinit();
-        const parsed = ZonGen.parseStrLit(self.ast, ast_node, &aw.buffered_writer) catch |err| switch (err) {
+        const parsed = ZonGen.parseStrLit(self.ast, ast_node, &aw.interface) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
         };
         switch (parsed) {

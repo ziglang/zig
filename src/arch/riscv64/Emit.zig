@@ -19,8 +19,8 @@ pub const Error = Lower.Error || error{
 
 pub fn emitMir(emit: *Emit) Error!void {
     const gpa = emit.bin_file.comp.gpa;
-    var aw: std.io.AllocatingWriter = undefined;
-    const bw = aw.fromArrayList(gpa, emit.code);
+    var aw: std.io.Writer.Allocating = .fromArrayList(gpa, emit.code);
+    const bw = &aw.interface;
     defer emit.code.* = aw.toArrayList();
 
     log.debug("mir instruction len: {}", .{emit.lower.mir.instructions.len});

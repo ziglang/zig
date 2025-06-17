@@ -1592,10 +1592,9 @@ const MachODumper = struct {
         var ctx = ObjectContext{ .gpa = gpa, .data = bytes, .header = hdr };
         try ctx.parse();
 
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(gpa);
+        var aw: std.io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
-        const bw = &aw.buffered_writer;
+        const bw = &aw.interface;
 
         switch (check.kind) {
             .headers => {
@@ -1746,10 +1745,9 @@ const ElfDumper = struct {
             });
         }
 
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(gpa);
+        var aw: std.io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
-        const bw = &aw.buffered_writer;
+        const bw = &aw.interface;
 
         switch (check.kind) {
             .archive_symtab => if (ctx.symtab.len > 0) {
@@ -1894,10 +1892,9 @@ const ElfDumper = struct {
             else => {},
         };
 
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(gpa);
+        var aw: std.io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
-        const bw = &aw.buffered_writer;
+        const bw = &aw.interface;
 
         switch (check.kind) {
             .headers => {
@@ -2355,10 +2352,9 @@ const WasmDumper = struct {
         if (!mem.eql(u8, buf[0..4], &std.wasm.magic)) return error.InvalidMagicByte;
         if (!mem.eql(u8, buf[4..8], &std.wasm.version)) return error.UnsupportedWasmVersion;
 
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(gpa);
+        var aw: std.io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
-        const bw = &aw.buffered_writer;
+        const bw = &aw.interface;
 
         parseAndDumpInner(step, check, &br, bw) catch |err| switch (err) {
             error.EndOfStream => try bw.writeAll("\n<UnexpectedEndOfStream>"),

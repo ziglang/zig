@@ -747,13 +747,17 @@ pub const Object = struct {
     }
 
     fn genModuleLevelAssembly(object: *Object) Allocator.Error!void {
-        var aw: std.io.AllocatingWriter = undefined;
-        const bw = object.builder.setModuleAsm(&aw);
-        errdefer aw.deinit();
+        const b = &object.builder;
+        const gpa = b.gpa;
+        b.module_asm.clearRetainingCapacity();
         for (object.pt.zcu.global_assembly.values()) |assembly| {
-            bw.print("{s}\n", .{assembly}) catch return error.OutOfMemory;
+            try b.module_asm.ensureUnusedCapacity(gpa, assembly.len + 1);
+            b.module_asm.appendSliceAssumeCapacity(assembly);
+            b.module_asm.appendAssumeCapacity('\n');
         }
-        try object.builder.finishModuleAsm(&aw);
+        if (b.module_asm.getLastOrNull()) |last| {
+            if (last != '\n') try b.module_asm.append(gpa, '\n');
+        }
     }
 
     pub const EmitOptions = struct {
@@ -2678,10 +2682,9 @@ pub const Object = struct {
     }
 
     fn allocTypeName(o: *Object, ty: Type) Allocator.Error![:0]const u8 {
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(o.gpa);
+        var aw: std.io.Writer.Allocating = .init(o.gpa);
         defer aw.deinit();
-        ty.print(&aw.buffered_writer, o.pt) catch return error.OutOfMemory;
+        ty.print(&aw.interface, o.pt) catch return error.OutOfMemory;
         return aw.toOwnedSliceSentinel(0);
     }
 

@@ -433,8 +433,8 @@ test "write files" {
     {
         const root = "root";
 
-        var output: std.io.AllocatingWriter = .init(testing.allocator);
-        var wrt: Writer = .{ .underlying_writer = &output.buffered_writer };
+        var output: std.io.Writer.Allocating = .init(testing.allocator);
+        var wrt: Writer = .{ .underlying_writer = &output.interface };
         defer output.deinit();
         try wrt.setRoot(root);
         for (files) |file|
@@ -469,9 +469,8 @@ test "write files" {
     }
     // without root
     {
-        var output: std.io.AllocatingWriter = undefined;
-        output.init(testing.allocator);
-        var wrt: Writer = .{ .underlying_writer = &output.buffered_writer };
+        var output: std.io.Writer.Allocating = .init(testing.allocator);
+        var wrt: Writer = .{ .underlying_writer = &output.interface };
         defer output.deinit();
         for (files) |file| {
             var content: std.io.Reader = .fixed(file.content);

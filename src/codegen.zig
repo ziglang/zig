@@ -314,10 +314,9 @@ pub fn generateSymbol(
     const tracy = trace(@src());
     defer tracy.end();
 
-    var aw: std.io.AllocatingWriter = undefined;
-    const bw = aw.fromArrayList(pt.zcu.gpa, code);
+    var aw: std.io.Writer.Allocating = .fromArrayList(pt.zcu.gpa, code);
     defer code.* = aw.toArrayList();
-    return generateSymbolInner(bin_file, pt, src_loc, val, bw, reloc_parent) catch |err| switch (err) {
+    return generateSymbolInner(bin_file, pt, src_loc, val, &aw.interface, reloc_parent) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
         else => |e| return e,
     };

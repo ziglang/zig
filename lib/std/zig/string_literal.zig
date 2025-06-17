@@ -358,10 +358,9 @@ pub fn parseWrite(writer: *Writer, bytes: []const u8) Writer.Error!Result {
 /// Higher level API. Does not return extra info about parse errors.
 /// Caller owns returned memory.
 pub fn parseAlloc(allocator: std.mem.Allocator, bytes: []const u8) ParseError![]u8 {
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(allocator);
+    var aw: std.io.Writer.Allocating = .init(allocator);
     defer aw.deinit();
-    const result = parseWrite(&aw.buffered_writer, bytes) catch |err| switch (err) {
+    const result = parseWrite(&aw.interface, bytes) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
     };
     switch (result) {

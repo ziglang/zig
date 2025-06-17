@@ -444,9 +444,9 @@ fn parse(file_name: []const u8, source: []u8) Oom!Ast {
             const err_loc = std.zig.findLineColumn(ast.source, err_offset);
             rendered_err.clearRetainingCapacity();
             {
-                var aw: std.io.AllocatingWriter = undefined;
+                var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &rendered_err);
                 defer rendered_err = aw.toArrayList();
-                ast.renderError(err, aw.fromArrayList(gpa, &rendered_err)) catch |e| switch (e) {
+                ast.renderError(err, &aw.interface) catch |e| switch (e) {
                     error.WriteFailed => return error.OutOfMemory,
                 };
             }

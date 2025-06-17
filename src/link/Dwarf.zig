@@ -1446,10 +1446,10 @@ pub const WipNav = struct {
         loc: u32,
         cfa: Cfa.RegOff,
     },
-    debug_frame: std.io.AllocatingWriter,
-    debug_info: std.io.AllocatingWriter,
-    debug_line: std.io.AllocatingWriter,
-    debug_loclists: std.io.AllocatingWriter,
+    debug_frame: std.io.Writer.Allocating,
+    debug_info: std.io.Writer.Allocating,
+    debug_line: std.io.Writer.Allocating,
+    debug_loclists: std.io.Writer.Allocating,
     pending_lazy: PendingLazy,
 
     pub fn init(wip_nav: *WipNav) void {
@@ -4494,10 +4494,9 @@ fn refAbbrevCode(dwarf: *Dwarf, abbrev_code: AbbrevCode) UpdateError!@typeInfo(A
     assert(abbrev_code != .null);
     const entry: Entry.Index = @enumFromInt(@intFromEnum(abbrev_code));
     if (dwarf.debug_abbrev.section.getUnit(DebugAbbrev.unit).getEntry(entry).len > 0) return @intFromEnum(abbrev_code);
-    var daaw: std.io.AllocatingWriter = undefined;
-    daaw.init(dwarf.gpa);
+    var daaw: std.io.Writer.Allocating = .init(dwarf.gpa);
     defer daaw.deinit();
-    const dabw = &daaw.buffered_writer;
+    const dabw = &daaw.interface;
     const abbrev = AbbrevCode.abbrevs.get(abbrev_code);
     try dabw.writeLeb128(@intFromEnum(abbrev_code));
     try dabw.writeLeb128(@intFromEnum(abbrev.tag));

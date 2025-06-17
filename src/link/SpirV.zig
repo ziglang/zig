@@ -203,11 +203,10 @@ pub fn flush(
     // We need to export the list of error names somewhere so that we can pretty-print them in the
     // executor. This is not really an important thing though, so we can just dump it in any old
     // nonsemantic instruction. For now, just put it in OpSourceExtension with a special name.
-    var error_info: std.io.AllocatingWriter = undefined;
-    error_info.init(self.object.gpa);
+    var error_info: std.io.Writer.Allocating = .init(self.object.gpa);
     defer error_info.deinit();
 
-    try error_info.buffered_writer.writeAll("zig_errors:");
+    try error_info.interface.writeAll("zig_errors:");
     const ip = &self.base.comp.zcu.?.intern_pool;
     for (ip.global_error_set.getNamesFromMainThread()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
@@ -215,9 +214,9 @@ pub fn flush(
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
 
-        try error_info.buffered_writer.writeByte(':');
+        try error_info.interface.writeByte(':');
         try std.Uri.Component.percentEncode(
-            &error_info.buffered_writer,
+            &error_info.interface,
             name.toSlice(ip),
             struct {
                 fn isValidChar(c: u8) bool {

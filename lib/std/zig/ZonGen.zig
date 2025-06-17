@@ -467,10 +467,9 @@ fn appendIdentStr(zg: *ZonGen, ident_token: Ast.TokenIndex) error{ OutOfMemory, 
     const raw_string = zg.tree.tokenSlice(ident_token)[offset..];
     try zg.string_bytes.ensureUnusedCapacity(gpa, raw_string.len);
     const result = r: {
-        var aw: std.io.AllocatingWriter = undefined;
-        const bw = aw.fromArrayList(gpa, &zg.string_bytes);
+        var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &zg.string_bytes);
         defer zg.string_bytes = aw.toArrayList();
-        break :r std.zig.string_literal.parseWrite(bw, raw_string) catch |err| switch (err) {
+        break :r std.zig.string_literal.parseWrite(&aw.interface, raw_string) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
         };
     };
@@ -566,10 +565,9 @@ fn strLitAsString(zg: *ZonGen, str_node: Ast.Node.Index) error{ OutOfMemory, Bad
     const size_hint = strLitSizeHint(zg.tree, str_node);
     try string_bytes.ensureUnusedCapacity(gpa, size_hint);
     const result = r: {
-        var aw: std.io.AllocatingWriter = undefined;
-        const bw = aw.fromArrayList(gpa, &zg.string_bytes);
+        var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &zg.string_bytes);
         defer zg.string_bytes = aw.toArrayList();
-        break :r parseStrLit(zg.tree, str_node, bw) catch |err| switch (err) {
+        break :r parseStrLit(zg.tree, str_node, &aw.interface) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
         };
     };
@@ -888,10 +886,9 @@ fn lowerAstErrors(zg: *ZonGen) Allocator.Error!void {
     const tree = zg.tree;
     assert(tree.errors.len > 0);
 
-    var msg: std.io.AllocatingWriter = undefined;
-    msg.init(gpa);
+    var msg: std.io.Writer.Allocating = .init(gpa);
     defer msg.deinit();
-    const msg_bw = &msg.buffered_writer;
+    const msg_bw = &msg.interface;
 
     var notes: std.ArrayListUnmanaged(Zoir.CompileError.Note) = .empty;
     defer notes.deinit(gpa);

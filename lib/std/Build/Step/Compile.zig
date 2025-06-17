@@ -1969,14 +1969,13 @@ fn checkCompileErrors(compile: *Compile) !void {
     const arena = compile.step.owner.allocator;
 
     const actual_errors = ae: {
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(arena);
+        var aw: std.io.Writer.Allocating = .init(arena);
         defer aw.deinit();
         try actual_eb.renderToWriter(.{
             .ttyconf = .no_color,
             .include_reference_trace = false,
             .include_source_line = false,
-        }, &aw.buffered_writer);
+        }, &aw.interface);
         break :ae try aw.toOwnedSlice();
     };
 

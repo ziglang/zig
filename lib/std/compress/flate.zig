@@ -341,11 +341,10 @@ test "compress/decompress" {
 
 fn testDecompress(comptime container: Container, compressed: []const u8, expected_plain: []const u8) !void {
     var in: std.io.Reader = .fixed(compressed);
-    var out: std.io.AllocatingWriter = undefined;
-    out.init(testing.allocator);
+    var out: std.io.Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
 
-    try Decompress.pump(container, &in, &out.buffered_writer);
+    try Decompress.pump(container, &in, &out.interface);
     try testing.expectEqualSlices(u8, expected_plain, out.items);
 }
 

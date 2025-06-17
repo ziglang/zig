@@ -1260,10 +1260,9 @@ const NavGen = struct {
 
     // Turn a Zig type's name into a cache reference.
     fn resolveTypeName(self: *NavGen, ty: Type) Allocator.Error![]const u8 {
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(self.gpa);
+        var aw: std.io.Writer.Allocating = .init(self.gpa);
         defer aw.deinit();
-        ty.print(&aw.buffered_writer, self.pt) catch return error.OutOfMemory;
+        ty.print(&aw.interface, self.pt) catch return error.OutOfMemory;
         return aw.toOwnedSlice();
     }
 

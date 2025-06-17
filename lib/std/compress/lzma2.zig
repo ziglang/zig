@@ -278,9 +278,8 @@ test decompress {
         0x00, 0x06, 0x57, 0x6F, 0x72, 0x6C, 0x64, 0x21, 0x0A, 0x00,
     };
     var stream: std.io.Reader = .fixed(&compressed);
-    var decomp: std.io.AllocatingWriter = undefined;
-    const decomp_bw = decomp.init(std.testing.allocator);
+    var decomp: std.io.Writer.Allocating = .init(std.testing.allocator);
     defer decomp.deinit();
-    try decompress(std.testing.allocator, &stream, decomp_bw);
+    try decompress(std.testing.allocator, &stream, &decomp.interface);
     try std.testing.expectEqualSlices(u8, expected, decomp.getWritten());
 }

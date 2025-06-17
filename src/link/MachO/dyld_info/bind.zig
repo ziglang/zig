@@ -118,8 +118,8 @@ pub const Bind = struct {
     fn finalize(bind: *Bind, gpa: Allocator, ctx: *MachO) !void {
         if (bind.entries.items.len == 0) return;
 
-        var aw: std.io.AllocatingWriter = undefined;
-        const bw = aw.fromArrayList(gpa, &bind.buffer);
+        var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &bind.buffer);
+        const bw = &aw.interface;
         defer bind.buffer = aw.toArrayList();
 
         log.debug("bind opcodes", .{});
@@ -359,8 +359,8 @@ pub const WeakBind = struct {
     fn finalize(bind: *WeakBind, gpa: Allocator, ctx: *MachO) !void {
         if (bind.entries.items.len == 0) return;
 
-        var aw: std.io.AllocatingWriter = undefined;
-        const bw = aw.fromArrayList(gpa, &bind.buffer);
+        var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &bind.buffer);
+        const bw = &aw.interface;
         defer bind.buffer = aw.toArrayList();
 
         log.debug("weak bind opcodes", .{});
@@ -526,8 +526,8 @@ pub const LazyBind = struct {
     fn finalize(bind: *LazyBind, gpa: Allocator, ctx: *MachO) !void {
         try bind.offsets.ensureTotalCapacityPrecise(gpa, bind.entries.items.len);
 
-        var aw: std.io.AllocatingWriter = undefined;
-        const bw = aw.fromArrayList(gpa, &bind.buffer);
+        var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &bind.buffer);
+        const bw = &aw.interface;
         defer bind.buffer = aw.toArrayList();
 
         log.debug("lazy bind opcodes", .{});
