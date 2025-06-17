@@ -130,6 +130,8 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .array_to_slice,
             .int_from_float,
             .int_from_float_optimized,
+            .int_from_float_safe,
+            .int_from_float_optimized_safe,
             .float_from_int,
             .splat,
             .error_set_has_value,

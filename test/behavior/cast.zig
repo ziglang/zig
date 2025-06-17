@@ -102,6 +102,7 @@ test "comptime_int @floatFromInt" {
 test "@floatFromInt" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -2736,4 +2737,67 @@ test "peer type resolution: slice of sentinel-terminated array" {
     try expect(result[0].len == 2);
     try expect(result[0][0] == 10);
     try expect(result[0][1] == 20);
+}
+
+test "@intFromFloat boundary cases" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn case(comptime I: type, x: f32, bump: enum { up, down }, expected: I) !void {
+            const input: f32 = switch (bump) {
+                .up => std.math.nextAfter(f32, x, std.math.inf(f32)),
+                .down => std.math.nextAfter(f32, x, -std.math.inf(f32)),
+            };
+            const output: I = @intFromFloat(input);
+            try expect(output == expected);
+        }
+        fn doTheTest() !void {
+            try case(u8, 256.0, .down, 255);
+            try case(u8, -1.0, .up, 0);
+            try case(i8, 128.0, .down, 127);
+            try case(i8, -129.0, .up, -128);
+
+            try case(u0, 1.0, .down, 0);
+            try case(u0, -1.0, .up, 0);
+            try case(i0, 1.0, .down, 0);
+            try case(i0, -1.0, .up, 0);
+
+            try case(u10, 1024.0, .down, 1023);
+            try case(u10, -1.0, .up, 0);
+            try case(i10, 512.0, .down, 511);
+            try case(i10, -513.0, .up, -512);
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "@intFromFloat vector boundary cases" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+
+    const S = struct {
+        fn case(comptime I: type, unshifted_inputs: [2]f32, expected: [2]I) !void {
+            const inputs: @Vector(2, f32) = .{
+                std.math.nextAfter(f32, unshifted_inputs[0], std.math.inf(f32)),
+                std.math.nextAfter(f32, unshifted_inputs[1], -std.math.inf(f32)),
+            };
+            const outputs: @Vector(2, I) = @intFromFloat(inputs);
+            try expect(outputs[0] == expected[0]);
+            try expect(outputs[1] == expected[1]);
+        }
+        fn doTheTest() !void {
+            try case(u8, .{ -1.0, 256.0 }, .{ 0, 255 });
+            try case(i8, .{ -129.0, 128.0 }, .{ -128, 127 });
+
+            try case(u0, .{ -1.0, 1.0 }, .{ 0, 0 });
+            try case(i0, .{ -1.0, 1.0 }, .{ 0, 0 });
+
+            try case(u10, .{ -1.0, 1024.0 }, .{ 0, 1023 });
+            try case(i10, .{ -513.0, 512.0 }, .{ -512, 511 });
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }

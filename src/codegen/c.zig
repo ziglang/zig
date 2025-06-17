@@ -23,12 +23,21 @@ const BigIntLimb = std.math.big.Limb;
 const BigInt = std.math.big.int;
 
 pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
-    return if (dev.env.supports(.legalize)) comptime &.initMany(&.{
-        .expand_intcast_safe,
-        .expand_add_safe,
-        .expand_sub_safe,
-        .expand_mul_safe,
-    }) else null; // we don't currently ask zig1 to use safe optimization modes
+    return comptime switch (dev.env.supports(.legalize)) {
+        inline false, true => |supports_legalize| &.init(.{
+            // we don't currently ask zig1 to use safe optimization modes
+            .expand_intcast_safe = supports_legalize,
+            .expand_int_from_float_safe = supports_legalize,
+            .expand_int_from_float_optimized_safe = supports_legalize,
+            .expand_add_safe = supports_legalize,
+            .expand_sub_safe = supports_legalize,
+            .expand_mul_safe = supports_legalize,
+
+            .expand_packed_load = true,
+            .expand_packed_store = true,
+            .expand_packed_struct_field_val = true,
+        }),
+    };
 }
 
 /// For most backends, MIR is basically a sequence of machine code instructions, perhaps with some
@@ -3571,6 +3580,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .sub_safe,
             .mul_safe,
             .intcast_safe,
+            .int_from_float_safe,
+            .int_from_float_optimized_safe,
             => return f.fail("TODO implement safety_checked_instructions", .{}),
 
             .is_named_enum_value => return f.fail("TODO: C backend: implement is_named_enum_value", .{}),

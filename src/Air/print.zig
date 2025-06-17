@@ -250,6 +250,8 @@ const Writer = struct {
             .splat,
             .int_from_float,
             .int_from_float_optimized,
+            .int_from_float_safe,
+            .int_from_float_optimized_safe,
             .get_union_tag,
             .clz,
             .ctz,

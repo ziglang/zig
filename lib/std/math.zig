@@ -45,6 +45,7 @@ pub const rad_per_deg = 0.017453292519943295769236907684886127134428718885417254
 /// 180.0/pi
 pub const deg_per_rad = 57.295779513082320876798154814105170332405472466564321549160243861;
 
+pub const FloatRepr = float.FloatRepr;
 pub const floatExponentBits = float.floatExponentBits;
 pub const floatMantissaBits = float.floatMantissaBits;
 pub const floatFractionalBits = float.floatFractionalBits;
