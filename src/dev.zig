@@ -88,7 +88,7 @@ pub const Env = enum {
                 .powerpc_backend,
                 .riscv64_backend,
                 .sparc64_backend,
-                .spirv64_backend,
+                .spirv_backend,
                 .lld_linker,
                 .coff_linker,
                 .elf_linker,
@@ -183,7 +183,7 @@ pub const Env = enum {
                 else => Env.sema.supports(feature),
             },
             .spirv => switch (feature) {
-                .spirv64_backend,
+                .spirv_backend,
                 .spirv_linker,
                 => true,
                 else => Env.sema.supports(feature),
@@ -258,7 +258,7 @@ pub const Feature = enum {
     powerpc_backend,
     riscv64_backend,
     sparc64_backend,
-    spirv64_backend,
+    spirv_backend,
 
     lld_linker,
     coff_linker,

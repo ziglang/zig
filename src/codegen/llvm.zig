@@ -90,8 +90,10 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
-        .spirv => "spirv",
-        .spirv32 => "spirv32",
+        .spirv32 => switch (target.os.tag) {
+            .vulkan, .opengl => "spirv",
+            else => "spirv32",
+        },
         .spirv64 => "spirv64",
         .lanai => "lanai",
         .wasm32 => "wasm32",
@@ -146,9 +148,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         }),
         .powerpc => subArchName(target, .powerpc, .{
             .{ .spe, "spe" },
-        }),
-        .spirv => subArchName(target, .spirv, .{
-            .{ .v1_5, "1.5" },
         }),
         .spirv32, .spirv64 => subArchName(target, .spirv, .{
             .{ .v1_5, "1.5" },
@@ -438,8 +437,10 @@ pub fn dataLayout(target: std.Target) []const u8 {
             else
                 "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
         },
-        .spirv => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
-        .spirv32 => "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
+        .spirv32 => switch (target.os.tag) {
+            .vulkan, .opengl => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
+            else => "e-p:32:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
+        },
         .spirv64 => "e-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-G1",
         .wasm32 => if (target.os.tag == .emscripten)
             "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-f128:64-n32:64-S128-ni:1:10:20"
@@ -13136,7 +13137,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeLoongArchAsmPrinter();
             llvm.LLVMInitializeLoongArchAsmParser();
         },
-        .spirv,
         .spirv32,
         .spirv64,
         => {

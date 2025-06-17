@@ -1440,7 +1440,7 @@ const test_targets = blk: {
         .{
             .target = std.Target.Query.parse(.{
                 .arch_os_abi = "spirv64-vulkan",
-                .cpu_features = "vulkan_v1_2+physical_storage_buffer+int64+float16+float64",
+                .cpu_features = "vulkan_v1_2+float16+float64",
             }) catch unreachable,
             .use_llvm = false,
             .use_lld = false,
@@ -2518,7 +2518,7 @@ fn wouldUseLlvm(use_llvm: ?bool, query: std.Target.Query, optimize_mode: Optimiz
     const cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
     switch (cpu_arch) {
         .x86_64 => if (std.Target.ptrBitWidth_arch_abi(cpu_arch, query.abi orelse .none) != 64) return true,
-        .spirv, .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return false,
         else => return true,
     }
     return false;

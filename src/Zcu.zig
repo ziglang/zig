@@ -3935,7 +3935,6 @@ pub fn atomicPtrAlignment(
         .s390x,
         .wasm64,
         .ve,
-        .spirv,
         .spirv64,
         .loongarch64,
         => 64,

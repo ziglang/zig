@@ -179,7 +179,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .riscv64,
         .sparc,
         .sparc64,
-        .spirv,
         .spirv32,
         .spirv64,
         .s390x,
@@ -241,7 +240,7 @@ pub fn supportsStackProtector(target: std.Target, backend: std.builtin.CompilerB
         else => {},
     }
     switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return false,
         else => {},
     }
     return switch (backend) {
@@ -252,7 +251,7 @@ pub fn supportsStackProtector(target: std.Target, backend: std.builtin.CompilerB
 
 pub fn clangSupportsStackProtector(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return false,
         else => true,
     };
 }
@@ -270,7 +269,7 @@ pub fn supportsReturnAddress(target: std.Target, optimize: std.builtin.OptimizeM
         // overhead that we would prefer to avoid in release builds.
         .wasm32, .wasm64 => target.os.tag == .emscripten and optimize == .Debug,
         .bpfel, .bpfeb => false,
-        .spirv, .spirv32, .spirv64 => false,
+        .spirv32, .spirv64 => false,
         else => true,
     };
 }
@@ -335,7 +334,7 @@ pub fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool, have_llvm: bool
         else => {},
     }
     switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return false,
         // Remove this once https://github.com/ziglang/zig/issues/23714 is fixed
         .amdgcn => return false,
         else => {},
@@ -349,7 +348,7 @@ pub fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool, have_llvm: bool
 
 pub fn canBuildLibUbsanRt(target: std.Target) bool {
     switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return false,
         // Remove this once https://github.com/ziglang/zig/issues/23715 is fixed
         .nvptx, .nvptx64 => return false,
         else => return true,
@@ -716,7 +715,6 @@ pub fn supportsFunctionAlignment(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .nvptx,
         .nvptx64,
-        .spirv,
         .spirv32,
         .spirv64,
         .wasm32,
@@ -813,8 +811,7 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => .stage2_powerpc,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
-        .spirv32 => if (target.os.tag == .opencl) .stage2_spirv else .other,
-        .spirv, .spirv64 => .stage2_spirv,
+        .spirv32, .spirv64 => .stage2_spirv,
         .wasm32, .wasm64 => .stage2_wasm,
         .x86 => .stage2_x86,
         .x86_64 => .stage2_x86_64,
