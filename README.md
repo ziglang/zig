@@ -5,6 +5,15 @@ A general-purpose programming language and toolchain for maintaining
 
 https://ziglang.org/
 
+```zig
+const std = @import("std");
+
+pub fn main() !void {
+    const stdout = std.io.getStdOut().writer();
+    try stdout.print("Hello, {s}!\n", .{"world"});
+}
+```
+
 ## Documentation
 
 If you are looking at this README file in a source tree, please refer to the
