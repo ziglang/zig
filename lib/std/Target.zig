@@ -1066,7 +1066,7 @@ pub const ObjectFormat = enum {
             .uefi, .windows => .coff,
             .zos => .goff,
             else => switch (arch) {
-                .spirv, .spirv32, .spirv64 => .spirv,
+                .spirv32, .spirv64 => .spirv,
                 .wasm32, .wasm64 => .wasm,
                 else => .elf,
             },
@@ -1106,7 +1106,6 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
 
         .nvptx,
         .nvptx64,
-        .spirv,
         .spirv32,
         .spirv64,
         .wasm32,
@@ -1155,7 +1154,6 @@ pub fn toCoffMachine(target: *const Target) std.coff.MachineType {
         .s390x,
         .sparc,
         .sparc64,
-        .spirv,
         .spirv32,
         .spirv64,
         .ve,
@@ -1368,7 +1366,6 @@ pub const Cpu = struct {
         s390x,
         sparc,
         sparc64,
-        spirv,
         spirv32,
         spirv64,
         ve,
@@ -1454,7 +1451,7 @@ pub const Cpu = struct {
                 .riscv32, .riscv64 => .riscv,
                 .s390x => .s390x,
                 .sparc, .sparc64 => .sparc,
-                .spirv, .spirv32, .spirv64 => .spirv,
+                .spirv32, .spirv64 => .spirv,
                 .ve => .ve,
                 .wasm32, .wasm64 => .wasm,
                 .x86, .x86_64 => .x86,
@@ -1558,7 +1555,7 @@ pub const Cpu = struct {
 
         pub inline fn isSpirV(arch: Arch) bool {
             return switch (arch) {
-                .spirv, .spirv32, .spirv64 => true,
+                .spirv32, .spirv64 => true,
                 else => false,
             };
         }
@@ -1614,7 +1611,6 @@ pub const Cpu = struct {
                 .thumb,
                 .ve,
                 // GPU bitness is opaque. For now, assume little endian.
-                .spirv,
                 .spirv32,
                 .spirv64,
                 .loongarch32,
@@ -1843,7 +1839,7 @@ pub const Cpu = struct {
                 .spirv_kernel,
                 .spirv_fragment,
                 .spirv_vertex,
-                => &.{ .spirv, .spirv32, .spirv64 },
+                => &.{ .spirv32, .spirv64 },
             };
         }
     };
@@ -2638,7 +2634,6 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         .sparc64,
         .s390x,
         .ve,
-        .spirv,
         .spirv64,
         .loongarch64,
         => 64,
@@ -3157,7 +3152,6 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             .riscv32,
             .riscv64,
             .sparc64,
-            .spirv,
             .spirv32,
             .spirv64,
             .x86_64,
@@ -3250,7 +3244,6 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
             .riscv32,
             .riscv64,
             .sparc64,
-            .spirv,
             .spirv32,
             .spirv64,
             .x86_64,
@@ -3319,7 +3312,6 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
         .loongarch32,
         .loongarch64,
         .m68k,
-        .spirv,
         .spirv32,
         .spirv64,
         .ve,
@@ -3389,7 +3381,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .xtensa => .{ .xtensa_call0 = .{} },
         .amdgcn => .{ .amdgcn_device = .{} },
         .nvptx, .nvptx64 => .nvptx_device,
-        .spirv, .spirv32, .spirv64 => .spirv_device,
+        .spirv32, .spirv64 => .spirv_device,
     };
 }
 

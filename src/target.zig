@@ -179,7 +179,6 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
         .riscv64,
         .sparc,
         .sparc64,
-        .spirv,
         .spirv32,
         .spirv64,
         .s390x,
@@ -241,7 +240,7 @@ pub fn supportsStackProtector(target: *const std.Target, backend: std.builtin.Co
         else => {},
     }
     switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return false,
         else => {},
     }
     return switch (backend) {
@@ -252,7 +251,7 @@ pub fn supportsStackProtector(target: *const std.Target, backend: std.builtin.Co
 
 pub fn clangSupportsStackProtector(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return false,
         else => true,
     };
 }
@@ -270,7 +269,7 @@ pub fn supportsReturnAddress(target: *const std.Target, optimize: std.builtin.Op
         // overhead that we would prefer to avoid in release builds.
         .wasm32, .wasm64 => target.os.tag == .emscripten and optimize == .Debug,
         .bpfel, .bpfeb => false,
-        .spirv, .spirv32, .spirv64 => false,
+        .spirv32, .spirv64 => false,
         else => true,
     };
 }
@@ -335,7 +334,7 @@ pub fn canBuildLibCompilerRt(target: *const std.Target, use_llvm: bool, have_llv
         else => {},
     }
     switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return false,
         // Remove this once https://github.com/ziglang/zig/issues/23714 is fixed
         .amdgcn => return false,
         else => {},
@@ -352,7 +351,7 @@ pub fn canBuildLibCompilerRt(target: *const std.Target, use_llvm: bool, have_llv
 
 pub fn canBuildLibUbsanRt(target: *const std.Target) bool {
     switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return false,
         // Remove this once https://github.com/ziglang/zig/issues/23715 is fixed
         .nvptx, .nvptx64 => return false,
         else => return true,
@@ -719,7 +718,6 @@ pub fn supportsFunctionAlignment(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .nvptx,
         .nvptx64,
-        .spirv,
         .spirv32,
         .spirv64,
         .wasm32,
@@ -816,8 +814,7 @@ pub fn zigBackend(target: *const std.Target, use_llvm: bool) std.builtin.Compile
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => .stage2_powerpc,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
-        .spirv32 => if (target.os.tag == .opencl) .stage2_spirv else .other,
-        .spirv, .spirv64 => .stage2_spirv,
+        .spirv32, .spirv64 => .stage2_spirv,
         .wasm32, .wasm64 => .stage2_wasm,
         .x86 => .stage2_x86,
         .x86_64 => .stage2_x86_64,
