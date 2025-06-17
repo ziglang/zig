@@ -1,5 +1,6 @@
 .{
-    .name = "link_test_cases",
+    .name = .link_test_cases,
+    .fingerprint = 0x404f657576fec9f2,
     .version = "0.0.0",
     .dependencies = .{
         .bss = .{
