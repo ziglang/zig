@@ -6605,7 +6605,7 @@ const builtin = @import("builtin");
       {#header_open|Special Root Declarations#}
       <p>
       Because the root module's root source file is always accessible using
-      {#syntax#}@import("root"){#endsyntax#}, is is sometimes used by libraries &mdash; including the Zig Standard
+      {#syntax#}@import("root"){#endsyntax#}, it is sometimes used by libraries &mdash; including the Zig Standard
       Library &mdash; as a place for the program to expose some "global" information to that library. The Zig
       Standard Library will look for several declarations in this file.
       </p>
