@@ -17,9 +17,10 @@ const Endian = std.builtin.Endian;
 const Signedness = std.builtin.Signedness;
 const native_endian = builtin.cpu.arch.endian();
 
-// value based only on a few tests, could probably be adjusted
+// values based only on a few tests, could probably be adjusted
 // it may also depend on the cpu
 const recursive_division_threshold = 100;
+const karatsuba_threshold = 40;
 
 /// Returns the number of limbs needed to store `scalar`, which must be a
 /// primitive integer value.
@@ -725,7 +726,7 @@ pub const Mutable = struct {
 
         @memset(rma.limbs[0 .. a.limbs.len + b.limbs.len], 0);
 
-        llmulacc(.add, allocator, rma.limbs, a.limbs, b.limbs);
+        _ = llmulacc(.add, allocator, rma.limbs, a.limbs, b.limbs);
 
         rma.normalize(a.limbs.len + b.limbs.len);
         rma.positive = (a.positive == b.positive);
@@ -800,7 +801,7 @@ pub const Mutable = struct {
 
         @memset(rma.limbs[0..req_limbs], 0);
 
-        llmulacc(.add, allocator, rma.limbs[0..req_limbs], a_limbs, b_limbs);
+        _ = llmulacc(.add, allocator, rma.limbs[0..req_limbs], a_limbs, b_limbs);
         rma.normalize(@min(req_limbs, a.limbs.len + b.limbs.len));
         rma.positive = (a.positive == b.positive);
         rma.truncate(rma.toConst(), signedness, bit_count);
@@ -1564,6 +1565,7 @@ pub const Mutable = struct {
             assert(!b.eqlZero()); // division by zero
             assert(q != r); // illegal aliasing
             assert(r.limbs.len >= b.len);
+            assert(!slicesOverlap(q.limbs, a.limbs));
         }
 
         const q_positive = (a.positive == b.positive);
@@ -1602,7 +1604,7 @@ pub const Mutable = struct {
         defer _ = llshr(b.limbs, b.limbs[0..b.len], norm_shift);
 
         if (b.len == 1)
-            lldiv1(q.limbs, a_limbs, b_limbs[0])
+            a_limbs[0] = lldiv1(q.limbs, a_limbs, b_limbs[0])
         else if (a_len == 2) {
             assert(q.limbs.len >= 1);
             // TODO: better algo without computing the reciprocal ?
@@ -3129,6 +3131,13 @@ const AccOp = enum {
 
     /// The computed value is subtracted from the result.
     sub,
+
+    pub fn neg(self: AccOp) AccOp {
+        return switch (self) {
+            .add => .sub,
+            .sub => .add,
+        };
+    }
 };
 
 /// Knuth 4.3.1, Algorithm M.
@@ -3138,7 +3147,7 @@ const AccOp = enum {
 ///
 /// Returns whether the operation overflowed
 /// The result is computed modulo `r.len`.
-fn llmulacc(comptime op: AccOp, opt_allocator: ?Allocator, r: []Limb, a: []const Limb, b: []const Limb) void {
+fn llmulacc(comptime op: AccOp, opt_allocator: ?Allocator, r: []Limb, a: []const Limb, b: []const Limb) bool {
     assert(r.len >= a.len);
     assert(r.len >= b.len);
     assert(!slicesOverlap(r, a));
@@ -3153,199 +3162,119 @@ fn llmulacc(comptime op: AccOp, opt_allocator: ?Allocator, r: []Limb, a: []const
     }
 
     k_mul: {
-        if (y.len > 48) {
+        if (y.len > karatsuba_threshold) {
             if (opt_allocator) |allocator| {
-                llmulaccKaratsuba(op, allocator, r, x, y) catch |err| switch (err) {
+                const ov = llmulaccKaratsuba(op, allocator, r, x, y) catch |err| switch (err) {
                     error.OutOfMemory => break :k_mul, // handled below
                 };
-                return;
+                return ov;
             }
         }
     }
 
-    llmulaccLong(op, r, x, y);
+    return llmulaccLong(op, r, x, y);
 }
 
-/// Knuth 4.3.1, Algorithm M.
-///
-/// r = r (op) a * b
-/// r MUST NOT alias any of a or b.
-///
-/// The result is computed modulo `r.len`. When `r.len >= a.len + b.len`, no overflow occurs.
-fn llmulaccKaratsuba(
-    comptime op: AccOp,
-    allocator: Allocator,
-    r: []Limb,
-    a: []const Limb,
-    b: []const Limb,
-) error{OutOfMemory}!void {
-    assert(r.len >= a.len);
-    assert(a.len >= b.len);
-    assert(!slicesOverlap(r, a));
-    assert(!slicesOverlap(r, b));
+/// Karatsuba multiplication
+/// Implementation of algorithm KaratsubaMultiply from "Modern Computer Arithmetic" by Richard P. Brent and Paul Zimmermann
+fn llmulaccKaratsuba(comptime op: AccOp, allocator: std.mem.Allocator, C: []Limb, A: []const Limb, B: []const Limb) error{OutOfMemory}!bool {
+    const n = A.len;
+    const m = B.len;
 
-    // Classical karatsuba algorithm:
-    // a = a1 * B + a0
-    // b = b1 * B + b0
-    // Where a0, b0 < B
-    //
-    // We then have:
-    // ab = a * b
-    //    = (a1 * B + a0) * (b1 * B + b0)
-    //    = a1 * b1 * B * B + a1 * B * b0 + a0 * b1 * B + a0 * b0
-    //    = a1 * b1 * B * B + (a1 * b0 + a0 * b1) * B + a0 * b0
-    //
-    // Note that:
-    // a1 * b0 + a0 * b1
-    //    = (a1 + a0)(b1 + b0) - a1 * b1 - a0 * b0
-    //    = (a0 - a1)(b1 - b0) + a1 * b1 + a0 * b0
-    //
-    // This yields:
-    // ab = p2 * B^2 + (p0 + p1 + p2) * B + p0
-    //
-    // Where:
-    // p0 = a0 * b0
-    // p1 = (a0 - a1)(b1 - b0)
-    // p2 = a1 * b1
-    //
-    // Note, (a0 - a1) and (b1 - b0) produce values -B < x < B, and so we need to mind the sign here.
-    // We also have:
-    // 0 <= p0 <= 2B
-    // -2B <= p1 <= 2B
-    //
-    // Note, when B is a multiple of the limb size, multiplies by B amount to shifts or
-    // slices of a limbs array.
-    //
-    // This function computes the result of the multiplication modulo r.len. This means:
-    // - p2 and p1 only need to be computed modulo r.len - B.
-    // - In the case of p2, p2 * B^2 needs to be added modulo r.len - 2 * B.
+    assert(C.len >= n);
+    assert(n >= m);
+    assert(!slicesOverlap(C, A));
+    assert(!slicesOverlap(C, B));
 
-    const split = b.len / 2; // B
-
-    const limbs_after_split = r.len - split; // Limbs to compute for p1 and p2.
-    const limbs_after_split2 = r.len - split * 2; // Limbs to add for p2 * B^2.
-
-    // For a0 and b0 we need the full range.
-    const a0 = a[0..llnormalize(a[0..split])];
-    const b0 = b[0..llnormalize(b[0..split])];
-
-    // For a1 and b1 we only need `limbs_after_split` limbs.
-    const a1 = blk: {
-        var a1 = a[split..];
-        a1.len = @min(llnormalize(a1), limbs_after_split);
-        break :blk a1;
-    };
-
-    const b1 = blk: {
-        var b1 = b[split..];
-        b1.len = @min(llnormalize(b1), limbs_after_split);
-        break :blk b1;
-    };
-
-    // Note that the above slices relative to `split` work because we have a.len > b.len.
-
-    // We need some temporary memory to store intermediate results.
-    // Note, we can reduce the amount of temporaries we need by reordering the computation here:
-    // ab = p2 * B^2 + (p0 + p1 + p2) * B + p0
-    //    = p2 * B^2 + (p0 * B + p1 * B + p2 * B) + p0
-    //    = (p2 * B^2 + p2 * B) + (p0 * B + p0) + p1 * B
-
-    // Allocate at least enough memory to be able to multiply the upper two segments of a and b, assuming
-    // no overflow.
-    const tmp = try allocator.alloc(Limb, a.len - split + b.len - split);
-    defer allocator.free(tmp);
-
-    // Compute p2.
-    // Note, we don't need to compute all of p2, just enough limbs to satisfy r.
-    const p2_limbs = @min(limbs_after_split, a1.len + b1.len);
-
-    @memset(tmp[0..p2_limbs], 0);
-    llmulacc(.add, allocator, tmp[0..p2_limbs], a1[0..@min(a1.len, p2_limbs)], b1[0..@min(b1.len, p2_limbs)]);
-    const p2 = tmp[0..llnormalize(tmp[0..p2_limbs])];
-
-    // Add p2 * B to the result.
-    _ = llaccum(op, r[split..], p2);
-
-    // Add p2 * B^2 to the result if required.
-    if (limbs_after_split2 > 0) {
-        _ = llaccum(op, r[split * 2 ..], p2[0..@min(p2.len, limbs_after_split2)]);
+    if (m <= karatsuba_threshold) {
+        return llmulaccLong(op, C, A, B);
     }
 
-    // Compute p0.
-    // Since a0.len, b0.len <= split and r.len >= split * 2, the full width of p0 needs to be computed.
-    const p0_limbs = a0.len + b0.len;
-    @memset(tmp[0..p0_limbs], 0);
-    llmulacc(.add, allocator, tmp[0..p0_limbs], a0, b0);
-    const p0 = tmp[0..llnormalize(tmp[0..p0_limbs])];
+    // tracks the number of time operations overflow
+    var carry: i8 = 0;
 
-    // Add p0 to the result.
-    _ = llaccum(op, r, p0);
+    // balance the multiplication
+    // with b = (2^@bitSizeOf(Limb))^m
+    // A = A1 * b + A2    (A2 < b)
+    //
+    // therefore:
+    // A*B = A2 * B  +  (A1 * B) * b
+    if (n > m) {
+        carry += @intFromBool(try llmulaccKaratsuba(op, allocator, C, A[0..m], B));
+        carry += @intFromBool(if (n >= 2 * m)
+            try llmulaccKaratsuba(op, allocator, C[m..], A[m..], B)
+        else
+            try llmulaccKaratsuba(op, allocator, C[m..], B, A[m..]));
+        return carry != 0;
+    }
+    const k = std.math.divCeil(usize, m, 2) catch unreachable;
 
-    // Add p0 * B to the result. In this case, we may not need all of it.
-    _ = llaccum(op, r[split..], p0[0..@min(limbs_after_split, p0.len)]);
+    const buffer = try allocator.alloc(Limb, 2 * k);
+    defer allocator.free(buffer);
 
-    // Finally, compute and add p1.
-    // From now on we only need `limbs_after_split` limbs for a0 and b0, since the result of the
-    // following computation will be added * B.
-    const a0x = a0[0..@min(a0.len, limbs_after_split)];
-    const b0x = b0[0..@min(b0.len, limbs_after_split)];
+    const A0 = A[0..k];
+    const A1 = A[k..];
+    const B0 = B[0..k];
+    const B1 = B[k..];
 
-    const j0_sign: i8 = switch (llcmp(a0x, a1)) {
-        .lt => -1,
+    const sA: i2 = switch (std.math.big.int.llcmp(A0, A1)) {
         .eq => 0,
         .gt => 1,
-    };
-    const j1_sign: i8 = switch (llcmp(b1, b0x)) {
         .lt => -1,
+    };
+    const sB: i2 = switch (std.math.big.int.llcmp(B0, B1)) {
         .eq => 0,
         .gt => 1,
+        .lt => -1,
     };
+    const prod = sA * sB;
 
-    if (j0_sign * j1_sign == 0) {
-        // p1 is zero, we don't need to do any computation at all.
-        return;
-    }
+    @memset(buffer, 0);
+    _ = try llmulaccKaratsuba(.add, allocator, buffer, A0, B0);
+    carry += @intFromBool(llaccum(op, C, buffer));
+    carry += @intFromBool(llaccum(op, C[k..], buffer));
 
-    @memset(tmp, 0);
+    @memset(buffer, 0);
+    _ = try llmulaccKaratsuba(.add, allocator, buffer, A1, B1);
+    carry += @intFromBool(llaccum(op, C[k..], buffer[0 .. A1.len + B1.len]));
+    carry += @intFromBool(llaccum(op, C[2 * k ..], buffer[0 .. A1.len + B1.len]));
 
-    // p1 is nonzero, so compute the intermediary terms j0 = a0 - a1 and j1 = b1 - b0.
-    // Note that in this case, we again need some storage for intermediary results
-    // j0 and j1. Since we have tmp.len >= 2B, we can store both
-    // intermediaries in the already allocated array.
-    const j0 = tmp[0 .. a.len - split];
-    const j1 = tmp[a.len - split ..];
+    if (prod == 0)
+        return carry != 0;
 
-    // Ensure that no subtraction overflows.
-    if (j0_sign == 1) {
-        // a0 > a1.
-        _ = llsubcarry(j0, a0x, a1);
+    const Asub = buffer[0..k];
+    const Bsub = buffer[k..];
+
+    // currently, llsubcarry is slower than llaccum since it doesn't use
+    // inline assembly, so this is a workaround
+    if (sA == 1) {
+        @memcpy(Asub, A0);
+        _ = llaccum(.sub, Asub, A1);
     } else {
-        // a0 < a1.
-        _ = llsubcarry(j0, a1, a0x);
+        @memcpy(Asub[0..A1.len], A1);
+        @memset(Asub[A1.len..], 0);
+        _ = llaccum(.sub, Asub, A0);
+    }
+    if (sB == 1) {
+        @memcpy(Bsub, B0);
+        _ = llaccum(.sub, Bsub, B1);
+    } else {
+        @memcpy(Bsub[0..B1.len], B1);
+        @memset(Bsub[B1.len..], 0);
+        _ = llaccum(.sub, Bsub, B0);
     }
 
-    if (j1_sign == 1) {
-        // b1 > b0.
-        _ = llsubcarry(j1, b1, b0x);
-    } else {
-        // b1 > b0.
-        _ = llsubcarry(j1, b0x, b1);
-    }
+    const ov = if (prod == 1)
+        try llmulaccKaratsuba(op.neg(), allocator, C[k..], Asub, Bsub)
+    else
+        try llmulaccKaratsuba(op, allocator, C[k..], Asub, Bsub);
 
-    if (j0_sign * j1_sign == 1) {
-        // If j0 and j1 are both positive, we now have:
-        // p1 = j0 * j1
-        // If j0 and j1 are both negative, we now have:
-        // p1 = -j0 * -j1 = j0 * j1
-        // In this case we can add p1 to the result using llmulacc.
-        llmulacc(op, allocator, r[split..], j0[0..llnormalize(j0)], j1[0..llnormalize(j1)]);
-    } else {
-        // In this case either j0 or j1 is negative, an we have:
-        // p1 = -(j0 * j1)
-        // Now we need to subtract instead of accumulate.
-        const inverted_op = if (op == .add) .sub else .add;
-        llmulacc(inverted_op, allocator, r[split..], j0[0..llnormalize(j0)], j1[0..llnormalize(j1)]);
-    }
+    if (prod == 1)
+        carry -= @intFromBool(ov)
+    else
+        carry += @intFromBool(ov);
+
+    return carry != 0;
 }
 
 // Provides assembly for `llaccum` for x86_64
@@ -3674,7 +3603,6 @@ fn getllmulLimbAsm(comptime op: AccOp) []const u8 {
 /// The result is computed modulo `r.len`.
 fn llaccum(comptime op: AccOp, r: []Limb, a: []const Limb) bool {
     assert(!slicesOverlap(r, a) or @intFromPtr(r.ptr) <= @intFromPtr(a.ptr));
-    assert(r.len >= a.len);
 
     if (a.len == 0) return false;
 
@@ -3683,12 +3611,12 @@ fn llaccum(comptime op: AccOp, r: []Limb, a: []const Limb) bool {
         // since we use `n` as a counter, this variable will be modified by the
         // assembly. Putting it as an output avoid the need to restore it at the end
         // (inputs are assumed to not change)
-        var tmp = a.len;
+        var tmp = @min(r.len, a.len);
 
         asm volatile (getllaccumAsm(op)
             : [carry] "=&{dl}" (carry),
               [n] "+r" (tmp),
-            : [n2] "r" (r.len - a.len),
+            : [n2] "r" (if (r.len >= a.len) r.len - a.len else 0),
               [r] "r" (@intFromPtr(r.ptr)),
               [a] "r" (@intFromPtr(a.ptr)),
             : "rbx", "r9", "cc", "memory"
@@ -3757,14 +3685,17 @@ pub fn llcmp(a: []const Limb, b: []const Limb) math.Order {
 /// r = r (op) y * xi
 /// returns whether the operation overflowed
 /// The result is computed modulo `r.len`.
-pub fn llmulaccLong(comptime op: AccOp, r: []Limb, a: []const Limb, b: []const Limb) void {
+fn llmulaccLong(comptime op: AccOp, r: []Limb, a: []const Limb, b: []const Limb) bool {
     assert(r.len >= a.len);
     assert(a.len >= b.len);
 
     var i: usize = 0;
+    var overflows = false;
     while (i < b.len) : (i += 1) {
-        _ = llmulLimb(op, r[i..], a, b[i]);
+        overflows = llmulLimb(op, r[i..], a, b[i]) or overflows;
     }
+
+    return overflows;
 }
 
 /// r = r (op) y * xi
@@ -3983,7 +3914,30 @@ fn unbalancedDivision(q: []Limb, a: []Limb, b: []const Limb, allocator: std.mem.
     // `q.len` may be only m limbs instead of m + 1 if the caller know the result will fit
     // (which has already been asserted).
     const k = m % n;
-    recursiveDivRem(q[m - k .. @min(m + 1, q.len)], a[m - k .. m + n], b, allocator);
+    balance: {
+        // balance the first division step
+
+        const Q = q[m - k .. @min(m + 1, q.len)];
+        const A = a[m - k .. m + n];
+        const M = A.len - n;
+
+        if (M < recursive_division_threshold)
+            break :balance basecaseDivRem(Q, A, b);
+
+        // we compute an approximation of q using the 2*M most significant limbs of a
+        // and the M most significant limbs of b, and we then correct q
+        // we do this because recursiveDivRem can be extremely inefficient when
+        // a and b are about the same size, and is most efficient when a.len = 2*b.len
+
+        recursiveDivRem(Q, A[A.len - 2 * M ..], b[b.len - M ..], allocator);
+
+        var a_is_negative = llmulacc(.sub, allocator, A, Q, b[0 .. b.len - M]);
+
+        while (a_is_negative) {
+            _ = llaccum(.sub, Q, &.{1});
+            a_is_negative = !llaccum(.add, A, b);
+        }
+    }
     m -= k;
 
     while (m > 0) {
@@ -4013,6 +3967,10 @@ fn unbalancedDivision(q: []Limb, a: []Limb, b: []const Limb, allocator: std.mem.
 /// - `q.len >= calcDivQLenExact(a, b)` (the quotient must be able to fit in `q`)
 ///   a valid bound for q can be obtained more cheaply using `calcDivQLen`
 /// - no overlap between q, a and b
+///
+/// This function can be extremely inefficient when a and b are about the same size,
+/// and is most efficient when a.len = 2*b.len. If this is not the case, balancing the
+/// division (as done in unbalancedDivision before the loop) is advised.
 fn recursiveDivRem(q: []Limb, a: []Limb, b: []const Limb, allocator: std.mem.Allocator) void {
     if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
         assert(!slicesOverlap(q, a));
@@ -4055,13 +4013,7 @@ fn recursiveDivRem(q: []Limb, a: []Limb, b: []const Limb, allocator: std.mem.All
     // and k + 1 < m <= n since m >= recursive_division_threshold > 2
     // therefore k + 1 - n < 0, so i < a.len
     const i = q1.len + b0.len + k;
-    // We detect an underflow by using the next limb after the subtraction.
-    // If it is not 0, then a carry cannot propagate, since we
-    // subtract either 0 or 1 from this limb.
-    // If it is a 0, a carry propagates if it becomes a maxInt(Limb).
-    var can_underflow = a[i] == 0;
-    llmulacc(.sub, allocator, a[k .. i + 1], q1, b0);
-    var a_is_negative = can_underflow and a[i] == maxInt(Limb);
+    var a_is_negative = llmulacc(.sub, allocator, a[k .. i + 1], q1, b0);
 
     while (a_is_negative) {
         _ = llaccum(.sub, q1, &.{1});
@@ -4071,10 +4023,7 @@ fn recursiveDivRem(q: []Limb, a: []Limb, b: []const Limb, allocator: std.mem.All
     recursiveDivRem(q0, a[k..][0..n], b1, allocator);
 
     // Step 7.
-    // same as above
-    can_underflow = a[2 * k] == 0;
-    llmulacc(.sub, allocator, a[0 .. 2 * k + 1], q0, b0);
-    a_is_negative = can_underflow and a[2 * k] == maxInt(Limb);
+    a_is_negative = llmulacc(.sub, allocator, a[0 .. 2 * k + 1], q0, b0);
 
     while (a_is_negative) {
         _ = llaccum(.sub, q0, &.{1});
@@ -4176,17 +4125,18 @@ fn basecaseDivRem(q: []Limb, a: []Limb, b: []const Limb) void {
 /// by Niels Möller and Torbjörn Granlund
 ///
 /// Performs `q` = `a` / `b` rem `r`   with `b` a single word
-/// `r` is written in `a[0]`
+/// `r` is returned
+/// `q` may overlap `a`
 ///
 /// Requires:
 /// - b to be normalized (its most significant bit must be set)
 /// - the quotient must be able to fit in `q`
-fn lldiv1(q: []Limb, a: []Limb, b: Limb) void {
+fn lldiv1(q: []Limb, a: []Limb, b: Limb) Limb {
     if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
         assert(q.len >= calcDivQLenExact(a, &.{b}));
         // b must be normalized
         assert(@clz(b) == 0);
-        assert(!slicesOverlap(q, a));
+        assert(!slicesOverlap(q, a) or @intFromPtr(q.ptr) >= @intFromPtr(a.ptr));
     }
 
     const n = a.len;
@@ -4214,7 +4164,7 @@ fn lldiv1(q: []Limb, a: []Limb, b: Limb) void {
         q[j] = result.q;
         r = result.r;
     }
-    a[0] = r;
+    return r;
 }
 
 /// Algorithm 2 of "Improved division by invariant integers"
@@ -4867,7 +4817,7 @@ fn llpow(r: []Limb, a: []const Limb, b: u32, tmp_limbs: []Limb) void {
         exp = ov[0];
         if (ov[1] != 0) {
             @memset(tmp2, 0);
-            llmulacc(.add, null, tmp2, tmp1[0..llnormalize(tmp1)], a);
+            _ = llmulacc(.add, null, tmp2, tmp1[0..llnormalize(tmp1)], a);
             mem.swap([]Limb, &tmp1, &tmp2);
         }
     }
