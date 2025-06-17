@@ -159,6 +159,16 @@ if(ZIG_STATIC_ZSTD)
     list(APPEND LLVM_LIBRARIES "${ZSTD}")
 endif()
 
+if (MSVC)
+    if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+        if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+            # avoid linking to the debug versions of ucrt by default
+            # as they are not redistributable.
+            set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+        endif()
+    endif()
+endif ()
+
 if(ZIG_STATIC_CURSES)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
     find_library(CURSES NAMES libcurses.a libncurses.a NAMES_PER_DIR
