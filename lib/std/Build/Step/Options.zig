@@ -478,46 +478,64 @@ test Options {
         world: bool = true,
     };
 
+    const NormalUnion = union(NormalEnum) {
+        foo: u16,
+        bar: [2]u8,
+    };
+
     const NestedStruct = struct {
         normal_struct: NormalStruct,
         normal_enum: NormalEnum = .foo,
+    };
+
+    const NonExhaustiveEnum = enum(u8) {
+        one,
+        two,
+        three,
+        _,
     };
 
     options.addOption(usize, "option1", 1);
     options.addOption(?usize, "option2", null);
     options.addOption(?usize, "option3", 3);
     options.addOption(comptime_int, "option4", 4);
+    options.addOption(comptime_float, "option5", 0.125);
     options.addOption([]const u8, "string", "zigisthebest");
     options.addOption(?[]const u8, "optional_string", null);
     options.addOption([2][2]u16, "nested_array", nested_array);
     options.addOption([]const []const u16, "nested_slice", nested_slice);
     options.addOption(KeywordEnum, "keyword_enum", .@"0.8.1");
     options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
-    options.addOption(NormalEnum, "normal1_enum", NormalEnum.foo);
-    options.addOption(NormalEnum, "normal2_enum", NormalEnum.bar);
-    options.addOption(NormalStruct, "normal1_struct", NormalStruct{
-        .hello = "foo",
+    options.addOption(NormalEnum, "normal1_enum", .foo);
+    options.addOption(NormalEnum, "normal2_enum", .bar);
+    options.addOption(NormalStruct, "normal1_struct", .{ .hello = "foo" });
+    options.addOption(NormalStruct, "normal2_struct", .{ .hello = null, .world = false });
+    options.addOption(NormalUnion, "normal_union", .{ .bar = .{ 42, 64 } });
+    options.addOption(NestedStruct, "nested_struct", .{ .normal_struct = .{ .hello = "bar" } });
+    options.addOption(NonExhaustiveEnum, "non_exhaustive_enum1", .two);
+    options.addOption(NonExhaustiveEnum, "non_exhaustive_enum2", @enumFromInt(20));
+    options.addOption([2]NormalStruct, "array_of_structs", .{
+        .{ .hello = null },
+        .{ .hello = "zig", .world = true },
     });
-    options.addOption(NormalStruct, "normal2_struct", NormalStruct{
-        .hello = null,
-        .world = false,
-    });
-    options.addOption(NestedStruct, "nested_struct", NestedStruct{
-        .normal_struct = .{ .hello = "bar" },
-    });
+    options.addOption(??u32, "nested_optional1", 10);
+    options.addOption(??u32, "nested_optional2", @as(?u32, null));
+    options.addOption(??u32, "nested_optional3", null);
 
     try std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
         \\
-        \\pub const option2: ?usize = null;
+        \\pub const option2: ?usize = @as(?usize, null);
         \\
         \\pub const option3: ?usize = 3;
         \\
         \\pub const option4: comptime_int = 4;
         \\
+        \\pub const option5: comptime_float = 1.25e-1;
+        \\
         \\pub const string: []const u8 = "zigisthebest";
         \\
-        \\pub const optional_string: ?[]const u8 = null;
+        \\pub const optional_string: ?[]const u8 = @as(?[]const u8, null);
         \\
         \\pub const nested_array: [2][2]u16 = .{
         \\    .{
@@ -575,9 +593,19 @@ test Options {
         \\};
         \\
         \\pub const normal2_struct: @"Build.Step.Options.decltest.Options.NormalStruct" = .{
-        \\    .hello = null,
+        \\    .hello = @as(?[]const u8, null),
         \\    .world = false,
         \\};
+        \\
+        \\pub const @"Build.Step.Options.decltest.Options.NormalUnion" = union(@"Build.Step.Options.decltest.Options.NormalEnum") {
+        \\    foo: u16,
+        \\    bar: [2]u8,
+        \\};
+        \\
+        \\pub const normal_union: @"Build.Step.Options.decltest.Options.NormalUnion" = .{ .bar = .{
+        \\    42,
+        \\    64,
+        \\} };
         \\
         \\pub const @"Build.Step.Options.decltest.Options.NestedStruct" = struct {
         \\    normal_struct: @"Build.Step.Options.decltest.Options.NormalStruct",
@@ -591,6 +619,34 @@ test Options {
         \\    },
         \\    .normal_enum = .foo,
         \\};
+        \\
+        \\pub const @"Build.Step.Options.decltest.Options.NonExhaustiveEnum" = enum(u8) {
+        \\    one = 0,
+        \\    two = 1,
+        \\    three = 2,
+        \\    _,
+        \\};
+        \\
+        \\pub const non_exhaustive_enum1: @"Build.Step.Options.decltest.Options.NonExhaustiveEnum" = .two;
+        \\
+        \\pub const non_exhaustive_enum2: @"Build.Step.Options.decltest.Options.NonExhaustiveEnum" = @enumFromInt(20);
+        \\
+        \\pub const array_of_structs: [2]@"Build.Step.Options.decltest.Options.NormalStruct" = .{
+        \\    .{
+        \\        .hello = @as(?[]const u8, null),
+        \\        .world = true,
+        \\    },
+        \\    .{
+        \\        .hello = "zig",
+        \\        .world = true,
+        \\    },
+        \\};
+        \\
+        \\pub const nested_optional1: ??u32 = 10;
+        \\
+        \\pub const nested_optional2: ??u32 = @as(?u32, null);
+        \\
+        \\pub const nested_optional3: ??u32 = @as(??u32, null);
         \\
         \\
     , options.contents.items);
