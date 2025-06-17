@@ -4,9 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static void panic(const char *reason) {
-    fprintf(stderr, "%s\n", reason);
-    abort();
-}
+// panic is a macro rather than a function so the caller can derive
+// that this is noreturn from the call to abort()
+#define panic(reason) do { fprintf(stderr, "%s\n", reason); abort(); } while (0)
 
 #endif /* PANIC_H */
