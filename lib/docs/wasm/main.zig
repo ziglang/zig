@@ -733,9 +733,9 @@ fn render_docs(
             }
         }.render,
     };
-    var aw: std.io.AllocatingWriter = undefined;
+    var aw: std.io.Writer.Allocating = .fromArrayList(gpa, out);
     defer out.* = aw.toArrayList();
-    render.render(parsed_doc, aw.fromArrayList(gpa, out)) catch |err| switch (err) {
+    render.render(parsed_doc, &aw.interface) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
     };
 }

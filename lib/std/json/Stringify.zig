@@ -576,8 +576,8 @@ pub fn value(v: anytype, options: Options, writer: *Writer) Error!void {
 }
 
 test value {
-    var out: std.io.AllocatingWriter = undefined;
-    const writer = out.init(std.testing.allocator);
+    var out: std.io.Writer.Allocating = .init(std.testing.allocator);
+    const writer = &out.interface;
     defer out.deinit();
 
     const T = struct { a: i32, b: []const u8 };
@@ -616,8 +616,8 @@ test value {
 ///
 /// Caller owns returned memory.
 pub fn valueAlloc(gpa: Allocator, v: anytype, options: Options) error{OutOfMemory}![]u8 {
-    var aw: std.io.AllocatingWriter = undefined;
-    const writer = aw.init(gpa);
+    var aw: std.io.Writer.Allocating = .init(gpa);
+    const writer = &aw.interface;
     defer aw.deinit();
     value(v, options, writer) catch return error.OutOfMemory;
     return aw.toOwnedSlice();

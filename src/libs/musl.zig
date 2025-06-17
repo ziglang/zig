@@ -115,8 +115,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             var c_source_files = std.ArrayList(Compilation.CSourceFile).init(comp.gpa);
             defer c_source_files.deinit();
 
-            var override_path: std.io.AllocatingWriter = undefined;
-            override_path.init(comp.gpa);
+            var override_path: std.io.Writer.Allocating = .init(comp.gpa);
             defer override_path.deinit();
 
             const s = path.sep_str;
@@ -141,19 +140,19 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 if (!is_arch_specific) {
                     // Look for an arch specific override.
                     override_path.clearRetainingCapacity();
-                    try override_path.buffered_writer.print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.s", .{
+                    try override_path.interface.print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.s", .{
                         dirname, arch_name, noextbasename,
                     });
                     if (source_table.contains(override_path.getWritten())) continue;
 
                     override_path.clearRetainingCapacity();
-                    try override_path.buffered_writer.print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.S", .{
+                    try override_path.interface.print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.S", .{
                         dirname, arch_name, noextbasename,
                     });
                     if (source_table.contains(override_path.getWritten())) continue;
 
                     override_path.clearRetainingCapacity();
-                    try override_path.buffered_writer.print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.c", .{
+                    try override_path.interface.print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.c", .{
                         dirname, arch_name, noextbasename,
                     });
                     if (source_table.contains(override_path.getWritten())) continue;

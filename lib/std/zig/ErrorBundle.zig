@@ -788,8 +788,8 @@ pub const Wip = struct {
 
         const ttyconf: std.io.tty.Config = .no_color;
 
-        var bundle_buf: std.io.AllocatingWriter = undefined;
-        const bundle_bw = bundle_buf.init(std.testing.allocator);
+        var bundle_buf: std.io.Writer.Allocating = .init(std.testing.allocator);
+        const bundle_bw = &bundle_buf.interface;
         defer bundle_buf.deinit();
         try bundle.renderToWriter(.{ .ttyconf = ttyconf }, bundle_bw);
 
@@ -804,8 +804,8 @@ pub const Wip = struct {
         };
         defer copy.deinit(std.testing.allocator);
 
-        var copy_buf: std.io.AllocatingWriter = undefined;
-        const copy_bw = copy_buf.init(std.testing.allocator);
+        var copy_buf: std.io.Writer.Allocating = .init(std.testing.allocator);
+        const copy_bw = &copy_buf.interface;
         defer copy_buf.deinit();
         try copy.renderToWriter(.{ .ttyconf = ttyconf }, copy_bw);
 

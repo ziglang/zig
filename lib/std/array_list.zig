@@ -905,7 +905,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?mem.Alig
         pub fn print(self: *Self, gpa: Allocator, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
             comptime assert(T == u8);
             try self.ensureUnusedCapacity(gpa, fmt.len);
-            var aw: std.io.AllocatingWriter = .fromArrayList(gpa, self);
+            var aw: std.io.Writer.Allocating = .fromArrayList(gpa, self);
             defer self.* = aw.toArrayList();
             return aw.interface.print(fmt, args) catch |err| switch (err) {
                 error.WriteFailed => return error.OutOfMemory,

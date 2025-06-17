@@ -142,7 +142,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             try std.zig.printAstErrorsToStderr(gpa, tree, "<stdin>", color);
             process.exit(2);
         }
-        var aw: std.io.AllocatingWriter = .init(gpa);
+        var aw: std.io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
         try tree.render(gpa, &aw.interface, .{});
         const formatted = aw.getWritten();
@@ -336,10 +336,9 @@ fn fmtPathFile(
     try fmt.out_buffer.ensureTotalCapacity(gpa, source_code.len);
 
     {
-        var aw: std.io.AllocatingWriter = undefined;
-        const bw = aw.fromArrayList(gpa, &fmt.out_buffer);
+        var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &fmt.out_buffer);
         defer fmt.out_buffer = aw.toArrayList();
-        try tree.render(gpa, bw, .{});
+        try tree.render(gpa, &aw.interface, .{});
     }
     if (mem.eql(u8, fmt.out_buffer.items, source_code))
         return;

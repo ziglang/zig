@@ -42,9 +42,9 @@ test Value {
 }
 
 test Stringify {
-    var out: std.io.AllocatingWriter = undefined;
+    var out: std.io.Writer.Allocating = .init(testing.allocator);
     var write_stream: Stringify = .{
-        .writer = out.init(testing.allocator),
+        .writer = &out.interface,
         .options = .{ .whitespace = .indent_2 },
     };
     defer out.deinit();

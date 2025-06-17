@@ -558,7 +558,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     var data_section_index: ?u32 = null;
 
     assert(f.binary_bytes.items.len == 0);
-    var aw: std.io.AllocatingWriter = .fromArrayList(gpa, &f.binary_bytes);
+    var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &f.binary_bytes);
     defer f.binary_bytes = aw.toArrayList();
     const w = &aw.interface;
 
@@ -1064,7 +1064,7 @@ const VirtualAddrs = struct {
 
 fn emitNameSection(
     wasm: *Wasm,
-    aw: *std.io.AllocatingWriter,
+    aw: *std.io.Writer.Allocating,
     data_segment_groups: []const DataSegmentGroup,
 ) !void {
     const f = &wasm.flush_buffer;
@@ -1128,7 +1128,7 @@ fn emitNameSection(
     }
 }
 
-fn emitFeaturesSection(aw: *std.io.AllocatingWriter, target: *const std.Target) Allocator.Error!void {
+fn emitFeaturesSection(aw: *std.io.Writer.Allocating, target: *const std.Target) Allocator.Error!void {
     const feature_count = target.cpu.features.count();
     if (feature_count == 0) return;
 
@@ -1155,7 +1155,7 @@ fn emitFeaturesSection(aw: *std.io.AllocatingWriter, target: *const std.Target) 
     assert(safety_count == 0);
 }
 
-fn emitBuildIdSection(aw: *std.io.AllocatingWriter, build_id: []const u8) !void {
+fn emitBuildIdSection(aw: *std.io.Writer.Allocating, build_id: []const u8) !void {
     const w = &aw.interface;
     const header_offset = try reserveSectionHeader(w);
     defer replaceSectionHeader(aw, header_offset, @intFromEnum(std.wasm.Section.custom));
@@ -1169,7 +1169,7 @@ fn emitBuildIdSection(aw: *std.io.AllocatingWriter, build_id: []const u8) !void 
     try w.writeAll(build_id);
 }
 
-fn emitProducerSection(aw: *std.io.AllocatingWriter) !void {
+fn emitProducerSection(aw: *std.io.Writer.Allocating) !void {
     const w = &aw.interface;
     const header_offset = try reserveSectionHeader(w);
     defer replaceSectionHeader(aw, header_offset, @intFromEnum(std.wasm.Section.custom));
@@ -1259,7 +1259,7 @@ fn reserveVecSectionHeader(w: *Writer) Writer.Error!u32 {
 }
 
 fn replaceVecSectionHeader(
-    aw: *std.io.AllocatingWriter,
+    aw: *std.io.Writer.Allocating,
     offset: u32,
     section: std.wasm.Section,
     n_items: u32,
@@ -1278,7 +1278,7 @@ fn reserveSectionHeader(w: *Writer) Writer.Error!u32 {
     return @intCast(offset);
 }
 
-fn replaceSectionHeader(aw: *std.io.AllocatingWriter, offset: u32, section: u8) void {
+fn replaceSectionHeader(aw: *std.io.Writer.Allocating, offset: u32, section: u8) void {
     const header = aw.getWritten()[offset..][0..section_header_size];
     header[0] = section;
     std.leb.writeUnsignedFixed(5, header[1..6], @intCast(aw.interface.count - offset - section_header_size));
@@ -1292,7 +1292,7 @@ fn reserveSizeHeader(w: *Writer) Writer.Error!u32 {
     return @intCast(offset);
 }
 
-fn replaceSizeHeader(aw: *std.io.AllocatingWriter, offset: u32) void {
+fn replaceSizeHeader(aw: *std.io.Writer.Allocating, offset: u32) void {
     const header = aw.getWritten()[offset..][0..size_header_size];
     std.leb.writeUnsignedFixed(5, header[0..5], @intCast(aw.interface.count - offset - size_header_size));
 }
@@ -1764,7 +1764,7 @@ fn emitInitTlsFunction(wasm: *const Wasm, w: *Writer) Writer.Error!void {
     try w.writeByte(@intFromEnum(std.wasm.Opcode.end));
 }
 
-fn emitStartSection(aw: *std.io.AllocatingWriter, i: Wasm.OutputFunctionIndex) !void {
+fn emitStartSection(aw: *std.io.Writer.Allocating, i: Wasm.OutputFunctionIndex) !void {
     const header_offset = try reserveVecSectionHeader(&aw.interface);
     defer replaceVecSectionHeader(aw, header_offset, .start, @intFromEnum(i));
 }

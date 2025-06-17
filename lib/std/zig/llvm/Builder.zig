@@ -8619,16 +8619,7 @@ pub fn deinit(self: *Builder) void {
     self.* = undefined;
 }
 
-pub fn setModuleAsm(self: *Builder, aw: *std.io.AllocatingWriter) *Writer {
-    self.module_asm.clearRetainingCapacity();
-    return self.appendModuleAsm(aw);
-}
-
-pub fn appendModuleAsm(self: *Builder, aw: *std.io.AllocatingWriter) *Writer {
-    return aw.fromArrayList(self.gpa, &self.module_asm);
-}
-
-pub fn finishModuleAsm(self: *Builder, aw: *std.io.AllocatingWriter) Allocator.Error!void {
+pub fn finishModuleAsm(self: *Builder, aw: *std.io.Writer.Allocating) Allocator.Error!void {
     self.module_asm = aw.toArrayList();
     if (self.module_asm.getLastOrNull()) |last| if (last != '\n')
         try self.module_asm.append(self.gpa, '\n');
@@ -8938,8 +8929,8 @@ pub fn getIntrinsic(
 
     const name = name: {
         {
-            var aw: std.io.AllocatingWriter = undefined;
-            const bw = aw.fromArrayList(self.gpa, &self.strtab_string_bytes);
+            var aw: std.io.Writer.Allocating = .fromArrayList(self.gpa, &self.strtab_string_bytes);
+            const bw = &aw.interface;
             defer self.strtab_string_bytes = aw.toArrayList();
             bw.print("llvm.{s}", .{@tagName(id)}) catch return error.OutOfMemory;
             for (overload) |ty| bw.print(".{fm}", .{ty.fmt(self)}) catch return error.OutOfMemory;

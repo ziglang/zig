@@ -452,8 +452,8 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) InnerError!void {
         .plan9 => |dbg_out| {
             if (delta_pc <= 0) return; // only do this when the pc changes
 
-            var aw: std.io.AllocatingWriter = undefined;
-            const bw = aw.fromArrayList(emit.bin_file.comp.gpa, &dbg_out.dbg_line);
+            var aw: std.io.Writer.Allocating = .fromArrayList(emit.bin_file.comp.gpa, &dbg_out.dbg_line);
+            const bw = &aw.interface;
             defer dbg_out.dbg_line = aw.toArrayList();
 
             // increasing the line number

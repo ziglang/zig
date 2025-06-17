@@ -694,8 +694,8 @@ pub const Function = struct {
 /// It is not available when generating .h file.
 pub const Object = struct {
     dg: DeclGen,
-    code_header: std.io.AllocatingWriter,
-    code: std.io.AllocatingWriter,
+    code_header: std.io.Writer.Allocating,
+    code: std.io.Writer.Allocating,
     indent_counter: usize,
 
     const indent_width = 1;
@@ -731,7 +731,7 @@ pub const DeclGen = struct {
     pass: Pass,
     is_naked_fn: bool,
     expected_block: ?u32,
-    fwd_decl: std.io.AllocatingWriter,
+    fwd_decl: std.io.Writer.Allocating,
     error_msg: ?*Zcu.ErrorMsg,
     ctype_pool: CType.Pool,
     scratch: std.ArrayListUnmanaged(u32),

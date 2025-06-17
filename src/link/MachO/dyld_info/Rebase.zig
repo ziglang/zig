@@ -110,8 +110,8 @@ pub fn updateSize(rebase: *Rebase, macho_file: *MachO) !void {
 fn finalize(rebase: *Rebase, gpa: Allocator) !void {
     if (rebase.entries.items.len == 0) return;
 
-    var aw: std.io.AllocatingWriter = undefined;
-    const bw = aw.fromArrayList(gpa, &rebase.buffer);
+    var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &rebase.buffer);
+    const bw = &aw.interface;
     defer rebase.buffer = aw.toArrayList();
 
     log.debug("rebase opcodes", .{});

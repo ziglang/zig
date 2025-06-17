@@ -729,13 +729,12 @@ test "decompress" {
     };
     for (cases) |c| {
         var fb: std.io.Reader = .fixed(c.in);
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(testing.allocator);
+        var aw: std.io.Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
 
         var decompress: Decompress = .init(&fb, .raw);
         var decompress_br = decompress.readable(&.{});
-        _ = try decompress_br.readRemaining(&aw.buffered_writer);
+        _ = try decompress_br.readRemaining(&aw.interface);
         try testing.expectEqualStrings(c.out, aw.getWritten());
     }
 }
@@ -789,13 +788,12 @@ test "gzip decompress" {
     };
     for (cases) |c| {
         var fb: std.io.Reader = .fixed(c.in);
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(testing.allocator);
+        var aw: std.io.Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
 
         var decompress: Decompress = .init(&fb, .gzip);
         var decompress_br = decompress.readable(&.{});
-        _ = try decompress_br.readRemaining(&aw.buffered_writer);
+        _ = try decompress_br.readRemaining(&aw.interface);
         try testing.expectEqualStrings(c.out, aw.getWritten());
     }
 }
@@ -818,13 +816,12 @@ test "zlib decompress" {
     };
     for (cases) |c| {
         var fb: std.io.Reader = .fixed(c.in);
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(testing.allocator);
+        var aw: std.io.Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
 
         var decompress: Decompress = .init(&fb, .zlib);
         var decompress_br = decompress.readable(&.{});
-        _ = try decompress_br.readRemaining(&aw.buffered_writer);
+        _ = try decompress_br.readRemaining(&aw.interface);
         try testing.expectEqualStrings(c.out, aw.getWritten());
     }
 }
@@ -879,18 +876,17 @@ test "fuzzing tests" {
 
     inline for (cases, 0..) |c, case_no| {
         var in: std.io.Reader = .fixed(@embedFile("testdata/fuzz/" ++ c.input ++ ".input"));
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(testing.allocator);
+        var aw: std.io.Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
         errdefer std.debug.print("test case failed {}\n", .{case_no});
 
         var decompress: Decompress = .init(&in, .raw);
         var decompress_br = decompress.readable(&.{});
         if (c.err) |expected_err| {
-            try testing.expectError(error.ReadFailed, decompress_br.readRemaining(&aw.buffered_writer));
+            try testing.expectError(error.ReadFailed, decompress_br.readRemaining(&aw.interface));
             try testing.expectError(expected_err, decompress.read_err.?);
         } else {
-            _ = try decompress_br.readRemaining(&aw.buffered_writer);
+            _ = try decompress_br.readRemaining(&aw.interface);
             try testing.expectEqualStrings(c.out, aw.getWritten());
         }
     }
@@ -901,13 +897,12 @@ test "bug 18966" {
     const expect = @embedFile("testdata/fuzz/bug_18966.expect");
 
     var in: std.io.Reader = .fixed(input);
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(testing.allocator);
+    var aw: std.io.Writer.Allocating = .init(testing.allocator);
     defer aw.deinit();
 
     var decompress: Decompress = .init(&in, .gzip);
     var decompress_br = decompress.readable(&.{});
-    _ = try decompress_br.readRemaining(&aw.buffered_writer);
+    _ = try decompress_br.readRemaining(&aw.interface);
     try testing.expectEqualStrings(expect, aw.getWritten());
 }
 

@@ -1054,9 +1054,8 @@ fn expectSerializeEqual(
     value: anytype,
     options: SerializeOptions,
 ) !void {
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(std.testing.allocator);
-    const bw = &aw.buffered_writer;
+    var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+    const bw = &aw.interface;
     defer aw.deinit();
 
     try serialize(value, options, bw);
@@ -1157,9 +1156,8 @@ test "std.zon stringify whitespace, high level API" {
 }
 
 test "std.zon stringify whitespace, low level API" {
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(std.testing.allocator);
-    var s: Serializer = .{ .writer = &aw.buffered_writer };
+    var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.interface };
     defer aw.deinit();
 
     for ([2]bool{ true, false }) |whitespace| {
@@ -1515,9 +1513,8 @@ test "std.zon stringify whitespace, low level API" {
 }
 
 test "std.zon stringify utf8 codepoints" {
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(std.testing.allocator);
-    var s: Serializer = .{ .writer = &aw.buffered_writer };
+    var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.interface };
     defer aw.deinit();
 
     // Printable ASCII
@@ -1626,9 +1623,8 @@ test "std.zon stringify utf8 codepoints" {
 }
 
 test "std.zon stringify strings" {
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(std.testing.allocator);
-    var s: Serializer = .{ .writer = &aw.buffered_writer };
+    var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.interface };
     defer aw.deinit();
 
     // Minimal case
@@ -1697,9 +1693,8 @@ test "std.zon stringify strings" {
 }
 
 test "std.zon stringify multiline strings" {
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(std.testing.allocator);
-    var s: Serializer = .{ .writer = &aw.buffered_writer };
+    var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.interface };
     defer aw.deinit();
 
     inline for (.{ true, false }) |whitespace| {
@@ -1918,9 +1913,8 @@ test "std.zon stringify skip default fields" {
 }
 
 test "std.zon depth limits" {
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(std.testing.allocator);
-    const bw = &aw.buffered_writer;
+    var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+    const bw = &aw.interface;
     defer aw.deinit();
 
     const Recurse = struct { r: []const @This() };
@@ -2180,9 +2174,8 @@ test "std.zon stringify primitives" {
 }
 
 test "std.zon stringify ident" {
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(std.testing.allocator);
-    var s: Serializer = .{ .writer = &aw.buffered_writer };
+    var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.interface };
     defer aw.deinit();
 
     try expectSerializeEqual(".{ .a = 0 }", .{ .a = 0 }, .{});
@@ -2228,9 +2221,8 @@ test "std.zon stringify ident" {
 }
 
 test "std.zon stringify as tuple" {
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(std.testing.allocator);
-    var s: Serializer = .{ .writer = &aw.buffered_writer };
+    var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.interface };
     defer aw.deinit();
 
     // Tuples
@@ -2250,9 +2242,8 @@ test "std.zon stringify as tuple" {
 }
 
 test "std.zon stringify as float" {
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(std.testing.allocator);
-    var s: Serializer = .{ .writer = &aw.buffered_writer };
+    var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.interface };
     defer aw.deinit();
 
     // Comptime float
@@ -2355,9 +2346,8 @@ test "std.zon pointers" {
 }
 
 test "std.zon tuple/struct field" {
-    var aw: std.io.AllocatingWriter = undefined;
-    aw.init(std.testing.allocator);
-    var s: Serializer = .{ .writer = &aw.buffered_writer };
+    var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var s: Serializer = .{ .writer = &aw.interface };
     defer aw.deinit();
 
     // Test on structs

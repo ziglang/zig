@@ -857,8 +857,8 @@ pub const Session = struct {
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
-        var body: std.io.AllocatingWriter = undefined;
-        const body_writer = body.init(session.allocator);
+        var body: std.io.Writer.Allocating = .init(session.allocator);
+        const body_writer = &body.interface;
         defer body.deinit();
         try Packet.write(.{ .data = "command=ls-refs\n" }, body_writer);
         if (session.supports_agent) {
@@ -974,9 +974,9 @@ pub const Session = struct {
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
-        var body: std.io.AllocatingWriter = undefined;
-        const body_writer = body.init(session.allocator);
+        var body: std.io.Writer.Allocating = .init(session.allocator);
         defer body.deinit();
+        const body_writer = &body.interface;
         try Packet.write(.{ .data = "command=fetch\n" }, body_writer);
         if (session.supports_agent) {
             try Packet.write(.{ .data = agent_capability }, body_writer);

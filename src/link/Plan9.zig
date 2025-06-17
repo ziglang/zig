@@ -337,7 +337,7 @@ fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void 
         };
         try fn_map_res.value_ptr.functions.put(gpa, nav_index, out);
 
-        var aw: std.io.AllocatingWriter = .init(arena);
+        var aw: std.io.Writer.Allocating = .init(arena);
         defer aw.deinit();
         const w = &aw.interface;
 
@@ -646,12 +646,11 @@ pub fn flush(
     var iovecs_i: usize = 1;
     var text_i: u64 = 0;
 
-    var linecountinfo_aw: std.io.AllocatingWriter = undefined;
-    linecountinfo_aw.init(gpa);
+    var linecountinfo_aw: std.io.Writer.Allocating = .init(gpa);
     defer linecountinfo_aw.deinit();
     // text
     {
-        const linecountinfo_bw = &linecountinfo_aw.buffered_writer;
+        const linecountinfo_bw = &linecountinfo_aw.interface;
         var linecount: i64 = -1;
         var it_file = self.fn_nav_table.iterator();
         while (it_file.next()) |fentry| {
@@ -819,10 +818,9 @@ pub fn flush(
             }
         }
     }
-    var syms_aw: std.io.AllocatingWriter = undefined;
-    syms_aw.init(gpa);
+    var syms_aw: std.io.Writer.Allocating = .init(gpa);
     defer syms_aw.deinit();
-    try self.writeSyms(&syms_aw.buffered_writer);
+    try self.writeSyms(&syms_aw.interface);
     const syms = syms_aw.getWritten();
     assert(2 + self.atomCount() - self.externCount() == iovecs_i); // we didn't write all the decls
     iovecs[iovecs_i] = .{ .base = syms.ptr, .len = syms.len };

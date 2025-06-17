@@ -3028,10 +3028,9 @@ pub fn createTypeName(
             const fn_info = sema.code.getFnInfo(ip.funcZirBodyInst(sema.func_index).resolve(ip) orelse return error.AnalysisFail);
             const zir_tags = sema.code.instructions.items(.tag);
 
-            var aw: std.io.AllocatingWriter = undefined;
-            aw.init(gpa);
+            var aw: std.io.Writer.Allocating = .init(gpa);
             defer aw.deinit();
-            const bw = &aw.buffered_writer;
+            const bw = &aw.interface;
             bw.print("{f}(", .{block.type_name_ctx.fmt(ip)}) catch return error.OutOfMemory;
 
             var arg_i: usize = 0;
@@ -5911,9 +5910,9 @@ fn zirCompileLog(
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 
-    var aw: std.io.AllocatingWriter = undefined;
+    var aw: std.io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
-    const bw = &aw.buffered_writer;
+    const bw = &aw.interface;
 
     const extra = sema.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
     const src_node = extra.data.src_node;
@@ -37369,13 +37368,12 @@ fn notePathToComptimeAllocPtr(sema: *Sema, msg: *Zcu.ErrorMsg, src: LazySrcLoc, 
         error.AnalysisFail => unreachable,
     };
 
-    var second_path_aw: std.io.AllocatingWriter = undefined;
-    second_path_aw.init(arena);
+    var second_path_aw: std.io.Writer.Allocating = .init(arena);
     defer second_path_aw.deinit();
     const inter_name = try std.fmt.allocPrint(arena, "v{d}", .{intermediate_value_count});
     const deriv_start = @import("print_value.zig").printPtrDerivation(
         derivation,
-        &second_path_aw.buffered_writer,
+        &second_path_aw.interface,
         pt,
         .lvalue,
         .{ .str = inter_name },

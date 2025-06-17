@@ -304,11 +304,10 @@ pub fn writeAdhocSignature(
     var hash: [hash_size]u8 = undefined;
 
     if (self.requirements) |*req| {
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(allocator);
+        var aw: std.io.Writer.Allocating = .init(allocator);
         defer aw.deinit();
 
-        try req.write(&aw.buffered_writer);
+        try req.write(&aw.interface);
         Sha256.hash(aw.getWritten(), &hash, .{});
         self.code_directory.addSpecialHash(req.slotType(), hash);
 
@@ -318,11 +317,10 @@ pub fn writeAdhocSignature(
     }
 
     if (self.entitlements) |*ents| {
-        var aw: std.io.AllocatingWriter = undefined;
-        aw.init(allocator);
+        var aw: std.io.Writer.Allocating = .init(allocator);
         defer aw.deinit();
 
-        try ents.write(&aw.buffered_writer);
+        try ents.write(&aw.interface);
         Sha256.hash(aw.getWritten(), &hash, .{});
         self.code_directory.addSpecialHash(ents.slotType(), hash);
 
