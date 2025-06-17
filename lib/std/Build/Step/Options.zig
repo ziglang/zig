@@ -252,7 +252,9 @@ fn printValue(options: *Options, out: Writer, comptime T: type, value: T, indent
             if (value) |inner| {
                 try printValue(options, out, optional.child, inner, indent);
             } else {
-                try out.writeAll("null");
+                try out.writeAll("@as(");
+                try printTypeName(options, out, T, indent);
+                try out.writeAll(", null)");
             }
         },
         .void,
