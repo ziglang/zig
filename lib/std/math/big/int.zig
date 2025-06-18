@@ -340,23 +340,15 @@ pub const Mutable = struct {
     /// not allowed (e.g. 0x43 should simply be 43).  Underscores in the input string are
     /// ignored and can be used as digit separators.
     ///
-    /// Asserts there is enough memory for the value in `self.limbs`. An upper bound on number of limbs can
+    /// There must be enough memory for the value in `self.limbs`. An upper bound on number of limbs can
     /// be determined with `calcSetStringLimbCount`.
     /// Asserts the base is in the range [2, 36].
     ///
     /// Returns an error if the value has invalid digits for the requested base.
-    ///
-    /// `limbs_buffer` is used for temporary storage. The size required can be found with
-    /// `calcSetStringLimbsBufferLen`.
-    ///
-    /// If `allocator` is provided, it will be used for temporary storage to improve
-    /// multiplication performance. `error.OutOfMemory` is handled with a fallback algorithm.
     pub fn setString(
         self: *Mutable,
         base: u8,
         value: []const u8,
-        limbs_buffer: []Limb,
-        allocator: ?Allocator,
     ) error{InvalidCharacter}!void {
         assert(base >= 2);
         assert(base <= 36);
@@ -368,18 +360,41 @@ pub const Mutable = struct {
             i += 1;
         }
 
-        const ap_base: Const = .{ .limbs = &[_]Limb{base}, .positive = true };
-        self.set(0);
+        @memset(self.limbs, 0);
+        self.len = 1;
 
+        var limb: Limb = 0;
+        var j: usize = 0;
         for (value[i..]) |ch| {
             if (ch == '_') {
                 continue;
             }
             const d = try std.fmt.charToDigit(ch, base);
-            const ap_d: Const = .{ .limbs = &[_]Limb{d}, .positive = true };
+            limb *= base;
+            limb += d;
+            j += 1;
 
-            self.mul(self.toConst(), ap_base, limbs_buffer, allocator);
-            self.add(self.toConst(), ap_d);
+            if (j == constants.digits_per_limb[base]) {
+                const len = @min(self.len + 1, self.limbs.len);
+                // r = a * b = a + a * (b - 1)
+                // we assert to panic if the self.limbs is not large enough to store the number
+                assert(!llmulLimb(.add, self.limbs[0..len], self.limbs[0..len], constants.big_bases[base] - 1));
+                assert(!llaccum(.add, self.limbs[0..len], &[1]Limb{limb}));
+
+                if (self.limbs.len > self.len and self.limbs[self.len] != 0)
+                    self.len += 1;
+                j = 0;
+                limb = 0;
+            }
+        }
+        if (j > 0) {
+            const len = @min(self.len + 1, self.limbs.len);
+            // we assert to panic if the self.limbs is not large enough to store the number
+            assert(!llmulLimb(.add, self.limbs[0..len], self.limbs[0..len], math.pow(Limb, base, j) - 1));
+            assert(!llaccum(.add, self.limbs[0..len], &[1]Limb{limb}));
+
+            if (self.limbs.len > self.len and self.limbs[self.len] != 0)
+                self.len += 1;
         }
         self.positive = positive;
     }
@@ -2701,10 +2716,8 @@ pub const Managed = struct {
     pub fn setString(self: *Managed, base: u8, value: []const u8) !void {
         if (base < 2 or base > 36) return error.InvalidBase;
         try self.ensureCapacity(calcSetStringLimbCount(base, value.len));
-        const limbs_buffer = try self.allocator.alloc(Limb, calcSetStringLimbsBufferLen(base, value.len));
-        defer self.allocator.free(limbs_buffer);
         var m = self.toMutable();
-        try m.setString(base, value, limbs_buffer, self.allocator);
+        try m.setString(base, value);
         self.setMetadata(m.positive, m.len);
     }
 

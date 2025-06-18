@@ -8732,7 +8732,10 @@ fn numberLiteral(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index, source_node:
         },
         .big_int => |base| big: {
             const gpa = astgen.gpa;
-            var big_int = try std.math.big.int.Managed.init(gpa);
+            var sfba_state = std.heap.stackFallback(5 * @sizeOf(std.math.big.Limb), gpa);
+            const sfba = sfba_state.get();
+
+            var big_int = try std.math.big.int.Managed.init(sfba);
             defer big_int.deinit();
             const prefix_offset: usize = if (base == .decimal) 0 else 2;
             big_int.setString(@intFromEnum(base), bytes[prefix_offset..]) catch |err| switch (err) {
