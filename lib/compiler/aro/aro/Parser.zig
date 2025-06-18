@@ -101,7 +101,7 @@ value_map: Tree.ValueMap,
 
 // buffers used during compilation
 syms: SymbolStack = .{},
-strings: std.ArrayListAligned(u8, 4),
+strings: std.ArrayListAligned(u8, .@"4"),
 labels: std.ArrayList(Label),
 list_buf: NodeList,
 decl_buf: NodeList,
@@ -693,7 +693,7 @@ pub fn parse(pp: *Preprocessor) Compilation.Error!Tree {
         .gpa = pp.comp.gpa,
         .arena = arena.allocator(),
         .tok_ids = pp.tokens.items(.id),
-        .strings = std.ArrayListAligned(u8, 4).init(pp.comp.gpa),
+        .strings = std.ArrayListAligned(u8, .@"4").init(pp.comp.gpa),
         .value_map = Tree.ValueMap.init(pp.comp.gpa),
         .data = NodeList.init(pp.comp.gpa),
         .labels = std.ArrayList(Label).init(pp.comp.gpa),
@@ -979,7 +979,7 @@ fn decl(p: *Parser) Error!bool {
         _ = try p.expectToken(.semicolon);
         if (decl_spec.ty.is(.@"enum") or
             (decl_spec.ty.isRecord() and !decl_spec.ty.isAnonymousRecord(p.comp) and
-            !decl_spec.ty.isTypeof())) // we follow GCC and clang's behavior here
+                !decl_spec.ty.isTypeof())) // we follow GCC and clang's behavior here
         {
             const specifier = decl_spec.ty.canonicalize(.standard).specifier;
             const attrs = p.attr_buf.items(.attr)[attr_buf_top..];

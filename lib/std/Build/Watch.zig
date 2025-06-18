@@ -56,7 +56,7 @@ const Os = switch (builtin.os.tag) {
                 const bytes = lfh.slice();
                 const new_ptr = try gpa.alignedAlloc(
                     u8,
-                    @alignOf(std.os.linux.file_handle),
+                    .of(std.os.linux.file_handle),
                     @sizeOf(std.os.linux.file_handle) + bytes.len,
                 );
                 const new_header: *std.os.linux.file_handle = @ptrCast(new_ptr);
@@ -600,7 +600,7 @@ const Os = switch (builtin.os.tag) {
             };
         }
     },
-    .dragonfly, .freebsd, .netbsd, .openbsd, .ios, .macos, .tvos, .visionos, .watchos, .haiku => struct {
+    .dragonfly, .freebsd, .netbsd, .openbsd, .ios, .macos, .tvos, .visionos, .watchos => struct {
         const posix = std.posix;
 
         kq_fd: i32,
@@ -612,8 +612,6 @@ const Os = switch (builtin.os.tag) {
             /// -1. Otherwise, it needs to be opened in update(), and will be
             /// stored here.
             dir_fd: i32,
-            /// Number of files being watched by this directory handle.
-            ref_count: u32,
         }),
 
         const dir_open_flags: posix.O = f: {
@@ -673,11 +671,9 @@ const Os = switch (builtin.os.tag) {
                             try handles.append(gpa, .{
                                 .rs = .{},
                                 .dir_fd = if (skip_open_dir) -1 else dir_fd,
-                                .ref_count = 1,
                             });
-                        } else {
-                            handles.items(.ref_count)[gop.index] += 1;
                         }
+
                         break :rs &handles.items(.rs)[gop.index];
                     };
                     for (files.items) |basename| {
@@ -718,10 +714,6 @@ const Os = switch (builtin.os.tag) {
                         }
                     }
 
-                    const ref_count_ptr = &handles.items(.ref_count)[i];
-                    ref_count_ptr.* -= 1;
-                    if (ref_count_ptr.* > 0) continue;
-
                     // If the sub_path == "" then this patch has already the
                     // dir fd that we need to use as the ident to remove the
                     // event. If it was opened above with openat() then we need
@@ -738,10 +730,10 @@ const Os = switch (builtin.os.tag) {
                     // index in the udata field.
                     const last_dir_fd = fd: {
                         const last_path = w.dir_table.keys()[handles.len - 1];
-                        const last_dir_fd = if (last_path.sub_path.len != 0)
+                        const last_dir_fd = if (last_path.sub_path.len == 0)
                             last_path.root_dir.handle.fd
                         else
-                            handles.items(.dir_fd)[i];
+                            handles.items(.dir_fd)[handles.len - 1];
                         assert(last_dir_fd != -1);
                         break :fd last_dir_fd;
                     };

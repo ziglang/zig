@@ -7,6 +7,7 @@ const mem = std.mem;
 const c = std.c;
 const Allocator = std.mem.Allocator;
 const windows = std.os.windows;
+const Alignment = std.mem.Alignment;
 
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
 pub const SmpAllocator = @import("heap/SmpAllocator.zig");
@@ -42,9 +43,7 @@ pub var next_mmap_addr_hint: ?[*]align(page_size_min) u8 = null;
 ///
 /// On many systems, the actual page size can only be determined at runtime
 /// with `pageSize`.
-pub const page_size_min: usize = std.options.page_size_min orelse (page_size_min_default orelse if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
-    @compileError("freestanding/other page_size_min must provided with std.options.page_size_min")
-else
+pub const page_size_min: usize = std.options.page_size_min orelse (page_size_min_default orelse
     @compileError(@tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " has unknown page_size_min; populate std.options.page_size_min"));
 
 /// comptime-known maximum page size of the target.
@@ -155,7 +154,7 @@ const CAllocator = struct {
         return @alignCast(@ptrCast(ptr - @sizeOf(usize)));
     }
 
-    fn alignedAlloc(len: usize, alignment: mem.Alignment) ?[*]u8 {
+    fn alignedAlloc(len: usize, alignment: Alignment) ?[*]u8 {
         const alignment_bytes = alignment.toByteUnits();
         if (supports_posix_memalign) {
             // The posix_memalign only accepts alignment values that are a
@@ -203,7 +202,7 @@ const CAllocator = struct {
     fn alloc(
         _: *anyopaque,
         len: usize,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         return_address: usize,
     ) ?[*]u8 {
         _ = return_address;
@@ -214,7 +213,7 @@ const CAllocator = struct {
     fn resize(
         _: *anyopaque,
         buf: []u8,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         new_len: usize,
         return_address: usize,
     ) bool {
@@ -235,7 +234,7 @@ const CAllocator = struct {
     fn remap(
         context: *anyopaque,
         memory: []u8,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         new_len: usize,
         return_address: usize,
     ) ?[*]u8 {
@@ -247,7 +246,7 @@ const CAllocator = struct {
     fn free(
         _: *anyopaque,
         buf: []u8,
-        alignment: mem.Alignment,
+        alignment: Alignment,
         return_address: usize,
     ) void {
         _ = alignment;
@@ -283,7 +282,7 @@ const raw_c_allocator_vtable: Allocator.VTable = .{
 fn rawCAlloc(
     context: *anyopaque,
     len: usize,
-    alignment: mem.Alignment,
+    alignment: Alignment,
     return_address: usize,
 ) ?[*]u8 {
     _ = context;
@@ -301,7 +300,7 @@ fn rawCAlloc(
 fn rawCResize(
     context: *anyopaque,
     memory: []u8,
-    alignment: mem.Alignment,
+    alignment: Alignment,
     new_len: usize,
     return_address: usize,
 ) bool {
@@ -316,7 +315,7 @@ fn rawCResize(
 fn rawCRemap(
     context: *anyopaque,
     memory: []u8,
-    alignment: mem.Alignment,
+    alignment: Alignment,
     new_len: usize,
     return_address: usize,
 ) ?[*]u8 {
@@ -329,7 +328,7 @@ fn rawCRemap(
 fn rawCFree(
     context: *anyopaque,
     memory: []u8,
-    alignment: mem.Alignment,
+    alignment: Alignment,
     return_address: usize,
 ) void {
     _ = context;
@@ -348,7 +347,7 @@ pub const page_allocator: Allocator = if (@hasDecl(root, "os") and
     @hasDecl(root.os, "heap") and
     @hasDecl(root.os.heap, "page_allocator"))
     root.os.heap.page_allocator
-else if (builtin.target.isWasm()) .{
+else if (builtin.target.cpu.arch.isWasm()) .{
     .ptr = undefined,
     .vtable = &WasmAllocator.vtable,
 } else if (builtin.target.os.tag == .plan9) .{
@@ -427,7 +426,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn alloc(
             ctx: *anyopaque,
             len: usize,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             ra: usize,
         ) ?[*]u8 {
             const self: *Self = @ptrCast(@alignCast(ctx));
@@ -438,7 +437,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn resize(
             ctx: *anyopaque,
             buf: []u8,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             new_len: usize,
             ra: usize,
         ) bool {
@@ -453,7 +452,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn remap(
             context: *anyopaque,
             memory: []u8,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             new_len: usize,
             return_address: usize,
         ) ?[*]u8 {
@@ -468,7 +467,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         fn free(
             ctx: *anyopaque,
             buf: []u8,
-            alignment: mem.Alignment,
+            alignment: Alignment,
             ra: usize,
         ) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
@@ -508,13 +507,13 @@ test PageAllocator {
     const allocator = page_allocator;
     try testAllocator(allocator);
     try testAllocatorAligned(allocator);
-    if (!builtin.target.isWasm()) {
+    if (!builtin.target.cpu.arch.isWasm()) {
         try testAllocatorLargeAlignment(allocator);
         try testAllocatorAlignedShrink(allocator);
     }
 
     if (builtin.os.tag == .windows) {
-        const slice = try allocator.alignedAlloc(u8, page_size_min, 128);
+        const slice = try allocator.alignedAlloc(u8, .fromByteUnits(page_size_min), 128);
         slice[0] = 0x12;
         slice[127] = 0x34;
         allocator.free(slice);
@@ -595,6 +594,8 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
     const zero_bit_ptr = try allocator.create(u0);
     zero_bit_ptr.* = 0;
     allocator.destroy(zero_bit_ptr);
+    const zero_len_array = try allocator.create([0]u64);
+    allocator.destroy(zero_len_array);
 
     const oversize = try allocator.alignedAlloc(u32, null, 5);
     try testing.expect(oversize.len >= 5);
@@ -609,7 +610,7 @@ pub fn testAllocatorAligned(base_allocator: mem.Allocator) !void {
     const allocator = validationAllocator.allocator();
 
     // Test a few alignment values, smaller and bigger than the type's one
-    inline for ([_]u29{ 1, 2, 4, 8, 16, 32, 64 }) |alignment| {
+    inline for ([_]Alignment{ .@"1", .@"2", .@"4", .@"8", .@"16", .@"32", .@"64" }) |alignment| {
         // initial
         var slice = try allocator.alignedAlloc(u8, alignment, 10);
         try testing.expect(slice.len == 10);
@@ -640,7 +641,7 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     var align_mask: usize = undefined;
     align_mask = @shlWithOverflow(~@as(usize, 0), @as(Allocator.Log2Align, @ctz(large_align)))[0];
 
-    var slice = try allocator.alignedAlloc(u8, large_align, 500);
+    var slice = try allocator.alignedAlloc(u8, .fromByteUnits(large_align), 500);
     try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
 
     if (allocator.resize(slice, 100)) {
@@ -669,7 +670,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     const debug_allocator = fib.allocator();
 
     const alloc_size = pageSize() * 2 + 50;
-    var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+    var slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     defer allocator.free(slice);
 
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
@@ -679,7 +680,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     // fail, because of this high over-alignment we want to have.
     while (@intFromPtr(slice.ptr) == mem.alignForward(usize, @intFromPtr(slice.ptr), pageSize() * 32)) {
         try stuff_to_free.append(slice);
-        slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+        slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     }
     while (stuff_to_free.pop()) |item| {
         allocator.free(item);
@@ -831,8 +832,10 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
         .xtensa => 4 << 10,
         else => null,
     },
-    .freestanding => switch (builtin.cpu.arch) {
+    .freestanding, .other => switch (builtin.cpu.arch) {
         .wasm32, .wasm64 => 64 << 10,
+        .x86, .x86_64 => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
         else => null,
     },
     else => null,
@@ -989,7 +992,8 @@ test {
     _ = GeneralPurposeAllocator;
     _ = FixedBufferAllocator;
     _ = ThreadSafeAllocator;
-    if (builtin.target.isWasm()) {
+    _ = SbrkAllocator;
+    if (builtin.target.cpu.arch.isWasm()) {
         _ = WasmAllocator;
     }
     if (!builtin.single_threaded) _ = smp_allocator;

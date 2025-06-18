@@ -40,6 +40,7 @@ compress_debug_sections: enum { none, zlib, zstd } = .none,
 verbose_link: bool,
 verbose_cc: bool,
 bundle_compiler_rt: ?bool = null,
+bundle_ubsan_rt: ?bool = null,
 rdynamic: bool,
 import_memory: bool = false,
 export_memory: bool = false,
@@ -160,8 +161,14 @@ dead_strip_dylibs: bool = false,
 /// (Darwin) Force load all members of static archives that implement an Objective-C class or category
 force_load_objc: bool = false,
 
+/// Whether local symbols should be discarded from the symbol table.
+discard_local_symbols: bool = false,
+
 /// Position Independent Executable
 pie: ?bool = null,
+
+/// Link Time Optimization mode
+lto: ?std.zig.LtoMode = null,
 
 dll_export_fns: ?bool = null,
 
@@ -181,7 +188,9 @@ force_undefined_symbols: std.StringHashMap(void),
 /// Overrides the default stack size
 stack_size: ?u64 = null,
 
+/// Deprecated; prefer using `lto`.
 want_lto: ?bool = null,
+
 use_llvm: ?bool,
 use_lld: ?bool,
 
@@ -219,8 +228,6 @@ error_limit: ?u32 = null,
 is_linking_libc: bool = false,
 /// Computed during make().
 is_linking_libcpp: bool = false,
-
-no_builtin: bool = false,
 
 /// Populated during the make phase when there is a long-lived compiler process.
 /// Managed by the build runner, not user build script.
@@ -284,6 +291,7 @@ pub const Kind = enum {
     lib,
     obj,
     @"test",
+    test_obj,
 };
 
 pub const HeaderInstallation = union(enum) {
@@ -361,7 +369,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     }
 
     // Avoid the common case of the step name looking like "zig test test".
-    const name_adjusted = if (options.kind == .@"test" and mem.eql(u8, name, "test"))
+    const name_adjusted = if ((options.kind == .@"test" or options.kind == .test_obj) and mem.eql(u8, name, "test"))
         ""
     else
         owner.fmt("{s} ", .{name});
@@ -370,13 +378,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         @panic("the root Module of a Compile step must be created with a known 'target' field");
     const target = resolved_target.result;
 
-    const step_name = owner.fmt("{s} {s}{s} {s}", .{
-        switch (options.kind) {
-            .exe => "zig build-exe",
-            .lib => "zig build-lib",
-            .obj => "zig build-obj",
-            .@"test" => "zig test",
-        },
+    const step_name = owner.fmt("compile {s} {s}{s} {s}", .{
+        @tagName(options.kind),
         name_adjusted,
         @tagName(options.root_module.optimize orelse .Debug),
         resolved_target.query.zigTriple(owner.allocator) catch @panic("OOM"),
@@ -387,7 +390,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .target = target,
         .output_mode = switch (options.kind) {
             .lib => .Lib,
-            .obj => .Obj,
+            .obj, .test_obj => .Obj,
             .exe, .@"test" => .Exe,
         },
         .link_mode = options.linkage,
@@ -465,7 +468,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         if (compile.linkage != null and compile.linkage.? == .static) {
             compile.out_lib_filename = compile.out_filename;
         } else if (compile.version) |version| {
-            if (target.isDarwin()) {
+            if (target.os.tag.isDarwin()) {
                 compile.major_only_filename = owner.fmt("lib{s}.{d}.dylib", .{
                     compile.name,
                     version.major,
@@ -480,7 +483,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
                 compile.out_lib_filename = compile.out_filename;
             }
         } else {
-            if (target.isDarwin()) {
+            if (target.os.tag.isDarwin()) {
                 compile.out_lib_filename = compile.out_filename;
             } else if (target.os.tag == .windows) {
                 compile.out_lib_filename = owner.fmt("{s}.lib", .{compile.name});
@@ -689,6 +692,8 @@ const PkgConfigResult = struct {
 /// Run pkg-config for the given library name and parse the output, returning the arguments
 /// that should be passed to zig to link the given library.
 fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
+    const wl_rpath_prefix = "-Wl,-rpath,";
+
     const b = compile.step.owner;
     const pkg_name = match: {
         // First we have to map the library name to pkg config name. Unfortunately,
@@ -779,6 +784,8 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
             try zig_cflags.appendSlice(&[_][]const u8{ "-D", macro });
         } else if (mem.startsWith(u8, arg, "-D")) {
             try zig_cflags.append(arg);
+        } else if (mem.startsWith(u8, arg, wl_rpath_prefix)) {
+            try zig_cflags.appendSlice(&[_][]const u8{ "-rpath", arg[wl_rpath_prefix.len..] });
         } else if (b.debug_pkg_config) {
             return compile.step.fail("unknown pkg-config flag '{s}'", .{arg});
         }
@@ -935,6 +942,10 @@ pub fn addConfigHeader(compile: *Compile, config_header: *Step.ConfigHeader) voi
     compile.root_module.addConfigHeader(config_header);
 }
 
+pub fn addEmbedPath(compile: *Compile, lazy_path: LazyPath) void {
+    compile.root_module.addEmbedPath(lazy_path);
+}
+
 pub fn addLibraryPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addLibraryPath(directory_path);
 }
@@ -1036,6 +1047,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         .exe => "build-exe",
         .obj => "build-obj",
         .@"test" => "test",
+        .test_obj => "test-obj",
     };
     try zig_args.append(cmd);
 
@@ -1205,9 +1217,9 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             switch (other.kind) {
                                 .exe => return step.fail("cannot link with an executable build artifact", .{}),
                                 .@"test" => return step.fail("cannot link with a test", .{}),
-                                .obj => {
+                                .obj, .test_obj => {
                                     const included_in_lib_or_obj = !my_responsibility and
-                                        (dep_compile.kind == .lib or dep_compile.kind == .obj);
+                                        (dep_compile.kind == .lib or dep_compile.kind == .obj or dep_compile.kind == .test_obj);
                                     if (!already_linked and !included_in_lib_or_obj) {
                                         try zig_args.append(other.getEmittedBin().getPath2(b, step));
                                         total_linker_objects += 1;
@@ -1429,6 +1441,10 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         try zig_args.append("--debug-compile-errors");
     }
 
+    if (b.debug_incremental) {
+        try zig_args.append("--debug-incremental");
+    }
+
     if (b.verbose_cimport) try zig_args.append("--verbose-cimport");
     if (b.verbose_air) try zig_args.append("--verbose-air");
     if (b.verbose_llvm_ir) |path| try zig_args.append(b.fmt("--verbose-llvm-ir={s}", .{path}));
@@ -1524,7 +1540,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             try zig_args.append(b.fmt("{}", .{version}));
         }
 
-        if (compile.rootModuleTarget().isDarwin()) {
+        if (compile.rootModuleTarget().os.tag.isDarwin()) {
             const install_name = compile.install_name orelse b.fmt("@rpath/{s}{s}{s}", .{
                 compile.rootModuleTarget().libPrefix(),
                 compile.name,
@@ -1555,8 +1571,12 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (compile.force_load_objc) {
         try zig_args.append("-ObjC");
     }
+    if (compile.discard_local_symbols) {
+        try zig_args.append("--discard-all");
+    }
 
     try addFlag(&zig_args, "compiler-rt", compile.bundle_compiler_rt);
+    try addFlag(&zig_args, "ubsan-rt", compile.bundle_ubsan_rt);
     try addFlag(&zig_args, "dll-export-fns", compile.dll_export_fns);
     if (compile.rdynamic) {
         try zig_args.append("-rdynamic");
@@ -1622,10 +1642,6 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         }
     }
 
-    if (compile.no_builtin) {
-        try zig_args.append("-fno-builtin");
-    }
-
     if (b.sysroot) |sysroot| {
         try zig_args.appendSlice(&[_][]const u8{ "--sysroot", sysroot });
     }
@@ -1673,7 +1689,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     try addFlag(&zig_args, "each-lib-rpath", compile.each_lib_rpath);
 
-    if (compile.build_id) |build_id| {
+    if (compile.build_id orelse b.build_id) |build_id| {
         try zig_args.append(switch (build_id) {
             .hexstring => |hs| b.fmt("--build-id=0x{s}", .{
                 std.fmt.fmtSliceHexLower(hs.toSlice()),
@@ -1695,7 +1711,15 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     try addFlag(&zig_args, "PIE", compile.pie);
-    try addFlag(&zig_args, "lto", compile.want_lto);
+
+    if (compile.lto) |lto| {
+        try zig_args.append(switch (lto) {
+            .full => "-flto=full",
+            .thin => "-flto=thin",
+            .none => "-fno-lto",
+        });
+    } else try addFlag(&zig_args, "lto", compile.want_lto);
+
     try addFlag(&zig_args, "sanitize-coverage-trace-pc-guard", compile.sanitize_coverage_trace_pc_guard);
 
     if (compile.subsystem) |subsystem| {
@@ -1810,47 +1834,16 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             lp.path = b.fmt("{}", .{output_dir});
         }
 
-        // -femit-bin[=path]         (default) Output machine code
-        if (compile.generated_bin) |bin| {
-            bin.path = output_dir.joinString(b.allocator, compile.out_filename) catch @panic("OOM");
-        }
-
-        const sep = std.fs.path.sep_str;
-
-        // output PDB if someone requested it
-        if (compile.generated_pdb) |pdb| {
-            pdb.path = b.fmt("{}" ++ sep ++ "{s}.pdb", .{ output_dir, compile.name });
-        }
-
-        // -femit-implib[=path]      (default) Produce an import .lib when building a Windows DLL
-        if (compile.generated_implib) |implib| {
-            implib.path = b.fmt("{}" ++ sep ++ "{s}.lib", .{ output_dir, compile.name });
-        }
-
-        // -femit-h[=path]           Generate a C header file (.h)
-        if (compile.generated_h) |lp| {
-            lp.path = b.fmt("{}" ++ sep ++ "{s}.h", .{ output_dir, compile.name });
-        }
-
-        // -femit-docs[=path]        Create a docs/ dir with html documentation
-        if (compile.generated_docs) |generated_docs| {
-            generated_docs.path = output_dir.joinString(b.allocator, "docs") catch @panic("OOM");
-        }
-
-        // -femit-asm[=path]         Output .s (assembly code)
-        if (compile.generated_asm) |lp| {
-            lp.path = b.fmt("{}" ++ sep ++ "{s}.s", .{ output_dir, compile.name });
-        }
-
-        // -femit-llvm-ir[=path]     Produce a .ll file with optimized LLVM IR (requires LLVM extensions)
-        if (compile.generated_llvm_ir) |lp| {
-            lp.path = b.fmt("{}" ++ sep ++ "{s}.ll", .{ output_dir, compile.name });
-        }
-
-        // -femit-llvm-bc[=path]     Produce an optimized LLVM module as a .bc file (requires LLVM extensions)
-        if (compile.generated_llvm_bc) |lp| {
-            lp.path = b.fmt("{}" ++ sep ++ "{s}.bc", .{ output_dir, compile.name });
-        }
+        // zig fmt: off
+        if (compile.generated_bin)     |lp| lp.path = compile.outputPath(output_dir, .bin);
+        if (compile.generated_pdb)     |lp| lp.path = compile.outputPath(output_dir, .pdb);
+        if (compile.generated_implib)  |lp| lp.path = compile.outputPath(output_dir, .implib);
+        if (compile.generated_h)       |lp| lp.path = compile.outputPath(output_dir, .h);
+        if (compile.generated_docs)    |lp| lp.path = compile.outputPath(output_dir, .docs);
+        if (compile.generated_asm)     |lp| lp.path = compile.outputPath(output_dir, .@"asm");
+        if (compile.generated_llvm_ir) |lp| lp.path = compile.outputPath(output_dir, .llvm_ir);
+        if (compile.generated_llvm_bc) |lp| lp.path = compile.outputPath(output_dir, .llvm_bc);
+        // zig fmt: on
     }
 
     if (compile.kind == .lib and compile.linkage != null and compile.linkage.? == .dynamic and
@@ -1863,6 +1856,21 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             compile.name_only_filename.?,
         );
     }
+}
+fn outputPath(c: *Compile, out_dir: std.Build.Cache.Path, ea: std.zig.EmitArtifact) []const u8 {
+    const arena = c.step.owner.graph.arena;
+    const name = ea.cacheName(arena, .{
+        .root_name = c.name,
+        .target = c.root_module.resolved_target.?.result,
+        .output_mode = switch (c.kind) {
+            .lib => .Lib,
+            .obj, .test_obj => .Obj,
+            .exe, .@"test" => .Exe,
+        },
+        .link_mode = c.linkage,
+        .version = c.version,
+    }) catch @panic("OOM");
+    return out_dir.joinString(arena, name) catch @panic("OOM");
 }
 
 pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) !Path {

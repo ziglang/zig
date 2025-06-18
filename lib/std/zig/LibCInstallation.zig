@@ -81,7 +81,7 @@ pub fn parse(
     }
 
     const os_tag = target.os.tag;
-    if (self.crt_dir == null and !target.isDarwin()) {
+    if (self.crt_dir == null and !target.os.tag.isDarwin()) {
         log.err("crt_dir may not be empty for {s}", .{@tagName(os_tag)});
         return error.ParseError;
     }
@@ -167,7 +167,7 @@ pub const FindNativeOptions = struct {
 pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
     var self: LibCInstallation = .{};
 
-    if (is_darwin and args.target.isDarwin()) {
+    if (is_darwin and args.target.os.tag.isDarwin()) {
         if (!std.zig.system.darwin.isSdkInstalled(args.allocator))
             return error.DarwinSdkNotFound;
         const sdk = std.zig.system.darwin.getSdk(args.allocator, args.target) orelse
@@ -317,7 +317,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
     while (path_i < search_paths.items.len) : (path_i += 1) {
         // search in reverse order
         const search_path_untrimmed = search_paths.items[search_paths.items.len - path_i - 1];
-        const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
+        const search_path = std.mem.trimStart(u8, search_path_untrimmed, " ");
         var search_dir = fs.cwd().openDir(search_path, .{}) catch |err| switch (err) {
             error.FileNotFound,
             error.NotDir,
@@ -444,7 +444,7 @@ fn findNativeCrtDirPosix(self: *LibCInstallation, args: FindNativeOptions) FindE
     self.crt_dir = try ccPrintFileName(.{
         .allocator = args.allocator,
         .search_basename = switch (args.target.os.tag) {
-            .linux => if (args.target.isAndroid()) "crtbegin_dynamic.o" else "crt1.o",
+            .linux => if (args.target.abi.isAndroid()) "crtbegin_dynamic.o" else "crt1.o",
             else => "crt1.o",
         },
         .want_dirname = .only_dir,
@@ -734,7 +734,7 @@ pub const CrtBasenames = struct {
 
         const target = args.target;
 
-        if (target.isAndroid()) return switch (mode) {
+        if (target.abi.isAndroid()) return switch (mode) {
             .dynamic_lib => .{
                 .crtbegin = "crtbegin_so.o",
                 .crtend = "crtend_so.o",
@@ -1025,7 +1025,7 @@ const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
 
-const is_darwin = builtin.target.isDarwin();
+const is_darwin = builtin.target.os.tag.isDarwin();
 const is_windows = builtin.target.os.tag == .windows;
 const is_haiku = builtin.target.os.tag == .haiku;
 

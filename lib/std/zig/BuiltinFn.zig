@@ -15,6 +15,7 @@ pub const Tag = enum {
     branch_hint,
     breakpoint,
     disable_instrumentation,
+    disable_intrinsics,
     mul_add,
     byte_swap,
     bit_reverse,
@@ -67,6 +68,7 @@ pub const Tag = enum {
     max,
     memcpy,
     memset,
+    memmove,
     min,
     wasm_memory_size,
     wasm_memory_grow,
@@ -258,6 +260,14 @@ pub const list = list: {
             "@disableInstrumentation",
             .{
                 .tag = .disable_instrumentation,
+                .param_count = 0,
+                .illegal_outside_function = true,
+            },
+        },
+        .{
+            "@disableIntrinsics",
+            .{
+                .tag = .disable_intrinsics,
                 .param_count = 0,
                 .illegal_outside_function = true,
             },
@@ -629,6 +639,13 @@ pub const list = list: {
             "@memset",
             .{
                 .tag = .memset,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@memmove",
+            .{
+                .tag = .memmove,
                 .param_count = 2,
             },
         },

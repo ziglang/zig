@@ -99,7 +99,7 @@ pub fn syscall6(
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         x0,   x1,    w2,    x3,  x4,   x5,  x6
     //
@@ -141,7 +141,7 @@ pub fn clone() callconv(.Naked) usize {
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ mov x8, %[number]
@@ -289,7 +289,7 @@ pub const ucontext_t = extern struct {
     flags: usize,
     link: ?*ucontext_t,
     stack: stack_t,
-    sigmask: sigset_t,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
     mcontext: mcontext_t,
 };
 

@@ -177,6 +177,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
+        .undef => return writer.writeAll("@as(type, undefined)"),
         .int_type => |int_type| {
             const sign_char: u8 = switch (int_type.signedness) {
                 .signed => 'i',
@@ -398,7 +399,6 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
         },
 
         // values, not types
-        .undef,
         .simple_value,
         .variable,
         .@"extern",
@@ -604,12 +604,20 @@ pub fn hasRuntimeBitsInner(
                         // and then later if our guess was incorrect, we emit a compile error.
                         if (union_type.assumeRuntimeBitsIfFieldTypesWip(ip)) return true;
                     },
+                    .safety, .tagged => {},
+                }
+                switch (strat) {
+                    .sema => try ty.resolveFields(strat.pt(zcu, tid)),
+                    .eager => assert(union_flags.status.haveFieldTypes()),
+                    .lazy => if (!union_flags.status.haveFieldTypes())
+                        return error.NeedLazy,
+                }
+                switch (union_flags.runtime_tag) {
+                    .none => {},
                     .safety, .tagged => {
                         const tag_ty = union_type.tagTypeUnordered(ip);
-                        // tag_ty will be `none` if this union's tag type is not resolved yet,
-                        // in which case we want control flow to continue down below.
-                        if (tag_ty != .none and
-                            try Type.fromInterned(tag_ty).hasRuntimeBitsInner(
+                        assert(tag_ty != .none); // tag_ty should have been resolved above
+                        if (try Type.fromInterned(tag_ty).hasRuntimeBitsInner(
                             ignore_comptime_only,
                             strat,
                             zcu,
@@ -618,12 +626,6 @@ pub fn hasRuntimeBitsInner(
                             return true;
                         }
                     },
-                }
-                switch (strat) {
-                    .sema => try ty.resolveFields(strat.pt(zcu, tid)),
-                    .eager => assert(union_flags.status.haveFieldTypes()),
-                    .lazy => if (!union_flags.status.haveFieldTypes())
-                        return error.NeedLazy,
                 }
                 for (0..union_type.field_types.len) |field_index| {
                     const field_ty = Type.fromInterned(union_type.field_types.get(ip)[field_index]);
@@ -806,7 +808,7 @@ pub fn isNoReturn(ty: Type, zcu: *const Zcu) bool {
     return zcu.intern_pool.isNoReturn(ty.toIntern());
 }
 
-/// Returns `none` if the pointer is naturally aligned and the element type is 0-bit.
+/// Never returns `none`. Asserts that all necessary type resolution is already done.
 pub fn ptrAlignment(ty: Type, zcu: *Zcu) Alignment {
     return ptrAlignmentInner(ty, .normal, zcu, {}) catch unreachable;
 }
@@ -823,15 +825,9 @@ pub fn ptrAlignmentInner(
 ) !Alignment {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| {
-            if (ptr_type.flags.alignment != .none)
-                return ptr_type.flags.alignment;
-
-            if (strat == .sema) {
-                const res = try Type.fromInterned(ptr_type.child).abiAlignmentInner(.sema, zcu, tid);
-                return res.scalar;
-            }
-
-            return Type.fromInterned(ptr_type.child).abiAlignment(zcu);
+            if (ptr_type.flags.alignment != .none) return ptr_type.flags.alignment;
+            const res = try Type.fromInterned(ptr_type.child).abiAlignmentInner(strat.toLazy(), zcu, tid);
+            return res.scalar;
         },
         .opt_type => |child| Type.fromInterned(child).ptrAlignmentInner(strat, zcu, tid),
         else => unreachable,
@@ -972,7 +968,7 @@ pub fn abiAlignmentInner(
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
                 if (int_type.bits == 0) return .{ .scalar = .@"1" };
-                return .{ .scalar = intAbiAlignment(int_type.bits, target) };
+                return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, int_type.bits)) };
             },
             .ptr_type, .anyframe_type => {
                 return .{ .scalar = ptrAbiAlignment(target) };
@@ -997,8 +993,8 @@ pub fn abiAlignmentInner(
                     },
                     .stage2_x86_64 => {
                         if (vector_type.child == .bool_type) {
-                            if (vector_type.len > 256 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
-                            if (vector_type.len > 128 and std.Target.x86.featureSetHas(target.cpu.features, .avx2)) return .{ .scalar = .@"32" };
+                            if (vector_type.len > 256 and target.cpu.has(.x86, .avx512f)) return .{ .scalar = .@"64" };
+                            if (vector_type.len > 128 and target.cpu.has(.x86, .avx)) return .{ .scalar = .@"32" };
                             if (vector_type.len > 64) return .{ .scalar = .@"16" };
                             const bytes = std.math.divCeil(u32, vector_type.len, 8) catch unreachable;
                             const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
@@ -1007,8 +1003,8 @@ pub fn abiAlignmentInner(
                         const elem_bytes: u32 = @intCast((try Type.fromInterned(vector_type.child).abiSizeInner(strat, zcu, tid)).scalar);
                         if (elem_bytes == 0) return .{ .scalar = .@"1" };
                         const bytes = elem_bytes * vector_type.len;
-                        if (bytes > 32 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
-                        if (bytes > 16 and std.Target.x86.featureSetHas(target.cpu.features, .avx)) return .{ .scalar = .@"32" };
+                        if (bytes > 32 and target.cpu.has(.x86, .avx512f)) return .{ .scalar = .@"64" };
+                        if (bytes > 16 and target.cpu.has(.x86, .avx)) return .{ .scalar = .@"32" };
                         return .{ .scalar = .@"16" };
                     },
                 }
@@ -1025,7 +1021,7 @@ pub fn abiAlignmentInner(
             .error_set_type, .inferred_error_set_type => {
                 const bits = zcu.errorSetBits();
                 if (bits == 0) return .{ .scalar = .@"1" };
-                return .{ .scalar = intAbiAlignment(bits, target) };
+                return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, bits)) };
             },
 
             // represents machine code; not a pointer
@@ -1038,7 +1034,7 @@ pub fn abiAlignmentInner(
 
                 .usize,
                 .isize,
-                => return .{ .scalar = intAbiAlignment(target.ptrBitWidth(), target) },
+                => return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())) },
 
                 .c_char => return .{ .scalar = cTypeAlign(target, .char) },
                 .c_short => return .{ .scalar = cTypeAlign(target, .short) },
@@ -1069,7 +1065,7 @@ pub fn abiAlignmentInner(
                 .anyerror, .adhoc_inferred_error_set => {
                     const bits = zcu.errorSetBits();
                     if (bits == 0) return .{ .scalar = .@"1" };
-                    return .{ .scalar = intAbiAlignment(bits, target) };
+                    return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, bits)) };
                 },
 
                 .void,
@@ -1301,7 +1297,7 @@ pub fn abiSizeInner(
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
                 if (int_type.bits == 0) return .{ .scalar = 0 };
-                return .{ .scalar = intAbiSize(int_type.bits, target) };
+                return .{ .scalar = std.zig.target.intByteSize(target, int_type.bits) };
             },
             .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                 .slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
@@ -1363,7 +1359,7 @@ pub fn abiSizeInner(
             .error_set_type, .inferred_error_set_type => {
                 const bits = zcu.errorSetBits();
                 if (bits == 0) return .{ .scalar = 0 };
-                return .{ .scalar = intAbiSize(bits, target) };
+                return .{ .scalar = std.zig.target.intByteSize(target, bits) };
             },
 
             .error_union_type => |error_union_type| {
@@ -1456,7 +1452,7 @@ pub fn abiSizeInner(
                 .anyerror, .adhoc_inferred_error_set => {
                     const bits = zcu.errorSetBits();
                     if (bits == 0) return .{ .scalar = 0 };
-                    return .{ .scalar = intAbiSize(bits, target) };
+                    return .{ .scalar = std.zig.target.intByteSize(target, bits) };
                 },
 
                 .noreturn => unreachable,
@@ -1610,110 +1606,6 @@ pub fn ptrAbiAlignment(target: Target) Alignment {
     return Alignment.fromNonzeroByteUnits(@divExact(target.ptrBitWidth(), 8));
 }
 
-pub fn intAbiSize(bits: u16, target: Target) u64 {
-    return intAbiAlignment(bits, target).forward(@as(u16, @intCast((@as(u17, bits) + 7) / 8)));
-}
-
-pub fn intAbiAlignment(bits: u16, target: Target) Alignment {
-    return switch (target.cpu.arch) {
-        .x86 => switch (bits) {
-            0 => .none,
-            1...8 => .@"1",
-            9...16 => .@"2",
-            17...32 => .@"4",
-            33...64 => switch (target.os.tag) {
-                .uefi, .windows => .@"8",
-                else => .@"4",
-            },
-            else => .@"16",
-        },
-        .x86_64 => switch (bits) {
-            0 => .none,
-            1...8 => .@"1",
-            9...16 => .@"2",
-            17...32 => .@"4",
-            33...64 => .@"8",
-            else => .@"16",
-        },
-        else => return Alignment.fromByteUnits(@min(
-            std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
-            maxIntAlignment(target),
-        )),
-    };
-}
-
-pub fn maxIntAlignment(target: std.Target) u16 {
-    return switch (target.cpu.arch) {
-        .avr => 1,
-        .msp430 => 2,
-        .xcore => 4,
-        .propeller1, .propeller2 => 4,
-
-        .arm,
-        .armeb,
-        .thumb,
-        .thumbeb,
-        .hexagon,
-        .mips,
-        .mipsel,
-        .powerpc,
-        .powerpcle,
-        .amdgcn,
-        .riscv32,
-        .sparc,
-        .s390x,
-        .lanai,
-        .wasm32,
-        .wasm64,
-        => 8,
-
-        // For these, LLVMABIAlignmentOfType(i128) reports 8. Note that 16
-        // is a relevant number in three cases:
-        // 1. Different machine code instruction when loading into SIMD register.
-        // 2. The C ABI wants 16 for extern structs.
-        // 3. 16-byte cmpxchg needs 16-byte alignment.
-        // Same logic for powerpc64, mips64, sparc64.
-        .powerpc64,
-        .powerpc64le,
-        .mips64,
-        .mips64el,
-        .sparc64,
-        => switch (target.ofmt) {
-            .c => 16,
-            else => 8,
-        },
-
-        .x86_64 => 16,
-
-        // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
-        .x86,
-        .aarch64,
-        .aarch64_be,
-        .riscv64,
-        .bpfel,
-        .bpfeb,
-        .nvptx,
-        .nvptx64,
-        => 16,
-
-        // Below this comment are unverified but based on the fact that C requires
-        // int128_t to be 16 bytes aligned, it's a safe default.
-        .spu_2,
-        .csky,
-        .arc,
-        .m68k,
-        .kalimba,
-        .spirv,
-        .spirv32,
-        .ve,
-        .spirv64,
-        .loongarch32,
-        .loongarch64,
-        .xtensa,
-        => 16,
-    };
-}
-
 pub fn bitSize(ty: Type, zcu: *const Zcu) u64 {
     return bitSizeInner(ty, .normal, zcu, {}) catch unreachable;
 }
@@ -1744,17 +1636,22 @@ pub fn bitSizeInner(
         .array_type => |array_type| {
             const len = array_type.lenIncludingSentinel();
             if (len == 0) return 0;
-            const elem_ty = Type.fromInterned(array_type.child);
-            const elem_size = @max(
-                (try elem_ty.abiAlignmentInner(strat_lazy, zcu, tid)).scalar.toByteUnits() orelse 0,
-                (try elem_ty.abiSizeInner(strat_lazy, zcu, tid)).scalar,
-            );
-            if (elem_size == 0) return 0;
-            const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
-            return (len - 1) * 8 * elem_size + elem_bit_size;
+            const elem_ty: Type = .fromInterned(array_type.child);
+            switch (zcu.comp.getZigBackend()) {
+                else => {
+                    const elem_size = (try elem_ty.abiSizeInner(strat_lazy, zcu, tid)).scalar;
+                    if (elem_size == 0) return 0;
+                    const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
+                    return (len - 1) * 8 * elem_size + elem_bit_size;
+                },
+                .stage2_x86_64 => {
+                    const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
+                    return elem_bit_size * len;
+                },
+            }
         },
         .vector_type => |vector_type| {
-            const child_ty = Type.fromInterned(vector_type.child);
+            const child_ty: Type = .fromInterned(vector_type.child);
             const elem_bit_size = try child_ty.bitSizeInner(strat, zcu, tid);
             return elem_bit_size * vector_type.len;
         },
@@ -2345,7 +2242,7 @@ pub fn isInt(self: Type, zcu: *const Zcu) bool {
 /// Returns true if and only if the type is a fixed-width, signed integer.
 pub fn isSignedInt(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.toIntern()) {
-        .c_char_type => zcu.getTarget().charSignedness() == .signed,
+        .c_char_type => zcu.getTarget().cCharSignedness() == .signed,
         .isize_type, .c_short_type, .c_int_type, .c_long_type, .c_longlong_type => true,
         else => switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => |int_type| int_type.signedness == .signed,
@@ -2357,7 +2254,7 @@ pub fn isSignedInt(ty: Type, zcu: *const Zcu) bool {
 /// Returns true if and only if the type is a fixed-width, unsigned integer.
 pub fn isUnsignedInt(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.toIntern()) {
-        .c_char_type => zcu.getTarget().charSignedness() == .unsigned,
+        .c_char_type => zcu.getTarget().cCharSignedness() == .unsigned,
         .usize_type, .c_ushort_type, .c_uint_type, .c_ulong_type, .c_ulonglong_type => true,
         else => switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => |int_type| int_type.signedness == .unsigned,
@@ -2388,7 +2285,7 @@ pub fn intInfo(starting_ty: Type, zcu: *const Zcu) InternPool.Key.IntType {
         },
         .usize_type => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
         .isize_type => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
-        .c_char_type => return .{ .signedness = zcu.getTarget().charSignedness(), .bits = target.cTypeBitSize(.char) },
+        .c_char_type => return .{ .signedness = zcu.getTarget().cCharSignedness(), .bits = target.cTypeBitSize(.char) },
         .c_short_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.short) },
         .c_ushort_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.ushort) },
         .c_int_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.int) },
@@ -2540,6 +2437,13 @@ pub fn isValidReturnType(self: Type, zcu: *const Zcu) bool {
 /// Asserts the type is a function.
 pub fn fnIsVarArgs(ty: Type, zcu: *const Zcu) bool {
     return zcu.intern_pool.indexToKey(ty.toIntern()).func_type.is_var_args;
+}
+
+pub fn fnPtrMaskOrNull(ty: Type, zcu: *const Zcu) ?u64 {
+    return switch (ty.zigTypeTag(zcu)) {
+        .@"fn" => target_util.functionPointerMask(zcu.getTarget()),
+        else => null,
+    };
 }
 
 pub fn isNumeric(ty: Type, zcu: *const Zcu) bool {
@@ -2745,10 +2649,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
                                 if (enum_type.values.len == 0) {
                                     const only = try pt.intern(.{ .enum_tag = .{
                                         .ty = ty.toIntern(),
-                                        .int = try pt.intern(.{ .int = .{
-                                            .ty = enum_type.tag_ty,
-                                            .storage = .{ .u64 = 0 },
-                                        } }),
+                                        .int = (try pt.intValue(.fromInterned(enum_type.tag_ty), 0)).toIntern(),
                                     } });
                                     return Value.fromInterned(only);
                                 } else {
@@ -3503,7 +3404,7 @@ pub fn srcLocOrNull(ty: Type, zcu: *Zcu) ?Zcu.LazySrcLoc {
             },
             else => return null,
         },
-        .offset = Zcu.LazySrcLoc.Offset.nodeOffset(0),
+        .offset = Zcu.LazySrcLoc.Offset.nodeOffset(.zero),
     };
 }
 
@@ -3587,7 +3488,10 @@ pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
     };
     const info = tracked.resolveFull(&zcu.intern_pool) orelse return null;
     const file = zcu.fileByIndex(info.file);
-    const zir = file.zir.?;
+    const zir = switch (file.getMode()) {
+        .zig => file.zir.?,
+        .zon => return 0,
+    };
     const inst = zir.instructions.get(@intFromEnum(info.inst));
     return switch (inst.tag) {
         .struct_init, .struct_init_ref => zir.extraData(Zir.Inst.StructInit, inst.data.pl_node.payload_index).data.abs_line,
@@ -3653,10 +3557,16 @@ pub fn packedStructFieldPtrInfo(struct_ty: Type, parent_ptr_ty: Type, field_idx:
         running_bits += @intCast(f_ty.bitSize(zcu));
     }
 
-    const res_host_size: u16, const res_bit_offset: u16 = if (parent_ptr_info.packed_offset.host_size != 0)
-        .{ parent_ptr_info.packed_offset.host_size, parent_ptr_info.packed_offset.bit_offset + bit_offset }
-    else
-        .{ (running_bits + 7) / 8, bit_offset };
+    const res_host_size: u16, const res_bit_offset: u16 = if (parent_ptr_info.packed_offset.host_size != 0) .{
+        parent_ptr_info.packed_offset.host_size,
+        parent_ptr_info.packed_offset.bit_offset + bit_offset,
+    } else .{
+        switch (zcu.comp.getZigBackend()) {
+            else => (running_bits + 7) / 8,
+            .stage2_x86_64 => @intCast(struct_ty.abiSize(zcu)),
+        },
+        bit_offset,
+    };
 
     // If the field happens to be byte-aligned, simplify the pointer type.
     // We can only do this if the pointee's bit size matches its ABI byte size,
@@ -3777,10 +3687,11 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .null_type,
         .undefined_type,
         .enum_literal_type,
+        .ptr_usize_type,
+        .ptr_const_comptime_int_type,
         .manyptr_u8_type,
         .manyptr_const_u8_type,
         .manyptr_const_u8_sentinel_0_type,
-        .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
         .optional_noreturn_type,
@@ -3792,9 +3703,11 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .undef => unreachable,
         .zero => unreachable,
         .zero_usize => unreachable,
+        .zero_u1 => unreachable,
         .zero_u8 => unreachable,
         .one => unreachable,
         .one_usize => unreachable,
+        .one_u1 => unreachable,
         .one_u8 => unreachable,
         .four_u8 => unreachable,
         .negative_one => unreachable,
@@ -3898,6 +3811,11 @@ fn resolveStructInner(
         return error.AnalysisFail;
     }
 
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, owner);
+        info.last_update_gen = zcu.generation;
+    }
+
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
@@ -3952,6 +3870,11 @@ fn resolveUnionInner(
         return error.AnalysisFail;
     }
 
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, owner);
+        info.last_update_gen = zcu.generation;
+    }
+
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
@@ -3992,29 +3915,32 @@ fn resolveUnionInner(
 pub fn getUnionLayout(loaded_union: InternPool.LoadedUnionType, zcu: *const Zcu) Zcu.UnionLayout {
     const ip = &zcu.intern_pool;
     assert(loaded_union.haveLayout(ip));
-    var most_aligned_field: u32 = undefined;
-    var most_aligned_field_size: u64 = undefined;
-    var biggest_field: u32 = undefined;
+    var most_aligned_field: u32 = 0;
+    var most_aligned_field_align: InternPool.Alignment = .@"1";
+    var most_aligned_field_size: u64 = 0;
+    var biggest_field: u32 = 0;
     var payload_size: u64 = 0;
     var payload_align: InternPool.Alignment = .@"1";
-    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
-        if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(zcu)) continue;
+    for (loaded_union.field_types.get(ip), 0..) |field_ty_ip_index, field_index| {
+        const field_ty: Type = .fromInterned(field_ty_ip_index);
+        if (field_ty.isNoReturn(zcu)) continue;
 
         const explicit_align = loaded_union.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
-            Type.fromInterned(field_ty).abiAlignment(zcu);
-        const field_size = Type.fromInterned(field_ty).abiSize(zcu);
+            field_ty.abiAlignment(zcu);
+        const field_size = field_ty.abiSize(zcu);
         if (field_size > payload_size) {
             payload_size = field_size;
             biggest_field = @intCast(field_index);
         }
-        if (field_align.compare(.gte, payload_align)) {
-            payload_align = field_align;
+        if (field_size > 0 and field_align.compare(.gte, most_aligned_field_align)) {
             most_aligned_field = @intCast(field_index);
+            most_aligned_field_align = field_align;
             most_aligned_field_size = field_size;
         }
+        payload_align = payload_align.max(field_align);
     }
     const have_tag = loaded_union.flagsUnordered(ip).runtime_tag.hasTag();
     if (!have_tag or !Type.fromInterned(loaded_union.enum_tag_ty).hasRuntimeBits(zcu)) {
@@ -4151,6 +4077,7 @@ pub const @"u32": Type = .{ .ip_index = .u32_type };
 pub const @"u64": Type = .{ .ip_index = .u64_type };
 pub const @"u80": Type = .{ .ip_index = .u80_type };
 pub const @"u128": Type = .{ .ip_index = .u128_type };
+pub const @"u256": Type = .{ .ip_index = .u256_type };
 
 pub const @"i8": Type = .{ .ip_index = .i8_type };
 pub const @"i16": Type = .{ .ip_index = .i16_type };
@@ -4190,46 +4117,71 @@ pub const @"c_longlong": Type = .{ .ip_index = .c_longlong_type };
 pub const @"c_ulonglong": Type = .{ .ip_index = .c_ulonglong_type };
 pub const @"c_longdouble": Type = .{ .ip_index = .c_longdouble_type };
 
-pub const slice_const_u8: Type = .{ .ip_index = .slice_const_u8_type };
+pub const ptr_usize: Type = .{ .ip_index = .ptr_usize_type };
+pub const ptr_const_comptime_int: Type = .{ .ip_index = .ptr_const_comptime_int_type };
 pub const manyptr_u8: Type = .{ .ip_index = .manyptr_u8_type };
-pub const single_const_pointer_to_comptime_int: Type = .{
-    .ip_index = .single_const_pointer_to_comptime_int_type,
-};
+pub const manyptr_const_u8: Type = .{ .ip_index = .manyptr_const_u8_type };
+pub const manyptr_const_u8_sentinel_0: Type = .{ .ip_index = .manyptr_const_u8_sentinel_0_type };
+pub const slice_const_u8: Type = .{ .ip_index = .slice_const_u8_type };
 pub const slice_const_u8_sentinel_0: Type = .{ .ip_index = .slice_const_u8_sentinel_0_type };
 
+pub const vector_8_i8: Type = .{ .ip_index = .vector_8_i8_type };
 pub const vector_16_i8: Type = .{ .ip_index = .vector_16_i8_type };
 pub const vector_32_i8: Type = .{ .ip_index = .vector_32_i8_type };
+pub const vector_64_i8: Type = .{ .ip_index = .vector_64_i8_type };
+pub const vector_1_u8: Type = .{ .ip_index = .vector_1_u8_type };
+pub const vector_2_u8: Type = .{ .ip_index = .vector_2_u8_type };
+pub const vector_4_u8: Type = .{ .ip_index = .vector_4_u8_type };
+pub const vector_8_u8: Type = .{ .ip_index = .vector_8_u8_type };
 pub const vector_16_u8: Type = .{ .ip_index = .vector_16_u8_type };
 pub const vector_32_u8: Type = .{ .ip_index = .vector_32_u8_type };
+pub const vector_64_u8: Type = .{ .ip_index = .vector_64_u8_type };
+pub const vector_2_i16: Type = .{ .ip_index = .vector_2_i16_type };
+pub const vector_4_i16: Type = .{ .ip_index = .vector_4_i16_type };
 pub const vector_8_i16: Type = .{ .ip_index = .vector_8_i16_type };
 pub const vector_16_i16: Type = .{ .ip_index = .vector_16_i16_type };
+pub const vector_32_i16: Type = .{ .ip_index = .vector_32_i16_type };
+pub const vector_4_u16: Type = .{ .ip_index = .vector_4_u16_type };
 pub const vector_8_u16: Type = .{ .ip_index = .vector_8_u16_type };
 pub const vector_16_u16: Type = .{ .ip_index = .vector_16_u16_type };
+pub const vector_32_u16: Type = .{ .ip_index = .vector_32_u16_type };
+pub const vector_2_i32: Type = .{ .ip_index = .vector_2_i32_type };
 pub const vector_4_i32: Type = .{ .ip_index = .vector_4_i32_type };
 pub const vector_8_i32: Type = .{ .ip_index = .vector_8_i32_type };
+pub const vector_16_i32: Type = .{ .ip_index = .vector_16_i32_type };
 pub const vector_4_u32: Type = .{ .ip_index = .vector_4_u32_type };
 pub const vector_8_u32: Type = .{ .ip_index = .vector_8_u32_type };
+pub const vector_16_u32: Type = .{ .ip_index = .vector_16_u32_type };
 pub const vector_2_i64: Type = .{ .ip_index = .vector_2_i64_type };
 pub const vector_4_i64: Type = .{ .ip_index = .vector_4_i64_type };
+pub const vector_8_i64: Type = .{ .ip_index = .vector_8_i64_type };
 pub const vector_2_u64: Type = .{ .ip_index = .vector_2_u64_type };
 pub const vector_4_u64: Type = .{ .ip_index = .vector_4_u64_type };
+pub const vector_8_u64: Type = .{ .ip_index = .vector_8_u64_type };
+pub const vector_1_u128: Type = .{ .ip_index = .vector_1_u128_type };
+pub const vector_2_u128: Type = .{ .ip_index = .vector_2_u128_type };
+pub const vector_1_u256: Type = .{ .ip_index = .vector_1_u256_type };
 pub const vector_4_f16: Type = .{ .ip_index = .vector_4_f16_type };
 pub const vector_8_f16: Type = .{ .ip_index = .vector_8_f16_type };
+pub const vector_16_f16: Type = .{ .ip_index = .vector_16_f16_type };
+pub const vector_32_f16: Type = .{ .ip_index = .vector_32_f16_type };
 pub const vector_2_f32: Type = .{ .ip_index = .vector_2_f32_type };
 pub const vector_4_f32: Type = .{ .ip_index = .vector_4_f32_type };
 pub const vector_8_f32: Type = .{ .ip_index = .vector_8_f32_type };
+pub const vector_16_f32: Type = .{ .ip_index = .vector_16_f32_type };
 pub const vector_2_f64: Type = .{ .ip_index = .vector_2_f64_type };
 pub const vector_4_f64: Type = .{ .ip_index = .vector_4_f64_type };
+pub const vector_8_f64: Type = .{ .ip_index = .vector_8_f64_type };
 
 pub const empty_tuple: Type = .{ .ip_index = .empty_tuple_type };
 
 pub const generic_poison: Type = .{ .ip_index = .generic_poison_type };
 
 pub fn smallestUnsignedBits(max: u64) u16 {
-    if (max == 0) return 0;
-    const base = std.math.log2(max);
-    const upper = (@as(u64, 1) << @as(u6, @intCast(base))) - 1;
-    return @as(u16, @intCast(base + @intFromBool(upper < max)));
+    return switch (max) {
+        0 => 0,
+        else => 1 + std.math.log2_int(u64, max),
+    };
 }
 
 /// This is only used for comptime asserts. Bump this number when you make a change

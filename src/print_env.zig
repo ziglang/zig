@@ -2,13 +2,14 @@ const std = @import("std");
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
 const Allocator = std.mem.Allocator;
-const fatal = @import("main.zig").fatal;
+const fatal = std.process.fatal;
 
 pub fn cmdEnv(arena: Allocator, args: []const []const u8, stdout: std.fs.File.Writer) !void {
     _ = args;
-    const self_exe_path = try introspect.findZigExePath(arena);
+    const cwd_path = try introspect.getResolvedCwd(arena);
+    const self_exe_path = try std.fs.selfExePathAlloc(arena);
 
-    var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+    var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, cwd_path, self_exe_path) catch |err| {
         fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };
     defer zig_lib_directory.handle.close();

@@ -81,6 +81,7 @@ fn addExpect(
         }),
         .use_llvm = use_llvm,
     });
+    exe.bundle_ubsan_rt = false;
 
     const run = b.addRunArtifact(exe);
     run.removeEnvironmentVariable("CLICOLOR_FORCE");

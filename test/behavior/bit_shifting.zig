@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const builtin = @import("builtin");
 
 fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime V: type) type {
@@ -64,7 +65,7 @@ test "sharded table" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     // realistic 16-way sharding
     try testShardedTable(u32, 4, 8);
@@ -111,11 +112,10 @@ test "comptime shift safety check" {
 }
 
 test "Saturating Shift Left where lhs is of a computed type" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -128,12 +128,12 @@ test "Saturating Shift Left where lhs is of a computed type" {
             });
         }
 
-        pub fn FixedPoint(comptime value_type: type) type {
+        pub fn FixedPoint(comptime ValueType: type) type {
             return struct {
-                value: value_type,
+                value: ValueType,
                 exponent: ShiftType,
 
-                const ShiftType: type = getIntShiftType(value_type);
+                const ShiftType: type = getIntShiftType(ValueType);
 
                 pub fn shiftExponent(self: @This(), shift: ShiftType) @This() {
                     const shiftAbs = @abs(shift);
@@ -158,4 +158,49 @@ comptime {
     var image: [1]u8 = undefined;
     _ = &image;
     _ = @shlExact(@as(u16, image[0]), 8);
+}
+
+test "Saturating Shift Left" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+
+    const S = struct {
+        fn shlSat(x: anytype, y: std.math.Log2Int(@TypeOf(x))) @TypeOf(x) {
+            // workaround https://github.com/ziglang/zig/issues/23033
+            @setRuntimeSafety(false);
+            return x <<| y;
+        }
+
+        fn testType(comptime T: type) !void {
+            comptime var rhs: std.math.Log2Int(T) = 0;
+            inline while (true) : (rhs += 1) {
+                comptime var lhs: T = std.math.minInt(T);
+                inline while (true) : (lhs += 1) {
+                    try expectEqual(lhs <<| rhs, shlSat(lhs, rhs));
+                    if (lhs == std.math.maxInt(T)) break;
+                }
+                if (rhs == @bitSizeOf(T) - 1) break;
+            }
+        }
+    };
+
+    try S.testType(u2);
+    try S.testType(i2);
+    try S.testType(u3);
+    try S.testType(i3);
+    try S.testType(u4);
+    try S.testType(i4);
+
+    try expectEqual(0xfffffffffffffff0fffffffffffffff0, S.shlSat(@as(u128, 0x0fffffffffffffff0fffffffffffffff), 4));
+    try expectEqual(0xffffffffffffffffffffffffffffffff, S.shlSat(@as(u128, 0x0fffffffffffffff0fffffffffffffff), 5));
+    try expectEqual(-0x80000000000000000000000000000000, S.shlSat(@as(i128, -0x0fffffffffffffff0fffffffffffffff), 5));
+
+    try expectEqual(51146728248377216718956089012931236753385031969422887335676427626502090568823039920051095192592252455482604439493126109519019633529459266458258243583, S.shlSat(@as(i495, 0x2fe6bc5448c55ce18252e2c9d44777505dfe63ff249a8027a6626c7d8dd9893fd5731e51474727be556f757facb586a4e04bbc0148c6c7ad692302f46fbd), 0x31));
+    try expectEqual(-57896044618658097711785492504343953926634992332820282019728792003956564819968, S.shlSat(@as(i256, -0x53d4148cee74ea43477a65b3daa7b8fdadcbf4508e793f4af113b8d8da5a7eb6), 0x91));
+    try expectEqual(170141183460469231731687303715884105727, S.shlSat(@as(i128, 0x2fe6bc5448c55ce18252e2c9d4477750), 0x31));
+    try expectEqual(0, S.shlSat(@as(i128, 0), 127));
 }

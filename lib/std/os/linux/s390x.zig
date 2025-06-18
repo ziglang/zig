@@ -90,7 +90,7 @@ pub fn syscall6(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     asm volatile (
         \\# int clone(
         \\#    fn,      a = r2
@@ -156,7 +156,7 @@ pub fn clone() callconv(.Naked) usize {
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     asm volatile (
         \\svc 0
         :
@@ -273,7 +273,7 @@ pub const ucontext_t = extern struct {
     link: ?*ucontext_t,
     stack: stack_t,
     mcontext: mcontext_t,
-    sigmask: sigset_t,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
 };
 
 pub const mcontext_t = extern struct {

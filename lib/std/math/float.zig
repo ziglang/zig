@@ -4,6 +4,119 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
+pub const Sign = enum(u1) { positive, negative };
+
+pub fn FloatRepr(comptime Float: type) type {
+    const fractional_bits = floatFractionalBits(Float);
+    const exponent_bits = floatExponentBits(Float);
+    return packed struct {
+        const Repr = @This();
+
+        mantissa: StoredMantissa,
+        exponent: BiasedExponent,
+        sign: Sign,
+
+        pub const StoredMantissa = @Type(.{ .int = .{
+            .signedness = .unsigned,
+            .bits = floatMantissaBits(Float),
+        } });
+        pub const Mantissa = @Type(.{ .int = .{
+            .signedness = .unsigned,
+            .bits = 1 + fractional_bits,
+        } });
+        pub const Exponent = @Type(.{ .int = .{
+            .signedness = .signed,
+            .bits = exponent_bits,
+        } });
+        pub const BiasedExponent = enum(@Type(.{ .int = .{
+            .signedness = .unsigned,
+            .bits = exponent_bits,
+        } })) {
+            denormal = 0,
+            min_normal = 1,
+            zero = (1 << (exponent_bits - 1)) - 1,
+            max_normal = (1 << exponent_bits) - 2,
+            infinite = (1 << exponent_bits) - 1,
+            _,
+
+            pub const Int = @typeInfo(BiasedExponent).@"enum".tag_type;
+
+            pub fn unbias(biased: BiasedExponent) Exponent {
+                switch (biased) {
+                    .denormal => unreachable,
+                    else => return @bitCast(@intFromEnum(biased) -% @intFromEnum(BiasedExponent.zero)),
+                    .infinite => unreachable,
+                }
+            }
+
+            pub fn bias(unbiased: Exponent) BiasedExponent {
+                return @enumFromInt(@intFromEnum(BiasedExponent.zero) +% @as(Int, @bitCast(unbiased)));
+            }
+        };
+
+        pub const Normalized = struct {
+            fraction: Fraction,
+            exponent: Normalized.Exponent,
+
+            pub const Fraction = @Type(.{ .int = .{
+                .signedness = .unsigned,
+                .bits = fractional_bits,
+            } });
+            pub const Exponent = @Type(.{ .int = .{
+                .signedness = .signed,
+                .bits = 1 + exponent_bits,
+            } });
+
+            /// This currently truncates denormal values, which needs to be fixed before this can be used to
+            /// produce a rounded value.
+            pub fn reconstruct(normalized: Normalized, sign: Sign) Float {
+                if (normalized.exponent > BiasedExponent.max_normal.unbias()) return @bitCast(Repr{
+                    .mantissa = 0,
+                    .exponent = .infinite,
+                    .sign = sign,
+                });
+                const mantissa = @as(Mantissa, 1 << fractional_bits) | normalized.fraction;
+                if (normalized.exponent < BiasedExponent.min_normal.unbias()) return @bitCast(Repr{
+                    .mantissa = @truncate(std.math.shr(
+                        Mantissa,
+                        mantissa,
+                        BiasedExponent.min_normal.unbias() - normalized.exponent,
+                    )),
+                    .exponent = .denormal,
+                    .sign = sign,
+                });
+                return @bitCast(Repr{
+                    .mantissa = @truncate(mantissa),
+                    .exponent = .bias(@intCast(normalized.exponent)),
+                    .sign = sign,
+                });
+            }
+        };
+
+        pub const Classified = union(enum) { normalized: Normalized, infinity, nan, invalid };
+        fn classify(repr: Repr) Classified {
+            return switch (repr.exponent) {
+                .denormal => {
+                    const mantissa: Mantissa = repr.mantissa;
+                    const shift = @clz(mantissa);
+                    return .{ .normalized = .{
+                        .fraction = @truncate(mantissa << shift),
+                        .exponent = @as(Normalized.Exponent, comptime BiasedExponent.min_normal.unbias()) - shift,
+                    } };
+                },
+                else => if (repr.mantissa <= std.math.maxInt(Normalized.Fraction)) .{ .normalized = .{
+                    .fraction = @intCast(repr.mantissa),
+                    .exponent = repr.exponent.unbias(),
+                } } else .invalid,
+                .infinite => switch (repr.mantissa) {
+                    0 => .infinity,
+                    else => .nan,
+                },
+            };
+        }
+    };
+}
+
 /// Creates a raw "1.0" mantissa for floating point type T. Used to dedupe f80 logic.
 inline fn mantissaOne(comptime T: type) comptime_int {
     return if (@typeInfo(T).float.bits == 80) 1 << floatFractionalBits(T) else 0;

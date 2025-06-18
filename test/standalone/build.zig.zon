@@ -5,6 +5,9 @@
         .simple = .{
             .path = "simple",
         },
+        .test_obj_link_run = .{
+            .path = "test_obj_link_run",
+        },
         .test_runner_path = .{
             .path = "test_runner_path",
         },
@@ -96,11 +99,17 @@
         .empty_env = .{
             .path = "empty_env",
         },
+        .env_vars = .{
+            .path = "env_vars",
+        },
         .issue_11595 = .{
             .path = "issue_11595",
         },
         .libcxx = .{
             .path = "libcxx",
+        },
+        .libfuzzer = .{
+            .path = "libfuzzer",
         },
         .load_dynamic_library = .{
             .path = "load_dynamic_library",
@@ -125,6 +134,9 @@
         },
         .c_compiler = .{
             .path = "c_compiler",
+        },
+        .c_embed_path = .{
+            .path = "c_embed_path",
         },
         .pie = .{
             .path = "pie",
@@ -185,6 +197,12 @@
         },
         .omit_cfi = .{
             .path = "omit_cfi",
+        },
+        .config_header = .{
+            .path = "config_header",
+        },
+        .entry_point = .{
+            .path = "entry_point",
         },
     },
     .paths = .{

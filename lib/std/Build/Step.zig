@@ -202,6 +202,7 @@ pub fn init(options: StepOptions) Step {
         .state = .precheck_unstarted,
         .max_rss = options.max_rss,
         .debug_stack_trace = blk: {
+            if (!std.debug.sys_can_stack_trace) break :blk &.{};
             const addresses = arena.alloc(usize, options.owner.debug_stack_frames_count) catch @panic("OOM");
             @memset(addresses, 0);
             const first_ret_addr = options.first_ret_addr orelse @returnAddress();
@@ -246,7 +247,6 @@ pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!voi
             s.result_peak_rss, s.max_rss,
         }) catch @panic("OOM");
         s.result_error_msgs.append(arena, msg) catch @panic("OOM");
-        return error.MakeFailed;
     }
 }
 
@@ -758,14 +758,14 @@ fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: Build.Cac
     switch (err) {
         error.CacheCheckFailed => switch (man.diagnostic) {
             .none => unreachable,
-            .manifest_create, .manifest_read, .manifest_lock => |e| return s.fail("failed to check cache: {s} {s}", .{
+            .manifest_create, .manifest_read, .manifest_lock, .manifest_seek => |e| return s.fail("failed to check cache: {s} {s}", .{
                 @tagName(man.diagnostic), @errorName(e),
             }),
             .file_open, .file_stat, .file_read, .file_hash => |op| {
                 const pp = man.files.keys()[op.file_index].prefixed_path;
                 const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
-                return s.fail("failed to check cache: '{s}{s}' {s} {s}", .{
-                    prefix, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err),
+                return s.fail("failed to check cache: '{s}{c}{s}' {s} {s}", .{
+                    prefix, std.fs.path.sep, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err),
                 });
             },
         },

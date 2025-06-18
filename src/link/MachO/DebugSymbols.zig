@@ -1,5 +1,5 @@
 allocator: Allocator,
-file: fs.File,
+file: ?fs.File,
 
 symtab_cmd: macho.symtab_command = .{},
 uuid_cmd: macho.uuid_command = .{ .uuid = [_]u8{0} ** 16 },
@@ -118,9 +118,9 @@ pub fn growSection(
         });
 
         if (requires_file_copy) {
-            const amt = try self.file.copyRangeAll(
+            const amt = try self.file.?.copyRangeAll(
                 sect.offset,
-                self.file,
+                self.file.?,
                 new_offset,
                 existing_size,
             );
@@ -129,7 +129,7 @@ pub fn growSection(
 
         sect.offset = @intCast(new_offset);
     } else if (sect.offset + allocated_size == std.math.maxInt(u64)) {
-        try self.file.setEndPos(sect.offset + needed_size);
+        try self.file.?.setEndPos(sect.offset + needed_size);
     }
 
     sect.size = needed_size;
@@ -165,7 +165,7 @@ fn detectAllocCollision(self: *DebugSymbols, start: u64, size: u64) !?u64 {
         }
     }
 
-    if (at_end) try self.file.setEndPos(end);
+    if (at_end) try self.file.?.setEndPos(end);
     return null;
 }
 
@@ -178,7 +178,7 @@ fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) !u64
     return offset;
 }
 
-pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
+pub fn flush(self: *DebugSymbols, macho_file: *MachO) !void {
     const zo = macho_file.getZigObject().?;
     for (self.relocs.items) |*reloc| {
         const sym = zo.symbols.items[reloc.target];
@@ -195,7 +195,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
             sym_name,
             file_offset,
         });
-        try self.file.pwriteAll(mem.asBytes(&addr), file_offset);
+        try self.file.?.pwriteAll(mem.asBytes(&addr), file_offset);
     }
 
     self.finalizeDwarfSegment(macho_file);
@@ -208,7 +208,7 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
 
 pub fn deinit(self: *DebugSymbols) void {
     const gpa = self.allocator;
-    self.file.close();
+    if (self.file) |file| file.close();
     self.segments.deinit(gpa);
     self.sections.deinit(gpa);
     self.relocs.deinit(gpa);
@@ -320,7 +320,7 @@ fn writeLoadCommands(self: *DebugSymbols, macho_file: *MachO) !struct { usize, u
 
     assert(stream.pos == needed_size);
 
-    try self.file.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
+    try self.file.?.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
 
     return .{ ncmds, buffer.len };
 }
@@ -346,7 +346,7 @@ fn writeHeader(self: *DebugSymbols, macho_file: *MachO, ncmds: usize, sizeofcmds
 
     log.debug("writing Mach-O header {}", .{header});
 
-    try self.file.pwriteAll(mem.asBytes(&header), 0);
+    try self.file.?.pwriteAll(mem.asBytes(&header), 0);
 }
 
 fn allocatedSize(self: *DebugSymbols, start: u64) u64 {
@@ -404,7 +404,7 @@ pub fn writeSymtab(self: *DebugSymbols, off: u32, macho_file: *MachO) !u32 {
         internal.writeSymtab(macho_file, self);
     }
 
-    try self.file.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
+    try self.file.?.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
 
     return off + cmd.nsyms * @sizeOf(macho.nlist_64);
 }
@@ -412,7 +412,7 @@ pub fn writeSymtab(self: *DebugSymbols, off: u32, macho_file: *MachO) !u32 {
 pub fn writeStrtab(self: *DebugSymbols, off: u32) !u32 {
     const cmd = &self.symtab_cmd;
     cmd.stroff = off;
-    try self.file.pwriteAll(self.strtab.items, cmd.stroff);
+    try self.file.?.pwriteAll(self.strtab.items, cmd.stroff);
     return off + cmd.strsize;
 }
 

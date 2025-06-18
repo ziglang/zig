@@ -1,7 +1,9 @@
 //! This file contains the functionality for emitting x86_64 MIR as machine code
 
-air: Air,
 lower: Lower,
+bin_file: *link.File,
+pt: Zcu.PerThread,
+pic: bool,
 atom_index: u32,
 debug_output: link.File.DebugInfoOutput,
 code: *std.ArrayListUnmanaged(u8),
@@ -10,26 +12,29 @@ prev_di_loc: Loc,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
+code_offset_mapping: std.ArrayListUnmanaged(u32),
+relocs: std.ArrayListUnmanaged(Reloc),
+table_relocs: std.ArrayListUnmanaged(TableReloc),
+
 pub const Error = Lower.Error || error{
     EmitFail,
 } || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
-    const gpa = emit.lower.bin_file.comp.gpa;
-    const code_offset_mapping = try emit.lower.allocator.alloc(u32, emit.lower.mir.instructions.len);
-    defer emit.lower.allocator.free(code_offset_mapping);
-    var relocs: std.ArrayListUnmanaged(Reloc) = .empty;
-    defer relocs.deinit(emit.lower.allocator);
-    var table_relocs: std.ArrayListUnmanaged(TableReloc) = .empty;
-    defer table_relocs.deinit(emit.lower.allocator);
+    const comp = emit.bin_file.comp;
+    const gpa = comp.gpa;
+    try emit.code_offset_mapping.resize(gpa, emit.lower.mir.instructions.len);
+    emit.relocs.clearRetainingCapacity();
+    emit.table_relocs.clearRetainingCapacity();
+    var local_index: usize = 0;
     for (0..emit.lower.mir.instructions.len) |mir_i| {
         const mir_index: Mir.Inst.Index = @intCast(mir_i);
-        code_offset_mapping[mir_index] = @intCast(emit.code.items.len);
+        emit.code_offset_mapping.items[mir_index] = @intCast(emit.code.items.len);
         const lowered = try emit.lower.lowerMir(mir_index);
         var lowered_relocs = lowered.relocs;
-        for (lowered.insts, 0..) |lowered_inst, lowered_index| {
-            const start_offset: u32 = @intCast(emit.code.items.len);
+        lowered_inst: for (lowered.insts, 0..) |lowered_inst, lowered_index| {
             if (lowered_inst.prefix == .directive) {
+                const start_offset: u32 = @intCast(emit.code.items.len);
                 switch (emit.debug_output) {
                     .dwarf => |dwarf| switch (lowered_inst.encoding.mnemonic) {
                         .@".cfi_def_cfa" => try dwarf.genDebugFrame(start_offset, .{ .def_cfa = .{
@@ -82,183 +87,327 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }
                 continue;
             }
-            try lowered_inst.encode(emit.code.writer(gpa), .{});
-            const end_offset: u32 = @intCast(emit.code.items.len);
+            var reloc_info_buf: [2]RelocInfo = undefined;
+            var reloc_info_index: usize = 0;
             while (lowered_relocs.len > 0 and
                 lowered_relocs[0].lowered_inst_index == lowered_index) : ({
                 lowered_relocs = lowered_relocs[1..];
-            }) switch (lowered_relocs[0].target) {
-                .inst => |target| try relocs.append(emit.lower.allocator, .{
-                    .source = start_offset,
-                    .source_offset = end_offset - 4,
-                    .target = target,
-                    .target_offset = lowered_relocs[0].off,
-                    .length = @intCast(end_offset - start_offset),
-                }),
-                .table => try table_relocs.append(emit.lower.allocator, .{
-                    .source_offset = end_offset - 4,
-                    .target_offset = lowered_relocs[0].off,
-                }),
-                .linker_extern_fn => |sym_index| if (emit.lower.bin_file.cast(.elf)) |elf_file| {
-                    // Add relocation to the decl.
-                    const zo = elf_file.zigObjectPtr().?;
-                    const atom_ptr = zo.symbol(emit.atom_index).atom(elf_file).?;
-                    const r_type = @intFromEnum(std.elf.R_X86_64.PLT32);
-                    try atom_ptr.addReloc(gpa, .{
-                        .r_offset = end_offset - 4,
-                        .r_info = @as(u64, sym_index) << 32 | r_type,
-                        .r_addend = lowered_relocs[0].off - 4,
-                    }, zo);
-                } else if (emit.lower.bin_file.cast(.macho)) |macho_file| {
-                    // Add relocation to the decl.
-                    const zo = macho_file.getZigObject().?;
-                    const atom = zo.symbols.items[emit.atom_index].getAtom(macho_file).?;
-                    try atom.addReloc(macho_file, .{
-                        .tag = .@"extern",
-                        .offset = end_offset - 4,
-                        .target = sym_index,
-                        .addend = lowered_relocs[0].off,
-                        .type = .branch,
-                        .meta = .{
-                            .pcrel = true,
-                            .has_subtractor = false,
-                            .length = 2,
-                            .symbolnum = @intCast(sym_index),
+                reloc_info_index += 1;
+            }) reloc_info_buf[reloc_info_index] = .{
+                .op_index = lowered_relocs[0].op_index,
+                .off = lowered_relocs[0].off,
+                .target = target: switch (lowered_relocs[0].target) {
+                    .inst => |inst| .{ .index = inst, .is_extern = false, .type = .inst },
+                    .table => .{ .index = undefined, .is_extern = false, .type = .table },
+                    .nav => |nav| {
+                        const sym_index = switch (try codegen.genNavRef(
+                            emit.bin_file,
+                            emit.pt,
+                            emit.lower.src_loc,
+                            nav,
+                            emit.lower.target.*,
+                        )) {
+                            .mcv => |mcv| mcv.lea_symbol,
+                            .fail => |em| {
+                                assert(emit.lower.err_msg == null);
+                                emit.lower.err_msg = em;
+                                return error.EmitFail;
+                            },
+                        };
+                        const ip = &emit.pt.zcu.intern_pool;
+                        break :target switch (ip.getNav(nav).status) {
+                            .unresolved => unreachable,
+                            .type_resolved => |type_resolved| .{
+                                .index = sym_index,
+                                .is_extern = false,
+                                .type = if (type_resolved.is_threadlocal and comp.config.any_non_single_threaded) .tlv else .symbol,
+                            },
+                            .fully_resolved => |fully_resolved| switch (ip.indexToKey(fully_resolved.val)) {
+                                .@"extern" => |@"extern"| .{
+                                    .index = sym_index,
+                                    .is_extern = switch (@"extern".visibility) {
+                                        .default => true,
+                                        .hidden, .protected => false,
+                                    },
+                                    .type = if (@"extern".is_threadlocal and comp.config.any_non_single_threaded) .tlv else .symbol,
+                                    .force_pcrel_direct = switch (@"extern".relocation) {
+                                        .any => false,
+                                        .pcrel => true,
+                                    },
+                                },
+                                .variable => |variable| .{
+                                    .index = sym_index,
+                                    .is_extern = false,
+                                    .type = if (variable.is_threadlocal and comp.config.any_non_single_threaded) .tlv else .symbol,
+                                },
+                                else => .{ .index = sym_index, .is_extern = false, .type = .symbol },
+                            },
+                        };
+                    },
+                    .uav => |uav| .{
+                        .index = switch (try emit.bin_file.lowerUav(
+                            emit.pt,
+                            uav.val,
+                            Type.fromInterned(uav.orig_ty).ptrAlignment(emit.pt.zcu),
+                            emit.lower.src_loc,
+                        )) {
+                            .mcv => |mcv| mcv.load_symbol,
+                            .fail => |em| {
+                                assert(emit.lower.err_msg == null);
+                                emit.lower.err_msg = em;
+                                return error.EmitFail;
+                            },
                         },
-                    });
-                } else if (emit.lower.bin_file.cast(.coff)) |coff_file| {
-                    // Add relocation to the decl.
-                    const atom_index = coff_file.getAtomIndexForSymbol(
-                        .{ .sym_index = emit.atom_index, .file = null },
-                    ).?;
-                    const target = if (link.File.Coff.global_symbol_bit & sym_index != 0)
-                        coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & sym_index)
-                    else
-                        link.File.Coff.SymbolWithLoc{ .sym_index = sym_index, .file = null };
-                    try coff_file.addRelocation(atom_index, .{
-                        .type = .direct,
-                        .target = target,
-                        .offset = end_offset - 4,
-                        .addend = @intCast(lowered_relocs[0].off),
-                        .pcrel = true,
-                        .length = 2,
-                    });
-                } else return emit.fail("TODO implement extern reloc for {s}", .{
-                    @tagName(emit.lower.bin_file.tag),
-                }),
-                .linker_tlsld => |sym_index| {
-                    const elf_file = emit.lower.bin_file.cast(.elf).?;
-                    const zo = elf_file.zigObjectPtr().?;
-                    const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
-                    const r_type = @intFromEnum(std.elf.R_X86_64.TLSLD);
-                    try atom.addReloc(gpa, .{
-                        .r_offset = end_offset - 4,
-                        .r_info = @as(u64, sym_index) << 32 | r_type,
-                        .r_addend = lowered_relocs[0].off - 4,
-                    }, zo);
-                },
-                .linker_dtpoff => |sym_index| {
-                    const elf_file = emit.lower.bin_file.cast(.elf).?;
-                    const zo = elf_file.zigObjectPtr().?;
-                    const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
-                    const r_type = @intFromEnum(std.elf.R_X86_64.DTPOFF32);
-                    try atom.addReloc(gpa, .{
-                        .r_offset = end_offset - 4,
-                        .r_info = @as(u64, sym_index) << 32 | r_type,
-                        .r_addend = lowered_relocs[0].off,
-                    }, zo);
-                },
-                .linker_reloc => |sym_index| if (emit.lower.bin_file.cast(.elf)) |elf_file| {
-                    const zo = elf_file.zigObjectPtr().?;
-                    const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
-                    const sym = zo.symbol(sym_index);
-                    if (emit.lower.pic) {
-                        const r_type: u32 = if (sym.flags.is_extern_ptr)
-                            @intFromEnum(std.elf.R_X86_64.GOTPCREL)
+                        .is_extern = false,
+                        .type = .symbol,
+                    },
+                    .lazy_sym => |lazy_sym| .{
+                        .index = if (emit.bin_file.cast(.elf)) |elf_file|
+                            elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, emit.pt, lazy_sym) catch |err|
+                                return emit.fail("{s} creating lazy symbol", .{@errorName(err)})
+                        else if (emit.bin_file.cast(.macho)) |macho_file|
+                            macho_file.getZigObject().?.getOrCreateMetadataForLazySymbol(macho_file, emit.pt, lazy_sym) catch |err|
+                                return emit.fail("{s} creating lazy symbol", .{@errorName(err)})
+                        else if (emit.bin_file.cast(.coff)) |coff_file| sym_index: {
+                            const atom = coff_file.getOrCreateAtomForLazySymbol(emit.pt, lazy_sym) catch |err|
+                                return emit.fail("{s} creating lazy symbol", .{@errorName(err)});
+                            break :sym_index coff_file.getAtom(atom).getSymbolIndex().?;
+                        } else if (emit.bin_file.cast(.plan9)) |p9_file|
+                            p9_file.getOrCreateAtomForLazySymbol(emit.pt, lazy_sym) catch |err|
+                                return emit.fail("{s} creating lazy symbol", .{@errorName(err)})
                         else
-                            @intFromEnum(std.elf.R_X86_64.PC32);
-                        try atom.addReloc(gpa, .{
-                            .r_offset = end_offset - 4,
-                            .r_info = @as(u64, sym_index) << 32 | r_type,
-                            .r_addend = lowered_relocs[0].off - 4,
-                        }, zo);
-                    } else {
-                        const r_type: u32 = if (sym.flags.is_tls)
-                            @intFromEnum(std.elf.R_X86_64.TPOFF32)
+                            return emit.fail("lazy symbols unimplemented for {s}", .{@tagName(emit.bin_file.tag)}),
+                        .is_extern = false,
+                        .type = .symbol,
+                    },
+                    .extern_func => |extern_func| .{
+                        .index = if (emit.bin_file.cast(.elf)) |elf_file|
+                            try elf_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null)
+                        else if (emit.bin_file.cast(.macho)) |macho_file|
+                            try macho_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null)
+                        else if (emit.bin_file.cast(.coff)) |coff_file|
+                            link.File.Coff.global_symbol_bit | try coff_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null)
                         else
-                            @intFromEnum(std.elf.R_X86_64.@"32");
-                        try atom.addReloc(gpa, .{
-                            .r_offset = end_offset - 4,
-                            .r_info = @as(u64, sym_index) << 32 | r_type,
-                            .r_addend = lowered_relocs[0].off,
-                        }, zo);
-                    }
-                } else if (emit.lower.bin_file.cast(.macho)) |macho_file| {
-                    const zo = macho_file.getZigObject().?;
-                    const atom = zo.symbols.items[emit.atom_index].getAtom(macho_file).?;
-                    const sym = &zo.symbols.items[sym_index];
-                    const @"type": link.File.MachO.Relocation.Type = if (sym.flags.is_extern_ptr)
-                        .got_load
-                    else if (sym.flags.tlv)
-                        .tlv
-                    else
-                        .signed;
-                    try atom.addReloc(macho_file, .{
-                        .tag = .@"extern",
-                        .offset = @intCast(end_offset - 4),
-                        .target = sym_index,
-                        .addend = lowered_relocs[0].off,
-                        .type = @"type",
-                        .meta = .{
-                            .pcrel = true,
-                            .has_subtractor = false,
-                            .length = 2,
-                            .symbolnum = @intCast(sym_index),
-                        },
-                    });
-                } else unreachable,
-                .linker_got,
-                .linker_direct,
-                .linker_import,
-                => |sym_index| if (emit.lower.bin_file.cast(.elf)) |_| {
-                    unreachable;
-                } else if (emit.lower.bin_file.cast(.macho)) |_| {
-                    unreachable;
-                } else if (emit.lower.bin_file.cast(.coff)) |coff_file| {
-                    const atom_index = coff_file.getAtomIndexForSymbol(.{
-                        .sym_index = emit.atom_index,
-                        .file = null,
-                    }).?;
-                    const target = if (link.File.Coff.global_symbol_bit & sym_index != 0)
-                        coff_file.getGlobalByIndex(link.File.Coff.global_symbol_mask & sym_index)
-                    else
-                        link.File.Coff.SymbolWithLoc{ .sym_index = sym_index, .file = null };
-                    try coff_file.addRelocation(atom_index, .{
-                        .type = switch (lowered_relocs[0].target) {
-                            .linker_got => .got,
-                            .linker_direct => .direct,
-                            .linker_import => .import,
-                            else => unreachable,
-                        },
-                        .target = target,
-                        .offset = @intCast(end_offset - 4),
-                        .addend = @intCast(lowered_relocs[0].off),
-                        .pcrel = true,
-                        .length = 2,
-                    });
-                } else if (emit.lower.bin_file.cast(.plan9)) |p9_file| {
-                    try p9_file.addReloc(emit.atom_index, .{ // TODO we may need to add a .type field to the relocs if they are .linker_got instead of just .linker_direct
-                        .target = sym_index, // we set sym_index to just be the atom index
-                        .offset = @intCast(end_offset - 4),
-                        .addend = @intCast(lowered_relocs[0].off),
-                        .type = .pcrel,
-                    });
-                } else return emit.fail("TODO implement linker reloc for {s}", .{
-                    @tagName(emit.lower.bin_file.tag),
-                }),
+                            return emit.fail("external symbols unimplemented for {s}", .{@tagName(emit.bin_file.tag)}),
+                        .is_extern = true,
+                        .type = .symbol,
+                    },
+                },
             };
+            const reloc_info = reloc_info_buf[0..reloc_info_index];
+            for (reloc_info) |*reloc| switch (reloc.target.type) {
+                .inst, .table => {},
+                .symbol => {
+                    switch (lowered_inst.encoding.mnemonic) {
+                        .call => {
+                            reloc.target.type = .branch;
+                            if (emit.bin_file.cast(.coff)) |_| try emit.encodeInst(try .new(.none, .call, &.{
+                                .{ .mem = .initRip(.ptr, 0) },
+                            }, emit.lower.target), reloc_info) else try emit.encodeInst(lowered_inst, reloc_info);
+                            continue :lowered_inst;
+                        },
+                        else => {},
+                    }
+                    if (emit.bin_file.cast(.elf)) |_| {
+                        if (!emit.pic) switch (lowered_inst.encoding.mnemonic) {
+                            .lea => try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .imm = .s(0) },
+                            }, emit.lower.target), reloc_info),
+                            .mov => try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initSib(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, .{
+                                    .base = .{ .reg = .ds },
+                                }) },
+                            }, emit.lower.target), reloc_info),
+                            else => unreachable,
+                        } else if (reloc.target.is_extern) switch (lowered_inst.encoding.mnemonic) {
+                            .lea => try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(.ptr, 0) },
+                            }, emit.lower.target), reloc_info),
+                            .mov => {
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initRip(.ptr, 0) },
+                                }, emit.lower.target), reloc_info);
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initSib(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, .{ .base = .{
+                                        .reg = lowered_inst.ops[0].reg.to64(),
+                                    } }) },
+                                }, emit.lower.target), &.{});
+                            },
+                            else => unreachable,
+                        } else switch (lowered_inst.encoding.mnemonic) {
+                            .lea => try emit.encodeInst(try .new(.none, .lea, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(.none, 0) },
+                            }, emit.lower.target), reloc_info),
+                            .mov => try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, 0) },
+                            }, emit.lower.target), reloc_info),
+                            else => unreachable,
+                        }
+                    } else if (emit.bin_file.cast(.macho)) |_| {
+                        if (reloc.target.is_extern) switch (lowered_inst.encoding.mnemonic) {
+                            .lea => try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(.ptr, 0) },
+                            }, emit.lower.target), reloc_info),
+                            .mov => {
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initRip(.ptr, 0) },
+                                }, emit.lower.target), reloc_info);
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initSib(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, .{ .base = .{
+                                        .reg = lowered_inst.ops[0].reg.to64(),
+                                    } }) },
+                                }, emit.lower.target), &.{});
+                            },
+                            else => unreachable,
+                        } else switch (lowered_inst.encoding.mnemonic) {
+                            .lea => try emit.encodeInst(try .new(.none, .lea, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(.none, 0) },
+                            }, emit.lower.target), reloc_info),
+                            .mov => try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, 0) },
+                            }, emit.lower.target), reloc_info),
+                            else => unreachable,
+                        }
+                    } else if (emit.bin_file.cast(.coff)) |_| {
+                        if (reloc.target.is_extern) switch (lowered_inst.encoding.mnemonic) {
+                            .lea => try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(.ptr, 0) },
+                            }, emit.lower.target), reloc_info),
+                            .mov => {
+                                const dst_reg = lowered_inst.ops[0].reg.to64();
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    .{ .reg = dst_reg },
+                                    .{ .mem = .initRip(.ptr, 0) },
+                                }, emit.lower.target), reloc_info);
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initSib(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, .{ .base = .{
+                                        .reg = dst_reg,
+                                    } }) },
+                                }, emit.lower.target), &.{});
+                            },
+                            else => unreachable,
+                        } else switch (lowered_inst.encoding.mnemonic) {
+                            .lea => try emit.encodeInst(try .new(.none, .lea, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(.none, 0) },
+                            }, emit.lower.target), reloc_info),
+                            .mov => try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initRip(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, 0) },
+                            }, emit.lower.target), reloc_info),
+                            else => unreachable,
+                        }
+                    } else return emit.fail("TODO implement relocs for {s}", .{
+                        @tagName(emit.bin_file.tag),
+                    });
+                    continue :lowered_inst;
+                },
+                .branch, .tls => unreachable,
+                .tlv => {
+                    if (emit.bin_file.cast(.elf)) |elf_file| {
+                        // TODO handle extern TLS vars, i.e., emit GD model
+                        if (emit.pic) switch (lowered_inst.encoding.mnemonic) {
+                            .lea, .mov => {
+                                // Here, we currently assume local dynamic TLS vars, and so
+                                // we emit LD model.
+                                try emit.encodeInst(try .new(.none, .lea, &.{
+                                    .{ .reg = .rdi },
+                                    .{ .mem = .initRip(.none, 0) },
+                                }, emit.lower.target), &.{.{
+                                    .op_index = 1,
+                                    .target = .{
+                                        .index = reloc.target.index,
+                                        .is_extern = false,
+                                        .type = .tls,
+                                    },
+                                }});
+                                try emit.encodeInst(try .new(.none, .call, &.{
+                                    .{ .imm = .s(0) },
+                                }, emit.lower.target), &.{.{
+                                    .op_index = 0,
+                                    .target = .{
+                                        .index = try elf_file.getGlobalSymbol("__tls_get_addr", null),
+                                        .is_extern = true,
+                                        .type = .branch,
+                                    },
+                                }});
+                                try emit.encodeInst(try .new(.none, lowered_inst.encoding.mnemonic, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initSib(.none, .{
+                                        .base = .{ .reg = .rax },
+                                        .disp = std.math.minInt(i32),
+                                    }) },
+                                }, emit.lower.target), reloc_info);
+                            },
+                            else => unreachable,
+                        } else switch (lowered_inst.encoding.mnemonic) {
+                            .lea, .mov => {
+                                // Since we are linking statically, we emit LE model directly.
+                                try emit.encodeInst(try .new(.none, .mov, &.{
+                                    .{ .reg = .rax },
+                                    .{ .mem = .initSib(.qword, .{ .base = .{ .reg = .fs } }) },
+                                }, emit.lower.target), &.{});
+                                try emit.encodeInst(try .new(.none, lowered_inst.encoding.mnemonic, &.{
+                                    lowered_inst.ops[0],
+                                    .{ .mem = .initSib(.none, .{
+                                        .base = .{ .reg = .rax },
+                                        .disp = std.math.minInt(i32),
+                                    }) },
+                                }, emit.lower.target), reloc_info);
+                            },
+                            else => unreachable,
+                        }
+                    } else if (emit.bin_file.cast(.macho)) |_| switch (lowered_inst.encoding.mnemonic) {
+                        .lea => {
+                            try emit.encodeInst(try .new(.none, .mov, &.{
+                                .{ .reg = .rdi },
+                                .{ .mem = .initRip(.ptr, 0) },
+                            }, emit.lower.target), reloc_info);
+                            try emit.encodeInst(try .new(.none, .call, &.{
+                                .{ .mem = .initSib(.qword, .{ .base = .{ .reg = .rdi } }) },
+                            }, emit.lower.target), &.{});
+                            try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .reg = .rax },
+                            }, emit.lower.target), &.{});
+                        },
+                        .mov => {
+                            try emit.encodeInst(try .new(.none, .mov, &.{
+                                .{ .reg = .rdi },
+                                .{ .mem = .initRip(.ptr, 0) },
+                            }, emit.lower.target), reloc_info);
+                            try emit.encodeInst(try .new(.none, .call, &.{
+                                .{ .mem = .initSib(.qword, .{ .base = .{ .reg = .rdi } }) },
+                            }, emit.lower.target), &.{});
+                            try emit.encodeInst(try .new(.none, .mov, &.{
+                                lowered_inst.ops[0],
+                                .{ .mem = .initSib(.qword, .{ .base = .{ .reg = .rax } }) },
+                            }, emit.lower.target), &.{});
+                        },
+                        else => unreachable,
+                    } else return emit.fail("TODO implement relocs for {s}", .{
+                        @tagName(emit.bin_file.tag),
+                    });
+                    continue :lowered_inst;
+                },
+            };
+            try emit.encodeInst(lowered_inst, reloc_info);
         }
-        std.debug.assert(lowered_relocs.len == 0);
+        assert(lowered_relocs.len == 0);
 
         if (lowered.insts.len == 0) {
             const mir_inst = emit.lower.mir.instructions.get(mir_index);
@@ -317,7 +466,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgEnterInline (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try dwarf.enterInlineFunc(mir_inst.data.func, emit.code.items.len, emit.prev_di_loc.line, emit.prev_di_loc.column);
+                            try dwarf.enterInlineFunc(mir_inst.data.ip_index, emit.code.items.len, emit.prev_di_loc.line, emit.prev_di_loc.column);
                         },
                         .plan9 => {},
                         .none => {},
@@ -327,77 +476,49 @@ pub fn emitMir(emit: *Emit) Error!void {
                             log.debug("mirDbgLeaveInline (line={d}, col={d})", .{
                                 emit.prev_di_loc.line, emit.prev_di_loc.column,
                             });
-                            try dwarf.leaveInlineFunc(mir_inst.data.func, emit.code.items.len);
+                            try dwarf.leaveInlineFunc(mir_inst.data.ip_index, emit.code.items.len);
                         },
                         .plan9 => {},
                         .none => {},
                     },
-                    .pseudo_dbg_local_a,
-                    .pseudo_dbg_local_ai_s,
-                    .pseudo_dbg_local_ai_u,
-                    .pseudo_dbg_local_ai_64,
-                    .pseudo_dbg_local_as,
-                    .pseudo_dbg_local_aso,
-                    .pseudo_dbg_local_aro,
-                    .pseudo_dbg_local_af,
-                    .pseudo_dbg_local_am,
+                    .pseudo_dbg_arg_none,
+                    .pseudo_dbg_arg_i_s,
+                    .pseudo_dbg_arg_i_u,
+                    .pseudo_dbg_arg_i_64,
+                    .pseudo_dbg_arg_ro,
+                    .pseudo_dbg_arg_fa,
+                    .pseudo_dbg_arg_m,
+                    .pseudo_dbg_var_none,
+                    .pseudo_dbg_var_i_s,
+                    .pseudo_dbg_var_i_u,
+                    .pseudo_dbg_var_i_64,
+                    .pseudo_dbg_var_ro,
+                    .pseudo_dbg_var_fa,
+                    .pseudo_dbg_var_m,
                     => switch (emit.debug_output) {
                         .dwarf => |dwarf| {
                             var loc_buf: [2]link.File.Dwarf.Loc = undefined;
-                            const air_inst_index, const loc: link.File.Dwarf.Loc = switch (mir_inst.ops) {
+                            const loc: link.File.Dwarf.Loc = loc: switch (mir_inst.ops) {
                                 else => unreachable,
-                                .pseudo_dbg_local_a => .{ mir_inst.data.a.air_inst, .empty },
-                                .pseudo_dbg_local_ai_s,
-                                .pseudo_dbg_local_ai_u,
-                                .pseudo_dbg_local_ai_64,
-                                => .{ mir_inst.data.ai.air_inst, .{ .stack_value = stack_value: {
-                                    loc_buf[0] = switch (emit.lower.imm(mir_inst.ops, mir_inst.data.ai.i)) {
+                                .pseudo_dbg_arg_none, .pseudo_dbg_var_none => .empty,
+                                .pseudo_dbg_arg_i_s,
+                                .pseudo_dbg_arg_i_u,
+                                .pseudo_dbg_var_i_s,
+                                .pseudo_dbg_var_i_u,
+                                => .{ .stack_value = stack_value: {
+                                    loc_buf[0] = switch (emit.lower.imm(mir_inst.ops, mir_inst.data.i.i)) {
                                         .signed => |s| .{ .consts = s },
                                         .unsigned => |u| .{ .constu = u },
                                     };
                                     break :stack_value &loc_buf[0];
-                                } } },
-                                .pseudo_dbg_local_as => .{ mir_inst.data.as.air_inst, .{ .addr = .{
-                                    .sym = mir_inst.data.as.sym_index,
-                                } } },
-                                .pseudo_dbg_local_aso => loc: {
-                                    const sym_off = emit.lower.mir.extraData(
-                                        bits.SymbolOffset,
-                                        mir_inst.data.ax.payload,
-                                    ).data;
-                                    break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
-                                        sym: {
-                                            loc_buf[0] = .{ .addr = .{ .sym = sym_off.sym_index } };
-                                            break :sym &loc_buf[0];
-                                        },
-                                        off: {
-                                            loc_buf[1] = .{ .consts = sym_off.off };
-                                            break :off &loc_buf[1];
-                                        },
-                                    } } };
-                                },
-                                .pseudo_dbg_local_aro => loc: {
-                                    const air_off = emit.lower.mir.extraData(
-                                        Mir.AirOffset,
-                                        mir_inst.data.rx.payload,
-                                    ).data;
-                                    break :loc .{ air_off.air_inst, .{ .plus = .{
-                                        reg: {
-                                            loc_buf[0] = .{ .breg = mir_inst.data.rx.r1.dwarfNum() };
-                                            break :reg &loc_buf[0];
-                                        },
-                                        off: {
-                                            loc_buf[1] = .{ .consts = air_off.off };
-                                            break :off &loc_buf[1];
-                                        },
-                                    } } };
-                                },
-                                .pseudo_dbg_local_af => loc: {
-                                    const reg_off = emit.lower.mir.resolveFrameAddr(emit.lower.mir.extraData(
-                                        bits.FrameAddr,
-                                        mir_inst.data.ax.payload,
-                                    ).data);
-                                    break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
+                                } },
+                                .pseudo_dbg_arg_i_64, .pseudo_dbg_var_i_64 => .{ .stack_value = stack_value: {
+                                    loc_buf[0] = .{ .constu = mir_inst.data.i64 };
+                                    break :stack_value &loc_buf[0];
+                                } },
+                                .pseudo_dbg_arg_fa, .pseudo_dbg_var_fa => {
+                                    const reg_off = emit.lower.mir.resolveFrameAddr(mir_inst.data.fa);
+                                    break :loc .{ .plus = .{
                                         reg: {
                                             loc_buf[0] = .{ .breg = reg_off.reg.dwarfNum() };
                                             break :reg &loc_buf[0];
@@ -406,17 +527,54 @@ pub fn emitMir(emit: *Emit) Error!void {
                                             loc_buf[1] = .{ .consts = reg_off.off };
                                             break :off &loc_buf[1];
                                         },
-                                    } } };
+                                    } };
                                 },
-                                .pseudo_dbg_local_am => loc: {
-                                    const mem = emit.lower.mem(mir_inst.data.ax.payload);
-                                    break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
+                                .pseudo_dbg_arg_m, .pseudo_dbg_var_m => {
+                                    const mem = emit.lower.mir.resolveMemoryExtra(mir_inst.data.x.payload).decode();
+                                    break :loc .{ .plus = .{
                                         base: {
                                             loc_buf[0] = switch (mem.base()) {
                                                 .none => .{ .constu = 0 },
                                                 .reg => |reg| .{ .breg = reg.dwarfNum() },
-                                                .frame, .table => unreachable,
-                                                .reloc => |sym_index| .{ .addr = .{ .sym = sym_index } },
+                                                .frame, .table, .rip_inst => unreachable,
+                                                .nav => |nav| .{ .addr_reloc = switch (codegen.genNavRef(
+                                                    emit.bin_file,
+                                                    emit.pt,
+                                                    emit.lower.src_loc,
+                                                    nav,
+                                                    emit.lower.target.*,
+                                                ) catch |err| switch (err) {
+                                                    error.CodegenFail,
+                                                    => return emit.fail("unable to codegen: {s}", .{@errorName(err)}),
+                                                    else => |e| return e,
+                                                }) {
+                                                    .mcv => |mcv| switch (mcv) {
+                                                        else => unreachable,
+                                                        .load_direct, .load_symbol => |sym_index| sym_index,
+                                                    },
+                                                    .fail => |em| {
+                                                        assert(emit.lower.err_msg == null);
+                                                        emit.lower.err_msg = em;
+                                                        return error.EmitFail;
+                                                    },
+                                                } },
+                                                .uav => |uav| .{ .addr_reloc = switch (try emit.bin_file.lowerUav(
+                                                    emit.pt,
+                                                    uav.val,
+                                                    Type.fromInterned(uav.orig_ty).ptrAlignment(emit.pt.zcu),
+                                                    emit.lower.src_loc,
+                                                )) {
+                                                    .mcv => |mcv| switch (mcv) {
+                                                        else => unreachable,
+                                                        .load_direct, .load_symbol => |sym_index| sym_index,
+                                                    },
+                                                    .fail => |em| {
+                                                        assert(emit.lower.err_msg == null);
+                                                        emit.lower.err_msg = em;
+                                                        return error.EmitFail;
+                                                    },
+                                                } },
+                                                .lazy_sym, .extern_func => unreachable,
                                             };
                                             break :base &loc_buf[0];
                                         },
@@ -427,34 +585,57 @@ pub fn emitMir(emit: *Emit) Error!void {
                                             };
                                             break :disp &loc_buf[1];
                                         },
-                                    } } };
+                                    } };
                                 },
                             };
-                            const ip = &emit.lower.bin_file.comp.zcu.?.intern_pool;
-                            const air_inst = emit.air.instructions.get(@intFromEnum(air_inst_index));
-                            const name: Air.NullTerminatedString = switch (air_inst.tag) {
-                                else => unreachable,
-                                .arg => air_inst.data.arg.name,
-                                .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => @enumFromInt(air_inst.data.pl_op.payload),
-                            };
-                            try dwarf.genLocalDebugInfo(
-                                switch (air_inst.tag) {
+
+                            const local = &emit.lower.mir.locals[local_index];
+                            local_index += 1;
+                            try dwarf.genLocalVarDebugInfo(
+                                switch (mir_inst.ops) {
                                     else => unreachable,
-                                    .arg, .dbg_arg_inline => .local_arg,
-                                    .dbg_var_ptr, .dbg_var_val => .local_var,
+                                    .pseudo_dbg_arg_none,
+                                    .pseudo_dbg_arg_i_s,
+                                    .pseudo_dbg_arg_i_u,
+                                    .pseudo_dbg_arg_i_64,
+                                    .pseudo_dbg_arg_ro,
+                                    .pseudo_dbg_arg_fa,
+                                    .pseudo_dbg_arg_m,
+                                    .pseudo_dbg_arg_val,
+                                    => .arg,
+                                    .pseudo_dbg_var_none,
+                                    .pseudo_dbg_var_i_s,
+                                    .pseudo_dbg_var_i_u,
+                                    .pseudo_dbg_var_i_64,
+                                    .pseudo_dbg_var_ro,
+                                    .pseudo_dbg_var_fa,
+                                    .pseudo_dbg_var_m,
+                                    .pseudo_dbg_var_val,
+                                    => .local_var,
                                 },
-                                name.toSlice(emit.air),
-                                switch (air_inst.tag) {
-                                    else => unreachable,
-                                    .arg => emit.air.typeOfIndex(air_inst_index, ip),
-                                    .dbg_var_ptr => emit.air.typeOf(air_inst.data.pl_op.operand, ip).childTypeIp(ip),
-                                    .dbg_var_val, .dbg_arg_inline => emit.air.typeOf(air_inst.data.pl_op.operand, ip),
-                                },
+                                local.name.toSlice(&emit.lower.mir),
+                                .fromInterned(local.type),
                                 loc,
                             );
                         },
-                        .plan9 => {},
-                        .none => {},
+                        .plan9, .none => local_index += 1,
+                    },
+                    .pseudo_dbg_arg_val, .pseudo_dbg_var_val => switch (emit.debug_output) {
+                        .dwarf => |dwarf| {
+                            const local = &emit.lower.mir.locals[local_index];
+                            local_index += 1;
+                            try dwarf.genLocalConstDebugInfo(
+                                emit.lower.src_loc,
+                                switch (mir_inst.ops) {
+                                    else => unreachable,
+                                    .pseudo_dbg_arg_val => .comptime_arg,
+                                    .pseudo_dbg_var_val => .local_const,
+                                },
+                                local.name.toSlice(&emit.lower.mir),
+                                .fromInterned(mir_inst.data.ip_index),
+                            );
+                        },
+                        .plan9, .none => local_index += 1,
                     },
                     .pseudo_dbg_var_args_none => switch (emit.debug_output) {
                         .dwarf => |dwarf| try dwarf.genVarArgsDebugInfo(),
@@ -466,25 +647,28 @@ pub fn emitMir(emit: *Emit) Error!void {
             }
         }
     }
-    {
-        // TODO this function currently assumes all relocs via JMP/CALL instructions are 32bit in size.
-        // This should be reversed like it is done in aarch64 MIR emit code: start with the smallest
-        // possible resolution, i.e., 8bit, and iteratively converge on the minimum required resolution
-        // until the entire decl is correctly emitted with all JMP/CALL instructions within range.
-        for (relocs.items) |reloc| {
-            const target = code_offset_mapping[reloc.target];
-            const disp = @as(i64, @intCast(target)) - @as(i64, @intCast(reloc.source + reloc.length)) + reloc.target_offset;
-            std.mem.writeInt(i32, emit.code.items[reloc.source_offset..][0..4], @intCast(disp), .little);
+    for (emit.relocs.items) |reloc| {
+        const target = emit.code_offset_mapping.items[reloc.target];
+        const disp = @as(i64, @intCast(target)) - @as(i64, @intCast(reloc.inst_offset + reloc.inst_length)) + reloc.target_offset;
+        const inst_bytes = emit.code.items[reloc.inst_offset..][0..reloc.inst_length];
+        switch (reloc.source_length) {
+            else => unreachable,
+            inline 1, 4 => |source_length| std.mem.writeInt(
+                @Type(.{ .int = .{ .signedness = .signed, .bits = @as(u16, 8) * source_length } }),
+                inst_bytes[reloc.source_offset..][0..source_length],
+                @intCast(disp),
+                .little,
+            ),
         }
     }
     if (emit.lower.mir.table.len > 0) {
-        if (emit.lower.bin_file.cast(.elf)) |elf_file| {
+        if (emit.bin_file.cast(.elf)) |elf_file| {
             const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
 
             const ptr_size = @divExact(emit.lower.target.ptrBitWidth(), 8);
             var table_offset = std.mem.alignForward(u32, @intCast(emit.code.items.len), ptr_size);
-            for (table_relocs.items) |table_reloc| try atom.addReloc(gpa, .{
+            for (emit.table_relocs.items) |table_reloc| try atom.addReloc(gpa, .{
                 .r_offset = table_reloc.source_offset,
                 .r_info = @as(u64, emit.atom_index) << 32 | @intFromEnum(std.elf.R_X86_64.@"32"),
                 .r_addend = @as(i64, table_offset) + table_reloc.target_offset,
@@ -493,13 +677,207 @@ pub fn emitMir(emit: *Emit) Error!void {
                 try atom.addReloc(gpa, .{
                     .r_offset = table_offset,
                     .r_info = @as(u64, emit.atom_index) << 32 | @intFromEnum(std.elf.R_X86_64.@"64"),
-                    .r_addend = code_offset_mapping[entry],
+                    .r_addend = emit.code_offset_mapping.items[entry],
                 }, zo);
                 table_offset += ptr_size;
             }
             try emit.code.appendNTimes(gpa, 0, table_offset - emit.code.items.len);
         } else unreachable;
     }
+}
+
+pub fn deinit(emit: *Emit) void {
+    const gpa = emit.bin_file.comp.gpa;
+    emit.code_offset_mapping.deinit(gpa);
+    emit.relocs.deinit(gpa);
+    emit.table_relocs.deinit(gpa);
+    emit.* = undefined;
+}
+
+const RelocInfo = struct {
+    op_index: Lower.InstOpIndex,
+    off: i32 = 0,
+    target: Target,
+
+    const Target = struct {
+        index: u32,
+        is_extern: bool,
+        type: Target.Type,
+        force_pcrel_direct: bool = false,
+
+        const Type = enum { inst, table, symbol, branch, tls, tlv };
+    };
+};
+
+fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocInfo) Error!void {
+    const comp = emit.bin_file.comp;
+    const gpa = comp.gpa;
+    const start_offset: u32 = @intCast(emit.code.items.len);
+    try lowered_inst.encode(emit.code.writer(gpa), .{});
+    const end_offset: u32 = @intCast(emit.code.items.len);
+    for (reloc_info) |reloc| switch (reloc.target.type) {
+        .inst => {
+            const inst_length: u4 = @intCast(end_offset - start_offset);
+            const reloc_offset, const reloc_length = reloc_offset_length: {
+                var reloc_offset = inst_length;
+                var op_index: usize = lowered_inst.ops.len;
+                while (true) {
+                    op_index -= 1;
+                    const op = lowered_inst.encoding.data.ops[op_index];
+                    if (op == .none) continue;
+                    const is_mem = op.isMemory();
+                    const enc_length: u4 = if (is_mem) switch (lowered_inst.ops[op_index].mem.sib.base) {
+                        .rip_inst => 4,
+                        else => unreachable,
+                    } else @intCast(std.math.divCeil(u7, @intCast(op.immBitSize()), 8) catch unreachable);
+                    reloc_offset -= enc_length;
+                    if (op_index == reloc.op_index) break :reloc_offset_length .{ reloc_offset, enc_length };
+                    assert(!is_mem);
+                }
+            };
+            try emit.relocs.append(emit.lower.allocator, .{
+                .inst_offset = start_offset,
+                .inst_length = inst_length,
+                .source_offset = reloc_offset,
+                .source_length = reloc_length,
+                .target = reloc.target.index,
+                .target_offset = reloc.off,
+            });
+        },
+        .table => try emit.table_relocs.append(emit.lower.allocator, .{
+            .source_offset = end_offset - 4,
+            .target_offset = reloc.off,
+        }),
+        .symbol => if (emit.bin_file.cast(.elf)) |elf_file| {
+            const zo = elf_file.zigObjectPtr().?;
+            const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
+            const r_type: std.elf.R_X86_64 = if (!emit.pic)
+                .@"32"
+            else if (reloc.target.is_extern and !reloc.target.force_pcrel_direct)
+                .GOTPCREL
+            else
+                .PC32;
+            try atom.addReloc(gpa, .{
+                .r_offset = end_offset - 4,
+                .r_info = @as(u64, reloc.target.index) << 32 | @intFromEnum(r_type),
+                .r_addend = if (emit.pic) reloc.off - 4 else reloc.off,
+            }, zo);
+        } else if (emit.bin_file.cast(.macho)) |macho_file| {
+            const zo = macho_file.getZigObject().?;
+            const atom = zo.symbols.items[emit.atom_index].getAtom(macho_file).?;
+            try atom.addReloc(macho_file, .{
+                .tag = .@"extern",
+                .offset = end_offset - 4,
+                .target = reloc.target.index,
+                .addend = reloc.off,
+                .type = if (reloc.target.is_extern and !reloc.target.force_pcrel_direct) .got_load else .signed,
+                .meta = .{
+                    .pcrel = true,
+                    .has_subtractor = false,
+                    .length = 2,
+                    .symbolnum = @intCast(reloc.target.index),
+                },
+            });
+        } else if (emit.bin_file.cast(.coff)) |coff_file| {
+            const atom_index = coff_file.getAtomIndexForSymbol(
+                .{ .sym_index = emit.atom_index, .file = null },
+            ).?;
+            try coff_file.addRelocation(atom_index, .{
+                .type = if (reloc.target.is_extern) .got else .direct,
+                .target = if (reloc.target.is_extern)
+                    coff_file.getGlobalByIndex(reloc.target.index)
+                else
+                    .{ .sym_index = reloc.target.index, .file = null },
+                .offset = end_offset - 4,
+                .addend = @intCast(reloc.off),
+                .pcrel = true,
+                .length = 2,
+            });
+        } else unreachable,
+        .branch => if (emit.bin_file.cast(.elf)) |elf_file| {
+            const zo = elf_file.zigObjectPtr().?;
+            const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
+            const r_type: std.elf.R_X86_64 = .PLT32;
+            try atom.addReloc(gpa, .{
+                .r_offset = end_offset - 4,
+                .r_info = @as(u64, reloc.target.index) << 32 | @intFromEnum(r_type),
+                .r_addend = reloc.off - 4,
+            }, zo);
+        } else if (emit.bin_file.cast(.macho)) |macho_file| {
+            const zo = macho_file.getZigObject().?;
+            const atom = zo.symbols.items[emit.atom_index].getAtom(macho_file).?;
+            try atom.addReloc(macho_file, .{
+                .tag = .@"extern",
+                .offset = end_offset - 4,
+                .target = reloc.target.index,
+                .addend = reloc.off,
+                .type = .branch,
+                .meta = .{
+                    .pcrel = true,
+                    .has_subtractor = false,
+                    .length = 2,
+                    .symbolnum = @intCast(reloc.target.index),
+                },
+            });
+        } else if (emit.bin_file.cast(.coff)) |coff_file| {
+            const atom_index = coff_file.getAtomIndexForSymbol(
+                .{ .sym_index = emit.atom_index, .file = null },
+            ).?;
+            try coff_file.addRelocation(atom_index, .{
+                .type = if (reloc.target.is_extern) .import else .got,
+                .target = if (reloc.target.is_extern)
+                    coff_file.getGlobalByIndex(reloc.target.index)
+                else
+                    .{ .sym_index = reloc.target.index, .file = null },
+                .offset = end_offset - 4,
+                .addend = @intCast(reloc.off),
+                .pcrel = true,
+                .length = 2,
+            });
+        } else return emit.fail("TODO implement {s} reloc for {s}", .{
+            @tagName(reloc.target.type), @tagName(emit.bin_file.tag),
+        }),
+        .tls => if (emit.bin_file.cast(.elf)) |elf_file| {
+            const zo = elf_file.zigObjectPtr().?;
+            const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
+            const r_type: std.elf.R_X86_64 = if (emit.pic) .TLSLD else unreachable;
+            try atom.addReloc(gpa, .{
+                .r_offset = end_offset - 4,
+                .r_info = @as(u64, reloc.target.index) << 32 | @intFromEnum(r_type),
+                .r_addend = reloc.off - 4,
+            }, zo);
+        } else return emit.fail("TODO implement {s} reloc for {s}", .{
+            @tagName(reloc.target.type), @tagName(emit.bin_file.tag),
+        }),
+        .tlv => if (emit.bin_file.cast(.elf)) |elf_file| {
+            const zo = elf_file.zigObjectPtr().?;
+            const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
+            const r_type: std.elf.R_X86_64 = if (emit.pic) .DTPOFF32 else .TPOFF32;
+            try atom.addReloc(gpa, .{
+                .r_offset = end_offset - 4,
+                .r_info = @as(u64, reloc.target.index) << 32 | @intFromEnum(r_type),
+                .r_addend = reloc.off,
+            }, zo);
+        } else if (emit.bin_file.cast(.macho)) |macho_file| {
+            const zo = macho_file.getZigObject().?;
+            const atom = zo.symbols.items[emit.atom_index].getAtom(macho_file).?;
+            try atom.addReloc(macho_file, .{
+                .tag = .@"extern",
+                .offset = end_offset - 4,
+                .target = reloc.target.index,
+                .addend = reloc.off,
+                .type = .tlv,
+                .meta = .{
+                    .pcrel = true,
+                    .has_subtractor = false,
+                    .length = 2,
+                    .symbolnum = @intCast(reloc.target.index),
+                },
+            });
+        } else return emit.fail("TODO implement {s} reloc for {s}", .{
+            @tagName(reloc.target.type), @tagName(emit.bin_file.tag),
+        }),
+    };
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) Error {
@@ -511,15 +889,17 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) Error {
 
 const Reloc = struct {
     /// Offset of the instruction.
-    source: u32,
+    inst_offset: u32,
+    /// Length of the instruction.
+    inst_length: u4,
     /// Offset of the relocation within the instruction.
-    source_offset: u32,
+    source_offset: u4,
+    /// Length of the relocation.
+    source_length: u4,
     /// Target of the relocation.
     target: Mir.Inst.Index,
-    /// Offset from the target instruction.
+    /// Offset from the target.
     target_offset: i32,
-    /// Length of the instruction.
-    length: u5,
 };
 
 const TableReloc = struct {
@@ -583,12 +963,17 @@ fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc) Error!void {
     }
 }
 
+const assert = std.debug.assert;
 const bits = @import("bits.zig");
+const codegen = @import("../../codegen.zig");
+const Emit = @This();
+const encoder = @import("encoder.zig");
+const Instruction = encoder.Instruction;
+const InternPool = @import("../../InternPool.zig");
 const link = @import("../../link.zig");
 const log = std.log.scoped(.emit);
-const std = @import("std");
-
-const Air = @import("../../Air.zig");
-const Emit = @This();
 const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");
+const std = @import("std");
+const Type = @import("../../Type.zig");
+const Zcu = @import("../../Zcu.zig");

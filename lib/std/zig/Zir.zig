@@ -80,9 +80,18 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
             Inst.Declaration.Name,
             std.zig.SimpleComptimeReason,
             NullTerminatedString,
+            // Ast.TokenIndex is missing because it is a u32.
+            Ast.OptionalTokenIndex,
+            Ast.Node.Index,
+            Ast.Node.OptionalIndex,
             => @enumFromInt(code.extra[i]),
 
-            i32,
+            Ast.TokenOffset,
+            Ast.OptionalTokenOffset,
+            Ast.Node.Offset,
+            Ast.Node.OptionalOffset,
+            => @enumFromInt(@as(i32, @bitCast(code.extra[i]))),
+
             Inst.Call.Flags,
             Inst.BuiltinCall.Flags,
             Inst.SwitchBlock.Bits,
@@ -974,6 +983,9 @@ pub const Inst = struct {
         /// Implements the `@memcpy` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         memcpy,
+        /// Implements the `@memmove` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        memmove,
         /// Implements the `@memset` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         memset,
@@ -1263,6 +1275,7 @@ pub const Inst = struct {
                 .max,
                 .memcpy,
                 .memset,
+                .memmove,
                 .min,
                 .c_import,
                 .@"resume",
@@ -1346,6 +1359,7 @@ pub const Inst = struct {
                 .set_runtime_safety,
                 .memcpy,
                 .memset,
+                .memmove,
                 .check_comptime_control_flow,
                 .@"defer",
                 .defer_err_code,
@@ -1587,7 +1601,11 @@ pub const Inst = struct {
                 => false,
 
                 .extended => switch (data.extended.opcode) {
-                    .branch_hint, .breakpoint, .disable_instrumentation => true,
+                    .branch_hint,
+                    .breakpoint,
+                    .disable_instrumentation,
+                    .disable_intrinsics,
+                    => true,
                     else => false,
                 },
             };
@@ -1819,6 +1837,7 @@ pub const Inst = struct {
                 .max = .pl_node,
                 .memcpy = .pl_node,
                 .memset = .pl_node,
+                .memmove = .pl_node,
                 .min = .pl_node,
                 .c_import = .pl_node,
 
@@ -1900,22 +1919,22 @@ pub const Inst = struct {
         /// `small` is `fields_len: u16`.
         tuple_decl,
         /// Implements the `@This` builtin.
-        /// `operand` is `src_node: i32`.
+        /// `operand` is `src_node: Ast.Node.Offset`.
         this,
         /// Implements the `@returnAddress` builtin.
-        /// `operand` is `src_node: i32`.
+        /// `operand` is `src_node: Ast.Node.Offset`.
         ret_addr,
         /// Implements the `@src` builtin.
         /// `operand` is payload index to `LineColumn`.
         builtin_src,
         /// Implements the `@errorReturnTrace` builtin.
-        /// `operand` is `src_node: i32`.
+        /// `operand` is `src_node: Ast.Node.Offset`.
         error_return_trace,
         /// Implements the `@frame` builtin.
-        /// `operand` is `src_node: i32`.
+        /// `operand` is `src_node: Ast.Node.Offset`.
         frame,
         /// Implements the `@frameAddress` builtin.
-        /// `operand` is `src_node: i32`.
+        /// `operand` is `src_node: Ast.Node.Offset`.
         frame_address,
         /// Same as `alloc` from `Tag` but may contain an alignment instruction.
         /// `operand` is payload index to `AllocExtended`.
@@ -2000,10 +2019,12 @@ pub const Inst = struct {
         /// `operand` is payload index to `UnNode`.
         await_nosuspend,
         /// Implements `@breakpoint`.
-        /// `operand` is `src_node: i32`.
+        /// `operand` is `src_node: Ast.Node.Offset`.
         breakpoint,
-        /// Implement builtin `@disableInstrumentation`. `operand` is `src_node: i32`.
+        /// Implement builtin `@disableInstrumentation`. `operand` is `src_node: Ast.Node.Offset`.
         disable_instrumentation,
+        /// Implement builtin `@disableIntrinsics`. `operand` is `src_node: i32`.
+        disable_intrinsics,
         /// Implements the `@select` builtin.
         /// `operand` is payload index to `Select`.
         select,
@@ -2034,7 +2055,7 @@ pub const Inst = struct {
         /// `operand` is payload index to `UnNode`.
         c_va_end,
         /// Implement builtin `@cVaStart`.
-        /// `operand` is `src_node: i32`.
+        /// `operand` is `src_node: Ast.Node.Offset`.
         c_va_start,
         /// Implements the following builtins:
         /// `@ptrCast`, `@alignCast`, `@addrSpaceCast`, `@constCast`, `@volatileCast`.
@@ -2061,7 +2082,7 @@ pub const Inst = struct {
         /// `operand` is payload index to `UnNode`.
         work_group_id,
         /// Implements the `@inComptime` builtin.
-        /// `operand` is `src_node: i32`.
+        /// `operand` is `src_node: Ast.Node.Offset`.
         in_comptime,
         /// Restores the error return index to its last saved state in a given
         /// block. If the block is `.none`, restores to the state from the point
@@ -2071,7 +2092,7 @@ pub const Inst = struct {
         /// `small` is undefined.
         restore_err_ret_index,
         /// Retrieves a value from the current type declaration scope's closure.
-        /// `operand` is `src_node: i32`.
+        /// `operand` is `src_node: Ast.Node.Offset`.
         /// `small` is closure index.
         closure_get,
         /// Used as a placeholder instruction which is just a dummy index for Sema to replace
@@ -2085,7 +2106,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
         /// Get a type or value from `std.builtin`.
-        /// `operand` is `src_node: i32`.
+        /// `operand` is `src_node: Ast.Node.Offset`.
         /// `small` is an `Inst.BuiltinValue`.
         builtin_value,
         /// Provide a `@branchHint` for the current block.
@@ -2121,7 +2142,7 @@ pub const Inst = struct {
         ref_start_index = static_len,
         _,
 
-        pub const static_len = 93;
+        pub const static_len = 124;
 
         pub fn toRef(i: Index) Inst.Ref {
             return @enumFromInt(@intFromEnum(Index.ref_start_index) + @intFromEnum(i));
@@ -2169,6 +2190,7 @@ pub const Inst = struct {
         u80_type,
         u128_type,
         i128_type,
+        u256_type,
         usize_type,
         isize_type,
         c_char_type,
@@ -2198,46 +2220,76 @@ pub const Inst = struct {
         null_type,
         undefined_type,
         enum_literal_type,
+        ptr_usize_type,
+        ptr_const_comptime_int_type,
         manyptr_u8_type,
         manyptr_const_u8_type,
         manyptr_const_u8_sentinel_0_type,
-        single_const_pointer_to_comptime_int_type,
         slice_const_u8_type,
         slice_const_u8_sentinel_0_type,
+        vector_8_i8_type,
         vector_16_i8_type,
         vector_32_i8_type,
+        vector_64_i8_type,
+        vector_1_u8_type,
+        vector_2_u8_type,
+        vector_4_u8_type,
+        vector_8_u8_type,
         vector_16_u8_type,
         vector_32_u8_type,
+        vector_64_u8_type,
+        vector_2_i16_type,
+        vector_4_i16_type,
         vector_8_i16_type,
         vector_16_i16_type,
+        vector_32_i16_type,
+        vector_4_u16_type,
         vector_8_u16_type,
         vector_16_u16_type,
+        vector_32_u16_type,
+        vector_2_i32_type,
         vector_4_i32_type,
         vector_8_i32_type,
+        vector_16_i32_type,
         vector_4_u32_type,
         vector_8_u32_type,
+        vector_16_u32_type,
         vector_2_i64_type,
         vector_4_i64_type,
+        vector_8_i64_type,
         vector_2_u64_type,
         vector_4_u64_type,
+        vector_8_u64_type,
+        vector_1_u128_type,
+        vector_2_u128_type,
+        vector_1_u256_type,
         vector_4_f16_type,
         vector_8_f16_type,
+        vector_16_f16_type,
+        vector_32_f16_type,
         vector_2_f32_type,
         vector_4_f32_type,
         vector_8_f32_type,
+        vector_16_f32_type,
         vector_2_f64_type,
         vector_4_f64_type,
+        vector_8_f64_type,
         optional_noreturn_type,
         anyerror_void_error_union_type,
         adhoc_inferred_error_set_type,
         generic_poison_type,
         empty_tuple_type,
         undef,
+        undef_bool,
+        undef_usize,
+        undef_u1,
         zero,
         zero_usize,
+        zero_u1,
         zero_u8,
         one,
         one_usize,
+        one_u1,
         one_u8,
         four_u8,
         negative_one,
@@ -2280,28 +2332,28 @@ pub const Inst = struct {
         /// Used for unary operators, with an AST node source location.
         un_node: struct {
             /// Offset from Decl AST node index.
-            src_node: i32,
+            src_node: Ast.Node.Offset,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
         },
         /// Used for unary operators, with a token source location.
         un_tok: struct {
             /// Offset from Decl AST token index.
-            src_tok: Ast.TokenIndex,
+            src_tok: Ast.TokenOffset,
             /// The meaning of this operand depends on the corresponding `Tag`.
             operand: Ref,
         },
         pl_node: struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
-            src_node: i32,
+            src_node: Ast.Node.Offset,
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
         },
         pl_tok: struct {
             /// Offset from Decl AST token index.
-            src_tok: Ast.TokenIndex,
+            src_tok: Ast.TokenOffset,
             /// index into extra.
             /// `Tag` determines what lives there.
             payload_index: u32,
@@ -2322,16 +2374,16 @@ pub const Inst = struct {
             /// Offset into `string_bytes`. Null-terminated.
             start: NullTerminatedString,
             /// Offset from Decl AST token index.
-            src_tok: u32,
+            src_tok: Ast.TokenOffset,
 
             pub fn get(self: @This(), code: Zir) [:0]const u8 {
                 return code.nullTerminatedString(self.start);
             }
         },
         /// Offset from Decl AST token index.
-        tok: Ast.TokenIndex,
+        tok: Ast.TokenOffset,
         /// Offset from Decl AST node index.
-        node: i32,
+        node: Ast.Node.Offset,
         int: u64,
         float: f64,
         ptr_type: struct {
@@ -2352,14 +2404,14 @@ pub const Inst = struct {
         int_type: struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
-            src_node: i32,
+            src_node: Ast.Node.Offset,
             signedness: std.builtin.Signedness,
             bit_count: u16,
         },
         @"unreachable": struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
-            src_node: i32,
+            src_node: Ast.Node.Offset,
         },
         @"break": struct {
             operand: Ref,
@@ -2371,7 +2423,7 @@ pub const Inst = struct {
         /// with an AST node source location.
         inst_node: struct {
             /// Offset from Decl AST node index.
-            src_node: i32,
+            src_node: Ast.Node.Offset,
             /// The meaning of this operand depends on the corresponding `Tag`.
             inst: Index,
         },
@@ -2450,9 +2502,7 @@ pub const Inst = struct {
     };
 
     pub const Break = struct {
-        pub const no_src_node = std.math.maxInt(i32);
-
-        operand_src_node: i32,
+        operand_src_node: Ast.Node.OptionalOffset,
         block_inst: Index,
     };
 
@@ -2461,7 +2511,7 @@ pub const Inst = struct {
     /// 1. Input for every inputs_len
     /// 2. clobber: NullTerminatedString // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
-        src_node: i32,
+        src_node: Ast.Node.Offset,
         // null-terminated string index
         asm_source: NullTerminatedString,
         /// 1 bit for each outputs_len: whether it uses `-> T` or not.
@@ -2576,7 +2626,7 @@ pub const Inst = struct {
 
     /// Trailing: operand: Ref, // for each `operands_len` (stored in `small`).
     pub const NodeMultiOp = struct {
-        src_node: i32,
+        src_node: Ast.Node.Offset,
     };
 
     /// This data is stored inside extra, with trailing operands according to `body_len`.
@@ -3027,7 +3077,7 @@ pub const Inst = struct {
     /// Trailing:
     /// 0. operand: Ref // for each `operands_len`
     pub const TypeOfPeer = struct {
-        src_node: i32,
+        src_node: Ast.Node.Offset,
         body_len: u32,
         body_index: u32,
     };
@@ -3078,7 +3128,7 @@ pub const Inst = struct {
     /// 4. host_size: Ref // if `has_bit_range` flag is set
     pub const PtrType = struct {
         elem_type: Ref,
-        src_node: i32,
+        src_node: Ast.Node.Offset,
     };
 
     pub const ArrayTypeSentinel = struct {
@@ -3110,7 +3160,7 @@ pub const Inst = struct {
         start: Ref,
         len: Ref,
         sentinel: Ref,
-        start_src_node_offset: i32,
+        start_src_node_offset: Ast.Node.Offset,
     };
 
     /// The meaning of these operands depends on the corresponding `Tag`.
@@ -3120,13 +3170,13 @@ pub const Inst = struct {
     };
 
     pub const BinNode = struct {
-        node: i32,
+        node: Ast.Node.Offset,
         lhs: Ref,
         rhs: Ref,
     };
 
     pub const UnNode = struct {
-        node: i32,
+        node: Ast.Node.Offset,
         operand: Ref,
     };
 
@@ -3180,7 +3230,7 @@ pub const Inst = struct {
     pub const SwitchBlockErrUnion = struct {
         operand: Ref,
         bits: Bits,
-        main_src_node_offset: i32,
+        main_src_node_offset: Ast.Node.Offset,
 
         pub const Bits = packed struct(u32) {
             /// If true, one or more prongs have multiple items.
@@ -3586,7 +3636,7 @@ pub const Inst = struct {
     ///        init: Inst.Ref, // `.none` for non-`comptime` fields
     ///    }
     pub const TupleDecl = struct {
-        src_node: i32, // relative
+        src_node: Ast.Node.Offset,
     };
 
     /// Trailing:
@@ -3660,7 +3710,7 @@ pub const Inst = struct {
     };
 
     pub const Cmpxchg = struct {
-        node: i32,
+        node: Ast.Node.Offset,
         ptr: Ref,
         expected_value: Ref,
         new_value: Ref,
@@ -3700,7 +3750,7 @@ pub const Inst = struct {
     };
 
     pub const FieldParentPtr = struct {
-        src_node: i32,
+        src_node: Ast.Node.Offset,
         parent_ptr_type: Ref,
         field_name: Ref,
         field_ptr: Ref,
@@ -3714,7 +3764,7 @@ pub const Inst = struct {
     };
 
     pub const Select = struct {
-        node: i32,
+        node: Ast.Node.Offset,
         elem_type: Ref,
         pred: Ref,
         a: Ref,
@@ -3722,7 +3772,7 @@ pub const Inst = struct {
     };
 
     pub const AsyncCall = struct {
-        node: i32,
+        node: Ast.Node.Offset,
         frame_buffer: Ref,
         result_ptr: Ref,
         fn_ptr: Ref,
@@ -3747,7 +3797,7 @@ pub const Inst = struct {
     /// 0. type_inst: Ref,  // if small 0b000X is set
     /// 1. align_inst: Ref, // if small 0b00X0 is set
     pub const AllocExtended = struct {
-        src_node: i32,
+        src_node: Ast.Node.Offset,
 
         pub const Small = packed struct {
             has_type: bool,
@@ -3772,9 +3822,9 @@ pub const Inst = struct {
         pub const Item = struct {
             /// null terminated string index
             msg: NullTerminatedString,
-            node: Ast.Node.Index,
-            /// If node is 0 then this will be populated.
-            token: Ast.TokenIndex,
+            node: Ast.Node.OptionalIndex,
+            /// If node is .none then this will be populated.
+            token: Ast.OptionalTokenIndex,
             /// Can be used in combination with `token`.
             byte_offset: u32,
             /// 0 or a payload index of a `Block`, each is a payload
@@ -3812,7 +3862,7 @@ pub const Inst = struct {
     };
 
     pub const Src = struct {
-        node: i32,
+        node: Ast.Node.Offset,
         line: u32,
         column: u32,
     };
@@ -3827,7 +3877,7 @@ pub const Inst = struct {
         /// The value being destructured.
         operand: Ref,
         /// The `destructure_assign` node.
-        destructure_node: i32,
+        destructure_node: Ast.Node.Offset,
         /// The expected field count.
         expect_len: u32,
     };
@@ -3842,7 +3892,7 @@ pub const Inst = struct {
     };
 
     pub const RestoreErrRetIndex = struct {
-        src_node: i32,
+        src_node: Ast.Node.Offset,
         /// If `.none`, restore the trace to its state upon function entry.
         block: Ref,
         /// If `.none`, restore unconditionally.
@@ -4274,6 +4324,7 @@ fn findTrackableInner(
         .mul_add,
         .memcpy,
         .memset,
+        .memmove,
         .min,
         .max,
         .alloc,
@@ -4332,6 +4383,7 @@ fn findTrackableInner(
                 .await_nosuspend,
                 .breakpoint,
                 .disable_instrumentation,
+                .disable_intrinsics,
                 .select,
                 .int_from_error,
                 .error_from_int,
@@ -4807,6 +4859,15 @@ pub fn getParamBody(zir: Zir, fn_inst: Inst.Index) []const Zir.Inst.Index {
         },
         else => unreachable,
     }
+}
+
+pub fn getParamName(zir: Zir, param_inst: Inst.Index) ?NullTerminatedString {
+    const inst = zir.instructions.get(@intFromEnum(param_inst));
+    return switch (inst.tag) {
+        .param, .param_comptime => zir.extraData(Inst.Param, inst.data.pl_tok.payload_index).data.name,
+        .param_anytype, .param_anytype_comptime => inst.data.str_tok.start,
+        else => null,
+    };
 }
 
 pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {

@@ -15,12 +15,19 @@ var fba_buffer: [8192]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
 
 const crippled = switch (builtin.zig_backend) {
-    .stage2_riscv64 => true,
+    .stage2_powerpc,
+    .stage2_riscv64,
+    => true,
     else => false,
 };
 
 pub fn main() void {
     @disableInstrumentation();
+
+    if (builtin.cpu.arch.isSpirV()) {
+        // SPIR-V needs an special test-runner
+        return;
+    }
 
     if (crippled) {
         return mainSimple() catch @panic("test failure\n");
@@ -345,7 +352,7 @@ var is_fuzz_test: bool = undefined;
 extern fn fuzzer_set_name(name_ptr: [*]const u8, name_len: usize) void;
 extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
 extern fn fuzzer_init_corpus_elem(input_ptr: [*]const u8, input_len: usize) void;
-extern fn fuzzer_start(testOne: *const fn ([*]const u8, usize) callconv(.C) void) void;
+extern fn fuzzer_start(testOne: *const fn ([*]const u8, usize) callconv(.c) void) void;
 extern fn fuzzer_coverage_id() u64;
 
 pub fn fuzz(
@@ -377,7 +384,7 @@ pub fn fuzz(
     const global = struct {
         var ctx: @TypeOf(context) = undefined;
 
-        fn fuzzer_one(input_ptr: [*]const u8, input_len: usize) callconv(.C) void {
+        fn fuzzer_one(input_ptr: [*]const u8, input_len: usize) callconv(.c) void {
             @disableInstrumentation();
             testing.allocator_instance = .{};
             defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);

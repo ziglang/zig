@@ -38,6 +38,10 @@ pub const Alignment = enum(math.Log2Int(usize)) {
         return @enumFromInt(@ctz(n));
     }
 
+    pub inline fn of(comptime T: type) Alignment {
+        return comptime fromByteUnits(@alignOf(T));
+    }
+
     pub fn order(lhs: Alignment, rhs: Alignment) std.math.Order {
         return std.math.order(@intFromEnum(lhs), @intFromEnum(rhs));
     }
@@ -166,21 +170,6 @@ pub fn validationWrap(allocator: anytype) ValidationAllocator(@TypeOf(allocator)
     return ValidationAllocator(@TypeOf(allocator)).init(allocator);
 }
 
-/// An allocator helper function.  Adjusts an allocation length satisfy `len_align`.
-/// `full_len` should be the full capacity of the allocation which may be greater
-/// than the `len` that was requested.  This function should only be used by allocators
-/// that are unaffected by `len_align`.
-pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
-    assert(alloc_len > 0);
-    assert(alloc_len >= len_align);
-    assert(full_len >= alloc_len);
-    if (len_align == 0)
-        return alloc_len;
-    const adjusted = alignBackwardAnyAlign(usize, full_len, len_align);
-    assert(adjusted >= alloc_len);
-    return adjusted;
-}
-
 test "Allocator basics" {
     try testing.expectError(error.OutOfMemory, testing.failing_allocator.alloc(u8, 1));
     try testing.expectError(error.OutOfMemory, testing.failing_allocator.allocSentinel(u8, 1, 0));
@@ -228,9 +217,22 @@ test "Allocator.resize" {
     }
 }
 
+test "Allocator alloc and remap with zero-bit type" {
+    var values = try testing.allocator.alloc(void, 10);
+    defer testing.allocator.free(values);
+
+    try testing.expectEqual(10, values.len);
+    const remaped = testing.allocator.remap(values, 200);
+    try testing.expect(remaped != null);
+
+    values = remaped.?;
+    try testing.expectEqual(200, values.len);
+}
+
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
+/// This function is deprecated; use @memmove instead.
 pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
     for (dest[0..source.len], source) |*d, s| d.* = s;
 }
@@ -238,6 +240,7 @@ pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be >= src.ptr.
+/// This function is deprecated; use @memmove instead.
 pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     // TODO instead of manually doing this check for the whole array
     // and turning off runtime safety, the compiler should detect loops like
@@ -419,7 +422,9 @@ test zeroes {
     }
     try testing.expectEqual(@as(@TypeOf(b.vector_u32), @splat(0)), b.vector_u32);
     try testing.expectEqual(@as(@TypeOf(b.vector_f32), @splat(0.0)), b.vector_f32);
-    try testing.expectEqual(@as(@TypeOf(b.vector_bool), @splat(false)), b.vector_bool);
+    if (!(builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon)) {
+        try testing.expectEqual(@as(@TypeOf(b.vector_bool), @splat(false)), b.vector_bool);
+    }
     try testing.expectEqual(@as(?u8, null), b.optional_int);
     for (b.sentinel) |e| {
         try testing.expectEqual(@as(u8, 0), e);
@@ -670,10 +675,12 @@ test lessThan {
 }
 
 const eqlBytes_allowed = switch (builtin.zig_backend) {
+    // These backends don't support vectors yet.
+    .stage2_powerpc,
+    .stage2_riscv64,
+    => false,
     // The SPIR-V backend does not support the optimized path yet.
-    .stage2_spirv64 => false,
-    // The RISC-V does not support vectors.
-    .stage2_riscv64 => false,
+    .stage2_spirv => false,
     // The naive memory comparison implementation is more useful for fuzzers to
     // find interesting inputs.
     else => !builtin.fuzz,
@@ -1098,12 +1105,12 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
             // as we don't read into a new page. This should be the case for most architectures
             // which use paged memory, however should be confirmed before adding a new arch below.
             .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorLength(T)) |block_len| {
-                const page_size = std.heap.pageSize();
+                const page_size = std.heap.page_size_min;
                 const block_size = @sizeOf(T) * block_len;
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
 
-                comptime assert(std.heap.page_size_max % @sizeOf(Block) == 0);
+                comptime assert(std.heap.page_size_min % @sizeOf(Block) == 0);
                 assert(page_size % @sizeOf(Block) == 0);
 
                 // First block may be unaligned
@@ -1119,6 +1126,7 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
 
                     i += @divExact(std.mem.alignForward(usize, start_addr, block_size) - start_addr, @sizeOf(T));
                 } else {
+                    @branchHint(.unlikely);
                     // Would read over a page boundary. Per-byte at a time until aligned or found.
                     // 0.39% chance this branch is taken for 4K pages at 16b block length.
                     //
@@ -1152,7 +1160,7 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
 test "indexOfSentinel vector paths" {
     const Types = [_]type{ u8, u16, u32, u64 };
     const allocator = std.testing.allocator;
-    const page_size = std.heap.pageSize();
+    const page_size = std.heap.page_size_min;
 
     inline for (Types) |T| {
         const block_len = std.simd.suggestVectorLength(T) orelse continue;
@@ -1194,18 +1202,32 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
 }
 
 /// Remove a set of values from the beginning of a slice.
-pub fn trimLeft(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
+pub fn trimStart(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var begin: usize = 0;
     while (begin < slice.len and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
     return slice[begin..];
 }
 
+test trimStart {
+    try testing.expectEqualSlices(u8, "foo\n ", trimStart(u8, " foo\n ", " \n"));
+}
+
+/// Deprecated: use `trimStart` instead.
+pub const trimLeft = trimStart;
+
 /// Remove a set of values from the end of a slice.
-pub fn trimRight(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
+pub fn trimEnd(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var end: usize = slice.len;
     while (end > 0 and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
     return slice[0..end];
 }
+
+test trimEnd {
+    try testing.expectEqualSlices(u8, " foo", trimEnd(u8, " foo\n ", " \n"));
+}
+
+/// Deprecated: use `trimEnd` instead.
+pub const trimRight = trimEnd;
 
 /// Remove a set of values from the beginning and end of a slice.
 pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
@@ -1217,8 +1239,6 @@ pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []co
 }
 
 test trim {
-    try testing.expectEqualSlices(u8, "foo\n ", trimLeft(u8, " foo\n ", " \n"));
-    try testing.expectEqualSlices(u8, " foo", trimRight(u8, " foo\n ", " \n"));
     try testing.expectEqualSlices(u8, "foo", trim(u8, " foo\n ", " \n"));
     try testing.expectEqualSlices(u8, "foo", trim(u8, "foo", " \n"));
 }
@@ -1611,6 +1631,8 @@ test count {
 /// Returns true if the haystack contains expected_count or more needles
 /// needle.len must be > 0
 /// does not count overlapping needles
+//
+/// See also: `containsAtLeastScalar`
 pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: usize, needle: []const T) bool {
     assert(needle.len > 0);
     if (expected_count == 0) return true;
@@ -1640,6 +1662,34 @@ test containsAtLeast {
 
     try testing.expect(containsAtLeast(u8, "   radar      radar   ", 2, "radar"));
     try testing.expect(!containsAtLeast(u8, "   radar      radar   ", 3, "radar"));
+}
+
+/// Returns true if the haystack contains expected_count or more needles
+//
+/// See also: `containsAtLeast`
+pub fn containsAtLeastScalar(comptime T: type, haystack: []const T, expected_count: usize, needle: T) bool {
+    if (expected_count == 0) return true;
+
+    var found: usize = 0;
+
+    for (haystack) |item| {
+        if (item == needle) {
+            found += 1;
+            if (found == expected_count) return true;
+        }
+    }
+
+    return false;
+}
+
+test containsAtLeastScalar {
+    try testing.expect(containsAtLeastScalar(u8, "aa", 0, 'a'));
+    try testing.expect(containsAtLeastScalar(u8, "aa", 1, 'a'));
+    try testing.expect(containsAtLeastScalar(u8, "aa", 2, 'a'));
+    try testing.expect(!containsAtLeastScalar(u8, "aa", 3, 'a'));
+
+    try testing.expect(containsAtLeastScalar(u8, "adadda", 3, 'd'));
+    try testing.expect(!containsAtLeastScalar(u8, "adadda", 4, 'd'));
 }
 
 /// Reads an integer from memory with size equal to bytes.len.
@@ -4176,10 +4226,11 @@ fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
 
 /// Given a slice of bytes, returns a slice of the specified type
 /// backed by those bytes, preserving pointer attributes.
+/// If `T` is zero-bytes sized, the returned slice has a len of zero.
 pub fn bytesAsSlice(comptime T: type, bytes: anytype) BytesAsSliceReturnType(T, @TypeOf(bytes)) {
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (bytes.len == 0) {
+    if (bytes.len == 0 or @sizeOf(T) == 0) {
         return &[0]T{};
     }
 
@@ -4255,6 +4306,19 @@ test "bytesAsSlice preserves pointer attributes" {
     try testing.expectEqual(in.is_volatile, out.is_volatile);
     try testing.expectEqual(in.is_allowzero, out.is_allowzero);
     try testing.expectEqual(in.alignment, out.alignment);
+}
+
+test "bytesAsSlice with zero-bit element type" {
+    {
+        const bytes = [_]u8{};
+        const slice = bytesAsSlice(void, &bytes);
+        try testing.expectEqual(0, slice.len);
+    }
+    {
+        const bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+        const slice = bytesAsSlice(u0, &bytes);
+        try testing.expectEqual(0, slice.len);
+    }
 }
 
 fn SliceAsBytesReturnType(comptime Slice: type) type {
@@ -4605,11 +4669,6 @@ test "read/write(Var)PackedInt" {
         // LLVM backend fails with "too many locals: locals exceed maximum"
         .wasm32, .wasm64 => return error.SkipZigTest,
         else => {},
-    }
-
-    if (builtin.cpu.arch == .powerpc) {
-        // https://github.com/ziglang/zig/issues/16951
-        return error.SkipZigTest;
     }
 
     const foreign_endian: Endian = if (native_endian == .big) .little else .big;

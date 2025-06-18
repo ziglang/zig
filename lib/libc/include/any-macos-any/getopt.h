@@ -41,7 +41,10 @@
 #define _GETOPT_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <unistd.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 /*
  * GNU-like getopt_long()/getopt_long_only() with 4.4BSD optreset extension.
@@ -66,15 +69,15 @@ struct option {
 };
 
 __BEGIN_DECLS
-int	getopt_long(int, char * const *, const char *,
+int	getopt_long(int __argc, char *_LIBC_CSTR const *_LIBC_COUNT(__argc), const char *,
 	const struct option *, int *);
-int	getopt_long_only(int, char * const *, const char *,
+int	getopt_long_only(int __argc, char * const *_LIBC_COUNT(__argc), const char *,
 	const struct option *, int *);
 #ifndef _GETOPT
 #define	_GETOPT
-int	 getopt(int, char * const [], const char *) __DARWIN_ALIAS(getopt);
+int	 getopt(int __argc, char *_LIBC_CSTR const [_LIBC_COUNT(__argc)], const char *) __DARWIN_ALIAS(getopt);
 
-extern char *optarg;			/* getopt(3) external variables */
+extern char *_LIBC_CSTR optarg;			/* getopt(3) external variables */
 extern int optind, opterr, optopt;
 #endif
 #ifndef _OPTRESET

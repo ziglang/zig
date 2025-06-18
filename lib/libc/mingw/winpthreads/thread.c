@@ -20,16 +20,27 @@
    DEALINGS IN THE SOFTWARE.
 */
 
-#include <windows.h>
-#include <strsafe.h>
-#include <stdio.h>
-#include <stdlib.h>
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <malloc.h>
 #include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <wchar.h>
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <strsafe.h>
+
+#define WINPTHREAD_THREAD_DECL WINPTHREAD_API
+
+/* public header files */
 #include "pthread.h"
-#include "thread.h"
+/* internal header files */
 #include "misc.h"
-#include "winpthread_internal.h"
+#include "thread.h"
 
 static _pthread_v *__pthread_self_lite (void);
 
@@ -537,34 +548,6 @@ WINPTHREADS_ATTRIBUTE((WINPTHREADS_SECTION(".CRT$XLF")))
 extern const PIMAGE_TLS_CALLBACK __xl_f;
 const PIMAGE_TLS_CALLBACK __xl_f = __dyn_tls_pthread;
 
-
-#ifdef WINPTHREAD_DBG
-static int print_state = 0;
-void thread_print_set (int state)
-{
-  print_state = state;
-}
-
-void
-thread_print (volatile pthread_t t, char *txt)
-{
-    if (!print_state)
-      return;
-    if (!t)
-      printf("T%p %lu %s\n",NULL,GetCurrentThreadId(),txt);
-    else
-      {
-	printf("T%p %lu V=%0X H=%p %s\n",
-	    (void *) __pth_gpointer_locked (t),
-	    GetCurrentThreadId(),
-	    (__pth_gpointer_locked (t))->valid,
-	    (__pth_gpointer_locked (t))->h,
-	    txt
-	    );
-      }
-}
-#endif
-
 /* Internal collect-once structure.  */
 typedef struct collect_once_t {
   pthread_once_t *o;
@@ -677,8 +660,8 @@ pthread_timechange_handler_np(void *dummy)
 
 /* Compatibility routine for pthread-win32.  It waits for ellapse of
    interval and additionally checks for possible thread-cancelation.  */
-int
-pthread_delay_np (const struct timespec *interval)
+static int
+__pthread_delay_np (const struct _timespec64 *interval)
 {
   DWORD to = (!interval ? 0 : dwMilliSecs (_pthread_time_in_ms_from_timespec (interval)));
   struct _pthread_v *s = __pthread_self_lite ();
@@ -699,10 +682,21 @@ pthread_delay_np (const struct timespec *interval)
   return 0;
 }
 
-int pthread_delay_np_ms (DWORD to);
+int
+pthread_delay64_np (const struct _timespec64 *interval)
+{
+  return __pthread_delay_np(interval);
+}
 
 int
-pthread_delay_np_ms (DWORD to)
+pthread_delay32_np (const struct _timespec32 *interval)
+{
+  struct _timespec64 interval64 = {.tv_sec = interval->tv_sec, .tv_nsec = interval->tv_nsec};
+  return __pthread_delay_np(&interval64);
+}
+
+int
+_pthread_delay_np_ms (DWORD to)
 {
   struct _pthread_v *s = __pthread_self_lite ();
 
@@ -725,7 +719,7 @@ pthread_delay_np_ms (DWORD to)
 /* Compatibility routine for pthread-win32.  It returns the
    amount of available CPUs on system.  */
 int
-pthread_num_processors_np(void) 
+pthread_num_processors_np(void)
 {
   int r = 0;
   DWORD_PTR ProcessAffinityMask, SystemAffinityMask;
@@ -742,10 +736,10 @@ pthread_num_processors_np(void)
 /* Compatiblity routine for pthread-win32.  Allows to set amount of used
    CPUs for process.  */
 int
-pthread_set_num_processors_np(int n) 
+pthread_set_num_processors_np(int n)
 {
   DWORD_PTR ProcessAffinityMask, ProcessNewAffinityMask = 0, SystemAffinityMask;
-  int r = 0; 
+  int r = 0;
   /* need at least 1 */
   n = n ? n : 1;
   if (GetProcessAffinityMask (GetCurrentProcess (), &ProcessAffinityMask, &SystemAffinityMask))
@@ -878,7 +872,7 @@ pthread_key_delete (pthread_key_t key)
     return EINVAL;
 
   pthread_rwlock_wrlock (&_pthread_key_lock);
-  
+
   _pthread_key_dest[key] = NULL;
 
   /* Start next search from our location */
@@ -910,7 +904,7 @@ pthread_setspecific (pthread_key_t key, const void *value)
 {
   DWORD lasterr = GetLastError ();
   _pthread_v *t = __pthread_self_lite ();
-  
+
   pthread_spin_lock (&t->spin_keys);
 
   if (key >= t->keymax)
@@ -970,7 +964,8 @@ void
 _pthread_cleanup_dest (pthread_t t)
 {
 	_pthread_v *tv;
-	unsigned int i, j;
+	unsigned int j;
+	int i;
 
 	if (!t)
 		return;
@@ -983,7 +978,7 @@ _pthread_cleanup_dest (pthread_t t)
 		int flag = 0;
 
 		pthread_spin_lock (&tv->spin_keys);
-		for (i = 0; i < tv->keymax; i++)
+		for (i = tv->keymax - 1; i >= 0; i--)
 		{
 			void *val = tv->keyval[i];
 
@@ -1521,7 +1516,7 @@ void _fpreset (void);
 
 #if defined(__i386__)
 /* Align ESP on 16-byte boundaries. */
-#  if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 2)
+#  if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 2))
 __attribute__((force_align_arg_pointer))
 #  endif
 #endif
@@ -1552,17 +1547,7 @@ pthread_create_wrapper (void *args)
       if (tv->func)
         trslt = (intptr_t) tv->func(tv->ret_arg);
       #ifdef __SEH__
-	asm ("\tnop\n\t.tl_end: nop\n"
-#ifdef __arm__
-	  "\t.seh_handler __C_specific_handler, %except\n"
-#else
-	  "\t.seh_handler __C_specific_handler, @except\n"
-#endif
-	  "\t.seh_handlerdata\n"
-	  "\t.long 1\n"
-	  "\t.rva .tl_start, .tl_end, _gnu_exception_handler ,.tl_end\n"
-	  "\t.text"
-	  );
+        asm ("\tnop\n\t.tl_end: nop\n");
       #endif
       pthread_mutex_lock (&mtx_pthr_locked);
       tv->ret_arg = (void*) trslt;
@@ -1600,6 +1585,19 @@ pthread_create_wrapper (void *args)
    Sleep (0);
   _endthreadex (rslt);
   return rslt;
+
+#if defined(__SEH__)
+  asm(
+#ifdef __arm__
+    "\t.seh_handler __C_specific_handler, %except\n"
+#else
+    "\t.seh_handler __C_specific_handler, @except\n"
+#endif
+    "\t.seh_handlerdata\n"
+    "\t.long 1\n"
+    "\t.rva .tl_start, .tl_end, _gnu_exception_handler ,.tl_end\n"
+    "\t.text\n");
+#endif
 }
 
 int
@@ -1880,13 +1878,14 @@ pthread_setname_np (pthread_t thread, const char *name)
 
   if (_pthread_set_thread_description != NULL)
     {
-      size_t required_size = mbstowcs(NULL, name, 0);
+      mbstate_t mbs = {0};
+      size_t required_size = mbsrtowcs(NULL, &name, 0, &mbs);
       if (required_size != (size_t)-1)
         {
           wchar_t *wname = malloc((required_size + 1) * sizeof(wchar_t));
           if (wname != NULL)
             {
-              mbstowcs(wname, name, required_size + 1);
+              mbsrtowcs(wname, &name, required_size + 1, &mbs);
               _pthread_set_thread_description(tv->h, wname);
               free(wname);
             }

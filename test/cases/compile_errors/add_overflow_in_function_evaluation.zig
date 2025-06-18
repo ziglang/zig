@@ -8,8 +8,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:14: error: overflow of integer type 'u16' with value '65540'
-// :1:14: note: called from here
+// :1:14: note: called at comptime here

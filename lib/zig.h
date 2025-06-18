@@ -9,6 +9,7 @@
 #define zig_clang
 #define zig_gnuc
 #elif defined(__GNUC__)
+#define zig_gcc
 #define zig_gnuc
 #elif defined(__IBMC__)
 #define zig_xlc
@@ -171,7 +172,7 @@
 #define zig_callconv(c) __attribute__((c))
 #endif
 
-#if zig_has_attribute(naked) || defined(zig_gnuc)
+#if zig_has_attribute(naked) || defined(zig_gcc)
 #define zig_naked_decl __attribute__((naked))
 #define zig_naked __attribute__((naked))
 #elif defined(zig_msvc)
@@ -222,6 +223,12 @@
 #define zig_restrict
 #endif
 
+#if zig_has_attribute(no_builtin)
+#define zig_no_builtin __attribute__((no_builtin))
+#else
+#define zig_no_builtin
+#endif
+
 #if zig_has_attribute(aligned) || defined(zig_tinyc)
 #define zig_under_align(alignment) __attribute__((aligned(alignment)))
 #elif defined(zig_msvc)
@@ -265,7 +272,16 @@
 #define zig_linksection_fn zig_linksection
 #endif
 
-#if zig_has_builtin(unreachable) || defined(zig_gnuc) || defined(zig_tinyc)
+#if zig_has_attribute(visibility)
+#define zig_visibility(name) __attribute__((visibility(#name)))
+#else
+#define zig_visibility(name) zig_visibility_##name
+#define zig_visibility_default
+#define zig_visibility_hidden zig_visibility_hidden_unavailable
+#define zig_visibility_protected zig_visibility_protected_unavailable
+#endif
+
+#if zig_has_builtin(unreachable) || defined(zig_gcc) || defined(zig_tinyc)
 #define zig_unreachable() __builtin_unreachable()
 #elif defined(zig_msvc)
 #define zig_unreachable() __assume(0)
@@ -331,7 +347,7 @@
 #define zig_expand_import_0(Type, fn_name, libc_name, sig_args, call_args) zig_import(Type, fn_name, libc_name, sig_args, call_args)
 #define zig_expand_import_1(Type, fn_name, libc_name, sig_args, call_args) zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args)
 
-#if zig_has_attribute(weak) || defined(zig_gnuc) || defined(zig_tinyc)
+#if zig_has_attribute(weak) || defined(zig_gcc) || defined(zig_tinyc)
 #define zig_weak_linkage __attribute__((weak))
 #define zig_weak_linkage_fn __attribute__((weak))
 #elif defined(zig_msvc)
@@ -418,7 +434,7 @@
 #define zig_breakpoint() zig_breakpoint_unavailable
 #endif
 
-#if zig_has_builtin(return_address) || defined(zig_gnuc) || defined(zig_tinyc)
+#if zig_has_builtin(return_address) || defined(zig_gcc) || defined(zig_tinyc)
 #define zig_return_address() __builtin_extract_return_addr(__builtin_return_address(0))
 #elif defined(zig_msvc)
 #define zig_return_address() _ReturnAddress()
@@ -426,7 +442,7 @@
 #define zig_return_address() 0
 #endif
 
-#if zig_has_builtin(frame_address) || defined(zig_gnuc) || defined(zig_tinyc)
+#if zig_has_builtin(frame_address) || defined(zig_gcc) || defined(zig_tinyc)
 #define zig_frame_address() __builtin_frame_address(0)
 #elif defined(zig_msvc)
 #define zig_frame_address() _AddressOfReturnAddress()
@@ -434,7 +450,7 @@
 #define zig_frame_address() 0
 #endif
 
-#if zig_has_builtin(prefetch) || defined(zig_gnuc)
+#if zig_has_builtin(prefetch) || defined(zig_gcc)
 #define zig_prefetch(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
 #else
 #define zig_prefetch(addr, rw, locality)
@@ -452,7 +468,7 @@
 #define zig_noreturn [[noreturn]]
 #elif __STDC_VERSION__ >= 201112L
 #define zig_noreturn _Noreturn
-#elif zig_has_attribute(noreturn) || defined(zig_gnuc) || defined(zig_tinyc)
+#elif zig_has_attribute(noreturn) || defined(zig_gcc) || defined(zig_tinyc)
 #define zig_noreturn __attribute__((noreturn))
 #elif defined(zig_msvc)
 #define zig_noreturn __declspec(noreturn)
@@ -474,6 +490,7 @@
 
 zig_extern void *memcpy (void *zig_restrict, void const *zig_restrict, size_t);
 zig_extern void *memset (void *, int, size_t);
+zig_extern void *memmove (void *, void const *, size_t);
 
 /* ================ Bool and 8/16/32/64-bit Integer Support ================= */
 
@@ -770,7 +787,7 @@ zig_int_helpers(64, uint64_t)
 #endif
 
 static inline bool zig_addo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8_t bits) {
-#if zig_has_builtin(add_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(add_overflow) || defined(zig_gcc)
     uint32_t full_res;
     bool overflow = __builtin_add_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_u32(full_res, bits);
@@ -783,7 +800,7 @@ static inline bool zig_addo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8
 
 zig_extern int32_t  __addosi4(int32_t lhs, int32_t rhs, int *overflow);
 static inline bool zig_addo_i32(int32_t *res, int32_t lhs, int32_t rhs, uint8_t bits) {
-#if zig_has_builtin(add_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(add_overflow) || defined(zig_gcc)
     int32_t full_res;
     bool overflow = __builtin_add_overflow(lhs, rhs, &full_res);
 #else
@@ -796,7 +813,7 @@ static inline bool zig_addo_i32(int32_t *res, int32_t lhs, int32_t rhs, uint8_t 
 }
 
 static inline bool zig_addo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8_t bits) {
-#if zig_has_builtin(add_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(add_overflow) || defined(zig_gcc)
     uint64_t full_res;
     bool overflow = __builtin_add_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_u64(full_res, bits);
@@ -809,7 +826,7 @@ static inline bool zig_addo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8
 
 zig_extern int64_t  __addodi4(int64_t lhs, int64_t rhs, int *overflow);
 static inline bool zig_addo_i64(int64_t *res, int64_t lhs, int64_t rhs, uint8_t bits) {
-#if zig_has_builtin(add_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(add_overflow) || defined(zig_gcc)
     int64_t full_res;
     bool overflow = __builtin_add_overflow(lhs, rhs, &full_res);
 #else
@@ -822,7 +839,7 @@ static inline bool zig_addo_i64(int64_t *res, int64_t lhs, int64_t rhs, uint8_t 
 }
 
 static inline bool zig_addo_u8(uint8_t *res, uint8_t lhs, uint8_t rhs, uint8_t bits) {
-#if zig_has_builtin(add_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(add_overflow) || defined(zig_gcc)
     uint8_t full_res;
     bool overflow = __builtin_add_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_u8(full_res, bits);
@@ -836,7 +853,7 @@ static inline bool zig_addo_u8(uint8_t *res, uint8_t lhs, uint8_t rhs, uint8_t b
 }
 
 static inline bool zig_addo_i8(int8_t *res, int8_t lhs, int8_t rhs, uint8_t bits) {
-#if zig_has_builtin(add_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(add_overflow) || defined(zig_gcc)
     int8_t full_res;
     bool overflow = __builtin_add_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_i8(full_res, bits);
@@ -850,7 +867,7 @@ static inline bool zig_addo_i8(int8_t *res, int8_t lhs, int8_t rhs, uint8_t bits
 }
 
 static inline bool zig_addo_u16(uint16_t *res, uint16_t lhs, uint16_t rhs, uint8_t bits) {
-#if zig_has_builtin(add_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(add_overflow) || defined(zig_gcc)
     uint16_t full_res;
     bool overflow = __builtin_add_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_u16(full_res, bits);
@@ -864,7 +881,7 @@ static inline bool zig_addo_u16(uint16_t *res, uint16_t lhs, uint16_t rhs, uint8
 }
 
 static inline bool zig_addo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t bits) {
-#if zig_has_builtin(add_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(add_overflow) || defined(zig_gcc)
     int16_t full_res;
     bool overflow = __builtin_add_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_i16(full_res, bits);
@@ -878,7 +895,7 @@ static inline bool zig_addo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t 
 }
 
 static inline bool zig_subo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8_t bits) {
-#if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(sub_overflow) || defined(zig_gcc)
     uint32_t full_res;
     bool overflow = __builtin_sub_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_u32(full_res, bits);
@@ -891,7 +908,7 @@ static inline bool zig_subo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8
 
 zig_extern int32_t  __subosi4(int32_t lhs, int32_t rhs, int *overflow);
 static inline bool zig_subo_i32(int32_t *res, int32_t lhs, int32_t rhs, uint8_t bits) {
-#if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(sub_overflow) || defined(zig_gcc)
     int32_t full_res;
     bool overflow = __builtin_sub_overflow(lhs, rhs, &full_res);
 #else
@@ -904,7 +921,7 @@ static inline bool zig_subo_i32(int32_t *res, int32_t lhs, int32_t rhs, uint8_t 
 }
 
 static inline bool zig_subo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8_t bits) {
-#if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(sub_overflow) || defined(zig_gcc)
     uint64_t full_res;
     bool overflow = __builtin_sub_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_u64(full_res, bits);
@@ -917,7 +934,7 @@ static inline bool zig_subo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8
 
 zig_extern int64_t  __subodi4(int64_t lhs, int64_t rhs, int *overflow);
 static inline bool zig_subo_i64(int64_t *res, int64_t lhs, int64_t rhs, uint8_t bits) {
-#if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(sub_overflow) || defined(zig_gcc)
     int64_t full_res;
     bool overflow = __builtin_sub_overflow(lhs, rhs, &full_res);
 #else
@@ -930,7 +947,7 @@ static inline bool zig_subo_i64(int64_t *res, int64_t lhs, int64_t rhs, uint8_t 
 }
 
 static inline bool zig_subo_u8(uint8_t *res, uint8_t lhs, uint8_t rhs, uint8_t bits) {
-#if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(sub_overflow) || defined(zig_gcc)
     uint8_t full_res;
     bool overflow = __builtin_sub_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_u8(full_res, bits);
@@ -944,7 +961,7 @@ static inline bool zig_subo_u8(uint8_t *res, uint8_t lhs, uint8_t rhs, uint8_t b
 }
 
 static inline bool zig_subo_i8(int8_t *res, int8_t lhs, int8_t rhs, uint8_t bits) {
-#if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(sub_overflow) || defined(zig_gcc)
     int8_t full_res;
     bool overflow = __builtin_sub_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_i8(full_res, bits);
@@ -958,7 +975,7 @@ static inline bool zig_subo_i8(int8_t *res, int8_t lhs, int8_t rhs, uint8_t bits
 }
 
 static inline bool zig_subo_u16(uint16_t *res, uint16_t lhs, uint16_t rhs, uint8_t bits) {
-#if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(sub_overflow) || defined(zig_gcc)
     uint16_t full_res;
     bool overflow = __builtin_sub_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_u16(full_res, bits);
@@ -972,7 +989,7 @@ static inline bool zig_subo_u16(uint16_t *res, uint16_t lhs, uint16_t rhs, uint8
 }
 
 static inline bool zig_subo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t bits) {
-#if zig_has_builtin(sub_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(sub_overflow) || defined(zig_gcc)
     int16_t full_res;
     bool overflow = __builtin_sub_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_i16(full_res, bits);
@@ -986,7 +1003,7 @@ static inline bool zig_subo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t 
 }
 
 static inline bool zig_mulo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8_t bits) {
-#if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(mul_overflow) || defined(zig_gcc)
     uint32_t full_res;
     bool overflow = __builtin_mul_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_u32(full_res, bits);
@@ -999,7 +1016,7 @@ static inline bool zig_mulo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8
 
 zig_extern int32_t  __mulosi4(int32_t lhs, int32_t rhs, int *overflow);
 static inline bool zig_mulo_i32(int32_t *res, int32_t lhs, int32_t rhs, uint8_t bits) {
-#if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(mul_overflow) || defined(zig_gcc)
     int32_t full_res;
     bool overflow = __builtin_mul_overflow(lhs, rhs, &full_res);
 #else
@@ -1012,7 +1029,7 @@ static inline bool zig_mulo_i32(int32_t *res, int32_t lhs, int32_t rhs, uint8_t 
 }
 
 static inline bool zig_mulo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8_t bits) {
-#if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(mul_overflow) || defined(zig_gcc)
     uint64_t full_res;
     bool overflow = __builtin_mul_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_u64(full_res, bits);
@@ -1025,7 +1042,7 @@ static inline bool zig_mulo_u64(uint64_t *res, uint64_t lhs, uint64_t rhs, uint8
 
 zig_extern int64_t  __mulodi4(int64_t lhs, int64_t rhs, int *overflow);
 static inline bool zig_mulo_i64(int64_t *res, int64_t lhs, int64_t rhs, uint8_t bits) {
-#if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(mul_overflow) || defined(zig_gcc)
     int64_t full_res;
     bool overflow = __builtin_mul_overflow(lhs, rhs, &full_res);
 #else
@@ -1038,7 +1055,7 @@ static inline bool zig_mulo_i64(int64_t *res, int64_t lhs, int64_t rhs, uint8_t 
 }
 
 static inline bool zig_mulo_u8(uint8_t *res, uint8_t lhs, uint8_t rhs, uint8_t bits) {
-#if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(mul_overflow) || defined(zig_gcc)
     uint8_t full_res;
     bool overflow = __builtin_mul_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_u8(full_res, bits);
@@ -1052,7 +1069,7 @@ static inline bool zig_mulo_u8(uint8_t *res, uint8_t lhs, uint8_t rhs, uint8_t b
 }
 
 static inline bool zig_mulo_i8(int8_t *res, int8_t lhs, int8_t rhs, uint8_t bits) {
-#if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(mul_overflow) || defined(zig_gcc)
     int8_t full_res;
     bool overflow = __builtin_mul_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_i8(full_res, bits);
@@ -1066,7 +1083,7 @@ static inline bool zig_mulo_i8(int8_t *res, int8_t lhs, int8_t rhs, uint8_t bits
 }
 
 static inline bool zig_mulo_u16(uint16_t *res, uint16_t lhs, uint16_t rhs, uint8_t bits) {
-#if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(mul_overflow) || defined(zig_gcc)
     uint16_t full_res;
     bool overflow = __builtin_mul_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_u16(full_res, bits);
@@ -1080,7 +1097,7 @@ static inline bool zig_mulo_u16(uint16_t *res, uint16_t lhs, uint16_t rhs, uint8
 }
 
 static inline bool zig_mulo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t bits) {
-#if zig_has_builtin(mul_overflow) || defined(zig_gnuc)
+#if zig_has_builtin(mul_overflow) || defined(zig_gcc)
     int16_t full_res;
     bool overflow = __builtin_mul_overflow(lhs, rhs, &full_res);
     *res = zig_wrap_i16(full_res, bits);
@@ -1107,14 +1124,15 @@ static inline bool zig_mulo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t 
 \
     static inline uint##w##_t zig_shls_u##w(uint##w##_t lhs, uint##w##_t rhs, uint8_t bits) { \
         uint##w##_t res; \
-        if (rhs >= bits) return lhs != UINT##w##_C(0) ? zig_maxInt_u(w, bits) : lhs; \
-        return zig_shlo_u##w(&res, lhs, (uint8_t)rhs, bits) ? zig_maxInt_u(w, bits) : res; \
+        if (rhs < bits && !zig_shlo_u##w(&res, lhs, rhs, bits)) return res; \
+        return lhs == INT##w##_C(0) ? INT##w##_C(0) : zig_maxInt_u(w, bits); \
     } \
 \
-    static inline int##w##_t zig_shls_i##w(int##w##_t lhs, int##w##_t rhs, uint8_t bits) { \
+    static inline int##w##_t zig_shls_i##w(int##w##_t lhs, uint##w##_t rhs, uint8_t bits) { \
         int##w##_t res; \
-        if ((uint##w##_t)rhs < (uint##w##_t)bits && !zig_shlo_i##w(&res, lhs, (uint8_t)rhs, bits)) return res; \
-        return lhs < INT##w##_C(0) ? zig_minInt_i(w, bits) : zig_maxInt_i(w, bits); \
+        if (rhs < bits && !zig_shlo_i##w(&res, lhs, rhs, bits)) return res; \
+        return lhs == INT##w##_C(0) ? INT##w##_C(0) : \
+            lhs < INT##w##_C(0) ? zig_minInt_i(w, bits) : zig_maxInt_i(w, bits); \
     } \
 \
     static inline uint##w##_t zig_adds_u##w(uint##w##_t lhs, uint##w##_t rhs, uint8_t bits) { \
@@ -1189,7 +1207,7 @@ static inline int8_t zig_byte_swap_i8(int8_t val, uint8_t bits) {
 
 static inline uint16_t zig_byte_swap_u16(uint16_t val, uint8_t bits) {
     uint16_t full_res;
-#if zig_has_builtin(bswap16) || defined(zig_gnuc)
+#if zig_has_builtin(bswap16) || defined(zig_gcc)
     full_res = __builtin_bswap16(val);
 #else
     full_res = (uint16_t)zig_byte_swap_u8((uint8_t)(val >>  0), 8) <<  8 |
@@ -1204,7 +1222,7 @@ static inline int16_t zig_byte_swap_i16(int16_t val, uint8_t bits) {
 
 static inline uint32_t zig_byte_swap_u32(uint32_t val, uint8_t bits) {
     uint32_t full_res;
-#if zig_has_builtin(bswap32) || defined(zig_gnuc)
+#if zig_has_builtin(bswap32) || defined(zig_gcc)
     full_res = __builtin_bswap32(val);
 #else
     full_res = (uint32_t)zig_byte_swap_u16((uint16_t)(val >>  0), 16) << 16 |
@@ -1219,7 +1237,7 @@ static inline int32_t zig_byte_swap_i32(int32_t val, uint8_t bits) {
 
 static inline uint64_t zig_byte_swap_u64(uint64_t val, uint8_t bits) {
     uint64_t full_res;
-#if zig_has_builtin(bswap64) || defined(zig_gnuc)
+#if zig_has_builtin(bswap64) || defined(zig_gcc)
     full_res = __builtin_bswap64(val);
 #else
     full_res = (uint64_t)zig_byte_swap_u32((uint32_t)(val >>  0), 32) << 32 |
@@ -1299,7 +1317,7 @@ static inline int64_t zig_bit_reverse_i64(int64_t val, uint8_t bits) {
     static inline uint8_t zig_popcount_i##w(int##w##_t val, uint8_t bits) { \
         return zig_popcount_u##w((uint##w##_t)val, bits); \
     }
-#if zig_has_builtin(popcount) || defined(zig_gnuc) || defined(zig_tinyc)
+#if zig_has_builtin(popcount) || defined(zig_gcc) || defined(zig_tinyc)
 #define zig_builtin_popcount(w) \
     static inline uint8_t zig_popcount_u##w(uint##w##_t val, uint8_t bits) { \
         (void)bits; \
@@ -1328,7 +1346,7 @@ zig_builtin_popcount(64)
     static inline uint8_t zig_ctz_i##w(int##w##_t val, uint8_t bits) { \
         return zig_ctz_u##w((uint##w##_t)val, bits); \
     }
-#if zig_has_builtin(ctz) || defined(zig_gnuc) || defined(zig_tinyc)
+#if zig_has_builtin(ctz) || defined(zig_gcc) || defined(zig_tinyc)
 #define zig_builtin_ctz(w) \
     static inline uint8_t zig_ctz_u##w(uint##w##_t val, uint8_t bits) { \
         if (val == 0) return bits; \
@@ -1353,7 +1371,7 @@ zig_builtin_ctz(64)
     static inline uint8_t zig_clz_i##w(int##w##_t val, uint8_t bits) { \
         return zig_clz_u##w((uint##w##_t)val, bits); \
     }
-#if zig_has_builtin(clz) || defined(zig_gnuc) || defined(zig_tinyc)
+#if zig_has_builtin(clz) || defined(zig_gcc) || defined(zig_tinyc)
 #define zig_builtin_clz(w) \
     static inline uint8_t zig_clz_u##w(uint##w##_t val, uint8_t bits) { \
         if (val == 0) return bits; \
@@ -1843,15 +1861,23 @@ static inline bool zig_shlo_i128(zig_i128 *res, zig_i128 lhs, uint8_t rhs, uint8
 
 static inline zig_u128 zig_shls_u128(zig_u128 lhs, zig_u128 rhs, uint8_t bits) {
     zig_u128 res;
-    if (zig_cmp_u128(rhs, zig_make_u128(0, bits)) >= INT32_C(0))
-        return zig_cmp_u128(lhs, zig_make_u128(0, 0)) != INT32_C(0) ? zig_maxInt_u(128, bits) : lhs;
-    return zig_shlo_u128(&res, lhs, (uint8_t)zig_lo_u128(rhs), bits) ? zig_maxInt_u(128, bits) : res;
+    if (zig_cmp_u128(rhs, zig_make_u128(0, bits)) < INT32_C(0) && !zig_shlo_u128(&res, lhs, (uint8_t)zig_lo_u128(rhs), bits)) return res;
+    switch (zig_cmp_u128(lhs, zig_make_u128(0, 0))) {
+        case 0: return zig_make_u128(0, 0);
+        case 1: return zig_maxInt_u(128, bits);
+        default: zig_unreachable();
+    }
 }
 
-static inline zig_i128 zig_shls_i128(zig_i128 lhs, zig_i128 rhs, uint8_t bits) {
+static inline zig_i128 zig_shls_i128(zig_i128 lhs, zig_u128 rhs, uint8_t bits) {
     zig_i128 res;
-    if (zig_cmp_u128(zig_bitCast_u128(rhs), zig_make_u128(0, bits)) < INT32_C(0) && !zig_shlo_i128(&res, lhs, (uint8_t)zig_lo_i128(rhs), bits)) return res;
-    return zig_cmp_i128(lhs, zig_make_i128(0, 0)) < INT32_C(0) ? zig_minInt_i(128, bits) : zig_maxInt_i(128, bits);
+    if (zig_cmp_u128(rhs, zig_make_u128(0, bits)) < INT32_C(0) && !zig_shlo_i128(&res, lhs, (uint8_t)zig_lo_u128(rhs), bits)) return res;
+    switch (zig_cmp_i128(lhs, zig_make_i128(0, 0))) {
+        case -1: return zig_minInt_i(128, bits);
+        case  0: return zig_make_i128(0, 0);
+        case  1: return zig_maxInt_i(128, bits);
+        default: zig_unreachable();
+    }
 }
 
 static inline zig_u128 zig_adds_u128(zig_u128 lhs, zig_u128 rhs, uint8_t bits) {
@@ -3208,7 +3234,7 @@ long double __cdecl nanl(char const* input);
 #define __builtin_infl() zig_msvc_flt_infl
 #endif
 
-#if (zig_has_builtin(nan) && zig_has_builtin(nans) && zig_has_builtin(inf)) || defined(zig_gnuc)
+#if (zig_has_builtin(nan) && zig_has_builtin(nans) && zig_has_builtin(inf)) || defined(zig_gcc)
 #define  zig_make_special_f16(sign, name, arg, repr) sign zig_make_f16 (__builtin_##name, )(arg)
 #define  zig_make_special_f32(sign, name, arg, repr) sign zig_make_f32 (__builtin_##name, )(arg)
 #define  zig_make_special_f64(sign, name, arg, repr) sign zig_make_f64 (__builtin_##name, )(arg)
@@ -3234,7 +3260,7 @@ typedef double zig_f16;
 #elif LDBL_MANT_DIG == 11
 typedef long double zig_f16;
 #define zig_make_f16(fp, repr) fp##l
-#elif FLT16_MANT_DIG == 11 && (zig_has_builtin(inff16) || defined(zig_gnuc))
+#elif FLT16_MANT_DIG == 11 && (zig_has_builtin(inff16) || defined(zig_gcc))
 typedef _Float16 zig_f16;
 #define zig_make_f16(fp, repr) fp##f16
 #elif defined(__SIZEOF_FP16__)
@@ -3356,7 +3382,7 @@ typedef zig_u128 zig_f80;
 #define zig_init_special_f80(sign, name, arg, repr) repr
 #endif
 
-#if !defined(zig_clang) && defined(zig_gnuc) && defined(zig_x86)
+#if defined(zig_gcc) && defined(zig_x86)
 #define zig_f128_has_miscompilations 1
 #else
 #define zig_f128_has_miscompilations 0

@@ -23,36 +23,9 @@
 #ifndef WIN_PTHREADS_MISC_H
 #define WIN_PTHREADS_MISC_H
 
+#include <limits.h>
+/* public header files */
 #include "pthread_compat.h"
-
-#ifndef assert
-
-#ifndef ASSERT_TRACE
-# define ASSERT_TRACE 0
-#else
-# undef ASSERT_TRACE
-# define ASSERT_TRACE 0
-#endif
-
-# define assert(e) \
-   ((e) ? ((ASSERT_TRACE) ? fprintf(stderr, \
-                                    "Assertion succeeded: (%s), file %s, line %d\n", \
-                        #e, __FILE__, (int) __LINE__), \
-                                fflush(stderr) : \
-                             0) : \
-          (fprintf(stderr, "Assertion failed: (%s), file %s, line %d\n", \
-                   #e, __FILE__, (int) __LINE__), exit(1), 0))
-
-# define fixme(e) \
-   ((e) ? ((ASSERT_TRACE) ? fprintf(stderr, \
-                                    "Assertion succeeded: (%s), file %s, line %d\n", \
-                        #e, __FILE__, (int) __LINE__), \
-                                fflush(stderr) : \
-                             0) : \
-          (fprintf(stderr, "FIXME: (%s), file %s, line %d\n", \
-                   #e, __FILE__, (int) __LINE__), 0, 0))
-
-#endif
 
 #define PTR2INT(x)	((int)(uintptr_t)(x))
 
@@ -102,8 +75,8 @@ static WINPTHREADS_INLINE unsigned long dwMilliSecs(unsigned long long ms)
 }
 
 unsigned long long _pthread_time_in_ms(void);
-unsigned long long _pthread_time_in_ms_from_timespec(const struct timespec *ts);
-unsigned long long _pthread_rel_time_in_ms(const struct timespec *ts);
+unsigned long long _pthread_time_in_ms_from_timespec(const struct _timespec64 *ts);
+unsigned long long _pthread_rel_time_in_ms(const struct _timespec64 *ts);
 unsigned long _pthread_wait_for_single_object (void *handle, unsigned long timeout);
 unsigned long _pthread_wait_for_multiple_objects (unsigned long count, void **handles, unsigned int all, unsigned long timeout);
 

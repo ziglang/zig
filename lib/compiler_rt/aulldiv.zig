@@ -8,14 +8,14 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    if (arch == .x86 and os == .windows and (abi == .msvc or abi == .itanium) and !builtin.link_libc) {
+    if (arch == .x86 and common.want_windows_msvc_or_itanium_abi and !builtin.link_libc) {
         // Don't let LLVM apply the stdcall name mangling on those MSVC builtins
         @export(&_alldiv, .{ .name = "\x01__alldiv", .linkage = common.linkage, .visibility = common.visibility });
         @export(&_aulldiv, .{ .name = "\x01__aulldiv", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
-pub fn _alldiv(a: i64, b: i64) callconv(.Stdcall) i64 {
+pub fn _alldiv(a: i64, b: i64) callconv(.{ .x86_stdcall = .{} }) i64 {
     const s_a = a >> (64 - 1);
     const s_b = b >> (64 - 1);
 
@@ -27,7 +27,7 @@ pub fn _alldiv(a: i64, b: i64) callconv(.Stdcall) i64 {
     return (@as(i64, @bitCast(r)) ^ s) -% s;
 }
 
-pub fn _aulldiv() callconv(.Naked) void {
+pub fn _aulldiv() callconv(.naked) void {
     @setRuntimeSafety(false);
 
     // The stack layout is:

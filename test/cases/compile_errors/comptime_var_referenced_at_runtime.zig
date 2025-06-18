@@ -63,6 +63,14 @@ export fn far() void {
     @memset(&rt, elem);
 }
 
+export fn bax() void {
+    comptime var x: [2]u32 = undefined;
+    x = .{ 1, 2 };
+
+    var rt: [2]u32 = undefined;
+    @memmove(&rt, &x);
+}
+
 // error
 //
 // :5:19: error: runtime value contains reference to comptime var
@@ -92,3 +100,6 @@ export fn far() void {
 // :63:18: error: runtime value contains reference to comptime var
 // :63:18: note: comptime var pointers are not available at runtime
 // :59:27: note: 'runtime_value' points to comptime var declared here
+// :71:19: error: runtime value contains reference to comptime var
+// :71:19: note: comptime var pointers are not available at runtime
+// :67:30: note: 'runtime_value' points to comptime var declared here

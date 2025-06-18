@@ -285,6 +285,18 @@ const known_options = [_]KnownOpt{
         .ident = "sanitize",
     },
     .{
+        .name = "fno-sanitize",
+        .ident = "no_sanitize",
+    },
+    .{
+        .name = "fsanitize-trap",
+        .ident = "sanitize_trap",
+    },
+    .{
+        .name = "fno-sanitize-trap",
+        .ident = "no_sanitize_trap",
+    },
+    .{
         .name = "T",
         .ident = "linker_script",
     },
@@ -568,6 +580,14 @@ const known_options = [_]KnownOpt{
         .name = "rtlib=",
         .ident = "rtlib",
     },
+    .{
+        .name = "static",
+        .ident = "static",
+    },
+    .{
+        .name = "dynamic",
+        .ident = "dynamic",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
@@ -761,7 +781,7 @@ pub fn main() anyerror!void {
             if ((std.mem.startsWith(u8, name, "mno-") and
                 llvm_to_zig_cpu_features.contains(name["mno-".len..])) or
                 (std.mem.startsWith(u8, name, "m") and
-                llvm_to_zig_cpu_features.contains(name["m".len..])))
+                    llvm_to_zig_cpu_features.contains(name["m".len..])))
             {
                 try stdout.print("m(\"{s}\"),\n", .{name});
             } else {

@@ -6,10 +6,6 @@
  * Written by Kai Tietz  <kai.tietz@onevision.com>
  */
 
-#ifdef CRTDLL
-#undef CRTDLL
-#endif
-
 #include <sect_attribs.h>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -32,6 +28,7 @@ typedef struct TlsDtorNode {
   _PVFV funcs[FUNCS_PER_NODE];
 } TlsDtorNode;
 
+__attribute__((used))
 ULONG _tls_index = 0;
 
 /* TLS raw template data start and end. 

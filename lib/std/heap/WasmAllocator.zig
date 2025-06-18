@@ -7,7 +7,7 @@ const wasm = std.wasm;
 const math = std.math;
 
 comptime {
-    if (!builtin.target.isWasm()) {
+    if (!builtin.target.cpu.arch.isWasm()) {
         @compileError("only available for wasm32 arch");
     }
     if (!builtin.single_threaded) {
@@ -218,7 +218,7 @@ test "very large allocation" {
 }
 
 test "realloc" {
-    var slice = try test_ally.alignedAlloc(u8, @alignOf(u32), 1);
+    var slice = try test_ally.alignedAlloc(u8, .of(u32), 1);
     defer test_ally.free(slice);
     slice[0] = 0x12;
 

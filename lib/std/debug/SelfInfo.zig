@@ -121,13 +121,13 @@ pub fn deinit(self: *SelfInfo) void {
 }
 
 pub fn getModuleForAddress(self: *SelfInfo, address: usize) !*Module {
-    if (builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         return self.lookupModuleDyld(address);
     } else if (native_os == .windows) {
         return self.lookupModuleWin32(address);
     } else if (native_os == .haiku) {
         return self.lookupModuleHaiku(address);
-    } else if (builtin.target.isWasm()) {
+    } else if (builtin.target.cpu.arch.isWasm()) {
         return self.lookupModuleWasm(address);
     } else {
         return self.lookupModuleDl(address);
@@ -138,13 +138,13 @@ pub fn getModuleForAddress(self: *SelfInfo, address: usize) !*Module {
 // This can be called when getModuleForAddress fails, so implementations should provide
 // a path that doesn't rely on any side-effects of a prior successful module lookup.
 pub fn getModuleNameForAddress(self: *SelfInfo, address: usize) ?[]const u8 {
-    if (builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         return self.lookupModuleNameDyld(address);
     } else if (native_os == .windows) {
         return self.lookupModuleNameWin32(address);
     } else if (native_os == .haiku) {
         return null;
-    } else if (builtin.target.isWasm()) {
+    } else if (builtin.target.cpu.arch.isWasm()) {
         return null;
     } else {
         return self.lookupModuleNameDl(address);
@@ -689,15 +689,15 @@ pub const Module = switch (native_os) {
                 const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
                 const o_file_info = self.ofiles.getPtr(o_file_path) orelse
                     (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
-                    error.FileNotFound,
-                    error.MissingDebugInfo,
-                    error.InvalidDebugInfo,
-                    => return .{
-                        .relocated_address = relocated_address,
-                        .symbol = symbol,
-                    },
-                    else => return err,
-                });
+                        error.FileNotFound,
+                        error.MissingDebugInfo,
+                        error.InvalidDebugInfo,
+                        => return .{
+                            .relocated_address = relocated_address,
+                            .symbol = symbol,
+                        },
+                        else => return err,
+                    });
 
                 return .{
                     .relocated_address = relocated_address,
@@ -1633,7 +1633,7 @@ pub fn unwindFrameDwarf(
                 &cie,
                 &fde,
             ) catch |err| switch (err) {
-                error.InvalidDebugInfo => {
+                error.MissingDebugInfo => {
                     // `.eh_frame_hdr` appears to be incomplete, so go ahead and populate `cie_map`
                     // and `fde_list`, and fall back to the binary search logic below.
                     try di.scanCieFdeInfo(allocator, base_address);

@@ -24,6 +24,7 @@ pub const LibCInstallation = @import("zig/LibCInstallation.zig");
 pub const WindowsSdk = @import("zig/WindowsSdk.zig");
 pub const LibCDirs = @import("zig/LibCDirs.zig");
 pub const target = @import("zig/target.zig");
+pub const llvm = @import("zig/llvm.zig");
 
 // Character literal parsing
 pub const ParsedCharLiteral = string_literal.ParsedCharLiteral;
@@ -231,9 +232,14 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
                 t.libPrefix(), root_name,
             }),
         },
-        .nvptx => return std.fmt.allocPrint(allocator, "{s}.ptx", .{root_name}),
     }
 }
+
+pub const SanitizeC = enum {
+    off,
+    trap,
+    full,
+};
 
 pub const BuildId = union(enum) {
     none,
@@ -311,6 +317,8 @@ pub const BuildId = union(enum) {
         try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
     }
 };
+
+pub const LtoMode = enum { none, full, thin };
 
 /// Renders a `std.Target.Cpu` value into a textual representation that can be parsed
 /// via the `-mcpu` flag passed to the Zig compiler.
@@ -535,16 +543,12 @@ test isUnderscore {
     try std.testing.expect(!isUnderscore("\\x5f"));
 }
 
-pub fn readSourceFileToEndAlloc(
-    allocator: Allocator,
-    input: std.fs.File,
-    size_hint: ?usize,
-) ![:0]u8 {
+pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: ?usize) ![:0]u8 {
     const source_code = input.readToEndAllocOptions(
-        allocator,
+        gpa,
         max_src_size,
         size_hint,
-        @alignOf(u16),
+        .of(u8),
         0,
     ) catch |err| switch (err) {
         error.ConnectionResetByPeer => unreachable,
@@ -552,7 +556,7 @@ pub fn readSourceFileToEndAlloc(
         error.NotOpenForReading => unreachable,
         else => |e| return e,
     };
-    errdefer allocator.free(source_code);
+    errdefer gpa.free(source_code);
 
     // Detect unsupported file types with their Byte Order Mark
     const unsupported_boms = [_][]const u8{
@@ -568,15 +572,19 @@ pub fn readSourceFileToEndAlloc(
 
     // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
     if (std.mem.startsWith(u8, source_code, "\xff\xfe")) {
-        const source_code_utf16_le = std.mem.bytesAsSlice(u16, source_code);
-        const source_code_utf8 = std.unicode.utf16LeToUtf8AllocZ(allocator, source_code_utf16_le) catch |err| switch (err) {
+        if (source_code.len % 2 != 0) return error.InvalidEncoding;
+        // TODO: after wrangle-writer-buffering branch is merged,
+        // avoid this unnecessary allocation
+        const aligned_copy = try gpa.alloc(u16, source_code.len / 2);
+        defer gpa.free(aligned_copy);
+        @memcpy(std.mem.sliceAsBytes(aligned_copy), source_code);
+        const source_code_utf8 = std.unicode.utf16LeToUtf8AllocZ(gpa, aligned_copy) catch |err| switch (err) {
             error.DanglingSurrogateHalf => error.UnsupportedEncoding,
             error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             else => |e| return e,
         };
-
-        allocator.free(source_code);
+        gpa.free(source_code);
         return source_code_utf8;
     }
 
@@ -873,6 +881,35 @@ pub const SimpleComptimeReason = enum(u32) {
             .panic_handler                => "panic handler must be comptime-known",
             // zig fmt: on
         };
+    }
+};
+
+/// Every kind of artifact which the compiler can emit.
+pub const EmitArtifact = enum {
+    bin,
+    @"asm",
+    implib,
+    llvm_ir,
+    llvm_bc,
+    docs,
+    pdb,
+    h,
+
+    /// If using `Server` to communicate with the compiler, it will place requested artifacts in
+    /// paths under the output directory, where those paths are named according to this function.
+    /// Returned string is allocated with `gpa` and owned by the caller.
+    pub fn cacheName(ea: EmitArtifact, gpa: Allocator, opts: BinNameOptions) Allocator.Error![]const u8 {
+        const suffix: []const u8 = switch (ea) {
+            .bin => return binNameAlloc(gpa, opts),
+            .@"asm" => ".s",
+            .implib => ".lib",
+            .llvm_ir => ".ll",
+            .llvm_bc => ".bc",
+            .docs => "-docs",
+            .pdb => ".pdb",
+            .h => ".h",
+        };
+        return std.fmt.allocPrint(gpa, "{s}{s}", .{ opts.root_name, suffix });
     }
 };
 

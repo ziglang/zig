@@ -13,7 +13,6 @@ const net = std.net;
 const Uri = std.Uri;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
-const use_vectors = builtin.zig_backend != .stage2_x86_64;
 
 const Client = @This();
 const proto = @import("protocol.zig");
@@ -46,9 +45,9 @@ https_proxy: ?*Proxy = null,
 pub const ConnectionPool = struct {
     mutex: std.Thread.Mutex = .{},
     /// Open connections that are currently in use.
-    used: Queue = .{},
+    used: std.DoublyLinkedList = .{},
     /// Open connections that are not currently in use.
-    free: Queue = .{},
+    free: std.DoublyLinkedList = .{},
     free_len: usize = 0,
     free_size: usize = 32,
 
@@ -59,9 +58,6 @@ pub const ConnectionPool = struct {
         protocol: Connection.Protocol,
     };
 
-    const Queue = std.DoublyLinkedList(Connection);
-    pub const Node = Queue.Node;
-
     /// Finds and acquires a connection from the connection pool matching the criteria. This function is threadsafe.
     /// If no connection is found, null is returned.
     pub fn findConnection(pool: *ConnectionPool, criteria: Criteria) ?*Connection {
@@ -70,33 +66,34 @@ pub const ConnectionPool = struct {
 
         var next = pool.free.last;
         while (next) |node| : (next = node.prev) {
-            if (node.data.protocol != criteria.protocol) continue;
-            if (node.data.port != criteria.port) continue;
+            const connection: *Connection = @fieldParentPtr("pool_node", node);
+            if (connection.protocol != criteria.protocol) continue;
+            if (connection.port != criteria.port) continue;
 
             // Domain names are case-insensitive (RFC 5890, Section 2.3.2.4)
-            if (!std.ascii.eqlIgnoreCase(node.data.host, criteria.host)) continue;
+            if (!std.ascii.eqlIgnoreCase(connection.host, criteria.host)) continue;
 
-            pool.acquireUnsafe(node);
-            return &node.data;
+            pool.acquireUnsafe(connection);
+            return connection;
         }
 
         return null;
     }
 
     /// Acquires an existing connection from the connection pool. This function is not threadsafe.
-    pub fn acquireUnsafe(pool: *ConnectionPool, node: *Node) void {
-        pool.free.remove(node);
+    pub fn acquireUnsafe(pool: *ConnectionPool, connection: *Connection) void {
+        pool.free.remove(&connection.pool_node);
         pool.free_len -= 1;
 
-        pool.used.append(node);
+        pool.used.append(&connection.pool_node);
     }
 
     /// Acquires an existing connection from the connection pool. This function is threadsafe.
-    pub fn acquire(pool: *ConnectionPool, node: *Node) void {
+    pub fn acquire(pool: *ConnectionPool, connection: *Connection) void {
         pool.mutex.lock();
         defer pool.mutex.unlock();
 
-        return pool.acquireUnsafe(node);
+        return pool.acquireUnsafe(connection);
     }
 
     /// Tries to release a connection back to the connection pool. This function is threadsafe.
@@ -108,38 +105,37 @@ pub const ConnectionPool = struct {
         pool.mutex.lock();
         defer pool.mutex.unlock();
 
-        const node: *Node = @fieldParentPtr("data", connection);
+        pool.used.remove(&connection.pool_node);
 
-        pool.used.remove(node);
-
-        if (node.data.closing or pool.free_size == 0) {
-            node.data.close(allocator);
-            return allocator.destroy(node);
+        if (connection.closing or pool.free_size == 0) {
+            connection.close(allocator);
+            return allocator.destroy(connection);
         }
 
         if (pool.free_len >= pool.free_size) {
-            const popped = pool.free.popFirst() orelse unreachable;
+            const popped: *Connection = @fieldParentPtr("pool_node", pool.free.popFirst().?);
             pool.free_len -= 1;
 
-            popped.data.close(allocator);
+            popped.close(allocator);
             allocator.destroy(popped);
         }
 
-        if (node.data.proxied) {
-            pool.free.prepend(node); // proxied connections go to the end of the queue, always try direct connections first
+        if (connection.proxied) {
+            // proxied connections go to the end of the queue, always try direct connections first
+            pool.free.prepend(&connection.pool_node);
         } else {
-            pool.free.append(node);
+            pool.free.append(&connection.pool_node);
         }
 
         pool.free_len += 1;
     }
 
     /// Adds a newly created node to the pool of used connections. This function is threadsafe.
-    pub fn addUsed(pool: *ConnectionPool, node: *Node) void {
+    pub fn addUsed(pool: *ConnectionPool, connection: *Connection) void {
         pool.mutex.lock();
         defer pool.mutex.unlock();
 
-        pool.used.append(node);
+        pool.used.append(&connection.pool_node);
     }
 
     /// Resizes the connection pool. This function is threadsafe.
@@ -170,18 +166,18 @@ pub const ConnectionPool = struct {
 
         var next = pool.free.first;
         while (next) |node| {
-            defer allocator.destroy(node);
+            const connection: *Connection = @fieldParentPtr("pool_node", node);
             next = node.next;
-
-            node.data.close(allocator);
+            connection.close(allocator);
+            allocator.destroy(connection);
         }
 
         next = pool.used.first;
         while (next) |node| {
-            defer allocator.destroy(node);
+            const connection: *Connection = @fieldParentPtr("pool_node", node);
             next = node.next;
-
-            node.data.close(allocator);
+            connection.close(allocator);
+            allocator.destroy(node);
         }
 
         pool.* = undefined;
@@ -193,6 +189,9 @@ pub const Connection = struct {
     stream: net.Stream,
     /// undefined unless protocol is tls.
     tls_client: if (!disable_tls) *std.crypto.tls.Client else void,
+
+    /// Entry in `ConnectionPool.used` or `ConnectionPool.free`.
+    pool_node: std.DoublyLinkedList.Node,
 
     /// The protocol that this connection is using.
     protocol: Protocol,
@@ -473,7 +472,7 @@ pub const Response = struct {
         };
         if (first_line[8] != ' ') return error.HttpHeadersInvalid;
         const status: http.Status = @enumFromInt(parseInt3(first_line[9..12]));
-        const reason = mem.trimLeft(u8, first_line[12..], " ");
+        const reason = mem.trimStart(u8, first_line[12..], " ");
 
         res.version = version;
         res.status = status;
@@ -594,13 +593,10 @@ pub const Response = struct {
     }
 
     fn parseInt3(text: *const [3]u8) u10 {
-        if (use_vectors) {
-            const nnn: @Vector(3, u8) = text.*;
-            const zero: @Vector(3, u8) = .{ '0', '0', '0' };
-            const mmm: @Vector(3, u10) = .{ 100, 10, 1 };
-            return @reduce(.Add, @as(@Vector(3, u10), nnn -% zero) *% mmm);
-        }
-        return std.fmt.parseInt(u10, text, 10) catch unreachable;
+        const nnn: @Vector(3, u8) = text.*;
+        const zero: @Vector(3, u8) = .{ '0', '0', '0' };
+        const mmm: @Vector(3, u10) = .{ 100, 10, 1 };
+        return @reduce(.Add, (nnn -% zero) *% mmm);
     }
 
     test parseInt3 {
@@ -959,14 +955,14 @@ pub const Request = struct {
 
     pub const WaitError = RequestError || SendError || TransferReadError ||
         proto.HeadersParser.CheckCompleteHeadError || Response.ParseError ||
-        error{ // TODO: file zig fmt issue for this bad indentation
-        TooManyHttpRedirects,
-        RedirectRequiresResend,
-        HttpRedirectLocationMissing,
-        HttpRedirectLocationInvalid,
-        CompressionInitializationFailed,
-        CompressionUnsupported,
-    };
+        error{
+            TooManyHttpRedirects,
+            RedirectRequiresResend,
+            HttpRedirectLocationMissing,
+            HttpRedirectLocationInvalid,
+            CompressionInitializationFailed,
+            CompressionUnsupported,
+        };
 
     /// Waits for a response from the server and parses any headers that are sent.
     /// This function will block until the final response is received.
@@ -1241,10 +1237,14 @@ pub fn initDefaultProxies(client: *Client, arena: Allocator) !void {
 
 fn createProxyFromEnvVar(arena: Allocator, env_var_names: []const []const u8) !?*Proxy {
     const content = for (env_var_names) |name| {
-        break std.process.getEnvVarOwned(arena, name) catch |err| switch (err) {
+        const content = std.process.getEnvVarOwned(arena, name) catch |err| switch (err) {
             error.EnvironmentVariableNotFound => continue,
             else => |e| return e,
         };
+
+        if (content.len == 0) continue;
+
+        break content;
     } else return null;
 
     const uri = Uri.parse(content) catch try Uri.parseAfterScheme("http", content);
@@ -1322,9 +1322,8 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
     if (disable_tls and protocol == .tls)
         return error.TlsInitializationFailed;
 
-    const conn = try client.allocator.create(ConnectionPool.Node);
+    const conn = try client.allocator.create(Connection);
     errdefer client.allocator.destroy(conn);
-    conn.* = .{ .data = undefined };
 
     const stream = net.tcpConnectToHost(client.allocator, host, port) catch |err| switch (err) {
         error.ConnectionRefused => return error.ConnectionRefused,
@@ -1339,21 +1338,23 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
     };
     errdefer stream.close();
 
-    conn.data = .{
+    conn.* = .{
         .stream = stream,
         .tls_client = undefined,
 
         .protocol = protocol,
         .host = try client.allocator.dupe(u8, host),
         .port = port,
+
+        .pool_node = .{},
     };
-    errdefer client.allocator.free(conn.data.host);
+    errdefer client.allocator.free(conn.host);
 
     if (protocol == .tls) {
         if (disable_tls) unreachable;
 
-        conn.data.tls_client = try client.allocator.create(std.crypto.tls.Client);
-        errdefer client.allocator.destroy(conn.data.tls_client);
+        conn.tls_client = try client.allocator.create(std.crypto.tls.Client);
+        errdefer client.allocator.destroy(conn.tls_client);
 
         const ssl_key_log_file: ?std.fs.File = if (std.options.http_enable_ssl_key_log_file) ssl_key_log_file: {
             const ssl_key_log_path = std.process.getEnvVarOwned(client.allocator, "SSLKEYLOGFILE") catch |err| switch (err) {
@@ -1371,19 +1372,19 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
         } else null;
         errdefer if (ssl_key_log_file) |key_log_file| key_log_file.close();
 
-        conn.data.tls_client.* = std.crypto.tls.Client.init(stream, .{
+        conn.tls_client.* = std.crypto.tls.Client.init(stream, .{
             .host = .{ .explicit = host },
             .ca = .{ .bundle = client.ca_bundle },
             .ssl_key_log_file = ssl_key_log_file,
         }) catch return error.TlsInitializationFailed;
         // This is appropriate for HTTPS because the HTTP headers contain
         // the content length which is used to detect truncation attacks.
-        conn.data.tls_client.allow_truncation_attacks = true;
+        conn.tls_client.allow_truncation_attacks = true;
     }
 
     client.connection_pool.addUsed(conn);
 
-    return &conn.data;
+    return conn;
 }
 
 pub const ConnectUnixError = Allocator.Error || std.posix.SocketError || error{NameTooLong} || std.posix.ConnectError;
@@ -1539,13 +1540,13 @@ pub fn connect(
 
 pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendError ||
     std.fmt.ParseIntError || Connection.WriteError ||
-    error{ // TODO: file a zig fmt issue for this bad indentation
-    UnsupportedUriScheme,
-    UriMissingHost,
+    error{
+        UnsupportedUriScheme,
+        UriMissingHost,
 
-    CertificateBundleLoadFailure,
-    UnsupportedTransferEncoding,
-};
+        CertificateBundleLoadFailure,
+        UnsupportedTransferEncoding,
+    };
 
 pub const RequestOptions = struct {
     version: http.Version = .@"HTTP/1.1",
@@ -1791,5 +1792,6 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
 }
 
 test {
+    _ = Response;
     _ = &initDefaultProxies;
 }

@@ -9,7 +9,6 @@ pub const Options = struct {
     lldb: ?[]const u8,
     optimize_modes: []const std.builtin.OptimizeMode,
     skip_single_threaded: bool,
-    skip_non_native: bool,
     skip_libc: bool,
 };
 
@@ -677,7 +676,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 \\    param6: u64,
                 \\    param7: u64,
                 \\    param8: u64,
-                \\) callconv(.C) void {
+                \\) callconv(.c) void {
                 \\    const local_comptime_val: u64 = global_const *% global_const;
                 \\    const local_comptime_ptr: struct { u64 } = .{ local_comptime_val *% local_comptime_val };
                 \\    const local_const: u64 = global_var ^ global_threadlocal1 ^ global_threadlocal2 ^
@@ -2391,6 +2390,7 @@ fn addGdbTest(
             "--batch",
             "--command",
         },
+        "set remotetimeout 0",
         commands,
         &.{
             "--args",
@@ -2416,6 +2416,7 @@ fn addLldbTest(
             "--batch",
             "--source",
         },
+        "settings set plugin.process.gdb-remote.packet-timeout 0",
         commands,
         &.{
             "--",
@@ -2435,12 +2436,15 @@ fn addTest(
     target: Target,
     files: []const File,
     db_argv1: []const []const u8,
+    db_commands: []const u8,
     commands: []const u8,
     db_argv2: []const []const u8,
     expected_output: []const []const u8,
 ) void {
-    for (db.options.test_filters) |test_filter| {
-        if (std.mem.indexOf(u8, name, test_filter)) |_| return;
+    if (db.options.test_filters.len > 0) {
+        for (db.options.test_filters) |test_filter| {
+            if (std.mem.indexOf(u8, name, test_filter) != null) break;
+        } else return;
     }
     if (db.options.test_target_filters.len > 0) {
         const triple_txt = target.resolved.result.zigTriple(db.b.allocator) catch @panic("OOM");
@@ -2476,7 +2480,10 @@ fn addTest(
     const commands_wf = db.b.addWriteFiles();
     const run = std.Build.Step.Run.create(db.b, db.b.fmt("run {s} {s}", .{ name, target.test_name_suffix }));
     run.addArgs(db_argv1);
-    run.addFileArg(commands_wf.add(db.b.fmt("{s}.cmd", .{name}), db.b.fmt("{s}\n\nquit {d}\n", .{ commands, success })));
+    run.addFileArg(commands_wf.add(
+        db.b.fmt("{s}.cmd", .{name}),
+        db.b.fmt("{s}\n\n{s}\n\nquit {d}\n", .{ db_commands, commands, success }),
+    ));
     run.addArgs(db_argv2);
     run.addArtifactArg(exe);
     for (expected_output) |expected| run.addCheck(.{ .expect_stdout_match = db.b.fmt("{s}\n", .{expected}) });

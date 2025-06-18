@@ -122,6 +122,8 @@ pub const max_name_len = switch (native_os) {
     .openbsd => 23,
     .dragonfly => 1023,
     .solaris, .illumos => 31,
+    // https://github.com/SerenityOS/serenity/blob/6b4c300353da49d3508b5442cf61da70bd04d757/Kernel/Tasks/Thread.h#L102
+    .serenity => 63,
     else => 0,
 };
 
@@ -198,6 +200,15 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             const err = std.c.pthread_setname_np(name_with_terminator.ptr);
             switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return,
+                else => |e| return posix.unexpectedErrno(e),
+            }
+        },
+        .serenity => if (use_pthreads) {
+            const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
+            switch (@as(posix.E, @enumFromInt(err))) {
+                .SUCCESS => return,
+                .NAMETOOLONG => unreachable,
+                .SRCH => unreachable,
                 else => |e| return posix.unexpectedErrno(e),
             }
         },
@@ -302,6 +313,16 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 else => |e| return posix.unexpectedErrno(e),
             }
         },
+        .serenity => if (use_pthreads) {
+            const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
+            switch (@as(posix.E, @enumFromInt(err))) {
+                .SUCCESS => return,
+                .NAMETOOLONG => unreachable,
+                .SRCH => unreachable,
+                .FAULT => unreachable,
+                else => |e| return posix.unexpectedErrno(e),
+            }
+        },
         .netbsd, .solaris, .illumos => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
             switch (@as(posix.E, @enumFromInt(err))) {
@@ -342,6 +363,7 @@ pub const Id = switch (native_os) {
     .openbsd,
     .haiku,
     .wasi,
+    .serenity,
     => u32,
     .macos, .ios, .watchos, .tvos, .visionos => u64,
     .windows => windows.DWORD,
@@ -692,6 +714,9 @@ const PosixThreadImpl = struct {
             .haiku => {
                 return @as(u32, @bitCast(c.find_thread(null)));
             },
+            .serenity => {
+                return @as(u32, @bitCast(c.pthread_self()));
+            },
             else => {
                 return @intFromPtr(c.pthread_self());
             },
@@ -713,11 +738,11 @@ const PosixThreadImpl = struct {
                 };
                 return @as(usize, @intCast(count));
             },
-            .solaris, .illumos => {
+            .solaris, .illumos, .serenity => {
                 // The "proper" way to get the cpu count would be to query
                 // /dev/kstat via ioctls, and traverse a linked list for each
-                // cpu.
-                const rc = c.sysconf(std.c._SC.NPROCESSORS_ONLN);
+                // cpu. (solaris, illumos)
+                const rc = c.sysconf(@intFromEnum(std.c._SC.NPROCESSORS_ONLN));
                 return switch (posix.errno(rc)) {
                     .SUCCESS => @as(usize, @intCast(rc)),
                     else => |err| posix.unexpectedErrno(err),
@@ -734,7 +759,7 @@ const PosixThreadImpl = struct {
             else => {
                 var count: c_int = undefined;
                 var count_len: usize = @sizeOf(c_int);
-                const name = if (comptime target.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
+                const name = if (comptime target.os.tag.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
                 posix.sysctlbynameZ(name, &count, &count_len, null, 0) catch |err| switch (err) {
                     error.NameTooLong, error.UnknownName => unreachable,
                     else => |e| return e,
@@ -1420,6 +1445,7 @@ const LinuxThreadImpl = struct {
             error.PermissionDenied => unreachable,
             error.ProcessFdQuotaExceeded => unreachable,
             error.SystemFdQuotaExceeded => unreachable,
+            error.MappingAlreadyExists => unreachable,
             else => |e| return e,
         };
         assert(mapped.len >= map_bytes);

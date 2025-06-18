@@ -68,16 +68,19 @@ inline namespace fundamentals_v1 {
 
  */
 
-#include <experimental/__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/experimental/type_traits>
+#else
+#  include <__config>
 
-#if _LIBCPP_STD_VER >= 14
+#  if _LIBCPP_STD_VER >= 14
 
-#  include <initializer_list>
-#  include <type_traits>
+#    include <initializer_list>
+#    include <type_traits>
 
-#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#    pragma GCC system_header
-#  endif
+#    if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#      pragma GCC system_header
+#    endif
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS
 
@@ -148,6 +151,11 @@ constexpr bool is_detected_convertible_v = is_detected_convertible<_To, _Op, _Ar
 
 _LIBCPP_END_NAMESPACE_LFTS
 
-#endif /* _LIBCPP_STD_VER >= 14 */
+#    if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#      include <cstddef>
+#    endif
+
+#  endif /* _LIBCPP_STD_VER >= 14 */
+#endif   // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif /* _LIBCPP_EXPERIMENTAL_TYPE_TRAITS */

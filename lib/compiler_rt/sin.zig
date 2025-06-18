@@ -30,12 +30,12 @@ comptime {
     @export(&sinl, .{ .name = "sinl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __sinh(x: f16) callconv(.C) f16 {
+pub fn __sinh(x: f16) callconv(.c) f16 {
     // TODO: more efficient implementation
     return @floatCast(sinf(x));
 }
 
-pub fn sinf(x: f32) callconv(.C) f32 {
+pub fn sinf(x: f32) callconv(.c) f32 {
     // Small multiples of pi/2 rounded to double precision.
     const s1pio2: f64 = 1.0 * math.pi / 2.0; // 0x3FF921FB, 0x54442D18
     const s2pio2: f64 = 2.0 * math.pi / 2.0; // 0x400921FB, 0x54442D18
@@ -49,7 +49,13 @@ pub fn sinf(x: f32) callconv(.C) f32 {
     if (ix <= 0x3f490fda) { // |x| ~<= pi/4
         if (ix < 0x39800000) { // |x| < 2**-12
             // raise inexact if x!=0 and underflow if subnormal
-            if (common.want_float_exceptions) mem.doNotOptimizeAway(if (ix < 0x00800000) x / 0x1p120 else x + 0x1p120);
+            if (common.want_float_exceptions) {
+                if (ix < 0x00800000) {
+                    mem.doNotOptimizeAway(x / 0x1p120);
+                } else {
+                    mem.doNotOptimizeAway(x + 0x1p120);
+                }
+            }
             return x;
         }
         return trig.__sindf(x);
@@ -90,7 +96,7 @@ pub fn sinf(x: f32) callconv(.C) f32 {
     };
 }
 
-pub fn sin(x: f64) callconv(.C) f64 {
+pub fn sin(x: f64) callconv(.c) f64 {
     var ix = @as(u64, @bitCast(x)) >> 32;
     ix &= 0x7fffffff;
 
@@ -98,7 +104,13 @@ pub fn sin(x: f64) callconv(.C) f64 {
     if (ix <= 0x3fe921fb) {
         if (ix < 0x3e500000) { // |x| < 2**-26
             // raise inexact if x != 0 and underflow if subnormal
-            if (common.want_float_exceptions) mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
+            if (common.want_float_exceptions) {
+                if (ix < 0x00100000) {
+                    mem.doNotOptimizeAway(x / 0x1p120);
+                } else {
+                    mem.doNotOptimizeAway(x + 0x1p120);
+                }
+            }
             return x;
         }
         return trig.__sin(x, 0.0, 0);
@@ -119,17 +131,17 @@ pub fn sin(x: f64) callconv(.C) f64 {
     };
 }
 
-pub fn __sinx(x: f80) callconv(.C) f80 {
+pub fn __sinx(x: f80) callconv(.c) f80 {
     // TODO: more efficient implementation
     return @floatCast(sinq(x));
 }
 
-pub fn sinq(x: f128) callconv(.C) f128 {
+pub fn sinq(x: f128) callconv(.c) f128 {
     // TODO: more correct implementation
     return sin(@floatCast(x));
 }
 
-pub fn sinl(x: c_longdouble) callconv(.C) c_longdouble {
+pub fn sinl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __sinh(x),
         32 => return sinf(x),

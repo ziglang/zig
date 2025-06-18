@@ -102,32 +102,35 @@ size_t wcsrtombs(char* restrict dst, const wchar_t** restrict src, size_t len,
 
 */
 
-#include <__config>
-#include <__type_traits/copy_cv.h>
-#include <__type_traits/is_constant_evaluated.h>
-#include <__type_traits/is_equality_comparable.h>
-#include <__type_traits/is_same.h>
-#include <__type_traits/remove_cv.h>
-#include <cwctype>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/cwchar>
+#else
+#  include <__config>
+#  include <__cstddef/size_t.h>
+#  include <__type_traits/copy_cv.h>
+#  include <__type_traits/is_constant_evaluated.h>
+#  include <__type_traits/is_equality_comparable.h>
+#  include <__type_traits/is_same.h>
+#  include <__type_traits/remove_cv.h>
+#  include <cwctype>
 
-#include <wchar.h>
+#  include <wchar.h>
 
-#ifndef _LIBCPP_WCHAR_H
+#  ifndef _LIBCPP_WCHAR_H
 #   error <cwchar> tried including <wchar.h> but didn't find libc++'s <wchar.h> header. \
           This usually means that your header search paths are not configured properly. \
           The header search paths should contain the C++ Standard Library headers before \
           any C Standard Library, and you are probably using compiler flags that make that \
           not be the case.
-#endif
+#  endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 using ::mbstate_t _LIBCPP_USING_IF_EXISTS;
-using ::size_t _LIBCPP_USING_IF_EXISTS;
 using ::tm _LIBCPP_USING_IF_EXISTS;
 using ::wint_t _LIBCPP_USING_IF_EXISTS;
 using ::FILE _LIBCPP_USING_IF_EXISTS;
@@ -194,9 +197,9 @@ using ::vwprintf _LIBCPP_USING_IF_EXISTS;
 using ::wprintf _LIBCPP_USING_IF_EXISTS;
 
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 size_t __constexpr_wcslen(const wchar_t* __str) {
-#if __has_builtin(__builtin_wcslen)
+#  if __has_builtin(__builtin_wcslen)
   return __builtin_wcslen(__str);
-#else
+#  else
   if (!__libcpp_is_constant_evaluated())
     return std::wcslen(__str);
 
@@ -204,14 +207,14 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 size_t __constexpr_wc
   for (; *__str != L'\0'; ++__str)
     ++__len;
   return __len;
-#endif
+#  endif
 }
 
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 int
 __constexpr_wmemcmp(const wchar_t* __lhs, const wchar_t* __rhs, size_t __count) {
-#if __has_builtin(__builtin_wmemcmp)
+#  if __has_builtin(__builtin_wmemcmp)
   return __builtin_wmemcmp(__lhs, __rhs, __count);
-#else
+#  else
   if (!__libcpp_is_constant_evaluated())
     return std::wmemcmp(__lhs, __rhs, __count);
 
@@ -222,7 +225,7 @@ __constexpr_wmemcmp(const wchar_t* __lhs, const wchar_t* __rhs, size_t __count) 
       return 1;
   }
   return 0;
-#endif
+#  endif
 }
 
 template <class _Tp, class _Up>
@@ -231,18 +234,18 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp* __constexpr_wmemchr(_Tp
                     __libcpp_is_trivially_equality_comparable<_Tp, _Tp>::value,
                 "Calling wmemchr on non-trivially equality comparable types is unsafe.");
 
-#if __has_builtin(__builtin_wmemchr)
+#  if __has_builtin(__builtin_wmemchr)
   if (!__libcpp_is_constant_evaluated()) {
     wchar_t __value_buffer = 0;
     __builtin_memcpy(&__value_buffer, &__value, sizeof(wchar_t));
     return reinterpret_cast<_Tp*>(
         __builtin_wmemchr(reinterpret_cast<__copy_cv_t<_Tp, wchar_t>*>(__str), __value_buffer, __count));
   }
-#  if _LIBCPP_STD_VER >= 17
+#    if _LIBCPP_STD_VER >= 17
   else if constexpr (is_same_v<remove_cv_t<_Tp>, wchar_t>)
     return __builtin_wmemchr(__str, __value, __count);
-#  endif
-#endif // __has_builtin(__builtin_wmemchr)
+#    endif
+#  endif // __has_builtin(__builtin_wmemchr)
 
   for (; __count; --__count) {
     if (*__str == __value)
@@ -254,8 +257,9 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp* __constexpr_wmemchr(_Tp
 
 _LIBCPP_END_NAMESPACE_STD
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <cstddef>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <cstddef>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_CWCHAR

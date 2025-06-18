@@ -43,6 +43,9 @@
 #define __ASSERT_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #ifndef __GNUC__
 
@@ -69,7 +72,7 @@ __END_DECLS
 #else
 /* 8462256: modified __assert_rtn() replaces deprecated __eprintf() */
 #define __assert(e, file, line) \
-	__assert_rtn ((const char *)-1L, file, line, e)
+	__assert_rtn (__unsafe_forge_null_terminated(const char *, -1L), file, line, e)
 #endif
 
 #endif /* __GNUC__ */

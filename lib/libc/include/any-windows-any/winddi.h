@@ -2027,7 +2027,7 @@ typedef enum _ENG_SYSTEM_ATTRIBUTE {
   EngProcessorFeature = 1,
   EngNumberOfProcessors,
   EngOptimumAvailableUserMemory,
-  EngOptimumAvailableSystemMemory,
+  EngOptimumAvailableSystemMemory
 } ENG_SYSTEM_ATTRIBUTE;
 
 #define QSA_MMX                           0x00000100

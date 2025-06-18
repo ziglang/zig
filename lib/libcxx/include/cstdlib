@@ -81,25 +81,28 @@ void *aligned_alloc(size_t alignment, size_t size);                       // C11
 
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/cstdlib>
+#else
+#  include <__config>
+#  include <__cstddef/size_t.h>
 
-#include <stdlib.h>
+#  include <stdlib.h>
 
-#ifndef _LIBCPP_STDLIB_H
+#  ifndef _LIBCPP_STDLIB_H
 #   error <cstdlib> tried including <stdlib.h> but didn't find libc++'s <stdlib.h> header. \
           This usually means that your header search paths are not configured properly. \
           The header search paths should contain the C++ Standard Library headers before \
           any C Standard Library, and you are probably using compiler flags that make that \
           not be the case.
-#endif
+#  endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-using ::size_t _LIBCPP_USING_IF_EXISTS;
 using ::div_t _LIBCPP_USING_IF_EXISTS;
 using ::ldiv_t _LIBCPP_USING_IF_EXISTS;
 using ::lldiv_t _LIBCPP_USING_IF_EXISTS;
@@ -135,20 +138,22 @@ using ::div _LIBCPP_USING_IF_EXISTS;
 using ::ldiv _LIBCPP_USING_IF_EXISTS;
 using ::lldiv _LIBCPP_USING_IF_EXISTS;
 using ::mblen _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 using ::mbtowc _LIBCPP_USING_IF_EXISTS;
 using ::wctomb _LIBCPP_USING_IF_EXISTS;
 using ::mbstowcs _LIBCPP_USING_IF_EXISTS;
 using ::wcstombs _LIBCPP_USING_IF_EXISTS;
-#endif
-#if !defined(_LIBCPP_CXX03_LANG)
+#  endif
+#  if !defined(_LIBCPP_CXX03_LANG)
 using ::at_quick_exit _LIBCPP_USING_IF_EXISTS;
 using ::quick_exit _LIBCPP_USING_IF_EXISTS;
-#endif
-#if _LIBCPP_STD_VER >= 17
+#  endif
+#  if _LIBCPP_STD_VER >= 17
 using ::aligned_alloc _LIBCPP_USING_IF_EXISTS;
-#endif
+#  endif
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_CSTDLIB

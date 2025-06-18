@@ -5,6 +5,7 @@ const BOOL = windows.BOOL;
 const DWORD = windows.DWORD;
 const DWORD64 = windows.DWORD64;
 const ULONG = windows.ULONG;
+const ULONG_PTR = windows.ULONG_PTR;
 const NTSTATUS = windows.NTSTATUS;
 const WORD = windows.WORD;
 const HANDLE = windows.HANDLE;
@@ -92,6 +93,7 @@ pub extern "ntdll" fn RtlVirtualUnwind(
     EstablisherFrame: *DWORD64,
     ContextPointers: ?*KNONVOLATILE_CONTEXT_POINTERS,
 ) callconv(.winapi) *EXCEPTION_ROUTINE;
+pub extern "ntdll" fn RtlGetSystemTimePrecise() callconv(.winapi) LARGE_INTEGER;
 pub extern "ntdll" fn NtQueryInformationFile(
     FileHandle: HANDLE,
     IoStatusBlock: *IO_STATUS_BLOCK,
@@ -356,4 +358,20 @@ pub extern "ntdll" fn NtCreateNamedPipeFile(
     InboundQuota: ULONG,
     OutboundQuota: ULONG,
     DefaultTimeout: *LARGE_INTEGER,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn NtAllocateVirtualMemory(
+    ProcessHandle: HANDLE,
+    BaseAddress: ?*PVOID,
+    ZeroBits: ULONG_PTR,
+    RegionSize: ?*SIZE_T,
+    AllocationType: ULONG,
+    PageProtection: ULONG,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn NtFreeVirtualMemory(
+    ProcessHandle: HANDLE,
+    BaseAddress: ?*PVOID,
+    RegionSize: *SIZE_T,
+    FreeType: ULONG,
 ) callconv(.winapi) NTSTATUS;

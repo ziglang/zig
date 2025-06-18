@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - master
-      - llvm19
 concurrency:
   # Cancels pending runs when a PR gets updated.
   group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
@@ -14,15 +13,23 @@ permissions:
   contents: read
 jobs:
   x86_64-linux-debug:
-    timeout-minutes: 420
+    timeout-minutes: 540
     runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Build and Test
         run: sh ci/x86_64-linux-debug.sh
+  x86_64-linux-debug-llvm:
+    timeout-minutes: 540
+    runs-on: [self-hosted, Linux, x86_64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: sh ci/x86_64-linux-debug-llvm.sh
   x86_64-linux-release:
-    timeout-minutes: 420
+    timeout-minutes: 540
     runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
@@ -30,7 +37,6 @@ jobs:
       - name: Build and Test
         run: sh ci/x86_64-linux-release.sh
   aarch64-linux-debug:
-    timeout-minutes: 480
     runs-on: [self-hosted, Linux, aarch64]
     steps:
       - name: Checkout
@@ -38,7 +44,6 @@ jobs:
       - name: Build and Test
         run: sh ci/aarch64-linux-debug.sh
   aarch64-linux-release:
-    timeout-minutes: 480
     runs-on: [self-hosted, Linux, aarch64]
     steps:
       - name: Checkout
@@ -73,6 +78,7 @@ jobs:
       - name: Build and Test
         run: ci/aarch64-macos-release.sh
   x86_64-windows-debug:
+    timeout-minutes: 420
     runs-on: [self-hosted, Windows, x86_64]
     env:
       ARCH: "x86_64"
@@ -82,6 +88,7 @@ jobs:
       - name: Build and Test
         run: ci/x86_64-windows-debug.ps1
   x86_64-windows-release:
+    timeout-minutes: 420
     runs-on: [self-hosted, Windows, x86_64]
     env:
       ARCH: "x86_64"

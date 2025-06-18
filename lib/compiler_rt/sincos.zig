@@ -22,7 +22,7 @@ comptime {
     @export(&sincosl, .{ .name = "sincosl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __sincosh(x: f16, r_sin: *f16, r_cos: *f16) callconv(.C) void {
+pub fn __sincosh(x: f16, r_sin: *f16, r_cos: *f16) callconv(.c) void {
     // TODO: more efficient implementation
     var big_sin: f32 = undefined;
     var big_cos: f32 = undefined;
@@ -31,7 +31,7 @@ pub fn __sincosh(x: f16, r_sin: *f16, r_cos: *f16) callconv(.C) void {
     r_cos.* = @as(f16, @floatCast(big_cos));
 }
 
-pub fn sincosf(x: f32, r_sin: *f32, r_cos: *f32) callconv(.C) void {
+pub fn sincosf(x: f32, r_sin: *f32, r_cos: *f32) callconv(.c) void {
     const sc1pio2: f64 = 1.0 * math.pi / 2.0; // 0x3FF921FB, 0x54442D18
     const sc2pio2: f64 = 2.0 * math.pi / 2.0; // 0x400921FB, 0x54442D18
     const sc3pio2: f64 = 3.0 * math.pi / 2.0; // 0x4012D97C, 0x7F3321D2
@@ -46,7 +46,13 @@ pub fn sincosf(x: f32, r_sin: *f32, r_cos: *f32) callconv(.C) void {
         // |x| < 2**-12
         if (ix < 0x39800000) {
             // raise inexact if x!=0 and underflow if subnormal
-            if (common.want_float_exceptions) mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
+            if (common.want_float_exceptions) {
+                if (ix < 0x00100000) {
+                    mem.doNotOptimizeAway(x / 0x1p120);
+                } else {
+                    mem.doNotOptimizeAway(x + 0x1p120);
+                }
+            }
             r_sin.* = x;
             r_cos.* = 1.0;
             return;
@@ -126,7 +132,7 @@ pub fn sincosf(x: f32, r_sin: *f32, r_cos: *f32) callconv(.C) void {
     }
 }
 
-pub fn sincos(x: f64, r_sin: *f64, r_cos: *f64) callconv(.C) void {
+pub fn sincos(x: f64, r_sin: *f64, r_cos: *f64) callconv(.c) void {
     const ix = @as(u32, @truncate(@as(u64, @bitCast(x)) >> 32)) & 0x7fffffff;
 
     // |x| ~< pi/4
@@ -134,7 +140,13 @@ pub fn sincos(x: f64, r_sin: *f64, r_cos: *f64) callconv(.C) void {
         // if |x| < 2**-27 * sqrt(2)
         if (ix < 0x3e46a09e) {
             // raise inexact if x != 0 and underflow if subnormal
-            if (common.want_float_exceptions) mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
+            if (common.want_float_exceptions) {
+                if (ix < 0x00100000) {
+                    mem.doNotOptimizeAway(x / 0x1p120);
+                } else {
+                    mem.doNotOptimizeAway(x + 0x1p120);
+                }
+            }
             r_sin.* = x;
             r_cos.* = 1.0;
             return;
@@ -177,7 +189,7 @@ pub fn sincos(x: f64, r_sin: *f64, r_cos: *f64) callconv(.C) void {
     }
 }
 
-pub fn __sincosx(x: f80, r_sin: *f80, r_cos: *f80) callconv(.C) void {
+pub fn __sincosx(x: f80, r_sin: *f80, r_cos: *f80) callconv(.c) void {
     // TODO: more efficient implementation
     //return sincos_generic(f80, x, r_sin, r_cos);
     var big_sin: f128 = undefined;
@@ -187,7 +199,7 @@ pub fn __sincosx(x: f80, r_sin: *f80, r_cos: *f80) callconv(.C) void {
     r_cos.* = @as(f80, @floatCast(big_cos));
 }
 
-pub fn sincosq(x: f128, r_sin: *f128, r_cos: *f128) callconv(.C) void {
+pub fn sincosq(x: f128, r_sin: *f128, r_cos: *f128) callconv(.c) void {
     // TODO: more correct implementation
     //return sincos_generic(f128, x, r_sin, r_cos);
     var small_sin: f64 = undefined;
@@ -197,7 +209,7 @@ pub fn sincosq(x: f128, r_sin: *f128, r_cos: *f128) callconv(.C) void {
     r_cos.* = small_cos;
 }
 
-pub fn sincosl(x: c_longdouble, r_sin: *c_longdouble, r_cos: *c_longdouble) callconv(.C) void {
+pub fn sincosl(x: c_longdouble, r_sin: *c_longdouble, r_cos: *c_longdouble) callconv(.c) void {
     switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __sincosh(x, r_sin, r_cos),
         32 => return sincosf(x, r_sin, r_cos),

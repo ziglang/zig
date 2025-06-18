@@ -127,7 +127,7 @@ fn detectFromInstallation(arena: Allocator, target: std.Target, lci: *const LibC
 
     var sysroot: ?[]const u8 = null;
 
-    if (target.isDarwin()) d: {
+    if (target.os.tag.isDarwin()) d: {
         const down1 = std.fs.path.dirname(lci.sys_include_dir.?) orelse break :d;
         const down2 = std.fs.path.dirname(down1) orelse break :d;
         try framework_list.append(try std.fs.path.join(arena, &.{ down2, "System", "Library", "Frameworks" }));
@@ -150,7 +150,7 @@ pub fn detectFromBuilding(
 ) !LibCDirs {
     const s = std.fs.path.sep_str;
 
-    if (target.isDarwin()) {
+    if (target.os.tag.isDarwin()) {
         const list = try arena.alloc([]const u8, 1);
         list[0] = try std.fmt.allocPrint(
             arena,
@@ -168,13 +168,23 @@ pub fn detectFromBuilding(
 
     const generic_name = libCGenericName(target);
     // Some architecture families are handled by the same set of headers.
-    const arch_name = if (target.abi.isMusl())
+    const arch_name = if (target.isMuslLibC() or target.isWasiLibC())
         std.zig.target.muslArchNameHeaders(target.cpu.arch)
+    else if (target.isGnuLibC())
+        std.zig.target.glibcArchNameHeaders(target.cpu.arch)
+    else if (target.isFreeBSDLibC())
+        std.zig.target.freebsdArchNameHeaders(target.cpu.arch)
+    else if (target.isNetBSDLibC())
+        std.zig.target.netbsdArchNameHeaders(target.cpu.arch)
     else
         @tagName(target.cpu.arch);
     const os_name = @tagName(target.os.tag);
-    const abi_name = if (target.abi.isMusl())
+    const abi_name = if (target.isMuslLibC())
         std.zig.target.muslAbiNameHeaders(target.abi)
+    else if (target.isGnuLibC())
+        std.zig.target.glibcAbiNameHeaders(target.abi)
+    else if (target.isNetBSDLibC())
+        std.zig.target.netbsdAbiNameHeaders(target.abi)
     else
         @tagName(target.abi);
     const arch_include_dir = try std.fmt.allocPrint(
@@ -187,7 +197,7 @@ pub fn detectFromBuilding(
         "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-{s}",
         .{ zig_lib_dir, generic_name },
     );
-    const generic_arch_name = target.osArchName();
+    const generic_arch_name = std.zig.target.osArchName(target);
     const arch_os_include_dir = try std.fmt.allocPrint(
         arena,
         "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
@@ -218,6 +228,8 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
     switch (target.os.tag) {
         .windows => return "mingw",
         .macos, .ios, .tvos, .watchos, .visionos => return "darwin",
+        .freebsd => return "freebsd",
+        .netbsd => return "netbsd",
         else => {},
     }
     switch (target.abi) {
@@ -229,13 +241,14 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
         .gnuf32,
         .gnusf,
         .gnux32,
-        .gnuilp32,
         => return "glibc",
         .musl,
         .muslabin32,
         .muslabi64,
         .musleabi,
         .musleabihf,
+        .muslf32,
+        .muslsf,
         .muslx32,
         .none,
         .ohos,

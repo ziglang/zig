@@ -4,15 +4,23 @@
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include <assert.h>
 #include <errno.h>
 #include <stdint.h>
 #include <time.h>
+
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#ifndef IN_WINPTHREAD
-#define IN_WINPTHREAD 1
-#endif
-#include "pthread.h"
+
+#define WINPTHREAD_CLOCK_DECL WINPTHREAD_API
+
+/* public header files */
 #include "pthread_time.h"
+/* internal header files */
 #include "misc.h"
 
 #define POW10_7                 10000000
@@ -51,7 +59,7 @@ static WINPTHREADS_INLINE int lc_set_errno(int result)
  *         If the function fails, the return value is -1,
  *         with errno set to indicate the error.
  */
-int clock_getres(clockid_t clock_id, struct timespec *res)
+static int __clock_getres(clockid_t clock_id, struct _timespec64 *res)
 {
     clockid_t id = clock_id;
 
@@ -113,7 +121,7 @@ int clock_getres(clockid_t clock_id, struct timespec *res)
  *         If the function fails, the return value is -1,
  *         with errno set to indicate the error.
  */
-int clock_gettime(clockid_t clock_id, struct timespec *tp)
+static int __clock_gettime(clockid_t clock_id, struct _timespec64 *tp)
 {
     unsigned __int64 t;
     LARGE_INTEGER pf, pc;
@@ -172,7 +180,7 @@ int clock_gettime(clockid_t clock_id, struct timespec *tp)
         return 0;
         }
 
-    case CLOCK_THREAD_CPUTIME_ID: 
+    case CLOCK_THREAD_CPUTIME_ID:
         {
             if(0 == GetThreadTimes(GetCurrentThread(), &ct.ft, &et.ft, &kt.ft, &ut.ft))
                 return lc_set_errno(EINVAL);
@@ -201,20 +209,20 @@ int clock_gettime(clockid_t clock_id, struct timespec *tp)
  *         If the function fails, the return value is -1,
  *         with errno set to indicate the error.
  */
-int clock_nanosleep(clockid_t clock_id, int flags,
-                           const struct timespec *request,
-                           struct timespec *remain)
+static int __clock_nanosleep(clockid_t clock_id, int flags,
+                           const struct _timespec64 *request,
+                           struct _timespec64 *remain)
 {
-    struct timespec tp;
+    struct _timespec64 tp;
 
     if (clock_id != CLOCK_REALTIME)
         return lc_set_errno(EINVAL);
 
     if (flags == 0)
-        return nanosleep(request, remain);
+        return nanosleep64(request, remain);
 
     /* TIMER_ABSTIME = 1 */
-    clock_gettime(CLOCK_REALTIME, &tp);
+    __clock_gettime(CLOCK_REALTIME, &tp);
 
     tp.tv_sec = request->tv_sec - tp.tv_sec;
     tp.tv_nsec = request->tv_nsec - tp.tv_nsec;
@@ -223,7 +231,7 @@ int clock_nanosleep(clockid_t clock_id, int flags,
         tp.tv_sec --;
     }
 
-    return nanosleep(&tp, remain);
+    return nanosleep64(&tp, remain);
 }
 
 /**
@@ -234,7 +242,7 @@ int clock_nanosleep(clockid_t clock_id, int flags,
  *         If the function fails, the return value is -1,
  *         with errno set to indicate the error.
  */
-int clock_settime(clockid_t clock_id, const struct timespec *tp)
+static int __clock_settime(clockid_t clock_id, const struct _timespec64 *tp)
 {
     SYSTEMTIME st;
 
@@ -252,6 +260,95 @@ int clock_settime(clockid_t clock_id, const struct timespec *tp)
 
     if (SetSystemTime(&st) == 0)
         return lc_set_errno(EPERM);
+
+    return 0;
+}
+
+/**
+ * Versions to use with 64-bit time_t (struct _timespec64)
+ */
+
+int clock_getres64 (clockid_t clock_id, struct _timespec64 *tp)
+{
+    return __clock_getres (clock_id, tp);
+}
+
+int clock_gettime64 (clockid_t clock_id, struct _timespec64 *tp)
+{
+    return __clock_gettime (clock_id, tp);
+}
+
+int clock_settime64 (clockid_t clock_id, const struct _timespec64 *tp)
+{
+    return __clock_settime (clock_id, tp);
+}
+
+int clock_nanosleep64 (clockid_t clock_id, int flags,
+                const struct _timespec64 *request, struct _timespec64 *remain)
+{
+    return __clock_nanosleep (clock_id, flags, request, remain);
+}
+
+/**
+ * Versions to use with 32-bit time_t (struct _timespec32)
+ */
+
+int clock_getres32 (clockid_t clock_id, struct _timespec32 *tp)
+{
+    struct _timespec64 tp64 = {0};
+
+    if (__clock_getres (clock_id, &tp64) == -1)
+        return -1;
+
+    tp->tv_sec = (__time32_t) tp64.tv_sec;
+    tp->tv_nsec = tp64.tv_nsec;
+
+    return 0;
+}
+
+int clock_gettime32 (clockid_t clock_id, struct _timespec32 *tp)
+{
+    struct _timespec64 tp64 = {0};
+
+    if (__clock_gettime (clock_id, &tp64) == -1)
+        return -1;
+
+    if (tp64.tv_sec > INT_MAX)
+    {
+        _set_errno (EOVERFLOW);
+        return -1;
+    }
+
+    tp->tv_sec = (__time32_t) tp64.tv_sec;
+    tp->tv_nsec = tp64.tv_nsec;
+
+    return 0;
+}
+
+int clock_settime32 (clockid_t clock_id, const struct _timespec32 *tp)
+{
+    struct _timespec64 tp64 = {.tv_sec = tp->tv_sec, .tv_nsec = tp->tv_nsec};
+    return __clock_settime (clock_id, &tp64);
+}
+
+int clock_nanosleep32 (clockid_t clock_id, int flags,
+                const struct _timespec32 *request, struct _timespec32 *remain)
+{
+    struct _timespec64 request64 = {
+        .tv_sec = request->tv_sec,
+        .tv_nsec = request->tv_nsec
+    };
+    struct _timespec64 remain64 = {0};
+
+    if (__clock_nanosleep (clock_id, flags, &request64, &remain64) == -1)
+        return -1;
+
+    assert (remain64.tv_sec <= INT_MAX);
+
+    if (remain != NULL) {
+        remain->tv_sec = (__time32_t)remain64.tv_sec;
+        remain->tv_nsec = remain64.tv_nsec;
+    }
 
     return 0;
 }

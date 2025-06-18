@@ -63,7 +63,10 @@
 #include <sys/_types/_ino_t.h>
 #include <sys/_types/_nlink_t.h>
 
+#include <_bounds.h>
 #include <Availability.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wstrict-prototypes"
@@ -71,7 +74,7 @@
 typedef struct {
 	struct _ftsent *fts_cur;	/* current node */
 	struct _ftsent *fts_child;	/* linked list of children */
-	struct _ftsent **fts_array;	/* sort array */
+	struct _ftsent **_LIBC_COUNT(fts_nitems)	fts_array; /* sort array */
 	dev_t fts_dev;			/* starting device # */
 	char *fts_path;			/* path for this descent */
 	int fts_rfd;			/* fd for root */
@@ -117,8 +120,8 @@ typedef struct _ftsent {
 	struct _ftsent *fts_link;	/* next file in directory */
 	long fts_number;	        /* local numeric value */
 	void *fts_pointer;	        /* local address value */
-	char *fts_accpath;		/* access path */
-	char *fts_path;			/* root path */
+	char *_LIBC_CSTR fts_accpath;	/* access path */
+	char *_LIBC_CSTR fts_path;	/* root path */
 	int fts_errno;			/* errno for this node */
 	int fts_symfd;			/* fd for symlink or chdir */
 	unsigned short fts_pathlen;	/* strlen(fts_path) */
@@ -162,7 +165,7 @@ typedef struct _ftsent {
 	unsigned short fts_instr;	/* fts_set() instructions */
 
 	struct stat *fts_statp;		/* stat(2) information */
-	char fts_name[1];		/* file name */
+	char fts_name[1];		/* file name, unsafe with -fbounds-safety */
 } FTSENT;
 
 #include <sys/cdefs.h>
@@ -171,7 +174,7 @@ typedef struct _ftsent {
 __BEGIN_DECLS
 FTSENT	*fts_children(FTS *, int) __DARWIN_INODE64(fts_children);
 int	 fts_close(FTS *) __DARWIN_INODE64(fts_close);
-FTS	*fts_open(char * const *, int,
+FTS	*fts_open(char *_LIBC_CSTR const *, int,
 	    int (*)(const FTSENT **, const FTSENT **)) __DARWIN_INODE64(fts_open);
 #ifdef __BLOCKS__
 #if __has_attribute(noescape)
@@ -179,7 +182,7 @@ FTS	*fts_open(char * const *, int,
 #else
 #define __fts_noescape
 #endif
-FTS	*fts_open_b(char * const *, int,
+FTS	*fts_open_b(char *_LIBC_CSTR const *, int,
 	    int (^)(const FTSENT **, const FTSENT **) __fts_noescape)
 	    __DARWIN_INODE64(fts_open_b) __OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_3_2);
 #endif /* __BLOCKS__ */

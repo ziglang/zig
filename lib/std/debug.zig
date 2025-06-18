@@ -54,6 +54,10 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
                 @tagName(accessed), @tagName(active),
             });
         }
+        pub fn sliceCastLenRemainder(src_len: usize) noreturn {
+            @branchHint(.cold);
+            std.debug.panicExtra(@returnAddress(), "slice length '{d}' does not divide exactly into destination elements", .{src_len});
+        }
         pub fn reachedUnreachable() noreturn {
             @branchHint(.cold);
             call("reached unreachable code", @returnAddress());
@@ -74,13 +78,9 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
             @branchHint(.cold);
             call("invalid error code", @returnAddress());
         }
-        pub fn castTruncatedData() noreturn {
+        pub fn integerOutOfBounds() noreturn {
             @branchHint(.cold);
-            call("integer cast truncated bits", @returnAddress());
-        }
-        pub fn negativeToUnsigned() noreturn {
-            @branchHint(.cold);
-            call("attempt to cast negative value to unsigned integer", @returnAddress());
+            call("integer does not fit in destination type", @returnAddress());
         }
         pub fn integerOverflow() noreturn {
             @branchHint(.cold);
@@ -122,9 +122,9 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
             @branchHint(.cold);
             call("for loop over objects with non-equal lengths", @returnAddress());
         }
-        pub fn memcpyLenMismatch() noreturn {
+        pub fn copyLenMismatch() noreturn {
             @branchHint(.cold);
-            call("@memcpy arguments have non-equal lengths", @returnAddress());
+            call("source and destination arguments have non-equal lengths", @returnAddress());
         }
         pub fn memcpyAlias() noreturn {
             @branchHint(.cold);
@@ -179,9 +179,11 @@ pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
 
     // `@returnAddress()` in LLVM 10 gives
     // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address".
+    // On Emscripten, Zig only supports `@returnAddress()` in debug builds
+    // because Emscripten's implementation is very slow.
     .wasm32,
     .wasm64,
-    => native_os == .emscripten,
+    => native_os == .emscripten and builtin.mode == .Debug,
 
     // `@returnAddress()` is unsupported in LLVM 13.
     .bpfel,
@@ -240,10 +242,14 @@ pub fn dumpHexFallible(bytes: []const u8) !void {
     const stderr = std.io.getStdErr();
     const ttyconf = std.io.tty.detectConfig(stderr);
     const writer = stderr.writer();
+    try dumpHexInternal(bytes, ttyconf, writer);
+}
+
+fn dumpHexInternal(bytes: []const u8, ttyconf: std.io.tty.Config, writer: anytype) !void {
     var chunks = mem.window(u8, bytes, 16, 16);
     while (chunks.next()) |window| {
         // 1. Print the address.
-        const address = (@intFromPtr(bytes.ptr) + 0x10 * (chunks.index orelse 0) / 16) - 0x10;
+        const address = (@intFromPtr(bytes.ptr) + 0x10 * (std.math.divCeil(usize, chunks.index orelse bytes.len, 16) catch unreachable)) - 0x10;
         try ttyconf.setColor(writer, .dim);
         // We print the address in lowercase and the bytes in uppercase hexadecimal to distinguish them more.
         // Also, make sure all lines are aligned by padding the address.
@@ -288,11 +294,29 @@ pub fn dumpHexFallible(bytes: []const u8) !void {
     }
 }
 
+test dumpHexInternal {
+    const bytes: []const u8 = &.{ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x01, 0x12, 0x13 };
+    var output = std.ArrayList(u8).init(std.testing.allocator);
+    defer output.deinit();
+    try dumpHexInternal(bytes, .no_color, output.writer());
+    const expected = try std.fmt.allocPrint(std.testing.allocator,
+        \\{x:0>[2]}  00 11 22 33 44 55 66 77  88 99 AA BB CC DD EE FF  .."3DUfw........
+        \\{x:0>[2]}  01 12 13                                          ...
+        \\
+    , .{
+        @intFromPtr(bytes.ptr),
+        @intFromPtr(bytes.ptr) + 16,
+        @sizeOf(usize) * 2,
+    });
+    defer std.testing.allocator.free(expected);
+    try std.testing.expectEqualStrings(expected, output.items);
+}
+
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     nosuspend {
-        if (builtin.target.isWasm()) {
+        if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
                 const stderr = io.getStdErr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
@@ -380,7 +404,7 @@ pub inline fn getContext(context: *ThreadContext) bool {
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
     nosuspend {
-        if (builtin.target.isWasm()) {
+        if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
                 const stderr = io.getStdErr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
@@ -411,7 +435,13 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
 
         var it = StackIterator.initWithContext(null, debug_info, context) catch return;
         defer it.deinit();
-        printSourceAtAddress(debug_info, stderr, it.unwind_state.?.dwarf_context.pc, tty_config) catch return;
+
+        // DWARF unwinding on aarch64-macos is not complete so we need to get pc address from mcontext
+        const pc_addr = if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
+            context.mcontext.ss.pc
+        else
+            it.unwind_state.?.dwarf_context.pc;
+        printSourceAtAddress(debug_info, stderr, pc_addr, tty_config) catch return;
 
         while (it.next()) |return_address| {
             printLastUnwindError(&it, debug_info, stderr, tty_config);
@@ -478,7 +508,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
     nosuspend {
-        if (builtin.target.isWasm()) {
+        if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
                 const stderr = io.getStdErr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
@@ -572,15 +602,20 @@ pub fn defaultPanic(
 
     // For backends that cannot handle the language features depended on by the
     // default panic handler, we have a simpler panic handler:
-    if (builtin.zig_backend == .stage2_wasm or
-        builtin.zig_backend == .stage2_arm or
-        builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_x86 or
-        (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
-        builtin.zig_backend == .stage2_sparc64 or
-        builtin.zig_backend == .stage2_spirv64)
-    {
-        @trap();
+    switch (builtin.zig_backend) {
+        .stage2_aarch64,
+        .stage2_arm,
+        .stage2_powerpc,
+        .stage2_riscv64,
+        .stage2_spirv,
+        .stage2_wasm,
+        .stage2_x86,
+        => @trap(),
+        .stage2_x86_64 => switch (builtin.target.ofmt) {
+            .elf, .macho => {},
+            else => @trap(),
+        },
+        else => {},
     }
 
     switch (builtin.os.tag) {
@@ -601,9 +636,9 @@ pub fn defaultPanic(
             // isn't visible on actual hardware if directly booted into
             inline for ([_]?*uefi.protocol.SimpleTextOutput{ uefi.system_table.std_err, uefi.system_table.con_out }) |o| {
                 if (o) |out| {
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
-                    _ = out.outputString(exit_msg);
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
+                    out.setAttribute(.{ .foreground = .red }) catch {};
+                    _ = out.outputString(exit_msg) catch {};
+                    out.setAttribute(.{ .foreground = .white }) catch {};
                 }
             }
 
@@ -738,7 +773,7 @@ pub const StackIterator = struct {
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
         if (native_arch.isSPARC()) {
             // Flush all the register windows on stack.
-            asm volatile (if (std.Target.sparc.featureSetHas(builtin.cpu.features, .v9))
+            asm volatile (if (builtin.cpu.has(.sparc, .v9))
                     "flushw"
                 else
                     "ta 3" // ST_FLUSH_WINDOWS
@@ -759,7 +794,7 @@ pub const StackIterator = struct {
     pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *posix.ucontext_t) !StackIterator {
         // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
         // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
-        if (builtin.target.isDarwin() and native_arch == .aarch64)
+        if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
             return init(first_address, @truncate(context.mcontext.ss.fp));
 
         if (SelfInfo.supports_unwinding) {
@@ -890,6 +925,8 @@ pub const StackIterator = struct {
                 }
             }
         }
+
+        if (builtin.omit_frame_pointer) return null;
 
         const fp = if (comptime native_arch.isSPARC())
             // On SPARC the offset is positive. (!)
@@ -1357,12 +1394,11 @@ pub fn attachSegfaultHandler() void {
         windows_segfault_handle = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
-    var act = posix.Sigaction{
+    const act = posix.Sigaction{
         .handler = .{ .sigaction = handleSegfaultPosix },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = (posix.SA.SIGINFO | posix.SA.RESTART | posix.SA.RESETHAND),
     };
-
     updateSegfaultHandler(&act);
 }
 
@@ -1374,9 +1410,9 @@ fn resetSegfaultHandler() void {
         }
         return;
     }
-    var act = posix.Sigaction{
+    const act = posix.Sigaction{
         .handler = .{ .handler = posix.SIG.DFL },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = 0,
     };
     updateSegfaultHandler(&act);
@@ -1454,8 +1490,26 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque)
         .aarch64,
         .aarch64_be,
         => {
-            const ctx: *posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
-            dumpStackTraceFromBase(ctx);
+            // Some kernels don't align `ctx_ptr` properly. Handle this defensively.
+            const ctx: *align(1) posix.ucontext_t = @ptrCast(ctx_ptr);
+            var new_ctx: posix.ucontext_t = ctx.*;
+            if (builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64) {
+                // The kernel incorrectly writes the contents of `__mcontext_data` right after `mcontext`,
+                // rather than after the 8 bytes of padding that are supposed to sit between the two. Copy the
+                // contents to the right place so that the `mcontext` pointer will be correct after the
+                // `relocateContext` call below.
+                new_ctx.__mcontext_data = @as(*align(1) extern struct {
+                    onstack: c_int,
+                    sigmask: std.c.sigset_t,
+                    stack: std.c.stack_t,
+                    link: ?*std.c.ucontext_t,
+                    mcsize: u64,
+                    mcontext: *std.c.mcontext_t,
+                    __mcontext_data: std.c.mcontext_t align(@sizeOf(usize)), // Disable padding after `mcontext`.
+                }, @ptrCast(ctx)).__mcontext_data;
+            }
+            relocateContext(&new_ctx);
+            dumpStackTraceFromBase(&new_ctx);
         },
         else => {},
     }
@@ -1472,6 +1526,12 @@ fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_
 }
 
 fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8) noreturn {
+    // For backends that cannot handle the language features used by this segfault handler, we have a simpler one,
+    switch (builtin.zig_backend) {
+        .stage2_x86_64 => if (builtin.target.ofmt == .coff) @trap(),
+        else => {},
+    }
+
     comptime assert(windows.CONTEXT != void);
     nosuspend switch (panic_stage) {
         0 => {

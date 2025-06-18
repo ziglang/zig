@@ -36,8 +36,6 @@ pub fn is(comptime id: std.builtin.TypeId) TraitFn {
 }
 
 // error
-// backend=llvm
-// target=native
 //
 // :8:48: error: expected type 'type', found 'bool'
-// :5:21: note: called from here
+// :5:21: note: generic function instantiated here

@@ -310,7 +310,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
     if (self.dwarf) |*dwarf| {
         const pt: Zcu.PerThread = .activate(elf_file.base.comp.zcu.?, tid);
         defer pt.deactivate();
-        try dwarf.flushModule(pt);
+        try dwarf.flush(pt);
 
         const gpa = elf_file.base.comp.gpa;
         const cpu_arch = elf_file.getTarget().cpu.arch;
@@ -481,7 +481,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
         self.debug_str_section_dirty = false;
     }
 
-    // The point of flushModule() is to commit changes, so in theory, nothing should
+    // The point of flush() is to commit changes, so in theory, nothing should
     // be dirty after this. However, it is possible for some things to remain
     // dirty because they fail to be written in the event of compile errors,
     // such as debug_line_header_dirty and debug_info_header_dirty.
@@ -657,10 +657,11 @@ pub fn scanRelocs(self: *ZigObject, elf_file: *Elf, undefs: anytype) !void {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
+        if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
         if (atom_ptr.scanRelocsRequiresCode(elf_file)) {
             // TODO ideally we don't have to fetch the code here.
-            // Perhaps it would make sense to save the code until flushModule where we
+            // Perhaps it would make sense to save the code until flush where we
             // would free all of generated code?
             const code = try self.codeAlloc(elf_file, atom_index);
             defer gpa.free(code);
@@ -1074,7 +1075,7 @@ pub fn getOrCreateMetadataForLazySymbol(
     }
     state_ptr.* = .pending_flush;
     const symbol_index = symbol_index_ptr.*;
-    // anyerror needs to be deferred until flushModule
+    // anyerror needs to be deferred until flush
     if (lazy_sym.ty != .anyerror_type) try self.updateLazySymbol(elf_file, pt, lazy_sym, symbol_index);
     return symbol_index;
 }
@@ -1141,7 +1142,6 @@ fn getNavShdrIndex(
     const gpa = elf_file.base.comp.gpa;
     const ptr_size = elf_file.ptrWidthBytes();
     const ip = &zcu.intern_pool;
-    const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
     const nav_val = zcu.navValue(nav_index);
     if (ip.isFunctionType(nav_val.typeOf(zcu).toIntern())) {
         if (self.text_index) |symbol_index|
@@ -1161,7 +1161,7 @@ fn getNavShdrIndex(
         else => .{ true, false, nav_val.toIntern() },
     };
     const has_relocs = self.symbol(sym_index).atom(elf_file).?.relocs(elf_file).len > 0;
-    if (any_non_single_threaded and is_threadlocal) {
+    if (is_threadlocal and elf_file.base.comp.config.any_non_single_threaded) {
         const is_bss = !has_relocs and for (code) |byte| {
             if (byte != 0) break false;
         } else true;
@@ -1201,7 +1201,7 @@ fn getNavShdrIndex(
         return osec;
     }
     if (nav_init != .none and Value.fromInterned(nav_init).isUndefDeep(zcu))
-        return switch (zcu.navFileScope(nav_index).mod.optimize_mode) {
+        return switch (zcu.navFileScope(nav_index).mod.?.optimize_mode) {
             .Debug, .ReleaseSafe => {
                 if (self.data_index) |symbol_index|
                     return self.symbol(symbol_index).outputShndx(elf_file).?;
@@ -1271,7 +1271,7 @@ fn updateNavCode(
 
     log.debug("updateNavCode {}({d})", .{ nav.fqn.fmt(ip), nav_index });
 
-    const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
+    const target = zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const required_alignment = switch (pt.navAlignment(nav_index)) {
         .none => target_util.defaultFunctionAlignment(target),
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
@@ -1415,8 +1415,7 @@ pub fn updateFunc(
     elf_file: *Elf,
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Liveness,
+    mir: *const codegen.AnyMir,
 ) link.File.UpdateNavError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1437,13 +1436,12 @@ pub fn updateFunc(
     var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, sym_index) else null;
     defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
-    try codegen.generateFunction(
+    try codegen.emitFunction(
         &elf_file.base,
         pt,
         zcu.navSrcLoc(func.owner_nav),
         func_index,
-        air,
-        liveness,
+        mir,
         &code_buffer,
         if (debug_wip_nav) |*dn| .{ .dwarf = dn } else .none,
     );
@@ -1543,11 +1541,7 @@ pub fn updateNav(
                 nav.name.toSlice(ip),
                 @"extern".lib_name.toSlice(ip),
             );
-            if (!ip.isFunctionType(@"extern".ty)) {
-                const sym = self.symbol(sym_index);
-                sym.flags.is_extern_ptr = true;
-                if (@"extern".is_threadlocal) sym.flags.is_tls = true;
-            }
+            if (@"extern".is_threadlocal and elf_file.base.comp.config.any_non_single_threaded) self.symbol(sym_index).flags.is_tls = true;
             if (self.dwarf) |*dwarf| dwarf: {
                 var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index) orelse break :dwarf;
                 defer debug_wip_nav.deinit();
@@ -1937,9 +1931,14 @@ pub fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, requires_padding: bool, e
     const shdr = &slice.items(.shdr)[atom_ptr.output_section_index];
     const last_atom_ref = &slice.items(.last_atom)[atom_ptr.output_section_index];
 
-    // This only works if this atom is the only atom in the output section. In
-    // every other case, we need to redo the prev/next links.
-    if (last_atom_ref.eql(atom_ptr.ref())) last_atom_ref.* = .{};
+    if (last_atom_ref.eql(atom_ptr.ref())) {
+        if (atom_ptr.prevAtom(elf_file)) |prev_atom| {
+            prev_atom.next_atom_ref = .{};
+            last_atom_ref.* = prev_atom.ref();
+        } else {
+            last_atom_ref.* = .{};
+        }
+    }
 
     const alloc_res = try elf_file.allocateChunk(.{
         .shndx = atom_ptr.output_section_index,
@@ -2355,14 +2354,12 @@ const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Air = @import("../../Air.zig");
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Dwarf = @import("../Dwarf.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const InternPool = @import("../../InternPool.zig");
-const Liveness = @import("../../Liveness.zig");
 const Zcu = @import("../../Zcu.zig");
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");

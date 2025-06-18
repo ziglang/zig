@@ -202,6 +202,15 @@ pub fn main() !void {
                         next_arg, @errorName(err),
                     });
                 };
+            } else if (mem.eql(u8, arg, "--build-id")) {
+                builder.build_id = .fast;
+            } else if (mem.startsWith(u8, arg, "--build-id=")) {
+                const style = arg["--build-id=".len..];
+                builder.build_id = std.zig.BuildId.parse(style) catch |err| {
+                    fatal("unable to parse --build-id style '{s}': {s}", .{
+                        style, @errorName(err),
+                    });
+                };
             } else if (mem.eql(u8, arg, "--debounce")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
                     fatalWithHint("expected u16 after '{s}'", .{arg});
@@ -227,13 +236,16 @@ pub fn main() !void {
                 graph.debug_compiler_runtime_libs = true;
             } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                 builder.debug_compile_errors = true;
+            } else if (mem.eql(u8, arg, "--debug-incremental")) {
+                builder.debug_incremental = true;
             } else if (mem.eql(u8, arg, "--system")) {
                 // The usage text shows another argument after this parameter
                 // but it is handled by the parent process. The build runner
                 // only sees this flag.
                 graph.system_package_mode = true;
-            } else if (mem.eql(u8, arg, "--glibc-runtimes")) {
-                builder.glibc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
+            } else if (mem.eql(u8, arg, "--libc-runtimes") or mem.eql(u8, arg, "--glibc-runtimes")) {
+                // --glibc-runtimes was the old name of the flag; kept for compatibility for now.
+                builder.libc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--verbose-link")) {
                 builder.verbose_link = true;
             } else if (mem.eql(u8, arg, "--verbose-air")) {
@@ -403,7 +415,7 @@ pub fn main() !void {
         else => return err,
     };
 
-    var w = if (watch) try Watch.init() else undefined;
+    var w: Watch = if (watch and Watch.have_impl) try Watch.init() else undefined;
 
     try run.thread_pool.init(thread_pool_options);
     defer run.thread_pool.deinit();
@@ -423,6 +435,9 @@ pub fn main() !void {
             else => return err,
         };
         if (fuzz) {
+            if (builtin.single_threaded) {
+                fatal("--fuzz not yet implemented for single-threaded builds", .{});
+            }
             switch (builtin.os.tag) {
                 // Current implementation depends on two things that need to be ported to Windows:
                 // * Memory-mapping to share data between the fuzzer and build runner.
@@ -430,6 +445,13 @@ pub fn main() !void {
                 //   many addresses to source locations).
                 .windows => fatal("--fuzz not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
                 else => {},
+            }
+            if (@bitSizeOf(usize) != 64) {
+                // Current implementation depends on posix.mmap()'s second parameter, `length: usize`,
+                // being compatible with `std.fs.getEndPos() u64`'s return value. This is not the case
+                // on 32-bit platforms.
+                // Affects or affected by issues #5185, #22523, and #22464.
+                fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
             }
             const listen_address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
             try Fuzz.start(
@@ -580,7 +602,6 @@ fn prepare(
             if (run.max_rss_is_default) {
                 std.debug.print("note: use --maxrss to override the default", .{});
             }
-            return uncleanExit();
         }
     }
 }
@@ -733,7 +754,7 @@ fn runStepNames(
     if (run.prominent_compile_errors and total_compile_errors > 0) {
         for (step_stack.keys()) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
-                s.result_error_bundle.renderToStdErr(.{ .ttyconf = ttyconf, .include_reference_trace = (b.reference_trace orelse 0) > 0 });
+                s.result_error_bundle.renderToStdErr(.{ .ttyconf = ttyconf });
             }
         }
 
@@ -1112,11 +1133,7 @@ fn workerMakeOneStep(
         defer std.debug.unlockStdErr();
 
         const gpa = b.allocator;
-        const options: std.zig.ErrorBundle.RenderOptions = .{
-            .ttyconf = run.ttyconf,
-            .include_reference_trace = (b.reference_trace orelse 0) > 0,
-        };
-        printErrorMessages(gpa, s, options, run.stderr, run.prominent_compile_errors) catch {};
+        printErrorMessages(gpa, s, .{ .ttyconf = run.ttyconf }, run.stderr, run.prominent_compile_errors) catch {};
     }
 
     handle_result: {
@@ -1263,9 +1280,10 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  -fqemu,     -fno-qemu        Integration with system-installed QEMU to execute
         \\                               foreign-architecture programs on Linux hosts
         \\                               (default: no)
-        \\  --glibc-runtimes [path]      Enhances QEMU integration by providing glibc built
-        \\                               for multiple foreign architectures, allowing
-        \\                               execution of non-native programs that link with glibc.
+        \\  --libc-runtimes [path]       Enhances QEMU integration by providing dynamic libc
+        \\                               (e.g. glibc or musl) built for multiple foreign
+        \\                               architectures, allowing execution of non-native
+        \\                               programs that link with libc.
         \\  -frosetta,  -fno-rosetta     Rely on Rosetta to execute x86_64 programs on
         \\                               ARM64 macOS hosts. (default: no)
         \\  -fwasmtime, -fno-wasmtime    Integration with system-installed wasmtime to
@@ -1286,7 +1304,9 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
-        \\  --fetch                      Exit after fetching dependency tree
+        \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
+        \\    needed                     (Default) Lazy dependencies are fetched as needed
+        \\    all                        Lazy dependencies are always fetched
         \\  --watch                      Continuously rebuild when source files are modified
         \\  --fuzz                       Continuously search for unit test failures
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
@@ -1357,6 +1377,13 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --build-runner [file]        Override path to build runner
         \\  --seed [integer]             For shuffling dependency traversal order (default: random)
+        \\  --build-id[=style]           At a minor link-time expense, embeds a build ID in binaries
+        \\      fast                     8-byte non-cryptographic hash (COFF, ELF, WASM)
+        \\      sha1, tree               20-byte cryptographic hash (ELF, WASM)
+        \\      md5                      16-byte cryptographic hash (ELF)
+        \\      uuid                     16-byte random UUID (ELF, WASM)
+        \\      0x[hexstring]            Constant ID, maximum 32 bytes (ELF, WASM)
+        \\      none                     (default) No build ID
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
         \\  --debug-rt                   Debug compiler runtime libraries
@@ -1487,6 +1514,7 @@ fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
             .path_after,
             .framework_path,
             .framework_path_system,
+            .embed_path,
             => |lp| lp.addStepDependencies(step),
 
             .other_step => |other| {

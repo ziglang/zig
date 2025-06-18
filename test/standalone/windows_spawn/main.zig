@@ -51,6 +51,8 @@ pub fn main() anyerror!void {
     try testExec(allocator, "HeLLo.exe", "hello from exe\n");
     // without extension should find the .exe (case insensitive)
     try testExec(allocator, "heLLo", "hello from exe\n");
+    // with invalid cwd
+    try std.testing.expectError(error.FileNotFound, testExecWithCwd(allocator, "hello.exe", "missing_dir", ""));
 
     // now add a .bat
     try tmp.dir.writeFile(.{ .sub_path = "hello.bat", .data = "@echo hello from bat" });

@@ -586,101 +586,106 @@ basic_string<char32_t> operator""s( const char32_t *str, size_t len );          
 
 // clang-format on
 
-#include <__algorithm/max.h>
-#include <__algorithm/min.h>
-#include <__algorithm/remove.h>
-#include <__algorithm/remove_if.h>
-#include <__assert>
-#include <__config>
-#include <__debug_utils/sanitizers.h>
-#include <__format/enable_insertable.h>
-#include <__functional/hash.h>
-#include <__functional/unary_function.h>
-#include <__fwd/string.h>
-#include <__ios/fpos.h>
-#include <__iterator/bounded_iter.h>
-#include <__iterator/distance.h>
-#include <__iterator/iterator_traits.h>
-#include <__iterator/reverse_iterator.h>
-#include <__iterator/wrap_iter.h>
-#include <__memory/addressof.h>
-#include <__memory/allocate_at_least.h>
-#include <__memory/allocator.h>
-#include <__memory/allocator_traits.h>
-#include <__memory/compressed_pair.h>
-#include <__memory/construct_at.h>
-#include <__memory/pointer_traits.h>
-#include <__memory/swap_allocator.h>
-#include <__memory_resource/polymorphic_allocator.h>
-#include <__ranges/access.h>
-#include <__ranges/concepts.h>
-#include <__ranges/container_compatible_range.h>
-#include <__ranges/from_range.h>
-#include <__ranges/size.h>
-#include <__string/char_traits.h>
-#include <__string/extern_template_lists.h>
-#include <__type_traits/conditional.h>
-#include <__type_traits/is_allocator.h>
-#include <__type_traits/is_array.h>
-#include <__type_traits/is_convertible.h>
-#include <__type_traits/is_nothrow_assignable.h>
-#include <__type_traits/is_nothrow_constructible.h>
-#include <__type_traits/is_same.h>
-#include <__type_traits/is_standard_layout.h>
-#include <__type_traits/is_trivial.h>
-#include <__type_traits/is_trivially_relocatable.h>
-#include <__type_traits/noexcept_move_assign_container.h>
-#include <__type_traits/remove_cvref.h>
-#include <__type_traits/void_t.h>
-#include <__utility/auto_cast.h>
-#include <__utility/declval.h>
-#include <__utility/forward.h>
-#include <__utility/is_pointer_in_range.h>
-#include <__utility/move.h>
-#include <__utility/swap.h>
-#include <__utility/unreachable.h>
-#include <climits>
-#include <cstdio> // EOF
-#include <cstring>
-#include <limits>
-#include <stdexcept>
-#include <string_view>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/string>
+#else
+#  include <__algorithm/max.h>
+#  include <__algorithm/min.h>
+#  include <__algorithm/remove.h>
+#  include <__algorithm/remove_if.h>
+#  include <__assert>
+#  include <__config>
+#  include <__debug_utils/sanitizers.h>
+#  include <__format/enable_insertable.h>
+#  include <__functional/hash.h>
+#  include <__functional/unary_function.h>
+#  include <__fwd/string.h>
+#  include <__ios/fpos.h>
+#  include <__iterator/bounded_iter.h>
+#  include <__iterator/distance.h>
+#  include <__iterator/iterator_traits.h>
+#  include <__iterator/reverse_iterator.h>
+#  include <__iterator/wrap_iter.h>
+#  include <__memory/addressof.h>
+#  include <__memory/allocate_at_least.h>
+#  include <__memory/allocator.h>
+#  include <__memory/allocator_traits.h>
+#  include <__memory/compressed_pair.h>
+#  include <__memory/construct_at.h>
+#  include <__memory/noexcept_move_assign_container.h>
+#  include <__memory/pointer_traits.h>
+#  include <__memory/swap_allocator.h>
+#  include <__memory_resource/polymorphic_allocator.h>
+#  include <__ranges/access.h>
+#  include <__ranges/concepts.h>
+#  include <__ranges/container_compatible_range.h>
+#  include <__ranges/from_range.h>
+#  include <__ranges/size.h>
+#  include <__string/char_traits.h>
+#  include <__string/extern_template_lists.h>
+#  include <__type_traits/conditional.h>
+#  include <__type_traits/enable_if.h>
+#  include <__type_traits/is_allocator.h>
+#  include <__type_traits/is_array.h>
+#  include <__type_traits/is_convertible.h>
+#  include <__type_traits/is_nothrow_assignable.h>
+#  include <__type_traits/is_nothrow_constructible.h>
+#  include <__type_traits/is_same.h>
+#  include <__type_traits/is_standard_layout.h>
+#  include <__type_traits/is_trivial.h>
+#  include <__type_traits/is_trivially_relocatable.h>
+#  include <__type_traits/remove_cvref.h>
+#  include <__type_traits/void_t.h>
+#  include <__utility/auto_cast.h>
+#  include <__utility/declval.h>
+#  include <__utility/forward.h>
+#  include <__utility/is_pointer_in_range.h>
+#  include <__utility/move.h>
+#  include <__utility/scope_guard.h>
+#  include <__utility/swap.h>
+#  include <__utility/unreachable.h>
+#  include <climits>
+#  include <cstdio> // EOF
+#  include <cstring>
+#  include <limits>
+#  include <stdexcept>
+#  include <string_view>
+#  include <version>
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-#  include <cwchar>
-#endif
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
+#    include <cwchar>
+#  endif
 
 // standard-mandated includes
 
 // [iterator.range]
-#include <__iterator/access.h>
-#include <__iterator/data.h>
-#include <__iterator/empty.h>
-#include <__iterator/reverse_access.h>
-#include <__iterator/size.h>
+#  include <__iterator/access.h>
+#  include <__iterator/data.h>
+#  include <__iterator/empty.h>
+#  include <__iterator/reverse_access.h>
+#  include <__iterator/size.h>
 
 // [string.syn]
-#include <compare>
-#include <initializer_list>
+#  include <compare>
+#  include <initializer_list>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#  include <__undef_macros>
 
-#if !defined(_LIBCPP_HAS_NO_ASAN) && defined(_LIBCPP_INSTRUMENTED_WITH_ASAN)
-#  define _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS __attribute__((__no_sanitize__("address")))
+#  if _LIBCPP_HAS_ASAN && _LIBCPP_INSTRUMENTED_WITH_ASAN
+#    define _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS __attribute__((__no_sanitize__("address")))
 // This macro disables AddressSanitizer (ASan) instrumentation for a specific function,
 // allowing memory accesses that would normally trigger ASan errors to proceed without crashing.
 // This is useful for accessing parts of objects memory, which should not be accessed,
 // such as unused bytes in short strings, that should never be accessed
 // by other parts of the program.
-#else
-#  define _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS
-#endif
+#  else
+#    define _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS
+#  endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -706,7 +711,7 @@ template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string<_CharT, _Traits, _Allocator>
 operator+(const basic_string<_CharT, _Traits, _Allocator>& __x, _CharT __y);
 
-#if _LIBCPP_STD_VER >= 26
+#  if _LIBCPP_STD_VER >= 26
 
 template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_HIDE_FROM_ABI constexpr basic_string<_CharT, _Traits, _Allocator>
@@ -726,7 +731,7 @@ template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_HIDE_FROM_ABI constexpr basic_string<_CharT, _Traits, _Allocator>
 operator+(type_identity_t<basic_string_view<_CharT, _Traits>> __lhs, basic_string<_CharT, _Traits, _Allocator>&& __rhs);
 
-#endif
+#  endif
 
 extern template _LIBCPP_EXPORTED_FROM_ABI string operator+
     <char, char_traits<char>, allocator<char> >(char const*, string const&);
@@ -748,10 +753,18 @@ struct __can_be_converted_to_string_view
 struct __uninitialized_size_tag {};
 struct __init_with_sentinel_tag {};
 
+template <size_t _PaddingSize>
+struct __padding {
+  char __padding_[_PaddingSize];
+};
+
+template <>
+struct __padding<0> {};
+
 template <class _CharT, class _Traits, class _Allocator>
 class basic_string {
 private:
-  using __default_allocator_type = allocator<_CharT>;
+  using __default_allocator_type _LIBCPP_NODEBUG = allocator<_CharT>;
 
 public:
   typedef basic_string __self;
@@ -776,7 +789,7 @@ public:
   //
   // This string implementation doesn't contain any references into itself. It only contains a bit that says whether
   // it is in small or large string mode, so the entire structure is trivially relocatable if its members are.
-#if !defined(_LIBCPP_HAS_NO_ASAN) && defined(_LIBCPP_INSTRUMENTED_WITH_ASAN)
+#  if _LIBCPP_HAS_ASAN && _LIBCPP_INSTRUMENTED_WITH_ASAN
   // When compiling with AddressSanitizer (ASan), basic_string cannot be trivially
   // relocatable. Because the object's memory might be poisoned when its content
   // is kept inside objects memory (short string optimization), instead of in allocated
@@ -784,13 +797,14 @@ public:
   // the memory to avoid triggering false positives.
   // Therefore it's crucial to ensure the destructor is called.
   using __trivially_relocatable = void;
-#else
-  using __trivially_relocatable = __conditional_t<
+#  else
+  using __trivially_relocatable _LIBCPP_NODEBUG = __conditional_t<
       __libcpp_is_trivially_relocatable<allocator_type>::value && __libcpp_is_trivially_relocatable<pointer>::value,
       basic_string,
       void>;
-#endif
-#if !defined(_LIBCPP_HAS_NO_ASAN) && defined(_LIBCPP_INSTRUMENTED_WITH_ASAN)
+#  endif
+
+#  if _LIBCPP_HAS_ASAN && _LIBCPP_INSTRUMENTED_WITH_ASAN
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pointer __asan_volatile_wrapper(pointer const& __ptr) const {
     if (__libcpp_is_constant_evaluated())
       return __ptr;
@@ -809,10 +823,10 @@ public:
 
     return const_cast<const_pointer&>(__copy_ptr);
   }
-#  define _LIBCPP_ASAN_VOLATILE_WRAPPER(PTR) __asan_volatile_wrapper(PTR)
-#else
-#  define _LIBCPP_ASAN_VOLATILE_WRAPPER(PTR) PTR
-#endif
+#    define _LIBCPP_ASAN_VOLATILE_WRAPPER(PTR) __asan_volatile_wrapper(PTR)
+#  else
+#    define _LIBCPP_ASAN_VOLATILE_WRAPPER(PTR) PTR
+#  endif
 
   static_assert(!is_array<value_type>::value, "Character type of basic_string must not be an array");
   static_assert(is_standard_layout<value_type>::value, "Character type of basic_string must be standard-layout");
@@ -823,23 +837,23 @@ public:
                 "Allocator::value_type must be same type as value_type");
   static_assert(__check_valid_allocator<allocator_type>::value, "");
 
-#ifdef _LIBCPP_ABI_BOUNDED_ITERATORS_IN_STRING
+#  ifdef _LIBCPP_ABI_BOUNDED_ITERATORS_IN_STRING
   // Users might provide custom allocators, and prior to C++20 we have no existing way to detect whether the allocator's
   // pointer type is contiguous (though it has to be by the Standard). Using the wrapper type ensures the iterator is
   // considered contiguous.
-  typedef __bounded_iter<__wrap_iter<pointer>> iterator;
-  typedef __bounded_iter<__wrap_iter<const_pointer>> const_iterator;
-#else
+  typedef __bounded_iter<__wrap_iter<pointer> > iterator;
+  typedef __bounded_iter<__wrap_iter<const_pointer> > const_iterator;
+#  else
   typedef __wrap_iter<pointer> iterator;
   typedef __wrap_iter<const_pointer> const_iterator;
-#endif
+#  endif
   typedef std::reverse_iterator<iterator> reverse_iterator;
   typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
 
 private:
   static_assert(CHAR_BIT == 8, "This implementation assumes that one byte contains 8 bits");
 
-#ifdef _LIBCPP_ABI_ALTERNATE_STRING_LAYOUT
+#  ifdef _LIBCPP_ABI_ALTERNATE_STRING_LAYOUT
 
   struct __long {
     pointer __data_;
@@ -852,7 +866,7 @@ private:
 
   struct __short {
     value_type __data_[__min_cap];
-    unsigned char __padding_[sizeof(value_type) - 1];
+    _LIBCPP_NO_UNIQUE_ADDRESS __padding<sizeof(value_type) - 1> __padding_;
     unsigned char __size_    : 7;
     unsigned char __is_long_ : 1;
   };
@@ -870,19 +884,19 @@ private:
   // This does not impact the short string representation, since we never need the MSB
   // for representing the size of a short string anyway.
 
-#  ifdef _LIBCPP_BIG_ENDIAN
+#    ifdef _LIBCPP_BIG_ENDIAN
   static const size_type __endian_factor = 2;
-#  else
+#    else
   static const size_type __endian_factor = 1;
-#  endif
+#    endif
 
-#else // _LIBCPP_ABI_ALTERNATE_STRING_LAYOUT
+#  else // _LIBCPP_ABI_ALTERNATE_STRING_LAYOUT
 
-#  ifdef _LIBCPP_BIG_ENDIAN
+#    ifdef _LIBCPP_BIG_ENDIAN
   static const size_type __endian_factor = 1;
-#  else
+#    else
   static const size_type __endian_factor = 2;
-#  endif
+#    endif
 
   // Attribute 'packed' is used to keep the layout compatible with the
   // previous definition that did not use bit fields. This is because on
@@ -904,11 +918,11 @@ private:
       unsigned char __is_long_ : 1;
       unsigned char __size_    : 7;
     };
-    char __padding_[sizeof(value_type) - 1];
+    _LIBCPP_NO_UNIQUE_ADDRESS __padding<sizeof(value_type) - 1> __padding_;
     value_type __data_[__min_cap];
   };
 
-#endif // _LIBCPP_ABI_ALTERNATE_STRING_LAYOUT
+#  endif // _LIBCPP_ABI_ALTERNATE_STRING_LAYOUT
 
   static_assert(sizeof(__short) == (sizeof(value_type) * (__min_cap + 1)), "__short has an unexpected size.");
 
@@ -917,22 +931,31 @@ private:
     __long __l;
   };
 
-  __compressed_pair<__rep, allocator_type> __r_;
+  _LIBCPP_COMPRESSED_PAIR(__rep, __rep_, allocator_type, __alloc_);
+
+  // annotate the string with its size() at scope exit. The string has to be in a valid state at that point.
+  struct __annotate_new_size {
+    basic_string& __str_;
+
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __annotate_new_size(basic_string& __str) : __str_(__str) {}
+
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void operator()() { __str_.__annotate_new(__str_.size()); }
+  };
 
   // Construct a string with the given allocator and enough storage to hold `__size` characters, but
   // don't initialize the characters. The contents of the string, including the null terminator, must be
   // initialized separately.
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 explicit basic_string(
       __uninitialized_size_tag, size_type __size, const allocator_type& __a)
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     if (__size > max_size())
       __throw_length_error();
     if (__fits_in_sso(__size)) {
-      __r_.first() = __rep();
+      __rep_ = __rep();
       __set_short_size(__size);
     } else {
       auto __capacity   = __recommend(__size) + 1;
-      auto __allocation = __alloc_traits::allocate(__alloc(), __capacity);
+      auto __allocation = __alloc_traits::allocate(__alloc_, __capacity);
       __begin_lifetime(__allocation, __capacity);
       __set_long_cap(__capacity);
       __set_long_pointer(__allocation);
@@ -944,12 +967,12 @@ private:
   template <class _Iter, class _Sent>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
   basic_string(__init_with_sentinel_tag, _Iter __first, _Sent __last, const allocator_type& __a)
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     __init_with_sentinel(std::move(__first), std::move(__last));
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 iterator __make_iterator(pointer __p) {
-#ifdef _LIBCPP_ABI_BOUNDED_ITERATORS_IN_STRING
+#  ifdef _LIBCPP_ABI_BOUNDED_ITERATORS_IN_STRING
     // Bound the iterator according to the size (and not the capacity, unlike vector).
     //
     // By the Standard, string iterators are generally not guaranteed to stay valid when the container is modified,
@@ -960,21 +983,21 @@ private:
         std::__wrap_iter<pointer>(__p),
         std::__wrap_iter<pointer>(__get_pointer()),
         std::__wrap_iter<pointer>(__get_pointer() + size()));
-#else
+#  else
     return iterator(__p);
-#endif // _LIBCPP_ABI_BOUNDED_ITERATORS_IN_STRING
+#  endif // _LIBCPP_ABI_BOUNDED_ITERATORS_IN_STRING
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 const_iterator __make_const_iterator(const_pointer __p) const {
-#ifdef _LIBCPP_ABI_BOUNDED_ITERATORS_IN_STRING
+#  ifdef _LIBCPP_ABI_BOUNDED_ITERATORS_IN_STRING
     // Bound the iterator according to the size (and not the capacity, unlike vector).
     return std::__make_bounded_iter(
         std::__wrap_iter<const_pointer>(__p),
         std::__wrap_iter<const_pointer>(__get_pointer()),
         std::__wrap_iter<const_pointer>(__get_pointer() + size()));
-#else
+#  else
     return const_iterator(__p);
-#endif // _LIBCPP_ABI_BOUNDED_ITERATORS_IN_STRING
+#  endif // _LIBCPP_ABI_BOUNDED_ITERATORS_IN_STRING
   }
 
 public:
@@ -982,24 +1005,24 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string()
       _NOEXCEPT_(is_nothrow_default_constructible<allocator_type>::value)
-      : __r_(__value_init_tag(), __default_init_tag()) {
+      : __rep_() {
     __annotate_new(0);
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 explicit basic_string(const allocator_type& __a)
-#if _LIBCPP_STD_VER <= 14
+#  if _LIBCPP_STD_VER <= 14
       _NOEXCEPT_(is_nothrow_copy_constructible<allocator_type>::value)
-#else
+#  else
       _NOEXCEPT
-#endif
-      : __r_(__value_init_tag(), __a) {
+#  endif
+      : __rep_(), __alloc_(__a) {
     __annotate_new(0);
   }
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS basic_string(const basic_string& __str)
-      : __r_(__default_init_tag(), __alloc_traits::select_on_container_copy_construction(__str.__alloc())) {
+      : __alloc_(__alloc_traits::select_on_container_copy_construction(__str.__alloc_)) {
     if (!__str.__is_long()) {
-      __r_.first() = __str.__r_.first();
+      __rep_ = __str.__rep_;
       __annotate_new(__get_short_size());
     } else
       __init_copy_ctor_external(std::__to_address(__str.__get_long_pointer()), __str.__get_long_size());
@@ -1007,119 +1030,115 @@ public:
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS
   basic_string(const basic_string& __str, const allocator_type& __a)
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     if (!__str.__is_long()) {
-      __r_.first() = __str.__r_.first();
+      __rep_ = __str.__rep_;
       __annotate_new(__get_short_size());
     } else
       __init_copy_ctor_external(std::__to_address(__str.__get_long_pointer()), __str.__get_long_size());
   }
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(basic_string&& __str)
-#  if _LIBCPP_STD_VER <= 14
+#    if _LIBCPP_STD_VER <= 14
       _NOEXCEPT_(is_nothrow_move_constructible<allocator_type>::value)
-#  else
+#    else
       _NOEXCEPT
-#  endif
+#    endif
       // Turning off ASan instrumentation for variable initialization with _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS
       // does not work consistently during initialization of __r_, so we instead unpoison __str's memory manually first.
       // __str's memory needs to be unpoisoned only in the case where it's a short string.
-      : __r_([](basic_string& __s) -> decltype(__s.__r_)&& {
+      : __rep_([](basic_string& __s) -> decltype(__s.__rep_)&& {
           if (!__s.__is_long())
             __s.__annotate_delete();
-          return std::move(__s.__r_);
-        }(__str)) {
-    __str.__r_.first() = __rep();
+          return std::move(__s.__rep_);
+        }(__str)),
+        __alloc_(std::move(__str.__alloc_)) {
+    __str.__rep_ = __rep();
     __str.__annotate_new(0);
     if (!__is_long())
       __annotate_new(size());
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(basic_string&& __str, const allocator_type& __a)
-      : __r_(__default_init_tag(), __a) {
-    if (__str.__is_long() && __a != __str.__alloc()) // copy, not move
+      : __alloc_(__a) {
+    if (__str.__is_long() && __a != __str.__alloc_) // copy, not move
       __init(std::__to_address(__str.__get_long_pointer()), __str.__get_long_size());
     else {
       if (__libcpp_is_constant_evaluated())
-        __r_.first() = __rep();
+        __rep_ = __rep();
       if (!__str.__is_long())
         __str.__annotate_delete();
-      __r_.first()       = __str.__r_.first();
-      __str.__r_.first() = __rep();
+      __rep_       = __str.__rep_;
+      __str.__rep_ = __rep();
       __str.__annotate_new(0);
-      if (!__is_long() && this != &__str)
+      if (!__is_long() && this != std::addressof(__str))
         __annotate_new(size());
     }
   }
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   template <__enable_if_t<__is_allocator<_Allocator>::value, int> = 0>
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(const _CharT* __s)
-      : __r_(__default_init_tag(), __default_init_tag()) {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(const _CharT* __s) {
     _LIBCPP_ASSERT_NON_NULL(__s != nullptr, "basic_string(const char*) detected nullptr");
     __init(__s, traits_type::length(__s));
   }
 
   template <__enable_if_t<__is_allocator<_Allocator>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(const _CharT* __s, const _Allocator& __a)
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     _LIBCPP_ASSERT_NON_NULL(__s != nullptr, "basic_string(const char*, allocator) detected nullptr");
     __init(__s, traits_type::length(__s));
   }
 
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
   basic_string(nullptr_t) = delete;
-#endif
+#  endif
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(const _CharT* __s, size_type __n)
-      : __r_(__default_init_tag(), __default_init_tag()) {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(const _CharT* __s, size_type __n) {
     _LIBCPP_ASSERT_NON_NULL(__n == 0 || __s != nullptr, "basic_string(const char*, n) detected nullptr");
     __init(__s, __n);
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
   basic_string(const _CharT* __s, size_type __n, const _Allocator& __a)
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     _LIBCPP_ASSERT_NON_NULL(__n == 0 || __s != nullptr, "basic_string(const char*, n, allocator) detected nullptr");
     __init(__s, __n);
   }
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(size_type __n, _CharT __c)
-      : __r_(__default_init_tag(), __default_init_tag()) {
-    __init(__n, __c);
-  }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(size_type __n, _CharT __c) { __init(__n, __c); }
 
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
   _LIBCPP_HIDE_FROM_ABI constexpr basic_string(
       basic_string&& __str, size_type __pos, const _Allocator& __alloc = _Allocator())
       : basic_string(std::move(__str), __pos, npos, __alloc) {}
 
   _LIBCPP_HIDE_FROM_ABI constexpr basic_string(
       basic_string&& __str, size_type __pos, size_type __n, const _Allocator& __alloc = _Allocator())
-      : __r_(__default_init_tag(), __alloc) {
+      : __alloc_(__alloc) {
     if (__pos > __str.size())
       __throw_out_of_range();
 
     auto __len = std::min<size_type>(__n, __str.size() - __pos);
-    if (__alloc_traits::is_always_equal::value || __alloc == __str.__alloc()) {
+    if (__alloc_traits::is_always_equal::value || __alloc == __str.__alloc_) {
       __move_assign(std::move(__str), __pos, __len);
     } else {
       // Perform a copy because the allocators are not compatible.
       __init(__str.data() + __pos, __len);
     }
   }
-#endif
+#  endif
 
   template <__enable_if_t<__is_allocator<_Allocator>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(size_type __n, _CharT __c, const _Allocator& __a)
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     __init(__n, __c);
   }
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20
   basic_string(const basic_string& __str, size_type __pos, size_type __n, const _Allocator& __a = _Allocator())
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     size_type __str_sz = __str.size();
     if (__pos > __str_sz)
       __throw_out_of_range();
@@ -1128,7 +1147,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
   basic_string(const basic_string& __str, size_type __pos, const _Allocator& __a = _Allocator())
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     size_type __str_sz = __str.size();
     if (__pos > __str_sz)
       __throw_out_of_range();
@@ -1141,7 +1160,7 @@ public:
                           int> = 0>
   _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS _LIBCPP_CONSTEXPR_SINCE_CXX20
   basic_string(const _Tp& __t, size_type __pos, size_type __n, const allocator_type& __a = allocator_type())
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     __self_view __sv0 = __t;
     __self_view __sv  = __sv0.substr(__pos, __n);
     __init(__sv.data(), __sv.size());
@@ -1151,8 +1170,8 @@ public:
             __enable_if_t<__can_be_converted_to_string_view<_CharT, _Traits, _Tp>::value &&
                               !__is_same_uncvref<_Tp, basic_string>::value,
                           int> = 0>
-  _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS _LIBCPP_CONSTEXPR_SINCE_CXX20 explicit basic_string(const _Tp& __t)
-      : __r_(__default_init_tag(), __default_init_tag()) {
+  _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS
+  _LIBCPP_CONSTEXPR_SINCE_CXX20 explicit basic_string(const _Tp& __t) {
     __self_view __sv = __t;
     __init(__sv.data(), __sv.size());
   }
@@ -1163,57 +1182,55 @@ public:
                           int> = 0>
   _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS
   _LIBCPP_CONSTEXPR_SINCE_CXX20 explicit basic_string(const _Tp& __t, const allocator_type& __a)
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     __self_view __sv = __t;
     __init(__sv.data(), __sv.size());
   }
 
   template <class _InputIterator, __enable_if_t<__has_input_iterator_category<_InputIterator>::value, int> = 0>
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(_InputIterator __first, _InputIterator __last)
-      : __r_(__default_init_tag(), __default_init_tag()) {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(_InputIterator __first, _InputIterator __last) {
     __init(__first, __last);
   }
 
   template <class _InputIterator, __enable_if_t<__has_input_iterator_category<_InputIterator>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
   basic_string(_InputIterator __first, _InputIterator __last, const allocator_type& __a)
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     __init(__first, __last);
   }
 
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
   template <_ContainerCompatibleRange<_CharT> _Range>
   _LIBCPP_HIDE_FROM_ABI constexpr basic_string(
       from_range_t, _Range&& __range, const allocator_type& __a = allocator_type())
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     if constexpr (ranges::forward_range<_Range> || ranges::sized_range<_Range>) {
       __init_with_size(ranges::begin(__range), ranges::end(__range), ranges::distance(__range));
     } else {
       __init_with_sentinel(ranges::begin(__range), ranges::end(__range));
     }
   }
-#endif
+#  endif
 
-#ifndef _LIBCPP_CXX03_LANG
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(initializer_list<_CharT> __il)
-      : __r_(__default_init_tag(), __default_init_tag()) {
+#  ifndef _LIBCPP_CXX03_LANG
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(initializer_list<_CharT> __il) {
     __init(__il.begin(), __il.end());
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string(initializer_list<_CharT> __il, const _Allocator& __a)
-      : __r_(__default_init_tag(), __a) {
+      : __alloc_(__a) {
     __init(__il.begin(), __il.end());
   }
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   inline _LIBCPP_CONSTEXPR_SINCE_CXX20 ~basic_string() {
     __annotate_delete();
     if (__is_long())
-      __alloc_traits::deallocate(__alloc(), __get_long_pointer(), __get_long_cap());
+      __alloc_traits::deallocate(__alloc_, __get_long_pointer(), __get_long_cap());
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 operator __self_view() const _NOEXCEPT {
-    return __self_view(data(), size());
+    return __self_view(typename __self_view::__assume_valid(), data(), size());
   }
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS basic_string&
@@ -1228,7 +1245,7 @@ public:
     return assign(__sv);
   }
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string&
   operator=(basic_string&& __str) noexcept(__noexcept_move_assign_container<_Allocator, __alloc_traits>::value) {
     __move_assign(__str, integral_constant<bool, __alloc_traits::propagate_on_container_move_assignment::value>());
@@ -1238,13 +1255,13 @@ public:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string& operator=(initializer_list<value_type> __il) {
     return assign(__il.begin(), __il.size());
   }
-#endif
+#  endif
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string& operator=(const value_type* __s) {
     return assign(__s);
   }
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
   basic_string& operator=(nullptr_t) = delete;
-#endif
+#  endif
   _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string& operator=(value_type __c);
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 iterator begin() _NOEXCEPT {
@@ -1286,7 +1303,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 size_type length() const _NOEXCEPT { return size(); }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 size_type max_size() const _NOEXCEPT {
-    size_type __m = __alloc_traits::max_size(__alloc());
+    size_type __m = __alloc_traits::max_size(__alloc_);
     if (__m <= std::numeric_limits<size_type>::max() / 2) {
       return __m - __alignment;
     } else {
@@ -1304,23 +1321,23 @@ public:
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20 void reserve(size_type __requested_capacity);
 
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
   template <class _Op>
   _LIBCPP_HIDE_FROM_ABI constexpr void resize_and_overwrite(size_type __n, _Op __op) {
     __resize_default_init(__n);
     __erase_to_end(std::move(__op)(data(), _LIBCPP_AUTO_CAST(__n)));
   }
-#endif
+#  endif
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __resize_default_init(size_type __n);
 
-#if _LIBCPP_STD_VER < 26 || defined(_LIBCPP_ENABLE_CXX26_REMOVED_STRING_RESERVE)
+#  if _LIBCPP_STD_VER < 26 || defined(_LIBCPP_ENABLE_CXX26_REMOVED_STRING_RESERVE)
   _LIBCPP_DEPRECATED_IN_CXX20 _LIBCPP_HIDE_FROM_ABI void reserve() _NOEXCEPT { shrink_to_fit(); }
-#endif
+#  endif
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void shrink_to_fit() _NOEXCEPT;
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void clear() _NOEXCEPT;
 
-  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool empty() const _NOEXCEPT {
+  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool empty() const _NOEXCEPT {
     return size() == 0;
   }
 
@@ -1366,11 +1383,11 @@ public:
     return *this;
   }
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string& operator+=(initializer_list<value_type> __il) {
     return append(__il);
   }
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string& append(const basic_string& __str) {
     return append(__str.data(), __str.size());
@@ -1406,7 +1423,7 @@ public:
   template <class _InputIterator, __enable_if_t<__has_exactly_input_iterator_category<_InputIterator>::value, int> = 0>
   _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string&
   append(_InputIterator __first, _InputIterator __last) {
-    const basic_string __temp(__first, __last, __alloc());
+    const basic_string __temp(__first, __last, __alloc_);
     append(__temp.data(), __temp.size());
     return *this;
   }
@@ -1415,19 +1432,19 @@ public:
   _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string&
   append(_ForwardIterator __first, _ForwardIterator __last);
 
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
   template <_ContainerCompatibleRange<_CharT> _Range>
   _LIBCPP_HIDE_FROM_ABI constexpr basic_string& append_range(_Range&& __range) {
     insert_range(end(), std::forward<_Range>(__range));
     return *this;
   }
-#endif
+#  endif
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string& append(initializer_list<value_type> __il) {
     return append(__il.begin(), __il.size());
   }
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20 void push_back(value_type __c);
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void pop_back();
@@ -1459,15 +1476,15 @@ public:
     return assign(__sv.data(), __sv.size());
   }
 
-#if _LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 20
   _LIBCPP_HIDE_FROM_ABI constexpr void __move_assign(basic_string&& __str, size_type __pos, size_type __len) {
     // Pilfer the allocation from __str.
-    _LIBCPP_ASSERT_INTERNAL(__alloc() == __str.__alloc(), "__move_assign called with wrong allocator");
+    _LIBCPP_ASSERT_INTERNAL(__alloc_ == __str.__alloc_, "__move_assign called with wrong allocator");
     size_type __old_sz = __str.size();
     if (!__str.__is_long())
       __str.__annotate_delete();
-    __r_.first()       = __str.__r_.first();
-    __str.__r_.first() = __rep();
+    __rep_       = __str.__rep_;
+    __str.__rep_ = __rep();
     __str.__annotate_new(0);
 
     _Traits::move(data(), data() + __pos, __len);
@@ -1480,18 +1497,18 @@ public:
       __annotate_shrink(__old_sz);
     }
   }
-#endif
+#  endif
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string& assign(const basic_string& __str) {
     return *this = __str;
   }
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string&
   assign(basic_string&& __str) noexcept(__noexcept_move_assign_container<_Allocator, __alloc_traits>::value) {
     *this = std::move(__str);
     return *this;
   }
-#endif
+#  endif
   _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string& assign(const basic_string& __str, size_type __pos, size_type __n = npos);
 
   template <class _Tp,
@@ -1512,7 +1529,7 @@ public:
   _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string&
   assign(_ForwardIterator __first, _ForwardIterator __last);
 
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
   template <_ContainerCompatibleRange<_CharT> _Range>
   _LIBCPP_HIDE_FROM_ABI constexpr basic_string& assign_range(_Range&& __range) {
     if constexpr (__string_is_trivial_iterator<ranges::iterator_t<_Range>>::value &&
@@ -1526,13 +1543,13 @@ public:
 
     return *this;
   }
-#endif
+#  endif
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string& assign(initializer_list<value_type> __il) {
     return assign(__il.begin(), __il.size());
   }
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string&
   insert(size_type __pos1, const basic_string& __str) {
@@ -1560,7 +1577,7 @@ public:
   _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string& insert(size_type __pos, size_type __n, value_type __c);
   _LIBCPP_CONSTEXPR_SINCE_CXX20 iterator insert(const_iterator __pos, value_type __c);
 
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
   template <_ContainerCompatibleRange<_CharT> _Range>
   _LIBCPP_HIDE_FROM_ABI constexpr iterator insert_range(const_iterator __position, _Range&& __range) {
     if constexpr (ranges::forward_range<_Range> || ranges::sized_range<_Range>) {
@@ -1568,11 +1585,11 @@ public:
       return __insert_with_size(__position, ranges::begin(__range), ranges::end(__range), __n);
 
     } else {
-      basic_string __temp(from_range, std::forward<_Range>(__range), __alloc());
+      basic_string __temp(from_range, std::forward<_Range>(__range), __alloc_);
       return insert(__position, __temp.data(), __temp.data() + __temp.size());
     }
   }
-#endif
+#  endif
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 iterator
   insert(const_iterator __pos, size_type __n, value_type __c) {
@@ -1589,12 +1606,12 @@ public:
   _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS _LIBCPP_CONSTEXPR_SINCE_CXX20 iterator
   insert(const_iterator __pos, _ForwardIterator __first, _ForwardIterator __last);
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 iterator
   insert(const_iterator __pos, initializer_list<value_type> __il) {
     return insert(__pos, __il.begin(), __il.end());
   }
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string& erase(size_type __pos = 0, size_type __n = npos);
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 iterator erase(const_iterator __pos);
@@ -1659,30 +1676,30 @@ public:
   _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string&
   replace(const_iterator __i1, const_iterator __i2, _InputIterator __j1, _InputIterator __j2);
 
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
   template <_ContainerCompatibleRange<_CharT> _Range>
   _LIBCPP_HIDE_FROM_ABI constexpr basic_string&
   replace_with_range(const_iterator __i1, const_iterator __i2, _Range&& __range) {
-    basic_string __temp(from_range, std::forward<_Range>(__range), __alloc());
+    basic_string __temp(from_range, std::forward<_Range>(__range), __alloc_);
     return replace(__i1, __i2, __temp);
   }
-#endif
+#  endif
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string&
   replace(const_iterator __i1, const_iterator __i2, initializer_list<value_type> __il) {
     return replace(__i1, __i2, __il.begin(), __il.end());
   }
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20 size_type copy(value_type* __s, size_type __n, size_type __pos = 0) const;
 
-#if _LIBCPP_STD_VER <= 20
+#  if _LIBCPP_STD_VER <= 20
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string
   substr(size_type __pos = 0, size_type __n = npos) const {
     return basic_string(*this, __pos, __n);
   }
-#else
+#  else
   _LIBCPP_HIDE_FROM_ABI constexpr basic_string substr(size_type __pos = 0, size_type __n = npos) const& {
     return basic_string(*this, __pos, __n);
   }
@@ -1690,27 +1707,27 @@ public:
   _LIBCPP_HIDE_FROM_ABI constexpr basic_string substr(size_type __pos = 0, size_type __n = npos) && {
     return basic_string(std::move(*this), __pos, __n);
   }
-#endif
+#  endif
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void swap(basic_string& __str)
-#if _LIBCPP_STD_VER >= 14
+#  if _LIBCPP_STD_VER >= 14
       _NOEXCEPT;
-#else
+#  else
       _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable_v<allocator_type>);
-#endif
+#  endif
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 const value_type* c_str() const _NOEXCEPT { return data(); }
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 const value_type* data() const _NOEXCEPT {
     return std::__to_address(__get_pointer());
   }
-#if _LIBCPP_STD_VER >= 17
+#  if _LIBCPP_STD_VER >= 17
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 value_type* data() _NOEXCEPT {
     return std::__to_address(__get_pointer());
   }
-#endif
+#  endif
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 allocator_type get_allocator() const _NOEXCEPT {
-    return __alloc();
+    return __alloc_;
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 size_type
@@ -1820,9 +1837,9 @@ public:
   _LIBCPP_CONSTEXPR_SINCE_CXX20 int
   compare(size_type __pos1, size_type __n1, const value_type* __s, size_type __n2) const;
 
-#if _LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 20
   constexpr _LIBCPP_HIDE_FROM_ABI bool starts_with(__self_view __sv) const noexcept {
-    return __self_view(data(), size()).starts_with(__sv);
+    return __self_view(typename __self_view::__assume_valid(), data(), size()).starts_with(__sv);
   }
 
   constexpr _LIBCPP_HIDE_FROM_ABI bool starts_with(value_type __c) const noexcept {
@@ -1834,7 +1851,7 @@ public:
   }
 
   constexpr _LIBCPP_HIDE_FROM_ABI bool ends_with(__self_view __sv) const noexcept {
-    return __self_view(data(), size()).ends_with(__sv);
+    return __self_view(typename __self_view::__assume_valid(), data(), size()).ends_with(__sv);
   }
 
   constexpr _LIBCPP_HIDE_FROM_ABI bool ends_with(value_type __c) const noexcept {
@@ -1844,52 +1861,47 @@ public:
   constexpr _LIBCPP_HIDE_FROM_ABI bool ends_with(const value_type* __s) const noexcept {
     return ends_with(__self_view(__s));
   }
-#endif
+#  endif
 
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
   constexpr _LIBCPP_HIDE_FROM_ABI bool contains(__self_view __sv) const noexcept {
-    return __self_view(data(), size()).contains(__sv);
+    return __self_view(typename __self_view::__assume_valid(), data(), size()).contains(__sv);
   }
 
   constexpr _LIBCPP_HIDE_FROM_ABI bool contains(value_type __c) const noexcept {
-    return __self_view(data(), size()).contains(__c);
+    return __self_view(typename __self_view::__assume_valid(), data(), size()).contains(__c);
   }
 
   constexpr _LIBCPP_HIDE_FROM_ABI bool contains(const value_type* __s) const {
-    return __self_view(data(), size()).contains(__s);
+    return __self_view(typename __self_view::__assume_valid(), data(), size()).contains(__s);
   }
-#endif
+#  endif
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool __invariants() const;
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __clear_and_shrink() _NOEXCEPT;
 
 private:
-  template <class _Alloc>
-  inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool friend
-  operator==(const basic_string<char, char_traits<char>, _Alloc>& __lhs,
-             const basic_string<char, char_traits<char>, _Alloc>& __rhs) _NOEXCEPT;
-
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __shrink_or_extend(size_type __target_capacity);
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS bool
   __is_long() const _NOEXCEPT {
-    if (__libcpp_is_constant_evaluated() && __builtin_constant_p(__r_.first().__l.__is_long_)) {
-      return __r_.first().__l.__is_long_;
+    if (__libcpp_is_constant_evaluated() && __builtin_constant_p(__rep_.__l.__is_long_)) {
+      return __rep_.__l.__is_long_;
     }
-    return __r_.first().__s.__is_long_;
+    return __rep_.__s.__is_long_;
   }
 
   static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __begin_lifetime(pointer __begin, size_type __n) {
-#if _LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 20
     if (__libcpp_is_constant_evaluated()) {
       for (size_type __i = 0; __i != __n; ++__i)
         std::construct_at(std::addressof(__begin[__i]));
     }
-#else
+#  else
     (void)__begin;
     (void)__n;
-#endif // _LIBCPP_STD_VER >= 20
+#  endif // _LIBCPP_STD_VER >= 20
   }
 
   _LIBCPP_CONSTEXPR _LIBCPP_HIDE_FROM_ABI static bool __fits_in_sso(size_type __sz) { return __sz < __min_cap; }
@@ -1905,13 +1917,17 @@ private:
   template <class _ForwardIter, class _Sent>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 static value_type*
   __copy_non_overlapping_range(_ForwardIter __first, _Sent __last, value_type* __dest) {
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
     if constexpr (__libcpp_is_contiguous_iterator<_ForwardIter>::value &&
-                  is_same<value_type, __iter_value_type<_ForwardIter>>::value && is_same<_ForwardIter, _Sent>::value) {
+                  is_same<value_type, __remove_cvref_t<decltype(*__first)>>::value &&
+                  is_same<_ForwardIter, _Sent>::value) {
+      _LIBCPP_ASSERT_INTERNAL(
+          !std::__is_overlapping_range(std::__to_address(__first), std::__to_address(__last), __dest),
+          "__copy_non_overlapping_range called with an overlapping range!");
       traits_type::copy(__dest, std::__to_address(__first), __last - __first);
       return __dest + (__last - __first);
     }
-#endif
+#  endif
 
     for (; __first != __last; ++__first)
       traits_type::assign(*__dest++, *__first);
@@ -1937,7 +1953,7 @@ private:
     __sz += __n;
     __set_size(__sz);
     traits_type::assign(__p[__sz], value_type());
-    __copy_non_overlapping_range(__first, __last, __p + __ip);
+    __copy_non_overlapping_range(std::move(__first), std::move(__last), __p + __ip);
 
     return begin() + __ip;
   }
@@ -1946,28 +1962,28 @@ private:
   _LIBCPP_CONSTEXPR_SINCE_CXX20 iterator
   __insert_with_size(const_iterator __pos, _Iterator __first, _Sentinel __last, size_type __n);
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 allocator_type& __alloc() _NOEXCEPT { return __r_.second(); }
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR const allocator_type& __alloc() const _NOEXCEPT { return __r_.second(); }
-
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS void
   __set_short_size(size_type __s) _NOEXCEPT {
     _LIBCPP_ASSERT_INTERNAL(__s < __min_cap, "__s should never be greater than or equal to the short string capacity");
-    __r_.first().__s.__size_    = __s;
-    __r_.first().__s.__is_long_ = false;
+    __rep_.__s.__size_    = __s;
+    __rep_.__s.__is_long_ = false;
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS size_type
   __get_short_size() const _NOEXCEPT {
-    _LIBCPP_ASSERT_INTERNAL(!__r_.first().__s.__is_long_, "String has to be short when trying to get the short size");
-    return __r_.first().__s.__size_;
+    _LIBCPP_ASSERT_INTERNAL(!__rep_.__s.__is_long_, "String has to be short when trying to get the short size");
+    return __rep_.__s.__size_;
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __set_long_size(size_type __s) _NOEXCEPT {
-    __r_.first().__l.__size_ = __s;
+    __rep_.__l.__size_ = __s;
   }
+
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 size_type __get_long_size() const _NOEXCEPT {
-    return __r_.first().__l.__size_;
+    _LIBCPP_ASSERT_INTERNAL(__rep_.__l.__is_long_, "String has to be long when trying to get the long size");
+    return __rep_.__l.__size_;
   }
+
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __set_size(size_type __s) _NOEXCEPT {
     if (__is_long())
       __set_long_size(__s);
@@ -1976,31 +1992,40 @@ private:
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __set_long_cap(size_type __s) _NOEXCEPT {
-    __r_.first().__l.__cap_     = __s / __endian_factor;
-    __r_.first().__l.__is_long_ = true;
+    _LIBCPP_ASSERT_INTERNAL(!__fits_in_sso(__s), "Long capacity should always be larger than the SSO");
+    __rep_.__l.__cap_     = __s / __endian_factor;
+    __rep_.__l.__is_long_ = true;
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 size_type __get_long_cap() const _NOEXCEPT {
-    return __r_.first().__l.__cap_ * __endian_factor;
+    _LIBCPP_ASSERT_INTERNAL(__rep_.__l.__is_long_, "String has to be long when trying to get the long capacity");
+    return __rep_.__l.__cap_ * __endian_factor;
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __set_long_pointer(pointer __p) _NOEXCEPT {
-    __r_.first().__l.__data_ = __p;
+    __rep_.__l.__data_ = __p;
   }
+
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pointer __get_long_pointer() _NOEXCEPT {
-    return _LIBCPP_ASAN_VOLATILE_WRAPPER(__r_.first().__l.__data_);
+    _LIBCPP_ASSERT_INTERNAL(__rep_.__l.__is_long_, "String has to be long when trying to get the long pointer");
+    return _LIBCPP_ASAN_VOLATILE_WRAPPER(__rep_.__l.__data_);
   }
+
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 const_pointer __get_long_pointer() const _NOEXCEPT {
-    return _LIBCPP_ASAN_VOLATILE_WRAPPER(__r_.first().__l.__data_);
+    _LIBCPP_ASSERT_INTERNAL(__rep_.__l.__is_long_, "String has to be long when trying to get the long pointer");
+    return _LIBCPP_ASAN_VOLATILE_WRAPPER(__rep_.__l.__data_);
   }
+
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS pointer
   __get_short_pointer() _NOEXCEPT {
-    return _LIBCPP_ASAN_VOLATILE_WRAPPER(pointer_traits<pointer>::pointer_to(__r_.first().__s.__data_[0]));
+    return _LIBCPP_ASAN_VOLATILE_WRAPPER(pointer_traits<pointer>::pointer_to(__rep_.__s.__data_[0]));
   }
+
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS const_pointer
   __get_short_pointer() const _NOEXCEPT {
-    return _LIBCPP_ASAN_VOLATILE_WRAPPER(pointer_traits<const_pointer>::pointer_to(__r_.first().__s.__data_[0]));
+    return _LIBCPP_ASAN_VOLATILE_WRAPPER(pointer_traits<const_pointer>::pointer_to(__rep_.__s.__data_[0]));
   }
+
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pointer __get_pointer() _NOEXCEPT {
     return __is_long() ? __get_long_pointer() : __get_short_pointer();
   }
@@ -2013,45 +2038,45 @@ private:
   __annotate_contiguous_container(const void* __old_mid, const void* __new_mid) const {
     (void)__old_mid;
     (void)__new_mid;
-#if !defined(_LIBCPP_HAS_NO_ASAN) && defined(_LIBCPP_INSTRUMENTED_WITH_ASAN)
-  #if defined(__APPLE__)
+#  if _LIBCPP_HAS_ASAN && _LIBCPP_INSTRUMENTED_WITH_ASAN
+#    if defined(__APPLE__)
     // TODO: remove after addressing issue #96099 (https://github.com/llvm/llvm-project/issues/96099)
-    if(!__is_long())
+    if (!__is_long())
       return;
-  #endif
+#    endif
     std::__annotate_contiguous_container<_Allocator>(data(), data() + capacity() + 1, __old_mid, __new_mid);
-#endif
+#  endif
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __annotate_new(size_type __current_size) const _NOEXCEPT {
     (void)__current_size;
-#if !defined(_LIBCPP_HAS_NO_ASAN) && defined(_LIBCPP_INSTRUMENTED_WITH_ASAN)
+#  if _LIBCPP_HAS_ASAN && _LIBCPP_INSTRUMENTED_WITH_ASAN
     if (!__libcpp_is_constant_evaluated())
       __annotate_contiguous_container(data() + capacity() + 1, data() + __current_size + 1);
-#endif
+#  endif
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __annotate_delete() const _NOEXCEPT {
-#if !defined(_LIBCPP_HAS_NO_ASAN) && defined(_LIBCPP_INSTRUMENTED_WITH_ASAN)
+#  if _LIBCPP_HAS_ASAN && _LIBCPP_INSTRUMENTED_WITH_ASAN
     if (!__libcpp_is_constant_evaluated())
       __annotate_contiguous_container(data() + size() + 1, data() + capacity() + 1);
-#endif
+#  endif
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __annotate_increase(size_type __n) const _NOEXCEPT {
     (void)__n;
-#if !defined(_LIBCPP_HAS_NO_ASAN) && defined(_LIBCPP_INSTRUMENTED_WITH_ASAN)
+#  if _LIBCPP_HAS_ASAN && _LIBCPP_INSTRUMENTED_WITH_ASAN
     if (!__libcpp_is_constant_evaluated())
       __annotate_contiguous_container(data() + size() + 1, data() + size() + 1 + __n);
-#endif
+#  endif
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __annotate_shrink(size_type __old_size) const _NOEXCEPT {
     (void)__old_size;
-#if !defined(_LIBCPP_HAS_NO_ASAN) && defined(_LIBCPP_INSTRUMENTED_WITH_ASAN)
+#  if _LIBCPP_HAS_ASAN && _LIBCPP_INSTRUMENTED_WITH_ASAN
     if (!__libcpp_is_constant_evaluated())
       __annotate_contiguous_container(data() + __old_size + 1, data() + size() + 1);
-#endif
+#  endif
   }
 
   template <size_type __a>
@@ -2067,6 +2092,8 @@ private:
     size_type __guess          = __align_it<__boundary>(__s + 1) - 1;
     if (__guess == __min_cap)
       __guess += __endian_factor;
+
+    _LIBCPP_ASSERT_INTERNAL(__guess >= __s, "recommendation is below the requested size");
     return __guess;
   }
 
@@ -2098,9 +2125,9 @@ private:
   __init_with_size(_InputIterator __first, _Sentinel __last, size_type __sz);
 
   _LIBCPP_CONSTEXPR_SINCE_CXX20
-#if _LIBCPP_ABI_VERSION >= 2 //  We want to use the function in the dylib in ABIv1
+#  if _LIBCPP_ABI_VERSION >= 2 //  We want to use the function in the dylib in ABIv1
   _LIBCPP_HIDE_FROM_ABI
-#endif
+#  endif
   _LIBCPP_DEPRECATED_("use __grow_by_without_replace") void __grow_by(
       size_type __old_cap,
       size_type __delta_cap,
@@ -2131,6 +2158,7 @@ private:
   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_NOINLINE basic_string& __assign_no_alias(const value_type* __s, size_type __n);
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __erase_to_end(size_type __pos) {
+    _LIBCPP_ASSERT_INTERNAL(__pos <= capacity(), "Trying to erase at position outside the strings capacity!");
     __null_terminate_at(std::__to_address(__get_pointer()), __pos);
   }
 
@@ -2144,24 +2172,24 @@ private:
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __copy_assign_alloc(const basic_string& __str, true_type) {
-    if (__alloc() == __str.__alloc())
-      __alloc() = __str.__alloc();
+    if (__alloc_ == __str.__alloc_)
+      __alloc_ = __str.__alloc_;
     else {
       if (!__str.__is_long()) {
         __clear_and_shrink();
-        __alloc() = __str.__alloc();
+        __alloc_ = __str.__alloc_;
       } else {
         __annotate_delete();
-        allocator_type __a = __str.__alloc();
+        auto __guard       = std::__make_scope_guard(__annotate_new_size(*this));
+        allocator_type __a = __str.__alloc_;
         auto __allocation  = std::__allocate_at_least(__a, __str.__get_long_cap());
         __begin_lifetime(__allocation.ptr, __allocation.count);
         if (__is_long())
-          __alloc_traits::deallocate(__alloc(), __get_long_pointer(), __get_long_cap());
-        __alloc() = std::move(__a);
+          __alloc_traits::deallocate(__alloc_, __get_long_pointer(), __get_long_cap());
+        __alloc_ = std::move(__a);
         __set_long_pointer(__allocation.ptr);
         __set_long_cap(__allocation.count);
         __set_long_size(__str.size());
-        __annotate_new(__get_long_size());
       }
     }
   }
@@ -2169,17 +2197,17 @@ private:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
   __copy_assign_alloc(const basic_string&, false_type) _NOEXCEPT {}
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
   __move_assign(basic_string& __str, false_type) noexcept(__alloc_traits::is_always_equal::value);
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS void
   __move_assign(basic_string& __str, true_type)
-#  if _LIBCPP_STD_VER >= 17
+#    if _LIBCPP_STD_VER >= 17
       noexcept;
-#  else
+#    else
       noexcept(is_nothrow_move_assignable<allocator_type>::value);
+#    endif
 #  endif
-#endif
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __move_assign_alloc(basic_string& __str)
       _NOEXCEPT_(!__alloc_traits::propagate_on_container_move_assignment::value ||
@@ -2190,7 +2218,7 @@ private:
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __move_assign_alloc(basic_string& __c, true_type)
       _NOEXCEPT_(is_nothrow_move_assignable<allocator_type>::value) {
-    __alloc() = std::move(__c.__alloc());
+    __alloc_ = std::move(__c.__alloc_);
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __move_assign_alloc(basic_string&, false_type) _NOEXCEPT {}
@@ -2229,11 +2257,11 @@ private:
     return std::__is_pointer_in_range(data(), data() + size() + 1, std::addressof(__v));
   }
 
-  _LIBCPP_NORETURN _LIBCPP_HIDE_FROM_ABI void __throw_length_error() const {
+  [[__noreturn__]] _LIBCPP_HIDE_FROM_ABI static void __throw_length_error() {
     std::__throw_length_error("basic_string");
   }
 
-  _LIBCPP_NORETURN _LIBCPP_HIDE_FROM_ABI void __throw_out_of_range() const {
+  [[__noreturn__]] _LIBCPP_HIDE_FROM_ABI static void __throw_out_of_range() {
     std::__throw_out_of_range("basic_string");
   }
 
@@ -2242,29 +2270,33 @@ private:
   friend _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string operator+ <>(value_type, const basic_string&);
   friend _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string operator+ <>(const basic_string&, const value_type*);
   friend _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string operator+ <>(const basic_string&, value_type);
-#if _LIBCPP_STD_VER >= 26
+#  if _LIBCPP_STD_VER >= 26
   friend constexpr basic_string operator+ <>(const basic_string&, type_identity_t<__self_view>);
   friend constexpr basic_string operator+ <>(type_identity_t<__self_view>, const basic_string&);
-#endif
+#  endif
+
+  template <class _CharT2, class _Traits2, class _Allocator2>
+  friend inline _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI bool
+  operator==(const basic_string<_CharT2, _Traits2, _Allocator2>&, const _CharT2*) _NOEXCEPT;
 };
 
 // These declarations must appear before any functions are implicitly used
 // so that they have the correct visibility specifier.
-#define _LIBCPP_DECLARE(...) extern template __VA_ARGS__;
-#ifdef _LIBCPP_ABI_STRING_OPTIMIZED_EXTERNAL_INSTANTIATION
+#  define _LIBCPP_DECLARE(...) extern template __VA_ARGS__;
+#  ifdef _LIBCPP_ABI_STRING_OPTIMIZED_EXTERNAL_INSTANTIATION
 _LIBCPP_STRING_UNSTABLE_EXTERN_TEMPLATE_LIST(_LIBCPP_DECLARE, char)
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
 _LIBCPP_STRING_UNSTABLE_EXTERN_TEMPLATE_LIST(_LIBCPP_DECLARE, wchar_t)
-#  endif
-#else
+#    endif
+#  else
 _LIBCPP_STRING_V1_EXTERN_TEMPLATE_LIST(_LIBCPP_DECLARE, char)
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
 _LIBCPP_STRING_V1_EXTERN_TEMPLATE_LIST(_LIBCPP_DECLARE, wchar_t)
+#    endif
 #  endif
-#endif
-#undef _LIBCPP_DECLARE
+#  undef _LIBCPP_DECLARE
 
-#if _LIBCPP_STD_VER >= 17
+#  if _LIBCPP_STD_VER >= 17
 template <class _InputIterator,
           class _CharT     = __iter_value_type<_InputIterator>,
           class _Allocator = allocator<_CharT>,
@@ -2287,21 +2319,21 @@ template <class _CharT,
           class _Sz        = typename allocator_traits<_Allocator>::size_type >
 basic_string(basic_string_view<_CharT, _Traits>, _Sz, _Sz, const _Allocator& = _Allocator())
     -> basic_string<_CharT, _Traits, _Allocator>;
-#endif
+#  endif
 
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
 template <ranges::input_range _Range,
           class _Allocator = allocator<ranges::range_value_t<_Range>>,
           class            = enable_if_t<__is_allocator<_Allocator>::value> >
 basic_string(from_range_t, _Range&&, _Allocator = _Allocator())
     -> basic_string<ranges::range_value_t<_Range>, char_traits<ranges::range_value_t<_Range>>, _Allocator>;
-#endif
+#  endif
 
 template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_CONSTEXPR_SINCE_CXX20 void
 basic_string<_CharT, _Traits, _Allocator>::__init(const value_type* __s, size_type __sz, size_type __reserve) {
   if (__libcpp_is_constant_evaluated())
-    __r_.first() = __rep();
+    __rep_ = __rep();
   if (__reserve > max_size())
     __throw_length_error();
   pointer __p;
@@ -2309,7 +2341,7 @@ basic_string<_CharT, _Traits, _Allocator>::__init(const value_type* __s, size_ty
     __set_short_size(__sz);
     __p = __get_short_pointer();
   } else {
-    auto __allocation = std::__allocate_at_least(__alloc(), __recommend(__reserve) + 1);
+    auto __allocation = std::__allocate_at_least(__alloc_, __recommend(__reserve) + 1);
     __p               = __allocation.ptr;
     __begin_lifetime(__p, __allocation.count);
     __set_long_pointer(__p);
@@ -2325,7 +2357,7 @@ template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_CONSTEXPR_SINCE_CXX20 void
 basic_string<_CharT, _Traits, _Allocator>::__init(const value_type* __s, size_type __sz) {
   if (__libcpp_is_constant_evaluated())
-    __r_.first() = __rep();
+    __rep_ = __rep();
   if (__sz > max_size())
     __throw_length_error();
   pointer __p;
@@ -2333,7 +2365,7 @@ basic_string<_CharT, _Traits, _Allocator>::__init(const value_type* __s, size_ty
     __set_short_size(__sz);
     __p = __get_short_pointer();
   } else {
-    auto __allocation = std::__allocate_at_least(__alloc(), __recommend(__sz) + 1);
+    auto __allocation = std::__allocate_at_least(__alloc_, __recommend(__sz) + 1);
     __p               = __allocation.ptr;
     __begin_lifetime(__p, __allocation.count);
     __set_long_pointer(__p);
@@ -2349,7 +2381,7 @@ template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_NOINLINE void
 basic_string<_CharT, _Traits, _Allocator>::__init_copy_ctor_external(const value_type* __s, size_type __sz) {
   if (__libcpp_is_constant_evaluated())
-    __r_.first() = __rep();
+    __rep_ = __rep();
 
   pointer __p;
   if (__fits_in_sso(__sz)) {
@@ -2358,7 +2390,7 @@ basic_string<_CharT, _Traits, _Allocator>::__init_copy_ctor_external(const value
   } else {
     if (__sz > max_size())
       __throw_length_error();
-    auto __allocation = std::__allocate_at_least(__alloc(), __recommend(__sz) + 1);
+    auto __allocation = std::__allocate_at_least(__alloc_, __recommend(__sz) + 1);
     __p               = __allocation.ptr;
     __begin_lifetime(__p, __allocation.count);
     __set_long_pointer(__p);
@@ -2372,7 +2404,7 @@ basic_string<_CharT, _Traits, _Allocator>::__init_copy_ctor_external(const value
 template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_CONSTEXPR_SINCE_CXX20 void basic_string<_CharT, _Traits, _Allocator>::__init(size_type __n, value_type __c) {
   if (__libcpp_is_constant_evaluated())
-    __r_.first() = __rep();
+    __rep_ = __rep();
 
   if (__n > max_size())
     __throw_length_error();
@@ -2381,7 +2413,7 @@ _LIBCPP_CONSTEXPR_SINCE_CXX20 void basic_string<_CharT, _Traits, _Allocator>::__
     __set_short_size(__n);
     __p = __get_short_pointer();
   } else {
-    auto __allocation = std::__allocate_at_least(__alloc(), __recommend(__n) + 1);
+    auto __allocation = std::__allocate_at_least(__alloc_, __recommend(__n) + 1);
     __p               = __allocation.ptr;
     __begin_lifetime(__p, __allocation.count);
     __set_long_pointer(__p);
@@ -2404,22 +2436,22 @@ template <class _CharT, class _Traits, class _Allocator>
 template <class _InputIterator, class _Sentinel>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
 basic_string<_CharT, _Traits, _Allocator>::__init_with_sentinel(_InputIterator __first, _Sentinel __last) {
-  __r_.first() = __rep();
+  __rep_ = __rep();
   __annotate_new(0);
 
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
   try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
     for (; __first != __last; ++__first)
       push_back(*__first);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
   } catch (...) {
     __annotate_delete();
     if (__is_long())
-      __alloc_traits::deallocate(__alloc(), __get_long_pointer(), __get_long_cap());
+      __alloc_traits::deallocate(__alloc_, __get_long_pointer(), __get_long_cap());
     throw;
   }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
 }
 
 template <class _CharT, class _Traits, class _Allocator>
@@ -2435,7 +2467,7 @@ template <class _InputIterator, class _Sentinel>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
 basic_string<_CharT, _Traits, _Allocator>::__init_with_size(_InputIterator __first, _Sentinel __last, size_type __sz) {
   if (__libcpp_is_constant_evaluated())
-    __r_.first() = __rep();
+    __rep_ = __rep();
 
   if (__sz > max_size())
     __throw_length_error();
@@ -2446,7 +2478,7 @@ basic_string<_CharT, _Traits, _Allocator>::__init_with_size(_InputIterator __fir
     __p = __get_short_pointer();
 
   } else {
-    auto __allocation = std::__allocate_at_least(__alloc(), __recommend(__sz) + 1);
+    auto __allocation = std::__allocate_at_least(__alloc_, __recommend(__sz) + 1);
     __p               = __allocation.ptr;
     __begin_lifetime(__p, __allocation.count);
     __set_long_pointer(__p);
@@ -2454,18 +2486,18 @@ basic_string<_CharT, _Traits, _Allocator>::__init_with_size(_InputIterator __fir
     __set_long_size(__sz);
   }
 
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
   try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
-    auto __end = __copy_non_overlapping_range(__first, __last, std::__to_address(__p));
+#  endif // _LIBCPP_HAS_EXCEPTIONS
+    auto __end = __copy_non_overlapping_range(std::move(__first), std::move(__last), std::__to_address(__p));
     traits_type::assign(*__end, value_type());
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
   } catch (...) {
     if (__is_long())
-      __alloc_traits::deallocate(__alloc(), __get_long_pointer(), __get_long_cap());
+      __alloc_traits::deallocate(__alloc_, __get_long_pointer(), __get_long_cap());
     throw;
   }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif                       // _LIBCPP_HAS_EXCEPTIONS
   __annotate_new(__sz);
 }
 
@@ -2485,7 +2517,8 @@ _LIBCPP_CONSTEXPR_SINCE_CXX20 void basic_string<_CharT, _Traits, _Allocator>::__
   size_type __cap =
       __old_cap < __ms / 2 - __alignment ? __recommend(std::max(__old_cap + __delta_cap, 2 * __old_cap)) : __ms - 1;
   __annotate_delete();
-  auto __allocation = std::__allocate_at_least(__alloc(), __cap + 1);
+  auto __guard      = std::__make_scope_guard(__annotate_new_size(*this));
+  auto __allocation = std::__allocate_at_least(__alloc_, __cap + 1);
   pointer __p       = __allocation.ptr;
   __begin_lifetime(__p, __allocation.count);
   if (__n_copy != 0)
@@ -2497,13 +2530,12 @@ _LIBCPP_CONSTEXPR_SINCE_CXX20 void basic_string<_CharT, _Traits, _Allocator>::__
     traits_type::copy(
         std::__to_address(__p) + __n_copy + __n_add, std::__to_address(__old_p) + __n_copy + __n_del, __sec_cp_sz);
   if (__old_cap + 1 != __min_cap)
-    __alloc_traits::deallocate(__alloc(), __old_p, __old_cap + 1);
+    __alloc_traits::deallocate(__alloc_, __old_p, __old_cap + 1);
   __set_long_pointer(__p);
   __set_long_cap(__allocation.count);
   __old_sz = __n_copy + __n_add + __sec_cp_sz;
   __set_long_size(__old_sz);
   traits_type::assign(__p[__old_sz], value_type());
-  __annotate_new(__old_sz);
 }
 
 // __grow_by is deprecated because it does not set the size. It may not update the size when the size is changed, and it
@@ -2511,9 +2543,9 @@ _LIBCPP_CONSTEXPR_SINCE_CXX20 void basic_string<_CharT, _Traits, _Allocator>::__
 // not removed or changed to avoid breaking the ABI.
 template <class _CharT, class _Traits, class _Allocator>
 void _LIBCPP_CONSTEXPR_SINCE_CXX20
-#if _LIBCPP_ABI_VERSION >= 2 // We want to use the function in the dylib in ABIv1
+#  if _LIBCPP_ABI_VERSION >= 2 // We want to use the function in the dylib in ABIv1
 _LIBCPP_HIDE_FROM_ABI
-#endif
+#  endif
 _LIBCPP_DEPRECATED_("use __grow_by_without_replace") basic_string<_CharT, _Traits, _Allocator>::__grow_by(
     size_type __old_cap,
     size_type __delta_cap,
@@ -2527,8 +2559,7 @@ _LIBCPP_DEPRECATED_("use __grow_by_without_replace") basic_string<_CharT, _Trait
   pointer __old_p = __get_pointer();
   size_type __cap =
       __old_cap < __ms / 2 - __alignment ? __recommend(std::max(__old_cap + __delta_cap, 2 * __old_cap)) : __ms - 1;
-  __annotate_delete();
-  auto __allocation = std::__allocate_at_least(__alloc(), __cap + 1);
+  auto __allocation = std::__allocate_at_least(__alloc_, __cap + 1);
   pointer __p       = __allocation.ptr;
   __begin_lifetime(__p, __allocation.count);
   if (__n_copy != 0)
@@ -2538,7 +2569,7 @@ _LIBCPP_DEPRECATED_("use __grow_by_without_replace") basic_string<_CharT, _Trait
     traits_type::copy(
         std::__to_address(__p) + __n_copy + __n_add, std::__to_address(__old_p) + __n_copy + __n_del, __sec_cp_sz);
   if (__old_cap + 1 != __min_cap)
-    __alloc_traits::deallocate(__alloc(), __old_p, __old_cap + 1);
+    __alloc_traits::deallocate(__alloc_, __old_p, __old_cap + 1);
   __set_long_pointer(__p);
   __set_long_cap(__allocation.count);
 }
@@ -2552,11 +2583,12 @@ basic_string<_CharT, _Traits, _Allocator>::__grow_by_without_replace(
     size_type __n_copy,
     size_type __n_del,
     size_type __n_add) {
+  __annotate_delete();
+  auto __guard = std::__make_scope_guard(__annotate_new_size(*this));
   _LIBCPP_SUPPRESS_DEPRECATED_PUSH
   __grow_by(__old_cap, __delta_cap, __old_sz, __n_copy, __n_del, __n_add);
   _LIBCPP_SUPPRESS_DEPRECATED_POP
   __set_long_size(__old_sz - __n_del + __n_add);
-  __annotate_new(__old_sz - __n_del + __n_add);
 }
 
 // assign
@@ -2655,7 +2687,7 @@ basic_string<_CharT, _Traits, _Allocator>::operator=(const basic_string& __str) 
         size_type __old_size = __get_short_size();
         if (__get_short_size() < __str.__get_short_size())
           __annotate_increase(__str.__get_short_size() - __get_short_size());
-        __r_.first() = __str.__r_.first();
+        __rep_ = __str.__rep_;
         if (__old_size > __get_short_size())
           __annotate_shrink(__old_size);
       } else {
@@ -2668,12 +2700,12 @@ basic_string<_CharT, _Traits, _Allocator>::operator=(const basic_string& __str) 
   return *this;
 }
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
 
 template <class _CharT, class _Traits, class _Allocator>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX20 void basic_string<_CharT, _Traits, _Allocator>::__move_assign(
     basic_string& __str, false_type) noexcept(__alloc_traits::is_always_equal::value) {
-  if (__alloc() != __str.__alloc())
+  if (__alloc_ != __str.__alloc_)
     assign(__str);
   else
     __move_assign(__str, true_type());
@@ -2682,32 +2714,32 @@ inline _LIBCPP_CONSTEXPR_SINCE_CXX20 void basic_string<_CharT, _Traits, _Allocat
 template <class _CharT, class _Traits, class _Allocator>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_STRING_INTERNAL_MEMORY_ACCESS void
 basic_string<_CharT, _Traits, _Allocator>::__move_assign(basic_string& __str, true_type)
-#  if _LIBCPP_STD_VER >= 17
+#    if _LIBCPP_STD_VER >= 17
     noexcept
-#  else
+#    else
     noexcept(is_nothrow_move_assignable<allocator_type>::value)
-#  endif
+#    endif
 {
   __annotate_delete();
   if (__is_long()) {
-    __alloc_traits::deallocate(__alloc(), __get_long_pointer(), __get_long_cap());
-#  if _LIBCPP_STD_VER <= 14
+    __alloc_traits::deallocate(__alloc_, __get_long_pointer(), __get_long_cap());
+#    if _LIBCPP_STD_VER <= 14
     if (!is_nothrow_move_assignable<allocator_type>::value) {
       __set_short_size(0);
       traits_type::assign(__get_short_pointer()[0], value_type());
       __annotate_new(0);
     }
-#  endif
+#    endif
   }
   size_type __str_old_size = __str.size();
   bool __str_was_short     = !__str.__is_long();
 
   __move_assign_alloc(__str);
-  __r_.first() = __str.__r_.first();
+  __rep_ = __str.__rep_;
   __str.__set_short_size(0);
   traits_type::assign(__str.__get_short_pointer()[0], value_type());
 
-  if (__str_was_short && this != &__str)
+  if (__str_was_short && this != std::addressof(__str))
     __str.__annotate_shrink(__str_old_size);
   else
     // ASan annotations: was long, so object memory is unpoisoned as new.
@@ -2721,12 +2753,12 @@ basic_string<_CharT, _Traits, _Allocator>::__move_assign(basic_string& __str, tr
   // invariants hold (so functions without preconditions, such as the assignment operator,
   // can be safely used on the object after it was moved from):"
   // Quote: "v = std::move(v); // the value of v is unspecified"
-  if (!__is_long() && &__str != this)
+  if (!__is_long() && std::addressof(__str) != this)
     // If it is long string, delete was never called on original __str's buffer.
     __annotate_new(__get_short_size());
 }
 
-#endif
+#  endif
 
 template <class _CharT, class _Traits, class _Allocator>
 template <class _InputIterator, __enable_if_t<__has_exactly_input_iterator_category<_InputIterator>::value, int> >
@@ -2740,7 +2772,7 @@ template <class _CharT, class _Traits, class _Allocator>
 template <class _InputIterator, class _Sentinel>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
 basic_string<_CharT, _Traits, _Allocator>::__assign_with_sentinel(_InputIterator __first, _Sentinel __last) {
-  const basic_string __temp(__init_with_sentinel_tag(), std::move(__first), std::move(__last), __alloc());
+  const basic_string __temp(__init_with_sentinel_tag(), std::move(__first), std::move(__last), __alloc_);
   assign(__temp.data(), __temp.size());
 }
 
@@ -2928,7 +2960,7 @@ basic_string<_CharT, _Traits, _Allocator>::append(_ForwardIterator __first, _For
       traits_type::assign(*__end, value_type());
       __set_size(__sz + __n);
     } else {
-      const basic_string __temp(__first, __last, __alloc());
+      const basic_string __temp(__first, __last, __alloc_);
       append(__temp.data(), __temp.size());
     }
   }
@@ -3026,7 +3058,7 @@ template <class _CharT, class _Traits, class _Allocator>
 template <class _InputIterator, __enable_if_t<__has_exactly_input_iterator_category<_InputIterator>::value, int> >
 _LIBCPP_CONSTEXPR_SINCE_CXX20 typename basic_string<_CharT, _Traits, _Allocator>::iterator
 basic_string<_CharT, _Traits, _Allocator>::insert(const_iterator __pos, _InputIterator __first, _InputIterator __last) {
-  const basic_string __temp(__first, __last, __alloc());
+  const basic_string __temp(__first, __last, __alloc_);
   return insert(__pos, __temp.data(), __temp.data() + __temp.size());
 }
 
@@ -3049,9 +3081,9 @@ basic_string<_CharT, _Traits, _Allocator>::__insert_with_size(
     return begin() + __ip;
 
   if (__string_is_trivial_iterator<_Iterator>::value && !__addr_in_range(*__first)) {
-    return __insert_from_safe_copy(__n, __ip, __first, __last);
+    return __insert_from_safe_copy(__n, __ip, std::move(__first), std::move(__last));
   } else {
-    const basic_string __temp(__init_with_sentinel_tag(), __first, __last, __alloc());
+    const basic_string __temp(__init_with_sentinel_tag(), std::move(__first), std::move(__last), __alloc_);
     return __insert_from_safe_copy(__n, __ip, __temp.begin(), __temp.end());
   }
 }
@@ -3188,7 +3220,7 @@ template <class _InputIterator, __enable_if_t<__has_input_iterator_category<_Inp
 _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string<_CharT, _Traits, _Allocator>&
 basic_string<_CharT, _Traits, _Allocator>::replace(
     const_iterator __i1, const_iterator __i2, _InputIterator __j1, _InputIterator __j2) {
-  const basic_string __temp(__j1, __j2, __alloc());
+  const basic_string __temp(__j1, __j2, __alloc_);
   return replace(__i1, __i2, __temp);
 }
 
@@ -3325,12 +3357,7 @@ _LIBCPP_CONSTEXPR_SINCE_CXX20 void basic_string<_CharT, _Traits, _Allocator>::re
   if (__requested_capacity <= capacity())
     return;
 
-  size_type __target_capacity = std::max(__requested_capacity, size());
-  __target_capacity           = __recommend(__target_capacity);
-  if (__target_capacity == capacity())
-    return;
-
-  __shrink_or_extend(__target_capacity);
+  __shrink_or_extend(__recommend(__requested_capacity));
 }
 
 template <class _CharT, class _Traits, class _Allocator>
@@ -3346,6 +3373,7 @@ template <class _CharT, class _Traits, class _Allocator>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX20 void
 basic_string<_CharT, _Traits, _Allocator>::__shrink_or_extend(size_type __target_capacity) {
   __annotate_delete();
+  auto __guard    = std::__make_scope_guard(__annotate_new_size(*this));
   size_type __cap = capacity();
   size_type __sz  = size();
 
@@ -3360,33 +3388,32 @@ basic_string<_CharT, _Traits, _Allocator>::__shrink_or_extend(size_type __target
     if (__target_capacity > __cap) {
       // Extend
       // - called from reserve should propagate the exception thrown.
-      auto __allocation = std::__allocate_at_least(__alloc(), __target_capacity + 1);
+      auto __allocation = std::__allocate_at_least(__alloc_, __target_capacity + 1);
       __new_data        = __allocation.ptr;
       __target_capacity = __allocation.count - 1;
     } else {
       // Shrink
       // - called from shrink_to_fit should not throw.
       // - called from reserve may throw but is not required to.
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
       try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
-        auto __allocation = std::__allocate_at_least(__alloc(), __target_capacity + 1);
+#  endif // _LIBCPP_HAS_EXCEPTIONS
+        auto __allocation = std::__allocate_at_least(__alloc_, __target_capacity + 1);
 
         // The Standard mandates shrink_to_fit() does not increase the capacity.
         // With equal capacity keep the existing buffer. This avoids extra work
         // due to swapping the elements.
-        if (__allocation.count - 1 > __target_capacity) {
-          __alloc_traits::deallocate(__alloc(), __allocation.ptr, __allocation.count);
-          __annotate_new(__sz); // Undoes the __annotate_delete()
+        if (__allocation.count - 1 > capacity()) {
+          __alloc_traits::deallocate(__alloc_, __allocation.ptr, __allocation.count);
           return;
         }
         __new_data        = __allocation.ptr;
         __target_capacity = __allocation.count - 1;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
       } catch (...) {
         return;
       }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
     }
     __begin_lifetime(__new_data, __target_capacity + 1);
     __now_long = true;
@@ -3395,14 +3422,13 @@ basic_string<_CharT, _Traits, _Allocator>::__shrink_or_extend(size_type __target
   }
   traits_type::copy(std::__to_address(__new_data), std::__to_address(__p), size() + 1);
   if (__was_long)
-    __alloc_traits::deallocate(__alloc(), __p, __cap + 1);
+    __alloc_traits::deallocate(__alloc_, __p, __cap + 1);
   if (__now_long) {
     __set_long_cap(__target_capacity + 1);
     __set_long_size(__sz);
     __set_long_pointer(__new_data);
   } else
     __set_short_size(__sz);
-  __annotate_new(__sz);
 }
 
 template <class _CharT, class _Traits, class _Allocator>
@@ -3434,37 +3460,29 @@ basic_string<_CharT, _Traits, _Allocator>::copy(value_type* __s, size_type __n, 
 
 template <class _CharT, class _Traits, class _Allocator>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX20 void basic_string<_CharT, _Traits, _Allocator>::swap(basic_string& __str)
-#if _LIBCPP_STD_VER >= 14
+#  if _LIBCPP_STD_VER >= 14
     _NOEXCEPT
-#else
+#  else
     _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable_v<allocator_type>)
-#endif
+#  endif
 {
   _LIBCPP_ASSERT_COMPATIBLE_ALLOCATOR(
       __alloc_traits::propagate_on_container_swap::value || __alloc_traits::is_always_equal::value ||
-          __alloc() == __str.__alloc(),
+          __alloc_ == __str.__alloc_,
       "swapping non-equal allocators");
   if (!__is_long())
     __annotate_delete();
-  if (this != &__str && !__str.__is_long())
+  if (this != std::addressof(__str) && !__str.__is_long())
     __str.__annotate_delete();
-  std::swap(__r_.first(), __str.__r_.first());
-  std::__swap_allocator(__alloc(), __str.__alloc());
+  std::swap(__rep_, __str.__rep_);
+  std::__swap_allocator(__alloc_, __str.__alloc_);
   if (!__is_long())
     __annotate_new(__get_short_size());
-  if (this != &__str && !__str.__is_long())
+  if (this != std::addressof(__str) && !__str.__is_long())
     __str.__annotate_new(__str.__get_short_size());
 }
 
 // find
-
-template <class _Traits>
-struct _LIBCPP_HIDDEN __traits_eq {
-  typedef typename _Traits::char_type char_type;
-  _LIBCPP_HIDE_FROM_ABI bool operator()(const char_type& __x, const char_type& __y) _NOEXCEPT {
-    return _Traits::eq(__x, __y);
-  }
-};
 
 template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_CONSTEXPR_SINCE_CXX20 typename basic_string<_CharT, _Traits, _Allocator>::size_type
@@ -3810,8 +3828,8 @@ inline _LIBCPP_CONSTEXPR_SINCE_CXX20 void basic_string<_CharT, _Traits, _Allocat
   clear();
   if (__is_long()) {
     __annotate_delete();
-    __alloc_traits::deallocate(__alloc(), __get_long_pointer(), capacity() + 1);
-    __r_.first() = __rep();
+    __alloc_traits::deallocate(__alloc_, __get_long_pointer(), capacity() + 1);
+    __rep_ = __rep();
   }
 }
 
@@ -3821,53 +3839,36 @@ template <class _CharT, class _Traits, class _Allocator>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI bool
 operator==(const basic_string<_CharT, _Traits, _Allocator>& __lhs,
            const basic_string<_CharT, _Traits, _Allocator>& __rhs) _NOEXCEPT {
-#if _LIBCPP_STD_VER >= 20
-  return basic_string_view<_CharT, _Traits>(__lhs) == basic_string_view<_CharT, _Traits>(__rhs);
-#else
   size_t __lhs_sz = __lhs.size();
   return __lhs_sz == __rhs.size() && _Traits::compare(__lhs.data(), __rhs.data(), __lhs_sz) == 0;
-#endif
 }
-
-template <class _Allocator>
-inline _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI bool
-operator==(const basic_string<char, char_traits<char>, _Allocator>& __lhs,
-           const basic_string<char, char_traits<char>, _Allocator>& __rhs) _NOEXCEPT {
-  size_t __sz = __lhs.size();
-  if (__sz != __rhs.size())
-    return false;
-  return char_traits<char>::compare(__lhs.data(), __rhs.data(), __sz) == 0;
-}
-
-#if _LIBCPP_STD_VER <= 17
-template <class _CharT, class _Traits, class _Allocator>
-inline _LIBCPP_HIDE_FROM_ABI bool
-operator==(const _CharT* __lhs, const basic_string<_CharT, _Traits, _Allocator>& __rhs) _NOEXCEPT {
-  typedef basic_string<_CharT, _Traits, _Allocator> _String;
-  _LIBCPP_ASSERT_NON_NULL(__lhs != nullptr, "operator==(char*, basic_string): received nullptr");
-  size_t __lhs_len = _Traits::length(__lhs);
-  if (__lhs_len != __rhs.size())
-    return false;
-  return __rhs.compare(0, _String::npos, __lhs, __lhs_len) == 0;
-}
-#endif // _LIBCPP_STD_VER <= 17
 
 template <class _CharT, class _Traits, class _Allocator>
 inline _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI bool
 operator==(const basic_string<_CharT, _Traits, _Allocator>& __lhs, const _CharT* __rhs) _NOEXCEPT {
-#if _LIBCPP_STD_VER >= 20
-  return basic_string_view<_CharT, _Traits>(__lhs) == basic_string_view<_CharT, _Traits>(__rhs);
-#else
-  typedef basic_string<_CharT, _Traits, _Allocator> _String;
   _LIBCPP_ASSERT_NON_NULL(__rhs != nullptr, "operator==(basic_string, char*): received nullptr");
+
+  using _String = basic_string<_CharT, _Traits, _Allocator>;
+
   size_t __rhs_len = _Traits::length(__rhs);
+  if (__builtin_constant_p(__rhs_len) && !_String::__fits_in_sso(__rhs_len)) {
+    if (!__lhs.__is_long())
+      return false;
+  }
   if (__rhs_len != __lhs.size())
     return false;
   return __lhs.compare(0, _String::npos, __rhs, __rhs_len) == 0;
-#endif
 }
 
-#if _LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER <= 17
+template <class _CharT, class _Traits, class _Allocator>
+inline _LIBCPP_HIDE_FROM_ABI bool
+operator==(const _CharT* __lhs, const basic_string<_CharT, _Traits, _Allocator>& __rhs) _NOEXCEPT {
+  return __rhs == __lhs;
+}
+#  endif // _LIBCPP_STD_VER <= 17
+
+#  if _LIBCPP_STD_VER >= 20
 
 template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_HIDE_FROM_ABI constexpr auto operator<=>(const basic_string<_CharT, _Traits, _Allocator>& __lhs,
@@ -3881,7 +3882,7 @@ operator<=>(const basic_string<_CharT, _Traits, _Allocator>& __lhs, const _CharT
   return basic_string_view<_CharT, _Traits>(__lhs) <=> basic_string_view<_CharT, _Traits>(__rhs);
 }
 
-#else  // _LIBCPP_STD_VER >= 20
+#  else  // _LIBCPP_STD_VER >= 20
 
 template <class _CharT, class _Traits, class _Allocator>
 inline _LIBCPP_HIDE_FROM_ABI bool operator!=(const basic_string<_CharT, _Traits, _Allocator>& __lhs,
@@ -3980,7 +3981,7 @@ inline _LIBCPP_HIDE_FROM_ABI bool
 operator>=(const _CharT* __lhs, const basic_string<_CharT, _Traits, _Allocator>& __rhs) _NOEXCEPT {
   return !(__lhs < __rhs);
 }
-#endif // _LIBCPP_STD_VER >= 20
+#  endif // _LIBCPP_STD_VER >= 20
 
 // operator +
 
@@ -4063,7 +4064,7 @@ operator+(const basic_string<_CharT, _Traits, _Allocator>& __lhs, _CharT __rhs) 
   return __r;
 }
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
 
 template <class _CharT, class _Traits, class _Allocator>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string<_CharT, _Traits, _Allocator>
@@ -4109,9 +4110,9 @@ operator+(basic_string<_CharT, _Traits, _Allocator>&& __lhs, _CharT __rhs) {
   return std::move(__lhs);
 }
 
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
-#if _LIBCPP_STD_VER >= 26
+#  if _LIBCPP_STD_VER >= 26
 
 template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_HIDE_FROM_ABI constexpr basic_string<_CharT, _Traits, _Allocator>
@@ -4163,7 +4164,7 @@ operator+(type_identity_t<basic_string_view<_CharT, _Traits>> __lhs,
   return std::move(__rhs);
 }
 
-#endif // _LIBCPP_STD_VER >= 26
+#  endif // _LIBCPP_STD_VER >= 26
 
 // swap
 
@@ -4194,7 +4195,7 @@ _LIBCPP_EXPORTED_FROM_ABI string to_string(float __val);
 _LIBCPP_EXPORTED_FROM_ABI string to_string(double __val);
 _LIBCPP_EXPORTED_FROM_ABI string to_string(long double __val);
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 _LIBCPP_EXPORTED_FROM_ABI int stoi(const wstring& __str, size_t* __idx = nullptr, int __base = 10);
 _LIBCPP_EXPORTED_FROM_ABI long stol(const wstring& __str, size_t* __idx = nullptr, int __base = 10);
 _LIBCPP_EXPORTED_FROM_ABI unsigned long stoul(const wstring& __str, size_t* __idx = nullptr, int __base = 10);
@@ -4214,7 +4215,7 @@ _LIBCPP_EXPORTED_FROM_ABI wstring to_wstring(unsigned long long __val);
 _LIBCPP_EXPORTED_FROM_ABI wstring to_wstring(float __val);
 _LIBCPP_EXPORTED_FROM_ABI wstring to_wstring(double __val);
 _LIBCPP_EXPORTED_FROM_ABI wstring to_wstring(long double __val);
-#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_TEMPLATE_DATA_VIS const typename basic_string<_CharT, _Traits, _Allocator>::size_type
@@ -4231,10 +4232,10 @@ struct __string_hash : public __unary_function<basic_string<_CharT, char_traits<
 template <class _Allocator>
 struct hash<basic_string<char, char_traits<char>, _Allocator> > : __string_hash<char, _Allocator> {};
 
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
+#  if _LIBCPP_HAS_CHAR8_T
 template <class _Allocator>
 struct hash<basic_string<char8_t, char_traits<char8_t>, _Allocator> > : __string_hash<char8_t, _Allocator> {};
-#endif
+#  endif
 
 template <class _Allocator>
 struct hash<basic_string<char16_t, char_traits<char16_t>, _Allocator> > : __string_hash<char16_t, _Allocator> {};
@@ -4242,10 +4243,10 @@ struct hash<basic_string<char16_t, char_traits<char16_t>, _Allocator> > : __stri
 template <class _Allocator>
 struct hash<basic_string<char32_t, char_traits<char32_t>, _Allocator> > : __string_hash<char32_t, _Allocator> {};
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 template <class _Allocator>
 struct hash<basic_string<wchar_t, char_traits<wchar_t>, _Allocator> > : __string_hash<wchar_t, _Allocator> {};
-#endif
+#  endif
 
 template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
@@ -4271,7 +4272,7 @@ template <class _CharT, class _Traits, class _Allocator>
 inline _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 getline(basic_istream<_CharT, _Traits>&& __is, basic_string<_CharT, _Traits, _Allocator>& __str);
 
-#if _LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 20
 template <class _CharT, class _Traits, class _Allocator, class _Up>
 inline _LIBCPP_HIDE_FROM_ABI typename basic_string<_CharT, _Traits, _Allocator>::size_type
 erase(basic_string<_CharT, _Traits, _Allocator>& __str, const _Up& __v) {
@@ -4287,9 +4288,9 @@ erase_if(basic_string<_CharT, _Traits, _Allocator>& __str, _Predicate __pred) {
   __str.erase(std::remove_if(__str.begin(), __str.end(), __pred), __str.end());
   return __old_size - __str.size();
 }
-#endif
+#  endif
 
-#if _LIBCPP_STD_VER >= 14
+#  if _LIBCPP_STD_VER >= 14
 // Literal suffixes for basic_string [basic.string.literals]
 inline namespace literals {
 inline namespace string_literals {
@@ -4298,18 +4299,18 @@ operator""s(const char* __str, size_t __len) {
   return basic_string<char>(__str, __len);
 }
 
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string<wchar_t>
 operator""s(const wchar_t* __str, size_t __len) {
   return basic_string<wchar_t>(__str, __len);
 }
-#  endif
+#    endif
 
-#  ifndef _LIBCPP_HAS_NO_CHAR8_T
+#    if _LIBCPP_HAS_CHAR8_T
 inline _LIBCPP_HIDE_FROM_ABI constexpr basic_string<char8_t> operator""s(const char8_t* __str, size_t __len) {
   return basic_string<char8_t>(__str, __len);
 }
-#  endif
+#    endif
 
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 basic_string<char16_t>
 operator""s(const char16_t* __str, size_t __len) {
@@ -4323,30 +4324,31 @@ operator""s(const char32_t* __str, size_t __len) {
 } // namespace string_literals
 } // namespace literals
 
-#  if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
 template <>
 inline constexpr bool __format::__enable_insertable<std::basic_string<char>> = true;
-#    ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#      if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 inline constexpr bool __format::__enable_insertable<std::basic_string<wchar_t>> = true;
+#      endif
 #    endif
-#  endif
 
-#endif
+#  endif
 
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <algorithm>
-#  include <concepts>
-#  include <cstdlib>
-#  include <iterator>
-#  include <new>
-#  include <type_traits>
-#  include <typeinfo>
-#  include <utility>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <algorithm>
+#    include <concepts>
+#    include <cstdlib>
+#    include <iterator>
+#    include <new>
+#    include <type_traits>
+#    include <typeinfo>
+#    include <utility>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_STRING

@@ -11,6 +11,7 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
         pub const vtable: Allocator.VTable = .{
             .alloc = alloc,
             .resize = resize,
+            .remap = remap,
             .free = free,
         };
 
@@ -39,14 +40,13 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
 
         // TODO don't do the naive locking strategy
         var lock: std.Thread.Mutex = .{};
-        fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*]u8 {
+        fn alloc(ctx: *anyopaque, len: usize, alignment: mem.Alignment, return_address: usize) ?[*]u8 {
             _ = ctx;
             _ = return_address;
             lock.lock();
             defer lock.unlock();
             // Make room for the freelist next pointer.
-            const alignment = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_align));
-            const actual_len = @max(len +| @sizeOf(usize), alignment);
+            const actual_len = @max(len +| @sizeOf(usize), alignment.toByteUnits());
             const slot_size = math.ceilPowerOfTwo(usize, actual_len) catch return null;
             const class = math.log2(slot_size) - min_class;
             if (class < size_class_count) {
@@ -82,7 +82,7 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
         fn resize(
             ctx: *anyopaque,
             buf: []u8,
-            log2_buf_align: u8,
+            alignment: mem.Alignment,
             new_len: usize,
             return_address: usize,
         ) bool {
@@ -92,7 +92,7 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
             defer lock.unlock();
             // We don't want to move anything from one size class to another, but we
             // can recover bytes in between powers of two.
-            const buf_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_buf_align));
+            const buf_align = alignment.toByteUnits();
             const old_actual_len = @max(buf.len + @sizeOf(usize), buf_align);
             const new_actual_len = @max(new_len +| @sizeOf(usize), buf_align);
             const old_small_slot_size = math.ceilPowerOfTwoAssert(usize, old_actual_len);
@@ -109,17 +109,27 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
             }
         }
 
+        fn remap(
+            context: *anyopaque,
+            memory: []u8,
+            alignment: mem.Alignment,
+            new_len: usize,
+            return_address: usize,
+        ) ?[*]u8 {
+            return if (resize(context, memory, alignment, new_len, return_address)) memory.ptr else null;
+        }
+
         fn free(
             ctx: *anyopaque,
             buf: []u8,
-            log2_buf_align: u8,
+            alignment: mem.Alignment,
             return_address: usize,
         ) void {
             _ = ctx;
             _ = return_address;
             lock.lock();
             defer lock.unlock();
-            const buf_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_buf_align));
+            const buf_align = alignment.toByteUnits();
             const actual_len = @max(buf.len + @sizeOf(usize), buf_align);
             const slot_size = math.ceilPowerOfTwoAssert(usize, actual_len);
             const class = math.log2(slot_size) - min_class;
@@ -157,4 +167,12 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
             return sbrk(pow2_pages * pages_per_bigpage * heap.pageSize());
         }
     };
+}
+
+test SbrkAllocator {
+    _ = SbrkAllocator(struct {
+        fn sbrk(_: usize) usize {
+            return 0;
+        }
+    }.sbrk);
 }

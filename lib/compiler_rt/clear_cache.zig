@@ -2,7 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const os = builtin.os.tag;
-pub const panic = @import("common.zig").panic;
+const common = @import("common.zig");
+pub const panic = common.panic;
 
 // Ported from llvm-project d32170dbd5b0d54436537b6b75beaf44324e0c28
 
@@ -15,7 +16,7 @@ comptime {
     _ = &clear_cache;
 }
 
-fn clear_cache(start: usize, end: usize) callconv(.C) void {
+fn clear_cache(start: usize, end: usize) callconv(.c) void {
     const x86 = switch (arch) {
         .x86, .x86_64 => true,
         else => false,
@@ -172,12 +173,12 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
         );
         exportIt();
     }
+
+    std.valgrind.discardTranslations(@as([*]u8, @ptrFromInt(start))[0 .. end - start]);
 }
 
-const linkage = if (builtin.is_test) std.builtin.GlobalLinkage.internal else std.builtin.GlobalLinkage.weak;
-
 fn exportIt() void {
-    @export(&clear_cache, .{ .name = "__clear_cache", .linkage = linkage });
+    @export(&clear_cache, .{ .name = "__clear_cache", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 // Darwin-only

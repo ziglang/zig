@@ -3274,7 +3274,7 @@ pub const StringTable = struct {
                     // Note: This is only the case for STRINGTABLE strings
                     const trimmed = trimToDoubleNUL(u16, utf16_string);
                     // We also want to trim any trailing NUL characters
-                    break :trim std.mem.trimRight(u16, trimmed, &[_]u16{0});
+                    break :trim std.mem.trimEnd(u16, trimmed, &[_]u16{0});
                 };
 
                 // String literals are limited to maxInt(u15) codepoints, so these UTF-16 encoded

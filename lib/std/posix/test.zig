@@ -8,7 +8,6 @@ const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const elf = std.elf;
-const File = std.fs.File;
 const Thread = std.Thread;
 const linux = std.os.linux;
 
@@ -19,8 +18,6 @@ const AtomicRmwOp = std.builtin.AtomicRmwOp;
 const AtomicOrder = std.builtin.AtomicOrder;
 const native_os = builtin.target.os.tag;
 const tmpDir = std.testing.tmpDir;
-const Dir = std.fs.Dir;
-const ArenaAllocator = std.heap.ArenaAllocator;
 
 // https://github.com/ziglang/zig/issues/20288
 test "WTF-8 to WTF-16 conversion buffer overflows" {
@@ -44,13 +41,12 @@ test "check WASI CWD" {
     }
 }
 
-test "chdir smoke test" {
+test "chdir absolute parent" {
     if (native_os == .wasi) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14968
-        return error.SkipZigTest;
-    }
+    // Restore default CWD at end of test.
+    const orig_cwd = try fs.cwd().openDir(".", .{});
+    defer orig_cwd.setAsCwd() catch unreachable;
 
     // Get current working directory path
     var old_cwd_buf: [fs.max_path_bytes]u8 = undefined;
@@ -65,47 +61,46 @@ test "chdir smoke test" {
     }
 
     // Next, change current working directory to one level above
-    if (native_os != .wasi) { // WASI does not support navigating outside of Preopens
-        const parent = fs.path.dirname(old_cwd) orelse unreachable; // old_cwd should be absolute
-        try posix.chdir(parent);
+    const parent = fs.path.dirname(old_cwd) orelse unreachable; // old_cwd should be absolute
+    try posix.chdir(parent);
 
-        // Restore cwd because process may have other tests that do not tolerate chdir.
-        defer posix.chdir(old_cwd) catch unreachable;
+    var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
+    const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
+    try expect(mem.eql(u8, parent, new_cwd));
+}
 
-        var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-        const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
-        try expect(mem.eql(u8, parent, new_cwd));
-    }
+test "chdir relative" {
+    if (native_os == .wasi) return error.SkipZigTest;
 
-    // Next, change current working directory to a temp directory one level below
-    {
-        // Create a tmp directory
-        var tmp_dir_buf: [fs.max_path_bytes]u8 = undefined;
-        const tmp_dir_path = path: {
-            var allocator = std.heap.FixedBufferAllocator.init(&tmp_dir_buf);
-            break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{ old_cwd, "zig-test-tmp" });
-        };
-        var tmp_dir = try fs.cwd().makeOpenPath("zig-test-tmp", .{});
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
-        // Change current working directory to tmp directory
-        try posix.chdir("zig-test-tmp");
+    // Restore default CWD at end of test.
+    const orig_cwd = try fs.cwd().openDir(".", .{});
+    defer orig_cwd.setAsCwd() catch unreachable;
 
-        var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-        const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
+    // Use the tmpDir parent_dir as the "base" for the test. Then cd into the child
+    try tmp.parent_dir.setAsCwd();
 
-        // On Windows, fs.path.resolve returns an uppercase drive letter, but the drive letter returned by getcwd may be lowercase
-        var resolved_cwd_buf: [fs.max_path_bytes]u8 = undefined;
-        const resolved_cwd = path: {
-            var allocator = std.heap.FixedBufferAllocator.init(&resolved_cwd_buf);
-            break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{new_cwd});
-        };
-        try expect(mem.eql(u8, tmp_dir_path, resolved_cwd));
+    // Capture base working directory path, to build expected full path
+    var base_cwd_buf: [fs.max_path_bytes]u8 = undefined;
+    const base_cwd = try posix.getcwd(base_cwd_buf[0..]);
 
-        // Restore cwd because process may have other tests that do not tolerate chdir.
-        tmp_dir.close();
-        posix.chdir(old_cwd) catch unreachable;
-        try fs.cwd().deleteDir("zig-test-tmp");
-    }
+    const dir_name = &tmp.sub_path;
+    const expected_path = try fs.path.resolve(a, &.{ base_cwd, dir_name });
+    defer a.free(expected_path);
+
+    // change current working directory to new directory
+    try posix.chdir(dir_name);
+
+    var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
+    const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
+
+    // On Windows, fs.path.resolve returns an uppercase drive letter, but the drive letter returned by getcwd may be lowercase
+    const resolved_cwd = try fs.path.resolve(a, &.{new_cwd});
+    defer a.free(resolved_cwd);
+
+    try expect(mem.eql(u8, expected_path, resolved_cwd));
 }
 
 test "open smoke test" {
@@ -117,50 +112,62 @@ test "open smoke test" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    // Get base abs path
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const base_path = try tmp.dir.realpathAlloc(a, ".");
+    defer a.free(base_path);
 
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
-
-    var file_path: []u8 = undefined;
-    var fd: posix.fd_t = undefined;
     const mode: posix.mode_t = if (native_os == .windows) 0 else 0o666;
 
-    // Create some file using `open`.
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try posix.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode);
-    posix.close(fd);
+    {
+        // Create some file using `open`.
+        const file_path = try fs.path.join(a, &.{ base_path, "some_file" });
+        defer a.free(file_path);
+        const fd = try posix.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode);
+        posix.close(fd);
+    }
 
-    // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    try expectError(error.PathAlreadyExists, posix.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode));
+    {
+        // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
+        const file_path = try fs.path.join(a, &.{ base_path, "some_file" });
+        defer a.free(file_path);
+        try expectError(error.PathAlreadyExists, posix.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode));
+    }
 
-    // Try opening without `EXCL` flag.
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try posix.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true }, mode);
-    posix.close(fd);
+    {
+        // Try opening without `EXCL` flag.
+        const file_path = try fs.path.join(a, &.{ base_path, "some_file" });
+        defer a.free(file_path);
+        const fd = try posix.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true }, mode);
+        posix.close(fd);
+    }
 
-    // Try opening as a directory which should fail.
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    try expectError(error.NotDir, posix.open(file_path, .{ .ACCMODE = .RDWR, .DIRECTORY = true }, mode));
+    {
+        // Try opening as a directory which should fail.
+        const file_path = try fs.path.join(a, &.{ base_path, "some_file" });
+        defer a.free(file_path);
+        try expectError(error.NotDir, posix.open(file_path, .{ .ACCMODE = .RDWR, .DIRECTORY = true }, mode));
+    }
 
-    // Create some directory
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    try posix.mkdir(file_path, mode);
+    {
+        // Create some directory
+        const file_path = try fs.path.join(a, &.{ base_path, "some_dir" });
+        defer a.free(file_path);
+        try posix.mkdir(file_path, mode);
+    }
 
-    // Open dir using `open`
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    fd = try posix.open(file_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, mode);
-    posix.close(fd);
+    {
+        // Open dir using `open`
+        const file_path = try fs.path.join(a, &.{ base_path, "some_dir" });
+        defer a.free(file_path);
+        const fd = try posix.open(file_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, mode);
+        posix.close(fd);
+    }
 
-    // Try opening as file which should fail.
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    try expectError(error.IsDir, posix.open(file_path, .{ .ACCMODE = .RDWR }, mode));
+    {
+        // Try opening as file which should fail.
+        const file_path = try fs.path.join(a, &.{ base_path, "some_dir" });
+        defer a.free(file_path);
+        try expectError(error.IsDir, posix.open(file_path, .{ .ACCMODE = .RDWR }, mode));
+    }
 }
 
 test "openat smoke test" {
@@ -222,44 +229,42 @@ test "openat smoke test" {
 }
 
 test "symlink with relative paths" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest; // Can symlink, but can't change into tmpDir
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14968
-        return error.SkipZigTest;
-    }
-    const cwd = fs.cwd();
-    cwd.deleteFile("file.txt") catch {};
-    cwd.deleteFile("symlinked") catch {};
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
-    // First, try relative paths in cwd
-    try cwd.writeFile(.{ .sub_path = "file.txt", .data = "nonsense" });
+    const target_name = "symlink-target";
+    const symlink_name = "symlinker";
+
+    // Restore default CWD at end of test.
+    const orig_cwd = try fs.cwd().openDir(".", .{});
+    defer orig_cwd.setAsCwd() catch unreachable;
+
+    // Create the target file
+    try tmp.dir.writeFile(.{ .sub_path = target_name, .data = "nonsense" });
+
+    // Want to test relative paths, so cd into the tmpdir for this test
+    try tmp.dir.setAsCwd();
 
     if (native_os == .windows) {
-        std.os.windows.CreateSymbolicLink(
-            cwd.fd,
-            &[_]u16{ 's', 'y', 'm', 'l', 'i', 'n', 'k', 'e', 'd' },
-            &[_:0]u16{ 'f', 'i', 'l', 'e', '.', 't', 'x', 't' },
-            false,
-        ) catch |err| switch (err) {
+        const wtarget_name = try std.unicode.wtf8ToWtf16LeAllocZ(a, target_name);
+        const wsymlink_name = try std.unicode.wtf8ToWtf16LeAllocZ(a, symlink_name);
+        defer a.free(wtarget_name);
+        defer a.free(wsymlink_name);
+
+        std.os.windows.CreateSymbolicLink(tmp.dir.fd, wsymlink_name, wtarget_name, false) catch |err| switch (err) {
             // Symlink requires admin privileges on windows, so this test can legitimately fail.
-            error.AccessDenied => {
-                try cwd.deleteFile("file.txt");
-                try cwd.deleteFile("symlinked");
-                return error.SkipZigTest;
-            },
+            error.AccessDenied => return error.SkipZigTest,
             else => return err,
         };
     } else {
-        try posix.symlink("file.txt", "symlinked");
+        try posix.symlink(target_name, symlink_name);
     }
 
     var buffer: [fs.max_path_bytes]u8 = undefined;
-    const given = try posix.readlink("symlinked", buffer[0..]);
-    try expect(mem.eql(u8, "file.txt", given));
-
-    try cwd.deleteFile("file.txt");
-    try cwd.deleteFile("symlinked");
+    const given = try posix.readlink(symlink_name, buffer[0..]);
+    try expect(mem.eql(u8, target_name, given));
 }
 
 test "readlink on Windows" {
@@ -277,94 +282,101 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
 }
 
 test "link with relative paths" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest; // Can link, but can't change into tmpDir
+    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstat()`.
+    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // `nstat.nlink` assertion is failing with LLVM 20+ for unclear reasons.
 
     switch (native_os) {
         .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14968
-        return error.SkipZigTest;
-    }
-    var cwd = fs.cwd();
 
-    cwd.deleteFile("example.txt") catch {};
-    cwd.deleteFile("new.txt") catch {};
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
-    try cwd.writeFile(.{ .sub_path = "example.txt", .data = "example" });
-    try posix.link("example.txt", "new.txt");
+    // Restore default CWD at end of test.
+    const orig_cwd = try fs.cwd().openDir(".", .{});
+    defer orig_cwd.setAsCwd() catch unreachable;
 
-    const efd = try cwd.openFile("example.txt", .{});
+    const target_name = "link-target";
+    const link_name = "newlink";
+
+    try tmp.dir.writeFile(.{ .sub_path = target_name, .data = "example" });
+
+    // Test 1: create the relative link from inside tmp
+    try tmp.dir.setAsCwd();
+    try posix.link(target_name, link_name);
+
+    // Verify
+    const efd = try tmp.dir.openFile(target_name, .{});
     defer efd.close();
 
-    const nfd = try cwd.openFile("new.txt", .{});
+    const nfd = try tmp.dir.openFile(link_name, .{});
     defer nfd.close();
 
     {
         const estat = try posix.fstat(efd.handle);
         const nstat = try posix.fstat(nfd.handle);
-
         try testing.expectEqual(estat.ino, nstat.ino);
         try testing.expectEqual(@as(@TypeOf(nstat.nlink), 2), nstat.nlink);
     }
 
-    try posix.unlink("new.txt");
+    // Test 2: Remove the link and see the stats update
+    try posix.unlink(link_name);
 
     {
         const estat = try posix.fstat(efd.handle);
         try testing.expectEqual(@as(@TypeOf(estat.nlink), 1), estat.nlink);
     }
-
-    try cwd.deleteFile("example.txt");
 }
 
 test "linkat with different directories" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
+    if (builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // `nstat.nlink` assertion is failing with LLVM 20+ for unclear reasons.
 
     switch (native_os) {
         .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14968
-        return error.SkipZigTest;
-    }
-    var cwd = fs.cwd();
+
     var tmp = tmpDir(.{});
+    defer tmp.cleanup();
 
-    cwd.deleteFile("example.txt") catch {};
-    tmp.dir.deleteFile("new.txt") catch {};
+    const target_name = "link-target";
+    const link_name = "newlink";
 
-    try cwd.writeFile(.{ .sub_path = "example.txt", .data = "example" });
-    try posix.linkat(cwd.fd, "example.txt", tmp.dir.fd, "new.txt", 0);
+    const subdir = try tmp.dir.makeOpenPath("subdir", .{});
 
-    const efd = try cwd.openFile("example.txt", .{});
+    defer tmp.dir.deleteFile(target_name) catch {};
+    try tmp.dir.writeFile(.{ .sub_path = target_name, .data = "example" });
+
+    // Test 1: link from file in subdir back up to target in parent directory
+    try posix.linkat(tmp.dir.fd, target_name, subdir.fd, link_name, 0);
+
+    const efd = try tmp.dir.openFile(target_name, .{});
     defer efd.close();
 
-    const nfd = try tmp.dir.openFile("new.txt", .{});
+    const nfd = try subdir.openFile(link_name, .{});
+    defer nfd.close();
 
     {
-        defer nfd.close();
         const estat = try posix.fstat(efd.handle);
         const nstat = try posix.fstat(nfd.handle);
-
         try testing.expectEqual(estat.ino, nstat.ino);
         try testing.expectEqual(@as(@TypeOf(nstat.nlink), 2), nstat.nlink);
     }
 
-    try posix.unlinkat(tmp.dir.fd, "new.txt", 0);
+    // Test 2: remove link
+    try posix.unlinkat(subdir.fd, link_name, 0);
 
     {
         const estat = try posix.fstat(efd.handle);
         try testing.expectEqual(@as(@TypeOf(estat.nlink), 1), estat.nlink);
     }
-
-    try cwd.deleteFile("example.txt");
 }
 
 test "fstatat" {
-    if (builtin.cpu.arch == .riscv32 and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
+    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
     // enable when `fstat` and `fstatat` are implemented on Windows
     if (native_os == .windows) return error.SkipZigTest;
 
@@ -497,6 +509,12 @@ test "getcwd" {
     // at least call it so it gets compiled
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     _ = posix.getcwd(&buf) catch undefined;
+}
+
+test "getuid" {
+    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
+    _ = posix.getuid();
+    _ = posix.geteuid();
 }
 
 test "sigaltstack" {
@@ -704,8 +722,6 @@ test "mmap" {
             try testing.expectEqual(i, try stream.readInt(u32, .little));
         }
     }
-
-    try tmp.dir.deleteFile(test_out_file);
 }
 
 test "getenv" {
@@ -717,6 +733,11 @@ test "getenv" {
     if (native_os == .windows) {
         try expect(std.process.getenvW(&[_:0]u16{ 'B', 'O', 'G', 'U', 'S', 0x11, 0x22, 0x33, 0x44, 0x55 }) == null);
     } else {
+        try expect(posix.getenv("") == null);
+        try expect(posix.getenv("BOGUSDOESNOTEXISTENVVAR") == null);
+        if (builtin.link_libc) {
+            try testing.expectEqualStrings(posix.getenv("USER") orelse "", mem.span(std.c.getenv("USER") orelse ""));
+        }
         try expect(posix.getenvZ("BOGUSDOESNOTEXISTENVVAR") == null);
     }
 }
@@ -731,10 +752,7 @@ test "fcntl" {
     const test_out_file = "os_tmp_test";
 
     const file = try tmp.dir.createFile(test_out_file, .{});
-    defer {
-        file.close();
-        tmp.dir.deleteFile(test_out_file) catch {};
-    }
+    defer file.close();
 
     // Note: The test assumes createFile opens the file with CLOEXEC
     {
@@ -770,10 +788,7 @@ test "sync" {
 
     const test_out_file = "os_tmp_test";
     const file = try tmp.dir.createFile(test_out_file, .{});
-    defer {
-        file.close();
-        tmp.dir.deleteFile(test_out_file) catch {};
-    }
+    defer file.close();
 
     posix.sync();
     try posix.syncfs(file.handle);
@@ -790,10 +805,7 @@ test "fsync" {
 
     const test_out_file = "os_tmp_test";
     const file = try tmp.dir.createFile(test_out_file, .{});
-    defer {
-        file.close();
-        tmp.dir.deleteFile(test_out_file) catch {};
-    }
+    defer file.close();
 
     try posix.fsync(file.handle);
     try posix.fdatasync(file.handle);
@@ -847,12 +859,75 @@ test "shutdown socket" {
     std.net.Stream.close(.{ .handle = sock });
 }
 
-test "sigaction" {
+test "sigrtmin/max" {
+    if (native_os == .wasi or native_os == .windows or native_os == .macos) {
+        return error.SkipZigTest;
+    }
+
+    try std.testing.expect(posix.sigrtmin() >= 32);
+    try std.testing.expect(posix.sigrtmin() >= posix.system.sigrtmin());
+    try std.testing.expect(posix.sigrtmin() < posix.system.sigrtmax());
+    try std.testing.expect(posix.sigrtmax() < posix.NSIG);
+}
+
+test "sigset empty/full" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
-    // https://github.com/ziglang/zig/issues/7427
-    if (native_os == .linux and builtin.target.cpu.arch == .x86)
+    var set: posix.sigset_t = posix.sigemptyset();
+    for (1..posix.NSIG) |i| {
+        try expectEqual(false, posix.sigismember(&set, @truncate(i)));
+    }
+
+    // The C library can reserve some (unnamed) signals, so can't check the full
+    // NSIG set is defined, but just test a couple:
+    set = posix.sigfillset();
+    try expectEqual(true, posix.sigismember(&set, @truncate(posix.SIG.CHLD)));
+    try expectEqual(true, posix.sigismember(&set, @truncate(posix.SIG.INT)));
+}
+
+// Some signals (i.e., 32 - 34 on glibc/musl) are not allowed to be added to a
+// sigset by the C library, so avoid testing them.
+fn reserved_signo(i: usize) bool {
+    if (native_os == .macos) return false;
+    if (!builtin.link_libc) return false;
+    const max = if (native_os == .netbsd) 32 else 31;
+    return i > max and i < posix.sigrtmin();
+}
+
+test "sigset add/del" {
+    if (native_os == .wasi or native_os == .windows)
+        return error.SkipZigTest;
+
+    var sigset: posix.sigset_t = posix.sigemptyset();
+
+    // See that none are set, then set each one, see that they're all set, then
+    // remove them all, and then see that none are set.
+    for (1..posix.NSIG) |i| {
+        try expectEqual(false, posix.sigismember(&sigset, @truncate(i)));
+    }
+    for (1..posix.NSIG) |i| {
+        if (!reserved_signo(i)) {
+            posix.sigaddset(&sigset, @truncate(i));
+        }
+    }
+    for (1..posix.NSIG) |i| {
+        if (!reserved_signo(i)) {
+            try expectEqual(true, posix.sigismember(&sigset, @truncate(i)));
+        }
+    }
+    for (1..posix.NSIG) |i| {
+        if (!reserved_signo(i)) {
+            posix.sigdelset(&sigset, @truncate(i));
+        }
+    }
+    for (1..posix.NSIG) |i| {
+        try expectEqual(false, posix.sigismember(&sigset, @truncate(i)));
+    }
+}
+
+test "sigaction" {
+    if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/15381
@@ -860,66 +935,138 @@ test "sigaction" {
         return error.SkipZigTest;
     }
 
+    const test_signo = posix.SIG.URG; // URG only because it is ignored by default in debuggers
+
     const S = struct {
         var handler_called_count: u32 = 0;
 
         fn handler(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
             _ = ctx_ptr;
             // Check that we received the correct signal.
-            switch (native_os) {
-                .netbsd => {
-                    if (sig == posix.SIG.USR1 and sig == info.info.signo)
-                        handler_called_count += 1;
-                },
-                else => {
-                    if (sig == posix.SIG.USR1 and sig == info.signo)
-                        handler_called_count += 1;
-                },
+            const info_sig = switch (native_os) {
+                .netbsd => info.info.signo,
+                else => info.signo,
+            };
+            if (sig == test_signo and sig == info_sig) {
+                handler_called_count += 1;
             }
         }
     };
 
     var sa: posix.Sigaction = .{
         .handler = .{ .sigaction = &S.handler },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = posix.SA.SIGINFO | posix.SA.RESETHAND,
     };
+
     var old_sa: posix.Sigaction = undefined;
 
     // Install the new signal handler.
-    posix.sigaction(posix.SIG.USR1, &sa, null);
+    posix.sigaction(test_signo, &sa, null);
 
     // Check that we can read it back correctly.
-    posix.sigaction(posix.SIG.USR1, null, &old_sa);
+    posix.sigaction(test_signo, null, &old_sa);
     try testing.expectEqual(&S.handler, old_sa.handler.sigaction.?);
     try testing.expect((old_sa.flags & posix.SA.SIGINFO) != 0);
 
     // Invoke the handler.
-    try posix.raise(posix.SIG.USR1);
-    try testing.expect(S.handler_called_count == 1);
+    try posix.raise(test_signo);
+    try testing.expectEqual(1, S.handler_called_count);
 
     // Check if passing RESETHAND correctly reset the handler to SIG_DFL
-    posix.sigaction(posix.SIG.USR1, null, &old_sa);
+    posix.sigaction(test_signo, null, &old_sa);
     try testing.expectEqual(posix.SIG.DFL, old_sa.handler.handler);
 
     // Reinstall the signal w/o RESETHAND and re-raise
     sa.flags = posix.SA.SIGINFO;
-    posix.sigaction(posix.SIG.USR1, &sa, null);
-    try posix.raise(posix.SIG.USR1);
-    try testing.expect(S.handler_called_count == 2);
+    posix.sigaction(test_signo, &sa, null);
+    try posix.raise(test_signo);
+    try testing.expectEqual(2, S.handler_called_count);
 
     // Now set the signal to ignored
     sa.handler = .{ .handler = posix.SIG.IGN };
     sa.flags = 0;
-    posix.sigaction(posix.SIG.USR1, &sa, null);
+    posix.sigaction(test_signo, &sa, null);
 
     // Re-raise to ensure handler is actually ignored
-    try posix.raise(posix.SIG.USR1);
-    try testing.expect(S.handler_called_count == 2);
+    try posix.raise(test_signo);
+    try testing.expectEqual(2, S.handler_called_count);
 
     // Ensure that ignored state is returned when querying
-    posix.sigaction(posix.SIG.USR1, null, &old_sa);
-    try testing.expectEqual(posix.SIG.IGN, old_sa.handler.handler.?);
+    posix.sigaction(test_signo, null, &old_sa);
+    try testing.expectEqual(posix.SIG.IGN, old_sa.handler.handler);
+}
+
+test "sigset_t bits" {
+    if (native_os == .wasi or native_os == .windows)
+        return error.SkipZigTest;
+
+    const S = struct {
+        var expected_sig: i32 = undefined;
+        var handler_called_count: u32 = 0;
+
+        fn handler(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
+            _ = ctx_ptr;
+
+            const info_sig = switch (native_os) {
+                .netbsd => info.info.signo,
+                else => info.signo,
+            };
+            if (sig == expected_sig and sig == info_sig) {
+                handler_called_count += 1;
+            }
+        }
+    };
+
+    const self_pid = posix.system.getpid();
+
+    // To check that sigset_t mapping matches kernel (think u32/u64 mismatches on
+    // big-endian), try sending a blocked signal to make sure the mask matches the
+    // signal.  (Send URG and CHLD because they're ignored by default in the
+    // debugger, vs. USR1 or other named signals)
+    inline for ([_]usize{ posix.SIG.URG, posix.SIG.CHLD, 62, 94, 126 }) |test_signo| {
+        if (test_signo >= posix.NSIG) continue;
+
+        S.expected_sig = test_signo;
+        S.handler_called_count = 0;
+
+        const sa: posix.Sigaction = .{
+            .handler = .{ .sigaction = &S.handler },
+            .mask = posix.sigemptyset(),
+            .flags = posix.SA.SIGINFO | posix.SA.RESETHAND,
+        };
+
+        var old_sa: posix.Sigaction = undefined;
+
+        // Install the new signal handler.
+        posix.sigaction(test_signo, &sa, &old_sa);
+
+        // block the signal and see that its delayed until unblocked
+        var block_one: posix.sigset_t = posix.sigemptyset();
+        posix.sigaddset(&block_one, test_signo);
+        posix.sigprocmask(posix.SIG.BLOCK, &block_one, null);
+
+        // qemu maps target signals to host signals 1-to-1, so targets
+        // with more signals than the host will fail to send the signal.
+        const rc = posix.system.kill(self_pid, test_signo);
+        switch (posix.errno(rc)) {
+            .SUCCESS => {
+                // See that the signal is blocked, then unblocked
+                try testing.expectEqual(0, S.handler_called_count);
+                posix.sigprocmask(posix.SIG.UNBLOCK, &block_one, null);
+                try testing.expectEqual(1, S.handler_called_count);
+            },
+            .INVAL => {
+                // Signal won't get delviered.  Just clean up.
+                posix.sigprocmask(posix.SIG.UNBLOCK, &block_one, null);
+                try testing.expectEqual(0, S.handler_called_count);
+            },
+            else => |errno| return posix.unexpectedErrno(errno),
+        }
+
+        // Restore original handler
+        posix.sigaction(test_signo, &old_sa, null);
+    }
 }
 
 test "dup & dup2" {
@@ -979,7 +1126,7 @@ test "POSIX file locking with fcntl" {
         return error.SkipZigTest;
     }
 
-    var tmp = std.testing.tmpDir(.{});
+    var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
     // Create a temporary lock file
@@ -1040,54 +1187,65 @@ test "rename smoke test" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    // Get base abs path
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const base_path = try tmp.dir.realpathAlloc(a, ".");
+    defer a.free(base_path);
 
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
-
-    var file_path: []u8 = undefined;
-    var fd: posix.fd_t = undefined;
     const mode: posix.mode_t = if (native_os == .windows) 0 else 0o666;
 
-    // Create some file using `open`.
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try posix.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode);
-    posix.close(fd);
+    {
+        // Create some file using `open`.
+        const file_path = try fs.path.join(a, &.{ base_path, "some_file" });
+        defer a.free(file_path);
+        const fd = try posix.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode);
+        posix.close(fd);
 
-    // Rename the file
-    var new_file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_file" });
-    try posix.rename(file_path, new_file_path);
+        // Rename the file
+        const new_file_path = try fs.path.join(a, &.{ base_path, "some_other_file" });
+        defer a.free(new_file_path);
+        try posix.rename(file_path, new_file_path);
+    }
 
-    // Try opening renamed file
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_file" });
-    fd = try posix.open(file_path, .{ .ACCMODE = .RDWR }, mode);
-    posix.close(fd);
+    {
+        // Try opening renamed file
+        const file_path = try fs.path.join(a, &.{ base_path, "some_other_file" });
+        defer a.free(file_path);
+        const fd = try posix.open(file_path, .{ .ACCMODE = .RDWR }, mode);
+        posix.close(fd);
+    }
 
-    // Try opening original file - should fail with error.FileNotFound
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    try expectError(error.FileNotFound, posix.open(file_path, .{ .ACCMODE = .RDWR }, mode));
+    {
+        // Try opening original file - should fail with error.FileNotFound
+        const file_path = try fs.path.join(a, &.{ base_path, "some_file" });
+        defer a.free(file_path);
+        try expectError(error.FileNotFound, posix.open(file_path, .{ .ACCMODE = .RDWR }, mode));
+    }
 
-    // Create some directory
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    try posix.mkdir(file_path, mode);
+    {
+        // Create some directory
+        const file_path = try fs.path.join(a, &.{ base_path, "some_dir" });
+        defer a.free(file_path);
+        try posix.mkdir(file_path, mode);
 
-    // Rename the directory
-    new_file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_dir" });
-    try posix.rename(file_path, new_file_path);
+        // Rename the directory
+        const new_file_path = try fs.path.join(a, &.{ base_path, "some_other_dir" });
+        defer a.free(new_file_path);
+        try posix.rename(file_path, new_file_path);
+    }
 
-    // Try opening renamed directory
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_dir" });
-    fd = try posix.open(file_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, mode);
-    posix.close(fd);
+    {
+        // Try opening renamed directory
+        const file_path = try fs.path.join(a, &.{ base_path, "some_other_dir" });
+        defer a.free(file_path);
+        const fd = try posix.open(file_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, mode);
+        posix.close(fd);
+    }
 
-    // Try opening original directory - should fail with error.FileNotFound
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    try expectError(error.FileNotFound, posix.open(file_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, mode));
+    {
+        // Try opening original directory - should fail with error.FileNotFound
+        const file_path = try fs.path.join(a, &.{ base_path, "some_dir" });
+        defer a.free(file_path);
+        try expectError(error.FileNotFound, posix.open(file_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, mode));
+    }
 }
 
 test "access smoke test" {
@@ -1097,44 +1255,50 @@ test "access smoke test" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    // Get base abs path
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const base_path = try tmp.dir.realpathAlloc(a, ".");
+    defer a.free(base_path);
 
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
-
-    var file_path: []u8 = undefined;
-    var fd: posix.fd_t = undefined;
     const mode: posix.mode_t = if (native_os == .windows) 0 else 0o666;
-
-    // Create some file using `open`.
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try posix.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode);
-    posix.close(fd);
-
-    // Try to access() the file
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    if (native_os == .windows) {
-        try posix.access(file_path, posix.F_OK);
-    } else {
-        try posix.access(file_path, posix.F_OK | posix.W_OK | posix.R_OK);
+    {
+        // Create some file using `open`.
+        const file_path = try fs.path.join(a, &.{ base_path, "some_file" });
+        defer a.free(file_path);
+        const fd = try posix.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode);
+        posix.close(fd);
     }
 
-    // Try to access() a non-existent file - should fail with error.FileNotFound
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_file" });
-    try expectError(error.FileNotFound, posix.access(file_path, posix.F_OK));
+    {
+        // Try to access() the file
+        const file_path = try fs.path.join(a, &.{ base_path, "some_file" });
+        defer a.free(file_path);
+        if (native_os == .windows) {
+            try posix.access(file_path, posix.F_OK);
+        } else {
+            try posix.access(file_path, posix.F_OK | posix.W_OK | posix.R_OK);
+        }
+    }
 
-    // Create some directory
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    try posix.mkdir(file_path, mode);
+    {
+        // Try to access() a non-existent file - should fail with error.FileNotFound
+        const file_path = try fs.path.join(a, &.{ base_path, "some_other_file" });
+        defer a.free(file_path);
+        try expectError(error.FileNotFound, posix.access(file_path, posix.F_OK));
+    }
 
-    // Try to access() the directory
-    file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    try posix.access(file_path, posix.F_OK);
+    {
+        // Create some directory
+        const file_path = try fs.path.join(a, &.{ base_path, "some_dir" });
+        defer a.free(file_path);
+        try posix.mkdir(file_path, mode);
+    }
+
+    {
+        // Try to access() the directory
+        const file_path = try fs.path.join(a, &.{ base_path, "some_dir" });
+        defer a.free(file_path);
+
+        try posix.access(file_path, posix.F_OK);
+    }
 }
 
 test "timerfd" {
@@ -1166,103 +1330,59 @@ test "isatty" {
 }
 
 test "read with empty buffer" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    // Get base abs path
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
-
-    const file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    var file = try fs.cwd().createFile(file_path, .{ .read = true });
+    var file = try tmp.dir.createFile("read_empty", .{ .read = true });
     defer file.close();
 
-    const bytes = try allocator.alloc(u8, 0);
+    const bytes = try a.alloc(u8, 0);
+    defer a.free(bytes);
 
-    _ = try posix.read(file.handle, bytes);
+    const rc = try posix.read(file.handle, bytes);
+    try expectEqual(rc, 0);
 }
 
 test "pread with empty buffer" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    // Get base abs path
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
-
-    const file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    var file = try fs.cwd().createFile(file_path, .{ .read = true });
+    var file = try tmp.dir.createFile("pread_empty", .{ .read = true });
     defer file.close();
 
-    const bytes = try allocator.alloc(u8, 0);
+    const bytes = try a.alloc(u8, 0);
+    defer a.free(bytes);
 
-    _ = try posix.pread(file.handle, bytes, 0);
+    const rc = try posix.pread(file.handle, bytes, 0);
+    try expectEqual(rc, 0);
 }
 
 test "write with empty buffer" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    // Get base abs path
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
-
-    const file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    var file = try fs.cwd().createFile(file_path, .{});
+    var file = try tmp.dir.createFile("write_empty", .{});
     defer file.close();
 
-    const bytes = try allocator.alloc(u8, 0);
+    const bytes = try a.alloc(u8, 0);
+    defer a.free(bytes);
 
-    _ = try posix.write(file.handle, bytes);
+    const rc = try posix.write(file.handle, bytes);
+    try expectEqual(rc, 0);
 }
 
 test "pwrite with empty buffer" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    // Get base abs path
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
-
-    const file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    var file = try fs.cwd().createFile(file_path, .{});
+    var file = try tmp.dir.createFile("pwrite_empty", .{});
     defer file.close();
 
-    const bytes = try allocator.alloc(u8, 0);
+    const bytes = try a.alloc(u8, 0);
+    defer a.free(bytes);
 
-    _ = try posix.pwrite(file.handle, bytes, 0);
+    const rc = try posix.pwrite(file.handle, bytes, 0);
+    try expectEqual(rc, 0);
 }
 
 fn expectMode(dir: posix.fd_t, file: []const u8, mode: posix.mode_t) !void {
@@ -1271,6 +1391,8 @@ fn expectMode(dir: posix.fd_t, file: []const u8, mode: posix.mode_t) !void {
 }
 
 test "fchmodat smoke test" {
+    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23808
+
     if (!std.fs.has_executable_bit) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -1285,7 +1407,7 @@ test "fchmodat smoke test" {
     );
     posix.close(fd);
 
-    if (builtin.cpu.arch == .riscv32 and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
+    if ((builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) and builtin.os.tag == .linux and !builtin.link_libc) return error.SkipZigTest; // No `fstatat()`.
 
     try posix.symlinkat("regfile", tmp.dir.fd, "symlink");
     const sym_mode = blk: {

@@ -590,9 +590,7 @@ pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
 }
 
 fn hasFeature(lower: *Lower, feature: std.Target.riscv.Feature) bool {
-    const target = lower.pt.zcu.getTarget();
-    const features = target.cpu.features;
-    return std.Target.riscv.featureSetHas(features, feature);
+    return lower.pt.zcu.getTarget().cpu.has(.riscv, feature);
 }
 
 const Lower = @This();

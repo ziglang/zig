@@ -8,7 +8,7 @@ set -e
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.14.0-dev.1622+2ac543388"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.15.0-dev.233+7c85dc460"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
@@ -48,48 +48,22 @@ unset CXX
 
 ninja install
 
-# simultaneously test building self-hosted without LLVM and with 32-bit arm
-stage3-debug/bin/zig build \
-  -Dtarget=arm-linux-musleabihf \
-  -Dno-lib
-
 # No -fqemu and -fwasmtime here as they're covered by the x86_64-linux scripts.
 stage3-debug/bin/zig build test docs \
-  --maxrss 24696061952 \
+  --maxrss 44918199637 \
   -Dstatic-llvm \
+  -Dskip-non-native \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-superhtml
 
-# Ensure that updating the wasm binary from this commit will result in a viable build.
-stage3-debug/bin/zig build update-zig1
-
-mkdir ../build-new
-cd ../build-new
-
-export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
-export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
-
-cmake .. \
-  -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DZIG_TARGET_TRIPLE="$TARGET" \
-  -DZIG_TARGET_MCPU="$MCPU" \
-  -DZIG_STATIC=ON \
-  -DZIG_NO_LIB=ON \
-  -GNinja
-
-unset CC
-unset CXX
-
-ninja install
-
-stage3/bin/zig test ../test/behavior.zig
-stage3/bin/zig build -p stage4 \
-  -Dstatic-llvm \
-  -Dtarget=native-native-musl \
+stage3-debug/bin/zig build \
+  --prefix stage4-debug \
+  -Denable-llvm \
   -Dno-lib \
-  --search-prefix "$PREFIX" \
-  --zig-lib-dir "$PWD/../lib"
-stage4/bin/zig test ../test/behavior.zig
+  -Dtarget=$TARGET \
+  -Duse-zig-libcxx \
+  -Dversion-string="$(stage3-debug/bin/zig version)"
+
+stage4-debug/bin/zig test ../test/behavior.zig

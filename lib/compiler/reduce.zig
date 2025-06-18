@@ -220,7 +220,7 @@ pub fn main() !void {
                             mem.eql(u8, msg, "unused function parameter") or
                             mem.eql(u8, msg, "unused capture"))
                         {
-                            const ident_token = item.data.token;
+                            const ident_token = item.data.token.unwrap().?;
                             try more_fixups.unused_var_decls.put(gpa, ident_token, {});
                         } else {
                             std.debug.print("found other ZIR error: '{s}'\n", .{msg});
@@ -403,7 +403,7 @@ fn parse(gpa: Allocator, file_path: []const u8) !Ast {
         file_path,
         std.math.maxInt(u32),
         null,
-        1,
+        .fromByteUnits(1),
         0,
     ) catch |err| {
         fatal("unable to open '{s}': {s}", .{ file_path, @errorName(err) });

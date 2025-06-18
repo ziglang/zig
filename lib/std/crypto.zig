@@ -214,6 +214,9 @@ pub const ff = @import("crypto/ff.zig");
 /// This is a thread-local, cryptographically secure pseudo random number generator.
 pub const random = @import("crypto/tlcsprng.zig").interface;
 
+/// Encoding and decoding
+pub const codecs = @import("crypto/codecs.zig");
+
 const std = @import("std.zig");
 
 pub const errors = @import("crypto/errors.zig");
@@ -334,6 +337,7 @@ test {
     _ = errors;
     _ = tls;
     _ = Certificate;
+    _ = codecs;
 }
 
 test "CSPRNG" {

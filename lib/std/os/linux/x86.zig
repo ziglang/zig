@@ -122,7 +122,7 @@ pub fn socketcall(call: usize, args: [*]const usize) usize {
     );
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         +8,   +12,   +16,   +20, +24,  +28, +32
     //
@@ -172,7 +172,7 @@ pub fn clone() callconv(.Naked) usize {
     );
 }
 
-pub fn restore() callconv(.Naked) noreturn {
+pub fn restore() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
@@ -190,7 +190,7 @@ pub fn restore() callconv(.Naked) noreturn {
     }
 }
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
@@ -229,8 +229,6 @@ pub const F = struct {
     pub const WRLCK = 1;
     pub const UNLCK = 2;
 };
-
-pub const MMAP2_UNIT = 4096;
 
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
@@ -352,7 +350,7 @@ pub const ucontext_t = extern struct {
     link: ?*ucontext_t,
     stack: stack_t,
     mcontext: mcontext_t,
-    sigmask: sigset_t,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
     regspace: [64]u64,
 };
 
@@ -405,7 +403,7 @@ noinline fn getContextReturnAddress() usize {
     return @returnAddress();
 }
 
-pub fn getContextInternal() callconv(.Naked) usize {
+pub fn getContextInternal() callconv(.naked) usize {
     asm volatile (
         \\ movl $0, %[flags_offset:c](%%edx)
         \\ movl $0, %[link_offset:c](%%edx)

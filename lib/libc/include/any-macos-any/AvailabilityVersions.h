@@ -80,14 +80,21 @@
 #define __MAC_13_4                                      130400
 #define __MAC_13_5                                      130500
 #define __MAC_13_6                                      130600
+#define __MAC_13_7                                      130700
 #define __MAC_14_0                                      140000
 #define __MAC_14_1                                      140100
 #define __MAC_14_2                                      140200
 #define __MAC_14_3                                      140300
 #define __MAC_14_4                                      140400
 #define __MAC_14_5                                      140500
+#define __MAC_14_6                                      140600
+#define __MAC_14_7                                      140700
 #define __MAC_15_0                                      150000
 #define __MAC_15_1                                      150100
+#define __MAC_15_2                                      150200
+#define __MAC_15_3                                      150300
+#define __MAC_15_4                                      150400
+#define __MAC_15_5                                      150500
 /* __MAC__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 #define __IPHONE_2_0                                     20000
@@ -170,8 +177,14 @@
 #define __IPHONE_17_3                                   170300
 #define __IPHONE_17_4                                   170400
 #define __IPHONE_17_5                                   170500
+#define __IPHONE_17_6                                   170600
+#define __IPHONE_17_7                                   170700
 #define __IPHONE_18_0                                   180000
 #define __IPHONE_18_1                                   180100
+#define __IPHONE_18_2                                   180200
+#define __IPHONE_18_3                                   180300
+#define __IPHONE_18_4                                   180400
+#define __IPHONE_18_5                                   180500
 /* __IPHONE__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 #define __WATCHOS_1_0                                    10000
@@ -221,8 +234,14 @@
 #define __WATCHOS_10_3                                  100300
 #define __WATCHOS_10_4                                  100400
 #define __WATCHOS_10_5                                  100500
+#define __WATCHOS_10_6                                  100600
+#define __WATCHOS_10_7                                  100700
 #define __WATCHOS_11_0                                  110000
 #define __WATCHOS_11_1                                  110100
+#define __WATCHOS_11_2                                  110200
+#define __WATCHOS_11_3                                  110300
+#define __WATCHOS_11_4                                  110400
+#define __WATCHOS_11_5                                  110500
 /* __WATCHOS__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 #define __TVOS_9_0                                       90000
@@ -273,8 +292,13 @@
 #define __TVOS_17_3                                     170300
 #define __TVOS_17_4                                     170400
 #define __TVOS_17_5                                     170500
+#define __TVOS_17_6                                     170600
 #define __TVOS_18_0                                     180000
 #define __TVOS_18_1                                     180100
+#define __TVOS_18_2                                     180200
+#define __TVOS_18_3                                     180300
+#define __TVOS_18_4                                     180400
+#define __TVOS_18_5                                     180500
 /* __TVOS__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 #define __BRIDGEOS_2_0                                   20000
@@ -304,8 +328,13 @@
 #define __BRIDGEOS_8_3                                   80300
 #define __BRIDGEOS_8_4                                   80400
 #define __BRIDGEOS_8_5                                   80500
+#define __BRIDGEOS_8_6                                   80600
 #define __BRIDGEOS_9_0                                   90000
 #define __BRIDGEOS_9_1                                   90100
+#define __BRIDGEOS_9_2                                   90200
+#define __BRIDGEOS_9_3                                   90300
+#define __BRIDGEOS_9_4                                   90400
+#define __BRIDGEOS_9_5                                   90500
 
 
 #define __DRIVERKIT_19_0                                190000
@@ -321,18 +350,30 @@
 #define __DRIVERKIT_23_3                                230300
 #define __DRIVERKIT_23_4                                230400
 #define __DRIVERKIT_23_5                                230500
+#define __DRIVERKIT_23_6                                230600
 #define __DRIVERKIT_24_0                                240000
 #define __DRIVERKIT_24_1                                240100
+#define __DRIVERKIT_24_2                                240200
+#define __DRIVERKIT_24_3                                240300
+#define __DRIVERKIT_24_4                                240400
+#define __DRIVERKIT_24_5                                240500
 /* __DRIVERKIT__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 #define __VISIONOS_1_0                                   10000
 #define __VISIONOS_1_1                                   10100
 #define __VISIONOS_1_2                                   10200
+#define __VISIONOS_1_3                                   10300
 #define __VISIONOS_2_0                                   20000
 #define __VISIONOS_2_1                                   20100
+#define __VISIONOS_2_2                                   20200
+#define __VISIONOS_2_3                                   20300
+#define __VISIONOS_2_4                                   20400
+#define __VISIONOS_2_5                                   20500
 /* __VISIONOS__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 
+
+/* __KERNELKIT__NA is not defined to a value but is used as a token by macros to indicate that the API is unavailable */
 
 
 #ifndef __OPEN_SOURCE__
@@ -401,16 +442,33 @@
 #define  MAC_OS_VERSION_13_4                             __MAC_13_4
 #define  MAC_OS_VERSION_13_5                             __MAC_13_5
 #define  MAC_OS_VERSION_13_6                             __MAC_13_6
+#define  MAC_OS_VERSION_13_7                             __MAC_13_7
 #define  MAC_OS_VERSION_14_0                             __MAC_14_0
 #define  MAC_OS_VERSION_14_1                             __MAC_14_1
 #define  MAC_OS_VERSION_14_2                             __MAC_14_2
 #define  MAC_OS_VERSION_14_3                             __MAC_14_3
 #define  MAC_OS_VERSION_14_4                             __MAC_14_4
 #define  MAC_OS_VERSION_14_5                             __MAC_14_5
+#define  MAC_OS_VERSION_14_6                             __MAC_14_6
+#define  MAC_OS_VERSION_14_7                             __MAC_14_7
 #define  MAC_OS_VERSION_15_0                             __MAC_15_0
 #define  MAC_OS_VERSION_15_1                             __MAC_15_1
+#define  MAC_OS_VERSION_15_2                             __MAC_15_2
+#define  MAC_OS_VERSION_15_3                             __MAC_15_3
+#define  MAC_OS_VERSION_15_4                             __MAC_15_4
+#define  MAC_OS_VERSION_15_5                             __MAC_15_5
 
 #endif /* #if (!defined(_POSIX_C_SOURCE) && !defined(_XOPEN_SOURCE)) || defined(_DARWIN_C_SOURCE) */
 
 #endif /* __AVAILABILITY_VERSIONS__ */
 
+#ifndef __OPEN_SOURCE__
+// This is explicitly outside the header guard
+#ifndef __AVAILABILITY_VERSIONS_VERSION_HASH
+#define __AVAILABILITY_VERSIONS_VERSION_HASH 93585900U
+#define __AVAILABILITY_VERSIONS_VERSION_STRING "Local"
+#define __AVAILABILITY_FILE "AvailabilityVersions.h"
+#elif __AVAILABILITY_VERSIONS_VERSION_HASH != 93585900U
+#pragma GCC error "Already found AvailabilityVersions version " __AVAILABILITY_FILE " from " __AVAILABILITY_VERSIONS_VERSION_STRING ", which is incompatible with AvailabilityVersions.h from Local. Mixing and matching Availability from different SDKs is not supported"
+#endif /* __AVAILABILITY_VERSIONS_VERSION_HASH */
+#endif /* __OPEN_SOURCE__ */

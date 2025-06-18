@@ -10,7 +10,6 @@ const mode_t = std.c.mode_t;
 const off_t = std.c.off_t;
 const pid_t = std.c.pid_t;
 const pthread_attr_t = std.c.pthread_attr_t;
-const sigset_t = std.c.sigset_t;
 const timespec = std.c.timespec;
 const sf_hdtr = std.c.sf_hdtr;
 
@@ -840,9 +839,11 @@ pub extern "c" fn sendfile(
     flags: u32,
 ) c_int;
 
-pub fn sigaddset(set: *sigset_t, signo: u5) void {
-    set.* |= @as(u32, 1) << (signo - 1);
-}
+// https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/_types.h#L74
+pub const sigset_t = u32;
+
+// https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/signal.h#L76
+pub const NSIG = 32;
 
 pub const qos_class_t = enum(c_uint) {
     /// highest priority QOS class for critical tasks
@@ -979,7 +980,7 @@ pub const kevent64_s = extern struct {
 // to make sure the struct is laid out the same. These values were
 // produced from C code using the offsetof macro.
 comptime {
-    if (builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         assert(@offsetOf(kevent64_s, "ident") == 0);
         assert(@offsetOf(kevent64_s, "filter") == 8);
         assert(@offsetOf(kevent64_s, "flags") == 10);
@@ -1165,6 +1166,8 @@ pub const CPUFAMILY = enum(u32) {
     ARM_PALMA = 0x72015832,
     ARM_DONAN = 0x6f5129ac,
     ARM_BRAVA = 0x17d5b93a,
+    ARM_TAHITI = 0x75d4acb9,
+    ARM_TUPAI = 0x204526d0,
     _,
 };
 

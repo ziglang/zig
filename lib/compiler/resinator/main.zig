@@ -7,7 +7,10 @@ const Diagnostics = @import("errors.zig").Diagnostics;
 const cli = @import("cli.zig");
 const preprocess = @import("preprocess.zig");
 const renderErrorMessage = @import("utils.zig").renderErrorMessage;
+const openFileNotDir = @import("utils.zig").openFileNotDir;
+const cvtres = @import("cvtres.zig");
 const hasDisjointCodePage = @import("disjoint_code_page.zig").hasDisjointCodePage;
+const fmtResourceType = @import("res.zig").NameOrOrdinal.fmtResourceType;
 const aro = @import("aro");
 
 pub fn main() !void {
@@ -78,7 +81,8 @@ pub fn main() !void {
     defer options.deinit();
 
     if (options.print_help_and_exit) {
-        try cli.writeUsage(stderr.writer(), "zig rc");
+        const stdout = std.io.getStdOut();
+        try cli.writeUsage(stdout.writer(), "zig rc");
         return;
     }
 
@@ -135,7 +139,10 @@ pub fn main() !void {
 
             try argv.append("arocc"); // dummy command name
             try preprocess.appendAroArgs(aro_arena, &argv, options, include_paths);
-            try argv.append(options.input_filename);
+            try argv.append(switch (options.input_source) {
+                .stdio => "-",
+                .filename => |filename| filename,
+            });
 
             if (options.verbose) {
                 try stdout_writer.writeAll("Preprocessor: arocc (built-in)\n");
@@ -164,120 +171,332 @@ pub fn main() !void {
 
             break :full_input try preprocessed_buf.toOwnedSlice();
         } else {
-            break :full_input std.fs.cwd().readFileAlloc(allocator, options.input_filename, std.math.maxInt(usize)) catch |err| {
-                try error_handler.emitMessage(allocator, .err, "unable to read input file path '{s}': {s}", .{ options.input_filename, @errorName(err) });
-                std.process.exit(1);
-            };
+            switch (options.input_source) {
+                .stdio => |file| {
+                    break :full_input file.readToEndAlloc(allocator, std.math.maxInt(usize)) catch |err| {
+                        try error_handler.emitMessage(allocator, .err, "unable to read input from stdin: {s}", .{@errorName(err)});
+                        std.process.exit(1);
+                    };
+                },
+                .filename => |input_filename| {
+                    break :full_input std.fs.cwd().readFileAlloc(allocator, input_filename, std.math.maxInt(usize)) catch |err| {
+                        try error_handler.emitMessage(allocator, .err, "unable to read input file path '{s}': {s}", .{ input_filename, @errorName(err) });
+                        std.process.exit(1);
+                    };
+                },
+            }
         }
     };
     defer allocator.free(full_input);
 
     if (options.preprocess == .only) {
-        try std.fs.cwd().writeFile(.{ .sub_path = options.output_filename, .data = full_input });
+        switch (options.output_source) {
+            .stdio => |output_file| {
+                try output_file.writeAll(full_input);
+            },
+            .filename => |output_filename| {
+                try std.fs.cwd().writeFile(.{ .sub_path = output_filename, .data = full_input });
+            },
+        }
         return;
     }
 
-    // Note: We still want to run this when no-preprocess is set because:
-    //   1. We want to print accurate line numbers after removing multiline comments
-    //   2. We want to be able to handle an already-preprocessed input with #line commands in it
-    var mapping_results = parseAndRemoveLineCommands(allocator, full_input, full_input, .{ .initial_filename = options.input_filename }) catch |err| switch (err) {
-        error.InvalidLineCommand => {
-            // TODO: Maybe output the invalid line command
-            try error_handler.emitMessage(allocator, .err, "invalid line command in the preprocessed source", .{});
-            if (options.preprocess == .no) {
-                try error_handler.emitMessage(allocator, .note, "line commands must be of the format: #line <num> \"<path>\"", .{});
-            } else {
-                try error_handler.emitMessage(allocator, .note, "this is likely to be a bug, please report it", .{});
+    var resources = resources: {
+        const need_intermediate_res = options.output_format == .coff and options.input_format != .res;
+        var res_stream = if (need_intermediate_res)
+            IoStream{
+                .name = "<in-memory intermediate res>",
+                .intermediate = true,
+                .source = .{ .memory = .empty },
             }
-            std.process.exit(1);
-        },
-        error.LineNumberOverflow => {
-            // TODO: Better error message
-            try error_handler.emitMessage(allocator, .err, "line number count exceeded maximum of {}", .{std.math.maxInt(usize)});
-            std.process.exit(1);
-        },
-        error.OutOfMemory => |e| return e,
-    };
-    defer mapping_results.mappings.deinit(allocator);
+        else if (options.input_format == .res)
+            IoStream.fromIoSource(options.input_source, .input) catch |err| {
+                try error_handler.emitMessage(allocator, .err, "unable to read res file path '{s}': {s}", .{ options.input_source.filename, @errorName(err) });
+                std.process.exit(1);
+            }
+        else
+            IoStream.fromIoSource(options.output_source, .output) catch |err| {
+                try error_handler.emitMessage(allocator, .err, "unable to create output file '{s}': {s}", .{ options.output_source.filename, @errorName(err) });
+                std.process.exit(1);
+            };
+        defer res_stream.deinit(allocator);
 
-    const default_code_page = options.default_code_page orelse .windows1252;
-    const has_disjoint_code_page = hasDisjointCodePage(mapping_results.result, &mapping_results.mappings, default_code_page);
+        const res_data = res_data: {
+            if (options.input_format != .res) {
+                // Note: We still want to run this when no-preprocess is set because:
+                //   1. We want to print accurate line numbers after removing multiline comments
+                //   2. We want to be able to handle an already-preprocessed input with #line commands in it
+                var mapping_results = parseAndRemoveLineCommands(allocator, full_input, full_input, .{ .initial_filename = options.input_source.filename }) catch |err| switch (err) {
+                    error.InvalidLineCommand => {
+                        // TODO: Maybe output the invalid line command
+                        try error_handler.emitMessage(allocator, .err, "invalid line command in the preprocessed source", .{});
+                        if (options.preprocess == .no) {
+                            try error_handler.emitMessage(allocator, .note, "line commands must be of the format: #line <num> \"<path>\"", .{});
+                        } else {
+                            try error_handler.emitMessage(allocator, .note, "this is likely to be a bug, please report it", .{});
+                        }
+                        std.process.exit(1);
+                    },
+                    error.LineNumberOverflow => {
+                        // TODO: Better error message
+                        try error_handler.emitMessage(allocator, .err, "line number count exceeded maximum of {}", .{std.math.maxInt(usize)});
+                        std.process.exit(1);
+                    },
+                    error.OutOfMemory => |e| return e,
+                };
+                defer mapping_results.mappings.deinit(allocator);
 
-    const final_input = try removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
+                const default_code_page = options.default_code_page orelse .windows1252;
+                const has_disjoint_code_page = hasDisjointCodePage(mapping_results.result, &mapping_results.mappings, default_code_page);
 
-    var output_file = std.fs.cwd().createFile(options.output_filename, .{}) catch |err| {
-        try error_handler.emitMessage(allocator, .err, "unable to create output file '{s}': {s}", .{ options.output_filename, @errorName(err) });
-        std.process.exit(1);
-    };
-    var output_file_closed = false;
-    defer if (!output_file_closed) output_file.close();
+                const final_input = try removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
 
-    var diagnostics = Diagnostics.init(allocator);
-    defer diagnostics.deinit();
+                var diagnostics = Diagnostics.init(allocator);
+                defer diagnostics.deinit();
 
-    var output_buffered_stream = std.io.bufferedWriter(output_file.writer());
+                const res_stream_writer = res_stream.source.writer(allocator);
+                var output_buffered_stream = std.io.bufferedWriter(res_stream_writer);
 
-    compile(allocator, final_input, output_buffered_stream.writer(), .{
-        .cwd = std.fs.cwd(),
-        .diagnostics = &diagnostics,
-        .source_mappings = &mapping_results.mappings,
-        .dependencies_list = maybe_dependencies_list,
-        .ignore_include_env_var = options.ignore_include_env_var,
-        .extra_include_paths = options.extra_include_paths.items,
-        .system_include_paths = include_paths,
-        .default_language_id = options.default_language_id,
-        .default_code_page = default_code_page,
-        .disjoint_code_page = has_disjoint_code_page,
-        .verbose = options.verbose,
-        .null_terminate_string_table_strings = options.null_terminate_string_table_strings,
-        .max_string_literal_codepoints = options.max_string_literal_codepoints,
-        .silent_duplicate_control_ids = options.silent_duplicate_control_ids,
-        .warn_instead_of_error_on_invalid_code_page = options.warn_instead_of_error_on_invalid_code_page,
-    }) catch |err| switch (err) {
-        error.ParseError, error.CompileError => {
-            try error_handler.emitDiagnostics(allocator, std.fs.cwd(), final_input, &diagnostics, mapping_results.mappings);
-            // Delete the output file on error
-            output_file.close();
-            output_file_closed = true;
-            // Failing to delete is not really a big deal, so swallow any errors
-            std.fs.cwd().deleteFile(options.output_filename) catch {};
-            std.process.exit(1);
-        },
-        else => |e| return e,
-    };
+                compile(allocator, final_input, output_buffered_stream.writer(), .{
+                    .cwd = std.fs.cwd(),
+                    .diagnostics = &diagnostics,
+                    .source_mappings = &mapping_results.mappings,
+                    .dependencies_list = maybe_dependencies_list,
+                    .ignore_include_env_var = options.ignore_include_env_var,
+                    .extra_include_paths = options.extra_include_paths.items,
+                    .system_include_paths = include_paths,
+                    .default_language_id = options.default_language_id,
+                    .default_code_page = default_code_page,
+                    .disjoint_code_page = has_disjoint_code_page,
+                    .verbose = options.verbose,
+                    .null_terminate_string_table_strings = options.null_terminate_string_table_strings,
+                    .max_string_literal_codepoints = options.max_string_literal_codepoints,
+                    .silent_duplicate_control_ids = options.silent_duplicate_control_ids,
+                    .warn_instead_of_error_on_invalid_code_page = options.warn_instead_of_error_on_invalid_code_page,
+                }) catch |err| switch (err) {
+                    error.ParseError, error.CompileError => {
+                        try error_handler.emitDiagnostics(allocator, std.fs.cwd(), final_input, &diagnostics, mapping_results.mappings);
+                        // Delete the output file on error
+                        res_stream.cleanupAfterError();
+                        std.process.exit(1);
+                    },
+                    else => |e| return e,
+                };
 
-    try output_buffered_stream.flush();
+                try output_buffered_stream.flush();
 
-    // print any warnings/notes
-    if (!zig_integration) {
-        diagnostics.renderToStdErr(std.fs.cwd(), final_input, stderr_config, mapping_results.mappings);
-    }
+                // print any warnings/notes
+                if (!zig_integration) {
+                    diagnostics.renderToStdErr(std.fs.cwd(), final_input, stderr_config, mapping_results.mappings);
+                }
 
-    // write the depfile
-    if (options.depfile_path) |depfile_path| {
-        var depfile = std.fs.cwd().createFile(depfile_path, .{}) catch |err| {
-            try error_handler.emitMessage(allocator, .err, "unable to create depfile '{s}': {s}", .{ depfile_path, @errorName(err) });
+                // write the depfile
+                if (options.depfile_path) |depfile_path| {
+                    var depfile = std.fs.cwd().createFile(depfile_path, .{}) catch |err| {
+                        try error_handler.emitMessage(allocator, .err, "unable to create depfile '{s}': {s}", .{ depfile_path, @errorName(err) });
+                        std.process.exit(1);
+                    };
+                    defer depfile.close();
+
+                    const depfile_writer = depfile.writer();
+                    var depfile_buffered_writer = std.io.bufferedWriter(depfile_writer);
+                    switch (options.depfile_fmt) {
+                        .json => {
+                            var write_stream = std.json.writeStream(depfile_buffered_writer.writer(), .{ .whitespace = .indent_2 });
+                            defer write_stream.deinit();
+
+                            try write_stream.beginArray();
+                            for (dependencies_list.items) |dep_path| {
+                                try write_stream.write(dep_path);
+                            }
+                            try write_stream.endArray();
+                        },
+                    }
+                    try depfile_buffered_writer.flush();
+                }
+            }
+
+            if (options.output_format != .coff) return;
+
+            break :res_data res_stream.source.readAll(allocator) catch |err| {
+                try error_handler.emitMessage(allocator, .err, "unable to read res from '{s}': {s}", .{ res_stream.name, @errorName(err) });
+                std.process.exit(1);
+            };
+        };
+        // No need to keep the res_data around after parsing the resources from it
+        defer res_data.deinit(allocator);
+
+        std.debug.assert(options.output_format == .coff);
+
+        // TODO: Maybe use a buffered file reader instead of reading file into memory -> fbs
+        var fbs = std.io.fixedBufferStream(res_data.bytes);
+        break :resources cvtres.parseRes(allocator, fbs.reader(), .{ .max_size = res_data.bytes.len }) catch |err| {
+            // TODO: Better errors
+            try error_handler.emitMessage(allocator, .err, "unable to parse res from '{s}': {s}", .{ res_stream.name, @errorName(err) });
             std.process.exit(1);
         };
-        defer depfile.close();
+    };
+    defer resources.deinit();
 
-        const depfile_writer = depfile.writer();
-        var depfile_buffered_writer = std.io.bufferedWriter(depfile_writer);
-        switch (options.depfile_fmt) {
-            .json => {
-                var write_stream = std.json.writeStream(depfile_buffered_writer.writer(), .{ .whitespace = .indent_2 });
-                defer write_stream.deinit();
+    var coff_stream = IoStream.fromIoSource(options.output_source, .output) catch |err| {
+        try error_handler.emitMessage(allocator, .err, "unable to create output file '{s}': {s}", .{ options.output_source.filename, @errorName(err) });
+        std.process.exit(1);
+    };
+    defer coff_stream.deinit(allocator);
 
-                try write_stream.beginArray();
-                for (dependencies_list.items) |dep_path| {
-                    try write_stream.write(dep_path);
-                }
-                try write_stream.endArray();
+    var coff_output_buffered_stream = std.io.bufferedWriter(coff_stream.source.writer(allocator));
+
+    var cvtres_diagnostics: cvtres.Diagnostics = .{ .none = {} };
+    cvtres.writeCoff(allocator, coff_output_buffered_stream.writer(), resources.list.items, options.coff_options, &cvtres_diagnostics) catch |err| {
+        switch (err) {
+            error.DuplicateResource => {
+                const duplicate_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
+                try error_handler.emitMessage(allocator, .err, "duplicate resource [id: {}, type: {}, language: {}]", .{
+                    duplicate_resource.name_value,
+                    fmtResourceType(duplicate_resource.type_value),
+                    duplicate_resource.language,
+                });
+            },
+            error.ResourceDataTooLong => {
+                const overflow_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
+                try error_handler.emitMessage(allocator, .err, "resource has a data length that is too large to be written into a coff section", .{});
+                try error_handler.emitMessage(allocator, .note, "the resource with the invalid size is [id: {}, type: {}, language: {}]", .{
+                    overflow_resource.name_value,
+                    fmtResourceType(overflow_resource.type_value),
+                    overflow_resource.language,
+                });
+            },
+            error.TotalResourceDataTooLong => {
+                const overflow_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
+                try error_handler.emitMessage(allocator, .err, "total resource data exceeds the maximum of the coff 'size of raw data' field", .{});
+                try error_handler.emitMessage(allocator, .note, "size overflow occurred when attempting to write this resource: [id: {}, type: {}, language: {}]", .{
+                    overflow_resource.name_value,
+                    fmtResourceType(overflow_resource.type_value),
+                    overflow_resource.language,
+                });
+            },
+            else => {
+                try error_handler.emitMessage(allocator, .err, "unable to write coff output file '{s}': {s}", .{ coff_stream.name, @errorName(err) });
             },
         }
-        try depfile_buffered_writer.flush();
-    }
+        // Delete the output file on error
+        coff_stream.cleanupAfterError();
+        std.process.exit(1);
+    };
+
+    try coff_output_buffered_stream.flush();
 }
+
+const IoStream = struct {
+    name: []const u8,
+    intermediate: bool,
+    source: Source,
+
+    pub const IoDirection = enum { input, output };
+
+    pub fn fromIoSource(source: cli.Options.IoSource, io: IoDirection) !IoStream {
+        return .{
+            .name = switch (source) {
+                .filename => |filename| filename,
+                .stdio => switch (io) {
+                    .input => "<stdin>",
+                    .output => "<stdout>",
+                },
+            },
+            .intermediate = false,
+            .source = try Source.fromIoSource(source, io),
+        };
+    }
+
+    pub fn deinit(self: *IoStream, allocator: std.mem.Allocator) void {
+        self.source.deinit(allocator);
+    }
+
+    pub fn cleanupAfterError(self: *IoStream) void {
+        switch (self.source) {
+            .file => |file| {
+                // Delete the output file on error
+                file.close();
+                // Failing to delete is not really a big deal, so swallow any errors
+                std.fs.cwd().deleteFile(self.name) catch {};
+            },
+            .stdio, .memory, .closed => return,
+        }
+    }
+
+    pub const Source = union(enum) {
+        file: std.fs.File,
+        stdio: std.fs.File,
+        memory: std.ArrayListUnmanaged(u8),
+        /// The source has been closed and any usage of the Source in this state is illegal (except deinit).
+        closed: void,
+
+        pub fn fromIoSource(source: cli.Options.IoSource, io: IoDirection) !Source {
+            switch (source) {
+                .filename => |filename| return .{
+                    .file = switch (io) {
+                        .input => try openFileNotDir(std.fs.cwd(), filename, .{}),
+                        .output => try std.fs.cwd().createFile(filename, .{}),
+                    },
+                },
+                .stdio => |file| return .{ .stdio = file },
+            }
+        }
+
+        pub fn deinit(self: *Source, allocator: std.mem.Allocator) void {
+            switch (self.*) {
+                .file => |file| file.close(),
+                .stdio => {},
+                .memory => |*list| list.deinit(allocator),
+                .closed => {},
+            }
+        }
+
+        pub const Data = struct {
+            bytes: []const u8,
+            needs_free: bool,
+
+            pub fn deinit(self: Data, allocator: std.mem.Allocator) void {
+                if (self.needs_free) {
+                    allocator.free(self.bytes);
+                }
+            }
+        };
+
+        pub fn readAll(self: Source, allocator: std.mem.Allocator) !Data {
+            return switch (self) {
+                inline .file, .stdio => |file| .{
+                    .bytes = try file.readToEndAlloc(allocator, std.math.maxInt(usize)),
+                    .needs_free = true,
+                },
+                .memory => |list| .{ .bytes = list.items, .needs_free = false },
+                .closed => unreachable,
+            };
+        }
+
+        pub const WriterContext = struct {
+            self: *Source,
+            allocator: std.mem.Allocator,
+        };
+        pub const WriteError = std.mem.Allocator.Error || std.fs.File.WriteError;
+        pub const Writer = std.io.Writer(WriterContext, WriteError, write);
+
+        pub fn write(ctx: WriterContext, bytes: []const u8) WriteError!usize {
+            switch (ctx.self.*) {
+                inline .file, .stdio => |file| return file.write(bytes),
+                .memory => |*list| {
+                    try list.appendSlice(ctx.allocator, bytes);
+                    return bytes.len;
+                },
+                .closed => unreachable,
+            }
+        }
+
+        pub fn writer(self: *Source, allocator: std.mem.Allocator) Writer {
+            return .{ .context = .{ .self = self, .allocator = allocator } };
+        }
+    };
+};
 
 fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.AutoIncludes, zig_lib_dir: []const u8) ![]const []const u8 {
     var includes = auto_includes_option;

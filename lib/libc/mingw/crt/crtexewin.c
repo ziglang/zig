@@ -56,7 +56,6 @@ int _tmain (int      __UNUSED_PARAM(argc),
 
   {
     STARTUPINFO StartupInfo;
-    memset (&StartupInfo, 0, sizeof (STARTUPINFO));
     GetStartupInfo (&StartupInfo);
     if (StartupInfo.dwFlags & STARTF_USESHOWWINDOW)
       nShowCmd = StartupInfo.wShowWindow;

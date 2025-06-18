@@ -402,7 +402,7 @@ pub const ExceptionFrameHeader = struct {
             }
         }
 
-        if (len == 0) return bad();
+        if (len == 0) return missing();
         fbr.pos = left * entry_size;
 
         // Read past the pc_begin field of the entry
@@ -460,6 +460,8 @@ pub const ExceptionFrameHeader = struct {
             @sizeOf(usize),
             native_endian,
         );
+
+        if (pc < fde.pc_begin or pc >= fde.pc_begin + fde.pc_range) return missing();
     }
 };
 
@@ -2434,14 +2436,17 @@ pub const ElfModule = struct {
         const end_pos = elf_file.getEndPos() catch return bad();
         const file_len = cast(usize, end_pos) orelse return error.Overflow;
 
-        const mapped_mem = try std.posix.mmap(
+        const mapped_mem = std.posix.mmap(
             null,
             file_len,
             std.posix.PROT.READ,
             .{ .TYPE = .SHARED },
             elf_file.handle,
             0,
-        );
+        ) catch |err| switch (err) {
+            error.MappingAlreadyExists => unreachable,
+            else => |e| return e,
+        };
         errdefer std.posix.munmap(mapped_mem);
 
         return load(

@@ -66,7 +66,7 @@ extern double __QNAN;
 #endif
 
 /*long double*/
-#if defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
 #define MAXNUML	1.7976931348623158E308
 #define MAXLOGL	7.09782712893383996843E2
 #define MINLOGL	-7.08396418532264106224E2
@@ -84,7 +84,7 @@ extern double __QNAN;
 #define PIL	3.1415926535897932384626L
 #define PIO2L	1.5707963267948966192313L
 #define PIO4L	7.8539816339744830961566E-1L
-#endif /* defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_) */
+#endif /* __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__ */
 
 #define isfinitel isfinite
 #define isinfl isinf

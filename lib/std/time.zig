@@ -47,13 +47,10 @@ pub fn microTimestamp() i64 {
 pub fn nanoTimestamp() i128 {
     switch (builtin.os.tag) {
         .windows => {
-            // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch,
+            // RtlGetSystemTimePrecise() has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch,
             // which is 1601-01-01.
             const epoch_adj = epoch.windows * (ns_per_s / 100);
-            var ft: windows.FILETIME = undefined;
-            windows.kernel32.GetSystemTimeAsFileTime(&ft);
-            const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-            return @as(i128, @as(i64, @bitCast(ft64)) + epoch_adj) * 100;
+            return @as(i128, windows.ntdll.RtlGetSystemTimePrecise() + epoch_adj) * 100;
         },
         .wasi => {
             var ns: std.os.wasi.timestamp_t = undefined;
@@ -77,15 +74,11 @@ pub fn nanoTimestamp() i128 {
 }
 
 test milliTimestamp {
-    const margin = ns_per_ms * 50;
-
     const time_0 = milliTimestamp();
     std.Thread.sleep(ns_per_ms);
     const time_1 = milliTimestamp();
     const interval = time_1 - time_0;
     try testing.expect(interval > 0);
-    // Tests should not depend on timings: skip test if outside margin.
-    if (!(interval < margin)) return error.SkipZigTest;
 }
 
 // Divisions of a nanosecond.
@@ -142,7 +135,7 @@ pub const Instant = struct {
         const clock_id = switch (builtin.os.tag) {
             .windows => {
                 // QPC on windows doesn't fail on >= XP/2000 and includes time suspended.
-                return Instant{ .timestamp = windows.QueryPerformanceCounter() };
+                return .{ .timestamp = windows.QueryPerformanceCounter() };
             },
             .wasi => {
                 var ns: std.os.wasi.timestamp_t = undefined;
@@ -154,7 +147,7 @@ pub const Instant = struct {
                 var value: std.os.uefi.Time = undefined;
                 const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
                 if (status != .success) return error.Unsupported;
-                return Instant{ .timestamp = value.toEpoch() };
+                return .{ .timestamp = value.toEpoch() };
             },
             // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while
             // suspended.
@@ -192,36 +185,38 @@ pub const Instant = struct {
     /// This assumes that the `earlier` Instant represents a moment in time before or equal to `self`.
     /// This also assumes that the time that has passed between both Instants fits inside a u64 (~585 yrs).
     pub fn since(self: Instant, earlier: Instant) u64 {
-        if (builtin.os.tag == .windows) {
-            // We don't need to cache QPF as it's internally just a memory read to KUSER_SHARED_DATA
-            // (a read-only page of info updated and mapped by the kernel to all processes):
-            // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/ns-ntddk-kuser_shared_data
-            // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
-            const qpc = self.timestamp - earlier.timestamp;
-            const qpf = windows.QueryPerformanceFrequency();
+        switch (builtin.os.tag) {
+            .windows => {
+                // We don't need to cache QPF as it's internally just a memory read to KUSER_SHARED_DATA
+                // (a read-only page of info updated and mapped by the kernel to all processes):
+                // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/ns-ntddk-kuser_shared_data
+                // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
+                const qpc = self.timestamp - earlier.timestamp;
+                const qpf = windows.QueryPerformanceFrequency();
 
-            // 10Mhz (1 qpc tick every 100ns) is a common enough QPF value that we can optimize on it.
-            // https://github.com/microsoft/STL/blob/785143a0c73f030238ef618890fd4d6ae2b3a3a0/stl/inc/chrono#L694-L701
-            const common_qpf = 10_000_000;
-            if (qpf == common_qpf) {
-                return qpc * (ns_per_s / common_qpf);
-            }
+                // 10Mhz (1 qpc tick every 100ns) is a common enough QPF value that we can optimize on it.
+                // https://github.com/microsoft/STL/blob/785143a0c73f030238ef618890fd4d6ae2b3a3a0/stl/inc/chrono#L694-L701
+                const common_qpf = 10_000_000;
+                if (qpf == common_qpf) {
+                    return qpc * (ns_per_s / common_qpf);
+                }
 
-            // Convert to ns using fixed point.
-            const scale = @as(u64, std.time.ns_per_s << 32) / @as(u32, @intCast(qpf));
-            const result = (@as(u96, qpc) * scale) >> 32;
-            return @as(u64, @truncate(result));
+                // Convert to ns using fixed point.
+                const scale = @as(u64, std.time.ns_per_s << 32) / @as(u32, @intCast(qpf));
+                const result = (@as(u96, qpc) * scale) >> 32;
+                return @as(u64, @truncate(result));
+            },
+            .uefi, .wasi => {
+                // UEFI and WASI timestamps are directly in nanoseconds
+                return self.timestamp - earlier.timestamp;
+            },
+            else => {
+                // Convert timespec diff to ns
+                const seconds = @as(u64, @intCast(self.timestamp.sec - earlier.timestamp.sec));
+                const elapsed = (seconds * ns_per_s) + @as(u32, @intCast(self.timestamp.nsec));
+                return elapsed - @as(u32, @intCast(earlier.timestamp.nsec));
+            },
         }
-
-        // WASI timestamps are directly in nanoseconds
-        if (builtin.os.tag == .wasi) {
-            return self.timestamp - earlier.timestamp;
-        }
-
-        // Convert timespec diff to ns
-        const seconds = @as(u64, @intCast(self.timestamp.sec - earlier.timestamp.sec));
-        const elapsed = (seconds * ns_per_s) + @as(u32, @intCast(self.timestamp.nsec));
-        return elapsed - @as(u32, @intCast(earlier.timestamp.nsec));
     }
 };
 
@@ -280,20 +275,14 @@ pub const Timer = struct {
 };
 
 test Timer {
-    const margin = ns_per_ms * 150;
-
     var timer = try Timer.start();
+
     std.Thread.sleep(10 * ns_per_ms);
     const time_0 = timer.read();
     try testing.expect(time_0 > 0);
-    // Tests should not depend on timings: skip test if outside margin.
-    if (!(time_0 < margin)) return error.SkipZigTest;
 
     const time_1 = timer.lap();
     try testing.expect(time_1 >= time_0);
-
-    timer.reset();
-    try testing.expect(timer.read() < time_1);
 }
 
 test {

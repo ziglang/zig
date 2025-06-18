@@ -147,7 +147,7 @@ typedef interface IRpcStubBuffer IRpcStubBuffer;
 typedef interface IRpcChannelBuffer IRpcChannelBuffer;
 
 typedef enum tagCOINITBASE {
-  COINITBASE_MULTITHREADED = 0x0,
+  COINITBASE_MULTITHREADED = 0x0
 } COINITBASE;
 
 #include <wtypesbase.h>
@@ -352,6 +352,17 @@ typedef enum CWMO_FLAGS {
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
 WINOLEAPI CoGetTreatAsClass (REFCLSID clsidOld, LPCLSID pClsidNew);
 WINOLEAPI CoInvalidateRemoteMachineBindings (LPOLESTR pszMachineName);
+#endif
+
+#if (NTDDI_VERSION >= NTDDI_WINBLUE)
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_APP)
+enum AgileReferenceOptions {
+  AGILEREFERENCE_DEFAULT = 0,
+  AGILEREFERENCE_DELAYEDMARSHAL = 1
+};
+
+WINOLEAPI RoGetAgileReference(enum AgileReferenceOptions options, REFIID riid, IUnknown *pUnk, IAgileReference **ppAgileReference);
+#endif
 #endif
 
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)

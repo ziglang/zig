@@ -18,22 +18,13 @@ comptime {
     }
 }
 
-const Element = Element: {
-    if (std.simd.suggestVectorLength(u8)) |vec_size| {
-        const Vec = @Vector(vec_size, u8);
-
-        if (@sizeOf(Vec) == vec_size and std.math.isPowerOfTwo(vec_size)) {
-            break :Element Vec;
-        }
-    }
-    break :Element usize;
-};
+const Element = common.PreferredLoadStoreElement;
 
 comptime {
     assert(std.math.isPowerOfTwo(@sizeOf(Element)));
 }
 
-fn memcpySmall(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
+fn memcpySmall(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.c) ?[*]u8 {
     @setRuntimeSafety(false);
 
     for (0..len) |i| {
@@ -43,7 +34,7 @@ fn memcpySmall(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) call
     return dest;
 }
 
-fn memcpyFast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
+fn memcpyFast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.c) ?[*]u8 {
     @setRuntimeSafety(false);
 
     const small_limit = 2 * @sizeOf(Element);

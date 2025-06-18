@@ -26,7 +26,7 @@ os_version_min: ?OsVersion = null,
 os_version_max: ?OsVersion = null,
 
 /// `null` means default when cross compiling, or native when `os_tag` is native.
-/// If `isGnuLibC()` is `false`, this must be `null` and is ignored.
+/// If `isGnu()` is `false`, this must be `null` and is ignored.
 glibc_version: ?SemanticVersion = null,
 
 /// `null` means default when cross compiling, or native when `os_tag` is native.
@@ -102,7 +102,7 @@ pub fn fromTarget(target: Target) Query {
         .os_version_min = undefined,
         .os_version_max = undefined,
         .abi = target.abi,
-        .glibc_version = target.os.versionRange().gnuLibCVersion(),
+        .glibc_version = if (target.abi.isGnu()) target.os.versionRange().gnuLibCVersion() else null,
         .android_api_level = if (target.abi.isAndroid()) target.os.version_range.linux.android else null,
     };
     result.updateOsVersionRange(target.os);
@@ -235,8 +235,7 @@ pub fn parse(args: ParseOptions) !Query {
 
         const abi_ver_text = abi_it.rest();
         if (abi_it.next() != null) {
-            const tag = result.os_tag orelse builtin.os.tag;
-            if (tag.isGnuLibC(abi)) {
+            if (abi.isGnu()) {
                 result.glibc_version = parseVersion(abi_ver_text) catch |err| switch (err) {
                     error.Overflow => return error.InvalidAbiVersion,
                     error.InvalidVersion => return error.InvalidAbiVersion,
@@ -654,16 +653,16 @@ test parse {
         try std.testing.expect(target.os.tag == .linux);
         try std.testing.expect(target.abi == .gnu);
         try std.testing.expect(target.cpu.arch == .x86_64);
-        try std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .sse));
-        try std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .avx));
-        try std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .cx8));
-        try std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .cmov));
-        try std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .fxsr));
+        try std.testing.expect(!target.cpu.has(.x86, .sse));
+        try std.testing.expect(!target.cpu.has(.x86, .avx));
+        try std.testing.expect(!target.cpu.has(.x86, .cx8));
+        try std.testing.expect(target.cpu.has(.x86, .cmov));
+        try std.testing.expect(target.cpu.has(.x86, .fxsr));
 
-        try std.testing.expect(Target.x86.featureSetHasAny(target.cpu.features, .{ .sse, .avx, .cmov }));
-        try std.testing.expect(!Target.x86.featureSetHasAny(target.cpu.features, .{ .sse, .avx }));
-        try std.testing.expect(Target.x86.featureSetHasAll(target.cpu.features, .{ .mmx, .x87 }));
-        try std.testing.expect(!Target.x86.featureSetHasAll(target.cpu.features, .{ .mmx, .x87, .sse }));
+        try std.testing.expect(target.cpu.hasAny(.x86, &.{ .sse, .avx, .cmov }));
+        try std.testing.expect(!target.cpu.hasAny(.x86, &.{ .sse, .avx }));
+        try std.testing.expect(target.cpu.hasAll(.x86, &.{ .mmx, .x87 }));
+        try std.testing.expect(!target.cpu.hasAll(.x86, &.{ .mmx, .x87, .sse }));
 
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
@@ -680,7 +679,7 @@ test parse {
         try std.testing.expect(target.abi == .musleabihf);
         try std.testing.expect(target.cpu.arch == .arm);
         try std.testing.expect(target.cpu.model == &Target.arm.cpu.generic);
-        try std.testing.expect(Target.arm.featureSetHas(target.cpu.features, .v8a));
+        try std.testing.expect(target.cpu.has(.arm, .v8a));
 
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);

@@ -61,7 +61,7 @@ pub const StackTrace = struct {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const GlobalLinkage = enum {
+pub const GlobalLinkage = enum(u2) {
     internal,
     strong,
     weak,
@@ -70,7 +70,7 @@ pub const GlobalLinkage = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const SymbolVisibility = enum {
+pub const SymbolVisibility = enum(u2) {
     default,
     hidden,
     protected,
@@ -141,11 +141,16 @@ pub const AtomicRmwOp = enum {
 /// therefore must be kept in sync with the compiler implementation.
 pub const CodeModel = enum {
     default,
-    tiny,
-    small,
+    extreme,
     kernel,
-    medium,
     large,
+    medany,
+    medium,
+    medlow,
+    medmid,
+    normal,
+    small,
+    tiny,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -220,8 +225,6 @@ pub const CallingConvention = union(enum(u8)) {
     };
     /// Deprecated; use `.x86_thiscall`.
     pub const Thiscall: CallingConvention = .{ .x86_thiscall = .{} };
-    /// Deprecated; do not use.
-    pub const APCS: CallingConvention = .{ .arm_apcs = .{} };
     /// Deprecated; use `.arm_aapcs`.
     pub const AAPCS: CallingConvention = .{ .arm_aapcs = .{} };
     /// Deprecated; use `.arm_aapcs_vfp`.
@@ -284,14 +287,10 @@ pub const CallingConvention = union(enum(u8)) {
     aarch64_vfabi_sve: CommonOptions,
 
     // Calling convetions for the `arm`, `armeb`, `thumb`, and `thumbeb` architectures.
-    /// Deprecated; do not use.
-    arm_apcs: CommonOptions, // Removal of `arm_apcs` is blocked by #21842.
     /// ARM Architecture Procedure Call Standard
     arm_aapcs: CommonOptions,
     /// ARM Architecture Procedure Call Standard Vector Floating-Point
     arm_aapcs_vfp: CommonOptions,
-    /// Deprecated; do not use.
-    arm_aapcs16_vfp: CommonOptions, // Removal of `arm_aapcs16_vfp` is blocked by #21842.
     arm_interrupt: ArmInterruptOptions,
 
     // Calling conventions for the `mips64` and `mips64el` architectures.
@@ -331,7 +330,7 @@ pub const CallingConvention = union(enum(u8)) {
     powerpc_aix_altivec: CommonOptions,
 
     /// The standard `wasm32` and `wasm64` calling convention, as specified in the WebAssembly Tool Conventions.
-    wasm_watc: CommonOptions,
+    wasm_mvp: CommonOptions,
 
     /// The standard `arc` calling convention.
     arc_sysv: CommonOptions,
@@ -371,11 +370,11 @@ pub const CallingConvention = union(enum(u8)) {
     /// The standard `msp430` calling convention.
     msp430_eabi: CommonOptions,
 
-    /// The standard `propeller1` calling convention.
-    propeller1_sysv: CommonOptions,
+    /// The standard `or1k` calling convention.
+    or1k_sysv: CommonOptions,
 
-    /// The standard `propeller2` calling convention.
-    propeller2_sysv: CommonOptions,
+    /// The standard `propeller` calling convention.
+    propeller_sysv: CommonOptions,
 
     // Calling conventions for the `s390x` architecture.
     s390x_sysv: CommonOptions,
@@ -500,6 +499,21 @@ pub const CallingConvention = union(enum(u8)) {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const AddressSpace = enum(u5) {
+    /// The places where a user can specify an address space attribute
+    pub const Context = enum {
+        /// A function is specified to be placed in a certain address space.
+        function,
+        /// A (global) variable is specified to be placed in a certain address space.
+        /// In contrast to .constant, these values (and thus the address space they will be
+        /// placed in) are required to be mutable.
+        variable,
+        /// A (global) constant value is specified to be placed in a certain address space.
+        /// In contrast to .variable, values placed in this address space are not required to be mutable.
+        constant,
+        /// A pointer is ascripted to point into a certain address space.
+        pointer,
+    };
+
     // CPU address spaces.
     generic,
     gs,
@@ -517,6 +531,7 @@ pub const AddressSpace = enum(u5) {
     uniform,
     push_constant,
     storage_buffer,
+    physical_storage_buffer,
 
     // AVR address spaces.
     flash,
@@ -951,7 +966,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .amdgcn => *u8,
     .avr => *anyopaque,
     .bpfel, .bpfeb => *anyopaque,
-    .hexagon => if (builtin.target.isMusl()) VaListHexagon else *u8,
+    .hexagon => if (builtin.target.abi.isMusl()) VaListHexagon else *u8,
     .loongarch32, .loongarch64 => *anyopaque,
     .mips, .mipsel, .mips64, .mips64el => *anyopaque,
     .riscv32, .riscv64 => *anyopaque,
@@ -1015,8 +1030,19 @@ pub const ExternOptions = struct {
     name: []const u8,
     library_name: ?[]const u8 = null,
     linkage: GlobalLinkage = .strong,
+    visibility: SymbolVisibility = .default,
+    /// Setting this to `true` makes the `@extern` a runtime value.
     is_thread_local: bool = false,
     is_dll_import: bool = false,
+    relocation: Relocation = .any,
+
+    pub const Relocation = enum(u1) {
+        /// Any type of relocation is allowed.
+        any,
+        /// A program-counter-relative relocation is required.
+        /// Using this value makes the `@extern` a runtime value.
+        pcrel,
+    };
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -1095,7 +1121,10 @@ pub const CompilerBackend = enum(u64) {
     stage2_sparc64 = 10,
     /// The reference implementation self-hosted compiler of Zig, using the
     /// spirv backend.
-    stage2_spirv64 = 11,
+    stage2_spirv = 11,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// powerpc backend.
+    stage2_powerpc = 12,
 
     _,
 };
@@ -1129,10 +1158,12 @@ pub const panic: type = p: {
     if (@hasDecl(root, "Panic")) {
         break :p root.Panic; // Deprecated; use `panic` instead.
     }
-    if (builtin.zig_backend == .stage2_riscv64) {
-        break :p std.debug.simple_panic;
-    }
-    break :p std.debug.FullPanic(std.debug.defaultPanic);
+    break :p switch (builtin.zig_backend) {
+        .stage2_powerpc,
+        .stage2_riscv64,
+        => std.debug.simple_panic,
+        else => std.debug.FullPanic(std.debug.defaultPanic),
+    };
 };
 
 pub noinline fn returnError() void {
