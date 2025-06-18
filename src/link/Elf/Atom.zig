@@ -1627,7 +1627,7 @@ const aarch64 = struct {
                     const S_ = th.targetAddress(target_index, elf_file);
                     break :blk math.cast(i28, S_ + A - P) orelse return error.Overflow;
                 };
-                aarch64_util.writeBranchImm(disp, code);
+                util.writeBranchImm(disp, code);
             },
 
             .PREL32 => {
@@ -1640,15 +1640,18 @@ const aarch64 = struct {
                 mem.writeInt(u64, code_buffer[r_offset..][0..8], @bitCast(value), .little);
             },
 
+            .ADR_PREL_LO21 => {
+                const value = math.cast(i21, S + A - P) orelse return error.Overflow;
+                util.writeAdrInst(value, code);
+            },
+
             .ADR_PREL_PG_HI21 => {
                 // TODO: check for relaxation of ADRP+ADD
-                const pages = @as(u21, @bitCast(try aarch64_util.calcNumberOfPages(P, S + A)));
-                aarch64_util.writeAdrpInst(pages, code);
+                util.writeAdrInst(try util.calcNumberOfPages(P, S + A), code);
             },
 
             .ADR_GOT_PAGE => if (target.flags.has_got) {
-                const pages = @as(u21, @bitCast(try aarch64_util.calcNumberOfPages(P, G + GOT + A)));
-                aarch64_util.writeAdrpInst(pages, code);
+                util.writeAdrInst(try util.calcNumberOfPages(P, G + GOT + A), code);
             } else {
                 // TODO: relax
                 var err = try diags.addErrorWithNotes(1);
@@ -1663,12 +1666,12 @@ const aarch64 = struct {
             .LD64_GOT_LO12_NC => {
                 assert(target.flags.has_got);
                 const taddr = @as(u64, @intCast(G + GOT + A));
-                aarch64_util.writeLoadStoreRegInst(@divExact(@as(u12, @truncate(taddr)), 8), code);
+                util.writeLoadStoreRegInst(@divExact(@as(u12, @truncate(taddr)), 8), code);
             },
 
             .ADD_ABS_LO12_NC => {
                 const taddr = @as(u64, @intCast(S + A));
-                aarch64_util.writeAddImmInst(@truncate(taddr), code);
+                util.writeAddImmInst(@truncate(taddr), code);
             },
 
             .LDST8_ABS_LO12_NC,
@@ -1687,57 +1690,54 @@ const aarch64 = struct {
                     .LDST128_ABS_LO12_NC => @divExact(@as(u12, @truncate(taddr)), 16),
                     else => unreachable,
                 };
-                aarch64_util.writeLoadStoreRegInst(off, code);
+                util.writeLoadStoreRegInst(off, code);
             },
 
             .TLSLE_ADD_TPREL_HI12 => {
                 const value = math.cast(i12, (S + A - TP) >> 12) orelse
                     return error.Overflow;
-                aarch64_util.writeAddImmInst(@bitCast(value), code);
+                util.writeAddImmInst(@bitCast(value), code);
             },
 
             .TLSLE_ADD_TPREL_LO12_NC => {
                 const value: i12 = @truncate(S + A - TP);
-                aarch64_util.writeAddImmInst(@bitCast(value), code);
+                util.writeAddImmInst(@bitCast(value), code);
             },
 
             .TLSIE_ADR_GOTTPREL_PAGE21 => {
                 const S_ = target.gotTpAddress(elf_file);
                 relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
-                const pages: u21 = @bitCast(try aarch64_util.calcNumberOfPages(P, S_ + A));
-                aarch64_util.writeAdrpInst(pages, code);
+                util.writeAdrInst(try util.calcNumberOfPages(P, S_ + A), code);
             },
 
             .TLSIE_LD64_GOTTPREL_LO12_NC => {
                 const S_ = target.gotTpAddress(elf_file);
                 relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
                 const off: u12 = try math.divExact(u12, @truncate(@as(u64, @bitCast(S_ + A))), 8);
-                aarch64_util.writeLoadStoreRegInst(off, code);
+                util.writeLoadStoreRegInst(off, code);
             },
 
             .TLSGD_ADR_PAGE21 => {
                 const S_ = target.tlsGdAddress(elf_file);
                 relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
-                const pages: u21 = @bitCast(try aarch64_util.calcNumberOfPages(P, S_ + A));
-                aarch64_util.writeAdrpInst(pages, code);
+                util.writeAdrInst(try util.calcNumberOfPages(P, S_ + A), code);
             },
 
             .TLSGD_ADD_LO12_NC => {
                 const S_ = target.tlsGdAddress(elf_file);
                 relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
                 const off: u12 = @truncate(@as(u64, @bitCast(S_ + A)));
-                aarch64_util.writeAddImmInst(off, code);
+                util.writeAddImmInst(off, code);
             },
 
             .TLSDESC_ADR_PAGE21 => {
                 if (target.flags.has_tlsdesc) {
                     const S_ = target.tlsDescAddress(elf_file);
                     relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
-                    const pages: u21 = @bitCast(try aarch64_util.calcNumberOfPages(P, S_ + A));
-                    aarch64_util.writeAdrpInst(pages, code);
+                    util.writeAdrInst(try util.calcNumberOfPages(P, S_ + A), code);
                 } else {
                     relocs_log.debug("      relaxing adrp => nop", .{});
-                    mem.writeInt(u32, code, Instruction.nop().toU32(), .little);
+                    util.encoding.Instruction.nop().write(code);
                 }
             },
 
@@ -1746,10 +1746,10 @@ const aarch64 = struct {
                     const S_ = target.tlsDescAddress(elf_file);
                     relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
                     const off: u12 = try math.divExact(u12, @truncate(@as(u64, @bitCast(S_ + A))), 8);
-                    aarch64_util.writeLoadStoreRegInst(off, code);
+                    util.writeLoadStoreRegInst(off, code);
                 } else {
                     relocs_log.debug("      relaxing ldr => nop", .{});
-                    mem.writeInt(u32, code, Instruction.nop().toU32(), .little);
+                    util.encoding.Instruction.nop().write(code);
                 }
             },
 
@@ -1758,32 +1758,18 @@ const aarch64 = struct {
                     const S_ = target.tlsDescAddress(elf_file);
                     relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
                     const off: u12 = @truncate(@as(u64, @bitCast(S_ + A)));
-                    aarch64_util.writeAddImmInst(off, code);
+                    util.writeAddImmInst(off, code);
                 } else {
-                    const old_inst: Instruction = .{
-                        .add_subtract_immediate = mem.bytesToValue(@FieldType(
-                            Instruction,
-                            @tagName(Instruction.add_subtract_immediate),
-                        ), code),
-                    };
-                    const rd: Register = @enumFromInt(old_inst.add_subtract_immediate.rd);
-                    relocs_log.debug("      relaxing add({s}) => movz(x0, {x})", .{ @tagName(rd), S + A - TP });
+                    relocs_log.debug("      relaxing add => movz(x0, {x})", .{S + A - TP});
                     const value: u16 = @bitCast(math.cast(i16, (S + A - TP) >> 16) orelse return error.Overflow);
-                    mem.writeInt(u32, code, Instruction.movz(.x0, value, 16).toU32(), .little);
+                    util.encoding.Instruction.movz(.x0, value, .{ .lsl = .@"16" }).write(code);
                 }
             },
 
             .TLSDESC_CALL => if (!target.flags.has_tlsdesc) {
-                const old_inst: Instruction = .{
-                    .unconditional_branch_register = mem.bytesToValue(@FieldType(
-                        Instruction,
-                        @tagName(Instruction.unconditional_branch_register),
-                    ), code),
-                };
-                const rn: Register = @enumFromInt(old_inst.unconditional_branch_register.rn);
-                relocs_log.debug("      relaxing br({s}) => movk(x0, {x})", .{ @tagName(rn), S + A - TP });
+                relocs_log.debug("      relaxing br => movk(x0, {x})", .{S + A - TP});
                 const value: u16 = @bitCast(@as(i16, @truncate(S + A - TP)));
-                mem.writeInt(u32, code, Instruction.movk(.x0, value, 0).toU32(), .little);
+                util.encoding.Instruction.movk(.x0, value, .{}).write(code);
             },
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),
@@ -1819,9 +1805,7 @@ const aarch64 = struct {
         }
     }
 
-    const aarch64_util = @import("../aarch64.zig");
-    const Instruction = aarch64_util.Instruction;
-    const Register = aarch64_util.Register;
+    const util = @import("../aarch64.zig");
 };
 
 const riscv = struct {

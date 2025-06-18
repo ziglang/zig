@@ -240,7 +240,7 @@ comptime {
     _ = @import("compiler_rt/udivmodti4.zig");
 
     // extra
-    _ = @import("compiler_rt/os_version_check.zig");
+    if (builtin.zig_backend != .stage2_aarch64) _ = @import("compiler_rt/os_version_check.zig");
     _ = @import("compiler_rt/emutls.zig");
     _ = @import("compiler_rt/arm.zig");
     _ = @import("compiler_rt/aulldiv.zig");
@@ -249,12 +249,12 @@ comptime {
     _ = @import("compiler_rt/hexagon.zig");
 
     if (@import("builtin").object_format != .c) {
-        _ = @import("compiler_rt/atomics.zig");
+        if (builtin.zig_backend != .stage2_aarch64) _ = @import("compiler_rt/atomics.zig");
         _ = @import("compiler_rt/stack_probe.zig");
 
         // macOS has these functions inside libSystem.
         if (builtin.cpu.arch.isAARCH64() and !builtin.os.tag.isDarwin()) {
-            _ = @import("compiler_rt/aarch64_outline_atomics.zig");
+            if (builtin.zig_backend != .stage2_aarch64) _ = @import("compiler_rt/aarch64_outline_atomics.zig");
         }
 
         _ = @import("compiler_rt/memcpy.zig");

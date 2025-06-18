@@ -347,7 +347,7 @@ pub fn defaultCompilerRtOptimizeMode(target: *const std.Target) std.builtin.Opti
     }
 }
 
-pub fn canBuildLibCompilerRt(target: *const std.Target, use_llvm: bool, have_llvm: bool) bool {
+pub fn canBuildLibCompilerRt(target: *const std.Target, use_llvm: bool, comptime have_llvm: bool) bool {
     switch (target.os.tag) {
         .plan9 => return false,
         else => {},
@@ -359,6 +359,7 @@ pub fn canBuildLibCompilerRt(target: *const std.Target, use_llvm: bool, have_llv
         else => {},
     }
     return switch (zigBackend(target, use_llvm)) {
+        .stage2_aarch64 => true,
         .stage2_llvm => true,
         .stage2_x86_64 => switch (target.ofmt) {
             .elf, .macho => true,
@@ -368,13 +369,21 @@ pub fn canBuildLibCompilerRt(target: *const std.Target, use_llvm: bool, have_llv
     };
 }
 
-pub fn canBuildLibUbsanRt(target: *const std.Target) bool {
+pub fn canBuildLibUbsanRt(target: *const std.Target, use_llvm: bool, comptime have_llvm: bool) bool {
     switch (target.cpu.arch) {
         .spirv32, .spirv64 => return false,
         // Remove this once https://github.com/ziglang/zig/issues/23715 is fixed
         .nvptx, .nvptx64 => return false,
-        else => return true,
+        else => {},
     }
+    return switch (zigBackend(target, use_llvm)) {
+        .stage2_llvm => true,
+        .stage2_x86_64 => switch (target.ofmt) {
+            .elf, .macho => true,
+            else => have_llvm,
+        },
+        else => have_llvm,
+    };
 }
 
 pub fn hasRedZone(target: *const std.Target) bool {
@@ -767,6 +776,7 @@ pub fn supportsTailCall(target: *const std.Target, backend: std.builtin.Compiler
 
 pub fn supportsThreads(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
     return switch (backend) {
+        .stage2_aarch64 => false,
         .stage2_powerpc => true,
         .stage2_x86_64 => target.ofmt == .macho or target.ofmt == .elf,
         else => true,
@@ -864,7 +874,7 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             else => false,
         },
         .field_reordering => switch (backend) {
-            .stage2_c, .stage2_llvm, .stage2_x86_64 => true,
+            .stage2_aarch64, .stage2_c, .stage2_llvm, .stage2_x86_64 => true,
             else => false,
         },
         .separate_thread => switch (backend) {

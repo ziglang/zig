@@ -45,6 +45,7 @@ pub const rad_per_deg = 0.017453292519943295769236907684886127134428718885417254
 /// 180.0/pi
 pub const deg_per_rad = 57.295779513082320876798154814105170332405472466564321549160243861;
 
+pub const Sign = enum(u1) { positive, negative };
 pub const FloatRepr = float.FloatRepr;
 pub const floatExponentBits = float.floatExponentBits;
 pub const floatMantissaBits = float.floatMantissaBits;
@@ -594,27 +595,30 @@ pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
 /// Shifts left. Overflowed bits are truncated.
 /// A negative shift amount results in a right shift.
 pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
+    const is_shl = shift_amt >= 0;
     const abs_shift_amt = @abs(shift_amt);
-
-    const casted_shift_amt = blk: {
-        if (@typeInfo(T) == .vector) {
-            const C = @typeInfo(T).vector.child;
-            const len = @typeInfo(T).vector.len;
-            if (abs_shift_amt >= @typeInfo(C).int.bits) return @splat(0);
-            break :blk @as(@Vector(len, Log2Int(C)), @splat(@as(Log2Int(C), @intCast(abs_shift_amt))));
-        } else {
-            if (abs_shift_amt >= @typeInfo(T).int.bits) return 0;
-            break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
-        }
+    const casted_shift_amt = casted_shift_amt: switch (@typeInfo(T)) {
+        .int => |info| {
+            if (abs_shift_amt < info.bits) break :casted_shift_amt @as(
+                Log2Int(T),
+                @intCast(abs_shift_amt),
+            );
+            if (info.signedness == .unsigned or is_shl) return 0;
+            return a >> (info.bits - 1);
+        },
+        .vector => |info| {
+            const Child = info.child;
+            const child_info = @typeInfo(Child).int;
+            if (abs_shift_amt < child_info.bits) break :casted_shift_amt @as(
+                @Vector(info.len, Log2Int(Child)),
+                @splat(@as(Log2Int(Child), @intCast(abs_shift_amt))),
+            );
+            if (child_info.signedness == .unsigned or is_shl) return @splat(0);
+            return a >> @splat(child_info.bits - 1);
+        },
+        else => comptime unreachable,
     };
-
-    if (@TypeOf(shift_amt) == comptime_int or @typeInfo(@TypeOf(shift_amt)).int.signedness == .signed) {
-        if (shift_amt < 0) {
-            return a >> casted_shift_amt;
-        }
-    }
-
-    return a << casted_shift_amt;
+    return if (is_shl) a << casted_shift_amt else a >> casted_shift_amt;
 }
 
 test shl {
@@ -629,32 +633,40 @@ test shl {
     try testing.expect(shl(@Vector(1, u32), @Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) << 1);
     try testing.expect(shl(@Vector(1, u32), @Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) >> 1);
     try testing.expect(shl(@Vector(1, u32), @Vector(1, u32){42}, 33)[0] == 0);
+
+    try testing.expect(shl(i8, -1, -100) == -1);
+    try testing.expect(shl(i8, -1, 100) == 0);
+    try testing.expect(@reduce(.And, shl(@Vector(2, i8), .{ -1, 1 }, -100) == @Vector(2, i8){ -1, 0 }));
+    try testing.expect(@reduce(.And, shl(@Vector(2, i8), .{ -1, 1 }, 100) == @Vector(2, i8){ 0, 0 }));
 }
 
 /// Shifts right. Overflowed bits are truncated.
 /// A negative shift amount results in a left shift.
 pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
+    const is_shl = shift_amt < 0;
     const abs_shift_amt = @abs(shift_amt);
-
-    const casted_shift_amt = blk: {
-        if (@typeInfo(T) == .vector) {
-            const C = @typeInfo(T).vector.child;
-            const len = @typeInfo(T).vector.len;
-            if (abs_shift_amt >= @typeInfo(C).int.bits) return @splat(0);
-            break :blk @as(@Vector(len, Log2Int(C)), @splat(@as(Log2Int(C), @intCast(abs_shift_amt))));
-        } else {
-            if (abs_shift_amt >= @typeInfo(T).int.bits) return 0;
-            break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
-        }
+    const casted_shift_amt = casted_shift_amt: switch (@typeInfo(T)) {
+        .int => |info| {
+            if (abs_shift_amt < info.bits) break :casted_shift_amt @as(
+                Log2Int(T),
+                @intCast(abs_shift_amt),
+            );
+            if (info.signedness == .unsigned or is_shl) return 0;
+            return a >> (info.bits - 1);
+        },
+        .vector => |info| {
+            const Child = info.child;
+            const child_info = @typeInfo(Child).int;
+            if (abs_shift_amt < child_info.bits) break :casted_shift_amt @as(
+                @Vector(info.len, Log2Int(Child)),
+                @splat(@as(Log2Int(Child), @intCast(abs_shift_amt))),
+            );
+            if (child_info.signedness == .unsigned or is_shl) return @splat(0);
+            return a >> @splat(child_info.bits - 1);
+        },
+        else => comptime unreachable,
     };
-
-    if (@TypeOf(shift_amt) == comptime_int or @typeInfo(@TypeOf(shift_amt)).int.signedness == .signed) {
-        if (shift_amt < 0) {
-            return a << casted_shift_amt;
-        }
-    }
-
-    return a >> casted_shift_amt;
+    return if (is_shl) a << casted_shift_amt else a >> casted_shift_amt;
 }
 
 test shr {
@@ -669,6 +681,11 @@ test shr {
     try testing.expect(shr(@Vector(1, u32), @Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) >> 1);
     try testing.expect(shr(@Vector(1, u32), @Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) << 1);
     try testing.expect(shr(@Vector(1, u32), @Vector(1, u32){42}, 33)[0] == 0);
+
+    try testing.expect(shr(i8, -1, -100) == 0);
+    try testing.expect(shr(i8, -1, 100) == -1);
+    try testing.expect(@reduce(.And, shr(@Vector(2, i8), .{ -1, 1 }, -100) == @Vector(2, i8){ 0, 0 }));
+    try testing.expect(@reduce(.And, shr(@Vector(2, i8), .{ -1, 1 }, 100) == @Vector(2, i8){ -1, 0 }));
 }
 
 /// Rotates right. Only unsigned values can be rotated.  Negative shift

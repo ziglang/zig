@@ -5,7 +5,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
-const is_test = builtin.is_test;
 const common = @import("common.zig");
 
 const normalize = common.normalize;

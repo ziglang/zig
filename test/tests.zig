@@ -193,6 +193,30 @@ const test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+            .optimize_mode = .ReleaseFast,
+            .strip = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_n1 },
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+            .optimize_mode = .ReleaseFast,
+            .strip = true,
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .aarch64_be,
                 .os_tag = .linux,
                 .abi = .none,
@@ -1180,6 +1204,18 @@ const test_targets = blk: {
                 .os_tag = .macos,
                 .abi = .none,
             },
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .macos,
+                .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+            .optimize_mode = .ReleaseFast,
+            .strip = true,
         },
 
         .{
@@ -2260,7 +2296,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             continue;
 
         // TODO get compiler-rt tests passing for self-hosted backends.
-        if ((target.cpu.arch != .x86_64 or target.ofmt != .elf) and
+        if (((target.cpu.arch != .x86_64 and target.cpu.arch != .aarch64) or target.ofmt == .coff) and
             test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
             continue;
 

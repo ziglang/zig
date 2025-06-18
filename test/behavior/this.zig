@@ -26,7 +26,6 @@ test "this refer to module call private fn" {
 }
 
 test "this refer to container" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var pt: Point(i32) = undefined;
@@ -47,7 +46,6 @@ fn prev(p: ?State) void {
 }
 
 test "this used as optional function parameter" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;

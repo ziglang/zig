@@ -37,6 +37,7 @@ const dev = @import("dev.zig");
 
 test {
     _ = Package;
+    _ = @import("codegen.zig");
 }
 
 const thread_stack_size = 60 << 20;

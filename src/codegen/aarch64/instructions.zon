@@ -1,0 +1,1343 @@
+.{
+    // C6.2.3 ADD (extended register)
+    .{
+        .pattern = "ADD <Wd|WSP>, <Wn|WSP>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .add, .Wd, .Wn, .{ .register = .Wm } },
+    },
+    .{
+        .pattern = "ADD <Wd|WSP>, <Wn|WSP>, <Wm>, <extend> #<amount>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .extend = .{ .extend = .{ .size = .word } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 3 }, .max_valid = 4 } },
+        },
+        .encode = .{ .add, .Wd, .Wn, .{ .extended_register_explicit = .{ .register = .Wm, .option = .extend, .amount = .amount } } },
+    },
+    .{
+        .pattern = "ADD <Xd|SP>, <Xn|SP>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .add, .Xd, .Xn, .{ .register = .Xm } },
+    },
+    .{
+        .pattern = "ADD <Xd|SP>, <Xn|SP>, <Wm>, <extend> #<amount>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .extend = .{ .extend = .{ .size = .word } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 3 }, .max_valid = 4 } },
+        },
+        .encode = .{ .add, .Xd, .Xn, .{ .extended_register_explicit = .{ .register = .Wm, .option = .extend, .amount = .amount } } },
+    },
+    .{
+        .pattern = "ADD <Xd|SP>, <Xn|SP>, <Xm>, <extend> #<amount>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .extend = .{ .extend = .{ .size = .doubleword } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 3 }, .max_valid = 4 } },
+        },
+        .encode = .{ .add, .Xd, .Xn, .{ .extended_register_explicit = .{ .register = .Xm, .option = .extend, .amount = .amount } } },
+    },
+    // C6.2.4 ADD (immediate)
+    .{
+        .pattern = "ADD <Wd|WSP>, <Wn|WSP>, #<imm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 12 } } },
+        },
+        .encode = .{ .add, .Wd, .Wn, .{ .immediate = .imm } },
+    },
+    .{
+        .pattern = "ADD <Wd|WSP>, <Wn|WSP>, #<imm>, LSL #<shift>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 12 } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 4 }, .multiple_of = 12 } },
+        },
+        .encode = .{ .add, .Wd, .Wn, .{ .shifted_immediate = .{ .immediate = .imm, .lsl = .shift } } },
+    },
+    .{
+        .pattern = "ADD <Xd|SP>, <Xn|SP>, #<imm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 12 } } },
+        },
+        .encode = .{ .add, .Xd, .Xn, .{ .immediate = .imm } },
+    },
+    .{
+        .pattern = "ADD <Xd|SP>, <Xn|SP>, #<imm>, LSL #<shift>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 12 } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 4 }, .multiple_of = 12 } },
+        },
+        .encode = .{ .add, .Xd, .Xn, .{ .shifted_immediate = .{ .immediate = .imm, .lsl = .shift } } },
+    },
+    // C6.2.5 ADD (shifted register)
+    .{
+        .pattern = "ADD <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .add, .Wd, .Wn, .{ .register = .Wm } },
+    },
+    .{
+        .pattern = "ADD <Wd>, <Wn>, <Wm>, <shift> #<amount>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .shift = .{ .shift = .{ .allow_ror = false } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .add, .Wd, .Wn, .{ .shifted_register_explicit = .{ .register = .Wm, .shift = .shift, .amount = .amount } } },
+    },
+    .{
+        .pattern = "ADD <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .add, .Xd, .Xn, .{ .register = .Xm } },
+    },
+    .{
+        .pattern = "ADD <Xd>, <Xn>, <Xm>, <shift> #<amount>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .shift = .{ .shift = .{ .allow_ror = false } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .add, .Xd, .Xn, .{ .shifted_register_explicit = .{ .register = .Xm, .shift = .shift, .amount = .amount } } },
+    },
+    // C6.2.13 AND (shifted register)
+    .{
+        .pattern = "AND <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .@"and", .Wd, .Wn, .{ .register = .Wm } },
+    },
+    .{
+        .pattern = "AND <Wd>, <Wn>, <Wm>, <shift> #<amount>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .shift = .{ .shift = .{} },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .@"and", .Wd, .Wn, .{ .shifted_register_explicit = .{ .register = .Wm, .shift = .shift, .amount = .amount } } },
+    },
+    .{
+        .pattern = "AND <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .@"and", .Xd, .Xn, .{ .register = .Xm } },
+    },
+    .{
+        .pattern = "AND <Xd>, <Xn>, <Xm>, <shift> #<amount>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .shift = .{ .shift = .{} },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .@"and", .Xd, .Xn, .{ .shifted_register_explicit = .{ .register = .Xm, .shift = .shift, .amount = .amount } } },
+    },
+    // C6.2.15 ANDS (shifted register)
+    .{
+        .pattern = "ANDS <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .ands, .Wd, .Wn, .{ .register = .Wm } },
+    },
+    .{
+        .pattern = "ANDS <Wd>, <Wn>, <Wm>, <shift> #<amount>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .shift = .{ .shift = .{} },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .ands, .Wd, .Wn, .{ .shifted_register_explicit = .{ .register = .Wm, .shift = .shift, .amount = .amount } } },
+    },
+    .{
+        .pattern = "ANDS <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .ands, .Xd, .Xn, .{ .register = .Xm } },
+    },
+    .{
+        .pattern = "ANDS <Xd>, <Xn>, <Xm>, <shift> #<amount>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .shift = .{ .shift = .{} },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .ands, .Xd, .Xn, .{ .shifted_register_explicit = .{ .register = .Xm, .shift = .shift, .amount = .amount } } },
+    },
+    // C6.2.35 BLR
+    .{
+        .pattern = "BLR <Xn>",
+        .symbols = .{
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .blr, .Xn },
+    },
+    // C6.2.30 BFM
+    .{
+        .pattern = "BFM <Wd>, <Wn>, #<immr>, #<imms>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .immr = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+            .imms = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .bfm, .Wd, .Wn, .{ .N = .word, .immr = .immr, .imms = .imms } },
+    },
+    .{
+        .pattern = "BFM <Xd>, <Xn>, #<immr>, #<imms>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .immr = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+            .imms = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .bfm, .Xd, .Xn, .{ .N = .doubleword, .immr = .immr, .imms = .imms } },
+    },
+    // C6.2.37 BR
+    .{
+        .pattern = "BR <Xn>",
+        .symbols = .{
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .br, .Xn },
+    },
+    // C6.2.40 BRK
+    .{
+        .pattern = "BRK #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .brk, .imm },
+    },
+    // C6.2.56 CLREX
+    .{
+        .pattern = "CLREX",
+        .symbols = .{},
+        .encode = .{ .clrex, 0b1111 },
+    },
+    .{
+        .pattern = "CLREX #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 4 } } },
+        },
+        .encode = .{ .clrex, .imm },
+    },
+    // C6.2.109 DC
+    .{
+        .pattern = "DC IVAC, <Xt>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b000, 0b0111, 0b0110, 0b001, .Xt },
+    },
+    .{
+        .pattern = "DC ISW, <Xt>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b000, 0b0111, 0b0110, 0b010, .Xt },
+    },
+    .{
+        .pattern = "DC CSW, <Xt>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b000, 0b0111, 0b1010, 0b010, .Xt },
+    },
+    .{
+        .pattern = "DC CISW, <Xt>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b000, 0b0111, 0b1110, 0b010, .Xt },
+    },
+    .{
+        .pattern = "DC ZVA, <Xt>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b011, 0b0111, 0b0100, 0b001, .Xt },
+    },
+    .{
+        .pattern = "DC CVAC, <Xt>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b011, 0b0111, 0b1010, 0b001, .Xt },
+    },
+    .{
+        .pattern = "DC CVAU, <Xt>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b011, 0b0111, 0b1011, 0b001, .Xt },
+    },
+    .{
+        .pattern = "DC CIVAC, <Xt>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b011, 0b0111, 0b1110, 0b001, .Xt },
+    },
+    // C6.2.110 DCPS1
+    .{
+        .pattern = "DCPS1",
+        .symbols = .{},
+        .encode = .{ .dcps1, 0 },
+    },
+    .{
+        .pattern = "DCPS1 #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .dcps1, .imm },
+    },
+    // C6.2.111 DCPS2
+    .{
+        .pattern = "DCPS2",
+        .symbols = .{},
+        .encode = .{ .dcps2, 0 },
+    },
+    .{
+        .pattern = "DCPS2 #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .dcps2, .imm },
+    },
+    // C6.2.112 DCPS3
+    .{
+        .pattern = "DCPS3",
+        .symbols = .{},
+        .encode = .{ .dcps3, 0 },
+    },
+    .{
+        .pattern = "DCPS3 #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .dcps3, .imm },
+    },
+    // C6.2.116 DSB
+    .{
+        .pattern = "DSB <option>",
+        .symbols = .{
+            .option = .{ .barrier = .{} },
+        },
+        .encode = .{ .dsb, .option },
+    },
+    .{
+        .pattern = "DSB #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 4 } } },
+        },
+        .encode = .{ .dsb, .imm },
+    },
+    // C6.2.120 EOR (shifted register)
+    .{
+        .pattern = "EOR <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .eor, .Wd, .Wn, .{ .register = .Wm } },
+    },
+    .{
+        .pattern = "EOR <Wd>, <Wn>, <Wm>, <shift> #<amount>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .shift = .{ .shift = .{} },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .eor, .Wd, .Wn, .{ .shifted_register_explicit = .{ .register = .Wm, .shift = .shift, .amount = .amount } } },
+    },
+    .{
+        .pattern = "EOR <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .eor, .Xd, .Xn, .{ .register = .Xm } },
+    },
+    .{
+        .pattern = "EOR <Xd>, <Xn>, <Xm>, <shift> #<amount>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .shift = .{ .shift = .{} },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .eor, .Xd, .Xn, .{ .shifted_register_explicit = .{ .register = .Xm, .shift = .shift, .amount = .amount } } },
+    },
+    // C6.2.124 EXTR
+    .{
+        .pattern = "EXTR <Wd>, <Wn>, <Wm>, #<lsb>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .lsb = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .extr, .Wd, .Wn, .Wm, .lsb },
+    },
+    .{
+        .pattern = "EXTR <Xd>, <Xn>, <Xm>, #<lsb>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .lsb = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .extr, .Xd, .Xn, .Xm, .lsb },
+    },
+    // C6.2.126 HINT
+    .{
+        .pattern = "HINT #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 7 } } },
+        },
+        .encode = .{ .hint, .imm },
+    },
+    // C6.2.127 HLT
+    .{
+        .pattern = "HLT #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .hlt, .imm },
+    },
+    // C6.2.128 HVC
+    .{
+        .pattern = "HVC #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .hvc, .imm },
+    },
+    // C6.2.129 IC
+    .{
+        .pattern = "IC IALLUIS",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b000, 0b0111, 0b0001, 0b000, .xzr },
+    },
+    .{
+        .pattern = "IC IALLUIS, <Xt>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b000, 0b0111, 0b0001, 0b000, .Xt },
+    },
+    .{
+        .pattern = "IC IALLU",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b000, 0b0111, 0b0101, 0b000, .xzr },
+    },
+    .{
+        .pattern = "IC IALLU, <Xt>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b000, 0b0111, 0b0101, 0b000, .Xt },
+    },
+    .{
+        .pattern = "IC IVAU",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b011, 0b0111, 0b0101, 0b001, .xzr },
+    },
+    .{
+        .pattern = "IC IVAU, <Xt>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sys, 0b011, 0b0111, 0b0101, 0b001, .Xt },
+    },
+    // C6.2.131 ISB
+    .{
+        .pattern = "ISB",
+        .symbols = .{},
+        .encode = .{ .isb, .sy },
+    },
+    .{
+        .pattern = "ISB <option>",
+        .symbols = .{
+            .option = .{ .barrier = .{ .only_sy = true } },
+        },
+        .encode = .{ .isb, .option },
+    },
+    .{
+        .pattern = "ISB #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 4 } } },
+        },
+        .encode = .{ .isb, .imm },
+    },
+    // C6.2.164 LDP
+    .{
+        .pattern = "LDP <Wt1>, <Wt2>, [<Xn|SP>], #<imm>",
+        .symbols = .{
+            .Wt1 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wt2 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 }, .multiple_of = 4 } },
+        },
+        .encode = .{ .ldp, .Wt1, .Wt2, .{ .post_index = .{ .base = .Xn, .index = .imm } } },
+    },
+    .{
+        .pattern = "LDP <Xt1>, <Xt2>, [<Xn|SP>], #<imm>",
+        .symbols = .{
+            .Xt1 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xt2 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 10 }, .multiple_of = 8 } },
+        },
+        .encode = .{ .ldp, .Xt1, .Xt2, .{ .post_index = .{ .base = .Xn, .index = .imm } } },
+    },
+    .{
+        .pattern = "LDP <Wt1>, <Wt2>, [<Xn|SP>, #<imm>]!",
+        .symbols = .{
+            .Wt1 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wt2 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 }, .multiple_of = 4 } },
+        },
+        .encode = .{ .ldp, .Wt1, .Wt2, .{ .pre_index = .{ .base = .Xn, .index = .imm } } },
+    },
+    .{
+        .pattern = "LDP <Xt1>, <Xt2>, [<Xn|SP>, #<imm>]!",
+        .symbols = .{
+            .Xt1 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xt2 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 10 }, .multiple_of = 8 } },
+        },
+        .encode = .{ .ldp, .Xt1, .Xt2, .{ .pre_index = .{ .base = .Xn, .index = .imm } } },
+    },
+    .{
+        .pattern = "LDP <Wt1>, <Wt2>, [<Xn|SP>]",
+        .symbols = .{
+            .Wt1 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wt2 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .ldp, .Wt1, .Wt2, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "LDP <Wt1>, <Wt2>, [<Xn|SP>, #<imm>]",
+        .symbols = .{
+            .Wt1 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wt2 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 }, .multiple_of = 4 } },
+        },
+        .encode = .{ .ldp, .Wt1, .Wt2, .{ .signed_offset = .{ .base = .Xn, .offset = .imm } } },
+    },
+    .{
+        .pattern = "LDP <Xt1>, <Xt2>, [<Xn|SP>]",
+        .symbols = .{
+            .Xt1 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xt2 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .ldp, .Xt1, .Xt2, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "LDP <Xt1>, <Xt2>, [<Xn|SP>, #<imm>]",
+        .symbols = .{
+            .Xt1 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xt2 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 10 }, .multiple_of = 8 } },
+        },
+        .encode = .{ .ldp, .Xt1, .Xt2, .{ .signed_offset = .{ .base = .Xn, .offset = .imm } } },
+    },
+    // C6.2.166 LDR (immediate)
+    .{
+        .pattern = "LDR <Wt>, [<Xn|SP>], #<simm>",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .ldr, .Wt, .{ .post_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    .{
+        .pattern = "LDR <Xt>, [<Xn|SP>], #<simm>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .ldr, .Xt, .{ .post_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    .{
+        .pattern = "LDR <Wt>, [<Xn|SP>, #<simm>]!",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .ldr, .Wt, .{ .pre_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    .{
+        .pattern = "LDR <Xt>, [<Xn|SP>, #<simm>]!",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .ldr, .Xt, .{ .pre_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    .{
+        .pattern = "LDR <Wt>, [<Xn|SP>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .ldr, .Wt, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "LDR <Wt>, [<Xn|SP>, #<pimm>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .pimm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 14 }, .multiple_of = 4 } },
+        },
+        .encode = .{ .ldr, .Wt, .{ .unsigned_offset = .{ .base = .Xn, .offset = .pimm } } },
+    },
+    .{
+        .pattern = "LDR <Xt>, [<Xn|SP>]",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .ldr, .Xt, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "LDR <Xt>, [<Xn|SP>, #<pimm>]",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .pimm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 15 }, .multiple_of = 8 } },
+        },
+        .encode = .{ .ldr, .Xt, .{ .unsigned_offset = .{ .base = .Xn, .offset = .pimm } } },
+    },
+    // C6.2.220 MOV (to/from SP)
+    .{
+        .pattern = "MOV WSP, <Wn|WSP>",
+        .symbols = .{
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+        },
+        .encode = .{ .add, .wsp, .Wn, .{ .immediate = 0 } },
+    },
+    .{
+        .pattern = "MOV <Wd|WSP>, WSP",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+        },
+        .encode = .{ .add, .Wd, .wsp, .{ .immediate = 0 } },
+    },
+    .{
+        .pattern = "MOV SP, <Xn|SP>",
+        .symbols = .{
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .add, .sp, .Xn, .{ .immediate = 0 } },
+    },
+    .{
+        .pattern = "MOV <Xd|SP>, SP",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .add, .Xd, .sp, .{ .immediate = 0 } },
+    },
+    // C6.2.222 MOV (wide immediate)
+    .{
+        .pattern = "MOV <Wd>, #<imm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .movz, .Wd, .imm, .{ .lsl = .@"0" } },
+    },
+    .{
+        .pattern = "MOV <Xd>, #<imm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .movz, .Xd, .imm, .{ .lsl = .@"0" } },
+    },
+    // C6.2.224 MOV (register)
+    .{
+        .pattern = "MOV <Wd>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .orr, .Wd, .wzr, .{ .register = .Wm } },
+    },
+    .{
+        .pattern = "MOV <Xd>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .orr, .Xd, .xzr, .{ .register = .Xm } },
+    },
+    // C6.2.225 MOVK
+    .{
+        .pattern = "MOVK <Wd>, #<imm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .movk, .Wd, .imm, .{} },
+    },
+    .{
+        .pattern = "MOVK <Wd>, #<imm>, LSL #<shift>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 }, .multiple_of = 16 } },
+        },
+        .encode = .{ .movk, .Wd, .imm, .{ .lsl = .shift } },
+    },
+    .{
+        .pattern = "MOVK <Xd>, #<imm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .movk, .Xd, .imm, .{} },
+    },
+    .{
+        .pattern = "MOVK <Xd>, #<imm>, LSL #<shift>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 }, .multiple_of = 16 } },
+        },
+        .encode = .{ .movk, .Xd, .imm, .{ .lsl = .shift } },
+    },
+    // C6.2.226 MOVN
+    .{
+        .pattern = "MOVN <Wd>, #<imm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .movn, .Wd, .imm, .{} },
+    },
+    .{
+        .pattern = "MOVN <Wd>, #<imm>, LSL #<shift>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 }, .multiple_of = 16 } },
+        },
+        .encode = .{ .movn, .Wd, .imm, .{ .lsl = .shift } },
+    },
+    .{
+        .pattern = "MOVN <Xd>, #<imm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .movn, .Xd, .imm, .{} },
+    },
+    .{
+        .pattern = "MOVN <Xd>, #<imm>, LSL #<shift>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 }, .multiple_of = 16 } },
+        },
+        .encode = .{ .movn, .Xd, .imm, .{ .lsl = .shift } },
+    },
+    // C6.2.227 MOVZ
+    .{
+        .pattern = "MOVZ <Wd>, #<imm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .movz, .Wd, .imm, .{} },
+    },
+    .{
+        .pattern = "MOVZ <Wd>, #<imm>, LSL #<shift>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 }, .multiple_of = 16 } },
+        },
+        .encode = .{ .movz, .Wd, .imm, .{ .lsl = .shift } },
+    },
+    .{
+        .pattern = "MOVZ <Xd>, #<imm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .movz, .Xd, .imm, .{} },
+    },
+    .{
+        .pattern = "MOVZ <Xd>, #<imm>, LSL #<shift>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 }, .multiple_of = 16 } },
+        },
+        .encode = .{ .movz, .Xd, .imm, .{ .lsl = .shift } },
+    },
+    // C6.2.228 MRS
+    .{
+        .pattern = "MRS <Xt>, CTR_EL0",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .mrs, .Xt, 0b11, 0b011, 0b0000, 0b0000, 0b001 },
+    },
+    // C6.2.234 NEG
+    .{
+        .pattern = "NEG <Wd>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .sub, .Wd, .wzr, .{ .register = .Wm } },
+    },
+    .{
+        .pattern = "NEG <Wd>, <Wm>, <shift> #<amount>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .shift = .{ .shift = .{ .allow_ror = false } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .sub, .Wd, .wzr, .{ .shifted_register_explicit = .{ .register = .Wm, .shift = .shift, .amount = .amount } } },
+    },
+    .{
+        .pattern = "NEG <Xd>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sub, .Xd, .xzr, .{ .register = .Xm } },
+    },
+    .{
+        .pattern = "NEG <Xd>, <Xm>, <shift> #<amount>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .shift = .{ .shift = .{ .allow_ror = false } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .sub, .Xd, .xzr, .{ .shifted_register_explicit = .{ .register = .Xm, .shift = .shift, .amount = .amount } } },
+    },
+    // C6.2.238 NOP
+    .{
+        .pattern = "NOP",
+        .symbols = .{},
+        .encode = .{.nop},
+    },
+    // C6.2.241 ORR (shifted register)
+    .{
+        .pattern = "ORR <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .orr, .Wd, .Wn, .{ .register = .Wm } },
+    },
+    .{
+        .pattern = "ORR <Wd>, <Wn>, <Wm>, <shift> #<amount>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .shift = .{ .shift = .{} },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .orr, .Wd, .Wn, .{ .shifted_register_explicit = .{ .register = .Wm, .shift = .shift, .amount = .amount } } },
+    },
+    .{
+        .pattern = "ORR <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .orr, .Xd, .Xn, .{ .register = .Xm } },
+    },
+    .{
+        .pattern = "ORR <Xd>, <Xn>, <Xm>, <shift> #<amount>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .shift = .{ .shift = .{} },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .orr, .Xd, .Xn, .{ .shifted_register_explicit = .{ .register = .Xm, .shift = .shift, .amount = .amount } } },
+    },
+    // C6.2.254 RET
+    .{
+        .pattern = "RET",
+        .symbols = .{},
+        .encode = .{ .ret, .x30 },
+    },
+    .{
+        .pattern = "RET <Xn>",
+        .symbols = .{
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .ret, .Xn },
+    },
+    // C6.2.268 SBFM
+    .{
+        .pattern = "SBFM <Wd>, <Wn>, #<immr>, #<imms>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .immr = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+            .imms = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .sbfm, .Wd, .Wn, .{ .N = .word, .immr = .immr, .imms = .imms } },
+    },
+    .{
+        .pattern = "SBFM <Xd>, <Xn>, #<immr>, #<imms>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .immr = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+            .imms = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .sbfm, .Xd, .Xn, .{ .N = .doubleword, .immr = .immr, .imms = .imms } },
+    },
+    // C6.2.280 SEV
+    .{
+        .pattern = "SEV",
+        .symbols = .{},
+        .encode = .{.sev},
+    },
+    // C6.2.281 SEVL
+    .{
+        .pattern = "SEVL",
+        .symbols = .{},
+        .encode = .{.sevl},
+    },
+    // C6.2.283 SMC
+    .{
+        .pattern = "SMC #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .smc, .imm },
+    },
+    // C6.2.321 STP
+    .{
+        .pattern = "STP <Wt1>, <Wt2>, [<Xn|SP>], #<imm>",
+        .symbols = .{
+            .Wt1 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wt2 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 }, .multiple_of = 4 } },
+        },
+        .encode = .{ .stp, .Wt1, .Wt2, .{ .post_index = .{ .base = .Xn, .index = .imm } } },
+    },
+    .{
+        .pattern = "STP <Xt1>, <Xt2>, [<Xn|SP>], #<imm>",
+        .symbols = .{
+            .Xt1 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xt2 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 10 }, .multiple_of = 8 } },
+        },
+        .encode = .{ .stp, .Xt1, .Xt2, .{ .post_index = .{ .base = .Xn, .index = .imm } } },
+    },
+    .{
+        .pattern = "STP <Wt1>, <Wt2>, [<Xn|SP>, #<imm>]!",
+        .symbols = .{
+            .Wt1 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wt2 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 }, .multiple_of = 4 } },
+        },
+        .encode = .{ .stp, .Wt1, .Wt2, .{ .pre_index = .{ .base = .Xn, .index = .imm } } },
+    },
+    .{
+        .pattern = "STP <Xt1>, <Xt2>, [<Xn|SP>, #<imm>]!",
+        .symbols = .{
+            .Xt1 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xt2 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 10 }, .multiple_of = 8 } },
+        },
+        .encode = .{ .stp, .Xt1, .Xt2, .{ .pre_index = .{ .base = .Xn, .index = .imm } } },
+    },
+    .{
+        .pattern = "STP <Wt1>, <Wt2>, [<Xn|SP>]",
+        .symbols = .{
+            .Wt1 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wt2 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .stp, .Wt1, .Wt2, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "STP <Wt1>, <Wt2>, [<Xn|SP>, #<imm>]",
+        .symbols = .{
+            .Wt1 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wt2 = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 }, .multiple_of = 4 } },
+        },
+        .encode = .{ .stp, .Wt1, .Wt2, .{ .signed_offset = .{ .base = .Xn, .offset = .imm } } },
+    },
+    .{
+        .pattern = "STP <Xt1>, <Xt2>, [<Xn|SP>]",
+        .symbols = .{
+            .Xt1 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xt2 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .stp, .Xt1, .Xt2, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "STP <Xt1>, <Xt2>, [<Xn|SP>, #<imm>]",
+        .symbols = .{
+            .Xt1 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xt2 = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 10 }, .multiple_of = 8 } },
+        },
+        .encode = .{ .stp, .Xt1, .Xt2, .{ .signed_offset = .{ .base = .Xn, .offset = .imm } } },
+    },
+    // C6.2.322 STR (immediate)
+    .{
+        .pattern = "STR <Wt>, [<Xn|SP>], #<simm>",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .str, .Wt, .{ .post_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    .{
+        .pattern = "STR <Xt>, [<Xn|SP>], #<simm>",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .str, .Xt, .{ .post_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    .{
+        .pattern = "STR <Wt>, [<Xn|SP>, #<simm>]!",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .str, .Wt, .{ .pre_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    .{
+        .pattern = "STR <Xt>, [<Xn|SP>, #<simm>]!",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .str, .Xt, .{ .pre_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    .{
+        .pattern = "STR <Wt>, [<Xn|SP>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .str, .Wt, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "STR <Wt>, [<Xn|SP>, #<pimm>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .pimm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 14 }, .multiple_of = 4 } },
+        },
+        .encode = .{ .str, .Wt, .{ .unsigned_offset = .{ .base = .Xn, .offset = .pimm } } },
+    },
+    .{
+        .pattern = "STR <Xt>, [<Xn|SP>]",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .str, .Xt, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "STR <Xt>, [<Xn|SP>, #<pimm>]",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .pimm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 15 }, .multiple_of = 8 } },
+        },
+        .encode = .{ .str, .Xt, .{ .unsigned_offset = .{ .base = .Xn, .offset = .pimm } } },
+    },
+    // C6.2.356 SUB (extended register)
+    .{
+        .pattern = "SUB <Wd|WSP>, <Wn|WSP>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .sub, .Wd, .Wn, .{ .register = .Wm } },
+    },
+    .{
+        .pattern = "SUB <Wd|WSP>, <Wn|WSP>, <Wm>, <extend> #<amount>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .extend = .{ .extend = .{ .size = .word } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 3 }, .max_valid = 4 } },
+        },
+        .encode = .{ .sub, .Wd, .Wn, .{ .extended_register_explicit = .{ .register = .Wm, .option = .extend, .amount = .amount } } },
+    },
+    .{
+        .pattern = "SUB <Xd|SP>, <Xn|SP>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sub, .Xd, .Xn, .{ .register = .Xm } },
+    },
+    .{
+        .pattern = "SUB <Xd|SP>, <Xn|SP>, <Wm>, <extend> #<amount>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .extend = .{ .extend = .{ .size = .word } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 3 }, .max_valid = 4 } },
+        },
+        .encode = .{ .sub, .Xd, .Xn, .{ .extended_register_explicit = .{ .register = .Wm, .option = .extend, .amount = .amount } } },
+    },
+    .{
+        .pattern = "SUB <Xd|SP>, <Xn|SP>, <Xm>, <extend> #<amount>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .extend = .{ .extend = .{ .size = .doubleword } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 3 }, .max_valid = 4 } },
+        },
+        .encode = .{ .sub, .Xd, .Xn, .{ .extended_register_explicit = .{ .register = .Xm, .option = .extend, .amount = .amount } } },
+    },
+    // C6.2.357 SUB (immediate)
+    .{
+        .pattern = "SUB <Wd|WSP>, <Wn|WSP>, #<imm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 12 } } },
+        },
+        .encode = .{ .sub, .Wd, .Wn, .{ .immediate = .imm } },
+    },
+    .{
+        .pattern = "SUB <Wd|WSP>, <Wn|WSP>, #<imm>, LSL #<shift>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 12 } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 4 }, .multiple_of = 12 } },
+        },
+        .encode = .{ .sub, .Wd, .Wn, .{ .shifted_immediate = .{ .immediate = .imm, .lsl = .shift } } },
+    },
+    .{
+        .pattern = "SUB <Xd|SP>, <Xn|SP>, #<imm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 12 } } },
+        },
+        .encode = .{ .sub, .Xd, .Xn, .{ .immediate = .imm } },
+    },
+    .{
+        .pattern = "SUB <Xd|SP>, <Xn|SP>, #<imm>, LSL #<shift>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 12 } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 4 }, .multiple_of = 12 } },
+        },
+        .encode = .{ .sub, .Xd, .Xn, .{ .shifted_immediate = .{ .immediate = .imm, .lsl = .shift } } },
+    },
+    // C6.2.358 SUB (shifted register)
+    .{
+        .pattern = "SUB <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .sub, .Wd, .Wn, .{ .register = .Wm } },
+    },
+    .{
+        .pattern = "SUB <Wd>, <Wn>, <Wm>, <shift> #<amount>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .shift = .{ .shift = .{ .allow_ror = false } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .sub, .Wd, .Wn, .{ .shifted_register_explicit = .{ .register = .Wm, .shift = .shift, .amount = .amount } } },
+    },
+    .{
+        .pattern = "SUB <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .sub, .Xd, .Xn, .{ .register = .Xm } },
+    },
+    .{
+        .pattern = "SUB <Xd>, <Xn>, <Xm>, <shift> #<amount>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .shift = .{ .shift = .{ .allow_ror = false } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .sub, .Xd, .Xn, .{ .shifted_register_explicit = .{ .register = .Xm, .shift = .shift, .amount = .amount } } },
+    },
+    // C6.2.365 SVC
+    .{
+        .pattern = "SVC #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .svc, .imm },
+    },
+    // C6.2.376 TCANCEL
+    .{
+        .pattern = "TCANCEL #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .tcancel, .imm },
+    },
+    // C6.2.385 UBFM
+    .{
+        .pattern = "UBFM <Wd>, <Wn>, #<immr>, #<imms>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .immr = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+            .imms = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .ubfm, .Wd, .Wn, .{ .N = .word, .immr = .immr, .imms = .imms } },
+    },
+    .{
+        .pattern = "UBFM <Xd>, <Xn>, #<immr>, #<imms>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .immr = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+            .imms = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .ubfm, .Xd, .Xn, .{ .N = .doubleword, .immr = .immr, .imms = .imms } },
+    },
+    // C6.2.387 UDF
+    .{
+        .pattern = "UDF #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 16 } } },
+        },
+        .encode = .{ .udf, .imm },
+    },
+    // C6.2.396 WFE
+    .{
+        .pattern = "WFE",
+        .symbols = .{},
+        .encode = .{.wfe},
+    },
+    // C6.2.398 WFI
+    .{
+        .pattern = "WFI",
+        .symbols = .{},
+        .encode = .{.wfi},
+    },
+    // C6.2.402 YIELD
+    .{
+        .pattern = "YIELD",
+        .symbols = .{},
+        .encode = .{.yield},
+    },
+}

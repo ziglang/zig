@@ -4,8 +4,6 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-pub const Sign = enum(u1) { positive, negative };
-
 pub fn FloatRepr(comptime Float: type) type {
     const fractional_bits = floatFractionalBits(Float);
     const exponent_bits = floatExponentBits(Float);
@@ -14,7 +12,7 @@ pub fn FloatRepr(comptime Float: type) type {
 
         mantissa: StoredMantissa,
         exponent: BiasedExponent,
-        sign: Sign,
+        sign: std.math.Sign,
 
         pub const StoredMantissa = @Type(.{ .int = .{
             .signedness = .unsigned,
@@ -69,7 +67,7 @@ pub fn FloatRepr(comptime Float: type) type {
 
             /// This currently truncates denormal values, which needs to be fixed before this can be used to
             /// produce a rounded value.
-            pub fn reconstruct(normalized: Normalized, sign: Sign) Float {
+            pub fn reconstruct(normalized: Normalized, sign: std.math.Sign) Float {
                 if (normalized.exponent > BiasedExponent.max_normal.unbias()) return @bitCast(Repr{
                     .mantissa = 0,
                     .exponent = .infinite,

@@ -251,7 +251,7 @@ const PIo2 = [_]f64{
 /// compiler will convert from decimal to binary accurately enough
 /// to produce the hexadecimal values shown.
 ///
-pub fn rem_pio2_large(x: []f64, y: []f64, e0: i32, nx: i32, prec: usize) i32 {
+pub fn rem_pio2_large(x: []const f64, y: []f64, e0: i32, nx: i32, prec: usize) i32 {
     var jz: i32 = undefined;
     var jx: i32 = undefined;
     var jv: i32 = undefined;

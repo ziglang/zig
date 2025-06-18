@@ -6,7 +6,6 @@ const tag_name = @tagName(TestEnum.TestEnumValue);
 const ptr_tag_name: [*:0]const u8 = tag_name;
 
 test "@tagName() returns a string literal" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -20,7 +19,6 @@ const error_name = @errorName(TestError.TestErrorCode);
 const ptr_error_name: [*:0]const u8 = error_name;
 
 test "@errorName() returns a string literal" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -34,7 +32,6 @@ const type_name = @typeName(TestType);
 const ptr_type_name: [*:0]const u8 = type_name;
 
 test "@typeName() returns a string literal" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -48,7 +45,6 @@ const ptr_actual_contents: [*:0]const u8 = actual_contents;
 const expected_contents = "hello zig\n";
 
 test "@embedFile() returns a string literal" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -64,7 +60,7 @@ fn testFnForSrc() std.builtin.SourceLocation {
 }
 
 test "@src() returns a struct containing 0-terminated string slices" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 

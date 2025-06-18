@@ -550,6 +550,14 @@ set(ZIG_STAGE2_SOURCES
     src/clang_options.zig
     src/clang_options_data.zig
     src/codegen.zig
+    src/codegen/aarch64.zig
+    src/codegen/aarch64/abi.zig
+    src/codegen/aarch64/Assemble.zig
+    src/codegen/aarch64/Disassemble.zig
+    src/codegen/aarch64/encoding.zig
+    src/codegen/aarch64/instructions.zon
+    src/codegen/aarch64/Mir.zig
+    src/codegen/aarch64/Select.zig
     src/codegen/c.zig
     src/codegen/c/Type.zig
     src/codegen/llvm.zig
