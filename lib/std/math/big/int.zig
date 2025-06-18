@@ -21,6 +21,29 @@ const native_endian = builtin.cpu.arch.endian();
 // it may also depend on the cpu
 const recursive_division_threshold = 100;
 const karatsuba_threshold = 40;
+// TODO: better number
+const tostring_subquadratic_threshold = 12;
+
+// Comptime-computed constants for supported bases (2 - 36)
+// all values are set to 0 for bases 0 - 1, to make it possible to
+// access a constant for a given base b using `constants.value[b]`
+const Constants = struct {
+    // big_bases[b] is the biggest power of b that fit in a single Limb
+    // i.e. big_bases[b] = b^k < 2^@bitSizeOf(Limb) and b^(k+1) >= 2^@bitSizeOf(Limb)
+    big_bases: [37]Limb,
+    // digits_per_limb[b] is the value of k used in the previous field
+    digits_per_limb: [37]u8,
+};
+const constants: Constants = blk: {
+    @setEvalBranchQuota(2000);
+    var digits_per_limb = [_]u8{0} ** 37;
+    var bases = [_]Limb{0} ** 37;
+    for (2..37) |base| {
+        digits_per_limb[base] = @intCast(math.log(Limb, base, math.maxInt(Limb)));
+        bases[base] = std.math.pow(Limb, base, digits_per_limb[base]);
+    }
+    break :blk Constants{ .big_bases = bases, .digits_per_limb = digits_per_limb };
+};
 
 /// Returns the number of limbs needed to store `scalar`, which must be a
 /// primitive integer value.
@@ -1988,11 +2011,13 @@ pub const Const = struct {
 
     /// Returns the approximate size of the integer in the given base. Negative values accommodate for
     /// the minus sign. This is used for determining the number of characters needed to print the
-    /// value. It is inexact and may exceed the given value by ~1-2 bytes.
-    /// TODO See if we can make this exact.
+    /// value. It is either correct or one too large.
     pub fn sizeInBaseUpperBound(self: Const, base: usize) usize {
-        const bit_count = @as(usize, @intFromBool(!self.positive)) + self.bitCountAbs();
-        return (bit_count / math.log2(base)) + 2;
+        // floor(self.bitCountAbs() / log2(base)) + 1
+        // is either correct or one too large, does not account for the minus sign
+        const digit_count = @as(usize, @intFromFloat(@as(f32, @floatFromInt(self.bitCountAbs())) / math.log2(@as(f32, @floatFromInt(base))))) + 1;
+        return @intFromBool(!self.positive) // minus sign
+        + digit_count;
     }
 
     pub const ConvertError = error{
@@ -2102,14 +2127,14 @@ pub const Const = struct {
         if (self.limbs.len > available_len)
             return out_stream.writeAll("(BigInt)");
 
-        var limbs: [calcToStringLimbsBufferLen(available_len, base)]Limb = undefined;
+        var limbs: [available_len]Limb = undefined;
 
         const biggest: Const = .{
             .limbs = &([1]Limb{comptime math.maxInt(Limb)} ** available_len),
             .positive = false,
         };
         var buf: [biggest.sizeInBaseUpperBound(base)]u8 = undefined;
-        const len = self.toString(&buf, base, case, &limbs);
+        const len = self.toString(&buf, base, case, null, &limbs) catch unreachable;
         return out_stream.writeAll(buf[0..len]);
     }
 
@@ -2124,13 +2149,17 @@ pub const Const = struct {
         if (self.eqlZero()) {
             return allocator.dupe(u8, "0");
         }
-        const string = try allocator.alloc(u8, self.sizeInBaseUpperBound(base));
+        var string = try allocator.alloc(u8, self.sizeInBaseUpperBound(base));
         errdefer allocator.free(string);
 
-        const limbs = try allocator.alloc(Limb, calcToStringLimbsBufferLen(self.limbs.len, base));
-        defer allocator.free(limbs);
+        const string_len = try self.toString(string, base, case, allocator, null);
 
-        return allocator.realloc(string, self.toString(string, base, case, limbs));
+        if (!allocator.resize(string, string_len))
+            string = try allocator.realloc(string, string_len)
+        else
+            string = string[0..string_len];
+
+        return string;
     }
 
     /// Converts self to a string in the requested base.
@@ -2138,105 +2167,146 @@ pub const Const = struct {
     /// `string` is a caller-provided slice of at least `sizeInBaseUpperBound` bytes,
     /// where the result is written to.
     /// Returns the length of the string.
-    /// `limbs_buffer` is caller-provided memory for `toString` to use as a working area. It must have
-    /// length of at least `calcToStringLimbsBufferLen`.
+    ///
+    /// Either an allocator or a `limbs_buffer` must be caller-provided.
+    /// If provided with no allocator, `limbs_buffer` must have a length of at least `self.limbs.len`.
+    /// Providing an allocator is required to enable the use of faster base conversion algorithm if
+    /// the number is large enough.
+    ///
+    /// If an allocation fails, this function tries to fallback onto the slower algorithm.
+    /// In that case, if `limbs_buffer` is provided, it will be used. Otherwise, it will try to
+    /// allocate it.
+    ///
+    /// If a `limbs_buffer` is provided (with or without an allocator), this function will not fail.
+    ///
     /// In the case of power-of-two base, `limbs_buffer` is ignored.
     /// See also `toStringAlloc`, a higher level function than this.
-    pub fn toString(self: Const, string: []u8, base: u8, case: std.fmt.Case, limbs_buffer: []Limb) usize {
+    pub fn toString(self: Const, string: []u8, base: u8, case: std.fmt.Case, allocator: ?Allocator, limbs_buffer: ?[]Limb) Allocator.Error!usize {
         assert(base >= 2);
-        assert(base <= 36);
+        assert(base <= constants.big_bases.len);
+        assert(allocator != null or limbs_buffer != null);
+        assert(string.len >= sizeInBaseUpperBound(self, base));
+
+        @memset(string, 0);
 
         if (self.eqlZero()) {
             string[0] = '0';
             return 1;
         }
 
-        var digits_len: usize = 0;
-
         // Power of two: can do a single pass and use masks to extract digits.
         if (math.isPowerOfTwo(base)) {
+            var digits_len: usize = string.len;
             const base_shift = math.log2_int(Limb, base);
 
             outer: for (self.limbs[0..self.limbs.len]) |limb| {
                 var shift: usize = 0;
                 while (shift < limb_bits) : (shift += base_shift) {
                     const r = @as(u8, @intCast((limb >> @as(Log2Limb, @intCast(shift))) & @as(Limb, base - 1)));
-                    const ch = std.fmt.digitToChar(r, case);
-                    string[digits_len] = ch;
-                    digits_len += 1;
+                    string[digits_len - 1] = r;
+                    digits_len -= 1;
                     // If we hit the end, it must be all zeroes from here.
-                    if (digits_len == string.len) break :outer;
+                    if (digits_len == 0) break :outer;
                 }
             }
 
             // Always will have a non-zero digit somewhere.
-            while (string[digits_len - 1] == '0') {
-                digits_len -= 1;
+            while (string[digits_len] == '0') {
+                string[digits_len] = 0;
+                digits_len += 1;
             }
+        } else if (allocator == null or self.limbs.len <= tostring_subquadratic_threshold) {
+            const buffer = limbs_buffer orelse try allocator.?.alloc(Limb, self.limbs.len);
+            defer if (limbs_buffer == null) allocator.?.free(buffer);
+
+            assert(buffer.len >= self.limbs.len);
+
+            const num = buffer[0..self.limbs.len];
+            @memcpy(num, self.limbs);
+
+            toStringBasecase(num, string, base);
         } else {
-            // Non power-of-two: batch divisions per word size.
-            // We use a HalfLimb here so the division uses the faster lldiv0p5 over lldiv1 codepath.
-            const digits_per_limb = math.log(HalfLimb, base, maxInt(HalfLimb));
-            var limb_base: Limb = 1;
-            var j: usize = 0;
-            while (j < digits_per_limb) : (j += 1) {
-                limb_base *= base;
-            }
-            const b: Const = .{ .limbs = &[_]Limb{limb_base}, .positive = true };
+            var arena = std.heap.ArenaAllocator.init(allocator.?);
+            defer arena.deinit();
+            const arena_allocator = arena.allocator();
 
-            var q: Mutable = .{
-                .limbs = limbs_buffer[0 .. self.limbs.len + 2],
-                .positive = true, // Make absolute by ignoring self.positive.
-                .len = self.limbs.len,
-            };
-            @memcpy(q.limbs[0..self.limbs.len], self.limbs);
-
-            var r: Mutable = .{
-                .limbs = limbs_buffer[q.limbs.len..][0..self.limbs.len],
-                .positive = true,
-                .len = 1,
-            };
-            r.limbs[0] = 0;
-
-            const rest_of_the_limbs_buf = limbs_buffer[q.limbs.len + r.limbs.len ..];
-
-            while (q.len >= 2) {
-                // Passing an allocator here would not be helpful since this division is destroying
-                // information, not creating it. [TODO citation needed]
-                // passing an allocator is not useful since b is one limb, so it will use lldiv1
-                q.divTrunc(&r, q.toConst(), b, rest_of_the_limbs_buf, null);
-
-                var r_word = r.limbs[0];
-                var i: usize = 0;
-                while (i < digits_per_limb) : (i += 1) {
-                    const ch = std.fmt.digitToChar(@as(u8, @intCast(r_word % base)), case);
-                    r_word /= base;
-                    string[digits_len] = ch;
-                    digits_len += 1;
-                }
-            }
-
+            // Subquadratic algorithm, using divide and conquer
+            // We compute a list of bases of the form B^(2^k) with B = big_bases[base]
+            //
+            // The last base we compute (noted `last_B`) verifies self > `last_B` >= sqrt(self)
+            //
+            // The algorithm is explained above the definition of `toStringSubquadratic`
+            var base_list = std.ArrayList(Mutable).init(arena_allocator);
             {
-                assert(q.len == 1);
+                var b = Managed.initSet(arena_allocator, constants.big_bases[base]) catch return self.toStringFallback(string, base, case, allocator.?, limbs_buffer);
+                base_list.append(b.toMutable()) catch return self.toStringFallback(string, base, case, allocator.?, limbs_buffer);
 
-                var r_word = q.limbs[0];
-                while (r_word != 0) {
-                    const ch = std.fmt.digitToChar(@as(u8, @intCast(r_word % base)), case);
-                    r_word /= base;
-                    string[digits_len] = ch;
-                    digits_len += 1;
+                // if base.len() > a.len() / 2 + 1, then we have base > sqrt(a)
+                while (b.toConst().order(self) == .lt and b.len() <= self.limbs.len / 2 + 1) {
+                    // we make sure the list growing is not the last allocation,
+                    // so if we need to deallocate the last computed base,
+                    // the arena will be able to reuse the memory
+                    base_list.ensureTotalCapacity(base_list.items.len + 1) catch return self.toStringFallback(string, base, case, allocator.?, limbs_buffer);
+                    // TODO: why does the std thinks it needs + 1 ???
+                    var next_b = Managed.initCapacity(arena_allocator, b.len() * 2 + 1) catch return self.toStringFallback(string, base, case, allocator.?, limbs_buffer);
+
+                    // TODO: switch to sqr once it is faster than mul
+                    next_b.mul(&b, &b) catch unreachable;
+                    base_list.appendAssumeCapacity(next_b.toMutable());
+
+                    b = next_b;
+                }
+                // If the last one is greater than a, then the previous is greater than sqrt(a).
+                // While it is possible to ignore it as the recursive function will ignore it,
+                // freeing its memory is useful since we use an arena.
+                if (b.toConst().order(self) != .lt) {
+                    const popped = base_list.pop();
+                    arena_allocator.free(popped.?.limbs);
                 }
             }
+
+            // we allocate one more Limb as the division may need to shift the number
+            const buffer = arena_allocator.alloc(Limb, self.limbs.len + 1) catch return self.toStringFallback(string, base, case, allocator.?, limbs_buffer);
+            @memcpy(buffer[0..self.limbs.len], self.limbs[0..self.limbs.len]);
+            buffer[self.limbs.len] = 0;
+
+            toStringSubquadratic(arena_allocator, buffer, string, base, base_list.items) catch return self.toStringFallback(string, base, case, allocator.?, limbs_buffer);
         }
+
+        var i: usize = 0;
+        while (string[i] == 0) : (i += 1) {}
 
         if (!self.positive) {
-            string[digits_len] = '-';
-            digits_len += 1;
+            string[i - 1] = '-';
+            i -= 1;
         }
 
-        const s = string[0..digits_len];
-        mem.reverse(u8, s);
-        return s.len;
+        // same as `copyForwards` and then converting the digits' value to character
+        if (!self.positive)
+            string[0] = string[i]
+        else
+            string[0] = std.fmt.digitToChar(string[i], case);
+
+        for (1..string.len - i) |k|
+            string[k] = std.fmt.digitToChar(string[k + i], case);
+
+        return string.len - i;
+    }
+
+    /// Fallback function in case an allocation fails in `toString`
+    /// Must only be called by `toString` on failure
+    fn toStringFallback(self: Const, string: []u8, base: u8, case: std.fmt.Case, allocator: Allocator, limbs_buffer: ?[]Limb) Allocator.Error!usize {
+        @memset(string, 0);
+
+        // We do not pass the allocator to avoid an infinite loop
+        if (limbs_buffer) |buffer| {
+            return self.toString(string, base, case, null, buffer);
+        } else {
+            const buffer = try allocator.alloc(Limb, self.limbs.len);
+            defer allocator.free(buffer);
+
+            return self.toString(string, base, case, null, buffer);
+        }
     }
 
     /// Write the value of `x` into `buffer`
@@ -3629,8 +3699,7 @@ fn llaccum(comptime op: AccOp, r: []Limb, a: []const Limb) bool {
 }
 
 fn llaccumGeneric(comptime op: AccOp, r: []Limb, a: []const Limb) bool {
-    assert(r.len >= a.len);
-
+    if (r.len < a.len) return llaccumGeneric(op, r, a[0..r.len]);
     if (a.len == 0) return false;
     if (op == .sub)
         return llsubcarry(r, r, a) != 0;
@@ -4836,6 +4905,157 @@ fn fixedIntFromSignedDoubleLimb(A: SignedDoubleLimb, storage: []Limb) Mutable {
         .positive = A_is_positive,
         .len = 2,
     };
+}
+
+/// Allows to divide in-place without having an extra limb available to shift when b is not normalized
+// Could probably be made less expensive by doing one division step manually, to avoid
+// copying the data
+// Note (when used by toString) : when `Limb` is 64 bits and b = big_bases[10],
+// b is already normalized, so the most common case is not using the slower path
+fn divby1(a: []Limb, b: Limb) Limb {
+    if (@clz(b) == 0) {
+        return lldiv1(a, a, b);
+    }
+
+    const base = b << @truncate(@clz(b));
+    const a2 = a[0];
+
+    mem.copyForwards(Limb, a, a[1..]);
+    a[a.len - 1] = 0;
+    const len = std.math.big.int.llshl(a, a[0 .. a.len - 1], @clz(b));
+
+    // B = 2^@bitSizeOf(Limb)
+    // a = a1*B + a2                          -- here, a1 is a[1..]
+    //   = (q1 * b + r1)*B + (q2 * b + r2)    -- division of a1 and a2 by b
+    //   = (q1 * B + q2)*b + (r1 * B + r2)
+    // and r1 * B + r2 = q3 * b + r3          -- division of r1*B + r2 by b
+    //
+    // so a = (q1 * B + q2 + q3)*b + r3
+    // q1 and r1 are obtained using `lldiv1`
+
+    // q1 is written to a[1..] (same as doing *B)
+    var r1: DoubleLimb = lldiv1(a[1..], a[0..len], base);
+
+    const q1 = a;
+    q1[0] = 0;
+    // since b was shifted for the division, so is r1 (see division algorithms)
+    r1 >>= @truncate(@clz(b));
+
+    // multiply by B and add r2
+    r1 <<= @bitSizeOf(Limb);
+    r1 += a2 % b;
+
+    const q2 = a2 / b;
+    _ = llaccum(.add, q1, &.{q2});
+
+    // compute q3 and r3
+    const q3: Limb = @intCast(r1 / b);
+    _ = llaccum(.add, q1, &.{q3});
+    r1 %= b;
+
+    return @intCast(r1);
+}
+
+/// O(n^2) in-place algorithm to convert a number to a string in a different base
+/// `string` must have enough space to store the number
+/// Does not write leading zeros (filling string with zeros beforehand is advised).
+/// Each element of string is the value of the digit rather than its character representation.
+/// Converting between the value and the character is handled by the caller.
+fn toStringBasecase(num: []Limb, string: []u8, base: u8) void {
+    assert(base >= 2);
+    assert(base <= constants.big_bases.len);
+
+    const big_base = constants.big_bases[base];
+    const dig_per_limb = constants.digits_per_limb[base];
+
+    var string_len: usize = string.len;
+    var a = num;
+
+    while (a.len > 1) {
+        var d = divby1(num, big_base);
+
+        for (0..dig_per_limb) |_| {
+            string[string_len - 1] = @intCast(d % base);
+            d /= base;
+            string_len -= 1;
+        }
+
+        // TODO: can this happen multiple times ?
+        while (a.len > 1 and a[a.len - 1] == 0)
+            a = a[0 .. a.len - 1];
+    }
+    var d = a[0];
+    while (d != 0) {
+        string[string_len - 1] = @intCast(d % base);
+        d /= base;
+        string_len -= 1;
+    }
+}
+
+/// Subquadratic algorithm converting a number into an other base
+/// actual complexity depends on the multiplication and division's complexity
+///
+/// `num[num.len - 1]` must not be part of the actual number, and must be left as space for the division.
+///
+/// bases is a list of B^(2^k), with B = big_bases[base], in increasing order (bases[k] = B^(2^k))
+/// at least one of the bases must be greater than sqrt(num) (not asserted)
+///
+/// As for `toStringBasecase`, the values of num's digits are written to string rather than
+/// their character representation (and it is similarly advised to fill `string` with zeros)
+///
+/// How this algorithm works:
+/// At each step of the recursion:
+/// - if num is too small, we fallback onto the basecase algorithm
+/// otherwise:
+/// - we find `B` (written `b` in the code) in the list `bases` such that num > B >= sqrt(num)
+///   therefore, B = big_bases[base]^(2^k) = base^(digits_per_limbs[base] * 2^k)
+///   because of how `bases` is constructed, `B` is the largest element of `bases` smaller than
+///   `num`
+/// - we divide `num` by `B`, and get q and r such as `num = q * B + r`
+///   since B >= sqrt(num), both q and r are < B (with q <= r), so B is not needed
+///   in future recursive calls
+///
+///   furthermore, `r` is exactly `digits_per_limbs[base] * 2^k` digits, and `q` is less than that
+/// - we then recurse on `q` and `r`
+///
+/// Some alternative algorithms compute B = base^k with `B` close to sqrt(num) (e.g. in Modern Computer Arithmetic)
+/// We do not do that (and follow gmp) since it reduces the number of `B` to compute.
+/// The drawback is that the division may not be well balanced (if `B` is close to `num`), potentially leading to
+/// a small performance hit, which may or may not be noticeable (no tests have been done).
+fn toStringSubquadratic(allocator: std.mem.Allocator, num: []Limb, string: []u8, base: u8, bases: []const Mutable) Allocator.Error!void {
+    assert(base >= 2);
+    assert(base <= constants.big_bases.len);
+
+    if (num.len - 1 < tostring_subquadratic_threshold) {
+        toStringBasecase(num[0 .. num.len - 1], string, base);
+        return;
+    }
+
+    const a = Mutable{ .len = num.len - 1, .limbs = num, .positive = true };
+
+    // Retrieve the first base smaller than num
+    var i = bases.len - 1;
+    while (bases[i].toConst().order(a.toConst()) != .lt)
+        i -= 1;
+
+    const b = bases[i];
+
+    // the "+ 1" is for division in future recursive calls
+    const limb_buffer = try allocator.alloc(Limb, calcDivQLen(a.len, b.len) + 1);
+
+    var q = Mutable{ .len = 0, .limbs = limb_buffer, .positive = true };
+    var r = Mutable{ .len = 0, .limbs = num, .positive = true };
+    Mutable.div(&q, &r, a, b, allocator);
+
+    // `base` is big_bases[b]^(2^i) == b^(k*2^i),
+    // so the remainder of the division has k*2^i digits is base b
+    const split = string.len - (@as(usize, 1) << @truncate(i)) * constants.digits_per_limb[base];
+
+    try toStringSubquadratic(allocator, q.limbs[0 .. q.len + 1], string[0..split], base, bases[0..i]);
+    // since we should receive an arena, this allow the next recursive call to reuse already allocated memory,
+    // assuming all memory allocated in the recursive call has already been freed
+    allocator.free(limb_buffer);
+    try toStringSubquadratic(allocator, r.limbs[0 .. r.len + 1], string[split..], base, bases[0..i]);
 }
 
 fn slicesOverlap(a: []const Limb, b: []const Limb) bool {
