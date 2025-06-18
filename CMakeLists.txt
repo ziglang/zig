@@ -694,6 +694,12 @@ if(MSVC)
         set(ZIG_DIA_GUIDS_LIB "${MSVC_DIA_SDK_DIR}/lib/amd64/diaguids.lib")
         string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_DIA_GUIDS_LIB_ESCAPED "${ZIG_DIA_GUIDS_LIB}")
     endif()
+
+    # The /RTC[c][s][u] flag enables extra runtime checks. ("/RTC1" == "/RTCsu")
+    # The "c" (PossibleDataLoss) and "u" (UninitializeVariable) flags trap on valid C code so we disable
+    # them.  The "s" flag seems like it might be OK.
+    string(REPLACE "/RTC1" "/RTCs" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
+    string(REPLACE "/RTC1" "/RTCs" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 endif()
 
 configure_file (
