@@ -629,9 +629,22 @@ fn checksContainStderr(checks: []const StdIo.Check) bool {
 fn convertPathArg(run: *Run, path: Build.Cache.Path) []const u8 {
     const b = run.step.owner;
     const path_str = path.toString(b.graph.arena) catch @panic("OOM");
-    const child_lazy_cwd = run.cwd orelse return path_str;
-    const child_cwd = child_lazy_cwd.getPath3(b, &run.step).toString(b.graph.arena) catch @panic("OOM");
-    return std.fs.path.relative(b.graph.arena, child_cwd, path_str) catch @panic("OOM");
+    if (std.fs.path.isAbsolute(path_str)) {
+        // Absolute paths don't need changing.
+        return path_str;
+    }
+    const child_cwd_rel: []const u8 = rel: {
+        const child_lazy_cwd = run.cwd orelse break :rel path_str;
+        const child_cwd = child_lazy_cwd.getPath3(b, &run.step).toString(b.graph.arena) catch @panic("OOM");
+        // Convert it from relative to *our* cwd, to relative to the *child's* cwd.
+        break :rel std.fs.path.relative(b.graph.arena, child_cwd, path_str) catch @panic("OOM");
+    };
+    assert(!std.fs.path.isAbsolute(child_cwd_rel));
+    // We're not done yet. In some cases this path must be prefixed with './':
+    // * On POSIX, the executable name cannot be a single component like 'foo'
+    // * Some executables might treat a leading '-' like a flag, which we must avoid
+    // There's no harm in it, so just *always* apply this prefix.
+    return std.fs.path.join(b.graph.arena, &.{ ".", child_cwd_rel }) catch @panic("OOM");
 }
 
 const IndexedOutput = struct {
@@ -754,6 +767,11 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     for (run.file_inputs.items) |lazy_path| {
         _ = try man.addFile(lazy_path.getPath2(b, step), null);
+    }
+
+    if (run.cwd) |cwd| {
+        const cwd_path = cwd.getPath3(b, step);
+        _ = man.hash.addBytes(try cwd_path.toString(arena));
     }
 
     if (!has_side_effects and try step.cacheHitAndWatch(&man)) {
