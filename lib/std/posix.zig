@@ -5739,7 +5739,7 @@ pub fn clock_gettime(clock_id: clockid_t) ClockGetTimeError!timespec {
     if (native_os == .windows) {
         @compileError("Windows does not support POSIX; use Windows-specific API or cross-platform std.time API");
     } else if (native_os == .wasi and !builtin.link_libc) {
-        var ts: timestamp_t = undefined;
+        var ts: wasi.timestamp_t = undefined;
         switch (system.clock_time_get(clock_id, 1, &ts)) {
             .SUCCESS => {
                 tp = .{
