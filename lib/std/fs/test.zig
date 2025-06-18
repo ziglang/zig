@@ -2026,6 +2026,31 @@ test "File.PermissionsUnix" {
     try testing.expect(!permissions_unix.unixHas(.other, .execute));
 }
 
+test "use Lock.none to unlock files" {
+    if (native_os == .wasi) return error.SkipZigTest;
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    // Create a locked file.
+    const test_file = try tmp.dir.createFile("test_file", .{ .lock = .exclusive, .lock_nonblocking = true });
+    defer test_file.close();
+
+    // Attempt to unlock the file via fs.lock with Lock.none.
+    try File.lock(test_file, .none);
+
+    // Attempt to open the file now that it should be unlocked.
+    const test_file2 = try tmp.dir.openFile("test_file", .{ .lock = .exclusive, .lock_nonblocking = true });
+    defer test_file2.close();
+
+    // Make sure Lock.none works with tryLock as well.
+    try testing.expect(try File.tryLock(test_file2, .none));
+
+    // Attempt to open the file since it should be unlocked again.
+    const test_file3 = try tmp.dir.openFile("test_file", .{});
+    test_file3.close();
+}
+
 test "delete a read-only file on windows" {
     if (native_os != .windows)
         return error.SkipZigTest;

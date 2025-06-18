@@ -1619,14 +1619,23 @@ pub const LockError = error{
 /// A process may hold only one type of lock (shared or exclusive) on
 /// a file. When a process terminates in any way, the lock is released.
 ///
-/// Assumes the file is unlocked.
+/// Assumes the file is unlocked, or in the case of Lock.none, locked.
 ///
 /// TODO: integrate with async I/O
 pub fn lock(file: File, l: Lock) LockError!void {
     if (is_windows) {
         var io_status_block: windows.IO_STATUS_BLOCK = undefined;
         const exclusive = switch (l) {
-            .none => return,
+            .none => return windows.UnlockFile(
+                file.handle,
+                &io_status_block,
+                &range_off,
+                &range_len,
+                null,
+            ) catch |err| switch (err) {
+                error.RangeNotLocked => unreachable, // The file is assumed to be locked.
+                error.Unexpected => return error.Unexpected,
+            },
             .shared => false,
             .exclusive => true,
         };
@@ -1668,7 +1677,7 @@ pub fn unlock(file: File) void {
             &range_len,
             null,
         ) catch |err| switch (err) {
-            error.RangeNotLocked => unreachable, // Function assumes unlocked.
+            error.RangeNotLocked => unreachable, // Function assumes locked.
             error.Unexpected => unreachable, // Resource deallocation must succeed.
         };
     } else {
@@ -1686,14 +1695,27 @@ pub fn unlock(file: File) void {
 /// A process may hold only one type of lock (shared or exclusive) on
 /// a file. When a process terminates in any way, the lock is released.
 ///
-/// Assumes the file is unlocked.
+/// Assumes the file is unlocked, or in the case of Lock.none, locked.
 ///
 /// TODO: integrate with async I/O
 pub fn tryLock(file: File, l: Lock) LockError!bool {
     if (is_windows) {
         var io_status_block: windows.IO_STATUS_BLOCK = undefined;
         const exclusive = switch (l) {
-            .none => return,
+            .none => {
+                windows.UnlockFile(
+                    file.handle,
+                    &io_status_block,
+                    &range_off,
+                    &range_len,
+                    null,
+                ) catch |err| switch (err) {
+                    error.RangeNotLocked => unreachable, // The file is assumed to be locked.
+                    error.Unexpected => return error.Unexpected,
+                };
+
+                return true;
+            },
             .shared => false,
             .exclusive => true,
         };
@@ -1760,7 +1782,7 @@ pub fn downgradeLock(file: File) LockError!void {
             null,
         ) catch |err| switch (err) {
             error.RangeNotLocked => unreachable, // File was not locked.
-            error.Unexpected => unreachable, // Resource deallocation must succeed.
+            error.Unexpected => return error.Unexpected,
         };
     } else {
         return posix.flock(file.handle, posix.LOCK.SH | posix.LOCK.NB) catch |err| switch (err) {
