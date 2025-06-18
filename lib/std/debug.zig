@@ -922,7 +922,7 @@ pub const StackIterator = struct {
                     if (next_unwind(
                         &it.ma,
                         it.unwind_state.?.debug_info,
-                        &it.unwind_state.?.debug_context,
+                        &it.unwind_state.?.dwarf_context,
                     )) |return_address| {
                         return return_address;
                     } else |err| {
