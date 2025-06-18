@@ -329,7 +329,7 @@ test "string to" {
     defer testing.allocator.free(as);
     const es = "120317241209124781241290847124";
 
-    try testing.expect(mem.eql(u8, as, es));
+    try testing.expectEqualSlices(u8, es, as);
 }
 
 test "string to base base error" {
@@ -347,7 +347,7 @@ test "string to base 2" {
     defer testing.allocator.free(as);
     const es = "-1011";
 
-    try testing.expect(mem.eql(u8, as, es));
+    try testing.expectEqualSlices(u8, es, as);
 }
 
 test "string to base 16" {
@@ -358,7 +358,7 @@ test "string to base 16" {
     defer testing.allocator.free(as);
     const es = "efffffff00000001eeeeeeefaaaaaaab";
 
-    try testing.expect(mem.eql(u8, as, es));
+    try testing.expectEqualSlices(u8, es, as);
 }
 
 test "string to base 36" {
@@ -369,7 +369,7 @@ test "string to base 36" {
     defer testing.allocator.free(as);
     const es = "fifvthrv1mzt79ez9";
 
-    try testing.expect(mem.eql(u8, as, es));
+    try testing.expectEqualSlices(u8, es, as);
 }
 
 test "neg string to" {
@@ -380,7 +380,7 @@ test "neg string to" {
     defer testing.allocator.free(as);
     const es = "-123907434";
 
-    try testing.expect(mem.eql(u8, as, es));
+    try testing.expectEqualSlices(u8, es, as);
 }
 
 test "zero string to" {
@@ -391,7 +391,7 @@ test "zero string to" {
     defer testing.allocator.free(as);
     const es = "0";
 
-    try testing.expect(mem.eql(u8, as, es));
+    try testing.expectEqualSlices(u8, es, as);
 }
 
 test "clone" {
@@ -3001,26 +3001,26 @@ test "big int conversion read twos complement with padding" {
 
     var bit_count: usize = 12 * 8 + 1;
     a.toConst().writeTwosComplement(buffer1[0..13], .little);
-    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0x1, 0xaa, 0xaa, 0xaa }));
+    try testing.expectEqualSlices(u8, &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0x1, 0xaa, 0xaa, 0xaa }, buffer1);
     a.toConst().writeTwosComplement(buffer1[0..13], .big);
-    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xaa, 0xaa, 0xaa }));
+    try testing.expectEqualSlices(u8, &[_]u8{ 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xaa, 0xaa, 0xaa }, buffer1);
     a.toConst().writeTwosComplement(buffer1[0..16], .little);
-    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0x1, 0x0, 0x0, 0x0 }));
+    try testing.expectEqualSlices(u8, &[_]u8{ 0xd, 0xc, 0xb, 0xa, 0x9, 0x8, 0x7, 0x6, 0x5, 0x4, 0x3, 0x2, 0x1, 0x0, 0x0, 0x0 }, buffer1);
     a.toConst().writeTwosComplement(buffer1[0..16], .big);
-    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0x0, 0x0, 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd }));
+    try testing.expectEqualSlices(u8, &[_]u8{ 0x0, 0x0, 0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd }, buffer1);
 
     @memset(buffer1, 0xaa);
     try a.set(-0x01_02030405_06070809_0a0b0c0d);
     bit_count = 12 * 8 + 2;
 
     a.toConst().writeTwosComplement(buffer1[0..13], .little);
-    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xaa, 0xaa, 0xaa }));
+    try testing.expectEqualSlices(u8, &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xaa, 0xaa, 0xaa }, buffer1);
     a.toConst().writeTwosComplement(buffer1[0..13], .big);
-    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3, 0xaa, 0xaa, 0xaa }));
+    try testing.expectEqualSlices(u8, &[_]u8{ 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3, 0xaa, 0xaa, 0xaa }, buffer1);
     a.toConst().writeTwosComplement(buffer1[0..16], .little);
-    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff, 0xff, 0xff }));
+    try testing.expectEqualSlices(u8, &[_]u8{ 0xf3, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff, 0xff, 0xff }, buffer1);
     a.toConst().writeTwosComplement(buffer1[0..16], .big);
-    try testing.expect(std.mem.eql(u8, buffer1, &[_]u8{ 0xff, 0xff, 0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 }));
+    try testing.expectEqualSlices(u8, &[_]u8{ 0xff, 0xff, 0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf3 }, buffer1);
 }
 
 test "big int write twos complement +/- zero" {
@@ -3035,13 +3035,13 @@ test "big int write twos complement +/- zero" {
     // Test zero
 
     m.toConst().writeTwosComplement(buffer1[0..13], .little);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3)), buffer1);
     m.toConst().writeTwosComplement(buffer1[0..13], .big);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3)), buffer1);
     m.toConst().writeTwosComplement(buffer1[0..16], .little);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 16)), buffer1);
     m.toConst().writeTwosComplement(buffer1[0..16], .big);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 16)), buffer1);
 
     @memset(buffer1, 0xaa);
     m.positive = false;
@@ -3049,13 +3049,13 @@ test "big int write twos complement +/- zero" {
     // Test negative zero
 
     m.toConst().writeTwosComplement(buffer1[0..13], .little);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3)), buffer1);
     m.toConst().writeTwosComplement(buffer1[0..13], .big);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3))));
+    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 13) ++ ([_]u8{0xaa} ** 3)), buffer1);
     m.toConst().writeTwosComplement(buffer1[0..16], .little);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 16)), buffer1);
     m.toConst().writeTwosComplement(buffer1[0..16], .big);
-    try testing.expect(std.mem.eql(u8, buffer1, &(([_]u8{0} ** 16))));
+    try testing.expectEqualSlices(u8, &(([_]u8{0} ** 16)), buffer1);
 }
 
 test "big int conversion write twos complement with padding" {
@@ -3415,8 +3415,8 @@ test "(BigInt) positive" {
     const b_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{b});
     defer testing.allocator.free(b_fmt);
 
-    try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));
-    try testing.expect(!mem.eql(u8, b_fmt, "(BigInt)"));
+    try testing.expectEqualSlices(u8, "(BigInt)", a_fmt);
+    try testing.expect(!mem.eql(u8, "(BigInt)", b_fmt));
 }
 
 test "(BigInt) negative" {
@@ -3440,8 +3440,8 @@ test "(BigInt) negative" {
     const b_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{b});
     defer testing.allocator.free(b_fmt);
 
-    try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));
-    try testing.expect(!mem.eql(u8, b_fmt, "(BigInt)"));
+    try testing.expectEqualSlices(u8, "(BigInt)", a_fmt);
+    try testing.expect(!mem.eql(u8, "(BigInt)", b_fmt));
 }
 
 test "clz" {
