@@ -1990,9 +1990,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         };
         errdefer if (opt_zcu) |zcu| zcu.deinit();
 
-        var windows_libs = try std.StringArrayHashMapUnmanaged(void).init(gpa, options.windows_lib_names, &.{});
-        errdefer windows_libs.deinit(gpa);
-
         comp.* = .{
             .gpa = gpa,
             .arena = arena,
@@ -2037,7 +2034,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .incremental = options.incremental,
             .root_name = root_name,
             .sysroot = sysroot,
-            .windows_libs = windows_libs,
+            .windows_libs = .empty,
             .version = options.version,
             .libc_installation = libc_dirs.libc_installation,
             .compiler_rt_strat = compiler_rt_strat,
@@ -2064,6 +2061,13 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_llvm_bc = try options.emit_llvm_bc.resolve(arena, &options, .llvm_bc),
             .emit_docs = try options.emit_docs.resolve(arena, &options, .docs),
         };
+
+        errdefer {
+            for (comp.windows_libs.keys()) |windows_lib| gpa.free(windows_lib);
+            comp.windows_libs.deinit(gpa);
+        }
+        try comp.windows_libs.ensureUnusedCapacity(gpa, options.windows_lib_names.len);
+        for (options.windows_lib_names) |windows_lib| comp.windows_libs.putAssumeCapacity(try gpa.dupe(u8, windows_lib), {});
 
         // Prevent some footguns by making the "any" fields of config reflect
         // the default Module settings.
@@ -2387,7 +2391,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                     // When linking mingw-w64 there are some import libs we always need.
                     try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
-                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
+                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(try gpa.dupe(u8, name), {});
                 } else {
                     return error.LibCUnavailable;
                 }
@@ -2480,6 +2484,7 @@ pub fn destroy(comp: *Compilation) void {
     comp.c_object_work_queue.deinit();
     comp.win32_resource_work_queue.deinit();
 
+    for (comp.windows_libs.keys()) |windows_lib| gpa.free(windows_lib);
     comp.windows_libs.deinit(gpa);
 
     {
@@ -7563,7 +7568,12 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // If we haven't seen this library yet and we're targeting Windows, we need
     // to queue up a work item to produce the DLL import library for this.
     const gop = try comp.windows_libs.getOrPut(comp.gpa, lib_name);
-    if (!gop.found_existing) try comp.queueJob(.{ .windows_import_lib = comp.windows_libs.count() - 1 });
+    if (gop.found_existing) return;
+    {
+        errdefer _ = comp.windows_libs.pop();
+        gop.key_ptr.* = try comp.gpa.dupe(u8, lib_name);
+    }
+    try comp.queueJob(.{ .windows_import_lib = gop.index });
 }
 
 /// This decides the optimization mode for all zig-provided libraries, including
