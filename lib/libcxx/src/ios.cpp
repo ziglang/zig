@@ -116,7 +116,7 @@ locale ios_base::getloc() const {
 }
 
 // xalloc
-#if defined(_LIBCPP_HAS_C_ATOMIC_IMP) && !defined(_LIBCPP_HAS_NO_THREADS)
+#if _LIBCPP_HAS_C_ATOMIC_IMP && _LIBCPP_HAS_THREADS
 atomic<int> ios_base::__xindex_{0};
 #else
 int ios_base::__xindex_ = 0;
@@ -361,18 +361,18 @@ void ios_base::swap(ios_base& rhs) noexcept {
 
 void ios_base::__set_badbit_and_consider_rethrow() {
   __rdstate_ |= badbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#if _LIBCPP_HAS_EXCEPTIONS
   if (__exceptions_ & badbit)
     throw;
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_EXCEPTIONS
 }
 
 void ios_base::__set_failbit_and_consider_rethrow() {
   __rdstate_ |= failbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#if _LIBCPP_HAS_EXCEPTIONS
   if (__exceptions_ & failbit)
     throw;
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_EXCEPTIONS
 }
 
 bool ios_base::sync_with_stdio(bool sync) {

@@ -7,17 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if defined(__need_wint_t) || defined(__need_mbstate_t)
-
-#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#    pragma GCC system_header
-#  endif
-
-#  include_next <wchar.h>
-
-#elif !defined(_LIBCPP_WCHAR_H)
-#  define _LIBCPP_WCHAR_H
-
 /*
     wchar.h synopsis
 
@@ -105,13 +94,10 @@ size_t wcsrtombs(char* restrict dst, const wchar_t** restrict src, size_t len,
 
 */
 
+#if defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/wchar.h>
+#else
 #  include <__config>
-#  include <stddef.h>
-
-#  if defined(_LIBCPP_HAS_NO_WIDE_CHARACTERS)
-#    error                                                                                                             \
-        "The <wchar.h> header is not supported since libc++ has been configured with LIBCXX_ENABLE_WIDE_CHARACTERS disabled"
-#  endif
 
 #  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #    pragma GCC system_header
@@ -119,30 +105,38 @@ size_t wcsrtombs(char* restrict dst, const wchar_t** restrict src, size_t len,
 
 // We define this here to support older versions of glibc <wchar.h> that do
 // not define this for clang.
-#  ifdef __cplusplus
+#  if defined(__cplusplus) && !defined(__CORRECT_ISO_CPP_WCHAR_H_PROTO)
 #    define __CORRECT_ISO_CPP_WCHAR_H_PROTO
 #  endif
 
+// The inclusion of the system's <wchar.h> is intentionally done once outside of any include
+// guards because some code expects to be able to include the underlying system header multiple
+// times to get different definitions based on the macros that are set before inclusion.
 #  if __has_include_next(<wchar.h>)
 #    include_next <wchar.h>
-#  else
-#    include <__mbstate_t.h> // make sure we have mbstate_t regardless of the existence of <wchar.h>
 #  endif
+
+#  ifndef _LIBCPP_WCHAR_H
+#    define _LIBCPP_WCHAR_H
+
+#    include <__mbstate_t.h> // provide mbstate_t
+#    include <stddef.h>      // provide size_t
 
 // Determine whether we have const-correct overloads for wcschr and friends.
-#  if defined(_WCHAR_H_CPLUSPLUS_98_CONFORMANCE_)
-#    define _LIBCPP_WCHAR_H_HAS_CONST_OVERLOADS 1
-#  elif defined(__GLIBC_PREREQ)
-#    if __GLIBC_PREREQ(2, 10)
+#    if defined(_WCHAR_H_CPLUSPLUS_98_CONFORMANCE_)
 #      define _LIBCPP_WCHAR_H_HAS_CONST_OVERLOADS 1
+#    elif defined(__GLIBC_PREREQ)
+#      if __GLIBC_PREREQ(2, 10)
+#        define _LIBCPP_WCHAR_H_HAS_CONST_OVERLOADS 1
+#      endif
+#    elif defined(_LIBCPP_MSVCRT)
+#      if defined(_CRT_CONST_CORRECT_OVERLOADS)
+#        define _LIBCPP_WCHAR_H_HAS_CONST_OVERLOADS 1
+#      endif
 #    endif
-#  elif defined(_LIBCPP_MSVCRT)
-#    if defined(_CRT_CONST_CORRECT_OVERLOADS)
-#      define _LIBCPP_WCHAR_H_HAS_CONST_OVERLOADS 1
-#    endif
-#  endif
 
-#  if defined(__cplusplus) && !defined(_LIBCPP_WCHAR_H_HAS_CONST_OVERLOADS) && defined(_LIBCPP_PREFERRED_OVERLOAD)
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
+#      if defined(__cplusplus) && !defined(_LIBCPP_WCHAR_H_HAS_CONST_OVERLOADS) && defined(_LIBCPP_PREFERRED_OVERLOAD)
 extern "C++" {
 inline _LIBCPP_HIDE_FROM_ABI wchar_t* __libcpp_wcschr(const wchar_t* __s, wchar_t __c) {
   return (wchar_t*)wcschr(__s, __c);
@@ -197,15 +191,17 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_PREFERRED_OVERLOAD wchar_t* wmemchr(wchar_t
   return __libcpp_wmemchr(__s, __c, __n);
 }
 }
-#  endif
+#      endif
 
-#  if defined(__cplusplus) && (defined(_LIBCPP_MSVCRT_LIKE) || defined(__MVS__))
+#      if defined(__cplusplus) && (defined(_LIBCPP_MSVCRT_LIKE) || defined(__MVS__))
 extern "C" {
 size_t mbsnrtowcs(
     wchar_t* __restrict __dst, const char** __restrict __src, size_t __nmc, size_t __len, mbstate_t* __restrict __ps);
 size_t wcsnrtombs(
     char* __restrict __dst, const wchar_t** __restrict __src, size_t __nwc, size_t __len, mbstate_t* __restrict __ps);
 } // extern "C"
-#  endif // __cplusplus && (_LIBCPP_MSVCRT || __MVS__)
+#      endif // __cplusplus && (_LIBCPP_MSVCRT || __MVS__)
+#    endif   // _LIBCPP_HAS_WIDE_CHARACTERS
+#  endif     // _LIBCPP_WCHAR_H
 
-#endif // _LIBCPP_WCHAR_H
+#endif // defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)

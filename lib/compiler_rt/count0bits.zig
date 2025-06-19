@@ -142,9 +142,7 @@ fn clzsi2_generic(a: i32) callconv(.c) i32 {
 pub const __clzsi2 = switch (builtin.cpu.arch) {
     .arm, .armeb, .thumb, .thumbeb => impl: {
         const use_thumb1 =
-            (builtin.cpu.arch.isThumb() or
-                std.Target.arm.featureSetHas(builtin.cpu.features, .noarm)) and
-            !std.Target.arm.featureSetHas(builtin.cpu.features, .thumb2);
+            (builtin.cpu.arch.isThumb() or builtin.cpu.has(.arm, .noarm)) and !builtin.cpu.has(.arm, .thumb2);
 
         if (use_thumb1) {
             break :impl __clzsi2_thumb1;

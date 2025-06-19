@@ -12,7 +12,7 @@ modfl (long double value, long double* iptr)
 {
   long double int_part = 0.0L;
   /* truncate */
-#if defined(_AMD64_) || defined(__x86_64__)
+#if (defined(_AMD64_) && !defined(_ARM64EC_)) || (defined(__x86_64__) && !defined(__arm64ec__))
   asm volatile ("subq $8, %%rsp\n"
     "fnstcw 4(%%rsp)\n"
     "movzwl 4(%%rsp), %%eax\n"

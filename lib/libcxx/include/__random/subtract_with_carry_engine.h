@@ -12,9 +12,10 @@
 #include <__algorithm/equal.h>
 #include <__algorithm/min.h>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__random/is_seed_sequence.h>
 #include <__random/linear_congruential_engine.h>
-#include <cstddef>
+#include <__type_traits/enable_if.h>
 #include <cstdint>
 #include <iosfwd>
 #include <limits>
@@ -71,12 +72,12 @@ public:
   static_assert(_Min < _Max, "subtract_with_carry_engine invalid parameters");
 
   // engine characteristics
-  static _LIBCPP_CONSTEXPR const size_t word_size = __w;
-  static _LIBCPP_CONSTEXPR const size_t short_lag = __s;
-  static _LIBCPP_CONSTEXPR const size_t long_lag  = __r;
+  static inline _LIBCPP_CONSTEXPR const size_t word_size = __w;
+  static inline _LIBCPP_CONSTEXPR const size_t short_lag = __s;
+  static inline _LIBCPP_CONSTEXPR const size_t long_lag  = __r;
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR result_type min() { return _Min; }
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR result_type max() { return _Max; }
-  static _LIBCPP_CONSTEXPR const result_type default_seed = 19780503u;
+  static inline _LIBCPP_CONSTEXPR const result_type default_seed = 19780503u;
 
   // constructors and seeding functions
 #ifndef _LIBCPP_CXX03_LANG
@@ -128,19 +129,6 @@ private:
   template <class _Sseq>
   _LIBCPP_HIDE_FROM_ABI void __seed(_Sseq& __q, integral_constant<unsigned, 2>);
 };
-
-template <class _UIntType, size_t __w, size_t __s, size_t __r>
-_LIBCPP_CONSTEXPR const size_t subtract_with_carry_engine<_UIntType, __w, __s, __r>::word_size;
-
-template <class _UIntType, size_t __w, size_t __s, size_t __r>
-_LIBCPP_CONSTEXPR const size_t subtract_with_carry_engine<_UIntType, __w, __s, __r>::short_lag;
-
-template <class _UIntType, size_t __w, size_t __s, size_t __r>
-_LIBCPP_CONSTEXPR const size_t subtract_with_carry_engine<_UIntType, __w, __s, __r>::long_lag;
-
-template <class _UIntType, size_t __w, size_t __s, size_t __r>
-_LIBCPP_CONSTEXPR const typename subtract_with_carry_engine<_UIntType, __w, __s, __r>::result_type
-    subtract_with_carry_engine<_UIntType, __w, __s, __r>::default_seed;
 
 template <class _UIntType, size_t __w, size_t __s, size_t __r>
 void subtract_with_carry_engine<_UIntType, __w, __s, __r>::seed(result_type __sd, integral_constant<unsigned, 1>) {

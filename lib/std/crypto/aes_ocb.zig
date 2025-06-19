@@ -101,8 +101,8 @@ fn AesOcb(comptime Aes: anytype) type {
             return offset;
         }
 
-        const has_aesni = std.Target.x86.featureSetHas(builtin.cpu.features, .aes);
-        const has_armaes = std.Target.aarch64.featureSetHas(builtin.cpu.features, .aes);
+        const has_aesni = builtin.cpu.has(.x86, .aes);
+        const has_armaes = builtin.cpu.has(.aarch64, .aes);
         const wb: usize = if ((builtin.cpu.arch == .x86_64 and has_aesni) or (builtin.cpu.arch == .aarch64 and has_armaes)) 4 else 0;
 
         /// c: ciphertext: output buffer should be of size m.len

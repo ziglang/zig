@@ -300,7 +300,7 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
     pass_builder.registerLoopAnalyses(loop_am);
     pass_builder.crossRegisterProxies(loop_am, function_am, cgscc_am, module_am);
 
-    pass_builder.registerPipelineStartEPCallback([&](ModulePassManager &module_pm, OptimizationLevel OL) {
+    pass_builder.registerPipelineStartEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level) {
         // Verify the input
         if (assertions_on) {
             module_pm.addPass(VerifierPass());
@@ -313,7 +313,7 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
 
     const bool early_san = options->is_debug;
 
-    pass_builder.registerOptimizerEarlyEPCallback([&](ModulePassManager &module_pm, OptimizationLevel OL) {
+    pass_builder.registerOptimizerEarlyEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level, ThinOrFullLTOPhase lto_phase) {
         if (early_san) {
             // Code coverage instrumentation.
             if (options->sancov) {
@@ -328,7 +328,7 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
         }
     });
 
-    pass_builder.registerOptimizerLastEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level) {
+    pass_builder.registerOptimizerLastEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level, ThinOrFullLTOPhase lto_phase) {
         if (!early_san) {
             // Code coverage instrumentation.
             if (options->sancov) {
@@ -360,7 +360,7 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
 
     // Initialize the PassManager
     if (opt_level == OptimizationLevel::O0) {
-      module_pm = pass_builder.buildO0DefaultPipeline(opt_level, options->lto);
+      module_pm = pass_builder.buildO0DefaultPipeline(opt_level, static_cast<ThinOrFullLTOPhase>(options->lto));
     } else if (options->lto) {
       module_pm = pass_builder.buildLTOPreLinkDefaultPipeline(opt_level);
     } else {
@@ -484,20 +484,22 @@ bool ZigLLVMWriteImportLibrary(const char *def_path, unsigned int coff_machine,
         }
     }
 
-    if (machine == COFF::IMAGE_FILE_MACHINE_I386 && kill_at) {
+    if (kill_at) {
         for (object::COFFShortExport& E : def->Exports) {
             if (!E.ImportName.empty() || (!E.Name.empty() && E.Name[0] == '?'))
                 continue;
-            E.SymbolName = E.Name;
+            if (machine == COFF::IMAGE_FILE_MACHINE_I386) {
+                // By making sure E.SymbolName != E.Name for decorated symbols,
+                // writeImportLibrary writes these symbols with the type
+                // IMPORT_NAME_UNDECORATE.
+                E.SymbolName = E.Name;
+            }
             // Trim off the trailing decoration. Symbols will always have a
             // starting prefix here (either _ for cdecl/stdcall, @ for fastcall
             // or ? for C++ functions). Vectorcall functions won't have any
             // fixed prefix, but the function base name will still be at least
             // one char.
             E.Name = E.Name.substr(0, E.Name.find('@', 1));
-            // By making sure E.SymbolName != E.Name for decorated symbols,
-            // writeImportLibrary writes these symbols with the type
-            // IMPORT_NAME_UNDECORATE.
         }
     }
 

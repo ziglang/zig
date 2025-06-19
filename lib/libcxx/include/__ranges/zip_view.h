@@ -36,7 +36,6 @@
 #include <__utility/forward.h>
 #include <__utility/integer_sequence.h>
 #include <__utility/move.h>
-#include <__utility/pair.h>
 #include <tuple>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -58,22 +57,11 @@ concept __zip_is_common =
     (!(bidirectional_range<_Ranges> && ...) && (common_range<_Ranges> && ...)) ||
     ((random_access_range<_Ranges> && ...) && (sized_range<_Ranges> && ...));
 
-template <typename _Tp, typename _Up>
-auto __tuple_or_pair_test() -> pair<_Tp, _Up>;
-
-template <typename... _Types>
-  requires(sizeof...(_Types) != 2)
-auto __tuple_or_pair_test() -> tuple<_Types...>;
-
-template <class... _Types>
-using __tuple_or_pair = decltype(__tuple_or_pair_test<_Types...>());
-
 template <class _Fun, class _Tuple>
 _LIBCPP_HIDE_FROM_ABI constexpr auto __tuple_transform(_Fun&& __f, _Tuple&& __tuple) {
   return std::apply(
       [&]<class... _Types>(_Types&&... __elements) {
-        return __tuple_or_pair<invoke_result_t<_Fun&, _Types>...>(
-            std::invoke(__f, std::forward<_Types>(__elements))...);
+        return tuple<invoke_result_t<_Fun&, _Types>...>(std::invoke(__f, std::forward<_Types>(__elements))...);
       },
       std::forward<_Tuple>(__tuple));
 }
@@ -88,7 +76,7 @@ _LIBCPP_HIDE_FROM_ABI constexpr void __tuple_for_each(_Fun&& __f, _Tuple&& __tup
 }
 
 template <class _Fun, class _Tuple1, class _Tuple2, size_t... _Indices>
-_LIBCPP_HIDE_FROM_ABI constexpr __tuple_or_pair<
+_LIBCPP_HIDE_FROM_ABI constexpr tuple<
     invoke_result_t<_Fun&,
                     typename tuple_element<_Indices, remove_cvref_t<_Tuple1>>::type,
                     typename tuple_element<_Indices, remove_cvref_t<_Tuple2>>::type>...>
@@ -250,10 +238,9 @@ template <input_range... _Views>
   requires(view<_Views> && ...) && (sizeof...(_Views) > 0)
 template <bool _Const>
 class zip_view<_Views...>::__iterator : public __zip_view_iterator_category_base<_Const, _Views...> {
-  __tuple_or_pair<iterator_t<__maybe_const<_Const, _Views>>...> __current_;
+  tuple<iterator_t<__maybe_const<_Const, _Views>>...> __current_;
 
-  _LIBCPP_HIDE_FROM_ABI constexpr explicit __iterator(
-      __tuple_or_pair<iterator_t<__maybe_const<_Const, _Views>>...> __current)
+  _LIBCPP_HIDE_FROM_ABI constexpr explicit __iterator(tuple<iterator_t<__maybe_const<_Const, _Views>>...> __current)
       : __current_(std::move(__current)) {}
 
   template <bool>
@@ -266,7 +253,7 @@ class zip_view<_Views...>::__iterator : public __zip_view_iterator_category_base
 
 public:
   using iterator_concept = decltype(__get_zip_view_iterator_tag<_Const, _Views...>());
-  using value_type       = __tuple_or_pair<range_value_t<__maybe_const<_Const, _Views>>...>;
+  using value_type       = tuple<range_value_t<__maybe_const<_Const, _Views>>...>;
   using difference_type  = common_type_t<range_difference_t<__maybe_const<_Const, _Views>>...>;
 
   _LIBCPP_HIDE_FROM_ABI __iterator() = default;
@@ -340,33 +327,8 @@ public:
     }
   }
 
-  _LIBCPP_HIDE_FROM_ABI friend constexpr bool operator<(const __iterator& __x, const __iterator& __y)
-    requires __zip_all_random_access<_Const, _Views...>
-  {
-    return __x.__current_ < __y.__current_;
-  }
-
-  _LIBCPP_HIDE_FROM_ABI friend constexpr bool operator>(const __iterator& __x, const __iterator& __y)
-    requires __zip_all_random_access<_Const, _Views...>
-  {
-    return __y < __x;
-  }
-
-  _LIBCPP_HIDE_FROM_ABI friend constexpr bool operator<=(const __iterator& __x, const __iterator& __y)
-    requires __zip_all_random_access<_Const, _Views...>
-  {
-    return !(__y < __x);
-  }
-
-  _LIBCPP_HIDE_FROM_ABI friend constexpr bool operator>=(const __iterator& __x, const __iterator& __y)
-    requires __zip_all_random_access<_Const, _Views...>
-  {
-    return !(__x < __y);
-  }
-
   _LIBCPP_HIDE_FROM_ABI friend constexpr auto operator<=>(const __iterator& __x, const __iterator& __y)
-    requires __zip_all_random_access<_Const, _Views...> &&
-             (three_way_comparable<iterator_t<__maybe_const<_Const, _Views>>> && ...)
+    requires __zip_all_random_access<_Const, _Views...>
   {
     return __x.__current_ <=> __y.__current_;
   }
@@ -427,10 +389,9 @@ template <input_range... _Views>
   requires(view<_Views> && ...) && (sizeof...(_Views) > 0)
 template <bool _Const>
 class zip_view<_Views...>::__sentinel {
-  __tuple_or_pair<sentinel_t<__maybe_const<_Const, _Views>>...> __end_;
+  tuple<sentinel_t<__maybe_const<_Const, _Views>>...> __end_;
 
-  _LIBCPP_HIDE_FROM_ABI constexpr explicit __sentinel(
-      __tuple_or_pair<sentinel_t<__maybe_const<_Const, _Views>>...> __end)
+  _LIBCPP_HIDE_FROM_ABI constexpr explicit __sentinel(tuple<sentinel_t<__maybe_const<_Const, _Views>>...> __end)
       : __end_(__end) {}
 
   friend class zip_view<_Views...>;

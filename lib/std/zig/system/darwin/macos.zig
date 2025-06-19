@@ -408,22 +408,24 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     switch (current_arch) {
         .aarch64, .aarch64_be => {
             const model = switch (cpu_family) {
-                .ARM_EVEREST_SAWTOOTH => &Target.aarch64.cpu.apple_a16,
-                .ARM_BLIZZARD_AVALANCHE => &Target.aarch64.cpu.apple_a15,
-                .ARM_FIRESTORM_ICESTORM => &Target.aarch64.cpu.apple_a14,
-                .ARM_LIGHTNING_THUNDER => &Target.aarch64.cpu.apple_a13,
-                .ARM_VORTEX_TEMPEST => &Target.aarch64.cpu.apple_a12,
-                .ARM_MONSOON_MISTRAL => &Target.aarch64.cpu.apple_a11,
-                .ARM_HURRICANE => &Target.aarch64.cpu.apple_a10,
-                .ARM_TWISTER => &Target.aarch64.cpu.apple_a9,
+                .ARM_CYCLONE => &Target.aarch64.cpu.apple_a7,
                 .ARM_TYPHOON => &Target.aarch64.cpu.apple_a8,
-                .ARM_CYCLONE => &Target.aarch64.cpu.cyclone,
-                .ARM_COLL => &Target.aarch64.cpu.apple_a17,
+                .ARM_TWISTER => &Target.aarch64.cpu.apple_a9,
+                .ARM_HURRICANE => &Target.aarch64.cpu.apple_a10,
+                .ARM_MONSOON_MISTRAL => &Target.aarch64.cpu.apple_a11,
+                .ARM_VORTEX_TEMPEST => &Target.aarch64.cpu.apple_a12,
+                .ARM_LIGHTNING_THUNDER => &Target.aarch64.cpu.apple_a13,
+                .ARM_FIRESTORM_ICESTORM => &Target.aarch64.cpu.apple_m1, // a14
+                .ARM_BLIZZARD_AVALANCHE => &Target.aarch64.cpu.apple_m2, // a15
+                .ARM_EVEREST_SAWTOOTH => &Target.aarch64.cpu.apple_m3, // a16
                 .ARM_IBIZA => &Target.aarch64.cpu.apple_m3, // base
-                .ARM_LOBOS => &Target.aarch64.cpu.apple_m3, // pro
                 .ARM_PALMA => &Target.aarch64.cpu.apple_m3, // max
+                .ARM_LOBOS => &Target.aarch64.cpu.apple_m3, // pro
+                .ARM_COLL => &Target.aarch64.cpu.apple_a17, // a17 pro
                 .ARM_DONAN => &Target.aarch64.cpu.apple_m4, // base
                 .ARM_BRAVA => &Target.aarch64.cpu.apple_m4, // pro/max
+                .ARM_TAHITI => &Target.aarch64.cpu.apple_m4, // a18 pro
+                .ARM_TUPAI => &Target.aarch64.cpu.apple_m4, // a18
                 else => return null,
             };
 

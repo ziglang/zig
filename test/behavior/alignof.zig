@@ -29,7 +29,7 @@ test "comparison of @alignOf(T) against zero" {
 }
 
 test "correct alignment for elements and slices of aligned array" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var buf: [1024]u8 align(64) = undefined;
     var start: usize = 1;

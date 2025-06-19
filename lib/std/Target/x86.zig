@@ -13,14 +13,21 @@ pub const Feature = enum {
     adx,
     aes,
     allow_light_256_bit,
+    amx_avx512,
     amx_bf16,
     amx_complex,
     amx_fp16,
+    amx_fp8,
     amx_int8,
+    amx_movrs,
+    amx_tf32,
     amx_tile,
+    amx_transpose,
     avx,
     avx10_1_256,
     avx10_1_512,
+    avx10_2_256,
+    avx10_2_512,
     avx2,
     avx512bf16,
     avx512bitalg,
@@ -114,6 +121,7 @@ pub const Feature = enum {
     movbe,
     movdir64b,
     movdiri,
+    movrs,
     mwaitx,
     ndd,
     nf,
@@ -257,6 +265,13 @@ pub const all_features = blk: {
         .description = "Enable generation of 256-bit load/stores even if we prefer 128-bit",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.amx_avx512)] = .{
+        .llvm_name = "amx-avx512",
+        .description = "Support AMX-AVX512 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .amx_tile,
+        }),
+    };
     result[@intFromEnum(Feature.amx_bf16)] = .{
         .llvm_name = "amx-bf16",
         .description = "Support AMX-BF16 instructions",
@@ -278,9 +293,30 @@ pub const all_features = blk: {
             .amx_tile,
         }),
     };
+    result[@intFromEnum(Feature.amx_fp8)] = .{
+        .llvm_name = "amx-fp8",
+        .description = "Support AMX-FP8 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .amx_tile,
+        }),
+    };
     result[@intFromEnum(Feature.amx_int8)] = .{
         .llvm_name = "amx-int8",
         .description = "Support AMX-INT8 instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .amx_tile,
+        }),
+    };
+    result[@intFromEnum(Feature.amx_movrs)] = .{
+        .llvm_name = "amx-movrs",
+        .description = "Support AMX-MOVRS instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .amx_tile,
+        }),
+    };
+    result[@intFromEnum(Feature.amx_tf32)] = .{
+        .llvm_name = "amx-tf32",
+        .description = "Support AMX-TF32 instructions",
         .dependencies = featureSet(&[_]Feature{
             .amx_tile,
         }),
@@ -289,6 +325,13 @@ pub const all_features = blk: {
         .llvm_name = "amx-tile",
         .description = "Support AMX-TILE instructions",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.amx_transpose)] = .{
+        .llvm_name = "amx-transpose",
+        .description = "Support AMX amx-transpose instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .amx_tile,
+        }),
     };
     result[@intFromEnum(Feature.avx)] = .{
         .llvm_name = "avx",
@@ -320,6 +363,21 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .avx10_1_256,
             .evex512,
+        }),
+    };
+    result[@intFromEnum(Feature.avx10_2_256)] = .{
+        .llvm_name = "avx10.2-256",
+        .description = "Support AVX10.2 up to 256-bit instruction",
+        .dependencies = featureSet(&[_]Feature{
+            .avx10_1_256,
+        }),
+    };
+    result[@intFromEnum(Feature.avx10_2_512)] = .{
+        .llvm_name = "avx10.2-512",
+        .description = "Support AVX10.2 up to 512-bit instruction",
+        .dependencies = featureSet(&[_]Feature{
+            .avx10_1_512,
+            .avx10_2_256,
         }),
     };
     result[@intFromEnum(Feature.avx2)] = .{
@@ -846,6 +904,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.movdiri)] = .{
         .llvm_name = "movdiri",
         .description = "Support movdiri instruction (direct store integer)",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.movrs)] = .{
+        .llvm_name = "movrs",
+        .description = "Enable MOVRS",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mwaitx)] = .{
@@ -2410,6 +2473,106 @@ pub const cpu = struct {
             .sse4_2,
             .vzeroupper,
             .x87,
+        }),
+    };
+    pub const diamondrapids: CpuModel = .{
+        .name = "diamondrapids",
+        .llvm_name = "diamondrapids",
+        .features = featureSet(&[_]Feature{
+            .@"64bit",
+            .adx,
+            .allow_light_256_bit,
+            .amx_avx512,
+            .amx_bf16,
+            .amx_complex,
+            .amx_fp16,
+            .amx_fp8,
+            .amx_int8,
+            .amx_movrs,
+            .amx_tf32,
+            .amx_transpose,
+            .avx10_2_512,
+            .avxifma,
+            .avxneconvert,
+            .avxvnni,
+            .avxvnniint16,
+            .avxvnniint8,
+            .bmi,
+            .bmi2,
+            .branch_hint,
+            .ccmp,
+            .cf,
+            .cldemote,
+            .clflushopt,
+            .clwb,
+            .cmov,
+            .cmpccxadd,
+            .cx16,
+            .egpr,
+            .enqcmd,
+            .ermsb,
+            .false_deps_getmant,
+            .false_deps_mulc,
+            .false_deps_mullq,
+            .false_deps_perm,
+            .false_deps_range,
+            .fast_15bytenop,
+            .fast_gather,
+            .fast_scalar_fsqrt,
+            .fast_shld_rotate,
+            .fast_variable_crosslane_shuffle,
+            .fast_variable_perlane_shuffle,
+            .fast_vector_fsqrt,
+            .fsgsbase,
+            .fsrm,
+            .fxsr,
+            .gfni,
+            .idivq_to_divl,
+            .invpcid,
+            .lzcnt,
+            .macrofusion,
+            .mmx,
+            .movbe,
+            .movdir64b,
+            .movdiri,
+            .movrs,
+            .ndd,
+            .nf,
+            .no_bypass_delay_blend,
+            .no_bypass_delay_mov,
+            .no_bypass_delay_shuffle,
+            .nopl,
+            .pconfig,
+            .pku,
+            .popcnt,
+            .ppx,
+            .prefer_256_bit,
+            .prefetchi,
+            .prfchw,
+            .ptwrite,
+            .push2pop2,
+            .rdpid,
+            .rdrnd,
+            .rdseed,
+            .sahf,
+            .serialize,
+            .sha,
+            .sha512,
+            .shstk,
+            .sm3,
+            .sm4,
+            .tsxldtrk,
+            .tuning_fast_imm_vector_shift,
+            .uintr,
+            .usermsr,
+            .vzeroupper,
+            .waitpkg,
+            .wbnoinvd,
+            .x87,
+            .xsavec,
+            .xsaveopt,
+            .xsaves,
+            .zu,
         }),
     };
     pub const emeraldrapids: CpuModel = .{

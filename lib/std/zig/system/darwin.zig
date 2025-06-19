@@ -59,7 +59,7 @@ pub fn getSdk(allocator: Allocator, target: Target) ?[]const u8 {
         .Exited => |code| if (code != 0) return null,
         else => return null,
     }
-    return allocator.dupe(u8, mem.trimRight(u8, result.stdout, "\r\n")) catch null;
+    return allocator.dupe(u8, mem.trimEnd(u8, result.stdout, "\r\n")) catch null;
 }
 
 test {

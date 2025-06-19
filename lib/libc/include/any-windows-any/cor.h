@@ -165,14 +165,14 @@ extern "C" {
     nltUnicode = 3,
     nltAuto = 4,
     nltOle = 5,
-    nltMaxValue = 7,
+    nltMaxValue = 7
   } CorNativeLinkType;
 
   typedef enum {
     nlfNone = 0x0,
     nlfLastError = 0x1,
     nlfNoMangle = 0x2,
-    nlfMaxValue = 0x3,
+    nlfMaxValue = 0x3
   } CorNativeLinkFlags;
 
   typedef void const *UVCP_CONSTANT;
@@ -644,7 +644,7 @@ extern "C" {
     ValidatorModuleTypeObj = 0x00000002,
     ValidatorModuleTypeEnc = 0x00000003,
     ValidatorModuleTypeIncr = 0x00000004,
-    ValidatorModuleTypeMax = 0x00000004,
+    ValidatorModuleTypeMax = 0x00000004
   } CorValidatorModuleType;
 
 #undef INTERFACE
@@ -804,7 +804,7 @@ extern "C" {
 enum {
   SIGN_MASK_ONEBYTE = 0xffffffc0,
   SIGN_MASK_TWOBYTE = 0xffffe000,
-  SIGN_MASK_FOURBYTE = 0xf0000000,
+  SIGN_MASK_FOURBYTE = 0xf0000000
 };
 
 extern const mdToken __declspec (selectany) g_tkCorEncodeToken[4] = { mdtTypeDef, mdtTypeRef, mdtTypeSpec, mdtBaseType };

@@ -497,14 +497,14 @@ fn dynAbsRelocAction(symbol: *const Symbol, elf_file: *Elf) RelocAction {
 }
 
 fn outputType(elf_file: *Elf) u2 {
-    const comp = elf_file.base.comp;
     assert(!elf_file.base.isRelocatable());
-    return switch (elf_file.base.comp.config.output_mode) {
+    const config = &elf_file.base.comp.config;
+    return switch (config.output_mode) {
         .Obj => unreachable,
         .Lib => 0,
         .Exe => switch (elf_file.getTarget().os.tag) {
             .haiku => 0,
-            else => if (comp.config.pie) 1 else 2,
+            else => if (config.pie) 1 else 2,
         },
     };
 }
@@ -1783,9 +1783,9 @@ const aarch64 = struct {
                     aarch64_util.writeAddImmInst(off, code);
                 } else {
                     const old_inst: Instruction = .{
-                        .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
+                        .add_subtract_immediate = mem.bytesToValue(@FieldType(
                             Instruction,
-                            Instruction.add_subtract_immediate,
+                            @tagName(Instruction.add_subtract_immediate),
                         ), code),
                     };
                     const rd: Register = @enumFromInt(old_inst.add_subtract_immediate.rd);
@@ -1797,9 +1797,9 @@ const aarch64 = struct {
 
             .TLSDESC_CALL => if (!target.flags.has_tlsdesc) {
                 const old_inst: Instruction = .{
-                    .unconditional_branch_register = mem.bytesToValue(std.meta.TagPayload(
+                    .unconditional_branch_register = mem.bytesToValue(@FieldType(
                         Instruction,
-                        Instruction.unconditional_branch_register,
+                        @tagName(Instruction.unconditional_branch_register),
                     ), code),
                 };
                 const rn: Register = @enumFromInt(old_inst.unconditional_branch_register.rn);

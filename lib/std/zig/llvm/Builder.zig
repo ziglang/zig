@@ -1823,6 +1823,14 @@ pub const Visibility = enum(u2) {
     hidden = 1,
     protected = 2,
 
+    pub fn fromSymbolVisibility(sv: std.builtin.SymbolVisibility) Visibility {
+        return switch (sv) {
+            .default => .default,
+            .hidden => .hidden,
+            .protected => .protected,
+        };
+    }
+
     pub fn format(
         self: Visibility,
         comptime _: []const u8,
@@ -2553,6 +2561,10 @@ pub const Variable = struct {
 
         pub fn setLinkage(self: Index, linkage: Linkage, builder: *Builder) void {
             return self.ptrConst(builder).global.setLinkage(linkage, builder);
+        }
+
+        pub fn setVisibility(self: Index, visibility: Visibility, builder: *Builder) void {
+            return self.ptrConst(builder).global.setVisibility(visibility, builder);
         }
 
         pub fn setDllStorageClass(self: Index, class: DllStorageClass, builder: *Builder) void {
@@ -6125,6 +6137,36 @@ pub const WipFunction = struct {
         return value.unwrap().instruction;
     }
 
+    pub fn callMemMove(
+        self: *WipFunction,
+        dst: Value,
+        dst_align: Alignment,
+        src: Value,
+        src_align: Alignment,
+        len: Value,
+        kind: MemoryAccessKind,
+    ) Allocator.Error!Instruction.Index {
+        var dst_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = dst_align })};
+        var src_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = src_align })};
+        const value = try self.callIntrinsic(
+            .normal,
+            try self.builder.fnAttrs(&.{
+                .none,
+                .none,
+                try self.builder.attrs(&dst_attrs),
+                try self.builder.attrs(&src_attrs),
+            }),
+            .memmove,
+            &.{ dst.typeOfWip(self), src.typeOfWip(self), len.typeOfWip(self) },
+            &.{ dst, src, len, switch (kind) {
+                .normal => Value.false,
+                .@"volatile" => Value.true,
+            } },
+            undefined,
+        );
+        return value.unwrap().instruction;
+    }
+
     pub fn callMemSet(
         self: *WipFunction,
         dst: Value,
@@ -7526,9 +7568,9 @@ pub const Constant = enum(u32) {
                                 };
                             }
                         };
-                        const Mantissa64 = std.meta.FieldType(Float.Repr(f64), .mantissa);
-                        const Exponent32 = std.meta.FieldType(Float.Repr(f32), .exponent);
-                        const Exponent64 = std.meta.FieldType(Float.Repr(f64), .exponent);
+                        const Mantissa64 = @FieldType(Float.Repr(f64), "mantissa");
+                        const Exponent32 = @FieldType(Float.Repr(f32), "exponent");
+                        const Exponent64 = @FieldType(Float.Repr(f64), "exponent");
 
                         const repr: Float.Repr(f32) = @bitCast(item.data);
                         const denormal_shift = switch (repr.exponent) {

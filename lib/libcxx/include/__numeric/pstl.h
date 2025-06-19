@@ -18,7 +18,7 @@
 _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
 
-#if !defined(_LIBCPP_HAS_NO_INCOMPLETE_PSTL) && _LIBCPP_STD_VER >= 17
+#if _LIBCPP_HAS_EXPERIMENTAL_PSTL && _LIBCPP_STD_VER >= 17
 
 #  include <__functional/identity.h>
 #  include <__functional/operations.h>
@@ -167,7 +167,7 @@ _LIBCPP_HIDE_FROM_ABI _Tp transform_reduce(
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // !defined(_LIBCPP_HAS_NO_INCOMPLETE_PSTL) && _LIBCPP_STD_VER >= 17
+#endif // _LIBCPP_HAS_EXPERIMENTAL_PSTL && _LIBCPP_STD_VER >= 17
 
 _LIBCPP_POP_MACROS
 

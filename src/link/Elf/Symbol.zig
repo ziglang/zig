@@ -462,9 +462,6 @@ pub const Flags = packed struct {
 
     /// Whether the symbol is a TLS variable.
     is_tls: bool = false,
-
-    /// Whether the symbol is an extern pointer (as opposed to function).
-    is_extern_ptr: bool = false,
 };
 
 pub const Extra = struct {

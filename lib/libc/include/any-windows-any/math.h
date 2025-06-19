@@ -206,7 +206,7 @@ extern "C" {
 
   __CRT_INLINE long double __cdecl fabsl (long double x)
   {
-#if defined(__arm__) || defined(__aarch64__)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
     return __builtin_fabsl (x);
 #else
     long double res = 0.0l;
@@ -397,7 +397,9 @@ typedef long double double_t;
 
 #ifndef __CRT__NO_INLINE
   __CRT_INLINE int __cdecl __fpclassifyl (long double x) {
-#if defined(__x86_64__) || defined(_AMD64_)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
+    return __fpclassify(x);
+#elif defined(__x86_64__) || defined(_AMD64_)
     __mingw_ldbl_type_t hlp;
     unsigned int e;
     hlp.x = x;
@@ -414,8 +416,6 @@ typedef long double double_t;
       return (((hlp.lh.high & 0x7fffffff) | hlp.lh.low) == 0 ?
               FP_INFINITE : FP_NAN);
     return FP_NORMAL;
-#elif defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-    return __fpclassify(x);
 #elif defined(__i386__) || defined(_X86_)
     unsigned short sw;
     __asm__ __volatile__ ("fxam; fstsw %%ax;" : "=a" (sw): "t" (x));
@@ -551,7 +551,9 @@ __mingw_choose_expr (                                         \
 
   __CRT_INLINE int __cdecl __isnanl (long double _x)
   {
-#if defined(__x86_64__) || defined(_AMD64_)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
+    return __isnan(_x);
+#elif defined(__x86_64__) || defined(_AMD64_)
     __mingw_ldbl_type_t ld;
     unsigned int xx, signexp;
 
@@ -561,8 +563,6 @@ __mingw_choose_expr (                                         \
     signexp |= (xx | (-xx)) >> 31;
     signexp = 0xfffe - signexp;
     return (int) signexp >> 16;
-#elif defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-    return __isnan(_x);
 #elif defined(__i386__) || defined(_X86_)
     unsigned short sw;
     __asm__ __volatile__ ("fxam;"
@@ -621,12 +621,12 @@ __mingw_choose_expr (                                         \
   }
 
   __CRT_INLINE int __cdecl __signbitl (long double x) {
-#if defined(__x86_64__) || defined(_AMD64_)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
+    return __signbit(x);
+#elif defined(__x86_64__) || defined(_AMD64_)
     __mingw_ldbl_type_t ld;
     ld.x = x;
     return ((ld.lh.sign_exponent & 0x8000) != 0);
-#elif defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-    return __signbit(x);
 #elif defined(__i386__) || defined(_X86_)
     unsigned short stw;
     __asm__ __volatile__ ("fxam; fstsw %%ax;": "=a" (stw) : "t" (x));
@@ -766,90 +766,6 @@ __mingw_choose_expr (                                         \
   extern float __cdecl logbf (float);
   extern long double __cdecl logbl (long double);
 
-#ifndef __CRT__NO_INLINE
-/* When compiling with gcc, always use gcc's builtins.
- * The asm inlines below are kept here for future reference:
- * they were written for gcc and do no error handling
- * (exceptions/errno), therefore only valid if __FAST_MATH__
- * is defined (-ffast-math) .  */
-#if 0 /*defined(__GNUC__) && defined(__FAST_MATH__)*/
-  __CRT_INLINE double __cdecl logb (double x)
-  {
-#if defined(__x86_64__) || defined(_AMD64_) || defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-  __mingw_dbl_type_t hlp;
-  int lx, hx;
-
-  hlp.x = x;
-  lx = hlp.lh.low;
-  hx = hlp.lh.high & 0x7fffffff; /* high |x| */
-  if ((hx | lx) == 0)
-    return -1.0 / fabs (x);
-  if (hx >= 0x7ff00000)
-    return x * x;
-  if ((hx >>= 20) == 0) {
-    unsigned long long mantissa = hlp.val & 0xfffffffffffffULL;
-    return -1023.0 - (__builtin_clzll(mantissa) - 12);
-  }
-  return (double) (hx - 1023);
-#elif defined(__i386__) || defined(_X86_)
-    double res = 0.0;
-    __asm__ __volatile__ ("fxtract\n\t"
-      "fstp	%%st" : "=t" (res) : "0" (x));
-    return res;
-#endif
-  }
-
-  __CRT_INLINE float __cdecl logbf (float x)
-  {
-#if defined(__x86_64__) || defined(_AMD64_) || defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-    int v;
-    __mingw_flt_type_t hlp;
-
-    hlp.x = x;
-    v = hlp.val & 0x7fffffff;                     /* high |x| */
-    if (!v)
-      return (float)-1.0 / fabsf (x);
-    if (v >= 0x7f800000)
-    return x * x;
-    if ((v >>= 23) == 0)
-      return -127.0 - (__builtin_clzl(hlp.val & 0x7fffff) - 9);
-  return (float) (v - 127);
-#elif defined(__i386__) || defined(_X86_)
-    float res = 0.0F;
-    __asm__ __volatile__ ("fxtract\n\t"
-      "fstp	%%st" : "=t" (res) : "0" (x));
-    return res;
-#endif
-  }
-
-  __CRT_INLINE long double __cdecl logbl (long double x)
-  {
-#if defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-  __mingw_ldbl_type_t hlp;
-  int lx, hx;
-
-  hlp.x = x;
-  lx = hlp.lh.low;
-  hx = hlp.lh.high & 0x7fffffff; /* high |x| */
-  if ((hx | lx) == 0)
-    return -1.0 / fabs (x);
-  if (hx >= 0x7ff00000)
-    return x * x;
-  if ((hx >>= 20) == 0) {
-    unsigned long long mantissa = hlp.val & 0xfffffffffffffULL;
-    return -1023.0 - (__builtin_clzll(mantissa) - 12);
-  }
-  return (double) (hx - 1023);
-#elif defined(__x86_64__) || defined(_AMD64_) || defined(__i386__) || defined(_X86_)
-    long double res = 0.0l;
-    __asm__ __volatile__ ("fxtract\n\t"
-      "fstp	%%st" : "=t" (res) : "0" (x));
-    return res;
-#endif
-  }
-#endif /* defined(__GNUC__) && defined(__FAST_MATH__) */
-#endif /* __CRT__NO_INLINE */
-
 /* 7.12.6.12  Double in C89 */
   extern float __cdecl modff (float, float*);
   extern long double __cdecl modfl (long double, long double*);
@@ -937,84 +853,6 @@ extern long __cdecl lrintl (long double);
 __MINGW_EXTENSION long long __cdecl llrint (double);
 __MINGW_EXTENSION long long __cdecl llrintf (float);
 __MINGW_EXTENSION long long __cdecl llrintl (long double);
-
-#ifndef __CRT__NO_INLINE
-/* When compiling with gcc, always use gcc's builtins.
- * The asm inlines below are kept here for future reference:
- * they were written for gcc and do no error handling
- * (exceptions/errno), therefore only valid if __FAST_MATH__
- * is defined (-ffast-math) .  */
-#if 0 /*defined(__GNUC__) && defined(__FAST_MATH__)*/
-  __CRT_INLINE double __cdecl rint (double x)
-  {
-    double retval = 0.0;
-    __asm__ __volatile__ ("frndint;": "=t" (retval) : "0" (x));
-    return retval;
-  }
-
-  __CRT_INLINE float __cdecl rintf (float x)
-  {
-    float retval = 0.0;
-    __asm__ __volatile__ ("frndint;" : "=t" (retval) : "0" (x) );
-    return retval;
-  }
-
-  __CRT_INLINE long double __cdecl rintl (long double x)
-  {
-    long double retval = 0.0l;
-    __asm__ __volatile__ ("frndint;" : "=t" (retval) : "0" (x) );
-    return retval;
-  }
-
-  __CRT_INLINE long __cdecl lrint (double x) 
-  {
-    long retval = 0;
-    __asm__ __volatile__							      \
-      ("fistpl %0"  : "=m" (retval) : "t" (x) : "st");				      \
-      return retval;
-  }
-
-  __CRT_INLINE long __cdecl lrintf (float x) 
-  {
-    long retval = 0;
-    __asm__ __volatile__							      \
-      ("fistpl %0"  : "=m" (retval) : "t" (x) : "st");				      \
-      return retval;
-  }
-
-  __CRT_INLINE long __cdecl lrintl (long double x) 
-  {
-    long retval = 0;
-    __asm__ __volatile__							      \
-      ("fistpl %0"  : "=m" (retval) : "t" (x) : "st");				      \
-      return retval;
-  }
-
-  __MINGW_EXTENSION __CRT_INLINE long long __cdecl llrint (double x) 
-  {
-    __MINGW_EXTENSION long long retval = 0ll;
-    __asm__ __volatile__							      \
-      ("fistpll %0"  : "=m" (retval) : "t" (x) : "st");				      \
-      return retval;
-  }
-
-  __MINGW_EXTENSION __CRT_INLINE long long __cdecl llrintf (float x) 
-  {
-    __MINGW_EXTENSION long long retval = 0ll;
-    __asm__ __volatile__							      \
-      ("fistpll %0"  : "=m" (retval) : "t" (x) : "st");				      \
-      return retval;
-  }
-
-  __MINGW_EXTENSION __CRT_INLINE long long __cdecl llrintl (long double x) 
-  {
-    __MINGW_EXTENSION long long retval = 0ll;
-    __asm__ __volatile__							      \
-      ("fistpll %0"  : "=m" (retval) : "t" (x) : "st");				      \
-      return retval;
-  }
-#endif /* defined(__GNUC__) && defined(__FAST_MATH__) */
-#endif /* !__CRT__NO_INLINE */
 
 /* 7.12.9.6 */
 /* round away from zero, regardless of fpu control word settings */

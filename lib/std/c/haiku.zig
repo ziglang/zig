@@ -23,6 +23,11 @@ pub extern "root" fn get_system_info(system_info: *system_info) usize;
 pub extern "root" fn _get_team_info(team: i32, team_info: *team_info, size: usize) i32;
 pub extern "root" fn _get_next_area_info(team: i32, cookie: *i64, area_info: *area_info, size: usize) i32;
 pub extern "root" fn _get_next_image_info(team: i32, cookie: *i32, image_info: *image_info, size: usize) i32;
+pub extern "root" fn _kern_get_current_team() team_id;
+pub extern "root" fn _kern_open_dir(fd: fd_t, path: [*:0]const u8) fd_t;
+pub extern "root" fn _kern_read_dir(fd: fd_t, buffer: [*]u8, bufferSize: usize, maxCount: u32) isize;
+pub extern "root" fn _kern_rewind_dir(fd: fd_t) status_t;
+pub extern "root" fn _kern_read_stat(fd: fd_t, path: [*:0]const u8, traverseLink: bool, stat: *std.c.Stat, statSize: usize) status_t;
 
 pub const area_info = extern struct {
     area: u32,

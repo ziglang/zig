@@ -103,6 +103,8 @@ using std::atomic_fetch_sub                            // see below
 using std::atomic_fetch_sub_explicit                   // see below
 using std::atomic_fetch_or                             // see below
 using std::atomic_fetch_or_explicit                    // see below
+using std::atomic_fetch_xor                            // see below
+using std::atomic_fetch_xor_explicit                   // see below
 using std::atomic_fetch_and                            // see below
 using std::atomic_fetch_and_explicit                   // see below
 using std::atomic_flag_test_and_set                    // see below
@@ -115,22 +117,25 @@ using std::atomic_signal_fence                         // see below
 
 */
 
-#include <__config>
+#if defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/stdatomic.h>
+#else
+#  include <__config>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
-
-#if defined(__cplusplus) && _LIBCPP_STD_VER >= 23
-
-#  include <atomic>
-#  include <version>
-
-#  ifdef _Atomic
-#    undef _Atomic
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
 #  endif
 
-#  define _Atomic(_Tp) ::std::atomic<_Tp>
+#  if defined(__cplusplus) && _LIBCPP_STD_VER >= 23
+
+#    include <atomic>
+#    include <version>
+
+#    ifdef _Atomic
+#      undef _Atomic
+#    endif
+
+#    define _Atomic(_Tp) ::std::atomic<_Tp>
 
 using std::memory_order _LIBCPP_USING_IF_EXISTS;
 using std::memory_order_relaxed _LIBCPP_USING_IF_EXISTS;
@@ -154,10 +159,14 @@ using std::atomic_long _LIBCPP_USING_IF_EXISTS;
 using std::atomic_ulong _LIBCPP_USING_IF_EXISTS;
 using std::atomic_llong _LIBCPP_USING_IF_EXISTS;
 using std::atomic_ullong _LIBCPP_USING_IF_EXISTS;
+#    if _LIBCPP_HAS_CHAR8_T
 using std::atomic_char8_t _LIBCPP_USING_IF_EXISTS;
+#    endif
 using std::atomic_char16_t _LIBCPP_USING_IF_EXISTS;
 using std::atomic_char32_t _LIBCPP_USING_IF_EXISTS;
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
 using std::atomic_wchar_t _LIBCPP_USING_IF_EXISTS;
+#    endif
 
 using std::atomic_int8_t _LIBCPP_USING_IF_EXISTS;
 using std::atomic_uint8_t _LIBCPP_USING_IF_EXISTS;
@@ -204,6 +213,8 @@ using std::atomic_fetch_add_explicit _LIBCPP_USING_IF_EXISTS;
 using std::atomic_fetch_and _LIBCPP_USING_IF_EXISTS;
 using std::atomic_fetch_and_explicit _LIBCPP_USING_IF_EXISTS;
 using std::atomic_fetch_or _LIBCPP_USING_IF_EXISTS;
+using std::atomic_fetch_xor_explicit _LIBCPP_USING_IF_EXISTS;
+using std::atomic_fetch_xor _LIBCPP_USING_IF_EXISTS;
 using std::atomic_fetch_or_explicit _LIBCPP_USING_IF_EXISTS;
 using std::atomic_fetch_sub _LIBCPP_USING_IF_EXISTS;
 using std::atomic_fetch_sub_explicit _LIBCPP_USING_IF_EXISTS;
@@ -220,16 +231,17 @@ using std::atomic_store_explicit _LIBCPP_USING_IF_EXISTS;
 using std::atomic_signal_fence _LIBCPP_USING_IF_EXISTS;
 using std::atomic_thread_fence _LIBCPP_USING_IF_EXISTS;
 
-#elif defined(_LIBCPP_COMPILER_CLANG_BASED)
+#  elif defined(_LIBCPP_COMPILER_CLANG_BASED)
 
 // Before C++23, we include the next <stdatomic.h> on the path to avoid hijacking
 // the header. We do this because Clang has historically shipped a <stdatomic.h>
 // header that would be available in all Standard modes, and we don't want to
 // break that use case.
-#  if __has_include_next(<stdatomic.h>)
-#    include_next <stdatomic.h>
-#  endif
+#    if __has_include_next(<stdatomic.h>)
+#      include_next <stdatomic.h>
+#    endif
 
-#endif // defined(__cplusplus) && _LIBCPP_STD_VER >= 23
+#  endif // defined(__cplusplus) && _LIBCPP_STD_VER >= 23
+#endif   // defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_STDATOMIC_H

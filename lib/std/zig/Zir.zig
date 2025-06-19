@@ -983,6 +983,9 @@ pub const Inst = struct {
         /// Implements the `@memcpy` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         memcpy,
+        /// Implements the `@memmove` builtin.
+        /// Uses the `pl_node` union field with payload `Bin`.
+        memmove,
         /// Implements the `@memset` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         memset,
@@ -1272,6 +1275,7 @@ pub const Inst = struct {
                 .max,
                 .memcpy,
                 .memset,
+                .memmove,
                 .min,
                 .c_import,
                 .@"resume",
@@ -1355,6 +1359,7 @@ pub const Inst = struct {
                 .set_runtime_safety,
                 .memcpy,
                 .memset,
+                .memmove,
                 .check_comptime_control_flow,
                 .@"defer",
                 .defer_err_code,
@@ -1832,6 +1837,7 @@ pub const Inst = struct {
                 .max = .pl_node,
                 .memcpy = .pl_node,
                 .memset = .pl_node,
+                .memmove = .pl_node,
                 .min = .pl_node,
                 .c_import = .pl_node,
 
@@ -2136,7 +2142,7 @@ pub const Inst = struct {
         ref_start_index = static_len,
         _,
 
-        pub const static_len = 93;
+        pub const static_len = 124;
 
         pub fn toRef(i: Index) Inst.Ref {
             return @enumFromInt(@intFromEnum(Index.ref_start_index) + @intFromEnum(i));
@@ -2184,6 +2190,7 @@ pub const Inst = struct {
         u80_type,
         u128_type,
         i128_type,
+        u256_type,
         usize_type,
         isize_type,
         c_char_type,
@@ -2213,46 +2220,76 @@ pub const Inst = struct {
         null_type,
         undefined_type,
         enum_literal_type,
+        ptr_usize_type,
+        ptr_const_comptime_int_type,
         manyptr_u8_type,
         manyptr_const_u8_type,
         manyptr_const_u8_sentinel_0_type,
-        single_const_pointer_to_comptime_int_type,
         slice_const_u8_type,
         slice_const_u8_sentinel_0_type,
+        vector_8_i8_type,
         vector_16_i8_type,
         vector_32_i8_type,
+        vector_64_i8_type,
+        vector_1_u8_type,
+        vector_2_u8_type,
+        vector_4_u8_type,
+        vector_8_u8_type,
         vector_16_u8_type,
         vector_32_u8_type,
+        vector_64_u8_type,
+        vector_2_i16_type,
+        vector_4_i16_type,
         vector_8_i16_type,
         vector_16_i16_type,
+        vector_32_i16_type,
+        vector_4_u16_type,
         vector_8_u16_type,
         vector_16_u16_type,
+        vector_32_u16_type,
+        vector_2_i32_type,
         vector_4_i32_type,
         vector_8_i32_type,
+        vector_16_i32_type,
         vector_4_u32_type,
         vector_8_u32_type,
+        vector_16_u32_type,
         vector_2_i64_type,
         vector_4_i64_type,
+        vector_8_i64_type,
         vector_2_u64_type,
         vector_4_u64_type,
+        vector_8_u64_type,
+        vector_1_u128_type,
+        vector_2_u128_type,
+        vector_1_u256_type,
         vector_4_f16_type,
         vector_8_f16_type,
+        vector_16_f16_type,
+        vector_32_f16_type,
         vector_2_f32_type,
         vector_4_f32_type,
         vector_8_f32_type,
+        vector_16_f32_type,
         vector_2_f64_type,
         vector_4_f64_type,
+        vector_8_f64_type,
         optional_noreturn_type,
         anyerror_void_error_union_type,
         adhoc_inferred_error_set_type,
         generic_poison_type,
         empty_tuple_type,
         undef,
+        undef_bool,
+        undef_usize,
+        undef_u1,
         zero,
         zero_usize,
+        zero_u1,
         zero_u8,
         one,
         one_usize,
+        one_u1,
         one_u8,
         four_u8,
         negative_one,
@@ -4287,6 +4324,7 @@ fn findTrackableInner(
         .mul_add,
         .memcpy,
         .memset,
+        .memmove,
         .min,
         .max,
         .alloc,
@@ -4821,6 +4859,15 @@ pub fn getParamBody(zir: Zir, fn_inst: Inst.Index) []const Zir.Inst.Index {
         },
         else => unreachable,
     }
+}
+
+pub fn getParamName(zir: Zir, param_inst: Inst.Index) ?NullTerminatedString {
+    const inst = zir.instructions.get(@intFromEnum(param_inst));
+    return switch (inst.tag) {
+        .param, .param_comptime => zir.extraData(Inst.Param, inst.data.pl_tok.payload_index).data.name,
+        .param_anytype, .param_anytype_comptime => inst.data.str_tok.start,
+        else => null,
+    };
 }
 
 pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {

@@ -114,10 +114,18 @@ pub const JobQueue = struct {
     /// If this is true, `recursive` must be false.
     debug_hash: bool,
     work_around_btrfs_bug: bool,
+    mode: Mode,
     /// Set of hashes that will be additionally fetched even if they are marked
     /// as lazy.
     unlazy_set: UnlazySet = .{},
 
+    pub const Mode = enum {
+        /// Non-lazy dependencies are always fetched.
+        /// Lazy dependencies are fetched only when needed.
+        needed,
+        /// Both non-lazy and lazy dependencies are always fetched.
+        all,
+    };
     pub const Table = std.AutoArrayHashMapUnmanaged(Package.Hash, *Fetch);
     pub const UnlazySet = std.AutoArrayHashMapUnmanaged(Package.Hash, void);
 
@@ -560,14 +568,14 @@ fn runResource(
             const actual_hex = Package.multiHashHexDigest(f.computed_hash.digest);
             if (!std.mem.eql(u8, declared_hash.toSlice(), &actual_hex)) {
                 return f.fail(hash_tok, try eb.printString(
-                    "hash mismatch: manifest declares {s} but the fetched package has {s}",
+                    "hash mismatch: manifest declares '{s}' but the fetched package has '{s}'",
                     .{ declared_hash.toSlice(), actual_hex },
                 ));
             }
         } else {
             if (!computed_package_hash.eql(&declared_hash)) {
                 return f.fail(hash_tok, try eb.printString(
-                    "hash mismatch: manifest declares {s} but the fetched package has {s}",
+                    "hash mismatch: manifest declares '{s}' but the fetched package has '{s}'",
                     .{ declared_hash.toSlice(), computed_package_hash.toSlice() },
                 ));
             }
@@ -632,7 +640,7 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
         try fs.path.join(arena, &.{ pkg_root.sub_path, Manifest.basename }),
         Manifest.max_bytes,
         null,
-        1,
+        .@"1",
         0,
     ) catch |err| switch (err) {
         error.FileNotFound => return,
@@ -718,6 +726,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                     .hash = h: {
                         const h = dep.hash orelse break :h null;
                         const pkg_hash: Package.Hash = .fromSlice(h);
+                        if (h.len == 0) break :h pkg_hash;
                         const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
                         if (gop.found_existing) {
                             if (!dep.lazy) {
@@ -754,7 +763,10 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .location_tok = dep.location_tok,
                 .hash_tok = dep.hash_tok,
                 .name_tok = dep.name_tok,
-                .lazy_status = if (dep.lazy) .available else .eager,
+                .lazy_status = switch (f.job_queue.mode) {
+                    .needed => if (dep.lazy) .available else .eager,
+                    .all => .eager,
+                },
                 .parent_package_root = f.package_root,
                 .parent_manifest_ast = &f.manifest_ast,
                 .prog_node = f.prog_node,
@@ -897,6 +909,7 @@ const FileType = enum {
         if (ascii.endsWithIgnoreCase(file_path, ".tzst")) return .@"tar.zst";
         if (ascii.endsWithIgnoreCase(file_path, ".tar.zst")) return .@"tar.zst";
         if (ascii.endsWithIgnoreCase(file_path, ".zip")) return .zip;
+        if (ascii.endsWithIgnoreCase(file_path, ".jar")) return .zip;
         return null;
     }
 
@@ -1116,8 +1129,12 @@ fn unpackResource(
             if (ascii.eqlIgnoreCase(mime_type, "application/zstd"))
                 break :ft .@"tar.zst";
 
-            if (ascii.eqlIgnoreCase(mime_type, "application/zip"))
+            if (ascii.eqlIgnoreCase(mime_type, "application/zip") or
+                ascii.eqlIgnoreCase(mime_type, "application/x-zip-compressed") or
+                ascii.eqlIgnoreCase(mime_type, "application/java-archive"))
+            {
                 break :ft .zip;
+            }
 
             if (!ascii.eqlIgnoreCase(mime_type, "application/octet-stream") and
                 !ascii.eqlIgnoreCase(mime_type, "application/x-compressed"))
@@ -2325,6 +2342,7 @@ const TestFetchBuilder = struct {
             .read_only = false,
             .debug_hash = false,
             .work_around_btrfs_bug = false,
+            .mode = .needed,
         };
 
         self.fetch = .{

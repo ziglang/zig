@@ -181,6 +181,8 @@
 /* Control word values for unNew (use with related unMask above) */
 #define	_DN_SAVE	0x00000000
 #define	_DN_FLUSH	0x01000000
+#define	_DN_FLUSH_OPERANDS_SAVE_RESULTS 0x02000000
+#define	_DN_SAVE_OPERANDS_FLUSH_RESULTS 0x03000000
 #define	_EM_INVALID	0x00000010
 #define	_EM_DENORMAL	0x00080000
 #define	_EM_ZERODIVIDE	0x00000008
@@ -196,6 +198,7 @@
 #define	_PC_24		0x00020000
 #define	_PC_53		0x00010000
 #define	_PC_64		0x00000000
+#define	_EM_AMBIGUOUS   0x80000000
 
 /* These are also defined in Mingw math.h, needed to work around
    GCC build issues.  */
@@ -213,6 +216,14 @@
 #define	_FPCLASS_PN	0x0100	/* Positive Normal */
 #define	_FPCLASS_PINF	0x0200	/* Positive Infinity */
 #endif /* __MINGW_FPCLASS_DEFINED */
+
+/* _statusfp bit flags */
+#define _SW_INEXACT    0x00000001 /* inexact (precision) */
+#define _SW_UNDERFLOW  0x00000002 /* underflow */
+#define _SW_OVERFLOW   0x00000004 /* overflow */
+#define _SW_ZERODIVIDE 0x00000008 /* zero divide */
+#define _SW_INVALID    0x00000010 /* invalid */
+#define _SW_DENORMAL   0x00080000 /* denormal status bit */
 
 /* invalid subconditions (_SW_INVALID also set) */
 #define _SW_UNEMULATED		0x0040  /* unemulated instruction */
@@ -261,6 +272,9 @@ extern "C" {
 _CRTIMP unsigned int __cdecl __MINGW_NOTHROW _controlfp (unsigned int _NewValue, unsigned int _Mask) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
 _SECIMP errno_t __cdecl _controlfp_s(unsigned int *_CurrentState, unsigned int _NewValue, unsigned int _Mask);
 _CRTIMP unsigned int __cdecl __MINGW_NOTHROW _control87 (unsigned int _NewValue, unsigned int _Mask);
+#ifdef __i386__
+_CRTIMP int __cdecl __control87_2(unsigned int, unsigned int, unsigned int *, unsigned int *);
+#endif
 
 
 _CRTIMP unsigned int __cdecl __MINGW_NOTHROW _clearfp (void);	/* Clear the FPU status word */

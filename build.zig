@@ -92,6 +92,12 @@ pub fn build(b: *std.Build) !void {
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
     const skip_translate_c = b.option(bool, "skip-translate-c", "Main test suite skips translate-c tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
+    const skip_freebsd = b.option(bool, "skip-freebsd", "Main test suite skips targets with freebsd OS") orelse false;
+    const skip_netbsd = b.option(bool, "skip-netbsd", "Main test suite skips targets with netbsd OS") orelse false;
+    const skip_windows = b.option(bool, "skip-windows", "Main test suite skips targets with windows OS") orelse false;
+    const skip_macos = b.option(bool, "skip-macos", "Main test suite skips targets with macos OS") orelse false;
+    const skip_linux = b.option(bool, "skip-linux", "Main test suite skips targets with linux OS") orelse false;
+    const skip_llvm = b.option(bool, "skip-llvm", "Main test suite skips targets that use LLVM backend") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
@@ -197,12 +203,6 @@ pub fn build(b: *std.Build) !void {
     exe.pie = pie;
     exe.entitlements = entitlements;
 
-    exe.build_id = b.option(
-        std.zig.BuildId,
-        "build-id",
-        "Request creation of '.note.gnu.build-id' section",
-    );
-
     if (no_bin) {
         b.getInstallStep().dependOn(&exe.step);
     } else {
@@ -213,11 +213,6 @@ pub fn build(b: *std.Build) !void {
     }
 
     test_step.dependOn(&exe.step);
-
-    if (target.result.os.tag == .windows and target.result.abi == .gnu) {
-        // LTO is currently broken on mingw, this can be removed when it's fixed.
-        exe.want_lto = false;
-    }
 
     const use_llvm = b.option(bool, "use-llvm", "Use the llvm backend");
     exe.use_llvm = use_llvm;
@@ -331,7 +326,12 @@ pub fn build(b: *std.Build) !void {
             try addCmakeCfgOptionsToExe(b, cfg, exe, use_zig_libcxx);
         } else {
             // Here we are -Denable-llvm but no cmake integration.
-            try addStaticLlvmOptionsToModule(exe.root_module);
+            try addStaticLlvmOptionsToModule(exe.root_module, .{
+                .llvm_has_m68k = llvm_has_m68k,
+                .llvm_has_csky = llvm_has_csky,
+                .llvm_has_arc = llvm_has_arc,
+                .llvm_has_xtensa = llvm_has_xtensa,
+            });
         }
         if (target.result.os.tag == .windows) {
             // LLVM depends on networking as of version 18.
@@ -359,11 +359,7 @@ pub fn build(b: *std.Build) !void {
             &[_][]const u8{ tracy_path, "public", "TracyClient.cpp" },
         );
 
-        // On mingw, we need to opt into windows 7+ to get some features required by tracy.
-        const tracy_c_flags: []const []const u8 = if (target.result.os.tag == .windows and target.result.abi == .gnu)
-            &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined", "-D_WIN32_WINNT=0x601" }
-        else
-            &[_][]const u8{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
+        const tracy_c_flags: []const []const u8 = &.{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" };
 
         exe.root_module.addIncludePath(.{ .cwd_relative = tracy_path });
         exe.root_module.addCSourceFile(.{ .file = .{ .cwd_relative = client_cpp }, .flags = tracy_c_flags });
@@ -380,7 +376,7 @@ pub fn build(b: *std.Build) !void {
 
     const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
     const test_target_filters = b.option([]const []const u8, "test-target-filter", "Skip tests whose target triple do not match any filter") orelse &[0][]const u8{};
-    const test_slow_targets = b.option(bool, "test-slow-targets", "Enable running module tests for targets that have a slow compiler backend") orelse false;
+    const test_extra_targets = b.option(bool, "test-extra-targets", "Enable running module tests for additional targets") orelse false;
 
     var chosen_opt_modes_buf: [4]builtin.OptimizeMode = undefined;
     var chosen_mode_index: usize = 0;
@@ -437,7 +433,7 @@ pub fn build(b: *std.Build) !void {
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
-        .test_slow_targets = test_slow_targets,
+        .test_extra_targets = test_extra_targets,
         .root_src = "test/behavior.zig",
         .name = "behavior",
         .desc = "Run the behavior tests",
@@ -445,15 +441,21 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        .use_llvm = use_llvm,
-        .max_rss = 2 * 1024 * 1024 * 1024,
+        // 2923515904 was observed on an x86_64-linux-gnu host.
+        .max_rss = 3100000000,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
-        .test_slow_targets = test_slow_targets,
+        .test_extra_targets = test_extra_targets,
         .root_src = "test/c_import.zig",
         .name = "c-import",
         .desc = "Run the @cImport tests",
@@ -461,14 +463,19 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{"test/c_import"},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        .use_llvm = use_llvm,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
-        .test_slow_targets = test_slow_targets,
+        .test_extra_targets = test_extra_targets,
         .root_src = "lib/compiler_rt.zig",
         .name = "compiler-rt",
         .desc = "Run the compiler_rt tests",
@@ -476,31 +483,41 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = true,
-        .use_llvm = use_llvm,
         .no_builtin = true,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
-        .test_slow_targets = test_slow_targets,
+        .test_extra_targets = test_extra_targets,
         .root_src = "lib/c.zig",
-        .name = "universal-libc",
-        .desc = "Run the universal libc tests",
+        .name = "zigc",
+        .desc = "Run the zigc tests",
         .optimize_modes = optimization_modes,
         .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = true,
-        .use_llvm = use_llvm,
         .no_builtin = true,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
-        .test_slow_targets = test_slow_targets,
+        .test_extra_targets = test_extra_targets,
         .root_src = "lib/std/std.zig",
         .name = "std",
         .desc = "Run the standard library tests",
@@ -508,21 +525,24 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        .use_llvm = use_llvm,
-        // I observed a value of 5136793600 on the M2 CI.
-        .max_rss = 5368709120,
+        // I observed a value of 5605064704 on the M2 CI.
+        .max_rss = 6165571174,
     }));
 
     const unit_tests_step = b.step("test-unit", "Run the compiler source unit tests");
     test_step.dependOn(unit_tests_step);
 
     const unit_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+        .root_module = addCompilerMod(b, .{
             .optimize = optimize,
             .target = target,
-            .link_libc = link_libc,
             .single_threaded = single_threaded,
         }),
         .filters = test_filters,
@@ -530,6 +550,9 @@ pub fn build(b: *std.Build) !void {
         .use_lld = use_llvm,
         .zig_lib_dir = b.path("lib"),
     });
+    if (link_libc) {
+        unit_tests.root_module.link_libc = true;
+    }
     unit_tests.root_module.addOptions("build_options", exe_options);
     unit_tests_step.dependOn(&b.addRunArtifact(unit_tests).step);
 
@@ -544,6 +567,12 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(tests.addCAbiTests(b, .{
         .test_target_filters = test_target_filters,
         .skip_non_native = skip_non_native,
+        .skip_freebsd = skip_freebsd,
+        .skip_netbsd = skip_netbsd,
+        .skip_windows = skip_windows,
+        .skip_macos = skip_macos,
+        .skip_linux = skip_linux,
+        .skip_llvm = skip_llvm,
         .skip_release = skip_release,
     }));
     test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
@@ -557,9 +586,13 @@ pub fn build(b: *std.Build) !void {
         .lldb = b.option([]const u8, "lldb", "path to lldb binary"),
         .optimize_modes = optimization_modes,
         .skip_single_threaded = skip_single_threaded,
-        .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
     })) |test_debugger_step| test_step.dependOn(test_debugger_step);
+    if (tests.addLlvmIrTests(b, .{
+        .enable_llvm = enable_llvm,
+        .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+    })) |test_llvm_ir_step| test_step.dependOn(test_llvm_ir_step);
 
     try addWasiUpdateStep(b, version);
 
@@ -655,7 +688,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     update_zig1_step.dependOn(&copy_zig_h.step);
 }
 
-const AddCompilerStepOptions = struct {
+const AddCompilerModOptions = struct {
     optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
     strip: ?bool = null,
@@ -664,7 +697,7 @@ const AddCompilerStepOptions = struct {
     single_threaded: ?bool = null,
 };
 
-fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
+fn addCompilerMod(b: *std.Build, options: AddCompilerModOptions) *std.Build.Module {
     const compiler_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = options.target,
@@ -672,24 +705,6 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
         .strip = options.strip,
         .sanitize_thread = options.sanitize_thread,
         .single_threaded = options.single_threaded,
-        .code_model = switch (options.target.result.cpu.arch) {
-            // NB:
-            // For loongarch, LLVM supports only small, medium and large
-            // code model. If we don't explicitly specify the code model,
-            // the default value `small' will be used.
-            //
-            // Since zig binary itself is relatively large, using a `small'
-            // code model will cause
-            //
-            // relocation R_LARCH_B26 out of range
-            //
-            // error when linking a loongarch32/loongarch64 zig binary.
-            //
-            // Here we explicitly set code model to `medium' to avoid this
-            // error.
-            .loongarch32, .loongarch64 => .medium,
-            else => .default,
-        },
         .valgrind = options.valgrind,
     });
 
@@ -705,10 +720,14 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
     compiler_mod.addImport("aro", aro_mod);
     compiler_mod.addImport("aro_translate_c", aro_translate_c_mod);
 
+    return compiler_mod;
+}
+
+fn addCompilerStep(b: *std.Build, options: AddCompilerModOptions) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "zig",
         .max_rss = 7_800_000_000,
-        .root_module = compiler_mod,
+        .root_module = addCompilerMod(b, options),
     });
     exe.stack_size = stack_size;
 
@@ -728,6 +747,9 @@ const exe_cflags = [_][]const u8{
     "-Wno-type-limits",
     "-Wno-missing-braces",
     "-Wno-comment",
+    // `exe_cflags` is only used for static linking.
+    "-DLLVM_BUILD_STATIC",
+    "-DCLANG_BUILD_STATIC",
 };
 
 fn addCmakeCfgOptionsToExe(
@@ -818,7 +840,12 @@ fn addCmakeCfgOptionsToExe(
     }
 }
 
-fn addStaticLlvmOptionsToModule(mod: *std.Build.Module) !void {
+fn addStaticLlvmOptionsToModule(mod: *std.Build.Module, options: struct {
+    llvm_has_m68k: bool,
+    llvm_has_csky: bool,
+    llvm_has_arc: bool,
+    llvm_has_xtensa: bool,
+}) !void {
     // Adds the Zig C++ sources which both stage1 and stage2 need.
     //
     // We need this because otherwise zig_clang_cc1_main.cpp ends up pulling
@@ -841,6 +868,22 @@ fn addStaticLlvmOptionsToModule(mod: *std.Build.Module) !void {
     for (llvm_libs) |lib_name| {
         mod.linkSystemLibrary(lib_name, .{});
     }
+
+    if (options.llvm_has_m68k) for (llvm_libs_m68k) |lib_name| {
+        mod.linkSystemLibrary(lib_name, .{});
+    };
+
+    if (options.llvm_has_csky) for (llvm_libs_csky) |lib_name| {
+        mod.linkSystemLibrary(lib_name, .{});
+    };
+
+    if (options.llvm_has_arc) for (llvm_libs_arc) |lib_name| {
+        mod.linkSystemLibrary(lib_name, .{});
+    };
+
+    if (options.llvm_has_xtensa) for (llvm_libs_xtensa) |lib_name| {
+        mod.linkSystemLibrary(lib_name, .{});
+    };
 
     mod.linkSystemLibrary("z", .{});
     mod.linkSystemLibrary("zstd", .{});
@@ -1149,10 +1192,10 @@ const llvm_libs = [_][]const u8{
     "LLVMXRay",
     "LLVMLibDriver",
     "LLVMDlltoolDriver",
+    "LLVMTelemetry",
     "LLVMTextAPIBinaryReader",
     "LLVMCoverage",
     "LLVMLineEditor",
-    "LLVMSandboxIR",
     "LLVMXCoreDisassembler",
     "LLVMXCoreCodeGen",
     "LLVMXCoreDesc",
@@ -1179,6 +1222,10 @@ const llvm_libs = [_][]const u8{
     "LLVMSystemZCodeGen",
     "LLVMSystemZDesc",
     "LLVMSystemZInfo",
+    "LLVMSPIRVCodeGen",
+    "LLVMSPIRVDesc",
+    "LLVMSPIRVInfo",
+    "LLVMSPIRVAnalysis",
     "LLVMSparcDisassembler",
     "LLVMSparcAsmParser",
     "LLVMSparcCodeGen",
@@ -1277,6 +1324,7 @@ const llvm_libs = [_][]const u8{
     "LLVMCoroutines",
     "LLVMipo",
     "LLVMVectorize",
+    "LLVMSandboxIR",
     "LLVMLinker",
     "LLVMInstrumentation",
     "LLVMFrontendOpenMP",
@@ -1284,11 +1332,11 @@ const llvm_libs = [_][]const u8{
     "LLVMFrontendOpenACC",
     "LLVMFrontendHLSL",
     "LLVMFrontendDriver",
+    "LLVMFrontendAtomic",
     "LLVMExtensions",
     "LLVMDWARFLinkerParallel",
     "LLVMDWARFLinkerClassic",
     "LLVMDWARFLinker",
-    "LLVMCodeGenData",
     "LLVMGlobalISel",
     "LLVMMIRParser",
     "LLVMAsmPrinter",
@@ -1297,6 +1345,7 @@ const llvm_libs = [_][]const u8{
     "LLVMTarget",
     "LLVMObjCARCOpts",
     "LLVMCodeGenTypes",
+    "LLVMCGData",
     "LLVMIRPrinter",
     "LLVMInterfaceStub",
     "LLVMFileCheck",
@@ -1312,6 +1361,7 @@ const llvm_libs = [_][]const u8{
     "LLVMDebugInfoBTF",
     "LLVMDebugInfoPDB",
     "LLVMDebugInfoMSF",
+    "LLVMDebugInfoCodeView",
     "LLVMDebugInfoDWARF",
     "LLVMObject",
     "LLVMTextAPI",
@@ -1319,7 +1369,6 @@ const llvm_libs = [_][]const u8{
     "LLVMIRReader",
     "LLVMAsmParser",
     "LLVMMC",
-    "LLVMDebugInfoCodeView",
     "LLVMBitReader",
     "LLVMFuzzerCLI",
     "LLVMCore",
@@ -1329,6 +1378,33 @@ const llvm_libs = [_][]const u8{
     "LLVMTargetParser",
     "LLVMSupport",
     "LLVMDemangle",
+};
+const llvm_libs_m68k = [_][]const u8{
+    "LLVMM68kDisassembler",
+    "LLVMM68kAsmParser",
+    "LLVMM68kCodeGen",
+    "LLVMM68kDesc",
+    "LLVMM68kInfo",
+};
+const llvm_libs_csky = [_][]const u8{
+    "LLVMCSKYDisassembler",
+    "LLVMCSKYAsmParser",
+    "LLVMCSKYCodeGen",
+    "LLVMCSKYDesc",
+    "LLVMCSKYInfo",
+};
+const llvm_libs_arc = [_][]const u8{
+    "LLVMARCDisassembler",
+    "LLVMARCCodeGen",
+    "LLVMARCDesc",
+    "LLVMARCInfo",
+};
+const llvm_libs_xtensa = [_][]const u8{
+    "LLVMXtensaDisassembler",
+    "LLVMXtensaAsmParser",
+    "LLVMXtensaCodeGen",
+    "LLVMXtensaDesc",
+    "LLVMXtensaInfo",
 };
 
 fn generateLangRef(b: *std.Build) std.Build.LazyPath {

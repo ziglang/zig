@@ -181,14 +181,19 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         .zon => try parser.parseZon(),
     }
 
+    const extra_data = try parser.extra_data.toOwnedSlice(gpa);
+    errdefer gpa.free(extra_data);
+    const errors = try parser.errors.toOwnedSlice(gpa);
+    errdefer gpa.free(errors);
+
     // TODO experiment with compacting the MultiArrayList slices here
     return Ast{
         .source = source,
         .mode = mode,
         .tokens = tokens.toOwnedSlice(),
         .nodes = parser.nodes.toOwnedSlice(),
-        .extra_data = try parser.extra_data.toOwnedSlice(gpa),
-        .errors = try parser.errors.toOwnedSlice(gpa),
+        .extra_data = extra_data,
+        .errors = errors,
     };
 }
 
@@ -318,7 +323,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .asterisk_after_ptr_deref => {
             // Note that the token will point at the `.*` but ideally the source
             // location would point to the `*` after the `.*`.
-            return stream.writeAll("'.*' cannot be followed by '*'. Are you missing a space?");
+            return stream.writeAll("'.*' cannot be followed by '*'; are you missing a space?");
         },
         .chained_comparison_operators => {
             return stream.writeAll("comparison operators cannot be chained");
@@ -521,7 +526,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             return stream.writeAll("expected field initializer");
         },
         .mismatched_binary_op_whitespace => {
-            return stream.print("binary operator `{s}` has whitespace on one side, but not the other.", .{tree.tokenTag(parse_error.token).lexeme().?});
+            return stream.print("binary operator '{s}' has whitespace on one side, but not the other", .{tree.tokenTag(parse_error.token).lexeme().?});
         },
         .invalid_ampersand_ampersand => {
             return stream.writeAll("ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND");
@@ -3886,7 +3891,7 @@ pub const Node = struct {
         ///
         /// The `main_token` field is the `{` token.
         block_two,
-        /// Same as `block_two_semicolon` except there is known to be a trailing
+        /// Same as `block_two` except there is known to be a trailing
         /// comma before the final rbrace.
         block_two_semicolon,
         /// `{a b}`.
