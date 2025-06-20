@@ -336,65 +336,55 @@ fn entryPoints(self: *Module) !Section {
 
 pub fn finalize(self: *Module, a: Allocator) ![]Word {
     // Emit capabilities and extensions
-    for (std.Target.spirv.all_features) |feature| {
-        if (self.target.cpu.features.isEnabled(feature.index)) {
-            const feature_tag: std.Target.spirv.Feature = @enumFromInt(feature.index);
-            switch (feature_tag) {
-                // Versions
-                .v1_0, .v1_1, .v1_2, .v1_3, .v1_4, .v1_5, .v1_6 => {},
-                // Features with no dependencies
-                .int64 => try self.addCapability(.Int64),
-                .float16 => try self.addCapability(.Float16),
-                .float64 => try self.addCapability(.Float64),
-                .matrix => try self.addCapability(.Matrix),
-                .storage_push_constant16 => {
-                    try self.addExtension("SPV_KHR_16bit_storage");
-                    try self.addCapability(.StoragePushConstant16);
-                },
-                .arbitrary_precision_integers => {
-                    try self.addExtension("SPV_INTEL_arbitrary_precision_integers");
-                    try self.addCapability(.ArbitraryPrecisionIntegersINTEL);
-                },
-                .addresses => try self.addCapability(.Addresses),
-                // Kernel
-                .kernel => try self.addCapability(.Kernel),
-                .generic_pointer => try self.addCapability(.GenericPointer),
-                .vector16 => try self.addCapability(.Vector16),
-                // Shader
-                .shader => try self.addCapability(.Shader),
-                .variable_pointers => {
-                    try self.addExtension("SPV_KHR_variable_pointers");
-                    try self.addCapability(.VariablePointersStorageBuffer);
-                    try self.addCapability(.VariablePointers);
-                },
-                .physical_storage_buffer => {
-                    try self.addExtension("SPV_KHR_physical_storage_buffer");
-                    try self.addCapability(.PhysicalStorageBufferAddresses);
-                },
+    switch (self.target.os.tag) {
+        .opengl => {
+            try self.addCapability(.Shader);
+            try self.addCapability(.Matrix);
+        },
+        .vulkan => {
+            try self.addCapability(.Shader);
+            try self.addCapability(.Matrix);
+            if (self.target.cpu.arch == .spirv64) {
+                try self.addExtension("SPV_KHR_physical_storage_buffer");
+                try self.addCapability(.PhysicalStorageBufferAddresses);
             }
-        }
+        },
+        .opencl, .amdhsa => {
+            try self.addCapability(.Kernel);
+            try self.addCapability(.Addresses);
+        },
+        else => unreachable,
+    }
+    if (self.target.cpu.arch == .spirv64) try self.addCapability(.Int64);
+    if (self.target.cpu.has(.spirv, .int64)) try self.addCapability(.Int64);
+    if (self.target.cpu.has(.spirv, .float16)) try self.addCapability(.Float16);
+    if (self.target.cpu.has(.spirv, .float64)) try self.addCapability(.Float64);
+    if (self.target.cpu.has(.spirv, .generic_pointer)) try self.addCapability(.GenericPointer);
+    if (self.target.cpu.has(.spirv, .vector16)) try self.addCapability(.Vector16);
+    if (self.target.cpu.has(.spirv, .storage_push_constant16)) {
+        try self.addExtension("SPV_KHR_16bit_storage");
+        try self.addCapability(.StoragePushConstant16);
+    }
+    if (self.target.cpu.has(.spirv, .arbitrary_precision_integers)) {
+        try self.addExtension("SPV_INTEL_arbitrary_precision_integers");
+        try self.addCapability(.ArbitraryPrecisionIntegersINTEL);
+    }
+    if (self.target.cpu.has(.spirv, .variable_pointers)) {
+        try self.addExtension("SPV_KHR_variable_pointers");
+        try self.addCapability(.VariablePointersStorageBuffer);
+        try self.addCapability(.VariablePointers);
     }
     // These are well supported
     try self.addCapability(.Int8);
     try self.addCapability(.Int16);
 
     // Emit memory model
-    const addressing_model: spec.AddressingModel = blk: {
-        if (self.hasFeature(.shader)) {
-            if (self.hasFeature(.physical_storage_buffer)) {
-                assert(self.target.cpu.arch == .spirv64);
-                break :blk .PhysicalStorageBuffer64;
-            }
-            assert(self.target.cpu.arch == .spirv);
-            break :blk .Logical;
-        }
-
-        assert(self.hasFeature(.kernel));
-        break :blk switch (self.target.cpu.arch) {
-            .spirv32 => .Physical32,
-            .spirv64 => .Physical64,
-            else => unreachable,
-        };
+    const addressing_model: spec.AddressingModel = switch (self.target.os.tag) {
+        .opengl => .Logical,
+        .vulkan => if (self.target.cpu.arch == .spirv32) .Logical else .PhysicalStorageBuffer64,
+        .opencl => if (self.target.cpu.arch == .spirv32) .Physical32 else .Physical64,
+        .amdhsa => .Physical64,
+        else => unreachable,
     };
     try self.sections.memory_model.emit(self.gpa, .OpMemoryModel, .{
         .addressing_model = addressing_model,

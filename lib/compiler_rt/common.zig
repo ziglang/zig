@@ -120,7 +120,6 @@ pub fn F16T(comptime OtherType: type) type {
         .nvptx64,
         .riscv32,
         .riscv64,
-        .spirv,
         .spirv32,
         .spirv64,
         => f16,

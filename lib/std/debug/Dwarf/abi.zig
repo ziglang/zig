@@ -14,7 +14,6 @@ pub fn supportsUnwinding(target: *const std.Target) bool {
         .amdgcn,
         .nvptx,
         .nvptx64,
-        .spirv,
         .spirv32,
         .spirv64,
         => false,

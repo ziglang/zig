@@ -389,7 +389,6 @@ fn testFunction() !void {
 
     // Avoid looking at `typeInfoFooAligned` on targets which don't support function alignment.
     switch (builtin.target.cpu.arch) {
-        .spirv,
         .spirv32,
         .spirv64,
         .wasm32,

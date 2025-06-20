@@ -37,7 +37,7 @@ fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
         .stage2_powerpc => .powerpc_backend,
         .stage2_riscv64 => .riscv64_backend,
         .stage2_sparc64 => .sparc64_backend,
-        .stage2_spirv => .spirv64_backend,
+        .stage2_spirv => .spirv_backend,
         .stage2_wasm => .wasm_backend,
         .stage2_x86 => .x86_backend,
         .stage2_x86_64 => .x86_64_backend,

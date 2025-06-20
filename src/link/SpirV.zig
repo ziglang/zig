@@ -64,7 +64,7 @@ pub fn createEmpty(
     assert(!comp.config.use_llvm); // Caught by Compilation.Config.resolve
     assert(target.ofmt == .spirv); // Caught by Compilation.Config.resolve
     switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => {},
+        .spirv32, .spirv64 => {},
         else => unreachable, // Caught by Compilation.Config.resolve.
     }
     switch (target.os.tag) {
