@@ -1079,3 +1079,17 @@ test "sentinel expression in slice operation has result type" {
     comptime assert(slice[0] == 1);
     comptime assert(slice[1] == 2);
 }
+
+test "conditionally return second argument slice" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    const S = struct {
+        fn foo(cond: bool, slice: []const u8) []const u8 {
+            if (cond) return slice;
+            return &.{};
+        }
+    };
+
+    try expectEqualStrings("", S.foo(false, "false"));
+    try expectEqualStrings("true", S.foo(true, "true"));
+}
