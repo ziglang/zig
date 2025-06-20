@@ -204,11 +204,10 @@ pub fn setName(run: *Run, name: []const u8) void {
 
 pub fn enableTestRunnerMode(run: *Run) void {
     const b = run.step.owner;
-    const arena = b.allocator;
     run.stdio = .zig_test;
+    run.addPrefixedDirectoryArg("--cache-dir=", .{ .cwd_relative = b.cache_root.path orelse "." });
     run.addArgs(&.{
-        std.fmt.allocPrint(arena, "--seed=0x{x}", .{b.graph.random_seed}) catch @panic("OOM"),
-        std.fmt.allocPrint(arena, "--cache-dir={s}", .{b.cache_root.path orelse ""}) catch @panic("OOM"),
+        b.fmt("--seed=0x{x}", .{b.graph.random_seed}),
         "--listen=-",
     });
 }

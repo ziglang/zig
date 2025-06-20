@@ -204,6 +204,9 @@
         .entry_point = .{
             .path = "entry_point",
         },
+        .run_cwd = .{
+            .path = "run_cwd",
+        },
     },
     .paths = .{
         "build.zig",
