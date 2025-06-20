@@ -157,7 +157,7 @@ inline fn copyForwards(
     const d = dest + alignment_offset;
     const s = src + alignment_offset;
 
-    copyBlocksAlignedSource(@ptrCast(d), @alignCast(@ptrCast(s)), n);
+    copyBlocksAlignedSource(@ptrCast(d), @ptrCast(@alignCast(s)), n);
 
     // copy last `copy_size` bytes unconditionally, since block copy
     // methods only copy a multiple of `copy_size` bytes.

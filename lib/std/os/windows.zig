@@ -202,7 +202,7 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
         const name = UNICODE_STRING{
             .Length = len,
             .MaximumLength = len,
-            .Buffer = @constCast(@ptrCast(str)),
+            .Buffer = @ptrCast(@constCast(str)),
         };
         const attrs = OBJECT_ATTRIBUTES{
             .ObjectName = @constCast(&name),

@@ -283,7 +283,7 @@ pub fn GenericReader(
         const Self = @This();
 
         fn typeErasedReadFn(context: *const anyopaque, buffer: []u8) anyerror!usize {
-            const ptr: *const Context = @alignCast(@ptrCast(context));
+            const ptr: *const Context = @ptrCast(@alignCast(context));
             return readFn(ptr.*, buffer);
         }
     };
@@ -344,7 +344,7 @@ pub fn GenericWriter(
         }
 
         fn typeErasedWriteFn(context: *const anyopaque, bytes: []const u8) anyerror!usize {
-            const ptr: *const Context = @alignCast(@ptrCast(context));
+            const ptr: *const Context = @ptrCast(@alignCast(context));
             return writeFn(ptr.*, bytes);
         }
     };
