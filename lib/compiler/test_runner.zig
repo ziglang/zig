@@ -17,6 +17,7 @@ var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
 const crippled = switch (builtin.zig_backend) {
     .stage2_powerpc,
     .stage2_riscv64,
+    .stage2_loongarch,
     => true,
     else => false,
 };
@@ -309,7 +310,7 @@ pub fn mainSimple() anyerror!void {
                 stderr.writeAll("... ") catch {};
                 stderr.writeAll("PASS\n") catch {};
             }
-        } else |err| if (enable_print) {
+        } else |err| {
             if (enable_print) {
                 stderr.writeAll(test_fn.name) catch {};
                 stderr.writeAll("... ") catch {};
