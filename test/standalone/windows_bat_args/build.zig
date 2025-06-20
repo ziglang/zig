@@ -28,6 +28,8 @@ pub fn build(b: *std.Build) !void {
         }),
     });
 
+    test_exe.root_module.linkSystemLibrary("advapi32", .{});
+
     const run = b.addRunArtifact(test_exe);
     run.addArtifactArg(echo_args);
     run.expectExitCode(0);
@@ -43,6 +45,8 @@ pub fn build(b: *std.Build) !void {
             .target = target,
         }),
     });
+
+    fuzz.root_module.linkSystemLibrary("advapi32", .{});
 
     const fuzz_max_iterations = b.option(u64, "iterations", "The max fuzz iterations (default: 100)") orelse 100;
     const fuzz_iterations_arg = std.fmt.allocPrint(b.allocator, "{}", .{fuzz_max_iterations}) catch @panic("oom");
