@@ -316,7 +316,7 @@ const Eval = struct {
 
                     const bin_name = try std.zig.EmitArtifact.bin.cacheName(arena, .{
                         .root_name = "root", // corresponds to the module name "root"
-                        .target = eval.target.resolved,
+                        .target = &eval.target.resolved,
                         .output_mode = .Exe,
                     });
                     const bin_path = try std.fs.path.join(arena, &.{ result_dir, bin_name });
@@ -444,7 +444,7 @@ const Eval = struct {
 
         var argv_buf: [2][]const u8 = undefined;
         const argv: []const []const u8, const is_foreign: bool = switch (std.zig.system.getExternalExecutor(
-            eval.host,
+            &eval.host,
             &eval.target.resolved,
             .{ .link_libc = eval.target.backend == .cbe },
         )) {

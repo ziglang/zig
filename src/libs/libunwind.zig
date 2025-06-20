@@ -27,7 +27,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     const arena = arena_allocator.allocator();
 
     const output_mode = .Lib;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const unwind_tables: std.builtin.UnwindTables =
         if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async";
     const config = Compilation.Config.resolve(.{

@@ -43,7 +43,7 @@ pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
     });
 }
 
-fn subArchName(target: std.Target, comptime family: std.Target.Cpu.Arch.Family, mappings: anytype) ?[]const u8 {
+fn subArchName(target: *const std.Target, comptime family: std.Target.Cpu.Arch.Family, mappings: anytype) ?[]const u8 {
     inline for (mappings) |mapping| {
         if (target.cpu.has(family, mapping[0])) return mapping[1];
     }
@@ -51,7 +51,7 @@ fn subArchName(target: std.Target, comptime family: std.Target.Cpu.Arch.Family, 
     return null;
 }
 
-pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
+pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8 {
     var llvm_triple = std.ArrayList(u8).init(allocator);
     defer llvm_triple.deinit();
 
@@ -309,7 +309,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     return llvm_triple.toOwnedSlice();
 }
 
-pub fn supportsTailCall(target: std.Target) bool {
+pub fn supportsTailCall(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .wasm32, .wasm64 => target.cpu.has(.wasm, .tail_call),
         // Although these ISAs support tail calls, LLVM does not support tail calls on them.
@@ -319,7 +319,7 @@ pub fn supportsTailCall(target: std.Target) bool {
     };
 }
 
-pub fn dataLayout(target: std.Target) []const u8 {
+pub fn dataLayout(target: *const std.Target) []const u8 {
     // These data layouts should match Clang.
     return switch (target.cpu.arch) {
         .arc => "e-m:e-p:32:32-i1:8:32-i8:8:32-i16:16:32-i32:32:32-f32:32:32-i64:32-f64:32-a:0:32-n32",
@@ -475,7 +475,7 @@ const CodeModel = enum {
     large,
 };
 
-fn codeModel(model: std.builtin.CodeModel, target: std.Target) CodeModel {
+fn codeModel(model: std.builtin.CodeModel, target: *const std.Target) CodeModel {
     // Roughly match Clang's mapping of GCC code models to LLVM code models.
     return switch (model) {
         .default => .default,
@@ -508,7 +508,7 @@ pub const Object = struct {
 
     debug_unresolved_namespace_scopes: std.AutoArrayHashMapUnmanaged(InternPool.NamespaceIndex, Builder.Metadata),
 
-    target: std.Target,
+    target: *const std.Target,
     /// Ideally we would use `llvm_module.getNamedFunction` to go from *Decl to LLVM function,
     /// but that has some downsides:
     /// * we have to compute the fully qualified name every time we want to do the lookup
@@ -562,7 +562,7 @@ pub const Object = struct {
     pub fn create(arena: Allocator, comp: *Compilation) !Ptr {
         dev.check(.llvm_backend);
         const gpa = comp.gpa;
-        const target = comp.root_mod.resolved_target.result;
+        const target = &comp.root_mod.resolved_target.result;
         const llvm_target_triple = try targetTriple(arena, target);
 
         var builder = try Builder.init(.{
@@ -827,7 +827,7 @@ pub const Object = struct {
             const behavior_max = try o.builder.metadataConstant(try o.builder.intConst(.i32, 7));
             const behavior_min = try o.builder.metadataConstant(try o.builder.intConst(.i32, 8));
 
-            if (target_util.llvmMachineAbi(comp.root_mod.resolved_target.result)) |abi| {
+            if (target_util.llvmMachineAbi(&comp.root_mod.resolved_target.result)) |abi| {
                 module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
                     behavior_error,
                     try o.builder.metadataString("target-abi"),
@@ -837,7 +837,7 @@ pub const Object = struct {
                 ));
             }
 
-            const pic_level = target_util.picLevel(comp.root_mod.resolved_target.result);
+            const pic_level = target_util.picLevel(&comp.root_mod.resolved_target.result);
             if (comp.root_mod.pic) {
                 module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
                     behavior_min,
@@ -860,7 +860,7 @@ pub const Object = struct {
                     try o.builder.metadataString("Code Model"),
                     try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(
                         i32,
-                        switch (codeModel(comp.root_mod.code_model, comp.root_mod.resolved_target.result)) {
+                        switch (codeModel(comp.root_mod.code_model, &comp.root_mod.resolved_target.result)) {
                             .default => unreachable,
                             .tiny => 0,
                             .small => 1,
@@ -906,7 +906,7 @@ pub const Object = struct {
                 }
             }
 
-            const target = comp.root_mod.resolved_target.result;
+            const target = &comp.root_mod.resolved_target.result;
             if (target.os.tag == .windows and (target.cpu.arch == .x86_64 or target.cpu.arch == .x86)) {
                 // Add the "RegCallv4" flag so that any functions using `x86_regcallcc` use regcall
                 // v4, which is essentially a requirement on Windows. See corresponding logic in
@@ -1020,7 +1020,7 @@ pub const Object = struct {
         else
             .Static;
 
-        const code_model: llvm.CodeModel = switch (codeModel(comp.root_mod.code_model, comp.root_mod.resolved_target.result)) {
+        const code_model: llvm.CodeModel = switch (codeModel(comp.root_mod.code_model, &comp.root_mod.resolved_target.result)) {
             .default => .Default,
             .tiny => .Tiny,
             .small => .Small,
@@ -1045,7 +1045,7 @@ pub const Object = struct {
             comp.function_sections,
             comp.data_sections,
             float_abi,
-            if (target_util.llvmMachineAbi(comp.root_mod.resolved_target.result)) |s| s.ptr else null,
+            if (target_util.llvmMachineAbi(&comp.root_mod.resolved_target.result)) |s| s.ptr else null,
         );
         errdefer target_machine.dispose();
 
@@ -1137,7 +1137,7 @@ pub const Object = struct {
         const owner_mod = zcu.fileByIndex(file_scope).mod.?;
         const fn_ty = Type.fromInterned(func.ty);
         const fn_info = zcu.typeToFunc(fn_ty).?;
-        const target = owner_mod.resolved_target.result;
+        const target = &owner_mod.resolved_target.result;
 
         var ng: NavGen = .{
             .object = o,
@@ -2699,7 +2699,7 @@ pub const Object = struct {
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.function;
 
         const fn_info = zcu.typeToFunc(ty).?;
-        const target = owner_mod.resolved_target.result;
+        const target = &owner_mod.resolved_target.result;
         const sret = firstParamSRet(fn_info, zcu, target);
 
         const is_extern, const lib_name = if (nav.getExtern(ip)) |@"extern"|
@@ -2913,7 +2913,7 @@ pub const Object = struct {
             try attributes.addFnAttr(.minsize, &o.builder);
             try attributes.addFnAttr(.optsize, &o.builder);
         }
-        const target = owner_mod.resolved_target.result;
+        const target = &owner_mod.resolved_target.result;
         if (target.cpu.model.llvm_name) |s| {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("target-cpu"),
@@ -4445,7 +4445,7 @@ pub const Object = struct {
         if (o.builder.getGlobal(name)) |llvm_fn| return llvm_fn.ptrConst(&o.builder).kind.function;
 
         const zcu = o.pt.zcu;
-        const target = zcu.root_mod.resolved_target.result;
+        const target = &zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(.i1, &.{try o.errorIntType()}, .normal),
             name,
@@ -4474,7 +4474,7 @@ pub const Object = struct {
 
         const usize_ty = try o.lowerType(Type.usize);
         const ret_ty = try o.lowerType(Type.slice_const_u8_sentinel_0);
-        const target = zcu.root_mod.resolved_target.result;
+        const target = &zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(ret_ty, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
             try o.builder.strtabStringFmt("__zig_tag_name_{}", .{enum_type.name.fmt(ip)}),
@@ -10372,7 +10372,7 @@ pub const FuncGen = struct {
         if (gop.found_existing) return gop.value_ptr.*;
         errdefer assert(o.named_enum_map.remove(enum_ty.toIntern()));
 
-        const target = zcu.root_mod.resolved_target.result;
+        const target = &zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(.i1, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
             try o.builder.strtabStringFmt("__zig_is_named_enum_value_{}", .{enum_type.name.fmt(ip)}),
@@ -11834,7 +11834,7 @@ const CallingConventionInfo = struct {
     inreg_param_count: u2 = 0,
 };
 
-pub fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) ?CallingConventionInfo {
+pub fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: *const std.Target) ?CallingConventionInfo {
     const llvm_cc = toLlvmCallConvTag(cc, target) orelse return null;
     const incoming_stack_alignment: ?u64, const register_params: u2 = switch (cc) {
         inline else => |pl| switch (@TypeOf(pl)) {
@@ -11858,7 +11858,7 @@ pub fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) ?Ca
         .inreg_param_count = register_params,
     };
 }
-fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Target) ?Builder.CallConv {
+fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const std.Target) ?Builder.CallConv {
     if (target.cCallingConvention()) |default_c| {
         if (cc_tag == default_c) {
             return .ccc;
@@ -11972,7 +11972,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
 }
 
 /// Convert a zig-address space to an llvm address space.
-fn toLlvmAddressSpace(address_space: std.builtin.AddressSpace, target: std.Target) Builder.AddrSpace {
+fn toLlvmAddressSpace(address_space: std.builtin.AddressSpace, target: *const std.Target) Builder.AddrSpace {
     for (llvmAddrSpaceInfo(target)) |info| if (info.zig == address_space) return info.llvm;
     unreachable;
 }
@@ -11987,7 +11987,7 @@ const AddrSpaceInfo = struct {
     idx: ?u16 = null,
     force_in_data_layout: bool = false,
 };
-fn llvmAddrSpaceInfo(target: std.Target) []const AddrSpaceInfo {
+fn llvmAddrSpaceInfo(target: *const std.Target) []const AddrSpaceInfo {
     return switch (target.cpu.arch) {
         .x86, .x86_64 => &.{
             .{ .zig = .generic, .llvm = .default },
@@ -12063,7 +12063,7 @@ fn llvmAddrSpaceInfo(target: std.Target) []const AddrSpaceInfo {
 /// different address, space and then cast back to the generic address space.
 /// For example, on GPUs local variable declarations must be generated into the local address space.
 /// This function returns the address space local values should be generated into.
-fn llvmAllocaAddressSpace(target: std.Target) Builder.AddrSpace {
+fn llvmAllocaAddressSpace(target: *const std.Target) Builder.AddrSpace {
     return switch (target.cpu.arch) {
         // On amdgcn, locals should be generated into the private address space.
         // To make Zig not impossible to use, these are then converted to addresses in the
@@ -12075,7 +12075,7 @@ fn llvmAllocaAddressSpace(target: std.Target) Builder.AddrSpace {
 
 /// On some targets, global values that are in the generic address space must be generated into a
 /// different address space, and then cast back to the generic address space.
-fn llvmDefaultGlobalAddressSpace(target: std.Target) Builder.AddrSpace {
+fn llvmDefaultGlobalAddressSpace(target: *const std.Target) Builder.AddrSpace {
     return switch (target.cpu.arch) {
         // On amdgcn, globals must be explicitly allocated and uploaded so that the program can access
         // them.
@@ -12086,14 +12086,14 @@ fn llvmDefaultGlobalAddressSpace(target: std.Target) Builder.AddrSpace {
 
 /// Return the actual address space that a value should be stored in if its a global address space.
 /// When a value is placed in the resulting address space, it needs to be cast back into wanted_address_space.
-fn toLlvmGlobalAddressSpace(wanted_address_space: std.builtin.AddressSpace, target: std.Target) Builder.AddrSpace {
+fn toLlvmGlobalAddressSpace(wanted_address_space: std.builtin.AddressSpace, target: *const std.Target) Builder.AddrSpace {
     return switch (wanted_address_space) {
         .generic => llvmDefaultGlobalAddressSpace(target),
         else => |as| toLlvmAddressSpace(as, target),
     };
 }
 
-fn returnTypeByRef(zcu: *Zcu, target: std.Target, ty: Type) bool {
+fn returnTypeByRef(zcu: *Zcu, target: *const std.Target, ty: Type) bool {
     if (isByRef(ty, zcu)) {
         return true;
     } else if (target.cpu.arch.isX86() and
@@ -12108,14 +12108,14 @@ fn returnTypeByRef(zcu: *Zcu, target: std.Target, ty: Type) bool {
     }
 }
 
-fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Target) bool {
+fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: *const std.Target) bool {
     const return_type = Type.fromInterned(fn_info.return_type);
     if (!return_type.hasRuntimeBitsIgnoreComptime(zcu)) return false;
 
     return switch (fn_info.cc) {
         .auto => returnTypeByRef(zcu, target, return_type),
         .x86_64_sysv => firstParamSRetSystemV(return_type, zcu, target),
-        .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
+        .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu, target) == .memory,
         .x86_sysv, .x86_win => isByRef(return_type, zcu),
         .x86_stdcall => !isScalar(zcu, return_type),
         .wasm_mvp => wasm_c_abi.classifyType(return_type, zcu) == .indirect,
@@ -12137,8 +12137,8 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
     };
 }
 
-fn firstParamSRetSystemV(ty: Type, zcu: *Zcu, target: std.Target) bool {
-    const class = x86_64_abi.classifySystemV(ty, zcu, &target, .ret);
+fn firstParamSRetSystemV(ty: Type, zcu: *Zcu, target: *const std.Target) bool {
+    const class = x86_64_abi.classifySystemV(ty, zcu, target, .ret);
     if (class[0] == .memory) return true;
     if (class[0] == .x87 and class[2] != .none) return true;
     return false;
@@ -12215,7 +12215,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
 fn lowerWin64FnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Builder.Type {
     const zcu = o.pt.zcu;
     const return_type = Type.fromInterned(fn_info.return_type);
-    switch (x86_64_abi.classifyWindows(return_type, zcu)) {
+    switch (x86_64_abi.classifyWindows(return_type, zcu, zcu.getTarget())) {
         .integer => {
             if (isScalar(zcu, return_type)) {
                 return o.lowerType(return_type);
@@ -12238,9 +12238,7 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
     if (isScalar(zcu, return_type)) {
         return o.lowerType(return_type);
     }
-    const target = zcu.getTarget();
-    const classes = x86_64_abi.classifySystemV(return_type, zcu, &target, .ret);
-    if (classes[0] == .memory) return .void;
+    const classes = x86_64_abi.classifySystemV(return_type, zcu, zcu.getTarget(), .ret);
     var types_index: u32 = 0;
     var types_buffer: [8]Builder.Type = undefined;
     for (classes) |class| {
@@ -12275,15 +12273,9 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
                 types_index += 1;
             },
             .x87up => continue,
-            .complex_x87 => {
-                @panic("TODO");
-            },
-            .memory => unreachable, // handled above
-            .win_i128 => unreachable, // windows only
             .none => break,
-            .integer_per_element => {
-                @panic("TODO");
-            },
+            .memory, .integer_per_element => return .void,
+            .win_i128 => unreachable, // windows only
         }
     }
     const first_non_integer = std.mem.indexOfNone(x86_64_abi.Class, &classes, &.{.integer});
@@ -12493,7 +12485,7 @@ const ParamTypeIterator = struct {
 
     fn nextWin64(it: *ParamTypeIterator, ty: Type) ?Lowering {
         const zcu = it.object.pt.zcu;
-        switch (x86_64_abi.classifyWindows(ty, zcu)) {
+        switch (x86_64_abi.classifyWindows(ty, zcu, zcu.getTarget())) {
             .integer => {
                 if (isScalar(zcu, ty)) {
                     it.zig_index += 1;
@@ -12527,8 +12519,7 @@ const ParamTypeIterator = struct {
     fn nextSystemV(it: *ParamTypeIterator, ty: Type) Allocator.Error!?Lowering {
         const zcu = it.object.pt.zcu;
         const ip = &zcu.intern_pool;
-        const target = zcu.getTarget();
-        const classes = x86_64_abi.classifySystemV(ty, zcu, &target, .arg);
+        const classes = x86_64_abi.classifySystemV(ty, zcu, zcu.getTarget(), .arg);
         if (classes[0] == .memory) {
             it.zig_index += 1;
             it.llvm_index += 1;
@@ -12575,12 +12566,9 @@ const ParamTypeIterator = struct {
                     return .byref;
                 },
                 .x87up => unreachable,
-                .complex_x87 => {
-                    @panic("TODO");
-                },
+                .none => break,
                 .memory => unreachable, // handled above
                 .win_i128 => unreachable, // windows only
-                .none => break,
                 .integer_per_element => {
                     @panic("TODO");
                 },
@@ -12794,7 +12782,7 @@ fn isScalar(zcu: *Zcu, ty: Type) bool {
 /// This function returns true if we expect LLVM to lower x86_fp80 correctly
 /// and false if we expect LLVM to crash if it encounters an x86_fp80 type,
 /// or if it produces miscompilations.
-fn backendSupportsF80(target: std.Target) bool {
+fn backendSupportsF80(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .x86, .x86_64 => !target.cpu.has(.x86, .soft_float),
         else => false,
@@ -12804,7 +12792,7 @@ fn backendSupportsF80(target: std.Target) bool {
 /// This function returns true if we expect LLVM to lower f16 correctly
 /// and false if we expect LLVM to crash if it encounters an f16 type,
 /// or if it produces miscompilations.
-fn backendSupportsF16(target: std.Target) bool {
+fn backendSupportsF16(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         // https://github.com/llvm/llvm-project/issues/97981
         .csky,
@@ -12840,7 +12828,7 @@ fn backendSupportsF16(target: std.Target) bool {
 /// This function returns true if we expect LLVM to lower f128 correctly,
 /// and false if we expect LLVM to crash if it encounters an f128 type,
 /// or if it produces miscompilations.
-fn backendSupportsF128(target: std.Target) bool {
+fn backendSupportsF128(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         // https://github.com/llvm/llvm-project/issues/121122
         .amdgcn,
@@ -12870,7 +12858,7 @@ fn backendSupportsF128(target: std.Target) bool {
 
 /// LLVM does not support all relevant intrinsics for all targets, so we
 /// may need to manually generate a compiler-rt call.
-fn intrinsicsAllowed(scalar_ty: Type, target: std.Target) bool {
+fn intrinsicsAllowed(scalar_ty: Type, target: *const std.Target) bool {
     return switch (scalar_ty.toIntern()) {
         .f16_type => backendSupportsF16(target),
         .f80_type => (target.cTypeBitSize(.longdouble) == 80) and backendSupportsF80(target),
@@ -12907,7 +12895,7 @@ fn buildAllocaInner(
     wip: *Builder.WipFunction,
     llvm_ty: Builder.Type,
     alignment: Builder.Alignment,
-    target: std.Target,
+    target: *const std.Target,
 ) Allocator.Error!Builder.Value {
     const address_space = llvmAllocaAddressSpace(target);
 

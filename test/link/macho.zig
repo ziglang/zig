@@ -864,7 +864,7 @@ fn testLayout(b: *Build, opts: Options) *Step {
 fn testLinkDirectlyCppTbd(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "link-directly-cpp-tbd", opts);
 
-    const sdk = std.zig.system.darwin.getSdk(b.allocator, opts.target.result) orelse
+    const sdk = std.zig.system.darwin.getSdk(b.allocator, &opts.target.result) orelse
         @panic("macOS SDK is required to run the test");
 
     const exe = addExecutable(b, opts, .{

@@ -107,7 +107,7 @@ gpa: Allocator,
 arena: std.heap.ArenaAllocator,
 
 /// Target info
-target: std.Target,
+target: *const std.Target,
 
 /// The target SPIR-V version
 version: spec.Version,
@@ -187,7 +187,7 @@ decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
 /// The list of entry points that should be exported from this module.
 entry_points: std.AutoArrayHashMapUnmanaged(IdRef, EntryPoint) = .empty,
 
-pub fn init(gpa: Allocator, target: std.Target) Module {
+pub fn init(gpa: Allocator, target: *const std.Target) Module {
     const version_minor: u8 = blk: {
         // Prefer higher versions
         if (target.cpu.has(.spirv, .v1_6)) break :blk 6;

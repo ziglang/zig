@@ -184,7 +184,7 @@ pub const Atom = struct {
 
     // asserts that self.got_index != null
     pub fn getOffsetTableAddress(self: Atom, plan9: *Plan9) u64 {
-        const target = plan9.base.comp.root_mod.resolved_target.result;
+        const target = &plan9.base.comp.root_mod.resolved_target.result;
         const ptr_bytes = @divExact(target.ptrBitWidth(), 8);
         const got_addr = plan9.bases.data;
         const got_index = self.got_index.?;
@@ -278,7 +278,7 @@ pub fn createEmpty(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*Plan9 {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const gpa = comp.gpa;
     const optimize_mode = comp.root_mod.optimize_mode;
     const output_mode = comp.config.output_mode;
@@ -394,7 +394,7 @@ pub fn updateFunc(
 
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
-    const target = self.base.comp.root_mod.resolved_target.result;
+    const target = &self.base.comp.root_mod.resolved_target.result;
     const func = zcu.funcInfo(func_index);
 
     const atom_idx = try self.seeNav(pt, func.owner_nav);
@@ -583,7 +583,7 @@ pub fn flush(
     const comp = self.base.comp;
     const diags = &comp.link_diags;
     const gpa = comp.gpa;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
 
     switch (comp.config.output_mode) {
         .Exe => {},
@@ -1153,7 +1153,7 @@ pub fn open(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*Plan9 {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
 
@@ -1358,7 +1358,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     _ = explicit_alignment;
     // example:
     // const ty = mod.intern_pool.typeOf(decl_val).toType();
@@ -1370,7 +1370,7 @@ pub fn lowerUav(
     // ...
     const gpa = self.base.comp.gpa;
     const gop = try self.uavs.getOrPut(gpa, uav);
-    if (gop.found_existing) return .{ .mcv = .{ .load_direct = gop.value_ptr.* } };
+    if (gop.found_existing) return .{ .sym_index = gop.value_ptr.* };
     const val = Value.fromInterned(uav);
     const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(uav)});
 
@@ -1395,7 +1395,7 @@ pub fn lowerUav(
         .value = undefined,
         .name = name,
     };
-    return .{ .mcv = .{ .load_direct = index } };
+    return .{ .sym_index = index };
 }
 
 pub fn getUavVAddr(self: *Plan9, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {

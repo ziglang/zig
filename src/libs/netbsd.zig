@@ -58,7 +58,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const target_version = target.os.version_range.semver.min;
 
     // In all cases in this function, we add the C compiler flags to
@@ -353,7 +353,7 @@ pub const BuiltSharedObjects = struct {
     }
 };
 
-fn wordDirective(target: std.Target) []const u8 {
+fn wordDirective(target: *const std.Target) []const u8 {
     // Based on its description in the GNU `as` manual, you might assume that `.word` is sized
     // according to the target word size. But no; that would just make too much sense.
     return if (target.ptrBitWidth() == 64) ".quad" else ".long";

@@ -185,7 +185,7 @@ pub const Object = struct {
     /// related to that.
     error_buffer: ?SpvModule.Decl.Index = null,
 
-    pub fn init(gpa: Allocator, target: std.Target) Object {
+    pub fn init(gpa: Allocator, target: *const std.Target) Object {
         return .{
             .gpa = gpa,
             .spv = SpvModule.init(gpa, target),

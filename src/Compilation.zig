@@ -224,6 +224,8 @@ compiler_rt_lib: ?CrtFile = null,
 /// Populated when we build the compiler_rt_obj object. A Job to build this is indicated
 /// by setting `queued_jobs.compiler_rt_obj` and resolved before calling linker.flush().
 compiler_rt_obj: ?CrtFile = null,
+/// hack for stage2_x86_64 + coff
+compiler_rt_dyn_lib: ?CrtFile = null,
 /// Populated when we build the libfuzzer static library. A Job to build this
 /// is indicated by setting `queued_jobs.fuzzer_lib` and resolved before
 /// calling linker.flush().
@@ -291,6 +293,8 @@ emit_llvm_bc: ?[]const u8,
 emit_docs: ?[]const u8,
 
 const QueuedJobs = struct {
+    /// hack for stage2_x86_64 + coff
+    compiler_rt_dyn_lib: bool = false,
     compiler_rt_lib: bool = false,
     compiler_rt_obj: bool = false,
     ubsan_rt_lib: bool = false,
@@ -1361,7 +1365,7 @@ pub const cache_helpers = struct {
         hh: *Cache.HashHelper,
         resolved_target: Package.Module.ResolvedTarget,
     ) void {
-        const target = resolved_target.result;
+        const target = &resolved_target.result;
         hh.add(target.cpu.arch);
         hh.addBytes(target.cpu.model.name);
         hh.add(target.cpu.features.ints);
@@ -1705,7 +1709,7 @@ pub const CreateOptions = struct {
                     assert(opts.cache_mode != .none);
                     return try ea.cacheName(arena, .{
                         .root_name = opts.root_name,
-                        .target = opts.root_mod.resolved_target.result,
+                        .target = &opts.root_mod.resolved_target.result,
                         .output_mode = opts.config.output_mode,
                         .link_mode = opts.config.link_mode,
                         .version = opts.version,
@@ -1753,7 +1757,7 @@ fn addModuleTableToCacheHash(
     }
 }
 
-const RtStrat = enum { none, lib, obj, zcu };
+const RtStrat = enum { none, lib, obj, zcu, dyn_lib };
 
 pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compilation {
     const output_mode = options.config.output_mode;
@@ -1772,13 +1776,13 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     }
 
     const have_zcu = options.config.have_zcu;
+    const use_llvm = options.config.use_llvm;
+    const target = &options.root_mod.resolved_target.result;
 
     const comp: *Compilation = comp: {
         // We put the `Compilation` itself in the arena. Freeing the arena will free the module.
         // It's initialized later after we prepare the initialization options.
         const root_name = try arena.dupeZ(u8, options.root_name);
-
-        const use_llvm = options.config.use_llvm;
 
         // The "any" values provided by resolved config only account for
         // explicitly-provided settings. We now make them additionally account
@@ -1804,7 +1808,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         const libc_dirs = try std.zig.LibCDirs.detect(
             arena,
             options.dirs.zig_lib.path.?,
-            options.root_mod.resolved_target.result,
+            target,
             options.root_mod.resolved_target.is_native_abi,
             link_libc,
             options.libc_installation,
@@ -1816,7 +1820,11 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             if (options.skip_linker_dependencies) break :s .none;
             const want = options.want_compiler_rt orelse is_exe_or_dyn_lib;
             if (!want) break :s .none;
-            if (have_zcu and output_mode == .Obj) break :s .zcu;
+            if (have_zcu) {
+                if (output_mode == .Obj) break :s .zcu;
+                if (target.ofmt == .coff and target_util.zigBackend(target, use_llvm) == .stage2_x86_64)
+                    break :s if (is_exe_or_dyn_lib) .dyn_lib else .zcu;
+            }
             if (is_exe_or_dyn_lib) break :s .lib;
             break :s .obj;
         };
@@ -1846,7 +1854,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // approach, since the ubsan runtime uses quite a lot of the standard library
         // and this reduces unnecessary bloat.
         const ubsan_rt_strat: RtStrat = s: {
-            const can_build_ubsan_rt = target_util.canBuildLibUbsanRt(options.root_mod.resolved_target.result);
+            const can_build_ubsan_rt = target_util.canBuildLibUbsanRt(target);
             const want_ubsan_rt = options.want_ubsan_rt orelse (can_build_ubsan_rt and any_sanitize_c == .full and is_exe_or_dyn_lib);
             if (!want_ubsan_rt) break :s .none;
             if (options.skip_linker_dependencies) break :s .none;
@@ -1872,7 +1880,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
         if (options.verbose_llvm_cpu_features) {
             if (options.root_mod.resolved_target.llvm_cpu_features) |cf| print: {
-                const target = options.root_mod.resolved_target.result;
                 std.debug.lockStdErr();
                 defer std.debug.unlockStdErr();
                 const stderr = std.io.getStdErr().writer();
@@ -1991,9 +1998,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         };
         errdefer if (opt_zcu) |zcu| zcu.deinit();
 
-        var windows_libs = try std.StringArrayHashMapUnmanaged(void).init(gpa, options.windows_lib_names, &.{});
-        errdefer windows_libs.deinit(gpa);
-
         comp.* = .{
             .gpa = gpa,
             .arena = arena,
@@ -2038,7 +2042,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .incremental = options.incremental,
             .root_name = root_name,
             .sysroot = sysroot,
-            .windows_libs = windows_libs,
+            .windows_libs = .empty,
             .version = options.version,
             .libc_installation = libc_dirs.libc_installation,
             .compiler_rt_strat = compiler_rt_strat,
@@ -2065,6 +2069,13 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_llvm_bc = try options.emit_llvm_bc.resolve(arena, &options, .llvm_bc),
             .emit_docs = try options.emit_docs.resolve(arena, &options, .docs),
         };
+
+        errdefer {
+            for (comp.windows_libs.keys()) |windows_lib| gpa.free(windows_lib);
+            comp.windows_libs.deinit(gpa);
+        }
+        try comp.windows_libs.ensureUnusedCapacity(gpa, options.windows_lib_names.len);
+        for (options.windows_lib_names) |windows_lib| comp.windows_libs.putAssumeCapacity(try gpa.dupe(u8, windows_lib), {});
 
         // Prevent some footguns by making the "any" fields of config reflect
         // the default Module settings.
@@ -2244,8 +2255,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     };
     errdefer comp.destroy();
 
-    const target = comp.root_mod.resolved_target.result;
-    const can_build_compiler_rt = target_util.canBuildLibCompilerRt(target, comp.config.use_llvm, build_options.have_llvm);
+    const can_build_compiler_rt = target_util.canBuildLibCompilerRt(target, use_llvm, build_options.have_llvm);
 
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
@@ -2344,7 +2354,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                         comp.link_task_queue.pending_prelink_tasks += 1;
                     }
                     comp.queued_jobs.glibc_shared_objects = true;
-                    comp.link_task_queue.pending_prelink_tasks += glibc.sharedObjectsCount(&target);
+                    comp.link_task_queue.pending_prelink_tasks += glibc.sharedObjectsCount(target);
 
                     comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.libc_nonshared_a)] = true;
                     comp.link_task_queue.pending_prelink_tasks += 1;
@@ -2389,7 +2399,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                     // When linking mingw-w64 there are some import libs we always need.
                     try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
-                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
+                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(try gpa.dupe(u8, name), {});
                 } else {
                     return error.LibCUnavailable;
                 }
@@ -2439,6 +2449,11 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     // for a compiler-rt object to put in it.
                     comp.queued_jobs.compiler_rt_obj = true;
                     comp.link_task_queue.pending_prelink_tasks += 1;
+                } else if (comp.compiler_rt_strat == .dyn_lib) {
+                    // hack for stage2_x86_64 + coff
+                    log.debug("queuing a job to build compiler_rt_dyn_lib", .{});
+                    comp.queued_jobs.compiler_rt_dyn_lib = true;
+                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
 
                 if (comp.ubsan_rt_strat == .lib) {
@@ -2482,6 +2497,7 @@ pub fn destroy(comp: *Compilation) void {
     comp.c_object_work_queue.deinit();
     comp.win32_resource_work_queue.deinit();
 
+    for (comp.windows_libs.keys()) |windows_lib| gpa.free(windows_lib);
     comp.windows_libs.deinit(gpa);
 
     {
@@ -2571,8 +2587,8 @@ pub fn clearMiscFailures(comp: *Compilation) void {
     comp.misc_failures = .{};
 }
 
-pub fn getTarget(self: Compilation) Target {
-    return self.root_mod.resolved_target.result;
+pub fn getTarget(self: *const Compilation) *const Target {
+    return &self.root_mod.resolved_target.result;
 }
 
 /// Only legal to call when cache mode is incremental and a link file is present.
@@ -3210,7 +3226,7 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addOptional(opts.image_base);
     man.hash.addOptional(opts.gc_sections);
     man.hash.add(opts.emit_relocs);
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     if (target.ofmt == .macho or target.ofmt == .coff) {
         // TODO remove this, libraries need to be resolved by the frontend. this is already
         // done by ELF.
@@ -4251,6 +4267,7 @@ fn performAllTheWork(
             "compiler_rt.zig",
             "compiler_rt",
             .Lib,
+            .static,
             .compiler_rt,
             main_progress_node,
             RtOptions{
@@ -4267,6 +4284,7 @@ fn performAllTheWork(
             "compiler_rt.zig",
             "compiler_rt",
             .Obj,
+            .static,
             .compiler_rt,
             main_progress_node,
             RtOptions{
@@ -4277,12 +4295,31 @@ fn performAllTheWork(
         });
     }
 
+    // hack for stage2_x86_64 + coff
+    if (comp.queued_jobs.compiler_rt_dyn_lib and comp.compiler_rt_dyn_lib == null) {
+        comp.link_task_wait_group.spawnManager(buildRt, .{
+            comp,
+            "compiler_rt.zig",
+            "compiler_rt",
+            .Lib,
+            .dynamic,
+            .compiler_rt,
+            main_progress_node,
+            RtOptions{
+                .checks_valgrind = true,
+                .allow_lto = false,
+            },
+            &comp.compiler_rt_dyn_lib,
+        });
+    }
+
     if (comp.queued_jobs.fuzzer_lib and comp.fuzzer_lib == null) {
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "fuzzer.zig",
             "fuzzer",
             .Lib,
+            .static,
             .libfuzzer,
             main_progress_node,
             RtOptions{},
@@ -4296,6 +4333,7 @@ fn performAllTheWork(
             "ubsan_rt.zig",
             "ubsan_rt",
             .Lib,
+            .static,
             .libubsan,
             main_progress_node,
             RtOptions{
@@ -4311,6 +4349,7 @@ fn performAllTheWork(
             "ubsan_rt.zig",
             "ubsan_rt",
             .Obj,
+            .static,
             .libubsan,
             main_progress_node,
             RtOptions{
@@ -5387,6 +5426,7 @@ fn buildRt(
     root_source_name: []const u8,
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
+    link_mode: std.builtin.LinkMode,
     misc_task: MiscTask,
     prog_node: std.Progress.Node,
     options: RtOptions,
@@ -5396,6 +5436,7 @@ fn buildRt(
         root_source_name,
         root_name,
         output_mode,
+        link_mode,
         misc_task,
         prog_node,
         options,
@@ -5551,6 +5592,7 @@ fn buildLibZigC(comp: *Compilation, prog_node: std.Progress.Node) void {
         "c.zig",
         "zigc",
         .Lib,
+        .static,
         .libzigc,
         prog_node,
         .{},
@@ -6270,7 +6312,7 @@ pub fn addCCArgs(
     out_dep_path: ?[]const u8,
     mod: *Package.Module,
 ) !void {
-    const target = mod.resolved_target.result;
+    const target = &mod.resolved_target.result;
 
     // As of Clang 16.x, it will by default read extra flags from /etc/clang.
     // I'm sure the person who implemented this means well, but they have a lot
@@ -6944,7 +6986,7 @@ pub const FileExt = enum {
         };
     }
 
-    pub fn canonicalName(ext: FileExt, target: Target) [:0]const u8 {
+    pub fn canonicalName(ext: FileExt, target: *const Target) [:0]const u8 {
         return switch (ext) {
             .c => ".c",
             .cpp => ".cpp",
@@ -7187,7 +7229,7 @@ pub fn dump_argv(argv: []const []const u8) void {
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     return target_util.zigBackend(target, comp.config.use_llvm);
 }
 
@@ -7228,6 +7270,7 @@ fn buildOutputFromZig(
     src_basename: []const u8,
     root_name: []const u8,
     output_mode: std.builtin.OutputMode,
+    link_mode: std.builtin.LinkMode,
     misc_task_tag: MiscTask,
     prog_node: std.Progress.Node,
     options: RtOptions,
@@ -7248,7 +7291,7 @@ fn buildOutputFromZig(
 
     const config = try Config.resolve(.{
         .output_mode = output_mode,
-        .link_mode = .static,
+        .link_mode = link_mode,
         .resolved_target = comp.root_mod.resolved_target,
         .is_test = false,
         .have_zcu = true,
@@ -7371,7 +7414,7 @@ pub fn build_crt_file(
 
     const basename = try std.zig.binNameAlloc(gpa, .{
         .root_name = root_name,
-        .target = comp.root_mod.resolved_target.result,
+        .target = &comp.root_mod.resolved_target.result,
         .output_mode = output_mode,
     });
 
@@ -7523,13 +7566,13 @@ pub fn getCrtPaths(
     comp: *Compilation,
     arena: Allocator,
 ) error{ OutOfMemory, LibCInstallationMissingCrtDir }!LibCInstallation.CrtPaths {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     return getCrtPathsInner(arena, target, comp.config, comp.libc_installation, &comp.crt_files);
 }
 
 fn getCrtPathsInner(
     arena: Allocator,
-    target: std.Target,
+    target: *const std.Target,
     config: Config,
     libc_installation: ?*const LibCInstallation,
     crt_files: *std.StringHashMapUnmanaged(CrtFile),
@@ -7558,14 +7601,19 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
     // then when we create a sub-Compilation for zig libc, it also tries to
     // build kernel32.lib.
     if (comp.skip_linker_dependencies) return;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     if (target.os.tag != .windows or target.ofmt == .c) return;
 
     // This happens when an `extern "foo"` function is referenced.
     // If we haven't seen this library yet and we're targeting Windows, we need
     // to queue up a work item to produce the DLL import library for this.
     const gop = try comp.windows_libs.getOrPut(comp.gpa, lib_name);
-    if (!gop.found_existing) try comp.queueJob(.{ .windows_import_lib = comp.windows_libs.count() - 1 });
+    if (gop.found_existing) return;
+    {
+        errdefer _ = comp.windows_libs.pop();
+        gop.key_ptr.* = try comp.gpa.dupe(u8, lib_name);
+    }
+    try comp.queueJob(.{ .windows_import_lib = gop.index });
 }
 
 /// This decides the optimization mode for all zig-provided libraries, including
@@ -7574,7 +7622,7 @@ pub fn compilerRtOptMode(comp: Compilation) std.builtin.OptimizeMode {
     if (comp.debug_compiler_runtime_libs) {
         return comp.root_mod.optimize_mode;
     }
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     switch (comp.root_mod.optimize_mode) {
         .Debug, .ReleaseSafe => return target_util.defaultCompilerRtOptimizeMode(target),
         .ReleaseFast => return .ReleaseFast,

@@ -59,7 +59,6 @@ fn testNullPtrsEql() !void {
 }
 
 test "optional with zero-bit type" {
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {

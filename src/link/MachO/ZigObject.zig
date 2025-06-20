@@ -704,7 +704,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: Atom.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const val = Value.fromInterned(uav);
@@ -716,7 +716,7 @@ pub fn lowerUav(
         const sym = self.symbols.items[metadata.symbol_index];
         const existing_alignment = sym.getAtom(macho_file).?.alignment;
         if (uav_alignment.order(existing_alignment).compare(.lte))
-            return .{ .mcv = .{ .load_symbol = sym.nlist_idx } };
+            return .{ .sym_index = metadata.symbol_index };
     }
 
     var name_buf: [32]u8 = undefined;
@@ -740,14 +740,11 @@ pub fn lowerUav(
             .{@errorName(e)},
         ) },
     };
-    const sym_index = switch (res) {
-        .ok => |sym_index| sym_index,
-        .fail => |em| return .{ .fail = em },
-    };
-    try self.uavs.put(gpa, uav, .{ .symbol_index = sym_index });
-    return .{ .mcv = .{
-        .load_symbol = self.symbols.items[sym_index].nlist_idx,
-    } };
+    switch (res) {
+        .sym_index => |sym_index| try self.uavs.put(gpa, uav, .{ .symbol_index = sym_index }),
+        .fail => {},
+    }
+    return res;
 }
 
 fn freeNavMetadata(self: *ZigObject, macho_file: *MachO, sym_index: Symbol.Index) void {
@@ -948,7 +945,7 @@ fn updateNavCode(
 
     log.debug("updateNavCode {} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
 
-    const target = zcu.navFileScope(nav_index).mod.?.resolved_target.result;
+    const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const required_alignment = switch (pt.navAlignment(nav_index)) {
         .none => target_util.defaultFunctionAlignment(target),
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
@@ -1187,11 +1184,6 @@ fn getNavOutputSection(
     return macho_file.zig_data_sect_index.?;
 }
 
-const LowerConstResult = union(enum) {
-    ok: Symbol.Index,
-    fail: *Zcu.ErrorMsg,
-};
-
 fn lowerConst(
     self: *ZigObject,
     macho_file: *MachO,
@@ -1201,7 +1193,7 @@ fn lowerConst(
     required_alignment: Atom.Alignment,
     output_section_index: u8,
     src_loc: Zcu.LazySrcLoc,
-) !LowerConstResult {
+) !codegen.SymbolResult {
     const gpa = macho_file.base.comp.gpa;
 
     var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
@@ -1241,7 +1233,7 @@ fn lowerConst(
     const file_offset = sect.offset + atom.value;
     try macho_file.pwriteAll(code, file_offset);
 
-    return .{ .ok = sym_index };
+    return .{ .sym_index = sym_index };
 }
 
 pub fn updateExports(
@@ -1265,7 +1257,7 @@ pub fn updateExports(
             const first_exp = export_indices[0].ptr(zcu);
             const res = try self.lowerUav(macho_file, pt, uav, .none, first_exp.src);
             switch (res) {
-                .mcv => {},
+                .sym_index => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Zcu.processExportsInner
                     // handle the error?

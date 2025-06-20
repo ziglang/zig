@@ -317,7 +317,7 @@ fn printOutput(
                 const target = try std.zig.system.resolveTargetQuery(
                     target_query,
                 );
-                switch (getExternalExecutor(host, &target, .{
+                switch (getExternalExecutor(&host, &target, .{
                     .link_libc = code.link_libc,
                 })) {
                     .native => {},
@@ -538,7 +538,7 @@ fn printOutput(
         .lib => {
             const bin_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = code_name,
-                .target = builtin.target,
+                .target = &builtin.target,
                 .output_mode = .Lib,
             });
 

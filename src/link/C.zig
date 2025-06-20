@@ -116,7 +116,7 @@ pub fn createEmpty(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*C {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     assert(target.ofmt == .c);
     const optimize_mode = comp.root_mod.optimize_mode;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
@@ -331,7 +331,7 @@ pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedIn
     _ = ti_id;
 }
 
-fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
+fn abiDefines(self: *C, target: *const std.Target) !std.ArrayList(u8) {
     const gpa = self.base.comp.gpa;
     var defines = std.ArrayList(u8).init(gpa);
     errdefer defines.deinit();

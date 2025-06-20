@@ -655,10 +655,10 @@ fn linkLibraryOrObject(m: *Module, other: *Step.Compile) void {
     m.include_dirs.append(allocator, .{ .other_step = other }) catch @panic("OOM");
 }
 
-fn requireKnownTarget(m: *Module) std.Target {
-    const resolved_target = m.resolved_target orelse
-        @panic("this API requires the Module to be created with a known 'target' field");
-    return resolved_target.result;
+fn requireKnownTarget(m: *Module) *const std.Target {
+    const resolved_target = &(m.resolved_target orelse
+        @panic("this API requires the Module to be created with a known 'target' field"));
+    return &resolved_target.result;
 }
 
 /// Elements of `modules` and `names` are matched one-to-one.

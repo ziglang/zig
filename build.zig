@@ -203,6 +203,10 @@ pub fn build(b: *std.Build) !void {
     exe.pie = pie;
     exe.entitlements = entitlements;
 
+    const use_llvm = b.option(bool, "use-llvm", "Use the llvm backend");
+    exe.use_llvm = use_llvm;
+    exe.use_lld = use_llvm;
+
     if (no_bin) {
         b.getInstallStep().dependOn(&exe.step);
     } else {
@@ -213,10 +217,6 @@ pub fn build(b: *std.Build) !void {
     }
 
     test_step.dependOn(&exe.step);
-
-    const use_llvm = b.option(bool, "use-llvm", "Use the llvm backend");
-    exe.use_llvm = use_llvm;
-    exe.use_lld = use_llvm;
 
     const exe_options = b.addOptions();
     exe.root_module.addOptions("build_options", exe_options);
@@ -759,7 +759,7 @@ fn addCmakeCfgOptionsToExe(
     use_zig_libcxx: bool,
 ) !void {
     const mod = exe.root_module;
-    const target = mod.resolved_target.?.result;
+    const target = &mod.resolved_target.?.result;
 
     if (target.os.tag.isDarwin()) {
         // useful for package maintainers
