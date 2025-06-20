@@ -1290,7 +1290,7 @@ fn intDivTruncInner(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
     );
     var result_q: BigIntMutable = .{ .limbs = limbs_q, .positive = undefined, .len = undefined };
     var result_r: BigIntMutable = .{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-    result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buf);
+    result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buf, null);
     if (ty.toIntern() != .comptime_int_type) {
         const info = ty.intInfo(zcu);
         if (!result_q.toConst().fitsInTwosComp(info.signedness, info.bits)) {
@@ -1324,7 +1324,7 @@ fn intDivExact(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !union(enum) {
     );
     var result_q: BigIntMutable = .{ .limbs = limbs_q, .positive = undefined, .len = undefined };
     var result_r: BigIntMutable = .{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-    result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buf);
+    result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buf, null);
     if (!result_r.toConst().eqlZero()) {
         return .remainder;
     }
@@ -1370,7 +1370,7 @@ fn intDivFloorInner(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
     );
     var result_q: BigIntMutable = .{ .limbs = limbs_q, .positive = undefined, .len = undefined };
     var result_r: BigIntMutable = .{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-    result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buf);
+    result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buf, null);
     if (ty.toIntern() != .comptime_int_type) {
         const info = ty.intInfo(zcu);
         if (!result_q.toConst().fitsInTwosComp(info.signedness, info.bits)) {
@@ -1400,7 +1400,7 @@ fn intMod(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
     );
     var result_q: BigIntMutable = .{ .limbs = limbs_q, .positive = undefined, .len = undefined };
     var result_r: BigIntMutable = .{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-    result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buf);
+    result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buf, null);
     return pt.intValue_big(ty, result_r.toConst());
 }
 fn intRem(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
@@ -1424,7 +1424,7 @@ fn intRem(sema: *Sema, lhs: Value, rhs: Value, ty: Type) !Value {
     );
     var result_q: BigIntMutable = .{ .limbs = limbs_q, .positive = undefined, .len = undefined };
     var result_r: BigIntMutable = .{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-    result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buf);
+    result_q.divTrunc(&result_r, lhs_bigint, rhs_bigint, limbs_buf, null);
     return pt.intValue_big(ty, result_r.toConst());
 }
 
