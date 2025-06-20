@@ -2599,6 +2599,7 @@ pub const RenameError = error{
     FileBusy,
     DiskQuota,
     IsDir,
+    CircularLoop,
     SymLinkLoop,
     LinkQuotaExceeded,
     NameTooLong,
@@ -2662,7 +2663,7 @@ pub fn renameZ(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!voi
         .BUSY => return error.FileBusy,
         .DQUOT => return error.DiskQuota,
         .FAULT => unreachable,
-        .INVAL => unreachable,
+        .INVAL => return error.CircularLoop,
         .ISDIR => return error.IsDir,
         .LOOP => return error.SymLinkLoop,
         .MLINK => return error.LinkQuotaExceeded,
@@ -2725,7 +2726,7 @@ fn renameatWasi(old: RelativePathWasi, new: RelativePathWasi) RenameError!void {
         .BUSY => return error.FileBusy,
         .DQUOT => return error.DiskQuota,
         .FAULT => unreachable,
-        .INVAL => unreachable,
+        .INVAL => return error.CircularLoop,
         .ISDIR => return error.IsDir,
         .LOOP => return error.SymLinkLoop,
         .MLINK => return error.LinkQuotaExceeded,
@@ -2777,7 +2778,7 @@ pub fn renameatZ(
         .BUSY => return error.FileBusy,
         .DQUOT => return error.DiskQuota,
         .FAULT => unreachable,
-        .INVAL => unreachable,
+        .INVAL => return error.CircularLoop,
         .ISDIR => return error.IsDir,
         .LOOP => return error.SymLinkLoop,
         .MLINK => return error.LinkQuotaExceeded,
@@ -2891,7 +2892,6 @@ pub fn renameatW(
     switch (rc) {
         .SUCCESS => {},
         .INVALID_HANDLE => unreachable,
-        .INVALID_PARAMETER => unreachable,
         .OBJECT_PATH_SYNTAX_BAD => unreachable,
         .ACCESS_DENIED => return error.AccessDenied,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
@@ -2901,6 +2901,9 @@ pub fn renameatW(
         .DIRECTORY_NOT_EMPTY => return error.PathAlreadyExists,
         .FILE_IS_A_DIRECTORY => return error.IsDir,
         .NOT_A_DIRECTORY => return error.NotDir,
+        .INVALID_PARAMETER,
+        .SHARING_VIOLATION, // This is returned before Windows 11
+        => return error.CircularLoop,
         else => return windows.unexpectedStatus(rc),
     }
 }
