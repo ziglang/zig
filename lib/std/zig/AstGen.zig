@@ -7903,13 +7903,27 @@ fn switchExpr(
     const operand_lc: LineColumn = .{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
 
     const raw_operand = try expr(parent_gz, scope, operand_ri, operand_node);
-    const item_ri: ResultInfo = .{ .rl = .none };
+    const raw_operand_ty_ref = try parent_gz.addUnNode(.typeof, raw_operand, operand_node);
+    // const raw_operand_ri: ResultInfo = .{
+    //     .rl = if (any_payload_is_ref)
+    //         .{ .ref_coerced_ty = raw_operand_ty_ref }
+    //     else
+    //         .{ .coerced_ty = raw_operand_ty_ref },
+    // };
+
+    // We need the type of the operand to use as the result location for all the prong items
+    // to enable switching on decl literals and packed structs using the dot syntax.
+    // const cond = try parent_gz.addUnNode(.elem_type, raw_operand, operand_node);
+    // const cond_ty_ref = try parent_gz.addUnNode(.typeof, cond, operand_node);
+    const item_ri: ResultInfo = .{ .rl = .{ .ty = raw_operand_ty_ref } };
+    // const item_ri: ResultInfo = .{ .rl = .{ .ty = cond_ty_ref } };
+    // const item_ri: ResultInfo = .{ .rl = .{ .ref_coerced_ty = cond_ty_ref } };
 
     // If this switch is labeled, it may have `continue`s targeting it, and thus we need the operand type
     // to provide a result type.
-    const raw_operand_ty_ref = if (switch_full.label_token != null) t: {
-        break :t try parent_gz.addUnNode(.typeof, raw_operand, operand_node);
-    } else undefined;
+    // const raw_operand_ty_ref = if (switch_full.label_token != null) t: {
+    //     break :t try parent_gz.addUnNode(.typeof, raw_operand, operand_node);
+    // } else undefined;
 
     // This contains the data that goes into the `extra` array for the SwitchBlock/SwitchBlockMulti,
     // except the first cases_nodes.len slots are a table that indexes payloads later in the array, with
