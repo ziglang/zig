@@ -27,8 +27,6 @@ const t_bits: usize = @bitSizeOf(Limb) - carry_bits;
 // A TLimb is a Limb that is truncated to t_bits.
 const TLimb = meta.Int(.unsigned, t_bits);
 
-const native_endian = builtin.target.cpu.arch.endian();
-
 // A WideLimb is a Limb that is twice as wide as a normal Limb.
 const WideLimb = struct {
     hi: Limb,
@@ -780,8 +778,8 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
         /// Returns x^e (mod m) in constant time.
         pub fn pow(self: Self, x: Fe, e: Fe) NullExponentError!Fe {
             var buf: [Fe.encoded_bytes]u8 = undefined;
-            e.toBytes(&buf, native_endian) catch unreachable;
-            return self.powWithEncodedExponent(x, &buf, native_endian);
+            e.toBytes(&buf, .native) catch unreachable;
+            return self.powWithEncodedExponent(x, &buf, .native);
         }
 
         /// Returns x^e (mod m), assuming that the exponent is public.
