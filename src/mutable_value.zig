@@ -260,7 +260,7 @@ pub const MutableValue = union(enum) {
                         const ptr = try arena.create(MutableValue);
                         const len = try arena.create(MutableValue);
                         ptr.* = .{ .interned = try pt.intern(.{ .undef = ip.slicePtrType(ty_ip) }) };
-                        len.* = .{ .interned = try pt.intern(.{ .undef = .usize_type }) };
+                        len.* = .{ .interned = .undef_usize };
                         mv.* = .{ .slice = .{
                             .ty = ty_ip,
                             .ptr = ptr,
@@ -464,7 +464,7 @@ pub const MutableValue = union(enum) {
                         return switch (field_idx) {
                             Value.slice_ptr_index => .{ .interned = Value.fromInterned(ip_index).slicePtr(pt.zcu).toIntern() },
                             Value.slice_len_index => .{ .interned = switch (pt.zcu.intern_pool.indexToKey(ip_index)) {
-                                .undef => try pt.intern(.{ .undef = .usize_type }),
+                                .undef => .undef_usize,
                                 .slice => |s| s.len,
                                 else => unreachable,
                             } },

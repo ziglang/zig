@@ -56,10 +56,13 @@
 #define ___WCTYPE_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <_types.h>
 
 #include <sys/_types/_wint_t.h>
 #include <_types/_wctype_t.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #ifndef WEOF
 #define WEOF			__DARWIN_WEOF

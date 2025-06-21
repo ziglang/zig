@@ -27,8 +27,8 @@ const fs = std.fs;
 const process = std.process;
 const native_os = builtin.target.os.tag;
 
-pub const sep_windows = '\\';
-pub const sep_posix = '/';
+pub const sep_windows: u8 = '\\';
+pub const sep_posix: u8 = '/';
 pub const sep = switch (native_os) {
     .windows, .uefi => sep_windows,
     else => sep_posix,
@@ -41,8 +41,8 @@ pub const sep_str = switch (native_os) {
     else => sep_str_posix,
 };
 
-pub const delimiter_windows = ';';
-pub const delimiter_posix = ':';
+pub const delimiter_windows: u8 = ';';
+pub const delimiter_posix: u8 = ':';
 pub const delimiter = if (native_os == .windows) delimiter_windows else delimiter_posix;
 
 /// Returns if the given byte is a valid path separator

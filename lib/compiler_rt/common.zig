@@ -16,10 +16,10 @@ else
 /// Determines the symbol's visibility to other objects.
 /// For WebAssembly this allows the symbol to be resolved to other modules, but will not
 /// export it to the host runtime.
-pub const visibility: std.builtin.SymbolVisibility = if (linkage != .internal)
-    .hidden
+pub const visibility: std.builtin.SymbolVisibility = if (linkage == .internal or builtin.link_mode == .dynamic)
+    .default
 else
-    .default;
+    .hidden;
 
 pub const PreferredLoadStoreElement = element: {
     if (std.simd.suggestVectorLength(u8)) |vec_size| {
@@ -51,6 +51,11 @@ pub const want_aeabi = switch (builtin.abi) {
 /// These functions are provided by libc when targeting MSVC, but not MinGW.
 // Temporarily used for thumb-uefi until https://github.com/ziglang/zig/issues/21630 is addressed.
 pub const want_windows_arm_abi = builtin.cpu.arch.isArm() and (builtin.os.tag == .windows or builtin.os.tag == .uefi) and (builtin.abi.isGnu() or !builtin.link_libc);
+
+pub const want_windows_msvc_or_itanium_abi = switch (builtin.abi) {
+    .none, .msvc, .itanium => builtin.os.tag == .windows,
+    else => false,
+};
 
 pub const want_ppc_abi = builtin.cpu.arch.isPowerPC();
 
@@ -119,7 +124,7 @@ pub fn F16T(comptime OtherType: type) type {
         .spirv32,
         .spirv64,
         => f16,
-        .hexagon => if (std.Target.hexagon.featureSetHas(builtin.target.cpu.features, .v68)) f16 else u16,
+        .hexagon => if (builtin.target.cpu.has(.hexagon, .v68)) f16 else u16,
         .x86, .x86_64 => if (builtin.target.os.tag.isDarwin()) switch (OtherType) {
             // Starting with LLVM 16, Darwin uses different abi for f16
             // depending on the type of the other return/argument..???

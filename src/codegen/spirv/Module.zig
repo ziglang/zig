@@ -107,7 +107,7 @@ gpa: Allocator,
 arena: std.heap.ArenaAllocator,
 
 /// Target info
-target: std.Target,
+target: *const std.Target,
 
 /// The target SPIR-V version
 version: spec.Version,
@@ -187,15 +187,15 @@ decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
 /// The list of entry points that should be exported from this module.
 entry_points: std.AutoArrayHashMapUnmanaged(IdRef, EntryPoint) = .empty,
 
-pub fn init(gpa: Allocator, target: std.Target) Module {
+pub fn init(gpa: Allocator, target: *const std.Target) Module {
     const version_minor: u8 = blk: {
         // Prefer higher versions
-        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_6)) break :blk 6;
-        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_5)) break :blk 5;
-        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_4)) break :blk 4;
-        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_3)) break :blk 3;
-        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_2)) break :blk 2;
-        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_1)) break :blk 1;
+        if (target.cpu.has(.spirv, .v1_6)) break :blk 6;
+        if (target.cpu.has(.spirv, .v1_5)) break :blk 5;
+        if (target.cpu.has(.spirv, .v1_4)) break :blk 4;
+        if (target.cpu.has(.spirv, .v1_3)) break :blk 3;
+        if (target.cpu.has(.spirv, .v1_2)) break :blk 2;
+        if (target.cpu.has(.spirv, .v1_1)) break :blk 1;
         break :blk 0;
     };
 
@@ -268,7 +268,7 @@ pub fn idBound(self: Module) Word {
 }
 
 pub fn hasFeature(self: *Module, feature: std.Target.spirv.Feature) bool {
-    return std.Target.spirv.featureSetHas(self.target.cpu.features, feature);
+    return self.target.cpu.has(.spirv, feature);
 }
 
 fn addEntryPointDeps(

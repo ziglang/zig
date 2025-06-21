@@ -57,10 +57,10 @@ extern "C" {
  * will return the mach_header and name of an image, given an address in 
  * the image. dladdr() is thread safe.
  */
-extern uint32_t                    _dyld_image_count(void)                              __OSX_AVAILABLE_STARTING(__MAC_10_1, __IPHONE_2_0);
-extern const struct mach_header*   _dyld_get_image_header(uint32_t image_index)         __OSX_AVAILABLE_STARTING(__MAC_10_1, __IPHONE_2_0);
-extern intptr_t                    _dyld_get_image_vmaddr_slide(uint32_t image_index)   __OSX_AVAILABLE_STARTING(__MAC_10_1, __IPHONE_2_0);
-extern const char*                 _dyld_get_image_name(uint32_t image_index)           __OSX_AVAILABLE_STARTING(__MAC_10_1, __IPHONE_2_0);
+extern uint32_t                    _dyld_image_count(void)                              __API_AVAILABLE(macos(10.1), ios(2.0));
+extern const struct mach_header*   _dyld_get_image_header(uint32_t image_index)         __API_AVAILABLE(macos(10.1), ios(2.0));
+extern intptr_t                    _dyld_get_image_vmaddr_slide(uint32_t image_index)   __API_AVAILABLE(macos(10.1), ios(2.0));
+extern const char*                 _dyld_get_image_name(uint32_t image_index)           __API_AVAILABLE(macos(10.1), ios(2.0));
 
 
 /*
@@ -71,8 +71,8 @@ extern const char*                 _dyld_get_image_name(uint32_t image_index)   
  * _dyld_register_func_for_remove_image() is called after any terminators in an image are run
  * and before the image is un-memory-mapped.
  */
-extern void _dyld_register_func_for_add_image(void (*func)(const struct mach_header* mh, intptr_t vmaddr_slide))    __OSX_AVAILABLE_STARTING(__MAC_10_1, __IPHONE_2_0);
-extern void _dyld_register_func_for_remove_image(void (*func)(const struct mach_header* mh, intptr_t vmaddr_slide)) __OSX_AVAILABLE_STARTING(__MAC_10_1, __IPHONE_2_0);
+extern void _dyld_register_func_for_add_image(void (*func)(const struct mach_header* mh, intptr_t vmaddr_slide))    __API_AVAILABLE(macos(10.1), ios(2.0));
+extern void _dyld_register_func_for_remove_image(void (*func)(const struct mach_header* mh, intptr_t vmaddr_slide)) __API_AVAILABLE(macos(10.1), ios(2.0));
 
 
 /*
@@ -80,7 +80,7 @@ extern void _dyld_register_func_for_remove_image(void (*func)(const struct mach_
  * specifed by the libraryName.  The libraryName parameter would be "bar" for /path/libbar.3.dylib and
  * "Foo" for /path/Foo.framework/Versions/A/Foo.  It returns -1 if no such library is loaded.
  */
-extern int32_t NSVersionOfRunTimeLibrary(const char* libraryName)            __OSX_AVAILABLE_STARTING(__MAC_10_1, __IPHONE_2_0);
+extern int32_t NSVersionOfRunTimeLibrary(const char* libraryName)            __API_AVAILABLE(macos(10.1), ios(2.0));
 
 
 /*
@@ -89,7 +89,7 @@ extern int32_t NSVersionOfRunTimeLibrary(const char* libraryName)            __O
  * "Foo" for /path/Foo.framework/Versions/A/Foo.  It returns -1 if the main executable did not link
  * against the specified library.
  */
-extern int32_t NSVersionOfLinkTimeLibrary(const char* libraryName)           __OSX_AVAILABLE_STARTING(__MAC_10_1, __IPHONE_2_0);
+extern int32_t NSVersionOfLinkTimeLibrary(const char* libraryName)           __API_AVAILABLE(macos(10.1), ios(2.0));
 
 
 /*
@@ -102,7 +102,7 @@ extern int32_t NSVersionOfLinkTimeLibrary(const char* libraryName)           __O
  * That is the path may be a symbolic link and not the real file. With deep directories the total bufsize 
  * needed could be more than MAXPATHLEN.
  */
-extern int _NSGetExecutablePath(char* buf, uint32_t* bufsize)                 __OSX_AVAILABLE_STARTING(__MAC_10_2, __IPHONE_2_0);
+extern int _NSGetExecutablePath(char* buf, uint32_t* bufsize)                 __API_AVAILABLE(macos(10.2), ios(2.0));
 
 
 
@@ -110,14 +110,14 @@ extern int _NSGetExecutablePath(char* buf, uint32_t* bufsize)                 __
  * Registers a function to be called when the current thread terminates.
  * Called by c++ compiler to implement destructors on thread_local object variables.
  */
-extern void _tlv_atexit(void (*termFunc)(void* objAddr), void* objAddr)      __OSX_AVAILABLE_STARTING(__MAC_10_10, __IPHONE_8_0);
+extern void _tlv_atexit(void (*termFunc)(void* objAddr), void* objAddr)      __API_AVAILABLE(macos(10.10), ios(8.0));
 
 
 /*
  * Never called. On-disk thread local variables contain a pointer to this.  Once
  * the thread local is prepared, the pointer changes to a real handler such as tlv_get_addr.
  */
-extern void _tlv_bootstrap(void)                                             __OSX_AVAILABLE_STARTING(__MAC_10_10, __IPHONE_8_0) DYLD_DRIVERKIT_UNAVAILABLE ;
+extern void _tlv_bootstrap(void)                                             __API_AVAILABLE(macos(10.10), ios(8.0)) DYLD_DRIVERKIT_UNAVAILABLE ;
 
 
 /*

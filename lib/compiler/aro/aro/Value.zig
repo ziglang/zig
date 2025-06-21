@@ -148,35 +148,25 @@ pub fn floatToInt(v: *Value, dest_ty: Type, comp: *Compilation) !FloatToIntChang
         return .out_of_range;
     }
 
-    const had_fraction = @rem(float_val, 1) != 0;
-    const is_negative = std.math.signbit(float_val);
-    const floored = @floor(@abs(float_val));
-
-    var rational = try std.math.big.Rational.init(comp.gpa);
-    defer rational.deinit();
-    rational.setFloat(f128, floored) catch |err| switch (err) {
-        error.NonFiniteFloat => {
-            v.* = .{};
-            return .overflow;
-        },
-        error.OutOfMemory => return error.OutOfMemory,
-    };
-
-    // The float is reduced in rational.setFloat, so we assert that denominator is equal to one
-    const big_one = BigIntConst{ .limbs = &.{1}, .positive = true };
-    assert(rational.q.toConst().eqlAbs(big_one));
-
-    if (is_negative) {
-        rational.negate();
-    }
-
     const signedness = dest_ty.signedness(comp);
     const bits: usize = @intCast(dest_ty.bitSizeof(comp).?);
 
-    // rational.p.truncate(rational.p.toConst(), signedness: Signedness, bit_count: usize)
-    const fits = rational.p.fitsInTwosComp(signedness, bits);
-    v.* = try intern(comp, .{ .int = .{ .big_int = rational.p.toConst() } });
-    try rational.p.truncate(&rational.p, signedness, bits);
+    var big_int: std.math.big.int.Mutable = .{
+        .limbs = try comp.gpa.alloc(std.math.big.Limb, @max(
+            std.math.big.int.calcLimbLen(float_val),
+            std.math.big.int.calcTwosCompLimbCount(bits),
+        )),
+        .len = undefined,
+        .positive = undefined,
+    };
+    const had_fraction = switch (big_int.setFloat(float_val, .trunc)) {
+        .inexact => true,
+        .exact => false,
+    };
+
+    const fits = big_int.toConst().fitsInTwosComp(signedness, bits);
+    v.* = try intern(comp, .{ .int = .{ .big_int = big_int.toConst() } });
+    big_int.truncate(big_int.toConst(), signedness, bits);
 
     if (!was_zero and v.isZero(comp)) return .nonzero_to_zero;
     if (!fits) return .out_of_range;

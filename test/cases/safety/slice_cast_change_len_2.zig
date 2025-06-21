@@ -23,4 +23,5 @@ pub fn panic(message: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noretu
 const std = @import("std");
 
 // run
-// backend=llvm
+// backend=stage2,llvm
+// target=x86_64-linux

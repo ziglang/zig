@@ -525,7 +525,7 @@ fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.A
                 };
                 const target = std.zig.resolveTargetQueryOrFatal(target_query);
                 const is_native_abi = target_query.isNativeAbi();
-                const detected_libc = std.zig.LibCDirs.detect(arena, zig_lib_dir, target, is_native_abi, true, null) catch {
+                const detected_libc = std.zig.LibCDirs.detect(arena, zig_lib_dir, &target, is_native_abi, true, null) catch {
                     if (includes == .any) {
                         // fall back to mingw
                         includes = .gnu;
@@ -550,7 +550,7 @@ fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.A
                 };
                 const target = std.zig.resolveTargetQueryOrFatal(target_query);
                 const is_native_abi = target_query.isNativeAbi();
-                const detected_libc = std.zig.LibCDirs.detect(arena, zig_lib_dir, target, is_native_abi, true, null) catch |err| switch (err) {
+                const detected_libc = std.zig.LibCDirs.detect(arena, zig_lib_dir, &target, is_native_abi, true, null) catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
                     else => return error.MingwIncludesNotFound,
                 };

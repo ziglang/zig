@@ -394,47 +394,58 @@ typedef mach_port_options_t *mach_port_options_ptr_t;
  */
 #define GUARD_TYPE_MACH_PORT    0x1
 
-/* Reasons for exception for a guarded mach port */
+/*
+ * Reasons for exception for a guarded mach port
+ *
+ * Arguments are documented in doc/mach_ipc/guard_exceptions.md,
+ * please update when adding a new type.
+ *
+ * Note: these had been designed as bitfields,
+ *       hence the weird spaced values,
+ *       but are truly an enum, please add new values in the "holes".
+ */
 enum mach_port_guard_exception_codes {
-	kGUARD_EXC_DESTROY                   = 1,
-	kGUARD_EXC_MOD_REFS                  = 2,
-	kGUARD_EXC_INVALID_OPTIONS           = 3,
-	kGUARD_EXC_SET_CONTEXT               = 4,
-	kGUARD_EXC_THREAD_SET_STATE          = 5,
-	kGUARD_EXC_EXCEPTION_BEHAVIOR_ENFORCE= 6,
-	kGUARD_EXC_UNGUARDED                 = 1u << 3,
-	kGUARD_EXC_INCORRECT_GUARD           = 1u << 4,
-	kGUARD_EXC_IMMOVABLE                 = 1u << 5,
-	kGUARD_EXC_STRICT_REPLY              = 1u << 6,
-	kGUARD_EXC_MSG_FILTERED              = 1u << 7,
+	kGUARD_EXC_DESTROY                      = 1,
+	kGUARD_EXC_MOD_REFS                     = 2,
+	kGUARD_EXC_INVALID_OPTIONS              = 3,
+	kGUARD_EXC_SET_CONTEXT                  = 4,
+	kGUARD_EXC_THREAD_SET_STATE             = 5,
+	kGUARD_EXC_EXCEPTION_BEHAVIOR_ENFORCE   = 6,
+	kGUARD_EXC_SERVICE_PORT_VIOLATION_FATAL = 7,        /* unused, for future sp defense enablement */
+	kGUARD_EXC_UNGUARDED                    = 8,
+	kGUARD_EXC_INCORRECT_GUARD              = 16,
+	kGUARD_EXC_IMMOVABLE                    = 32,
+	kGUARD_EXC_STRICT_REPLY                 = 64,
+	kGUARD_EXC_MSG_FILTERED                 = 128,
 	/* start of [optionally] non-fatal guards */
-	kGUARD_EXC_INVALID_RIGHT         = 1u << 8,
-	kGUARD_EXC_INVALID_NAME          = 1u << 9,
-	kGUARD_EXC_INVALID_VALUE         = 1u << 10,
-	kGUARD_EXC_INVALID_ARGUMENT      = 1u << 11,
-	kGUARD_EXC_RIGHT_EXISTS          = 1u << 12,
-	kGUARD_EXC_KERN_NO_SPACE         = 1u << 13,
-	kGUARD_EXC_KERN_FAILURE          = 1u << 14,
-	kGUARD_EXC_KERN_RESOURCE         = 1u << 15,
-	kGUARD_EXC_SEND_INVALID_REPLY    = 1u << 16,
-	kGUARD_EXC_SEND_INVALID_VOUCHER  = 1u << 17,
-	kGUARD_EXC_SEND_INVALID_RIGHT    = 1u << 18,
-	kGUARD_EXC_RCV_INVALID_NAME      = 1u << 19,
+	kGUARD_EXC_INVALID_RIGHT                = 256,
+	kGUARD_EXC_INVALID_NAME                 = 512,
+	kGUARD_EXC_INVALID_VALUE                = 1u << 10,
+	kGUARD_EXC_INVALID_ARGUMENT             = 1u << 11, /* really kGUARD_EXC_ALREADY_GUARDED */
+	kGUARD_EXC_RIGHT_EXISTS                 = 1u << 12, /* unused */
+	kGUARD_EXC_KERN_NO_SPACE                = 1u << 13, /* unused */
+	kGUARD_EXC_KERN_FAILURE                 = 1u << 14, /* really kGUARD_EXC_INVALID_PDREQUEST */
+	kGUARD_EXC_KERN_RESOURCE                = 1u << 15, /* unused */
+	kGUARD_EXC_SEND_INVALID_REPLY           = 1u << 16,
+	kGUARD_EXC_SEND_INVALID_VOUCHER         = 1u << 17,
+	kGUARD_EXC_SEND_INVALID_RIGHT           = 1u << 18,
+	kGUARD_EXC_RCV_INVALID_NAME             = 1u << 19,
 	/* start of always non-fatal guards */
-	kGUARD_EXC_RCV_GUARDED_DESC             = 1u << 20, /* for development only */
+	kGUARD_EXC_RCV_GUARDED_DESC             = 0x00100000,     /* for development only */
+	kGUARD_EXC_SERVICE_PORT_VIOLATION_NON_FATAL = 0x00100001, /* unused, for future sp defense enablement */
+	kGUARD_EXC_PROVISIONAL_REPLY_PORT       = 0x00100002,
 	kGUARD_EXC_MOD_REFS_NON_FATAL           = 1u << 21,
 	kGUARD_EXC_IMMOVABLE_NON_FATAL          = 1u << 22,
 	kGUARD_EXC_REQUIRE_REPLY_PORT_SEMANTICS = 1u << 23,
 };
 
-#define MAX_FATAL_kGUARD_EXC_CODE (1u << 7)
+#define MAX_FATAL_kGUARD_EXC_CODE               kGUARD_EXC_MSG_FILTERED
+#define MAX_OPTIONAL_kGUARD_EXC_CODE            kGUARD_EXC_RCV_INVALID_NAME
 
 /*
  * Mach port guard flags.
  */
 #define MPG_FLAGS_NONE                             (0x00ull)
-
-#define MAX_OPTIONAL_kGUARD_EXC_CODE (1u << 19)
 
 /*
  * These flags are used as bits in the subcode of kGUARD_EXC_STRICT_REPLY exceptions.

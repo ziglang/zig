@@ -9,6 +9,5 @@
 #include <stdio.h>
 
 int __cdecl vfscanf (FILE *__stream,  const char *__format, __builtin_va_list __local_argv) {
-  return __stdio_common_vfscanf(0, __stream, __format, NULL, __local_argv);
+  return __stdio_common_vfscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS, __stream, __format, NULL, __local_argv);
 }
-int __cdecl (*__MINGW_IMP_SYMBOL(vfscanf))(FILE *, const char *, __builtin_va_list) = vfscanf;

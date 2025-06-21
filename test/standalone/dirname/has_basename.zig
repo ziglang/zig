@@ -31,11 +31,6 @@ fn run(allocator: std.mem.Allocator) !void {
         return error.BadUsage;
     };
 
-    if (!std.fs.path.isAbsolute(path)) {
-        std.log.err("path must be absolute", .{});
-        return error.BadUsage;
-    }
-
     const basename = args.next() orelse {
         std.log.err("missing <basename> argument", .{});
         return error.BadUsage;

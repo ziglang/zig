@@ -28,7 +28,7 @@ pub const GetExternalExecutorOptions = struct {
 /// Return whether or not the given host is capable of running executables of
 /// the other target.
 pub fn getExternalExecutor(
-    host: std.Target,
+    host: *const std.Target,
     candidate: *const std.Target,
     options: GetExternalExecutorOptions,
 ) Executor {
@@ -109,7 +109,7 @@ pub fn getExternalExecutor(
             .riscv64 => Executor{ .qemu = "qemu-riscv64" },
             .s390x => Executor{ .qemu = "qemu-s390x" },
             .sparc => Executor{
-                .qemu = if (std.Target.sparc.featureSetHas(candidate.cpu.features, .v9))
+                .qemu = if (candidate.cpu.has(.sparc, .v9))
                     "qemu-sparc32plus"
                 else
                     "qemu-sparc",

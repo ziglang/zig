@@ -12,9 +12,7 @@ int __cdecl sscanf(const char * __restrict__ _Src,const char * __restrict__ _For
   __builtin_va_list __ap;
   int __ret;
   __builtin_va_start(__ap, _Format);
-  __ret = __stdio_common_vsscanf(0, _Src, (size_t)-1, _Format, NULL, __ap);
+  __ret = __stdio_common_vsscanf(_CRT_INTERNAL_LOCAL_SCANF_OPTIONS, _Src, (size_t)-1, _Format, NULL, __ap);
   __builtin_va_end(__ap);
   return __ret;
 }
-
-int __cdecl (*__MINGW_IMP_SYMBOL(sscanf))(const char *__restrict__, const char *__restrict__, ...) = sscanf;

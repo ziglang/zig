@@ -116,7 +116,7 @@ pub const freebsd_libc_version: std.SemanticVersion = .{ .major = 14, .minor = 0
 /// The version of Zig's bundled NetBSD libc used when linking libc statically.
 pub const netbsd_libc_version: std.SemanticVersion = .{ .major = 10, .minor = 1, .patch = 0 };
 
-pub fn canBuildLibC(target: std.Target) bool {
+pub fn canBuildLibC(target: *const std.Target) bool {
     for (available_libcs) |libc| {
         if (target.cpu.arch == libc.arch and target.os.tag == libc.os and target.abi == libc.abi) {
             if (libc.os_ver) |libc_os_ver| {
@@ -176,7 +176,7 @@ pub fn muslRuntimeTriple(
     return std.Target.linuxTripleSimple(allocator, arch, .linux, abi);
 }
 
-pub fn osArchName(target: std.Target) [:0]const u8 {
+pub fn osArchName(target: *const std.Target) [:0]const u8 {
     return switch (target.os.tag) {
         .linux => switch (target.cpu.arch) {
             .arm, .armeb, .thumb, .thumbeb => "arm",
@@ -233,6 +233,25 @@ pub fn muslAbiNameHeaders(abi: std.Target.Abi) [:0]const u8 {
     };
 }
 
+pub fn glibcArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
+    return switch (arch) {
+        .aarch64, .aarch64_be => "aarch64",
+        .arm, .armeb => "arm",
+        .loongarch64 => "loongarch",
+        .mips, .mipsel, .mips64, .mips64el => "mips",
+        .powerpc, .powerpc64, .powerpc64le => "powerpc",
+        .riscv32, .riscv64 => "riscv",
+        .sparc, .sparc64 => "sparc",
+        .x86, .x86_64 => "x86",
+        else => @tagName(arch),
+    };
+}
+
+pub fn glibcAbiNameHeaders(abi: std.Target.Abi) [:0]const u8 {
+    _ = abi;
+    return "gnu";
+}
+
 pub fn freebsdArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
     return switch (arch) {
         .powerpc64le => "powerpc64",
@@ -250,7 +269,14 @@ pub fn netbsdArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
     };
 }
 
-pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
+pub fn netbsdAbiNameHeaders(abi: std.Target.Abi) [:0]const u8 {
+    return switch (abi) {
+        .eabi, .eabihf => "eabi",
+        else => "none",
+    };
+}
+
+pub fn isLibCLibName(target: *const std.Target, name: []const u8) bool {
     const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
 
     if (eqlIgnoreCase(ignore_case, name, "c"))
@@ -296,10 +322,6 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
         if (eqlIgnoreCase(ignore_case, name, "portabledeviceguids"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "pthread"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "scrnsave"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "scrnsavw"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "strmiids"))
             return true;
@@ -431,7 +453,7 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
     return false;
 }
 
-pub fn isLibCxxLibName(target: std.Target, name: []const u8) bool {
+pub fn isLibCxxLibName(target: *const std.Target, name: []const u8) bool {
     const ignore_case = target.os.tag.isDarwin() or target.os.tag == .windows;
 
     return eqlIgnoreCase(ignore_case, name, "c++") or
@@ -448,11 +470,11 @@ fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
     }
 }
 
-pub fn intByteSize(target: std.Target, bits: u16) u19 {
+pub fn intByteSize(target: *const std.Target, bits: u16) u19 {
     return std.mem.alignForward(u19, @intCast((@as(u17, bits) + 7) / 8), intAlignment(target, bits));
 }
 
-pub fn intAlignment(target: std.Target, bits: u16) u16 {
+pub fn intAlignment(target: *const std.Target, bits: u16) u16 {
     return switch (target.cpu.arch) {
         .x86 => switch (bits) {
             0 => 0,

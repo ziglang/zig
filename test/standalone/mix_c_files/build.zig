@@ -24,6 +24,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
             .optimize = optimize,
             .link_libc = true,
         }),
+        // extern threadlocals are not implemented in the self-hosted linker
+        .use_llvm = true,
     });
     exe.root_module.addCSourceFile(.{ .file = b.path("test.c"), .flags = &[_][]const u8{"-std=c11"} });
 

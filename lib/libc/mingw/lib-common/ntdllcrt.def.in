@@ -2,7 +2,7 @@
 
 LIBRARY "ntdll.dll"
 EXPORTS
-#ifdef DEF_I386
+#ifdef __i386__
 _CIcos
 _CIlog
 _CIpow
@@ -17,7 +17,7 @@ __iscsymf
 F_X64(__misaligned_access)
 F_ARM32(__jump_unwind)
 __toascii
-#ifdef DEF_I386
+#ifdef __i386__
 _alldiv
 _alldvrm@16
 _allmul@16
@@ -29,7 +29,7 @@ _allshl
 _allshr
 #endif
 _atoi64
-#ifdef DEF_I386
+#ifdef __i386__
 _aulldiv@16
 _aulldvrm@16
 _aullrem@16
@@ -39,7 +39,7 @@ _aullshr
 _errno
 F_I386(_except_handler4_common)
 _fltused DATA
-#ifdef DEF_I386
+#ifdef __i386__
 _ftol
 _ftol2
 _ftol2_sse

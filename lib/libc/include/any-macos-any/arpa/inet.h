@@ -63,6 +63,7 @@
 
 /* External definitions for functions in inet(3), addr2ascii(3) */
 
+#include <_bounds.h>
 #include <sys/cdefs.h>
 #include <sys/_types.h>
 #include <stdint.h>		/* uint32_t uint16_t */
@@ -70,26 +71,28 @@
 #include <sys/_endian.h>	/* htonl() and family if (_POSIX_C_SOURCE && !_DARWIN_C_SOURCE) */
 #include <netinet/in.h>		/* in_addr */
 
+_LIBC_SINGLE_BY_DEFAULT()
+
 __BEGIN_DECLS
 
 in_addr_t	 inet_addr(const char *);
-char		*inet_ntoa(struct in_addr);
-const char	*inet_ntop(int, const void *, char *, socklen_t);
+char		*_LIBC_CSTR  inet_ntoa(struct in_addr);
+const char	*inet_ntop(int, const void *, char *_LIBC_COUNT(__size), socklen_t __size);
 int		 inet_pton(int, const char *, void *);
 
 #if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
 int		 ascii2addr(int, const char *, void *);
-char		*addr2ascii(int, const void *, int, char *);
+char *_LIBC_CSTR	addr2ascii(int, const void *_LIBC_SIZE(__size), int __size, char *_LIBC_UNSAFE_INDEXABLE);
 int		 inet_aton(const char *, struct in_addr *);
 in_addr_t	 inet_lnaof(struct in_addr);
 struct in_addr	 inet_makeaddr(in_addr_t, in_addr_t);
 in_addr_t	 inet_netof(struct in_addr);
 in_addr_t	 inet_network(const char *);
-char		*inet_net_ntop(int, const void *, int, char *, __darwin_size_t);
-int		 inet_net_pton(int, const char *, void *, __darwin_size_t);
-char	 	*inet_neta(in_addr_t, char *, __darwin_size_t);
-unsigned int	 inet_nsap_addr(const char *, unsigned char *, int);
-char	*inet_nsap_ntoa(int, const unsigned char *, char *);
+char *_LIBC_CSTR	inet_net_ntop(int, const void *, int, char *_LIBC_COUNT(__size), __darwin_size_t __size);
+int		 inet_net_pton(int, const char *, void *_LIBC_SIZE(__size), __darwin_size_t __size);
+char *_LIBC_CSTR	inet_neta(in_addr_t, char *_LIBC_COUNT(__size), __darwin_size_t __size);
+unsigned int	 inet_nsap_addr(const char *, unsigned char *_LIBC_COUNT(__maxlen), int __maxlen);
+char *_LIBC_CSTR	inet_nsap_ntoa(int __binlen, const unsigned char *_LIBC_COUNT(__binlen), char *_LIBC_COUNT_OR_NULL(2 + __binlen*2 + __binlen/2 + 1));
 #endif /* (_POSIX_C_SOURCE && !_DARWIN_C_SOURCE) */
 
 __END_DECLS

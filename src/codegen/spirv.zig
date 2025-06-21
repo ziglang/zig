@@ -10,7 +10,6 @@ const Decl = Zcu.Decl;
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const Air = @import("../Air.zig");
-const Liveness = @import("../Liveness.zig");
 const InternPool = @import("../InternPool.zig");
 
 const spec = @import("spirv/spec.zig");
@@ -28,6 +27,17 @@ const SpvSection = @import("spirv/Section.zig");
 const SpvAssembler = @import("spirv/Assembler.zig");
 
 const InstMap = std.AutoHashMapUnmanaged(Air.Inst.Index, IdRef);
+
+pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initMany(&.{
+        .expand_intcast_safe,
+        .expand_int_from_float_safe,
+        .expand_int_from_float_optimized_safe,
+        .expand_add_safe,
+        .expand_sub_safe,
+        .expand_mul_safe,
+    });
+}
 
 pub const zig_call_abi_ver = 3;
 pub const big_int_bits = 32;
@@ -175,7 +185,7 @@ pub const Object = struct {
     /// related to that.
     error_buffer: ?SpvModule.Decl.Index = null,
 
-    pub fn init(gpa: Allocator, target: std.Target) Object {
+    pub fn init(gpa: Allocator, target: *const std.Target) Object {
         return .{
             .gpa = gpa,
             .spv = SpvModule.init(gpa, target),
@@ -195,7 +205,7 @@ pub const Object = struct {
         pt: Zcu.PerThread,
         nav_index: InternPool.Nav.Index,
         air: Air,
-        liveness: Liveness,
+        liveness: Air.Liveness,
         do_codegen: bool,
     ) !void {
         const zcu = pt.zcu;
@@ -222,8 +232,9 @@ pub const Object = struct {
         defer nav_gen.deinit();
 
         nav_gen.genNav(do_codegen) catch |err| switch (err) {
-            error.CodegenFail => {
-                try zcu.failed_codegen.put(gpa, nav_index, nav_gen.error_msg.?);
+            error.CodegenFail => switch (zcu.codegenFailMsg(nav_index, nav_gen.error_msg.?)) {
+                error.CodegenFail => {},
+                error.OutOfMemory => |e| return e,
             },
             else => |other| {
                 // There might be an error that happened *after* self.error_msg
@@ -241,12 +252,12 @@ pub const Object = struct {
         self: *Object,
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
-        air: Air,
-        liveness: Liveness,
+        air: *const Air,
+        liveness: *const Air.Liveness,
     ) !void {
         const nav = pt.zcu.funcInfo(func_index).owner_nav;
         // TODO: Separate types for generating decls and functions?
-        try self.genNav(pt, nav, air, liveness, true);
+        try self.genNav(pt, nav, air.*, liveness.*, true);
     }
 
     pub fn updateNav(
@@ -303,7 +314,7 @@ const NavGen = struct {
 
     /// The liveness analysis of the intermediate code for the declaration we are currently generating.
     /// Note: If the declaration is not a function, this value will be undefined!
-    liveness: Liveness,
+    liveness: Air.Liveness,
 
     /// An array of function argument result-ids. Each index corresponds with the
     /// function argument of the same index.
@@ -3244,7 +3255,8 @@ const NavGen = struct {
 
             .splat => try self.airSplat(inst),
             .reduce, .reduce_optimized => try self.airReduce(inst),
-            .shuffle                   => try self.airShuffle(inst),
+            .shuffle_one               => try self.airShuffleOne(inst),
+            .shuffle_two               => try self.airShuffleTwo(inst),
 
             .ptr_add => try self.airPtrAdd(inst),
             .ptr_sub => try self.airPtrSub(inst),
@@ -3380,6 +3392,10 @@ const NavGen = struct {
     fn airShift(self: *NavGen, inst: Air.Inst.Index, unsigned: BinaryOp, signed: BinaryOp) !?IdRef {
         const zcu = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+
+        if (self.typeOf(bin_op.lhs).isVector(zcu) and !self.typeOf(bin_op.rhs).isVector(zcu)) {
+            return self.fail("vector shift with scalar rhs", .{});
+        }
 
         const base = try self.temporary(bin_op.lhs);
         const shift = try self.temporary(bin_op.rhs);
@@ -3867,6 +3883,10 @@ const NavGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
 
+        if (self.typeOf(extra.lhs).isVector(zcu) and !self.typeOf(extra.rhs).isVector(zcu)) {
+            return self.fail("vector shift with scalar rhs", .{});
+        }
+
         const base = try self.temporary(extra.lhs);
         const shift = try self.temporary(extra.rhs);
 
@@ -4031,40 +4051,57 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn airShuffle(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
-        const pt = self.pt;
+    fn airShuffleOne(ng: *NavGen, inst: Air.Inst.Index) !?IdRef {
+        const pt = ng.pt;
         const zcu = pt.zcu;
-        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-        const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
-        const a = try self.resolve(extra.a);
-        const b = try self.resolve(extra.b);
-        const mask = Value.fromInterned(extra.mask);
+        const gpa = zcu.gpa;
 
-        // Note: number of components in the result, a, and b may differ.
-        const result_ty = self.typeOfIndex(inst);
-        const scalar_ty = result_ty.scalarType(zcu);
-        const scalar_ty_id = try self.resolveType(scalar_ty, .direct);
+        const unwrapped = ng.air.unwrapShuffleOne(zcu, inst);
+        const mask = unwrapped.mask;
+        const result_ty = unwrapped.result_ty;
+        const elem_ty = result_ty.childType(zcu);
+        const operand = try ng.resolve(unwrapped.operand);
 
-        const constituents = try self.gpa.alloc(IdRef, result_ty.vectorLen(zcu));
-        defer self.gpa.free(constituents);
+        const constituents = try gpa.alloc(IdRef, mask.len);
+        defer gpa.free(constituents);
 
-        for (constituents, 0..) |*id, i| {
-            const elem = try mask.elemValue(pt, i);
-            if (elem.isUndef(zcu)) {
-                id.* = try self.spv.constUndef(scalar_ty_id);
-                continue;
-            }
-
-            const index = elem.toSignedInt(zcu);
-            if (index >= 0) {
-                id.* = try self.extractVectorComponent(scalar_ty, a, @intCast(index));
-            } else {
-                id.* = try self.extractVectorComponent(scalar_ty, b, @intCast(~index));
-            }
+        for (constituents, mask) |*id, mask_elem| {
+            id.* = switch (mask_elem.unwrap()) {
+                .elem => |idx| try ng.extractVectorComponent(elem_ty, operand, idx),
+                .value => |val| try ng.constant(elem_ty, .fromInterned(val), .direct),
+            };
         }
 
-        const result_ty_id = try self.resolveType(result_ty, .direct);
-        return try self.constructComposite(result_ty_id, constituents);
+        const result_ty_id = try ng.resolveType(result_ty, .direct);
+        return try ng.constructComposite(result_ty_id, constituents);
+    }
+
+    fn airShuffleTwo(ng: *NavGen, inst: Air.Inst.Index) !?IdRef {
+        const pt = ng.pt;
+        const zcu = pt.zcu;
+        const gpa = zcu.gpa;
+
+        const unwrapped = ng.air.unwrapShuffleTwo(zcu, inst);
+        const mask = unwrapped.mask;
+        const result_ty = unwrapped.result_ty;
+        const elem_ty = result_ty.childType(zcu);
+        const elem_ty_id = try ng.resolveType(elem_ty, .direct);
+        const operand_a = try ng.resolve(unwrapped.operand_a);
+        const operand_b = try ng.resolve(unwrapped.operand_b);
+
+        const constituents = try gpa.alloc(IdRef, mask.len);
+        defer gpa.free(constituents);
+
+        for (constituents, mask) |*id, mask_elem| {
+            id.* = switch (mask_elem.unwrap()) {
+                .a_elem => |idx| try ng.extractVectorComponent(elem_ty, operand_a, idx),
+                .b_elem => |idx| try ng.extractVectorComponent(elem_ty, operand_b, idx),
+                .undef => try ng.spv.constUndef(elem_ty_id),
+            };
+        }
+
+        const result_ty_id = try ng.resolveType(result_ty, .direct);
+        return try ng.constructComposite(result_ty_id, constituents);
     }
 
     fn indicesToIds(self: *NavGen, indices: []const u32) ![]IdRef {
@@ -4627,7 +4664,7 @@ const NavGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const result_ty = self.typeOfIndex(inst);
         const len: usize = @intCast(result_ty.arrayLen(zcu));
-        const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra[ty_pl.payload..][0..len]);
+        const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[ty_pl.payload..][0..len]);
 
         switch (result_ty.zigTypeTag(zcu)) {
             .@"struct" => {
@@ -5474,7 +5511,7 @@ const NavGen = struct {
     fn airBlock(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
         const inst_datas = self.air.instructions.items(.data);
         const extra = self.air.extraData(Air.Block, inst_datas[@intFromEnum(inst)].ty_pl.payload);
-        return self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+        return self.lowerBlock(inst, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
     }
 
     fn lowerBlock(self: *NavGen, inst: Air.Inst.Index, body: []const Air.Inst.Index) !?IdRef {
@@ -5657,8 +5694,8 @@ const NavGen = struct {
     fn airCondBr(self: *NavGen, inst: Air.Inst.Index) !void {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const cond_br = self.air.extraData(Air.CondBr, pl_op.payload);
-        const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra[cond_br.end..][0..cond_br.data.then_body_len]);
-        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[cond_br.end + then_body.len ..][0..cond_br.data.else_body_len]);
+        const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[cond_br.end..][0..cond_br.data.then_body_len]);
+        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[cond_br.end + then_body.len ..][0..cond_br.data.else_body_len]);
         const condition_id = try self.resolve(pl_op.operand);
 
         const then_label = self.spv.allocId();
@@ -5717,7 +5754,7 @@ const NavGen = struct {
     fn airLoop(self: *NavGen, inst: Air.Inst.Index) !void {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[loop.end..][0..loop.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[loop.end..][0..loop.data.body_len]);
 
         const body_label = self.spv.allocId();
 
@@ -5837,7 +5874,7 @@ const NavGen = struct {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const err_union_id = try self.resolve(pl_op.operand);
         const extra = self.air.extraData(Air.Try, pl_op.payload);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+        const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
 
         const err_union_ty = self.typeOf(pl_op.operand);
         const payload_ty = self.typeOfIndex(inst);
@@ -6344,7 +6381,7 @@ const NavGen = struct {
         const old_base_line = self.base_line;
         defer self.base_line = old_base_line;
         self.base_line = zcu.navSrcLine(zcu.funcInfo(extra.data.func).owner_nav);
-        return self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+        return self.lowerBlock(inst, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
     }
 
     fn airDbgVar(self: *NavGen, inst: Air.Inst.Index) !void {
@@ -6365,9 +6402,9 @@ const NavGen = struct {
         if (!is_volatile and self.liveness.isUnused(inst)) return null;
 
         var extra_i: usize = extra.end;
-        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]);
+        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.outputs_len]);
         extra_i += outputs.len;
-        const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]);
+        const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
         if (outputs.len > 1) {
@@ -6386,15 +6423,15 @@ const NavGen = struct {
             if (output != .none) {
                 return self.todo("implement inline asm with non-returned output", .{});
             }
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
             // TODO: Record output and use it somewhere.
         }
 
         for (inputs) |input| {
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[extra_i..]);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[extra_i..]);
             const constraint = std.mem.sliceTo(extra_bytes, 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             // This equation accounts for the fact that even if we have exactly 4 bytes
@@ -6461,13 +6498,13 @@ const NavGen = struct {
         {
             var clobber_i: u32 = 0;
             while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[extra_i..]), 0);
+                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
                 extra_i += clobber.len / 4 + 1;
                 // TODO: Record clobber and use it somewhere.
             }
         }
 
-        const asm_source = std.mem.sliceAsBytes(self.air.extra[extra_i..])[0..extra.data.source_len];
+        const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
         as.assemble(asm_source) catch |err| switch (err) {
             error.AssembleFail => {
@@ -6501,8 +6538,8 @@ const NavGen = struct {
 
         for (outputs) |output| {
             _ = output;
-            const extra_bytes = std.mem.sliceAsBytes(self.air.extra[output_extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra[output_extra_i..]), 0);
+            const extra_bytes = std.mem.sliceAsBytes(self.air.extra.items[output_extra_i..]);
+            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[output_extra_i..]), 0);
             const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
             output_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
@@ -6531,7 +6568,7 @@ const NavGen = struct {
         const zcu = pt.zcu;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
-        const args: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]);
+        const args: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.args_len]);
         const callee_ty = self.typeOf(pl_op.operand);
         const zig_fn_ty = switch (callee_ty.zigTypeTag(zcu)) {
             .@"fn" => callee_ty,

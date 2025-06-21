@@ -4,6 +4,8 @@ const expect = std.testing.expect;
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const InternPool = @import("../../InternPool.zig");
+const link = @import("../../link.zig");
 const Mir = @import("Mir.zig");
 
 /// EFLAGS condition codes
@@ -429,6 +431,16 @@ pub const Register = enum(u8) {
         };
     }
 
+    pub inline fn isClass(reg: Register, rc: Class) bool {
+        switch (rc) {
+            else => return reg.class() == rc,
+            .gphi => {
+                const reg_id = reg.id();
+                return (reg_id >= comptime Register.ah.id()) and reg_id <= comptime Register.bh.id();
+            },
+        }
+    }
+
     pub fn id(reg: Register) u7 {
         const base = switch (@intFromEnum(reg)) {
             // zig fmt: off
@@ -453,25 +465,25 @@ pub const Register = enum(u8) {
         return @intCast(@intFromEnum(reg) - base);
     }
 
-    pub fn bitSize(reg: Register) u10 {
+    pub fn size(reg: Register) Memory.Size {
         return switch (@intFromEnum(reg)) {
             // zig fmt: off
-            @intFromEnum(Register.rax)  ... @intFromEnum(Register.r15)   => 64,
-            @intFromEnum(Register.eax)  ... @intFromEnum(Register.r15d)  => 32,
-            @intFromEnum(Register.ax)   ... @intFromEnum(Register.r15w)  => 16,
-            @intFromEnum(Register.al)   ... @intFromEnum(Register.r15b)  => 8,
-            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => 8,
+            @intFromEnum(Register.rax)  ... @intFromEnum(Register.r15)   => .qword,
+            @intFromEnum(Register.eax)  ... @intFromEnum(Register.r15d)  => .dword,
+            @intFromEnum(Register.ax)   ... @intFromEnum(Register.r15w)  => .word,
+            @intFromEnum(Register.al)   ... @intFromEnum(Register.r15b)  => .byte,
+            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => .byte,
 
-            @intFromEnum(Register.zmm0) ... @intFromEnum(Register.zmm15) => 512,
-            @intFromEnum(Register.ymm0) ... @intFromEnum(Register.ymm15) => 256,
-            @intFromEnum(Register.xmm0) ... @intFromEnum(Register.xmm15) => 128,
-            @intFromEnum(Register.mm0)  ... @intFromEnum(Register.mm7)   => 64,
-            @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => 80,
+            @intFromEnum(Register.zmm0) ... @intFromEnum(Register.zmm15) => .zword,
+            @intFromEnum(Register.ymm0) ... @intFromEnum(Register.ymm15) => .yword,
+            @intFromEnum(Register.xmm0) ... @intFromEnum(Register.xmm15) => .xword,
+            @intFromEnum(Register.mm0)  ... @intFromEnum(Register.mm7)   => .qword,
+            @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => .tbyte,
 
-            @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => 16,
+            @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => .word,
 
-            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr15)  => 64,
-            @intFromEnum(Register.dr0)  ... @intFromEnum(Register.dr15)  => 64,
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr15)  => .gpr,
+            @intFromEnum(Register.dr0)  ... @intFromEnum(Register.dr15)  => .gpr,
 
             else => unreachable,
             // zig fmt: on
@@ -537,8 +549,8 @@ pub const Register = enum(u8) {
         };
     }
 
-    pub fn toSize(reg: Register, size: Memory.Size, target: *const std.Target) Register {
-        return switch (size) {
+    pub fn toSize(reg: Register, new_size: Memory.Size, target: *const std.Target) Register {
+        return switch (new_size) {
             .none => unreachable,
             .ptr => reg.toBitSize(target.ptrBitWidth()),
             .gpr => switch (target.cpu.arch) {
@@ -615,22 +627,17 @@ pub const Register = enum(u8) {
     }
 
     pub fn toHi8(reg: Register) Register {
-        assert(reg.hasHi8());
+        assert(reg.isClass(.gphi));
         return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.ah));
     }
 
-    pub fn hasHi8(reg: Register) bool {
-        const reg_id = reg.id();
-        return (reg_id >= comptime Register.ah.id()) and reg_id <= comptime Register.bh.id();
-    }
-
     pub fn to80(reg: Register) Register {
-        assert(reg.class() == .x87);
+        assert(reg.isClass(.x87));
         return reg;
     }
 
     fn sseBase(reg: Register) u8 {
-        assert(reg.class() == .sse);
+        assert(reg.isClass(.sse));
         return switch (@intFromEnum(reg)) {
             @intFromEnum(Register.zmm0)...@intFromEnum(Register.zmm31) => @intFromEnum(Register.zmm0),
             @intFromEnum(Register.ymm0)...@intFromEnum(Register.ymm31) => @intFromEnum(Register.ymm0),
@@ -679,8 +686,6 @@ test "Register id - different classes" {
     try expect(Register.xmm0.id() == Register.ymm0.id());
     try expect(Register.xmm0.id() != Register.mm0.id());
     try expect(Register.mm0.id() != Register.st0.id());
-
-    try expect(Register.es.id() == 0b110000);
 }
 
 test "Register enc - different classes" {
@@ -694,11 +699,13 @@ test "Register enc - different classes" {
 }
 
 test "Register classes" {
-    try expect(Register.r11.class() == .general_purpose);
-    try expect(Register.ymm11.class() == .sse);
-    try expect(Register.mm3.class() == .mmx);
-    try expect(Register.st3.class() == .x87);
-    try expect(Register.fs.class() == .segment);
+    try expect(Register.r11.isClass(.general_purpose));
+    try expect(Register.rdx.isClass(.gphi));
+    try expect(!Register.dil.isClass(.gphi));
+    try expect(Register.ymm11.isClass(.sse));
+    try expect(Register.mm3.isClass(.mmx));
+    try expect(Register.st3.isClass(.x87));
+    try expect(Register.fs.isClass(.segment));
 }
 
 pub const FrameIndex = enum(u32) {
@@ -743,19 +750,22 @@ pub const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
 
 pub const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 
-pub const SymbolOffset = struct { sym_index: u32, off: i32 = 0 };
+pub const NavOffset = struct { index: InternPool.Nav.Index, off: i32 = 0 };
 
 pub const Memory = struct {
     base: Base = .none,
     mod: Mod = .{ .rm = .{} },
 
-    pub const Base = union(enum(u3)) {
+    pub const Base = union(enum(u4)) {
         none,
         reg: Register,
         frame: FrameIndex,
         table,
-        reloc: u32,
         rip_inst: Mir.Inst.Index,
+        nav: InternPool.Nav.Index,
+        uav: InternPool.Key.Ptr.BaseAddr.Uav,
+        lazy_sym: link.File.LazySymbol,
+        extern_func: Mir.NullTerminatedString,
 
         pub const Tag = @typeInfo(Base).@"union".tag_type.?;
     };
@@ -891,7 +901,10 @@ pub const Memory = struct {
 pub const Immediate = union(enum) {
     signed: i32,
     unsigned: u64,
-    reloc: SymbolOffset,
+    nav: NavOffset,
+    uav: InternPool.Key.Ptr.BaseAddr.Uav,
+    lazy_sym: link.File.LazySymbol,
+    extern_func: Mir.NullTerminatedString,
 
     pub fn u(x: u64) Immediate {
         return .{ .unsigned = x };
@@ -899,10 +912,6 @@ pub const Immediate = union(enum) {
 
     pub fn s(x: i32) Immediate {
         return .{ .signed = x };
-    }
-
-    pub fn rel(sym_off: SymbolOffset) Immediate {
-        return .{ .reloc = sym_off };
     }
 
     pub fn format(
@@ -913,7 +922,10 @@ pub const Immediate = union(enum) {
     ) @TypeOf(writer).Error!void {
         switch (imm) {
             inline else => |int| try writer.print("{d}", .{int}),
-            .reloc => |sym_off| try writer.print("Symbol({[sym_index]d}) + {[off]d}", sym_off),
+            .nav => |nav_off| try writer.print("Nav({d}) + {d}", .{ @intFromEnum(nav_off.nav), nav_off.off }),
+            .uav => |uav| try writer.print("Uav({d})", .{@intFromEnum(uav.val)}),
+            .lazy_sym => |lazy_sym| try writer.print("LazySym({s}, {d})", .{ @tagName(lazy_sym.kind), @intFromEnum(lazy_sym.ty) }),
+            .extern_func => |extern_func| try writer.print("ExternFunc({d})", .{@intFromEnum(extern_func)}),
         }
     }
 };

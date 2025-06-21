@@ -74,31 +74,23 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     var all_cached = true;
     next_entry: while (try it.next()) |entry| {
         for (install_dir.options.exclude_extensions) |ext| {
-            if (mem.endsWith(u8, entry.path, ext)) {
+            if (mem.endsWith(u8, entry.path, ext)) continue :next_entry;
+        }
+        if (install_dir.options.include_extensions) |incs| {
+            for (incs) |inc| {
+                if (mem.endsWith(u8, entry.path, inc)) break;
+            } else {
                 continue :next_entry;
             }
         }
-        if (install_dir.options.include_extensions) |incs| {
-            var found = false;
-            for (incs) |inc| {
-                if (mem.endsWith(u8, entry.path, inc)) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) continue :next_entry;
-        }
 
-        // relative to src build root
-        const src_sub_path = try src_dir_path.join(arena, entry.path);
+        const src_path = try install_dir.options.source_dir.join(b.allocator, entry.path);
         const dest_path = b.pathJoin(&.{ dest_prefix, entry.path });
-        const cwd = fs.cwd();
-
         switch (entry.kind) {
             .directory => {
-                if (need_derived_inputs) try step.addDirectoryWatchInputFromPath(src_sub_path);
-                try cwd.makePath(dest_path);
-                // TODO: set result_cached=false if the directory did not already exist.
+                if (need_derived_inputs) _ = try step.addDirectoryWatchInput(src_path);
+                const p = try step.installDir(dest_path);
+                all_cached = all_cached and p == .existed;
             },
             .file => {
                 for (install_dir.options.blank_extensions) |ext| {
@@ -108,18 +100,8 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                     }
                 }
 
-                const prev_status = fs.Dir.updateFile(
-                    src_sub_path.root_dir.handle,
-                    src_sub_path.sub_path,
-                    cwd,
-                    dest_path,
-                    .{},
-                ) catch |err| {
-                    return step.fail("unable to update file from '{}' to '{s}': {s}", .{
-                        src_sub_path, dest_path, @errorName(err),
-                    });
-                };
-                all_cached = all_cached and prev_status == .fresh;
+                const p = try step.installFile(src_path, dest_path);
+                all_cached = all_cached and p == .fresh;
             },
             else => continue,
         }

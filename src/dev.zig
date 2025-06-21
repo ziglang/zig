@@ -1,5 +1,8 @@
 pub const Env = enum {
     /// zig1 features
+    /// - `-ofmt=c` only
+    /// - `-OReleaseFast` or `-OReleaseSmall` only
+    /// - no `@setRuntimeSafety(true)`
     bootstrap,
 
     /// zig2 features
@@ -22,6 +25,9 @@ pub const Env = enum {
     /// - `zig build-* -fno-emit-bin`
     sema,
 
+    /// - `zig build-* -ofmt=c`
+    cbe,
+
     /// - sema
     /// - `zig build-* -fincremental -fno-llvm -fno-lld -target x86_64-linux --listen=-`
     @"x86_64-linux",
@@ -33,6 +39,10 @@ pub const Env = enum {
     /// - sema
     /// - `zig build-* -fno-llvm -fno-lld -target riscv64-linux`
     @"riscv64-linux",
+
+    /// - sema
+    /// - `zig build-* -fno-llvm -fno-lld -target spirv(32/64)-* --listen=-`
+    spirv,
 
     /// - sema
     /// - `zig build-* -fno-llvm -fno-lld -target wasm32-* --listen=-`
@@ -67,6 +77,7 @@ pub const Env = enum {
                 .incremental,
                 .ast_gen,
                 .sema,
+                .legalize,
                 .llvm_backend,
                 .c_backend,
                 .wasm_backend,
@@ -140,10 +151,17 @@ pub const Env = enum {
                 => true,
                 else => Env.ast_gen.supports(feature),
             },
+            .cbe => switch (feature) {
+                .c_backend,
+                .c_linker,
+                => true,
+                else => Env.sema.supports(feature),
+            },
             .@"x86_64-linux" => switch (feature) {
                 .build_command,
                 .stdio_listen,
                 .incremental,
+                .legalize,
                 .x86_64_backend,
                 .elf_linker,
                 => true,
@@ -161,6 +179,12 @@ pub const Env = enum {
             .@"riscv64-linux" => switch (feature) {
                 .riscv64_backend,
                 .elf_linker,
+                => true,
+                else => Env.sema.supports(feature),
+            },
+            .spirv => switch (feature) {
+                .spirv64_backend,
+                .spirv_linker,
                 => true,
                 else => Env.sema.supports(feature),
             },
@@ -222,6 +246,7 @@ pub const Feature = enum {
     incremental,
     ast_gen,
     sema,
+    legalize,
 
     llvm_backend,
     c_backend,

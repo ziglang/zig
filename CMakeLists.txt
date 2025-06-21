@@ -159,6 +159,16 @@ if(ZIG_STATIC_ZSTD)
     list(APPEND LLVM_LIBRARIES "${ZSTD}")
 endif()
 
+if (MSVC)
+    if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+        if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+            # avoid linking to the debug versions of ucrt by default
+            # as they are not redistributable.
+            set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+        endif()
+    endif()
+endif ()
+
 if(ZIG_STATIC_CURSES)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
     find_library(CURSES NAMES libcurses.a libncurses.a NAMES_PER_DIR
@@ -205,6 +215,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/addo.zig
     lib/compiler_rt/addsf3.zig
     lib/compiler_rt/addtf3.zig
+    lib/compiler_rt/addvsi3.zig
     lib/compiler_rt/addxf3.zig
     lib/compiler_rt/arm.zig
     lib/compiler_rt/atomics.zig
@@ -323,6 +334,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/mulo.zig
     lib/compiler_rt/mulsf3.zig
     lib/compiler_rt/multf3.zig
+    lib/compiler_rt/mulvsi3.zig
     lib/compiler_rt/mulxf3.zig
     lib/compiler_rt/negXi2.zig
     lib/compiler_rt/negdf2.zig
@@ -346,6 +358,8 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/subo.zig
     lib/compiler_rt/subsf3.zig
     lib/compiler_rt/subtf3.zig
+    lib/compiler_rt/subvdi3.zig
+    lib/compiler_rt/subvsi3.zig
     lib/compiler_rt/subxf3.zig
     lib/compiler_rt/tan.zig
     lib/compiler_rt/trig.zig
@@ -512,13 +526,16 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/llvm/bitcode_writer.zig
     lib/std/zig/llvm/ir.zig
     src/Air.zig
+    src/Air/Legalize.zig
+    src/Air/Liveness.zig
+    src/Air/Liveness/Verify.zig
+    src/Air/print.zig
+    src/Air/types_resolved.zig
     src/Builtin.zig
     src/Compilation.zig
     src/Compilation/Config.zig
     src/DarwinPosixSpawn.zig
     src/InternPool.zig
-    src/Liveness.zig
-    src/Liveness/Verify.zig
     src/Package.zig
     src/Package/Fetch.zig
     src/Package/Fetch/git.zig
@@ -528,7 +545,6 @@ set(ZIG_STAGE2_SOURCES
     src/Sema.zig
     src/Sema/bitcast.zig
     src/Sema/comptime_ptr_access.zig
-    src/ThreadSafeQueue.zig
     src/Type.zig
     src/Value.zig
     src/Zcu.zig
@@ -617,6 +633,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/synthetic_sections.zig
     src/link/Goff.zig
     src/link/LdScript.zig
+    src/link/Lld.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
     src/link/MachO/Atom.zig
@@ -645,6 +662,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/uuid.zig
     src/link/Plan9.zig
     src/link/Plan9/aout.zig
+    src/link/Queue.zig
     src/link/SpirV.zig
     src/link/SpirV/BinaryModule.zig
     src/link/SpirV/deduplicate.zig
@@ -669,7 +687,6 @@ set(ZIG_STAGE2_SOURCES
     src/libs/mingw.zig
     src/libs/musl.zig
     src/mutable_value.zig
-    src/print_air.zig
     src/print_env.zig
     src/print_targets.zig
     src/print_value.zig
@@ -687,6 +704,12 @@ if(MSVC)
         set(ZIG_DIA_GUIDS_LIB "${MSVC_DIA_SDK_DIR}/lib/amd64/diaguids.lib")
         string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_DIA_GUIDS_LIB_ESCAPED "${ZIG_DIA_GUIDS_LIB}")
     endif()
+
+    # The /RTC[c][s][u] flag enables extra runtime checks. ("/RTC1" == "/RTCsu")
+    # The "c" (PossibleDataLoss) and "u" (UninitializeVariable) flags trap on valid C code so we disable
+    # them.  The "s" flag seems like it might be OK.
+    string(REPLACE "/RTC1" "/RTCs" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
+    string(REPLACE "/RTC1" "/RTCs" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 endif()
 
 configure_file (
@@ -791,13 +814,12 @@ elseif(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
   set(ZIG_HOST_TARGET_ARCH "x86_64")
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "arm64")
   set(ZIG_HOST_TARGET_ARCH "aarch64")
-elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7l")
+elseif(ZIG_HOST_TARGET_ARCH MATCHES "^arm(el)?$" OR ZIG_HOST_TARGET_ARCH MATCHES "^armv[7-8]l$")
   set(ZIG_HOST_TARGET_ARCH "arm")
-elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7b")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armeb" OR ZIG_HOST_TARGET_ARCH MATCHES "^armv[7-8]b$")
   set(ZIG_HOST_TARGET_ARCH "armeb")
 endif()
-string(REGEX REPLACE "^((arm|thumb)(hf?)?)el$" "\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
-if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(hf?)?(eb)?$")
+if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(eb)?$")
   check_symbol_exists(__thumb__ "" ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
   if(ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
     string(REGEX REPLACE "^arm" "thumb" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
@@ -993,10 +1015,6 @@ endif()
 
 if(NOT "${ZIG_TARGET_DYNAMIC_LINKER}" STREQUAL "")
   list(APPEND ZIG_BUILD_ARGS "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
-endif()
-
-if(MINGW AND "${ZIG_HOST_TARGET_ARCH}" STREQUAL "x86")
-  list(APPEND ZIG_BUILD_ARGS --maxrss 7000000000)
 endif()
 
 

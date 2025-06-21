@@ -173,6 +173,8 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
         );
         exportIt();
     }
+
+    std.valgrind.discardTranslations(@as([*]u8, @ptrFromInt(start))[0 .. end - start]);
 }
 
 fn exportIt() void {

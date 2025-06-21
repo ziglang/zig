@@ -78,13 +78,9 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
             @branchHint(.cold);
             call("invalid error code", @returnAddress());
         }
-        pub fn castTruncatedData() noreturn {
+        pub fn integerOutOfBounds() noreturn {
             @branchHint(.cold);
-            call("integer cast truncated bits", @returnAddress());
-        }
-        pub fn negativeToUnsigned() noreturn {
-            @branchHint(.cold);
-            call("attempt to cast negative value to unsigned integer", @returnAddress());
+            call("integer does not fit in destination type", @returnAddress());
         }
         pub fn integerOverflow() noreturn {
             @branchHint(.cold);
@@ -126,8 +122,6 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
             @branchHint(.cold);
             call("for loop over objects with non-equal lengths", @returnAddress());
         }
-        /// Delete after next zig1.wasm update
-        pub const memcpyLenMismatch = copyLenMismatch;
         pub fn copyLenMismatch() noreturn {
             @branchHint(.cold);
             call("source and destination arguments have non-equal lengths", @returnAddress());
@@ -613,7 +607,7 @@ pub fn defaultPanic(
         .stage2_arm,
         .stage2_powerpc,
         .stage2_riscv64,
-        .stage2_spirv64,
+        .stage2_spirv,
         .stage2_wasm,
         .stage2_x86,
         => @trap(),
@@ -779,7 +773,7 @@ pub const StackIterator = struct {
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
         if (native_arch.isSPARC()) {
             // Flush all the register windows on stack.
-            asm volatile (if (std.Target.sparc.featureSetHas(builtin.cpu.features, .v9))
+            asm volatile (if (builtin.cpu.has(.sparc, .v9))
                     "flushw"
                 else
                     "ta 3" // ST_FLUSH_WINDOWS
@@ -931,6 +925,8 @@ pub const StackIterator = struct {
                 }
             }
         }
+
+        if (builtin.omit_frame_pointer) return null;
 
         const fp = if (comptime native_arch.isSPARC())
             // On SPARC the offset is positive. (!)

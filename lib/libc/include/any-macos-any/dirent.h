@@ -61,11 +61,14 @@
 /*
  * The kernel defines the format of directory entries
  */
+#include <_bounds.h>
 #include <_types.h>
 #include <sys/dirent.h>
 #include <sys/cdefs.h>
 #include <Availability.h>
 #include <sys/_pthread/_pthread_types.h> /* __darwin_pthread_mutex_t */
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 struct _telldir;		/* forward reference */
 
@@ -74,7 +77,7 @@ typedef struct {
 	int	__dd_fd;	/* file descriptor associated with directory */
 	long	__dd_loc;	/* offset in current buffer */
 	long	__dd_size;	/* amount of data returned */
-	char	*__dd_buf;	/* data buffer */
+	char *_LIBC_COUNT(__dd_len)	__dd_buf; /* data buffer */
 	int	__dd_len;	/* size of data buffer */
 	long	__dd_seek;	/* magic cookie returned */
 	__unused long	__padding; /* (__dd_rewind space left for bincompat) */
@@ -168,7 +171,7 @@ __END_DECLS
 #if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
 __BEGIN_DECLS
 
-int getdirentries(int, char *, int, long *)
+int getdirentries(int, char *_LIBC_COUNT(__nbytes), int __nbytes, long *)
 
 #if __DARWIN_64_BIT_INO_T
 /*

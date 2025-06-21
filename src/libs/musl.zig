@@ -193,7 +193,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .link_libc = false,
             });
 
-            const target = comp.root_mod.resolved_target.result;
+            const target = &comp.root_mod.resolved_target.result;
             const arch_name = std.zig.target.muslArchName(target.cpu.arch, target.abi);
             const time32 = for (time32_compat_arch_list) |time32_compat_arch| {
                 if (mem.eql(u8, arch_name, time32_compat_arch)) break true;
@@ -252,8 +252,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .thread_pool = comp.thread_pool,
                 .root_name = "c",
                 .libc_installation = comp.libc_installation,
-                .emit_bin = .{ .directory = null, .basename = "libc.so" },
-                .emit_h = null,
+                .emit_bin = .yes_cache,
                 .verbose_cc = comp.verbose_cc,
                 .verbose_link = comp.verbose_link,
                 .verbose_air = comp.verbose_air,
@@ -278,7 +277,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             errdefer comp.gpa.free(basename);
 
             const crt_file = try sub_compilation.toCrtFile();
-            comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
+            comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
             {
                 comp.mutex.lock();
                 defer comp.mutex.unlock();
@@ -886,9 +885,7 @@ const src_files = [_][]const u8{
     "musl/src/math/copysignf.c",
     "musl/src/math/copysignl.c",
     "musl/src/math/__cos.c",
-    "musl/src/math/cos.c",
     "musl/src/math/__cosdf.c",
-    "musl/src/math/cosf.c",
     "musl/src/math/cosh.c",
     "musl/src/math/coshf.c",
     "musl/src/math/coshl.c",
@@ -1194,12 +1191,8 @@ const src_files = [_][]const u8{
     "musl/src/math/significand.c",
     "musl/src/math/significandf.c",
     "musl/src/math/__sin.c",
-    "musl/src/math/sin.c",
-    "musl/src/math/sincos.c",
-    "musl/src/math/sincosf.c",
     "musl/src/math/sincosl.c",
     "musl/src/math/__sindf.c",
-    "musl/src/math/sinf.c",
     "musl/src/math/sinh.c",
     "musl/src/math/sinhf.c",
     "musl/src/math/sinhl.c",
@@ -1210,9 +1203,7 @@ const src_files = [_][]const u8{
     "musl/src/math/sqrtf.c",
     "musl/src/math/sqrtl.c",
     "musl/src/math/__tan.c",
-    "musl/src/math/tan.c",
     "musl/src/math/__tandf.c",
-    "musl/src/math/tanf.c",
     "musl/src/math/tanh.c",
     "musl/src/math/tanhf.c",
     "musl/src/math/tanhl.c",

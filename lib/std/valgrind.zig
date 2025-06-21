@@ -66,6 +66,20 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
               [_] "{r3}" (default),
             : "cc", "memory"
         ),
+        .riscv64 => asm volatile (
+            \\ .option push
+            \\ .option norvc
+            \\ srli zero, zero, 3
+            \\ srli zero, zero, 13
+            \\ srli zero, zero, 51
+            \\ srli zero, zero, 61
+            \\ or   a0,   a0,   a0
+            \\ .option pop
+            : [_] "={a3}" (-> usize),
+            : [_] "{a4}" (args),
+              [_] "{a3}" (default),
+            : "cc", "memory"
+        ),
         .s390x => asm volatile (
             \\ lr %%r15, %%r15
             \\ lr %%r1,  %%r1

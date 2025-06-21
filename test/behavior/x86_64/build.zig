@@ -87,7 +87,7 @@ pub fn build(b: *std.Build) void {
         .{
             .cpu_arch = .x86_64,
             .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
-            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .gfni }),
+            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .fast_hops, .gfni, .pclmul, .slow_incdec }),
         },
         .{
             .cpu_arch = .x86_64,
@@ -97,6 +97,7 @@ pub fn build(b: *std.Build) void {
         .{
             .cpu_arch = .x86_64,
             .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
+            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .fast_hops, .gfni, .pclmul, .slow_incdec }),
             .cpu_features_sub = std.Target.x86.featureSet(&.{.avx2}),
         },
         .{
@@ -106,19 +107,65 @@ pub fn build(b: *std.Build) void {
         .{
             .cpu_arch = .x86_64,
             .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
-            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .gfni }),
+            .cpu_features_add = std.Target.x86.featureSet(&.{ .adx, .fast_hops, .gfni, .slow_incdec, .vpclmulqdq }),
         },
         .{
             .cpu_arch = .x86_64,
             .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v4 },
         },
+
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64 },
+            .os_tag = .windows,
+            .abi = .none,
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64 },
+            .cpu_features_add = std.Target.x86.featureSet(&.{.ssse3}),
+            .os_tag = .windows,
+            .abi = .none,
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+            .os_tag = .windows,
+            .abi = .none,
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
+            .os_tag = .windows,
+            .abi = .none,
+        },
+
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64 },
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v3 },
+            .os_tag = .windows,
+            .abi = .gnu,
+        },
     }) |query| {
         const target = b.resolveTargetQuery(query);
+        const triple = query.zigTriple(b.allocator) catch @panic("OOM");
         const cpu = query.serializeCpuAlloc(b.allocator) catch @panic("OOM");
         for ([_][]const u8{
+            "access.zig",
             "binary.zig",
             "cast.zig",
-            "mem.zig",
             "unary.zig",
         }) |path| {
             const test_mod = b.createModule(.{
@@ -132,16 +179,14 @@ pub fn build(b: *std.Build) void {
                 .use_lld = false,
                 .root_module = test_mod,
             });
-            if (!std.Target.x86.featureSetHas(target.result.cpu.features, .sse2)) {
+            test_exe.step.name = b.fmt("{s} {s}", .{ test_exe.step.name, cpu });
+            if (!target.result.cpu.has(.x86, .sse2)) {
                 test_exe.bundle_compiler_rt = false;
                 test_mod.linkLibrary(compiler_rt_lib);
             }
             const test_run = b.addRunArtifact(test_exe);
+            test_run.step.name = b.fmt("{s} {s} {s}", .{ test_run.step.name, triple, cpu });
             b.default_step.dependOn(&test_run.step);
-            for ([_]*std.Build.Step{
-                &test_exe.step,
-                &test_run.step,
-            }) |step| step.name = b.fmt("{s} {s}", .{ step.name, cpu });
         }
     }
 }

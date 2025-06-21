@@ -512,8 +512,7 @@ void __pformat_putchars( const char *s, int count, __pformat_t *stream )
     wchar_t w[12], *p;
     while( count > 0 )
     {
-      mbstate_t ps;
-      memset(&ps, 0, sizeof(ps) );
+      mbstate_t ps = {0};
       --count;
       p = &w[0];
       l = mbrtowc (p, s, strlen (s), &ps);
@@ -1175,11 +1174,8 @@ void __pformat_emit_radix_point( __pformat_t *stream )
     /* Radix point initialisation not yet completed;
      * establish a multibyte to `wchar_t' converter...
      */
-    int len; wchar_t rpchr; mbstate_t state;
-
-    /* Initialise the conversion state...
-     */
-    memset( &state, 0, sizeof( state ) );
+    int len; wchar_t rpchr;
+    mbstate_t state = {0};
 
     /* Fetch and convert the localised radix point representation...
      */
@@ -1203,11 +1199,8 @@ void __pformat_emit_radix_point( __pformat_t *stream )
 #ifdef __BUILD_WIDEAPI
    __pformat_putc (stream->rpchr, stream);
 #else
-    int len; char buf[len = stream->rplen]; mbstate_t state;
-
-    /* Initialise the conversion state...
-     */
-    memset( &state, 0, sizeof( state ) );
+    int len; char buf[len = stream->rplen];
+    mbstate_t state = {0};
 
     /* Convert the `wchar_t' representation to multibyte...
      */
@@ -3123,8 +3116,8 @@ __pformat (int flags, void *dest, int max, const APICHAR *fmt, va_list argv)
               if (state == PFORMAT_INIT)
               {
                 stream.flags |= PFORMAT_GROUPED; /* $$$$ */
-                int len; wchar_t rpchr; mbstate_t cstate;
-                memset (&cstate, 0, sizeof(state));
+                int len; wchar_t rpchr;
+                mbstate_t cstate = {0};
                 if ((len = mbrtowc( &rpchr, localeconv()->thousands_sep, 16, &cstate)) > 0)
                     stream.thousands_chr = rpchr;
                 stream.thousands_chr_len = len;

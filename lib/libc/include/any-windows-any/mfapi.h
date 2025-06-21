@@ -104,7 +104,7 @@ extern "C" {
   typedef enum {
     MF_STANDARD_WORKQUEUE = 0,
     MF_WINDOW_WORKQUEUE = 1,
-    MF_MULTITHREADED_WORKQUEUE = 2,
+    MF_MULTITHREADED_WORKQUEUE = 2
   } MFASYNC_WORKQUEUE_TYPE;
 #endif
 
@@ -198,7 +198,7 @@ extern "C" {
     MF_TOPOSTATUS_DYNAMIC_CHANGED = 210,
 #endif
     MF_TOPOSTATUS_SINK_SWITCHED = 300,
-    MF_TOPOSTATUS_ENDED = 400,
+    MF_TOPOSTATUS_ENDED = 400
   } MF_TOPOSTATUS;
 
   EXTERN_C const GUID MR_BUFFER_SERVICE;
@@ -451,26 +451,26 @@ DEFINE_MEDIATYPE_GUID(MFVideoFormat_Theora, FCC('theo'));
     MFVideo3DSampleFormat_BaseView = 0,
     MFVideo3DSampleFormat_MultiView = 1,
     MFVideo3DSampleFormat_Packed_LeftRight = 2,
-    MFVideo3DSampleFormat_Packed_TopBottom = 3,
+    MFVideo3DSampleFormat_Packed_TopBottom = 3
   } MFVideo3DFormat;
 
   typedef enum _MFVideo3DSampleFormat {
     MFSampleExtension_3DVideo_MultiView = 1,
-    MFSampleExtension_3DVideo_Packed = 0,
+    MFSampleExtension_3DVideo_Packed = 0
   } MFVideo3DSampleFormat;
 
   typedef enum _MFVideoRotationFormat {
     MFVideoRotationFormat_0 = 0,
     MFVideoRotationFormat_90 = 90,
     MFVideoRotationFormat_180 = 180,
-    MFVideoRotationFormat_270 = 270,
+    MFVideoRotationFormat_270 = 270
   } MFVideoRotationFormat;
 #endif
 
   typedef enum _MFVideoDRMFlags {
     MFVideoDRMFlag_None = 0,
     MFVideoDRMFlag_AnalogProtected = 1,
-    MFVideoDRMFlag_DigitallyProtected = 2,
+    MFVideoDRMFlag_DigitallyProtected = 2
   } MFVideoDRMFlags;
 
   typedef enum _MFVideoPadFlags {

@@ -66,7 +66,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
 
     // In all cases in this function, we add the C compiler flags to
     // cache_exempt_flags rather than extra_flags, because these arguments
@@ -407,7 +407,7 @@ pub const BuiltSharedObjects = struct {
 
 const all_map_basename = "all.map";
 
-fn wordDirective(target: std.Target) []const u8 {
+fn wordDirective(target: *const std.Target) []const u8 {
     // Based on its description in the GNU `as` manual, you might assume that `.word` is sized
     // according to the target word size. But no; that would just make too much sense.
     return if (target.ptrBitWidth() == 64) ".quad" else ".long";
@@ -985,7 +985,7 @@ fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
     assert(comp.freebsd_so_files == null);
     comp.freebsd_so_files = so_files;
 
-    var task_buffer: [libs.len]link.Task = undefined;
+    var task_buffer: [libs.len]link.PrelinkTask = undefined;
     var task_buffer_i: usize = 0;
 
     {
@@ -1004,7 +1004,7 @@ fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
         }
     }
 
-    comp.queueLinkTasks(task_buffer[0..task_buffer_i]);
+    comp.queuePrelinkTasks(task_buffer[0..task_buffer_i]);
 }
 
 fn buildSharedLib(
@@ -1019,10 +1019,6 @@ fn buildSharedLib(
     defer tracy.end();
 
     const basename = try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ lib.name, lib.sover });
-    const emit_bin = Compilation.EmitLoc{
-        .directory = bin_directory,
-        .basename = basename,
-    };
     const version: Version = .{ .major = lib.sover, .minor = 0, .patch = 0 };
     const ld_basename = path.basename(comp.getTarget().standardDynamicLinkerPath().get().?);
     const soname = if (mem.eql(u8, lib.name, "ld")) ld_basename else basename;
@@ -1077,13 +1073,14 @@ fn buildSharedLib(
         .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
-        .cache_mode = .incremental,
+        // Because we manually cache the whole set of objects, we don't cache the individual objects
+        // within it. In fact, we *can't* do that, because we need `emit_bin` to specify the path.
+        .cache_mode = .none,
         .config = config,
         .root_mod = root_mod,
         .root_name = lib.name,
         .libc_installation = comp.libc_installation,
-        .emit_bin = emit_bin,
-        .emit_h = null,
+        .emit_bin = .{ .yes_path = try bin_directory.join(arena, &.{basename}) },
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,

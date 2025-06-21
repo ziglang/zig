@@ -10,6 +10,6 @@ comptime {
 }
 
 pub fn __fixtfei(r: [*]u8, bits: usize, a: f128) callconv(.c) void {
-    const byte_size = std.zig.target.intByteSize(builtin.target, @intCast(bits));
+    const byte_size = std.zig.target.intByteSize(&builtin.target, @intCast(bits));
     return bigIntFromFloat(.signed, @ptrCast(@alignCast(r[0..byte_size])), a);
 }

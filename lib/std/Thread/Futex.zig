@@ -262,10 +262,10 @@ const LinuxImpl = struct {
             ts.nsec = @as(@TypeOf(ts.nsec), @intCast(timeout_ns % std.time.ns_per_s));
         }
 
-        const rc = linux.futex_wait(
-            @as(*const i32, @ptrCast(&ptr.raw)),
-            linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAIT,
-            @as(i32, @bitCast(expect)),
+        const rc = linux.futex_4arg(
+            &ptr.raw,
+            .{ .cmd = .WAIT, .private = true },
+            expect,
             if (timeout != null) &ts else null,
         );
 
@@ -284,10 +284,10 @@ const LinuxImpl = struct {
     }
 
     fn wake(ptr: *const atomic.Value(u32), max_waiters: u32) void {
-        const rc = linux.futex_wake(
-            @as(*const i32, @ptrCast(&ptr.raw)),
-            linux.FUTEX.PRIVATE_FLAG | linux.FUTEX.WAKE,
-            std.math.cast(i32, max_waiters) orelse std.math.maxInt(i32),
+        const rc = linux.futex_3arg(
+            &ptr.raw,
+            .{ .cmd = .WAKE, .private = true },
+            @min(max_waiters, std.math.maxInt(i32)),
         );
 
         switch (linux.E.init(rc)) {
@@ -461,9 +461,8 @@ const DragonflyImpl = struct {
 
 const WasmImpl = struct {
     fn wait(ptr: *const atomic.Value(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
-        if (!comptime std.Target.wasm.featureSetHas(builtin.target.cpu.features, .atomics)) {
-            @compileError("WASI target missing cpu feature 'atomics'");
-        }
+        if (!comptime builtin.cpu.has(.wasm, .atomics)) @compileError("WASI target missing cpu feature 'atomics'");
+
         const to: i64 = if (timeout) |to| @intCast(to) else -1;
         const result = asm volatile (
             \\local.get %[ptr]
@@ -485,9 +484,8 @@ const WasmImpl = struct {
     }
 
     fn wake(ptr: *const atomic.Value(u32), max_waiters: u32) void {
-        if (!comptime std.Target.wasm.featureSetHas(builtin.target.cpu.features, .atomics)) {
-            @compileError("WASI target missing cpu feature 'atomics'");
-        }
+        if (!comptime builtin.cpu.has(.wasm, .atomics)) @compileError("WASI target missing cpu feature 'atomics'");
+
         assert(max_waiters != 0);
         const woken_count = asm volatile (
             \\local.get %[ptr]

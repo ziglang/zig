@@ -209,7 +209,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
     if (objcopy.add_section) |section| {
         try argv.append("--add-section");
-        try argv.appendSlice(&.{b.fmt("{s}={s}", .{ section.section_name, section.file_path.getPath(b) })});
+        try argv.appendSlice(&.{b.fmt("{s}={s}", .{ section.section_name, section.file_path.getPath2(b, step) })});
     }
     if (objcopy.set_section_alignment) |set_align| {
         try argv.append("--set-section-alignment");

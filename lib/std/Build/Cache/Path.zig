@@ -30,9 +30,11 @@ pub fn join(p: Path, arena: Allocator, sub_path: []const u8) Allocator.Error!Pat
 
 pub fn resolvePosix(p: Path, arena: Allocator, sub_path: []const u8) Allocator.Error!Path {
     if (sub_path.len == 0) return p;
+    const new_sub_path = try fs.path.resolvePosix(arena, &.{ p.sub_path, sub_path });
     return .{
         .root_dir = p.root_dir,
-        .sub_path = try fs.path.resolvePosix(arena, &.{ p.sub_path, sub_path }),
+        // Use "" instead of "." to represent `root_dir` itself.
+        .sub_path = if (std.mem.eql(u8, new_sub_path, ".")) "" else new_sub_path,
     };
 }
 

@@ -889,10 +889,10 @@ test "sigset empty/full" {
 // Some signals (i.e., 32 - 34 on glibc/musl) are not allowed to be added to a
 // sigset by the C library, so avoid testing them.
 fn reserved_signo(i: usize) bool {
-    if (native_os == .macos) {
-        return false;
-    }
-    return builtin.link_libc and (i >= 32 and i < posix.sigrtmin());
+    if (native_os == .macos) return false;
+    if (!builtin.link_libc) return false;
+    const max = if (native_os == .netbsd) 32 else 31;
+    return i > max and i < posix.sigrtmin();
 }
 
 test "sigset add/del" {
