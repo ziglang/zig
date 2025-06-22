@@ -2617,7 +2617,7 @@ pub fn updateFile(
         .size = src_stat.size,
     };
     var buffer: [2000]u8 = undefined;
-    var dest_writer = atomic_file.file_writer.writable(&buffer);
+    var dest_writer = atomic_file.file_writer.writer(&buffer);
 
     dest_writer.writeFileAll(&src_reader, .{}) catch |err| switch (err) {
         error.ReadFailed => return src_reader.err.?,

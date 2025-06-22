@@ -70,12 +70,10 @@ hasher: Container.Hasher,
 prev_match: ?Token = null,
 prev_literal: ?u8 = null,
 
-pub fn readable(c: *Compress, buffer: []u8) std.io.Reader {
+pub fn reader(c: *Compress, buffer: []u8) std.io.Reader {
     return .{
-        .unbuffered_reader = .{
-            .context = c,
-            .vtable = .{ .read = read },
-        },
+        .context = c,
+        .vtable = .{ .read = read },
         .buffer = buffer,
     };
 }
@@ -337,12 +335,6 @@ pub const Huffman = SimpleCompressor(.huffman, .raw);
 /// store blocks. That adds 9 bytes of header for each block. Max stored block
 /// size is 64K. Block is emitted when flush is called on on finish.
 pub const store = struct {
-    pub fn compress(comptime container: Container, reader: anytype, writer: anytype) !void {
-        var c = try store.compressor(container, writer);
-        try c.compress(reader);
-        try c.finish();
-    }
-
     pub fn Compressor(comptime container: Container, comptime WriterType: type) type {
         return SimpleCompressor(.store, container, WriterType);
     }

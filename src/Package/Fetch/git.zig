@@ -68,7 +68,7 @@ pub const Oid = union(Format) {
 
         pub fn writer(hasher: *Hasher, buffer: []u8) Writer {
             return switch (hasher.*) {
-                inline else => |*inner| inner.writable(buffer),
+                inline else => |*inner| inner.writer(buffer),
             };
         }
     };
@@ -383,9 +383,7 @@ const Odb = struct {
             .index_file = index_file,
             .allocator = allocator,
         };
-        var buffer: [1032]u8 = undefined;
-        var index_file_br = index_file.readable(&buffer);
-        try odb.index_header.read(&index_file_br);
+        try odb.index_header.read(&index_file.interface);
     }
 
     fn deinit(odb: *Odb) void {
@@ -395,22 +393,20 @@ const Odb = struct {
 
     /// Reads the object at the current position in the database.
     fn readObject(odb: *Odb) !Object {
-        var pack_read_buffer: [64]u8 = undefined;
         var base_offset = odb.pack_file.pos;
-        var pack_br = odb.pack_file.readable(&pack_read_buffer);
+        const pack_br = &odb.pack_file.interface;
         var base_header: EntryHeader = undefined;
         var delta_offsets: std.ArrayListUnmanaged(u64) = .empty;
         defer delta_offsets.deinit(odb.allocator);
         const base_object = while (true) {
             if (odb.cache.get(base_offset)) |base_object| break base_object;
 
-            base_header = try EntryHeader.read(odb.format, &pack_br);
+            base_header = try EntryHeader.read(odb.format, pack_br);
             switch (base_header) {
                 .ofs_delta => |ofs_delta| {
                     try delta_offsets.append(odb.allocator, base_offset);
                     base_offset = std.math.sub(u64, base_offset, ofs_delta.offset) catch return error.InvalidFormat;
                     try odb.pack_file.seekTo(base_offset);
-                    pack_br = odb.pack_file.readable(&pack_read_buffer);
                 },
                 .ref_delta => |ref_delta| {
                     try delta_offsets.append(odb.allocator, base_offset);
@@ -418,7 +414,7 @@ const Odb = struct {
                     base_offset = odb.pack_file.pos - pack_br.bufferedLen();
                 },
                 else => {
-                    const base_data = try readObjectRaw(odb.allocator, &pack_br, base_header.uncompressedLength());
+                    const base_data = try readObjectRaw(odb.allocator, pack_br, base_header.uncompressedLength());
                     errdefer odb.allocator.free(base_data);
                     const base_object: Object = .{ .type = base_header.objectType(), .data = base_data };
                     try odb.cache.put(odb.allocator, base_offset, base_object);
@@ -1294,10 +1290,10 @@ pub fn indexPack(
     }
     @memset(fan_out_table[fan_out_index..], count);
 
-    var index_writer_bw = index_writer.writable(&.{});
+    var index_writer_bw = index_writer.writer(&.{});
     var index_hashed_writer = index_writer_bw.hashed(Oid.Hasher.init(format));
     var write_buffer: [256]u8 = undefined;
-    var writer = index_hashed_writer.writable(&write_buffer);
+    var writer = index_hashed_writer.writer(&write_buffer);
     try writer.writeAll(IndexHeader.signature);
     try writer.writeInt(u32, IndexHeader.supported_version, .big);
     for (fan_out_table) |fan_out_entry| {
@@ -1345,27 +1341,25 @@ fn indexPackFirstPass(
     index_entries: *std.AutoHashMapUnmanaged(Oid, IndexEntry),
     pending_deltas: *std.ArrayListUnmanaged(IndexEntry),
 ) !Oid {
-    var pack_br = pack.readable(&.{});
-    var pack_hashed_reader = pack_br.hashed(Oid.Hasher.init(format));
     var pack_buffer: [2048]u8 = undefined; // Reasonably large buffer for file system.
-    var pack_hashed_br = pack_hashed_reader.readable(&pack_buffer);
+    var pack_hashed = pack.interface.hashed(Oid.Hasher.init(format), &pack_buffer);
 
-    const pack_header = try PackHeader.read(&pack_hashed_br);
+    const pack_header = try PackHeader.read(&pack_hashed.interface);
 
     for (0..pack_header.total_objects) |_| {
-        const entry_offset = pack.pos - pack_hashed_br.bufferContents().len;
-        var entry_crc32_reader = pack_hashed_br.hashed(std.hash.Crc32.init());
+        const entry_offset = pack.pos - pack_hashed.interface.bufferContents().len;
         var entry_buffer: [64]u8 = undefined; // Buffer only needed for loading EntryHeader.
-        var entry_crc32_br = entry_crc32_reader.readable(&entry_buffer);
+        var entry_crc32_reader = pack_hashed.interface.hashed(std.hash.Crc32.init(), &entry_buffer);
+        const entry_crc32_br = &entry_crc32_reader.interface;
         const entry_header = try EntryHeader.read(format, &entry_crc32_br);
         var entry_decompress_stream: zlib.Decompressor = .init(&entry_crc32_br);
         // Decompress uses large output buffer; no input buffer needed.
-        var entry_decompress_br = entry_decompress_stream.readable(&.{});
+        var entry_decompress_br = entry_decompress_stream.reader(&.{});
         switch (entry_header) {
             .commit, .tree, .blob, .tag => |object| {
                 var oid_hasher = Oid.Hasher.init(format);
                 var oid_hasher_buffer: [zlib.max_window_len]u8 = undefined;
-                var oid_hasher_bw = oid_hasher.writable(&oid_hasher_buffer);
+                var oid_hasher_bw = oid_hasher.writer(&oid_hasher_buffer);
                 // The object header is not included in the pack data but is
                 // part of the object's ID.
                 try oid_hasher_bw.print("{s} {d}\x00", .{ @tagName(entry_header), object.uncompressed_length });
@@ -1389,8 +1383,8 @@ fn indexPackFirstPass(
         }
     }
 
-    const pack_checksum = pack_hashed_reader.hasher.finalResult();
-    const recorded_checksum = try Oid.readBytes(format, &pack_br);
+    const pack_checksum = pack_hashed.hasher.finalResult();
+    const recorded_checksum = try Oid.readBytes(format, &pack.interface);
     if (!mem.eql(u8, pack_checksum.slice(), recorded_checksum.slice())) {
         return error.CorruptedPack;
     }
@@ -1417,9 +1411,7 @@ fn indexPackHashDelta(
         if (cache.get(base_offset)) |base_object| break base_object;
 
         try pack.seekTo(base_offset);
-        var pack_read_buffer: [64]u8 = undefined;
-        var pack_br = pack.readable(&pack_read_buffer);
-        base_header = try EntryHeader.read(format, &pack_br);
+        base_header = try EntryHeader.read(format, &pack.interface);
         switch (base_header) {
             .ofs_delta => |ofs_delta| {
                 try delta_offsets.append(allocator, base_offset);
@@ -1430,7 +1422,7 @@ fn indexPackHashDelta(
                 base_offset = (index_entries.get(ref_delta.base_object) orelse return null).offset;
             },
             else => {
-                const base_data = try readObjectRaw(allocator, &pack_br, base_header.uncompressedLength());
+                const base_data = try readObjectRaw(allocator, &pack.interface, base_header.uncompressedLength());
                 errdefer allocator.free(base_data);
                 const base_object: Object = .{ .type = base_header.objectType(), .data = base_data };
                 try cache.put(allocator, base_offset, base_object);
@@ -1443,7 +1435,7 @@ fn indexPackHashDelta(
 
     var entry_hasher: Oid.Hasher = .init(format);
     var entry_hasher_buffer: [64]u8 = undefined;
-    var entry_hasher_bw = entry_hasher.writable(&entry_hasher_buffer);
+    var entry_hasher_bw = entry_hasher.writer(&entry_hasher_buffer);
     // Writes to hashers cannot fail.
     entry_hasher_bw.print("{s} {d}\x00", .{ @tagName(base_object.type), base_data.len }) catch unreachable;
     entry_hasher_bw.writeAll(base_data) catch unreachable;
@@ -1470,13 +1462,11 @@ fn resolveDeltaChain(
 
         const delta_offset = delta_offsets[i];
         try pack.seekTo(delta_offset);
-        var pack_read_buffer: [64]u8 = undefined;
-        var pack_br = pack.readable(&pack_read_buffer);
-        const delta_header = try EntryHeader.read(format, &pack_br);
+        const delta_header = try EntryHeader.read(format, &pack.interface);
         _ = delta_header;
-        var delta_decompress: zlib.Decompressor = .init(&pack_br);
+        var delta_decompress: zlib.Decompressor = .init(&pack.interface);
         var delta_decompress_buffer: [zlib.max_window_len]u8 = undefined;
-        var delta_reader = delta_decompress.readable(&delta_decompress_buffer);
+        var delta_reader = delta_decompress.reader(&delta_decompress_buffer);
         _ = try readSizeVarInt(&delta_reader); // base object size
         const expanded_size = try readSizeVarInt(&delta_reader);
         const expanded_alloc_size = std.math.cast(usize, expanded_size) orelse return error.ObjectTooLarge;

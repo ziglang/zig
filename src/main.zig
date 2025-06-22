@@ -3330,11 +3330,10 @@ fn buildOutputType(
         // for the hashing algorithm here and in the cache are the same.
         // We are providing our own cache key, because this file has nothing
         // to do with the cache manifest.
-        var file_writer = f.writer();
-        var file_writer_bw = file_writer.writable(&.{});
-        var hasher_writer = file_writer_bw.hashed(Cache.Hasher.init("0123456789abcdef"));
+        var file_writer = f.writer(&.{});
+        var hasher_writer = file_writer.interface.hashed(Cache.Hasher.init("0123456789abcdef"));
         var buffer: [1000]u8 = undefined;
-        var bw = hasher_writer.writable(&buffer);
+        var bw = hasher_writer.writer(&buffer);
         bw.writeFileAll(.stdin(), .{}) catch |err| switch (err) {
             error.WriteFailed => fatal("failed to write {s}: {s}", .{ dump_path, file_writer.err.? }),
             else => fatal("failed to pipe stdin to {s}: {s}", .{ dump_path, err }),

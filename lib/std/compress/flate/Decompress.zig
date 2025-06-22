@@ -355,15 +355,12 @@ fn writeMatch(bw: *Writer, length: u16, distance: u16) !void {
     @panic("TODO");
 }
 
-pub fn reader(self: *Decompress) std.io.Reader {
+pub fn reader(self: *Decompress, buffer: []u8) std.io.Reader {
     return .{
         .context = self,
         .vtable = &.{ .read = read },
+        .buffer = buffer,
     };
-}
-
-pub fn readable(self: *Decompress, buffer: []u8) std.io.Reader {
-    return reader(self).buffered(buffer);
 }
 
 fn takeBits(d: *Decompress, comptime T: type) !T {

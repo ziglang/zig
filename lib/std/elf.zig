@@ -594,8 +594,7 @@ pub const ProgramHeaderIterator = struct {
             var phdr: Elf64_Phdr = undefined;
             const offset = it.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * it.index;
             try it.file_reader.seekTo(offset);
-            var br = it.file_reader.readable(&.{});
-            try br.readSlice(@ptrCast(&phdr));
+            try it.file_reader.interface.readSlice(@ptrCast(&phdr));
             if (it.elf_header.endian != native_endian)
                 mem.byteSwapAllFields(Elf64_Phdr, &phdr);
             return phdr;
@@ -604,8 +603,7 @@ pub const ProgramHeaderIterator = struct {
         var phdr: Elf32_Phdr = undefined;
         const offset = it.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * it.index;
         try it.file_reader.seekTo(offset);
-        var br = it.file_reader.readable(&.{});
-        try br.readSlice(@ptrCast(&phdr));
+        try it.file_reader.interface.readSlice(@ptrCast(&phdr));
         if (it.elf_header.endian != native_endian)
             mem.byteSwapAllFields(Elf32_Phdr, &phdr);
         return .{
@@ -634,8 +632,7 @@ pub const SectionHeaderIterator = struct {
             var shdr: Elf64_Shdr = undefined;
             const offset = it.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * it.index;
             try it.file_reader.seekTo(offset);
-            var br = it.file_reader.readable(&.{});
-            try br.readSlice(@ptrCast(&shdr));
+            try it.file_reader.interface.readSlice(@ptrCast(&shdr));
             if (it.elf_header.endian != native_endian)
                 mem.byteSwapAllFields(Elf64_Shdr, &shdr);
             return shdr;
@@ -644,8 +641,7 @@ pub const SectionHeaderIterator = struct {
         var shdr: Elf32_Shdr = undefined;
         const offset = it.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * it.index;
         try it.file_reader.seekTo(offset);
-        var br = it.file_reader.readable(&.{});
-        try br.readSlice(@ptrCast(&shdr));
+        try it.file_reader.interface.readSlice(@ptrCast(&shdr));
         if (it.elf_header.endian != native_endian)
             mem.byteSwapAllFields(Elf32_Shdr, &shdr);
         return .{
