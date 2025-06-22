@@ -176,6 +176,13 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = nextArgOrFatal(args, &arg_idx);
                 builder.addSearchPrefix(search_prefix);
+            } else if (mem.eql(u8, arg, "--search-paths")) {
+                const search_paths_spec = nextArgOrFatal(args, &arg_idx);
+
+                const search_paths = parseZonFile(std.Build.SearchMethod.Paths, builder, search_paths_spec) catch |err|
+                    return fatal("Unable to parse ZON file '{s}': {s}", .{ search_paths_spec, @errorName(err) });
+
+                builder.addSearchMethod(.{ .paths = search_paths });
             } else if (mem.eql(u8, arg, "--libc")) {
                 builder.libc_file = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--color")) {
@@ -1343,6 +1350,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
         \\  --sysroot [path]             Set the system root directory (usually /)
         \\  --libc [file]                Provide a file which specifies libc paths
+        \\  --search-paths [file]        Provide a file which specifies search paths
         \\
         \\  --system [pkgdir]            Disable package fetching; enable all integrations
         \\  -fsys=[name]                 Enable a system integration
@@ -1543,4 +1551,56 @@ fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
             },
         };
     }
+}
+
+/// Parse ZON file where all fields are paths relative to
+/// current working directory.
+fn parseZonFile(comptime T: type, b: *std.Build, path: []const u8) !T {
+    const spec_file = try std.fs.cwd().openFile(path, .{});
+    defer spec_file.close();
+
+    const gpa = b.allocator;
+
+    const spec = try std.zig.readSourceFileToEndAlloc(gpa, spec_file, null);
+    defer gpa.free(spec);
+
+    var ast: std.zig.Ast = try .parse(gpa, spec, .zon);
+    defer ast.deinit(gpa);
+
+    const zoir = try std.zig.ZonGen.generate(gpa, ast, .{});
+    defer zoir.deinit(gpa);
+
+    if (zoir.hasCompileErrors()) {
+        std.log.err("Can't parse ZON file '{s}: {d} errors", .{ path, zoir.compile_errors.len });
+        for (zoir.compile_errors, 1..) |compile_error, i| {
+            std.log.err("[{d}] {s}", .{ i, compile_error.msg.get(zoir) });
+            for (compile_error.getNotes(zoir)) |note| {
+                std.log.err("note: {s}", .{note.msg.get(zoir)});
+            }
+        }
+        return process.exit(1);
+    }
+
+    var result: T = .{};
+    const root_struct = switch (std.zig.Zoir.Node.Index.root.get(zoir)) {
+        .struct_literal => |struct_literal| struct_literal,
+        .empty_literal => return result,
+        else => return fatal("Can't parse ZON file '{s}': not a struct", .{path}),
+    };
+
+    for (root_struct.names, 0..) |name_i, val_i| {
+        const name = name_i.get(zoir);
+        const val = root_struct.vals.at(@intCast(val_i)).get(zoir);
+
+        inline for (@typeInfo(T).@"struct".fields) |field| {
+            if (std.mem.eql(u8, name, field.name)) {
+                const string = switch (val) {
+                    .string_literal => |string_literal| string_literal,
+                    else => return fatal("Can't parse field '{s}' in ZON file '{s}': not a string", .{ field.name, path }),
+                };
+                @field(result, field.name) = .{ .cwd_relative = b.dupePath(string) };
+            }
+        }
+    }
+    return result;
 }
