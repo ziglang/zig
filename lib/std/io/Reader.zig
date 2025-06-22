@@ -1448,7 +1448,7 @@ pub fn Hashed(comptime Hasher: type) type {
 
         fn discard(r: *Reader, limit: Limit) Error!usize {
             const this: *@This() = @alignCast(@fieldParentPtr("interface", r));
-            var w = this.hasher.writable(&.{});
+            var w = this.hasher.writer(&.{});
             const n = this.in.read(&w, limit) catch |err| switch (err) {
                 error.WriteFailed => unreachable,
                 else => |e| return e,

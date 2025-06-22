@@ -34,10 +34,9 @@ fn expectFiles(
         std.mem.replaceScalar(u8, normalized_sub_path, '\\', '/');
         var file = try dir.openFile(normalized_sub_path, .{});
         defer file.close();
-        var file_reader = file.reader();
-        var file_br = file_reader.readable(&.{});
         var content_buf: [4096]u8 = undefined;
-        const n = try file_br.readSliceShort(&content_buf);
+        var file_reader = file.reader(&content_buf);
+        const n = try file_reader.interface.readSliceShort(&content_buf);
         try testing.expectEqualStrings(test_file.content, content_buf[0..n]);
     }
 }
@@ -65,7 +64,7 @@ fn makeZipWithStore(
     store: []FileStore,
 ) !void {
     var buffer: [200]u8 = undefined;
-    var bw = file_writer.writable(&buffer);
+    var bw = file_writer.writer(&buffer);
     try writeZip(&bw, files, store, options);
 }
 
@@ -201,7 +200,7 @@ const Zipper = struct {
                 const offset = writer.count;
                 var br: std.io.Reader = .fixed(opt.content);
                 var compress: std.compress.flate.Compress = .init(&br, .{});
-                var compress_br = compress.readable(&.{});
+                var compress_br = compress.reader(&.{});
                 const n = try compress_br.readRemaining(writer);
                 assert(br.seek == opt.content.len);
                 try testing.expectEqual(n, writer.count - offset);
@@ -431,7 +430,7 @@ test "bad zip files" {
     {
         const tmp_file = tmp.createFile();
         defer tmp_file.close();
-        var file_writer = tmp_file.writable(&buffer);
+        var file_writer = tmp_file.writer(&buffer);
         try makeZip(&file_writer, &.{}, .{ .end = .{ .sig = [_]u8{ 1, 2, 3, 4 } } });
         var file_reader = file_writer.moveToReader();
         try testing.expectError(error.ZipNoEndRecord, zip.extract(tmp.dir, &file_reader, .{}));
@@ -439,7 +438,7 @@ test "bad zip files" {
     {
         const tmp_file = tmp.createFile();
         defer tmp_file.close();
-        var file_writer = tmp_file.writable(&buffer);
+        var file_writer = tmp_file.writer(&buffer);
         try makeZip(&file_writer, &.{}, .{ .end = .{ .comment_len = 1 } });
         var file_reader = file_writer.moveToReader();
         try testing.expectError(error.ZipNoEndRecord, zip.extract(tmp.dir, &file_reader, .{}));
@@ -447,7 +446,7 @@ test "bad zip files" {
     {
         const tmp_file = tmp.createFile();
         defer tmp_file.close();
-        var file_writer = tmp_file.writable(&buffer);
+        var file_writer = tmp_file.writer(&buffer);
         try makeZip(&file_writer, &.{}, .{ .end = .{ .comment = "a", .comment_len = 0 } });
         var file_reader = file_writer.moveToReader();
         try testing.expectError(error.ZipNoEndRecord, zip.extract(tmp.dir, &file_reader, .{}));
@@ -455,7 +454,7 @@ test "bad zip files" {
     {
         const tmp_file = tmp.createFile();
         defer tmp_file.close();
-        var file_writer = tmp_file.writable(&buffer);
+        var file_writer = tmp_file.writer(&buffer);
         try makeZip(&file_writer, &.{}, .{ .end = .{ .disk_number = 1 } });
         var file_reader = file_writer.moveToReader();
         try testing.expectError(error.ZipMultiDiskUnsupported, zip.extract(tmp.dir, &file_reader, .{}));
@@ -463,7 +462,7 @@ test "bad zip files" {
     {
         const tmp_file = tmp.createFile();
         defer tmp_file.close();
-        var file_writer = tmp_file.writable(&buffer);
+        var file_writer = tmp_file.writer(&buffer);
         try makeZip(&file_writer, &.{}, .{ .end = .{ .central_directory_disk_number = 1 } });
         var file_reader = file_writer.moveToReader();
         try testing.expectError(error.ZipMultiDiskUnsupported, zip.extract(tmp.dir, &file_reader, .{}));
@@ -471,7 +470,7 @@ test "bad zip files" {
     {
         const tmp_file = tmp.createFile();
         defer tmp_file.close();
-        var file_writer = tmp_file.writable(&buffer);
+        var file_writer = tmp_file.writer(&buffer);
         try makeZip(&file_writer, &.{}, .{ .end = .{ .record_count_disk = 1 } });
         var file_reader = file_writer.moveToReader();
         try testing.expectError(error.ZipDiskRecordCountTooLarge, zip.extract(tmp.dir, &file_reader, .{}));
@@ -479,7 +478,7 @@ test "bad zip files" {
     {
         const tmp_file = tmp.createFile();
         defer tmp_file.close();
-        var file_writer = tmp_file.writable(&buffer);
+        var file_writer = tmp_file.writer(&buffer);
         try makeZip(&file_writer, &.{}, .{ .end = .{ .central_directory_size = 1 } });
         var file_reader = file_writer.moveToReader();
         try testing.expectError(error.ZipCdOversized, zip.extract(tmp.dir, &file_reader, .{}));
@@ -487,7 +486,7 @@ test "bad zip files" {
     {
         const tmp_file = tmp.createFile();
         defer tmp_file.close();
-        var file_writer = tmp_file.writable(&buffer);
+        var file_writer = tmp_file.writer(&buffer);
         try makeZip(&file_writer, &file_a, .{ .end = .{ .central_directory_size = 0 } });
         var file_reader = file_writer.moveToReader();
         try testing.expectError(error.ZipCdUndersized, zip.extract(tmp.dir, &file_reader, .{}));
@@ -495,7 +494,7 @@ test "bad zip files" {
     {
         const tmp_file = tmp.createFile();
         defer tmp_file.close();
-        var file_writer = tmp_file.writable(&buffer);
+        var file_writer = tmp_file.writer(&buffer);
         try makeZip(&file_writer, &file_a, .{ .end = .{ .central_directory_offset = 0 } });
         var file_reader = file_writer.moveToReader();
         try testing.expectError(error.ZipBadCdOffset, zip.extract(tmp.dir, &file_reader, .{}));
@@ -503,7 +502,7 @@ test "bad zip files" {
     {
         const tmp_file = tmp.createFile();
         defer tmp_file.close();
-        var file_writer = tmp_file.writable(&buffer);
+        var file_writer = tmp_file.writer(&buffer);
         try makeZip(&file_writer, &file_a, .{
             .end = .{
                 .zip64 = .{ .locator_sig = [_]u8{ 1, 2, 3, 4 } },

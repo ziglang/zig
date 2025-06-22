@@ -571,7 +571,7 @@ pub const Iterator = struct {
             };
             defer out_file.close();
             var file_writer = out_file.writer();
-            var file_bw = file_writer.writable(&.{});
+            var file_bw = file_writer.writer(&.{});
             const local_data_file_offset: u64 =
                 @as(u64, self.file_offset) +
                 @as(u64, @sizeOf(LocalFileHeader)) +
@@ -585,7 +585,7 @@ pub const Iterator = struct {
             var decompress_br = decompress.readable(&limited_br, self.compression_method, &decompress_read_buffer);
             const start_out = file_bw.count;
             var hash_writer = file_bw.hashed(std.hash.Crc32.init());
-            var hash_bw = hash_writer.writable(&.{});
+            var hash_bw = hash_writer.writer(&.{});
             decompress_br.readAll(&hash_bw, .limited(self.uncompressed_size)) catch |err| switch (err) {
                 error.ReadFailed => return stream.err.?,
                 error.WriteFailed => return file_writer.err.?,

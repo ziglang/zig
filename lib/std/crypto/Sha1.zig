@@ -413,7 +413,7 @@ test "splat" {
     };
     const stream_result = r: {
         var sha1: Sha1 = .init(.{});
-        var bw = sha1.writable(&.{});
+        var bw = sha1.writer(&.{});
         try bw.writeSplatAll(&vecs, splat_len);
         try std.testing.expectEqual(vecs[0].len + vecs[1].len + vecs[2].len * splat_len, sha1.total_len);
         break :r sha1.finalResult();
