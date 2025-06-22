@@ -1138,10 +1138,16 @@ extern int lockf64 (int __fd, int __cmd, __off64_t __len) __wur;
        while (__result == -1L && errno == EINTR);			      \
        __result; }))
 
+// zig patch: copy_file_range was added in glibc 2.27
+#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 27) || __GLIBC__ > 2
+
 /* Copy LENGTH bytes from INFD to OUTFD.  */
 ssize_t copy_file_range (int __infd, __off64_t *__pinoff,
 			 int __outfd, __off64_t *__poutoff,
 			 size_t __length, unsigned int __flags);
+
+#endif /* glibc 2.27 or later */
+
 #endif /* __USE_GNU */
 
 #if defined __USE_POSIX199309 || defined __USE_UNIX98
