@@ -2612,10 +2612,7 @@ pub fn updateFile(
     var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = actual_mode });
     defer atomic_file.deinit();
 
-    var src_reader: File.Reader = .{
-        .file = src_file,
-        .size = src_stat.size,
-    };
+    var src_reader: File.Reader = .initSize(src_file, &.{}, src_stat.size);
     var buffer: [2000]u8 = undefined;
     var dest_writer = atomic_file.file_writer.writer(&buffer);
 
@@ -2658,7 +2655,7 @@ pub fn copyFile(
     var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = mode });
     defer atomic_file.deinit();
 
-    try copy_file(in_file.handle, atomic_file.file.handle, size);
+    try copy_file(in_file.handle, atomic_file.file_writer.file.handle, size);
     try atomic_file.finish();
 }
 

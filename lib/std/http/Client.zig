@@ -667,11 +667,11 @@ pub const Response = struct {
     ///
     /// See also:
     /// * `readerDecompressing`
-    pub fn reader(response: *Response) std.io.Reader {
+    pub fn reader(response: *Response, buffer: []u8) std.io.Reader {
         const req = response.request;
         if (!req.method.responseHasBody()) return .ending;
         const head = &response.head;
-        return req.reader.bodyReader(head.transfer_encoding, head.content_length);
+        return req.reader.bodyReader(buffer, head.transfer_encoding, head.content_length);
     }
 
     /// If compressed body has been negotiated this will return decompressed bytes.

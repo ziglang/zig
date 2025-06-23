@@ -55,10 +55,12 @@ pub const Tz = struct {
     };
 
     pub fn parse(allocator: std.mem.Allocator, reader: *std.io.Reader) !Tz {
-        var legacy_header = try reader.takeStruct(Header);
+        var legacy_header = (try reader.takeStruct(Header)).*;
         if (!std.mem.eql(u8, &legacy_header.magic, "TZif")) return error.BadHeader;
-        if (legacy_header.version != 0 and legacy_header.version != '2' and legacy_header.version != '3') return error.BadVersion;
-
+        switch (legacy_header.version) {
+            0, '2', '3' => {},
+            else => return error.BadVersion,
+        }
         if (builtin.target.cpu.arch.endian() != std.builtin.Endian.big) {
             std.mem.byteSwapAllFields(@TypeOf(legacy_header.counts), &legacy_header.counts);
         }

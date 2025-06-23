@@ -970,7 +970,7 @@ pub fn getAddressList(gpa: Allocator, name: []const u8, port: u16) GetAddressLis
         const name_c = try gpa.dupeZ(u8, name);
         defer gpa.free(name_c);
 
-        const port_c = try std.fmt.allocPrintZ(gpa, "{}", .{port});
+        const port_c = try std.fmt.allocPrintSentinel(gpa, "{d}", .{port}, 0);
         defer gpa.free(port_c);
 
         const hints: posix.addrinfo = .{
@@ -1985,10 +1985,7 @@ pub const Stream = struct {
                 return .{
                     .stream = stream,
                     .interface = .{
-                        .context = undefined,
-                        .vtable = &.{
-                            .drain = drain,
-                        },
+                        .vtable = &.{ .drain = drain },
                         .buffer = buffer,
                     },
                 };
@@ -2090,7 +2087,6 @@ pub const Stream = struct {
             pub fn init(stream: Stream, buffer: []u8) Writer {
                 return .{
                     .interface = .{
-                        .context = undefined,
                         .vtable = &.{
                             .drain = drain,
                             .sendFile = sendFile,

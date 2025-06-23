@@ -433,12 +433,18 @@ pub const Reader = struct {
     ///
     /// See also:
     /// * `interfaceDecompressing`
-    pub fn bodyReader(reader: *Reader, transfer_encoding: TransferEncoding, content_length: ?u64) std.io.Reader {
+    pub fn bodyReader(
+        reader: *Reader,
+        buffer: []u8,
+        transfer_encoding: TransferEncoding,
+        content_length: ?u64,
+    ) std.io.Reader {
         assert(reader.state == .received_head);
         return switch (transfer_encoding) {
             .chunked => {
                 reader.state = .{ .body_remaining_chunk_len = .head };
                 return .{
+                    .buffer = buffer,
                     .context = reader,
                     .vtable = &.{
                         .read = chunkedRead,
@@ -450,6 +456,7 @@ pub const Reader = struct {
                 if (content_length) |len| {
                     reader.state = .{ .body_remaining_content_length = len };
                     return .{
+                        .buffer = buffer,
                         .context = reader,
                         .vtable = &.{
                             .read = contentLengthRead,

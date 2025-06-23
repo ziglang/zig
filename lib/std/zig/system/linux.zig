@@ -355,20 +355,17 @@ fn testParser(
 // When all the lines have been analyzed the finalize method is called.
 fn CpuinfoParser(comptime impl: anytype) type {
     return struct {
-        fn parse(arch: Target.Cpu.Arch, reader: anytype) anyerror!?Target.Cpu {
-            var line_buf: [1024]u8 = undefined;
+        fn parse(arch: Target.Cpu.Arch, reader: *std.io.Reader) !?Target.Cpu {
             var obj: impl = .{};
-
-            while (true) {
-                const line = (try reader.readUntilDelimiterOrEof(&line_buf, '\n')) orelse break;
+            while (reader.takeDelimiterExclusive('\n')) |line| {
                 const colon_pos = mem.indexOfScalar(u8, line, ':') orelse continue;
                 const key = mem.trimEnd(u8, line[0..colon_pos], " \t");
                 const value = mem.trimStart(u8, line[colon_pos + 1 ..], " \t");
-
-                if (!try obj.line_hook(key, value))
-                    break;
+                if (!try obj.line_hook(key, value)) break;
+            } else |err| switch (err) {
+                error.EndOfStream => {},
+                else => |e| return e,
             }
-
             return obj.finalize(arch);
         }
     };
