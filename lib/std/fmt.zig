@@ -1234,12 +1234,6 @@ pub fn formatInt(
             // Negative integer
             index -= 1;
             buf[index] = '-';
-        } else if (options.width == null or options.width.? == 0) {
-            // Positive integer, omit the plus sign
-        } else {
-            // Positive integer
-            index -= 1;
-            buf[index] = '+';
         }
     }
 
@@ -2627,7 +2621,7 @@ test "vector" {
 
     try expectFmt("{ true, false, true, false }", "{}", .{vbool});
     try expectFmt("{ -2, -1, 0, 1 }", "{}", .{vi64});
-    try expectFmt("{    -2,    -1,    +0,    +1 }", "{d:5}", .{vi64});
+    try expectFmt("{    -2,    -1,     0,     1 }", "{d:5}", .{vi64});
     try expectFmt("{ 1000, 2000, 3000, 4000 }", "{}", .{vu64});
     try expectFmt("{ 3e8, 7d0, bb8, fa0 }", "{x}", .{vu64});
 
