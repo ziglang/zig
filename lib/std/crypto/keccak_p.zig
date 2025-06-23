@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
-const native_endian = builtin.cpu.arch.endian();
 const mode = @import("builtin").mode;
 
 /// The Keccak-f permutation.
@@ -114,14 +113,14 @@ pub fn KeccakF(comptime f: u11) type {
 
             var i: usize = 0;
             while (i + @sizeOf(T) <= in.len) : (i += @sizeOf(T)) {
-                const x = mem.readInt(T, in[i..][0..@sizeOf(T)], native_endian) ^ mem.nativeToLittle(T, self.st[i / @sizeOf(T)]);
-                mem.writeInt(T, out[i..][0..@sizeOf(T)], x, native_endian);
+                const x = mem.readInt(T, in[i..][0..@sizeOf(T)], .native) ^ mem.nativeToLittle(T, self.st[i / @sizeOf(T)]);
+                mem.writeInt(T, out[i..][0..@sizeOf(T)], x, .native);
             }
             if (i < in.len) {
                 var padded = [_]u8{0} ** @sizeOf(T);
                 @memcpy(padded[0 .. in.len - i], in[i..]);
-                const x = mem.readInt(T, &padded, native_endian) ^ mem.nativeToLittle(T, self.st[i / @sizeOf(T)]);
-                mem.writeInt(T, &padded, x, native_endian);
+                const x = mem.readInt(T, &padded, .native) ^ mem.nativeToLittle(T, self.st[i / @sizeOf(T)]);
+                mem.writeInt(T, &padded, x, .native);
                 @memcpy(out[i..], padded[0 .. in.len - i]);
             }
         }
