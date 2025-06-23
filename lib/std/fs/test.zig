@@ -1435,14 +1435,17 @@ test "setEndPos" {
     try testing.expectEqual(0, try f.preadAll(&buffer, 0));
 
     // Invalid file length should error gracefully. Actual limit is host
-    // and file-system dependent, but 1PB should fail most everywhere.
-    // Except MacOS APFS limit is 8 exabytes.
+    // and file-system dependent, but 1PB should fail on filesystems like
+    // EXT4 and NTFS.  But XFS or Btrfs support up to 8EiB files.
     f.setEndPos(0x4_0000_0000_0000) catch |err| if (err != error.FileTooBig) {
         return err;
     };
 
-    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63))); // Maximum signed value
+    f.setEndPos(std.math.maxInt(u63)) catch |err| if (err != error.FileTooBig) {
+        return err;
+    };
 
+    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63) + 1));
     try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u64)));
 }
 
