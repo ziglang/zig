@@ -13,7 +13,7 @@ const Limit = std.io.Limit;
 
 pub const Limited = @import("Reader/Limited.zig");
 
-context: ?*anyopaque,
+context: ?*anyopaque = null,
 vtable: *const VTable,
 buffer: []u8,
 /// Number of bytes which have been consumed from `buffer`.
@@ -214,7 +214,7 @@ pub const LimitedAllocError = Allocator.Error || ShortError || error{StreamTooLo
 pub fn allocRemaining(r: *Reader, gpa: Allocator, limit: Limit) LimitedAllocError![]u8 {
     var buffer: ArrayList(u8) = .empty;
     defer buffer.deinit(gpa);
-    try appendRemaining(r, gpa, null, &buffer, limit, 1);
+    try appendRemaining(r, gpa, null, &buffer, limit);
     return buffer.toOwnedSlice(gpa);
 }
 
@@ -237,13 +237,13 @@ pub fn appendRemaining(
     limit: Limit,
 ) LimitedAllocError!void {
     const buffer = r.buffer;
-    const buffered = buffer[r.seek..r.end];
-    const copy_len = limit.minInt(buffered.len);
+    const buffer_contents = buffer[r.seek..r.end];
+    const copy_len = limit.minInt(buffer_contents.len);
     try list.ensureUnusedCapacity(gpa, copy_len);
     @memcpy(list.unusedCapacitySlice()[0..copy_len], buffer[0..copy_len]);
     list.items.len += copy_len;
     r.seek += copy_len;
-    if (copy_len == buffered.len) {
+    if (copy_len == buffer_contents.len) {
         r.seek = 0;
         r.end = 0;
     }
@@ -251,7 +251,7 @@ pub fn appendRemaining(
     while (true) {
         try list.ensureUnusedCapacity(gpa, 1);
         const dest = remaining.slice(list.unusedCapacitySlice());
-        const additional_buffer = if (@intFromEnum(remaining) == dest.len) buffer else &.{};
+        const additional_buffer: []u8 = if (@intFromEnum(remaining) == dest.len) buffer else &.{};
         const n = readVec(r, &.{ dest, additional_buffer }) catch |err| switch (err) {
             error.EndOfStream => break,
             error.ReadFailed => return error.ReadFailed,
@@ -276,7 +276,7 @@ pub fn appendRemaining(
 /// The reader's internal logical seek position moves forward in accordance
 /// with the number of bytes returned from this function.
 pub fn readVec(r: *Reader, data: []const []u8) Error!usize {
-    return readVec(r, data, .unlimited);
+    return readVecLimit(r, data, .unlimited);
 }
 
 /// Equivalent to `readVec` but reads at most `limit` bytes.
@@ -290,9 +290,9 @@ pub fn readVecLimit(r: *Reader, data: []const []u8, limit: Limit) Error!usize {
     comptime assert(@intFromEnum(Limit.unlimited) == std.math.maxInt(usize));
     var remaining = @intFromEnum(limit);
     for (data, 0..) |buf, i| {
-        const buffered = r.buffer[r.seek..r.end];
-        const copy_len = @min(buffered.len, buf.len, remaining);
-        @memcpy(buf[0..copy_len], buffered[0..copy_len]);
+        const buffer_contents = r.buffer[r.seek..r.end];
+        const copy_len = @min(buffer_contents.len, buf.len, remaining);
+        @memcpy(buf[0..copy_len], buffer_contents[0..copy_len]);
         r.seek += copy_len;
         remaining -= copy_len;
         if (remaining == 0) break;
@@ -354,7 +354,7 @@ pub fn readVecLimit(r: *Reader, data: []const []u8, limit: Limit) Error!usize {
     return @intFromEnum(limit) - remaining;
 }
 
-pub fn bufferContents(r: *Reader) []u8 {
+pub fn buffered(r: *Reader) []u8 {
     return r.buffer[r.seek..r.end];
 }
 

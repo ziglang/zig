@@ -69,13 +69,11 @@ var stdout_buffer: [std.heap.page_size_min]u8 align(std.heap.page_size_min) = un
 
 fn mainServer() !void {
     @disableInstrumentation();
-    var stdin_reader = std.fs.File.stdin().reader();
-    var stdout_writer = std.fs.File.stdout().writer();
-    var stdin_buffered_reader = stdin_reader.interface().buffered(&stdin_buffer);
-    var stdout_buffered_writer = stdout_writer.interface().buffered(&stdout_buffer);
+    var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     var server = try std.zig.Server.init(.{
-        .in = &stdin_buffered_reader,
-        .out = &stdout_buffered_writer,
+        .in = &stdin_reader.interface,
+        .out = &stdout_writer.interface,
         .zig_version = builtin.zig_version_string,
     });
 

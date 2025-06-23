@@ -1,22 +1,3 @@
-//! Inflate decompresses deflate bit stream. Reads compressed data from reader
-//! provided in init. Decompressed data are stored in internal hist buffer and
-//! can be accesses iterable `next` or reader interface.
-//!
-//! Container defines header/footer wrapper around deflate bit stream. Can be
-//! gzip or zlib.
-//!
-//! Deflate bit stream consists of multiple blocks. Block can be one of three types:
-//!   * stored, non compressed, max 64k in size
-//!   * fixed, huffman codes are predefined
-//!   * dynamic, huffman code tables are encoded at the block start
-//!
-//! `step` function runs decoder until internal `hist` buffer is full. Client than needs to read
-//! that data in order to proceed with decoding.
-//!
-//! Allocates 74.5K of internal buffers, most important are:
-//!   * 64K for history (CircularBuffer)
-//!   * ~10K huffman decoders (Literal and DistanceDecoder)
-
 const std = @import("../../std.zig");
 const flate = std.compress.flate;
 const Container = flate.Container;
@@ -24,16 +5,16 @@ const Token = @import("Token.zig");
 const testing = std.testing;
 const Decompress = @This();
 const Writer = std.io.Writer;
+const Reader = std.io.Reader;
 
-input: *std.io.Reader,
-// Hashes, produces checksum, of uncompressed data for gzip/zlib footer.
+input: *Reader,
+interface: Reader,
+/// Hashes, produces checksum, of uncompressed data for gzip/zlib footer.
 hasher: Container.Hasher,
 
-// dynamic block huffman code decoders
 lit_dec: LiteralDecoder,
 dst_dec: DistanceDecoder,
 
-// current read state
 final_block: bool,
 state: State,
 
@@ -68,8 +49,16 @@ pub const Error = Container.Error || error{
     MissingEndOfBlockCode,
 };
 
-pub fn init(input: *std.io.Reader, container: Container) Decompress {
+pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
     return .{
+        .interface = .{
+            // TODO populate discard so that when an amount is discarded that
+            // includes an entire frame, skip decoding that frame.
+            .vtable = &.{ .stream = stream },
+            .buffer = buffer,
+            .seek = 0,
+            .end = 0,
+        },
         .input = input,
         .hasher = .init(container),
         .lit_dec = .{},
@@ -140,13 +129,9 @@ fn decodeSymbol(self: *Decompress, decoder: anytype) !Symbol {
     return sym;
 }
 
-pub fn read(
-    context: ?*anyopaque,
-    bw: *Writer,
-    limit: std.io.Limit,
-) std.io.Reader.StreamError!usize {
-    const d: *Decompress = @alignCast(@ptrCast(context));
-    return readInner(d, bw, limit) catch |err| switch (err) {
+pub fn stream(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
+    const d: *Decompress = @alignCast(@fieldParentPtr("interface", r));
+    return readInner(d, w, limit) catch |err| switch (err) {
         error.EndOfStream => return error.EndOfStream,
         error.WriteFailed => return error.WriteFailed,
         else => |e| {
@@ -158,11 +143,7 @@ pub fn read(
     };
 }
 
-fn readInner(
-    d: *Decompress,
-    bw: *Writer,
-    limit: std.io.Limit,
-) (Error || error{ WriteFailed, EndOfStream })!usize {
+fn readInner(d: *Decompress, w: *Writer, limit: std.io.Limit) (Error || Reader.StreamError)!usize {
     const in = d.input;
     sw: switch (d.state) {
         .protocol_header => switch (d.hasher.container()) {
@@ -266,76 +247,75 @@ fn readInner(
             }
         },
         .stored_block => |remaining_len| {
-            const out = try bw.writableSliceGreedyPreserving(flate.history_len, 1);
+            const out = try w.writableSliceGreedyPreserving(flate.history_len, 1);
             const limited_out = limit.min(.limited(remaining_len)).slice(out);
-            const n = try d.input.readVec(bw, &.{limited_out});
+            const n = try d.input.readVec(&.{limited_out});
             if (remaining_len - n == 0) {
                 d.state = if (d.final_block) .protocol_footer else .block_header;
             } else {
-                d.state = .{ .stored_block = remaining_len - n };
+                d.state = .{ .stored_block = @intCast(remaining_len - n) };
             }
-            bw.advance(n);
+            w.advance(n);
             return n;
         },
         .fixed_block => {
-            const start = bw.count;
-            while (@intFromEnum(limit) > bw.count - start) {
+            const start = w.count;
+            while (@intFromEnum(limit) > w.count - start) {
                 const code = try d.readFixedCode();
                 switch (code) {
-                    0...255 => try bw.writeBytePreserving(flate.history_len, @intCast(code)),
+                    0...255 => try w.writeBytePreserving(flate.history_len, @intCast(code)),
                     256 => {
                         d.state = if (d.final_block) .protocol_footer else .block_header;
-                        return bw.count - start;
+                        return w.count - start;
                     },
                     257...285 => {
                         // Handles fixed block non literal (length) code.
                         // Length code is followed by 5 bits of distance code.
-                        const rebased_code = code - 257;
-                        const length = try d.decodeLength(rebased_code);
+                        const length = try d.decodeLength(@intCast(code - 257));
                         const distance = try d.decodeDistance(try d.takeBitsReverseBuffered(u5));
-                        try writeMatch(bw, length, distance);
+                        try writeMatch(w, length, distance);
                     },
                     else => return error.InvalidCode,
                 }
             }
             d.state = .fixed_block;
-            return bw.count - start;
+            return w.count - start;
         },
         .dynamic_block => {
             // In larger archives most blocks are usually dynamic, so decompression
             // performance depends on this logic.
-            const start = bw.count;
-            while (@intFromEnum(limit) > bw.count - start) {
+            const start = w.count;
+            while (@intFromEnum(limit) > w.count - start) {
                 const sym = try d.decodeSymbol(&d.lit_dec);
 
                 switch (sym.kind) {
-                    .literal => d.hist.write(sym.symbol),
+                    .literal => try w.writeBytePreserving(flate.history_len, sym.symbol),
                     .match => {
                         // Decode match backreference <length, distance>
                         const length = try d.decodeLength(sym.symbol);
                         const dsm = try d.decodeSymbol(&d.dst_dec);
                         const distance = try d.decodeDistance(dsm.symbol);
-                        try writeMatch(bw, length, distance);
+                        try writeMatch(w, length, distance);
                     },
                     .end_of_block => {
                         d.state = if (d.final_block) .protocol_footer else .block_header;
-                        return bw.count - start;
+                        return w.count - start;
                     },
                 }
             }
             d.state = .dynamic_block;
-            return bw.count - start;
+            return w.count - start;
         },
         .protocol_footer => {
             d.alignBitsToByte();
-            switch (d.hasher.container()) {
+            switch (d.hasher) {
                 .gzip => |*gzip| {
-                    if (try reader.read(u32) != gzip.final()) return error.WrongGzipChecksum;
-                    if (try reader.read(u32) != gzip.count) return error.WrongGzipSize;
+                    if (try in.takeInt(u32, .little) != gzip.crc.final()) return error.WrongGzipChecksum;
+                    if (try in.takeInt(u32, .little) != gzip.count) return error.WrongGzipSize;
                 },
                 .zlib => |*zlib| {
                     const chksum: u32 = @byteSwap(zlib.final());
-                    if (try reader.read(u32) != chksum) return error.WrongZlibChecksum;
+                    if (try in.takeInt(u32, .big) != chksum) return error.WrongZlibChecksum;
                 },
                 .raw => {},
             }
@@ -355,15 +335,12 @@ fn writeMatch(bw: *Writer, length: u16, distance: u16) !void {
     @panic("TODO");
 }
 
-pub fn reader(self: *Decompress, buffer: []u8) std.io.Reader {
-    return .{
-        .context = self,
-        .vtable = &.{ .read = read },
-        .buffer = buffer,
-    };
+fn takeBits(d: *Decompress, comptime T: type) !T {
+    _ = d;
+    @panic("TODO");
 }
 
-fn takeBits(d: *Decompress, comptime T: type) !T {
+fn takeBitsReverseBuffered(d: *Decompress, comptime T: type) !T {
     _ = d;
     @panic("TODO");
 }
@@ -725,8 +702,8 @@ test "decompress" {
         },
     };
     for (cases) |c| {
-        var fb: std.io.Reader = .fixed(c.in);
-        var aw: std.io.Writer.Allocating = .init(testing.allocator);
+        var fb: Reader = .fixed(c.in);
+        var aw: Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
 
         var decompress: Decompress = .init(&fb, .raw);
@@ -784,8 +761,8 @@ test "gzip decompress" {
         },
     };
     for (cases) |c| {
-        var fb: std.io.Reader = .fixed(c.in);
-        var aw: std.io.Writer.Allocating = .init(testing.allocator);
+        var fb: Reader = .fixed(c.in);
+        var aw: Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
 
         var decompress: Decompress = .init(&fb, .gzip);
@@ -812,8 +789,8 @@ test "zlib decompress" {
         },
     };
     for (cases) |c| {
-        var fb: std.io.Reader = .fixed(c.in);
-        var aw: std.io.Writer.Allocating = .init(testing.allocator);
+        var fb: Reader = .fixed(c.in);
+        var aw: Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
 
         var decompress: Decompress = .init(&fb, .zlib);
@@ -872,8 +849,8 @@ test "fuzzing tests" {
     };
 
     inline for (cases, 0..) |c, case_no| {
-        var in: std.io.Reader = .fixed(@embedFile("testdata/fuzz/" ++ c.input ++ ".input"));
-        var aw: std.io.Writer.Allocating = .init(testing.allocator);
+        var in: Reader = .fixed(@embedFile("testdata/fuzz/" ++ c.input ++ ".input"));
+        var aw: Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
         errdefer std.debug.print("test case failed {}\n", .{case_no});
 
@@ -893,8 +870,8 @@ test "bug 18966" {
     const input = @embedFile("testdata/fuzz/bug_18966.input");
     const expect = @embedFile("testdata/fuzz/bug_18966.expect");
 
-    var in: std.io.Reader = .fixed(input);
-    var aw: std.io.Writer.Allocating = .init(testing.allocator);
+    var in: Reader = .fixed(input);
+    var aw: Writer.Allocating = .init(testing.allocator);
     defer aw.deinit();
 
     var decompress: Decompress = .init(&in, .gzip);
@@ -909,7 +886,7 @@ test "reading into empty buffer" {
         0b0000_0001, 0b0000_1100, 0x00, 0b1111_0011, 0xff, // deflate fixed buffer header len, nlen
         'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a, // non compressed data
     };
-    var in: std.io.Reader = .fixed(input);
+    var in: Reader = .fixed(input);
     var decomp: Decompress = .init(&in, .raw);
     var decompress_br = decomp.readable(&.{});
     var buf: [0]u8 = undefined;

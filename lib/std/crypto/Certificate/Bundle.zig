@@ -200,10 +200,9 @@ pub fn addCertsFromFilePathAbsolute(
     gpa: Allocator,
     abs_file_path: []const u8,
 ) AddCertsFromFilePathError!void {
-    assert(fs.path.isAbsolute(abs_file_path));
-    var file = try fs.openFileAbsolute(abs_file_path, .{});
-    defer file.close();
-    return addCertsFromFile(cb, gpa, file);
+    var file_reader: fs.File.Reader = .init(try fs.openFileAbsolute(abs_file_path, .{}), &.{});
+    defer file_reader.file.close();
+    return addCertsFromFile(cb, gpa, &file_reader, std.time.timestamp());
 }
 
 pub fn addCertsFromFilePath(
@@ -212,9 +211,9 @@ pub fn addCertsFromFilePath(
     dir: fs.Dir,
     sub_file_path: []const u8,
 ) AddCertsFromFilePathError!void {
-    var file = try dir.openFile(sub_file_path, .{});
-    defer file.close();
-    return addCertsFromFile(cb, gpa, file);
+    var file_reader: fs.File.Reader = .init(try dir.openFile(sub_file_path, .{}), &.{});
+    defer file_reader.file.close();
+    return addCertsFromFile(cb, gpa, &file_reader, std.time.timestamp());
 }
 
 pub const AddCertsFromFileError = Allocator.Error ||
@@ -224,10 +223,14 @@ pub const AddCertsFromFileError = Allocator.Error ||
     std.base64.Error ||
     error{ CertificateAuthorityBundleTooBig, MissingEndCertificateMarker };
 
-pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFromFileError!void {
-    var file_reader = file.reader();
+/// `file_reader` needs no buffer since it will be read directly into `Bundle`.
+pub fn addCertsFromFile(
+    cb: *Bundle,
+    gpa: Allocator,
+    file_reader: *fs.File.Reader,
+    now_sec: i64,
+) AddCertsFromFileError!void {
     const size = try file_reader.getSize();
-    var br = file_reader.interface().unbuffered();
 
     // We borrow `bytes` as a temporary buffer for the base64-encoded data.
     // This is possible by computing the decoded length and reserving the space
@@ -238,15 +241,13 @@ pub fn addCertsFromFile(cb: *Bundle, gpa: Allocator, file: fs.File) AddCertsFrom
     try cb.bytes.ensureUnusedCapacity(gpa, needed_capacity);
     const end_reserved: u32 = @intCast(cb.bytes.items.len + decoded_size_upper_bound);
     const buffer = cb.bytes.allocatedSlice()[end_reserved..];
-    const end_index = br.readSliceShort(buffer) catch |err| switch (err) {
+    const end_index = file_reader.interface.readSliceShort(buffer) catch |err| switch (err) {
         error.ReadFailed => return file_reader.err.?,
     };
     const encoded_bytes = buffer[0..end_index];
 
     const begin_marker = "-----BEGIN CERTIFICATE-----";
     const end_marker = "-----END CERTIFICATE-----";
-
-    const now_sec = std.time.timestamp();
 
     var start_index: usize = 0;
     while (mem.indexOfPos(u8, encoded_bytes, start_index, begin_marker)) |begin_marker_start| {

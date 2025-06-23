@@ -26,6 +26,7 @@ pub fn init(
     mode: File.Mode,
     dir: Dir,
     close_dir_on_deinit: bool,
+    write_buffer: []u8,
 ) InitError!AtomicFile {
     var rand_buf: [random_bytes_len]u8 = undefined;
     var tmp_path_buf: [tmp_path_len:0]u8 = undefined;
@@ -35,16 +36,13 @@ pub fn init(
         const tmp_path = fs.base64_encoder.encode(&tmp_path_buf, &rand_buf);
         tmp_path_buf[tmp_path.len] = 0;
 
-        const file = dir.createFile(
-            tmp_path,
-            .{ .mode = mode, .exclusive = true },
-        ) catch |err| switch (err) {
+        const file = dir.createFile(tmp_path, .{ .mode = mode, .exclusive = true }) catch |err| switch (err) {
             error.PathAlreadyExists => continue,
             else => |e| return e,
         };
 
         return .{
-            .file_writer = file.writer(),
+            .file_writer = file.writer(write_buffer),
             .tmp_path_buf = tmp_path_buf,
             .dest_basename = dest_basename,
             .file_open = true,
