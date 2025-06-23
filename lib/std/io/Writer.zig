@@ -1722,7 +1722,7 @@ pub fn unimplementedSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit
 /// time to return an error. However, we still need to make sure all of the
 /// available buffer has been filled. Also, it may be called from `flush` in
 /// which case it should return successfully.
-fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+pub fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
     if (data.len == 0) return 0;
     for (data[0 .. data.len - 1]) |bytes| {
         const dest = w.buffer[w.end..];
@@ -1860,24 +1860,30 @@ pub const Allocating = struct {
     pub fn init(allocator: Allocator) Allocating {
         return .{
             .allocator = allocator,
-            .interface = init_interface,
-            .buffer = &.{},
+            .interface = .{
+                .buffer = &.{},
+                .vtable = &vtable,
+            },
         };
     }
 
     pub fn initCapacity(allocator: Allocator, capacity: usize) error{OutOfMemory}!Allocating {
         return .{
             .allocator = allocator,
-            .interface = init_interface,
-            .buffer = try allocator.alloc(u8, capacity),
+            .interface = .{
+                .buffer = try allocator.alloc(u8, capacity),
+                .vtable = &vtable,
+            },
         };
     }
 
     pub fn initOwnedSlice(allocator: Allocator, slice: []u8) Allocating {
         return .{
             .allocator = allocator,
-            .interface = init_interface,
-            .buffer = slice,
+            .interface = .{
+                .buffer = slice,
+                .vtable = &vtable,
+            },
         };
     }
 
@@ -1886,23 +1892,21 @@ pub const Allocating = struct {
         defer array_list.* = .empty;
         return .{
             .allocator = allocator,
-            .interface = init_interface,
-            .buffer = array_list.allocatedSlice(),
-            .end = array_list.items.len,
+            .interface = .{
+                .vtable = &vtable,
+                .buffer = array_list.allocatedSlice(),
+                .end = array_list.items.len,
+            },
         };
     }
 
-    const init_interface: Writer = .{
-        .interface = .{
-            .vtable = &.{
-                .drain = Allocating.drain,
-                .sendFile = Allocating.sendFile,
-            },
-        },
+    const vtable: VTable = .{
+        .drain = Allocating.drain,
+        .sendFile = Allocating.sendFile,
     };
 
     pub fn deinit(a: *Allocating) void {
-        a.allocator.free(a.buffer);
+        a.allocator.free(a.interface.buffer);
         a.* = undefined;
     }
 
@@ -1983,8 +1987,8 @@ pub const Allocating = struct {
     }
 
     fn setArrayList(a: *Allocating, list: std.ArrayListUnmanaged(u8)) void {
-        a.buffer = list.allocatedSlice();
-        a.end = list.items.len;
+        a.interface.buffer = list.allocatedSlice();
+        a.interface.end = list.items.len;
     }
 
     test Allocating {

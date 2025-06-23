@@ -51,10 +51,10 @@ const FileStore = struct {
     uncompressed_size: usize,
 };
 
-fn makeZip(file_writer: *std.fs.File.Writer, files: []const File, options: WriteZipOptions) !std.io.Reader {
+fn makeZip(file_writer: *std.fs.File.Writer, files: []const File, options: WriteZipOptions) !void {
     const store = try std.testing.allocator.alloc(FileStore, files.len);
     defer std.testing.allocator.free(store);
-    return makeZipWithStore(file_writer, files, options, store);
+    try makeZipWithStore(file_writer, files, options, store);
 }
 
 fn makeZipWithStore(
@@ -312,7 +312,8 @@ fn testZipWithStore(
 
     var file = tmp.createFile();
     defer file.close();
-    var file_writer = file.writer();
+    var buffer: [100]u8 = undefined;
+    var file_writer = file.writer(&buffer);
     try makeZipWithStore(&file_writer, test_files, write_opt, store);
     var file_reader = file_writer.moveToReader();
     try zip.extract(tmp.dir, &file_reader, options);
@@ -323,7 +324,8 @@ fn testZipError(expected_error: anyerror, file: File, options: zip.ExtractOption
     defer tmp.cleanup();
     const tmp_file = tmp.createFile();
     defer tmp_file.close();
-    var file_writer = tmp_file.writer();
+    var buffer: [100]u8 = undefined;
+    var file_writer = tmp_file.writer(&buffer);
     var store: [1]FileStore = undefined;
     try makeZipWithStore(&file_writer, &[_]File{file}, .{}, &store);
     var file_reader = file_writer.moveToReader();

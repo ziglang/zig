@@ -1198,8 +1198,9 @@ test "redirect to different connection" {
 
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
+        var reader = response.reader(&.{});
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try reader.allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("good job, you pass", body);

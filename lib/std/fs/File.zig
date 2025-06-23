@@ -961,6 +961,14 @@ pub const Reader = struct {
         };
     }
 
+    pub fn initSize(file: File, buffer: []u8, size: u64) Reader {
+        return .{
+            .file = file,
+            .interface = initInterface(buffer),
+            .size = size,
+        };
+    }
+
     pub fn getSize(r: *Reader) GetEndPosError!u64 {
         return r.size orelse {
             if (r.size_err) |err| return err;
@@ -1436,18 +1444,15 @@ pub fn readerStreaming(file: File) Reader {
 ///
 /// Positional is more threadsafe, since the global seek position is not
 /// affected.
-pub fn writer(file: File) Writer {
-    return .{ .file = file };
+pub fn writer(file: File, buffer: []u8) Writer {
+    return .init(file, buffer);
 }
 
 /// Positional is more threadsafe, since the global seek position is not
 /// affected, but when such syscalls are not available, preemptively choosing
 /// `Writer.Mode.streaming` will skip a failed syscall.
-pub fn writerStreaming(file: File) Writer {
-    return .{
-        .file = file,
-        .mode = .streaming,
-    };
+pub fn writerStreaming(file: File, buffer: []u8) Writer {
+    return .initMode(file, buffer, .streaming);
 }
 
 const range_off: windows.LARGE_INTEGER = 0;

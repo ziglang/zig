@@ -162,9 +162,9 @@ pub fn defaultDiscard(r: *Reader, limit: Limit) Error!usize {
     };
     if (n > @intFromEnum(limit)) {
         const over_amt = n - @intFromEnum(limit);
-        assert(over_amt <= w.buffer.len); // limit may be exceeded only by an amount within buffer capacity.
         r.seek = w.end - over_amt;
         r.end = w.end;
+        assert(r.end <= w.buffer.len); // limit may be exceeded only by an amount within buffer capacity.
         return @intFromEnum(limit);
     }
     return n;
@@ -740,12 +740,20 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
     }
     if (seek > 0) {
         const remainder = buffer[seek..];
-        std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
+        @memmove(buffer[0..remainder.len], remainder);
         r.end = remainder.len;
         r.seek = 0;
     }
+    var writer: Writer = .{
+        .buffer = r.buffer,
+        .vtable = &.{ .drain = Writer.fixedDrain },
+    };
     while (r.end < r.buffer.len) {
-        const n = try r.unbuffered_reader.readVec(&.{r.buffer[r.end..]});
+        writer.end = r.end;
+        const n = r.vtable.stream(r, &writer, .limited(r.buffer.len - r.end)) catch |err| switch (err) {
+            error.WriteFailed => unreachable,
+            else => |e| return e,
+        };
         const prev_end = r.end;
         r.end = prev_end + n;
         if (std.mem.indexOfScalarPos(u8, r.buffer[0..r.end], prev_end, delimiter)) |end| {
@@ -929,8 +937,16 @@ pub fn fill(r: *Reader, n: usize) Error!void {
         return;
     }
     rebaseCapacity(r, n);
+    var writer: Writer = .{
+        .buffer = r.buffer,
+        .vtable = &.{ .drain = Writer.fixedDrain },
+    };
     while (r.end < r.seek + n) {
-        r.end += try r.unbuffered_reader.readVec(&.{r.buffer[r.end..]});
+        writer.end = r.end;
+        r.end += r.vtable.stream(r, &writer, .limited(r.buffer.len - r.end)) catch |err| switch (err) {
+            error.WriteFailed => unreachable,
+            else => |e| return e,
+        };
     }
 }
 
@@ -941,7 +957,15 @@ pub fn fill(r: *Reader, n: usize) Error!void {
 /// Asserts buffer capacity is at least 1.
 pub fn fillMore(r: *Reader) Error!void {
     rebaseCapacity(r, 1);
-    r.end += try r.unbuffered_reader.readVec(&.{r.buffer[r.end..]});
+    var writer: Writer = .{
+        .buffer = r.buffer,
+        .end = r.end,
+        .vtable = &.{ .drain = Writer.fixedDrain },
+    };
+    r.end += r.vtable.stream(r, &writer, .limited(r.buffer.len - r.end)) catch |err| switch (err) {
+        error.WriteFailed => unreachable,
+        else => |e| return e,
+    };
 }
 
 /// Returns the next byte from the stream or returns `error.EndOfStream`.

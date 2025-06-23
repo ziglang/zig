@@ -347,7 +347,7 @@ test "run test cases" {
 
     for (cases) |case| {
         var br: std.io.Reader = .fixed(case.data);
-        var iter = tar.iterator(&br, .{
+        var iter: tar.Iterator = .init(&br, .{
             .file_name_buffer = &file_name_buffer,
             .link_name_buffer = &link_name_buffer,
         });
@@ -391,7 +391,7 @@ test "pax/gnu long names with small buffer" {
 
     for (long_name_cases) |case| {
         var br: std.io.Reader = .fixed(case.data);
-        var iter = tar.iterator(&br, .{
+        var iter: tar.Iterator = .init(&br, .{
             .file_name_buffer = &min_file_name_buffer,
             .link_name_buffer = &min_link_name_buffer,
         });
@@ -412,7 +412,7 @@ test "insufficient buffer in Header name filed" {
     var min_link_name_buffer: [100]u8 = undefined;
 
     var br: std.io.Reader = .fixed(cases[0].data);
-    var iter = tar.iterator(&br, .{
+    var iter: tar.Iterator = .init(&br, .{
         .file_name_buffer = &min_file_name_buffer,
         .link_name_buffer = &min_link_name_buffer,
     });

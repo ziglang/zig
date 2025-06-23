@@ -588,7 +588,7 @@ pub fn panicExtra(
     // a minor annoyance with this is that it will result in the NoSpaceLeft
     // error being part of the @panic stack trace (but that error should
     // only happen rarely)
-    const msg = if (bw.print(format, args)) |_| bw.getWritten() else |_| blk: {
+    const msg = if (bw.print(format, args)) |_| bw.buffered() else |_| blk: {
         @memcpy(buf[size..], trunc_msg);
         break :blk &buf;
     };
