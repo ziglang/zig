@@ -314,17 +314,27 @@ pub const ParseIntError = error{
 ///
 /// Ignores '_' character in `buf`.
 /// See also `parseUnsigned`.
+///
+/// Asserts 'T' is an integer type
 pub fn parseInt(comptime T: type, buf: []const u8, base: u8) ParseIntError!T {
+    if (@typeInfo(T) != .int) {
+        @compileError("Cannot parse an integer into a non-integer type");
+    }
     return parseIntWithGenericCharacter(T, u8, buf, base);
 }
 
 /// Like `parseInt`, but with a generic `Character` type.
+///
+/// Asserts that 'Result' is an integer type
 pub fn parseIntWithGenericCharacter(
     comptime Result: type,
     comptime Character: type,
     buf: []const Character,
     base: u8,
 ) ParseIntError!Result {
+    if (@typeInfo(Result) != .int) {
+        @compileError("Cannot parse an integer into a non-integer type");
+    }
     if (buf.len == 0) return error.InvalidCharacter;
     if (buf[0] == '+') return parseIntWithSign(Result, Character, buf[1..], base, .pos);
     if (buf[0] == '-') return parseIntWithSign(Result, Character, buf[1..], base, .neg);
@@ -391,6 +401,19 @@ test parseInt {
     try std.testing.expectEqual(@as(i5, -16), try std.fmt.parseInt(i5, "-10", 16));
 }
 
+/// Parses an integer with a specified `sign`, accepting a generic `Character`
+/// type for width and a buffer of `Character`s, in the specified `base` of an
+/// integral type of value `Result`
+///
+/// When `base` is zero the string prefix is examined to detect the true base:
+///  * A prefix of "0b" implies base=2,
+///  * A prefix of "0o" implies base=8,
+///  * A prefix of "0x" implies base=16,
+///  * Otherwise base=10 is assumed.
+///
+/// Ignores '_' character in `buf`.
+///
+/// Asserts that `Result` is an integer type
 fn parseIntWithSign(
     comptime Result: type,
     comptime Character: type,
@@ -398,6 +421,10 @@ fn parseIntWithSign(
     base: u8,
     comptime sign: enum { pos, neg },
 ) ParseIntError!Result {
+    if (@typeInfo(Result) != .int) {
+        @compileError("Cannot parse an integer into a non-integer type");
+    }
+
     if (buf.len == 0) return error.InvalidCharacter;
 
     var buf_base = base;
@@ -470,7 +497,12 @@ fn parseIntWithSign(
 ///
 /// Ignores '_' character in `buf`.
 /// See also `parseInt`.
+///
+/// Asserts 'T' is an integer type
 pub fn parseUnsigned(comptime T: type, buf: []const u8, base: u8) ParseIntError!T {
+    if (@typeInfo(T) != .int) {
+        @compileError("Cannot parse an integer into a non-integer type");
+    }
     return parseIntWithSign(T, u8, buf, base, .pos);
 }
 
