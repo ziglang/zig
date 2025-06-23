@@ -57,8 +57,9 @@ pub const VTable = struct {
     /// Copies contents from an open file to the logical sink. `buffer[0..end]`
     /// is consumed first, followed by `limit` bytes from `file_reader`.
     ///
-    /// Number of bytes actually written is returned, excluding bytes from
-    /// `buffer`. Bytes from `buffer` are tracked by modifying `end`.
+    /// Number of bytes logically written is returned. This excludes bytes from
+    /// `buffer` because they have already been logically written. Number of
+    /// bytes consumed from `buffer` are tracked by modifying `end`.
     ///
     /// Number of bytes returned may be zero, which does not necessarily mean
     /// end-of-stream. A subsequent call may return nonzero, or signal end of
@@ -162,7 +163,11 @@ pub fn writeSplat(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     assert(data.len > 0);
     const buffer = w.buffer;
     const count = countSplat(0, data, splat);
-    if (w.end + count > buffer.len) return w.vtable.drain(w, data, splat);
+    if (w.end + count > buffer.len) {
+        const n = try w.vtable.drain(w, data, splat);
+        w.count += n;
+        return n;
+    }
     w.count += count;
     for (data) |bytes| {
         @memcpy(buffer[w.end..][0..bytes.len], bytes);
@@ -213,6 +218,18 @@ pub fn flush(w: *Writer) Error!void {
     assert(0 == try w.vtable.drain(w, &.{}, 0));
 }
 
+/// Calls `VTable.drain` but hides the last `preserve_length` bytes from the
+/// implementation, keeping them buffered.
+pub fn drainLimited(w: *Writer, preserve_length: usize) Error!void {
+    const temp_end = w.end -| preserve_length;
+    const preserved = w.buffer[temp_end..w.end];
+    w.end = temp_end;
+    defer w.end += preserved.len;
+    assert(0 == try w.vtable.drain(w, &.{""}, 1));
+    assert(w.end <= temp_end + preserved.len);
+    @memmove(w.buffer[w.end..][0..preserved.len], preserved);
+}
+
 pub fn unusedCapacitySlice(w: *const Writer) []u8 {
     return w.buffer[w.end..];
 }
@@ -246,13 +263,30 @@ pub fn writableSlice(w: *Writer, len: usize) Error![]u8 {
 /// If `minimum_length` is zero, this is equivalent to `unusedCapacitySlice`.
 pub fn writableSliceGreedy(w: *Writer, minimum_length: usize) Error![]u8 {
     assert(w.buffer.len >= minimum_length);
-    while (true) {
-        const cap_slice = w.buffer[w.end..];
-        if (cap_slice.len >= minimum_length) {
-            @branchHint(.likely);
-            return cap_slice;
-        }
+    while (w.buffer.len - w.end < minimum_length) {
         assert(0 == try w.vtable.drain(w, &.{""}, 1));
+    } else {
+        @branchHint(.likely);
+        return w.buffer[w.end..];
+    }
+}
+
+/// Asserts the provided buffer has total capacity enough for `minimum_length`
+/// and `preserve_length` combined.
+///
+/// Does not `advance` the buffer end position.
+///
+/// When draining the buffer, ensures that at least `preserve_length` bytes
+/// remain buffered.
+///
+/// If `preserve_length` is zero, this is equivalent to `writableSliceGreedy`.
+pub fn writableSliceGreedyPreserving(w: *Writer, preserve_length: usize, minimum_length: usize) Error![]u8 {
+    assert(w.buffer.len >= preserve_length + minimum_length);
+    while (w.buffer.len - w.end < minimum_length) {
+        try drainLimited(w, preserve_length);
+    } else {
+        @branchHint(.likely);
+        return w.buffer[w.end..];
     }
 }
 
@@ -376,20 +410,56 @@ pub fn write(w: *Writer, bytes: []const u8) Error!usize {
         w.count += bytes.len;
         return bytes.len;
     }
-    return w.vtable.drain(w, &.{bytes}, 1);
+    const n = try w.vtable.drain(w, &.{bytes}, 1);
+    w.count += n;
+    return n;
 }
 
-/// Calls `write` as many times as necessary such that all of `bytes` are
+/// Asserts `buffer` capacity exceeds `preserve_length`.
+pub fn writePreserving(w: *Writer, preserve_length: usize, bytes: []const u8) Error!usize {
+    assert(preserve_length <= w.buffer.len);
+    if (w.end + bytes.len <= w.buffer.len) {
+        @branchHint(.likely);
+        @memcpy(w.buffer[w.end..][0..bytes.len], bytes);
+        w.end += bytes.len;
+        w.count += bytes.len;
+        return bytes.len;
+    }
+    const temp_end = w.end -| preserve_length;
+    const preserved = w.buffer[temp_end..w.end];
+    w.end = temp_end;
+    defer w.end += preserved.len;
+    const n = try w.vtable.drain(w, &.{bytes}, 1);
+    w.count += n;
+    assert(w.end <= temp_end + preserved.len);
+    @memmove(w.buffer[w.end..][0..preserved.len], preserved);
+    return n;
+}
+
+/// Calls `drain` as many times as necessary such that all of `bytes` are
 /// transferred.
 pub fn writeAll(w: *Writer, bytes: []const u8) Error!void {
     var index: usize = 0;
     while (index < bytes.len) index += try w.write(bytes[index..]);
 }
 
+/// Calls `drain` as many times as necessary such that all of `bytes` are
+/// transferred.
+///
+/// When draining the buffer, ensures that at least `preserve_length` bytes
+/// remain buffered.
+///
+/// Asserts `buffer` capacity exceeds `preserve_length`.
+pub fn writeAllPreserving(w: *Writer, preserve_length: usize, bytes: []const u8) Error!void {
+    var index: usize = 0;
+    while (index < bytes.len) index += try w.writePreserving(preserve_length, bytes[index..]);
+}
+
 pub fn print(w: *Writer, comptime format: []const u8, args: anytype) Error!void {
     try std.fmt.format(w, format, args);
 }
 
+/// Calls `drain` as many times as necessary such that `byte` is transferred.
 pub fn writeByte(w: *Writer, byte: u8) Error!void {
     while (w.buffer.len - w.end == 0) {
         const n = try w.vtable.drain(w, &.{&.{byte}}, 1);
@@ -397,6 +467,19 @@ pub fn writeByte(w: *Writer, byte: u8) Error!void {
             w.count += 1;
             return;
         }
+    } else {
+        @branchHint(.likely);
+        w.buffer[w.end] = byte;
+        w.end += 1;
+        w.count += 1;
+    }
+}
+
+/// When draining the buffer, ensures that at least `preserve_length` bytes
+/// remain buffered.
+pub fn writeBytePreserving(w: *Writer, preserve_length: usize, byte: u8) Error!void {
+    while (w.buffer.len - w.end == 0) {
+        try drainLimited(w, preserve_length);
     } else {
         @branchHint(.likely);
         w.buffer[w.end] = byte;
@@ -496,9 +579,43 @@ pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
 /// See `sendFileReading` for an alternative that does not have
 /// `error.Unimplemented` in the error set.
 pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
-    const end = w.end;
-    const n = try w.vtable.sendFile(w, file_reader, limit);
-    return n -| end;
+    return w.vtable.sendFile(w, file_reader, limit);
+}
+
+/// Forwards a `sendFile` to a second `Writer` instance. `w` is only used for
+/// its buffer, but it has its `end` and `count` adjusted accordingly depending
+/// on how much was consumed.
+///
+/// Returns how many bytes from `file_reader` were consumed.
+pub fn sendFileTo(w: *Writer, other: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+    const header = w.buffered();
+    const new_end = other.end + header.len;
+    if (new_end <= other.buffer.len) {
+        @memcpy(other.buffer[other.end..][0..header.len], header);
+        other.end = new_end;
+        w.end = 0;
+        return other.vtable.sendFile(other, file_reader, limit);
+    }
+    assert(header.len > 0);
+    var vec_buf: [2][]const u8 = .{ header, undefined };
+    var vec_i: usize = 1;
+    const buffered_contents = limit.slice(file_reader.buffered());
+    if (buffered_contents.len > 0) {
+        vec_buf[vec_i] = buffered_contents;
+        vec_i += 1;
+    }
+    const n = try other.vtable.drain(other, vec_buf[0..vec_i], 1);
+    other.count += n;
+    if (n < header.len) {
+        const remaining = w.buffer[n..w.end];
+        @memmove(w.buffer[0..remaining.len], remaining);
+        w.end = remaining.len;
+        return 0;
+    }
+    w.end = 0;
+    const tossed = n - header.len;
+    file_reader.interface.toss(tossed);
+    return tossed;
 }
 
 /// Asserts nonzero buffer capacity.
@@ -1696,8 +1813,12 @@ pub fn discardingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) F
     }
 }
 
-/// This function is used by `VTable.drain` function implementations to
-/// implement partial drains.
+/// Removes the first `n` bytes from `buffer` by shifting buffer contents,
+/// returning how many bytes are left after consuming the entire buffer, or
+/// zero if the entire buffer was not consumed.
+///
+/// Useful for `VTable.drain` function implementations to implement partial
+/// drains.
 pub fn consume(w: *Writer, n: usize) usize {
     if (n < w.end) {
         const remaining = w.buffer[n..w.end];

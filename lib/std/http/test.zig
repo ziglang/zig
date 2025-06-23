@@ -19,10 +19,8 @@ test "trailers" {
                 const connection = try net_server.accept();
                 defer connection.stream.close();
 
-                var stream_reader = connection.stream.reader();
-                var stream_writer = connection.stream.writer();
-                var connection_br = stream_reader.interface().buffered(&recv_buffer);
-                var connection_bw = stream_writer.interface().buffered(&send_buffer);
+                var connection_br = connection.stream.reader(&recv_buffer);
+                var connection_bw = connection.stream.writer(&send_buffer);
                 var server = http.Server.init(&connection_br, &connection_bw);
 
                 try expectEqual(.ready, server.reader.state);
@@ -104,10 +102,8 @@ test "HTTP server handles a chunked transfer coding request" {
             const connection = try net_server.accept();
             defer connection.stream.close();
 
-            var stream_reader = connection.stream.reader();
-            var stream_writer = connection.stream.writer();
-            var connection_br = stream_reader.interface().buffered(&recv_buffer);
-            var connection_bw = stream_writer.interface().buffered(&send_buffer);
+            var connection_br = connection.stream.reader(&recv_buffer);
+            var connection_bw = connection.stream.writer(&send_buffer);
             var server = http.Server.init(&connection_br, &connection_bw);
             var request = try server.receiveHead();
 
@@ -1163,10 +1159,8 @@ test "redirect to different connection" {
                 global.other_port.?,
             });
 
-            var stream_reader = connection.stream.reader();
-            var stream_writer = connection.stream.writer();
-            var connection_br = stream_reader.interface().buffered(&recv_buffer);
-            var connection_bw = stream_writer.interface().buffered(&send_buffer);
+            var connection_br = connection.stream.reader(&recv_buffer);
+            var connection_bw = connection.stream.writer(&send_buffer);
             var server = http.Server.init(&connection_br, &connection_bw);
             var request = try server.receiveHead();
             try expectEqualStrings(request.head.target, "/help");

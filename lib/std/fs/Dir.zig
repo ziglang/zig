@@ -2609,12 +2609,15 @@ pub fn updateFile(
         try dest_dir.makePath(dirname);
     }
 
-    var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = actual_mode });
+    var buffer: [2000]u8 = undefined;
+    var atomic_file = try dest_dir.atomicFile(dest_path, .{
+        .mode = actual_mode,
+        .write_buffer = &buffer,
+    });
     defer atomic_file.deinit();
 
     var src_reader: File.Reader = .initSize(src_file, &.{}, src_stat.size);
-    var buffer: [2000]u8 = undefined;
-    var dest_writer = atomic_file.file_writer.writer(&buffer);
+    const dest_writer = &atomic_file.file_writer.interface;
 
     dest_writer.writeFileAll(&src_reader, .{}) catch |err| switch (err) {
         error.ReadFailed => return src_reader.err.?,
@@ -2715,6 +2718,7 @@ fn copy_file(fd_in: posix.fd_t, fd_out: posix.fd_t, maybe_size: ?u64) CopyFileRa
 pub const AtomicFileOptions = struct {
     mode: File.Mode = File.default_mode,
     make_path: bool = false,
+    write_buffer: []u8,
 };
 
 /// Directly access the `.file` field, and then call `AtomicFile.finish` to
@@ -2732,9 +2736,9 @@ pub fn atomicFile(self: Dir, dest_path: []const u8, options: AtomicFileOptions) 
         else
             try self.openDir(dirname, .{});
 
-        return AtomicFile.init(fs.path.basename(dest_path), options.mode, dir, true);
+        return .init(fs.path.basename(dest_path), options.mode, dir, true, options.write_buffer);
     } else {
-        return AtomicFile.init(dest_path, options.mode, self, false);
+        return .init(dest_path, options.mode, self, false, options.write_buffer);
     }
 }
 

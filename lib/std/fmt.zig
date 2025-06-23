@@ -830,11 +830,11 @@ pub const BufPrintError = error{
 
 /// Print a Formatter string into `buf`. Returns a slice of the bytes printed.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
-    var bw: Writer = .fixed(buf);
-    bw.print(fmt, args) catch |err| switch (err) {
+    var w: Writer = .fixed(buf);
+    w.print(fmt, args) catch |err| switch (err) {
         error.WriteFailed => return error.NoSpaceLeft,
     };
-    return bw.getWritten();
+    return w.buffered();
 }
 
 pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![:0]u8 {
@@ -1012,17 +1012,17 @@ test "int.padded" {
 test "buffer" {
     {
         var buf1: [32]u8 = undefined;
-        var bw: Writer = .fixed(&buf1);
-        try bw.printValue("", .{}, 1234, std.options.fmt_max_depth);
-        try std.testing.expectEqualStrings("1234", bw.getWritten());
+        var w: Writer = .fixed(&buf1);
+        try w.printValue("", .{}, 1234, std.options.fmt_max_depth);
+        try std.testing.expectEqualStrings("1234", w.buffered());
 
-        bw = .fixed(&buf1);
-        try bw.printValue("c", .{}, 'a', std.options.fmt_max_depth);
-        try std.testing.expectEqualStrings("a", bw.getWritten());
+        w = .fixed(&buf1);
+        try w.printValue("c", .{}, 'a', std.options.fmt_max_depth);
+        try std.testing.expectEqualStrings("a", w.buffered());
 
-        bw = .fixed(&buf1);
-        try bw.printValue("b", .{}, 0b1100, std.options.fmt_max_depth);
-        try std.testing.expectEqualStrings("1100", bw.getWritten());
+        w = .fixed(&buf1);
+        try w.printValue("b", .{}, 0b1100, std.options.fmt_max_depth);
+        try std.testing.expectEqualStrings("1100", w.buffered());
     }
 }
 
