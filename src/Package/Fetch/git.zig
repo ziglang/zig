@@ -1347,7 +1347,7 @@ fn indexPackFirstPass(
     const pack_header = try PackHeader.read(&pack_hashed.interface);
 
     for (0..pack_header.total_objects) |_| {
-        const entry_offset = pack.pos - pack_hashed.interface.bufferContents().len;
+        const entry_offset = pack.pos - pack_hashed.interface.buffered().len;
         var entry_buffer: [64]u8 = undefined; // Buffer only needed for loading EntryHeader.
         var entry_crc32_reader = pack_hashed.interface.hashed(std.hash.Crc32.init(), &entry_buffer);
         const entry_crc32_br = &entry_crc32_reader.interface;

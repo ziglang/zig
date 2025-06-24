@@ -352,11 +352,11 @@ fn writeBufferedReaderToArrayList(allocator: Allocator, list: *std.ArrayListUnma
     assert(r.seek == 0);
     if (list.capacity == 0) {
         list.* = .{
-            .items = r.bufferContents(),
+            .items = r.buffered(),
             .capacity = r.buffer.len,
         };
     } else {
-        try list.appendSlice(allocator, r.bufferContents());
+        try list.appendSlice(allocator, r.buffered());
     }
 }
 
@@ -383,9 +383,9 @@ pub fn collectOutput(
     defer poller.deinit();
 
     while (try poller.poll()) {
-        if (poller.reader(.stdout).bufferContents().len > max_output_bytes)
+        if (poller.reader(.stdout).buffered().len > max_output_bytes)
             return error.StdoutStreamTooLong;
-        if (poller.reader(.stderr).bufferContents().len > max_output_bytes)
+        if (poller.reader(.stderr).buffered().len > max_output_bytes)
             return error.StderrStreamTooLong;
     }
 
