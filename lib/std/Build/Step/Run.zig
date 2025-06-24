@@ -1529,9 +1529,9 @@ fn evalZigTest(
     const stderr_br = poller.reader(.stderr);
     const any_write_failed = first_write_failed or poll: while (true) {
         const Header = std.zig.Server.Message.Header;
-        while (stdout_br.bufferContents().len < @sizeOf(Header)) if (!try poller.poll()) break :poll false;
+        while (stdout_br.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll false;
         const header = (stdout_br.takeStruct(Header) catch unreachable).*;
-        while (stdout_br.bufferContents().len < header.bytes_len) if (!try poller.poll()) break :poll false;
+        while (stdout_br.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll false;
         const body = stdout_br.take(header.bytes_len) catch unreachable;
         switch (header.tag) {
             .zig_version => {
@@ -1589,7 +1589,7 @@ fn evalZigTest(
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
-                    const stderr_contents = stderr_br.bufferContents();
+                    const stderr_contents = stderr_br.buffered();
                     stderr_br.toss(stderr_contents.len);
                     const msg = std.mem.trim(u8, stderr_contents, "\n");
                     const label = if (tr_hdr.flags.fail)
@@ -1650,7 +1650,7 @@ fn evalZigTest(
         while (try poller.poll()) {}
     }
 
-    const stderr_contents = std.mem.trim(u8, stderr_br.bufferContents(), "\n");
+    const stderr_contents = std.mem.trim(u8, stderr_br.buffered(), "\n");
     if (stderr_contents.len > 0) {
         run.step.result_stderr = try arena.dupe(u8, stderr_contents);
     }
@@ -1777,15 +1777,15 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
 
             while (try poller.poll()) {
                 if (run.stdio_limit.toInt()) |limit| {
-                    if (poller.reader(.stderr).bufferContents().len > limit)
+                    if (poller.reader(.stderr).buffered().len > limit)
                         return error.StdoutStreamTooLong;
-                    if (poller.reader(.stderr).bufferContents().len > limit)
+                    if (poller.reader(.stderr).buffered().len > limit)
                         return error.StderrStreamTooLong;
                 }
             }
 
-            stdout_bytes = poller.reader(.stdout).bufferContents();
-            stderr_bytes = poller.reader(.stderr).bufferContents();
+            stdout_bytes = poller.reader(.stdout).buffered();
+            stderr_bytes = poller.reader(.stderr).buffered();
         } else {
             var fr = stdout.readerStreaming();
             stdout_bytes = fr.interface().readRemainingAlloc(arena, run.stdio_limit) catch |err| switch (err) {

@@ -1785,7 +1785,7 @@ const ElfDumper = struct {
                 .p64 => @sizeOf(u64),
             };
             _ = try br.discard(.limited(num * ptr_size));
-            const strtab = br.bufferContents();
+            const strtab = br.buffered();
 
             assert(ctx.symtab.len == 0);
             ctx.symtab = try ctx.gpa.alloc(ArSymtabEntry, num);

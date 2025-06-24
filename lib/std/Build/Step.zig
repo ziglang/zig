@@ -516,9 +516,9 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
     const stdout_br = zp.poller.reader(.stdout);
     poll: while (true) {
         const Header = std.zig.Server.Message.Header;
-        while (stdout_br.bufferContents().len < @sizeOf(Header)) if (!try zp.poller.poll()) break :poll;
+        while (stdout_br.buffered().len < @sizeOf(Header)) if (!try zp.poller.poll()) break :poll;
         const header = (stdout_br.takeStruct(Header) catch unreachable).*;
-        while (stdout_br.bufferContents().len < header.bytes_len) if (!try zp.poller.poll()) break :poll;
+        while (stdout_br.buffered().len < header.bytes_len) if (!try zp.poller.poll()) break :poll;
         const body = stdout_br.take(header.bytes_len) catch unreachable;
         switch (header.tag) {
             .zig_version => {
@@ -610,7 +610,7 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
     s.result_duration_ns = timer.read();
 
     const stderr_br = zp.poller.reader(.stderr);
-    const stderr_contents = stderr_br.bufferContents();
+    const stderr_contents = stderr_br.buffered();
     if (stderr_contents.len > 0) {
         try s.result_error_msgs.append(arena, try arena.dupe(u8, stderr_contents));
     }

@@ -285,9 +285,9 @@ fn buildWasmBinary(
     const stdout_br = poller.reader(.stdout);
     poll: while (true) {
         const Header = std.zig.Server.Message.Header;
-        while (stdout_br.bufferContents().len < @sizeOf(Header)) if (!try poller.poll()) break :poll;
+        while (stdout_br.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll;
         const header = (stdout_br.takeStruct(Header) catch unreachable).*;
-        while (stdout_br.bufferContents().len < header.bytes_len) if (!try poller.poll()) break :poll;
+        while (stdout_br.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
         const body = stdout_br.take(header.bytes_len) catch unreachable;
         switch (header.tag) {
             .zig_version => {
@@ -328,7 +328,7 @@ fn buildWasmBinary(
     }
 
     const stderr_br = poller.reader(.stderr);
-    const stderr_contents = stderr_br.bufferContents();
+    const stderr_contents = stderr_br.buffered();
     if (stderr_contents.len > 0) {
         std.debug.print("{s}", .{stderr_contents});
     }

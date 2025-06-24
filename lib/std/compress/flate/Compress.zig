@@ -783,7 +783,7 @@ fn read(
                 },
                 else => |e| return e,
             };
-            const buffer_contents = c.input.bufferContents();
+            const buffer_contents = c.input.buffered();
             const min_lookahead = flate.match.min_length + flate.match.max_length;
             const history_plus_lookahead_len = flate.history_len + min_lookahead;
             if (buffer_contents.len < history_plus_lookahead_len) return 0;
@@ -797,7 +797,7 @@ fn read(
             return bw.count - start;
         },
         .final => {
-            const buffer_contents = c.input.bufferContents();
+            const buffer_contents = c.input.buffered();
             const start = bw.count;
             const n = c.tokenizeSlice(bw, limit, buffer_contents) catch |err| switch (err) {
                 error.WriteFailed => return error.WriteFailed,

@@ -1068,12 +1068,12 @@ fn read(context: ?*anyopaque, bw: *Writer, limit: std.io.Limit) Reader.StreamErr
     const record_len = mem.readInt(u16, record_header[3..][0..2], .big);
     if (record_len > max_ciphertext_len) return failRead(c, error.TlsRecordOverflow);
     const record_end = 5 + record_len;
-    if (record_end > input.bufferContents().len) {
+    if (record_end > input.buffered().len) {
         input.fillMore() catch |err| switch (err) {
             error.EndOfStream => return failRead(c, error.TlsConnectionTruncated),
             error.ReadFailed => return error.ReadFailed,
         };
-        if (record_end > input.bufferContents().len) return 0;
+        if (record_end > input.buffered().len) return 0;
     }
 
     var cleartext_stack_buffer: [max_ciphertext_len]u8 = undefined;

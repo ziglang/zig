@@ -418,7 +418,7 @@ pub const Reader = struct {
                 },
                 error.ReadFailed => return error.ReadFailed,
             };
-            head_end += hp.feed(in.bufferContents()[head_end..]);
+            head_end += hp.feed(in.buffered()[head_end..]);
             if (hp.state == .finished) {
                 reader.head_buffer = in.steal(head_end);
                 reader.state = .received_head;
@@ -577,7 +577,7 @@ pub const Reader = struct {
             .head => {
                 var cp: ChunkParser = .init;
                 while (true) {
-                    const i = cp.feed(in.bufferContents());
+                    const i = cp.feed(in.buffered());
                     switch (cp.state) {
                         .invalid => return error.HttpChunkInvalid,
                         .data => {
@@ -645,7 +645,7 @@ pub const Reader = struct {
             .head => {
                 var cp: ChunkParser = .init;
                 while (true) {
-                    const i = cp.feed(in.bufferContents());
+                    const i = cp.feed(in.buffered());
                     switch (cp.state) {
                         .invalid => return error.HttpChunkInvalid,
                         .data => {
@@ -699,10 +699,10 @@ pub const Reader = struct {
         while (true) {
             if (trailers_len >= in.buffer.len) return error.HttpHeadersOversize;
             try in.fill(trailers_len + 1);
-            trailers_len += hp.feed(in.bufferContents()[trailers_len..]);
+            trailers_len += hp.feed(in.buffered()[trailers_len..]);
             if (hp.state == .finished) {
                 reader.state = .ready;
-                reader.trailers = in.bufferContents()[0..trailers_len];
+                reader.trailers = in.buffered()[0..trailers_len];
                 in.toss(trailers_len);
                 return amt_read;
             }
