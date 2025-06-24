@@ -19,7 +19,7 @@
 // zig patch: sys/single_threaded.h header was added in glibc 2.35
 #if __GLIBC__ == 2 && __GLIBC_MINOR__ < 35
    #error "sys/single_threaded.h did not exist before glibc 2.35"
-#endif /* error for glibc 2.35 or earlier */
+#endif /* error for glibc before 2.35 */
 
 #ifndef _SYS_SINGLE_THREADED_H
 #define _SYS_SINGLE_THREADED_H
