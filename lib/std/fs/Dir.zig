@@ -2609,7 +2609,7 @@ pub fn updateFile(
         try dest_dir.makePath(dirname);
     }
 
-    var buffer: [2000]u8 = undefined;
+    var buffer: [1000]u8 = undefined; // Used only when direct fd-to-fd is not available.
     var atomic_file = try dest_dir.atomicFile(dest_path, .{
         .mode = actual_mode,
         .write_buffer = &buffer,
@@ -2619,7 +2619,7 @@ pub fn updateFile(
     var src_reader: File.Reader = .initSize(src_file, &.{}, src_stat.size);
     const dest_writer = &atomic_file.file_writer.interface;
 
-    dest_writer.writeFileAll(&src_reader, .{}) catch |err| switch (err) {
+    _ = dest_writer.sendFileAll(&src_reader, .unlimited) catch |err| switch (err) {
         error.ReadFailed => return src_reader.err.?,
         error.WriteFailed => return atomic_file.file_writer.err.?,
     };
@@ -2628,16 +2628,22 @@ pub fn updateFile(
     return .stale;
 }
 
-pub const CopyFileError = File.OpenError || File.StatError ||
-    AtomicFile.InitError || CopyFileRawError || AtomicFile.FinishError;
+pub const CopyFileError = File.OpenError || File.StatError || File.ReadError || File.WriteError ||
+    AtomicFile.InitError || AtomicFile.FinishError;
 
-/// Guaranteed to be atomic.
-/// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and readily available,
-/// there is a possibility of power loss or application termination leaving temporary files present
-/// in the same directory as dest_path.
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, both paths should be encoded as valid UTF-8.
-/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
+/// Atomically creates a new file at `dest_path` within `dest_dir` with the
+/// same contents as `source_path` within `source_dir`, overwriting any already
+/// existing file.
+///
+/// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and
+/// readily available, there is a possibility of power loss or application
+/// termination leaving temporary files present in the same directory as
+/// dest_path.
+///
+/// On Windows, both paths should be encoded as
+/// [WTF-8](https://simonsapin.github.io/wtf-8/). On WASI, both paths should be
+/// encoded as valid UTF-8. On other platforms, both paths are an opaque
+/// sequence of bytes with no particular encoding.
 pub fn copyFile(
     source_dir: Dir,
     source_path: []const u8,
@@ -2645,74 +2651,28 @@ pub fn copyFile(
     dest_path: []const u8,
     options: CopyFileOptions,
 ) CopyFileError!void {
-    var in_file = try source_dir.openFile(source_path, .{});
-    defer in_file.close();
+    var file_reader: File.Reader = .init(try source_dir.openFile(source_path, .{}), &.{});
+    defer file_reader.file.close();
 
-    var size: ?u64 = null;
     const mode = options.override_mode orelse blk: {
-        const st = try in_file.stat();
-        size = st.size;
+        const st = try file_reader.file.stat();
+        file_reader.size = st.size;
         break :blk st.mode;
     };
 
-    var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = mode });
+    var buffer: [1000]u8 = undefined; // Used only when direct fd-to-fd is not available.
+    var atomic_file = try dest_dir.atomicFile(dest_path, .{
+        .mode = mode,
+        .write_buffer = &buffer,
+    });
     defer atomic_file.deinit();
 
-    try copy_file(in_file.handle, atomic_file.file_writer.file.handle, size);
+    const size = atomic_file.file_writer.interface.sendFileAll(&file_reader, .unlimited) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        error.WriteFailed => return atomic_file.file_writer.err.?,
+    };
     try atomic_file.finish();
-}
-
-const CopyFileRawError = error{SystemResources} || posix.CopyFileRangeError || posix.SendFileError;
-
-// Transfer all the data between two file descriptors in the most efficient way.
-// The copy starts at offset 0, the initial offsets are preserved.
-// No metadata is transferred over.
-fn copy_file(fd_in: posix.fd_t, fd_out: posix.fd_t, maybe_size: ?u64) CopyFileRawError!void {
-    if (builtin.target.os.tag.isDarwin()) {
-        const rc = posix.system.fcopyfile(fd_in, fd_out, null, .{ .DATA = true });
-        switch (posix.errno(rc)) {
-            .SUCCESS => return,
-            .INVAL => unreachable,
-            .NOMEM => return error.SystemResources,
-            // The source file is not a directory, symbolic link, or regular file.
-            // Try with the fallback path before giving up.
-            .OPNOTSUPP => {},
-            else => |err| return posix.unexpectedErrno(err),
-        }
-    }
-
-    if (native_os == .linux) {
-        // Try copy_file_range first as that works at the FS level and is the
-        // most efficient method (if available).
-        var offset: u64 = 0;
-        cfr_loop: while (true) {
-            // The kernel checks the u64 value `offset+count` for overflow, use
-            // a 32 bit value so that the syscall won't return EINVAL except for
-            // impossibly large files (> 2^64-1 - 2^32-1).
-            const amt = try posix.copy_file_range(fd_in, offset, fd_out, offset, std.math.maxInt(u32), 0);
-            // Terminate as soon as we have copied size bytes or no bytes
-            if (maybe_size) |s| {
-                if (s == amt) break :cfr_loop;
-            }
-            if (amt == 0) break :cfr_loop;
-            offset += amt;
-        }
-        return;
-    }
-
-    // Sendfile is a zero-copy mechanism iff the OS supports it, otherwise the
-    // fallback code will copy the contents chunk by chunk.
-    const empty_iovec = [0]posix.iovec_const{};
-    var offset: u64 = 0;
-    sendfile_loop: while (true) {
-        const amt = try posix.sendfile(fd_out, fd_in, offset, 0, &empty_iovec, &empty_iovec, 0);
-        // Terminate as soon as we have copied size bytes or no bytes
-        if (maybe_size) |s| {
-            if (s == amt) break :sendfile_loop;
-        }
-        if (amt == 0) break :sendfile_loop;
-        offset += amt;
-    }
+    _ = size;
 }
 
 pub const AtomicFileOptions = struct {

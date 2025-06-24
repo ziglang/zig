@@ -9453,7 +9453,7 @@ pub const wrapped = struct {
         const sendfileSymbol = if (lfs64_abi) system.sendfile64 else system.sendfile;
         const rc = sendfileSymbol(out_fd, in_fd, in_offset, adjusted_len);
         switch (errno(rc)) {
-            .SUCCESS => return @bitCast(rc),
+            .SUCCESS => return @intCast(rc),
             .BADF => return invalidApiUsage(), // Always a race condition.
             .FAULT => return invalidApiUsage(), // Segmentation fault.
             .OVERFLOW => return unexpectedErrno(.OVERFLOW), // We avoid passing too large of a `count`.
@@ -9465,6 +9465,71 @@ pub const wrapped = struct {
             .NOMEM => return error.SystemResources,
             .NXIO => return error.Unseekable,
             .SPIPE => return error.Unseekable,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    pub const CopyFileRangeError = std.posix.UnexpectedError || error{
+        /// One of:
+        /// * One or more file descriptors are not valid.
+        /// * fd_in is not open for reading; or fd_out is not open for writing.
+        /// * The O_APPEND flag is set for the open file description referred
+        /// to by the file descriptor fd_out.
+        BadFileFlags,
+        /// One of:
+        /// * An attempt was made to write at a position past the maximum file
+        ///   offset the kernel supports.
+        /// * An attempt was made to write a range that exceeds the allowed
+        ///   maximum file size. The maximum file size differs between
+        ///   filesystem implementations and can be different from the maximum
+        ///   allowed file offset.
+        /// * An attempt was made to write beyond the process's file size
+        ///   resource limit. This may also result in the process receiving a
+        ///   SIGXFSZ signal.
+        FileTooBig,
+        /// One of:
+        /// * either fd_in or fd_out is not a regular file
+        /// * flags argument is not zero
+        /// * fd_in and fd_out refer to the same file and the source and target ranges overlap.
+        InvalidArguments,
+        /// A low-level I/O error occurred while copying.
+        InputOutput,
+        /// Either fd_in or fd_out refers to a directory.
+        IsDir,
+        OutOfMemory,
+        /// There is not enough space on the target filesystem to complete the copy.
+        NoSpaceLeft,
+        /// (since Linux 5.19) the filesystem does not support this operation.
+        OperationNotSupported,
+        /// The requested source or destination range is too large to represent
+        /// in the specified data types.
+        Overflow,
+        /// fd_out refers to an immutable file.
+        PermissionDenied,
+        /// Either fd_in or fd_out refers to an active swap file.
+        SwapFile,
+        /// The files referred to by fd_in and fd_out are not on the same
+        /// filesystem, and the source and target filesystems are not of the
+        /// same type, or do not support cross-filesystem copy.
+        NotSameFileSystem,
+    };
+
+    pub fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64, len: usize, flags: u32) CopyFileRangeError!usize {
+        const rc = system.copy_file_range(fd_in, off_in, fd_out, off_out, len, flags);
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .BADF => return error.BadFileFlags,
+            .FBIG => return error.FileTooBig,
+            .INVAL => return error.InvalidArguments,
+            .IO => return error.InputOutput,
+            .ISDIR => return error.IsDir,
+            .NOMEM => return error.OutOfMemory,
+            .NOSPC => return error.NoSpaceLeft,
+            .OPNOTSUPP => return error.OperationNotSupported,
+            .OVERFLOW => return error.Overflow,
+            .PERM => return error.PermissionDenied,
+            .TXTBSY => return error.SwapFile,
+            .XDEV => return error.NotSameFileSystem,
             else => |err| return unexpectedErrno(err),
         }
     }
