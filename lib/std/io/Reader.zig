@@ -329,7 +329,6 @@ pub fn readVecLimit(r: *Reader, data: []const []u8, limit: Limit) Error!usize {
             },
             else => |e| return e,
         };
-        assert(n == wrapper.writer.end);
         if (wrapper.writer.buffer.ptr != first.ptr) {
             r.end = n;
             break;
