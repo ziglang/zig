@@ -81,10 +81,11 @@ pub const table_size_max = struct {
 fn testDecompress(gpa: std.mem.Allocator, compressed: []const u8) ![]u8 {
     var out: std.ArrayListUnmanaged(u8) = .empty;
     defer out.deinit(gpa);
+    try out.ensureUnusedCapacity(gpa, default_window_len);
 
     var in: std.io.Reader = .fixed(compressed);
-    var zstd_stream: Decompress = .init(&in, .{});
-    try zstd_stream.reader().readRemainingArrayList(gpa, null, &out, .unlimited, default_window_len);
+    var zstd_stream: Decompress = .init(&in, &.{}, .{});
+    try zstd_stream.interface.appendRemaining(gpa, null, &out, .unlimited);
 
     return out.toOwnedSlice(gpa);
 }
@@ -101,12 +102,13 @@ fn testExpectDecompressError(err: anyerror, compressed: []const u8) !void {
 
     var out: std.ArrayListUnmanaged(u8) = .empty;
     defer out.deinit(gpa);
+    try out.ensureUnusedCapacity(gpa, default_window_len);
 
     var in: std.io.Reader = .fixed(compressed);
-    var zstd_stream: Decompress = .init(&in, .{});
+    var zstd_stream: Decompress = .init(&in, &.{}, .{});
     try std.testing.expectError(
         error.ReadFailed,
-        zstd_stream.reader().readRemainingArrayList(gpa, null, &out, .unlimited, default_window_len),
+        zstd_stream.interface.appendRemaining(gpa, null, &out, .unlimited),
     );
     try std.testing.expectError(err, zstd_stream.err orelse {});
 }

@@ -1047,12 +1047,11 @@ pub const Reader = struct {
         const r: *Reader = @fieldParentPtr("interface", io_reader);
         switch (r.mode) {
             .positional, .streaming => return w.sendFile(r, limit) catch |write_err| switch (write_err) {
-                error.ReadFailed => return error.ReadFailed,
-                error.WriteFailed => return error.WriteFailed,
                 error.Unimplemented => {
                     r.mode = r.mode.toReading();
                     return 0;
                 },
+                else => |e| return e,
             },
             .positional_reading => {
                 if (is_windows) {
@@ -1239,7 +1238,7 @@ pub const Reader = struct {
 
     pub fn atEnd(r: *Reader) bool {
         // Even if stat fails, size is set when end is encountered.
-        const size = r.getSize() orelse return false;
+        const size = r.size orelse return false;
         return size - r.pos == 0;
     }
 };
@@ -1460,6 +1459,10 @@ pub const Writer = struct {
                     return 0;
                 },
             };
+            if (n == 0) {
+                file_reader.size = file_reader.pos;
+                return error.EndOfStream;
+            }
             file_reader.pos += n;
             w.pos += n;
             return n;
@@ -1497,6 +1500,10 @@ pub const Writer = struct {
                 w.copy_file_range_err = err;
                 return 0;
             };
+            if (n == 0) {
+                file_reader.size = file_reader.pos;
+                return error.EndOfStream;
+            }
             file_reader.pos += n;
             w.pos += n;
             return n;

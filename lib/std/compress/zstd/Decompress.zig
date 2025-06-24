@@ -7,6 +7,7 @@ const zstd = @import("../zstd.zig");
 const Writer = std.io.Writer;
 
 input: *Reader,
+interface: Reader,
 state: State,
 verify_checksum: bool,
 err: ?Error = null,
@@ -62,34 +63,33 @@ pub const Error = error{
     WindowSizeUnknown,
 };
 
-pub fn init(input: *Reader, options: Options) Decompress {
+pub fn init(input: *Reader, buffer: []u8, options: Options) Decompress {
     return .{
         .input = input,
         .state = .new_frame,
         .verify_checksum = options.verify_checksum,
+        .interface = .{
+            .vtable = &.{ .stream = stream },
+            .buffer = buffer,
+            .seek = 0,
+            .end = 0,
+        },
     };
 }
 
-pub fn reader(self: *Decompress) Reader {
-    return .{
-        .context = self,
-        .vtable = &.{ .read = read },
-    };
-}
-
-fn read(context: ?*anyopaque, bw: *Writer, limit: Limit) Reader.StreamError!usize {
-    const d: *Decompress = @ptrCast(@alignCast(context));
+fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
+    const d: *Decompress = @alignCast(@fieldParentPtr("interface", r));
     const in = d.input;
 
     switch (d.state) {
         .new_frame => {
             // Allow error.EndOfStream only on the frame magic.
             const magic = try in.takeEnumNonexhaustive(Frame.Magic, .little);
-            initFrame(d, bw.buffer.len, magic) catch |err| {
+            initFrame(d, w.buffer.len, magic) catch |err| {
                 d.err = err;
                 return error.ReadFailed;
             };
-            return readInFrame(d, bw, limit, &d.state.in_frame) catch |err| switch (err) {
+            return readInFrame(d, w, limit, &d.state.in_frame) catch |err| switch (err) {
                 error.ReadFailed => return error.ReadFailed,
                 error.WriteFailed => return error.WriteFailed,
                 else => |e| {
@@ -99,7 +99,7 @@ fn read(context: ?*anyopaque, bw: *Writer, limit: Limit) Reader.StreamError!usiz
             };
         },
         .in_frame => |*in_frame| {
-            return readInFrame(d, bw, limit, in_frame) catch |err| switch (err) {
+            return readInFrame(d, w, limit, in_frame) catch |err| switch (err) {
                 error.ReadFailed => return error.ReadFailed,
                 error.WriteFailed => return error.WriteFailed,
                 else => |e| {
