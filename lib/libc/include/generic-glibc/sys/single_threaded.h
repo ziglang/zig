@@ -16,7 +16,7 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
-// zig patch: sys/single_threaded.h header was added in glibc 35
+// zig patch: sys/single_threaded.h header was added in glibc 2.35
 #if __GLIBC__ == 2 && __GLIBC_MINOR__ < 35
    #error "sys/single_threaded.h did not exist before glibc 2.35"
 #endif /* error for glibc 2.35 or earlier */
