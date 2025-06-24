@@ -961,7 +961,7 @@ pub const Reader = struct {
         };
     }
 
-    pub fn initSize(file: File, buffer: []u8, size: u64) Reader {
+    pub fn initSize(file: File, buffer: []u8, size: ?u64) Reader {
         return .{
             .file = file,
             .interface = initInterface(buffer),
@@ -1099,7 +1099,6 @@ pub const Reader = struct {
                 var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
                 const dest = try w.writableVectorPosix(&iovecs_buffer, limit);
                 assert(dest[0].len > 0);
-                // TODO also add buffer at the end
                 const n = posix.readv(r.file.handle, dest) catch |err| {
                     r.err = err;
                     return error.ReadFailed;
@@ -1251,6 +1250,8 @@ pub const Writer = struct {
     mode: Writer.Mode = .positional,
     pos: u64 = 0,
     sendfile_err: ?SendfileError = null,
+    copy_file_range_err: ?CopyFileRangeError = null,
+    fcopyfile_err: ?FcopyfileError = null,
     seek_err: ?SeekError = null,
     interface: std.io.Writer,
 
@@ -1262,6 +1263,14 @@ pub const Writer = struct {
         InputOutput,
         BrokenPipe,
         WouldBlock,
+        Unexpected,
+    };
+
+    pub const CopyFileRangeError = std.os.freebsd.CopyFileRangeError || std.os.linux.wrapped.CopyFileRangeError;
+
+    pub const FcopyfileError = error{
+        OperationNotSupported,
+        OutOfMemory,
         Unexpected,
     };
 
@@ -1408,7 +1417,6 @@ pub const Writer = struct {
         const w: *Writer = @fieldParentPtr("interface", io_writer);
         const out_fd = w.file.handle;
         const in_fd = file_reader.file.handle;
-        // TODO try using copy_file_range on Linux
         // TODO try using copy_file_range on FreeBSD
         // TODO try using sendfile on macOS
         // TODO try using sendfile on FreeBSD
@@ -1416,7 +1424,8 @@ pub const Writer = struct {
             // Try using sendfile on Linux.
             if (w.sendfile_err != null) break :sf;
             // Linux sendfile does not support headers.
-            if (io_writer.end != 0) return drain(io_writer, &.{""}, 1);
+            const buffered = limit.slice(file_reader.interface.buffer);
+            if (io_writer.end != 0 or buffered.len != 0) return drain(io_writer, &.{buffered}, 1);
             const max_count = 0x7ffff000; // Avoid EINVAL.
             var off: std.os.linux.off_t = undefined;
             const off_ptr: ?*std.os.linux.off_t, const count: usize = switch (file_reader.mode) {
@@ -1455,6 +1464,75 @@ pub const Writer = struct {
             w.pos += n;
             return n;
         }
+        const copy_file_range_fn = switch (native_os) {
+            .freebsd => std.os.freebsd.copy_file_range,
+            .linux => if (std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) std.os.linux.wrapped.copy_file_range else null,
+            else => null,
+        };
+        if (copy_file_range_fn) |copy_file_range| cfr: {
+            if (w.copy_file_range_err != null) break :cfr;
+            const buffered = limit.slice(file_reader.interface.buffer);
+            if (io_writer.end != 0 or buffered.len != 0) return drain(io_writer, &.{buffered}, 1);
+            var off_in: i64 = undefined;
+            var off_out: i64 = undefined;
+            const off_in_ptr: ?*i64 = switch (file_reader.mode) {
+                .positional_reading, .streaming_reading => return error.Unimplemented,
+                .positional => p: {
+                    off_in = file_reader.pos;
+                    break :p &off_in;
+                },
+                .streaming => null,
+                .failure => return error.WriteFailed,
+            };
+            const off_out_ptr: ?*i64 = switch (w.mode) {
+                .positional_reading, .streaming_reading => return error.Unimplemented,
+                .positional => p: {
+                    off_out = w.pos;
+                    break :p &off_out;
+                },
+                .streaming => null,
+                .failure => return error.WriteFailed,
+            };
+            const n = copy_file_range(in_fd, off_in_ptr, out_fd, off_out_ptr, @intFromEnum(limit), 0) catch |err| {
+                w.copy_file_range_err = err;
+                return 0;
+            };
+            file_reader.pos += n;
+            w.pos += n;
+            return n;
+        }
+
+        if (builtin.os.tag.isDarwin()) fcf: {
+            if (w.fcopyfile_err != null) break :fcf;
+            if (file_reader.pos != 0) break :fcf;
+            if (w.pos != 0) break :fcf;
+            if (limit != .unlimited) break :fcf;
+            const rc = std.c.fcopyfile(in_fd, out_fd, null, .{ .DATA = true });
+            switch (posix.errno(rc)) {
+                .SUCCESS => {},
+                .INVAL => if (builtin.mode == .Debug) @panic("invalid API usage") else {
+                    w.fcopyfile_err = error.Unexpected;
+                    return 0;
+                },
+                .NOMEM => {
+                    w.fcopyfile_err = error.OutOfMemory;
+                    return 0;
+                },
+                .OPNOTSUPP => {
+                    w.fcopyfile_err = error.OperationNotSupported;
+                    return 0;
+                },
+                else => |err| {
+                    w.fcopyfile_err = posix.unexpectedErrno(err);
+                    return 0;
+                },
+            }
+            const n = if (file_reader.size) |size| size else @panic("TODO figure out how much copied");
+            file_reader.pos = n;
+            w.pos = n;
+            return n;
+        }
+
         return error.Unimplemented;
     }
 
