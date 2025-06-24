@@ -170,7 +170,6 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
     const is_static_pie = try self.getStaticPIE(d);
     const is_static = self.getStatic(d);
     const is_android = target.abi.isAndroid();
-    const is_iamcu = target.os.tag == .elfiamcu;
     const is_ve = target.cpu.arch == .ve;
     const has_crt_begin_end_files = target.abi != .none; // TODO: clang checks for MIPS vendor
 
@@ -225,7 +224,7 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
     try argv.appendSlice(&.{ "-o", d.output_name orelse "a.out" });
 
     if (!d.nostdlib and !d.nostartfiles and !d.relocatable) {
-        if (!is_android and !is_iamcu) {
+        if (!is_android) {
             if (!d.shared) {
                 const crt1 = if (is_pie)
                     "Scrt1.o"
@@ -241,9 +240,7 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
             try argv.appendSlice(&.{ "-z", "max-page-size=0x4000000" });
         }
 
-        if (is_iamcu) {
-            try argv.append(try tc.getFilePath("crt0.o"));
-        } else if (has_crt_begin_end_files) {
+        if (has_crt_begin_end_files) {
             var path: []const u8 = "";
             if (tc.getRuntimeLibKind() == .compiler_rt and !is_android) {
                 const crt_begin = try tc.getCompilerRt("crtbegin", .object);
@@ -285,19 +282,13 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
             if (!d.nolibc) {
                 try argv.append("-lc");
             }
-            if (is_iamcu) {
-                try argv.append("-lgloss");
-            }
             if (is_static or is_static_pie) {
                 try argv.append("--end-group");
             } else {
                 try tc.addRuntimeLibs(argv);
             }
-            if (is_iamcu) {
-                try argv.appendSlice(&.{ "--as-needed", "-lsoftfp", "--no-as-needed" });
-            }
         }
-        if (!d.nostartfiles and !is_iamcu) {
+        if (!d.nostartfiles) {
             if (has_crt_begin_end_files) {
                 var path: []const u8 = "";
                 if (tc.getRuntimeLibKind() == .compiler_rt and !is_android) {
@@ -327,7 +318,7 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
 
 fn getMultiarchTriple(target: std.Target) ?[]const u8 {
     const is_android = target.abi.isAndroid();
-    const is_mips_r6 = std.Target.mips.featureSetHas(target.cpu.features, .mips32r6);
+    const is_mips_r6 = target.cpu.has(.mips, .mips32r6);
     return switch (target.cpu.arch) {
         .arm, .thumb => if (is_android) "arm-linux-androideabi" else if (target.abi == .gnueabihf) "arm-linux-gnueabihf" else "arm-linux-gnueabi",
         .armeb, .thumbeb => if (target.abi == .gnueabihf) "armeb-linux-gnueabihf" else "armeb-linux-gnueabi",

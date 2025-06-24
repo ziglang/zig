@@ -1849,7 +1849,7 @@ fn parseTypeExpr(p: *Parse) Error!?Node.Index {
                 var sentinel: ?Node.Index = null;
                 if (p.eatToken(.identifier)) |ident| {
                     const ident_slice = p.source[p.tokenStart(ident)..p.tokenStart(ident + 1)];
-                    if (!std.mem.eql(u8, std.mem.trimRight(u8, ident_slice, &std.ascii.whitespace), "c")) {
+                    if (!std.mem.eql(u8, std.mem.trimEnd(u8, ident_slice, &std.ascii.whitespace), "c")) {
                         p.tok_i -= 1;
                     }
                 } else if (p.eatToken(.colon)) |_| {
@@ -2774,9 +2774,9 @@ fn parsePrimaryTypeExpr(p: *Parse) !?Node.Index {
             else => {
                 const main_token = p.nextToken();
                 const period = p.eatToken(.period);
-                if (period == null) try p.warnExpected(.period);
+                if (period == null) return p.failExpected(.period);
                 const identifier = p.eatToken(.identifier);
-                if (identifier == null) try p.warnExpected(.identifier);
+                if (identifier == null) return p.failExpected(.identifier);
                 return try p.addNode(.{
                     .tag = .error_value,
                     .main_token = main_token,

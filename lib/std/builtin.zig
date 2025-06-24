@@ -61,7 +61,7 @@ pub const StackTrace = struct {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const GlobalLinkage = enum {
+pub const GlobalLinkage = enum(u2) {
     internal,
     strong,
     weak,
@@ -70,7 +70,7 @@ pub const GlobalLinkage = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const SymbolVisibility = enum {
+pub const SymbolVisibility = enum(u2) {
     default,
     hidden,
     protected,
@@ -189,7 +189,7 @@ pub const CallingConvention = union(enum(u8)) {
     pub const kernel: CallingConvention = switch (builtin.target.cpu.arch) {
         .amdgcn => .amdgcn_kernel,
         .nvptx, .nvptx64 => .nvptx_kernel,
-        .spirv, .spirv32, .spirv64 => .spirv_kernel,
+        .spirv32, .spirv64 => .spirv_kernel,
         else => unreachable,
     };
 
@@ -370,6 +370,9 @@ pub const CallingConvention = union(enum(u8)) {
     /// The standard `msp430` calling convention.
     msp430_eabi: CommonOptions,
 
+    /// The standard `or1k` calling convention.
+    or1k_sysv: CommonOptions,
+
     /// The standard `propeller` calling convention.
     propeller_sysv: CommonOptions,
 
@@ -528,6 +531,7 @@ pub const AddressSpace = enum(u5) {
     uniform,
     push_constant,
     storage_buffer,
+    physical_storage_buffer,
 
     // AVR address spaces.
     flash,
@@ -1026,8 +1030,19 @@ pub const ExternOptions = struct {
     name: []const u8,
     library_name: ?[]const u8 = null,
     linkage: GlobalLinkage = .strong,
+    visibility: SymbolVisibility = .default,
+    /// Setting this to `true` makes the `@extern` a runtime value.
     is_thread_local: bool = false,
     is_dll_import: bool = false,
+    relocation: Relocation = .any,
+
+    pub const Relocation = enum(u1) {
+        /// Any type of relocation is allowed.
+        any,
+        /// A program-counter-relative relocation is required.
+        /// Using this value makes the `@extern` a runtime value.
+        pcrel,
+    };
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -1106,7 +1121,10 @@ pub const CompilerBackend = enum(u64) {
     stage2_sparc64 = 10,
     /// The reference implementation self-hosted compiler of Zig, using the
     /// spirv backend.
-    stage2_spirv64 = 11,
+    stage2_spirv = 11,
+    /// The reference implementation self-hosted compiler of Zig, using the
+    /// powerpc backend.
+    stage2_powerpc = 12,
 
     _,
 };
@@ -1140,10 +1158,12 @@ pub const panic: type = p: {
     if (@hasDecl(root, "Panic")) {
         break :p root.Panic; // Deprecated; use `panic` instead.
     }
-    if (builtin.zig_backend == .stage2_riscv64) {
-        break :p std.debug.simple_panic;
-    }
-    break :p std.debug.FullPanic(std.debug.defaultPanic);
+    break :p switch (builtin.zig_backend) {
+        .stage2_powerpc,
+        .stage2_riscv64,
+        => std.debug.simple_panic,
+        else => std.debug.FullPanic(std.debug.defaultPanic),
+    };
 };
 
 pub noinline fn returnError() void {

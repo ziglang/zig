@@ -96,7 +96,7 @@
 # include <sys/ptrace.h>
 #    if defined(__mips64) || defined(__aarch64__) || defined(__arm__) ||       \
         defined(__hexagon__) || defined(__loongarch__) || SANITIZER_RISCV64 || \
-        defined(__sparc__)
+        defined(__sparc__) || defined(__powerpc64__)
 #      include <asm/ptrace.h>
 #      ifdef __arm__
 typedef struct user_fpregs elf_fpregset_t;

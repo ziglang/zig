@@ -157,13 +157,14 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
             )) {
                 .wip => |wip| ty: {
                     errdefer wip.cancel(ip, pt.tid);
-                    wip.setName(ip, try self.sema.createTypeName(
+                    const type_name = try self.sema.createTypeName(
                         self.block,
                         .anon,
                         "struct",
                         self.base_node_inst.resolve(ip),
                         wip.index,
-                    ));
+                    );
+                    wip.setName(ip, type_name.name, type_name.nav);
 
                     const struct_type = ip.loadStructType(wip.index);
 
@@ -194,7 +195,8 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
                     codegen_type: {
                         if (pt.zcu.comp.config.use_llvm) break :codegen_type;
                         if (self.block.ownerModule().strip) break :codegen_type;
-                        try pt.zcu.comp.queueJob(.{ .codegen_type = wip.index });
+                        pt.zcu.comp.link_prog_node.increaseEstimatedTotalItems(1);
+                        try pt.zcu.comp.queueJob(.{ .link_type = wip.index });
                     }
                     break :ty wip.finish(ip, new_namespace_index);
                 },
@@ -507,30 +509,23 @@ fn lowerInt(
             },
         },
         .float_literal => |val| {
-            // Check for fractional components
-            if (@rem(val, 1) != 0) {
-                return self.fail(
+            var big_int: std.math.big.int.Mutable = .{
+                .limbs = try self.sema.arena.alloc(std.math.big.Limb, std.math.big.int.calcLimbLen(val)),
+                .len = undefined,
+                .positive = undefined,
+            };
+            switch (big_int.setFloat(val, .trunc)) {
+                .inexact => return self.fail(
                     node,
                     "fractional component prevents float value '{}' from coercion to type '{}'",
                     .{ val, res_ty.fmt(self.sema.pt) },
-                );
+                ),
+                .exact => {},
             }
-
-            // Create a rational representation of the float
-            var rational = try std.math.big.Rational.init(self.sema.arena);
-            rational.setFloat(f128, val) catch |err| switch (err) {
-                error.NonFiniteFloat => unreachable,
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-
-            // The float is reduced in rational.setFloat, so we assert that denominator is equal to
-            // one
-            const big_one = std.math.big.int.Const{ .limbs = &.{1}, .positive = true };
-            assert(rational.q.toConst().eqlAbs(big_one));
 
             // Check that the result is in range of the result type
             const int_info = res_ty.intInfo(self.sema.pt.zcu);
-            if (!rational.p.fitsInTwosComp(int_info.signedness, int_info.bits)) {
+            if (!big_int.toConst().fitsInTwosComp(int_info.signedness, int_info.bits)) {
                 return self.fail(
                     node,
                     "type '{}' cannot represent integer value '{}'",
@@ -541,7 +536,7 @@ fn lowerInt(
             return self.sema.pt.intern(.{
                 .int = .{
                     .ty = res_ty.toIntern(),
-                    .storage = .{ .big_int = rational.p.toConst() },
+                    .storage = .{ .big_int = big_int.toConst() },
                 },
             });
         },
@@ -582,7 +577,7 @@ fn lowerFloat(
     const value = switch (node.get(self.file.zoir.?)) {
         .int_literal => |int| switch (int) {
             .small => |val| try self.sema.pt.floatValue(res_ty, @as(f128, @floatFromInt(val))),
-            .big => |val| try self.sema.pt.floatValue(res_ty, val.toFloat(f128)),
+            .big => |val| try self.sema.pt.floatValue(res_ty, val.toFloat(f128, .nearest_even)[0]),
         },
         .float_literal => |val| try self.sema.pt.floatValue(res_ty, val),
         .char_literal => |val| try self.sema.pt.floatValue(res_ty, @as(f128, @floatFromInt(val))),

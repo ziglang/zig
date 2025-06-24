@@ -402,7 +402,7 @@ pub const ExceptionFrameHeader = struct {
             }
         }
 
-        if (len == 0) return bad();
+        if (len == 0) return missing();
         fbr.pos = left * entry_size;
 
         // Read past the pc_begin field of the entry
@@ -460,6 +460,8 @@ pub const ExceptionFrameHeader = struct {
             @sizeOf(usize),
             native_endian,
         );
+
+        if (pc < fde.pc_begin or pc >= fde.pc_begin + fde.pc_range) return missing();
     }
 };
 

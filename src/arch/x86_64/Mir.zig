@@ -9,7 +9,11 @@
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 extra: []const u32,
+string_bytes: []const u8,
+locals: []const Local,
 table: []const Inst.Index,
+/// Optional data which, when present, can be used to accelerate encoding speed.
+memoized_encodings: []const u0 = &.{},
 frame_locs: std.MultiArrayList(FrameLoc).Slice,
 
 pub const Inst = struct {
@@ -34,6 +38,16 @@ pub const Inst = struct {
         /// ___ 4
         _4,
 
+        /// ___ Demote
+        _demote,
+        /// ___ Flush
+        _flush,
+        /// ___ Flush Optimized
+        _flushopt,
+        /// ___ Instructions With T0 Hint
+        _it0,
+        /// ___ Instructions With T0 Hint
+        _it1,
         /// ___ With NTA Hint
         _nta,
         /// System Call ___
@@ -44,6 +58,8 @@ pub const Inst = struct {
         _t1,
         /// ___ With T2 Hint
         _t2,
+        /// ___ Write Back
+        _wb,
         /// ___ With Intent to Write and T1 Hint
         _wt1,
 
@@ -53,6 +69,8 @@ pub const Inst = struct {
         _csspq,
         /// ___ FS Segment Base
         _fsbase,
+        /// ___ GS
+        _gs,
         /// ___ GS Segment Base
         _gsbase,
         /// ___ Model Specific Register
@@ -67,8 +85,14 @@ pub const Inst = struct {
         _pmc,
         /// ___ Random Number
         _rand,
+        /// ___ r Busy Flag in a Supervisor Shadow Stack token
+        _rssbsy,
         /// ___ Random Seed
         _seed,
+        /// ___ Shadow Stack Doubleword
+        _ssd,
+        /// ___ Shadow Stack Quadword
+        _ssq,
         /// ___ Shadow Stack Pointer Doubleword
         _sspd,
         /// ___ Shadow Stack Pointer Quadword
@@ -77,9 +101,15 @@ pub const Inst = struct {
         _tsc,
         /// ___ Time-Stamp Counter And Processor ID
         _tscp,
+        /// ___ User Shadow Stack Doubleword
+        _ussd,
+        /// ___ User Shadow Stack Quadword
+        _ussq,
         /// VEX-Encoded ___ MXCSR
         v_mxcsr,
 
+        /// Byte ___
+        b_,
         /// Interrupt ___
         /// Integer ___
         i_,
@@ -118,6 +148,8 @@ pub const Inst = struct {
         _ld,
         /// ___ Left Without Affecting Flags
         _lx,
+        /// ___ Mask
+        _msk,
         /// ___ Right
         /// ___ For Reading
         /// ___ Register
@@ -139,6 +171,7 @@ pub const Inst = struct {
         /// ___ Below
         _b,
         /// ___ Below Or Equal
+        /// ___ Big Endian
         _be,
         /// ___ Carry
         /// ___ Carry Flag
@@ -212,8 +245,12 @@ pub const Inst = struct {
         _w,
         /// ___ Doubleword
         //_d,
+        /// ___ Double Quadword to Quadword
+        _dq2q,
         /// ___ QuadWord
         _q,
+        /// ___ Quadword to Double Quadword
+        _q2dq,
 
         /// ___ String
         //_s,
@@ -369,6 +406,8 @@ pub const Inst = struct {
         fn_sw,
         /// Float Extended ___
         fx_,
+        /// Float Extended ___ 64
+        fx_64,
 
         /// ___ in 32-bit and Compatibility Mode
         _32,
@@ -386,7 +425,18 @@ pub const Inst = struct {
         /// Packed ___ Quadword
         p_q,
         /// Packed ___ Double Quadword
+        /// Packed ___ Doubleword to Quadword
         p_dq,
+        /// Packed ___ Unsigned Doubleword to Quadword
+        p_udq,
+        /// Packed Carry-Less ___ Quadword to Double Quadword
+        pcl_qdq,
+        /// Packed Half ___ Doubleword
+        ph_d,
+        /// Packed Half ___ Saturate Word
+        ph_sw,
+        /// Packed Half ___ Word
+        ph_w,
         /// ___ Aligned Packed Integer Values
         _dqa,
         /// ___ Unaligned Packed Integer Values
@@ -400,6 +450,10 @@ pub const Inst = struct {
         //_sd,
         /// ___ Packed Double-Precision Values
         _pd,
+        /// Half ___ Packed Single-Precision Values
+        h_ps,
+        /// Half ___ Packed Double-Precision Values
+        h_pd,
 
         /// ___ Internal Caches
         //_d,
@@ -427,7 +481,7 @@ pub const Inst = struct {
         v_w,
         /// VEX-Encoded ___ Doubleword
         v_d,
-        /// VEX-Encoded ___ QuadWord
+        /// VEX-Encoded ___ Quadword
         v_q,
         /// VEX-Encoded ___ Aligned Packed Integer Values
         v_dqa,
@@ -446,7 +500,18 @@ pub const Inst = struct {
         /// VEX-Encoded Packed ___ Quadword
         vp_q,
         /// VEX-Encoded Packed ___ Double Quadword
+        /// VEX-Encoded Packed ___ Doubleword to Quadword
         vp_dq,
+        /// VEX-Encoded Packed ___ Unsigned Doubleword to Quadword
+        vp_udq,
+        /// VEx-Encoded Packed Carry-Less ___ Quadword to Double Quadword
+        vpcl_qdq,
+        /// VEX-Encoded Packed Half ___ Doubleword
+        vph_d,
+        /// VEX-Encoded Packed Half ___ Saturate Word
+        vph_sw,
+        /// VEX-Encoded Packed Half ___ Word
+        vph_w,
         /// VEX-Encoded ___ Scalar Single-Precision Values
         v_ss,
         /// VEX-Encoded ___ Packed Single-Precision Values
@@ -457,6 +522,10 @@ pub const Inst = struct {
         v_pd,
         /// VEX-Encoded ___ 128-Bits Of Floating-Point Data
         v_f128,
+        /// VEX-Encoded Half ___ Packed Single-Precision Values
+        vh_ps,
+        /// VEX-Encoded Half ___ Packed Double-Precision Values
+        vh_pd,
 
         /// ___ 128-bit key with key locker
         _128,
@@ -504,6 +573,10 @@ pub const Inst = struct {
         /// Add scalar single-precision floating-point values
         /// Add packed double-precision floating-point values
         /// Add scalar double-precision floating-point values
+        /// Packed single-precision floating-point horizontal add
+        /// Packed double-precision floating-point horizontal add
+        /// Packed horizontal add
+        /// Packed horizontal add and saturate
         add,
         /// Logical and
         /// Bitwise logical and of packed single-precision floating-point values
@@ -515,12 +588,15 @@ pub const Inst = struct {
         /// Bit scan reverse
         bs,
         /// Byte swap
-        bswap,
+        /// Swap GS base register
+        swap,
         /// Bit test
         /// Bit test and complement
         /// Bit test and reset
         /// Bit test and set
         bt,
+        /// Check array index against bounds
+        bound,
         /// Call
         /// Fast system call
         call,
@@ -536,17 +612,12 @@ pub const Inst = struct {
         /// Clear interrupt flag
         /// Clear task-switched flag in CR0
         /// Clear user interrupt flag
-        cl,
         /// Cache line demote
-        cldemote,
         /// Flush cache line
-        clflush,
         /// Flush cache line optimized
-        clflushopt,
         /// Clear busy flag in a supervisor shadow stack token
-        clrssbsy,
         /// Cache line write back
-        clwb,
+        cl,
         /// Complement carry flag
         cmc,
         /// Conditional move
@@ -644,15 +715,16 @@ pub const Inst = struct {
         lzcnt,
         /// Move
         /// Move data from string to string
+        /// Move data after swapping bytes
         /// Move scalar single-precision floating-point value
         /// Move scalar double-precision floating-point value
         /// Move doubleword
         /// Move quadword
         /// Move aligned packed integer values
         /// Move unaligned packed integer values
+        /// Move quadword from XMM to MMX technology register
+        /// Move quadword from MMX technology to XMM register
         mov,
-        /// Move data after swapping bytes
-        movbe,
         /// Move with sign extension
         movsx,
         /// Move with zero extension
@@ -663,6 +735,9 @@ pub const Inst = struct {
         /// Multiply scalar single-precision floating-point values
         /// Multiply packed double-precision floating-point values
         /// Multiply scalar double-precision floating-point values
+        /// Multiply packed unsigned doubleword integers
+        /// Multiply packed doubleword integers
+        /// Carry-less multiplication quadword
         mul,
         /// Two's complement negation
         neg,
@@ -729,6 +804,8 @@ pub const Inst = struct {
         sca,
         /// Send user interprocessor interrupt
         senduipi,
+        /// Serialize instruction execution
+        serialize,
         /// Set byte on condition
         set,
         /// Logical shift left
@@ -750,6 +827,10 @@ pub const Inst = struct {
         /// Subtract scalar single-precision floating-point values
         /// Subtract packed double-precision floating-point values
         /// Subtract scalar double-precision floating-point values
+        /// Packed single-precision floating-point horizontal subtract
+        /// Packed double-precision floating-point horizontal subtract
+        /// Packed horizontal subtract
+        /// Packed horizontal subtract and saturate
         sub,
         /// Set carry flag
         /// Set direction flag
@@ -764,8 +845,6 @@ pub const Inst = struct {
         st,
         /// Store string
         sto,
-        /// Swap GS base register
-        swapgs,
         /// Test condition
         /// Logical compare
         /// Packed bit test
@@ -780,6 +859,8 @@ pub const Inst = struct {
         /// Write to model specific register
         /// Write to model specific register
         /// Write to model specific register
+        /// Write to shadow stack
+        /// Write to user shadow stack
         wr,
         /// Exchange and add
         xadd,
@@ -896,6 +977,10 @@ pub const Inst = struct {
         cmpgt,
         /// Empty MMX technology state
         emms,
+        /// Multiply and add packed signed and unsigned bytes
+        maddubs,
+        /// Multiply and add packed integers
+        maddw,
         /// Multiply packed signed integers and store low result
         mull,
         /// Multiply packed signed integers and store high result
@@ -924,6 +1009,8 @@ pub const Inst = struct {
         unpcklwd,
 
         // SSE
+        /// Average packed integers
+        avg,
         /// Convert packed doubleword integers to packed single-precision floating-point values
         /// Convert packed doubleword integers to packed double-precision floating-point values
         cvtpi2,
@@ -986,9 +1073,13 @@ pub const Inst = struct {
         /// Move unaligned packed single-precision floating-point values
         /// Move unaligned packed double-precision floating-point values
         movu,
+        /// Multiply packed unsigned integers and store high result
+        mulhu,
         /// Prefetch data into caches
         /// Prefetch data into caches with intent to write
         prefetch,
+        /// Compute sum of absolute differences
+        sadb,
         /// Packed interleave shuffle of quadruplets of single-precision floating-point values
         /// Packed interleave shuffle of pairs of double-precision floating-point values
         /// Shuffle packed doublewords
@@ -1048,9 +1139,6 @@ pub const Inst = struct {
         /// Packed single-precision floating-point add/subtract
         /// Packed double-precision floating-point add/subtract
         addsub,
-        /// Packed single-precision floating-point horizontal add
-        /// Packed double-precision floating-point horizontal add
-        hadd,
         /// Replicate double floating-point values
         movddup,
         /// Replicate single floating-point values
@@ -1061,6 +1149,10 @@ pub const Inst = struct {
         // SSSE3
         /// Packed align right
         alignr,
+        /// Packed multiply high with round and scale
+        mulhrs,
+        /// Packed sign
+        sign,
 
         // SSE4.1
         /// Pack with unsigned saturation
@@ -1085,6 +1177,8 @@ pub const Inst = struct {
         /// Insert scalar single-precision floating-point value
         /// Insert packed floating-point values
         insert,
+        /// Packed horizontal word minimum
+        minposu,
         /// Packed move with sign extend
         movsxb,
         movsxd,
@@ -1102,10 +1196,6 @@ pub const Inst = struct {
         // SSE4.2
         /// Accumulate CRC32 value
         crc32,
-
-        // PCLMUL
-        /// Carry-less multiplication quadword
-        clmulq,
 
         // AES
         /// Perform one round of an AES decryption flow
@@ -1275,9 +1365,6 @@ pub const Inst = struct {
         /// Immediate (byte), register operands.
         /// Uses `ri` payload.
         ir,
-        /// Relative displacement operand.
-        /// Uses `reloc` payload.
-        rel,
         /// Register, memory operands.
         /// Uses `rx` payload with extra data of type `Memory`.
         rm,
@@ -1323,21 +1410,18 @@ pub const Inst = struct {
         /// References another Mir instruction directly.
         /// Uses `inst` payload.
         inst,
-        /// Linker relocation - external function.
-        /// Uses `reloc` payload.
-        extern_fn_reloc,
-        /// Linker relocation - GOT indirection.
-        /// Uses `rx` payload with extra data of type `bits.SymbolOffset`.
-        got_reloc,
-        /// Linker relocation - direct reference.
-        /// Uses `rx` payload with extra data of type `bits.SymbolOffset`.
-        direct_reloc,
-        /// Linker relocation - imports table indirection (binding).
-        /// Uses `rx` payload with extra data of type `bits.SymbolOffset`.
-        import_reloc,
-        /// Linker relocation - threadlocal variable via GOT indirection.
-        /// Uses `rx` payload with extra data of type `bits.SymbolOffset`.
-        tlv_reloc,
+        /// References a nav.
+        /// Uses `nav` payload.
+        nav,
+        /// References an uav.
+        /// Uses `uav` payload.
+        uav,
+        /// References a lazy symbol.
+        /// Uses `lazy_sym` payload.
+        lazy_sym,
+        /// References an external symbol.
+        /// Uses `extern_func` payload.
+        extern_func,
 
         // Pseudo instructions:
 
@@ -1436,6 +1520,7 @@ pub const Inst = struct {
         pseudo_cfi_escape_bytes,
 
         /// End of prologue
+        /// Uses `none` payload.
         pseudo_dbg_prologue_end_none,
         /// Update debug line with is_stmt register set
         /// Uses `line_column` payload.
@@ -1444,44 +1529,70 @@ pub const Inst = struct {
         /// Uses `line_column` payload.
         pseudo_dbg_line_line_column,
         /// Start of epilogue
+        /// Uses `none` payload.
         pseudo_dbg_epilogue_begin_none,
         /// Start of lexical block
+        /// Uses `none` payload.
         pseudo_dbg_enter_block_none,
         /// End of lexical block
+        /// Uses `none` payload.
         pseudo_dbg_leave_block_none,
         /// Start of inline function
+        /// Uses `ip_index` payload.
         pseudo_dbg_enter_inline_func,
         /// End of inline function
+        /// Uses `ip_index` payload.
         pseudo_dbg_leave_inline_func,
-        /// Local argument or variable.
-        /// Uses `a` payload.
-        pseudo_dbg_local_a,
-        /// Local argument or variable.
-        /// Uses `ai` payload.
-        pseudo_dbg_local_ai_s,
-        /// Local argument or variable.
-        /// Uses `ai` payload.
-        pseudo_dbg_local_ai_u,
-        /// Local argument or variable.
-        /// Uses `ai` payload with extra data of type `Imm64`.
-        pseudo_dbg_local_ai_64,
-        /// Local argument or variable.
-        /// Uses `as` payload.
-        pseudo_dbg_local_as,
-        /// Local argument or variable.
-        /// Uses `ax` payload with extra data of type `bits.SymbolOffset`.
-        pseudo_dbg_local_aso,
-        /// Local argument or variable.
-        /// Uses `rx` payload with extra data of type `AirOffset`.
-        pseudo_dbg_local_aro,
-        /// Local argument or variable.
-        /// Uses `ax` payload with extra data of type `bits.FrameAddr`.
-        pseudo_dbg_local_af,
-        /// Local argument or variable.
-        /// Uses `ax` payload with extra data of type `Memory`.
-        pseudo_dbg_local_am,
+        /// Local argument.
+        /// Uses `none` payload.
+        pseudo_dbg_arg_none,
+        /// Local argument.
+        /// Uses `i` payload.
+        pseudo_dbg_arg_i_s,
+        /// Local argument.
+        /// Uses `i` payload.
+        pseudo_dbg_arg_i_u,
+        /// Local argument.
+        /// Uses `i64` payload.
+        pseudo_dbg_arg_i_64,
+        /// Local argument.
+        /// Uses `ro` payload.
+        pseudo_dbg_arg_ro,
+        /// Local argument.
+        /// Uses `fa` payload.
+        pseudo_dbg_arg_fa,
+        /// Local argument.
+        /// Uses `x` payload with extra data of type `Memory`.
+        pseudo_dbg_arg_m,
+        /// Local argument.
+        /// Uses `ip_index` payload.
+        pseudo_dbg_arg_val,
         /// Remaining arguments are varargs.
         pseudo_dbg_var_args_none,
+        /// Local variable.
+        /// Uses `none` payload.
+        pseudo_dbg_var_none,
+        /// Local variable.
+        /// Uses `i` payload.
+        pseudo_dbg_var_i_s,
+        /// Local variable.
+        /// Uses `i` payload.
+        pseudo_dbg_var_i_u,
+        /// Local variable.
+        /// Uses `i64` payload.
+        pseudo_dbg_var_i_64,
+        /// Local variable.
+        /// Uses `ro` payload.
+        pseudo_dbg_var_ro,
+        /// Local variable.
+        /// Uses `fa` payload.
+        pseudo_dbg_var_fa,
+        /// Local variable.
+        /// Uses `x` payload with extra data of type `Memory`.
+        pseudo_dbg_var_m,
+        /// Local variable.
+        /// Uses `ip_index` payload.
+        pseudo_dbg_var_val,
 
         /// Tombstone
         /// Emitter should skip this instruction.
@@ -1498,6 +1609,7 @@ pub const Inst = struct {
             inst: Index,
         },
         /// A 32-bit immediate value.
+        i64: u64,
         i: struct {
             fixes: Fixes = ._,
             i: u32,
@@ -1597,51 +1709,75 @@ pub const Inst = struct {
                 return std.mem.sliceAsBytes(mir.extra[bytes.payload..])[0..bytes.len];
             }
         },
-        a: struct {
-            air_inst: Air.Inst.Index,
-        },
-        ai: struct {
-            air_inst: Air.Inst.Index,
-            i: u32,
-        },
-        as: struct {
-            air_inst: Air.Inst.Index,
-            sym_index: u32,
-        },
-        ax: struct {
-            air_inst: Air.Inst.Index,
-            payload: u32,
-        },
-        /// Relocation for the linker where:
-        /// * `sym_index` is the index of the target
-        /// * `off` is the offset from the target
-        reloc: bits.SymbolOffset,
+        fa: bits.FrameAddr,
+        ro: bits.RegisterOffset,
+        nav: bits.NavOffset,
+        uav: InternPool.Key.Ptr.BaseAddr.Uav,
+        lazy_sym: link.File.LazySymbol,
+        extern_func: Mir.NullTerminatedString,
         /// Debug line and column position
         line_column: struct {
             line: u32,
             column: u32,
         },
-        func: InternPool.Index,
+        ip_index: InternPool.Index,
         /// Register list
         reg_list: RegisterList,
     };
 
-    // Make sure we don't accidentally make instructions bigger than expected.
-    // Note that in safety builds, Zig is allowed to insert a secret field for safety checks.
     comptime {
         if (!std.debug.runtime_safety) {
+            // Make sure we don't accidentally make instructions bigger than expected.
+            // Note that in safety builds, Zig is allowed to insert a secret field for safety checks.
             assert(@sizeOf(Data) == 8);
+        }
+        const Mnemonic = @import("Encoding.zig").Mnemonic;
+        if (@typeInfo(Mnemonic).@"enum".fields.len != 977 or
+            @typeInfo(Fixes).@"enum".fields.len != 231 or
+            @typeInfo(Tag).@"enum".fields.len != 251)
+        {
+            const cond_src = (struct {
+                fn src() std.builtin.SourceLocation {
+                    return @src();
+                }
+            }).src();
+            @setEvalBranchQuota(1_750_000);
+            for (@typeInfo(Mnemonic).@"enum".fields) |mnemonic| {
+                if (mnemonic.name[0] == '.') continue;
+                for (@typeInfo(Fixes).@"enum".fields) |fixes| {
+                    const pattern = fixes.name[if (std.mem.indexOfScalar(u8, fixes.name, ' ')) |index| index + " ".len else 0..];
+                    const wildcard_index = std.mem.indexOfScalar(u8, pattern, '_').?;
+                    const mnem_prefix = pattern[0..wildcard_index];
+                    const mnem_suffix = pattern[wildcard_index + "_".len ..];
+                    if (!std.mem.startsWith(u8, mnemonic.name, mnem_prefix)) continue;
+                    if (!std.mem.endsWith(u8, mnemonic.name, mnem_suffix)) continue;
+                    if (@hasField(
+                        Tag,
+                        mnemonic.name[mnem_prefix.len .. mnemonic.name.len - mnem_suffix.len],
+                    )) break;
+                } else @compileError("'" ++ mnemonic.name ++ "' is not encodable in Mir");
+            }
+            @compileError(std.fmt.comptimePrint(
+                \\All mnemonics are encodable in Mir! You may now change the condition at {s}:{d} to:
+                \\if (@typeInfo(Mnemonic).@"enum".fields.len != {d} or
+                \\    @typeInfo(Fixes).@"enum".fields.len != {d} or
+                \\    @typeInfo(Tag).@"enum".fields.len != {d})
+            , .{
+                cond_src.file,
+                cond_src.line - 6,
+                @typeInfo(Mnemonic).@"enum".fields.len,
+                @typeInfo(Fixes).@"enum".fields.len,
+                @typeInfo(Tag).@"enum".fields.len,
+            }));
         }
     }
 };
-
-pub const AirOffset = struct { air_inst: Air.Inst.Index, off: i32 };
 
 /// Used in conjunction with payload to transfer a list of used registers in a compact manner.
 pub const RegisterList = struct {
     bitset: BitSet,
 
-    const BitSet = IntegerBitSet(32);
+    const BitSet = std.bit_set.IntegerBitSet(32);
     const Self = @This();
 
     pub const empty: RegisterList = .{ .bitset = .initEmpty() };
@@ -1680,6 +1816,22 @@ pub const RegisterList = struct {
     }
 };
 
+pub const NullTerminatedString = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn toSlice(nts: NullTerminatedString, mir: *const Mir) ?[:0]const u8 {
+        if (nts == .none) return null;
+        const string_bytes = mir.string_bytes[@intFromEnum(nts)..];
+        return string_bytes[0..std.mem.indexOfScalar(u8, string_bytes, 0).? :0];
+    }
+};
+
+pub const Local = struct {
+    name: NullTerminatedString,
+    type: InternPool.Index,
+};
+
 pub const Imm32 = struct {
     imm: u32,
 };
@@ -1715,11 +1867,10 @@ pub const Memory = struct {
         size: bits.Memory.Size,
         index: Register,
         scale: bits.Memory.Scale,
-        _: u14 = undefined,
+        _: u13 = undefined,
     };
 
     pub fn encode(mem: bits.Memory) Memory {
-        assert(mem.base != .reloc or mem.mod != .off);
         return .{
             .info = .{
                 .base = mem.base,
@@ -1741,17 +1892,27 @@ pub const Memory = struct {
                 .none, .table => undefined,
                 .reg => |reg| @intFromEnum(reg),
                 .frame => |frame_index| @intFromEnum(frame_index),
-                .reloc => |sym_index| sym_index,
                 .rip_inst => |inst_index| inst_index,
+                .nav => |nav| @intFromEnum(nav),
+                .uav => |uav| @intFromEnum(uav.val),
+                .lazy_sym => |lazy_sym| @intFromEnum(lazy_sym.ty),
+                .extern_func => |extern_func| @intFromEnum(extern_func),
             },
             .off = switch (mem.mod) {
                 .rm => |rm| @bitCast(rm.disp),
                 .off => |off| @truncate(off),
             },
-            .extra = if (mem.mod == .off)
-                @intCast(mem.mod.off >> 32)
-            else
-                undefined,
+            .extra = switch (mem.mod) {
+                .rm => switch (mem.base) {
+                    else => undefined,
+                    .uav => |uav| @intFromEnum(uav.orig_ty),
+                    .lazy_sym => |lazy_sym| @intFromEnum(lazy_sym.kind),
+                },
+                .off => switch (mem.base) {
+                    .reg => @intCast(mem.mod.off >> 32),
+                    else => unreachable,
+                },
+            },
         };
     }
 
@@ -1769,8 +1930,11 @@ pub const Memory = struct {
                         .reg => .{ .reg = @enumFromInt(mem.base) },
                         .frame => .{ .frame = @enumFromInt(mem.base) },
                         .table => .table,
-                        .reloc => .{ .reloc = mem.base },
                         .rip_inst => .{ .rip_inst = mem.base },
+                        .nav => .{ .nav = @enumFromInt(mem.base) },
+                        .uav => .{ .uav = .{ .val = @enumFromInt(mem.base), .orig_ty = @enumFromInt(mem.extra) } },
+                        .lazy_sym => .{ .lazy_sym = .{ .kind = @enumFromInt(mem.extra), .ty = @enumFromInt(mem.base) } },
+                        .extern_func => .{ .extern_func = @enumFromInt(mem.base) },
                     },
                     .scale_index = switch (mem.info.index) {
                         .none => null,
@@ -1798,9 +1962,131 @@ pub const Memory = struct {
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     gpa.free(mir.extra);
+    gpa.free(mir.string_bytes);
+    gpa.free(mir.locals);
     gpa.free(mir.table);
+    gpa.free(mir.memoized_encodings);
     mir.frame_locs.deinit(gpa);
     mir.* = undefined;
+}
+
+pub fn emit(
+    mir: Mir,
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    func_index: InternPool.Index,
+    code: *std.ArrayListUnmanaged(u8),
+    debug_output: link.File.DebugInfoOutput,
+) codegen.CodeGenError!void {
+    const zcu = pt.zcu;
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+    const func = zcu.funcInfo(func_index);
+    const fn_info = zcu.typeToFunc(.fromInterned(func.ty)).?;
+    const nav = func.owner_nav;
+    const mod = zcu.navFileScope(nav).mod.?;
+    var e: Emit = .{
+        .lower = .{
+            .target = &mod.resolved_target.result,
+            .allocator = gpa,
+            .mir = mir,
+            .cc = fn_info.cc,
+            .src_loc = src_loc,
+        },
+        .bin_file = lf,
+        .pt = pt,
+        .pic = mod.pic,
+        .atom_index = sym: {
+            if (lf.cast(.elf)) |ef| break :sym try ef.zigObjectPtr().?.getOrCreateMetadataForNav(zcu, nav);
+            if (lf.cast(.macho)) |mf| break :sym try mf.getZigObject().?.getOrCreateMetadataForNav(mf, nav);
+            if (lf.cast(.coff)) |cf| {
+                const atom = try cf.getOrCreateAtomForNav(nav);
+                break :sym cf.getAtom(atom).getSymbolIndex().?;
+            }
+            if (lf.cast(.plan9)) |p9f| break :sym try p9f.seeNav(pt, nav);
+            unreachable;
+        },
+        .debug_output = debug_output,
+        .code = code,
+
+        .prev_di_loc = .{
+            .line = func.lbrace_line,
+            .column = func.lbrace_column,
+            .is_stmt = switch (debug_output) {
+                .dwarf => |dwarf| dwarf.dwarf.debug_line.header.default_is_stmt,
+                .plan9 => undefined,
+                .none => undefined,
+            },
+        },
+        .prev_di_pc = 0,
+
+        .code_offset_mapping = .empty,
+        .relocs = .empty,
+        .table_relocs = .empty,
+    };
+    defer e.deinit();
+    e.emitMir() catch |err| switch (err) {
+        error.LowerFail, error.EmitFail => return zcu.codegenFailMsg(nav, e.lower.err_msg.?),
+        error.InvalidInstruction, error.CannotEncode => return zcu.codegenFail(nav, "emit MIR failed: {s} (Zig compiler bug)", .{@errorName(err)}),
+        else => return zcu.codegenFail(nav, "emit MIR failed: {s}", .{@errorName(err)}),
+    };
+}
+
+pub fn emitLazy(
+    mir: Mir,
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    lazy_sym: link.File.LazySymbol,
+    code: *std.ArrayListUnmanaged(u8),
+    debug_output: link.File.DebugInfoOutput,
+) codegen.CodeGenError!void {
+    const zcu = pt.zcu;
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+    const mod = comp.root_mod;
+    var e: Emit = .{
+        .lower = .{
+            .target = &mod.resolved_target.result,
+            .allocator = gpa,
+            .mir = mir,
+            .cc = .auto,
+            .src_loc = src_loc,
+        },
+        .bin_file = lf,
+        .pt = pt,
+        .pic = mod.pic,
+        .atom_index = sym: {
+            if (lf.cast(.elf)) |ef| break :sym ef.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(ef, pt, lazy_sym) catch |err|
+                return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
+            if (lf.cast(.macho)) |mf| break :sym mf.getZigObject().?.getOrCreateMetadataForLazySymbol(mf, pt, lazy_sym) catch |err|
+                return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
+            if (lf.cast(.coff)) |cf| {
+                const atom = cf.getOrCreateAtomForLazySymbol(pt, lazy_sym) catch |err|
+                    return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
+                break :sym cf.getAtom(atom).getSymbolIndex().?;
+            }
+            if (lf.cast(.plan9)) |p9f| break :sym p9f.getOrCreateAtomForLazySymbol(pt, lazy_sym) catch |err|
+                return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
+            unreachable;
+        },
+        .debug_output = debug_output,
+        .code = code,
+
+        .prev_di_loc = undefined,
+        .prev_di_pc = undefined,
+
+        .code_offset_mapping = .empty,
+        .relocs = .empty,
+        .table_relocs = .empty,
+    };
+    defer e.deinit();
+    e.emitMir() catch |err| switch (err) {
+        error.LowerFail, error.EmitFail => return zcu.codegenFailTypeMsg(lazy_sym.ty, e.lower.err_msg.?),
+        error.InvalidInstruction, error.CannotEncode => return zcu.codegenFailType(lazy_sym.ty, "emit MIR failed: {s} (Zig compiler bug)", .{@errorName(err)}),
+        else => return zcu.codegenFailType(lazy_sym.ty, "emit MIR failed: {s}", .{@errorName(err)}),
+    };
 }
 
 pub fn extraData(mir: Mir, comptime T: type, index: u32) struct { data: T, end: u32 } {
@@ -1811,7 +2097,7 @@ pub fn extraData(mir: Mir, comptime T: type, index: u32) struct { data: T, end: 
         @field(result, field.name) = switch (field.type) {
             u32 => mir.extra[i],
             i32, Memory.Info => @bitCast(mir.extra[i]),
-            bits.FrameIndex, Air.Inst.Index => @enumFromInt(mir.extra[i]),
+            bits.FrameIndex => @enumFromInt(mir.extra[i]),
             else => @compileError("bad field type: " ++ field.name ++ ": " ++ @typeName(field.type)),
         };
         i += 1;
@@ -1832,9 +2118,10 @@ pub fn resolveFrameAddr(mir: Mir, frame_addr: bits.FrameAddr) bits.RegisterOffse
     return .{ .reg = frame_loc.base, .off = frame_loc.disp + frame_addr.off };
 }
 
-pub fn resolveFrameLoc(mir: Mir, mem: Memory) Memory {
+pub fn resolveMemoryExtra(mir: Mir, payload: u32) Memory {
+    const mem = mir.extraData(Mir.Memory, payload).data;
     return switch (mem.info.base) {
-        .none, .reg, .table, .reloc, .rip_inst => mem,
+        .none, .reg, .table, .rip_inst, .nav, .uav, .lazy_sym, .extern_func => mem,
         .frame => if (mir.frame_locs.len > 0) .{
             .info = .{
                 .base = .reg,
@@ -1856,8 +2143,10 @@ const builtin = @import("builtin");
 const encoder = @import("encoder.zig");
 const std = @import("std");
 
-const Air = @import("../../Air.zig");
-const IntegerBitSet = std.bit_set.IntegerBitSet;
 const InternPool = @import("../../InternPool.zig");
 const Mir = @This();
 const Register = bits.Register;
+const Emit = @import("Emit.zig");
+const codegen = @import("../../codegen.zig");
+const link = @import("../../link.zig");
+const Zcu = @import("../../Zcu.zig");

@@ -59,7 +59,7 @@
 
 enum {
   LM_HB_Extension = 128,LM_HB1_PnP = 1,LM_HB1_PDA_Palmtop = 2,LM_HB1_Computer = 4,LM_HB1_Printer = 8,LM_HB1_Modem = 16,LM_HB1_Fax = 32,
-  LM_HB1_LANAccess = 64,LM_HB2_Telephony = 1,LM_HB2_FileServer = 2,
+  LM_HB1_LANAccess = 64,LM_HB2_Telephony = 1,LM_HB2_FileServer = 2
 };
 
 #define LmCharSetASCII 0

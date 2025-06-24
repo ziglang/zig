@@ -39,7 +39,8 @@ pub const Value = union(enum) {
 
 step: Step,
 values: std.StringArrayHashMap(Value),
-output_file: std.Build.GeneratedFile,
+/// This directory contains the generated file under the name `include_path`.
+generated_dir: std.Build.GeneratedFile,
 
 style: Style,
 max_bytes: usize,
@@ -99,7 +100,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
         .max_bytes = options.max_bytes,
         .include_path = include_path,
         .include_guard_override = options.include_guard_override,
-        .output_file = .{ .step = &config_header.step },
+        .generated_dir = .{ .step = &config_header.step },
     };
 
     return config_header;
@@ -115,9 +116,15 @@ pub fn addValues(config_header: *ConfigHeader, values: anytype) void {
     }
 }
 
-pub fn getOutput(config_header: *ConfigHeader) std.Build.LazyPath {
-    return .{ .generated = .{ .file = &config_header.output_file } };
+pub fn getOutputDir(ch: *ConfigHeader) std.Build.LazyPath {
+    return .{ .generated = .{ .file = &ch.generated_dir } };
 }
+pub fn getOutputFile(ch: *ConfigHeader) std.Build.LazyPath {
+    return ch.getOutputDir().path(ch.step.owner, ch.include_path);
+}
+
+/// Deprecated; use `getOutputFile`.
+pub const getOutput = getOutputFile;
 
 fn addValueInner(config_header: *ConfigHeader, name: []const u8, comptime T: type, value: T) !void {
     switch (@typeInfo(T)) {
@@ -234,9 +241,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     if (try step.cacheHit(&man)) {
         const digest = man.final();
-        config_header.output_file.path = try b.cache_root.join(arena, &.{
-            "o", &digest, config_header.include_path,
-        });
+        config_header.generated_dir.path = try b.cache_root.join(arena, &.{ "o", &digest });
         return;
     }
 
@@ -262,7 +267,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         });
     };
 
-    config_header.output_file.path = try b.cache_root.join(arena, &.{sub_path});
+    config_header.generated_dir.path = try b.cache_root.join(arena, &.{ "o", &digest });
     try man.writeManifest();
 }
 

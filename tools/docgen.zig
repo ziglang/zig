@@ -943,10 +943,10 @@ fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
     var cmd_cont: bool = false;
     var iter = std.mem.splitScalar(u8, trimmed_shell_content, '\n');
     while (iter.next()) |orig_line| {
-        const line = mem.trimRight(u8, orig_line, " \r");
+        const line = mem.trimEnd(u8, orig_line, " \r");
         if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] != '\\') {
             try out.writeAll("$ <kbd>");
-            const s = std.mem.trimLeft(u8, line[1..], " ");
+            const s = std.mem.trimStart(u8, line[1..], " ");
             if (escape) {
                 try writeEscaped(out, s);
             } else {
@@ -955,7 +955,7 @@ fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
             try out.writeAll("</kbd>" ++ "\n");
         } else if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] == '\\') {
             try out.writeAll("$ <kbd>");
-            const s = std.mem.trimLeft(u8, line[1..], " ");
+            const s = std.mem.trimStart(u8, line[1..], " ");
             if (escape) {
                 try writeEscaped(out, s);
             } else {

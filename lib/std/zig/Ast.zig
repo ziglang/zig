@@ -323,7 +323,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .asterisk_after_ptr_deref => {
             // Note that the token will point at the `.*` but ideally the source
             // location would point to the `*` after the `.*`.
-            return stream.writeAll("'.*' cannot be followed by '*'. Are you missing a space?");
+            return stream.writeAll("'.*' cannot be followed by '*'; are you missing a space?");
         },
         .chained_comparison_operators => {
             return stream.writeAll("comparison operators cannot be chained");
@@ -526,7 +526,7 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             return stream.writeAll("expected field initializer");
         },
         .mismatched_binary_op_whitespace => {
-            return stream.print("binary operator `{s}` has whitespace on one side, but not the other.", .{tree.tokenTag(parse_error.token).lexeme().?});
+            return stream.print("binary operator '{s}' has whitespace on one side, but not the other", .{tree.tokenTag(parse_error.token).lexeme().?});
         },
         .invalid_ampersand_ampersand => {
             return stream.writeAll("ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND");

@@ -65,12 +65,7 @@ pub fn invalidErrorCode() noreturn {
     @trap();
 }
 
-pub fn castTruncatedData() noreturn {
-    @branchHint(.cold);
-    @trap();
-}
-
-pub fn negativeToUnsigned() noreturn {
+pub fn integerOutOfBounds() noreturn {
     @branchHint(.cold);
     @trap();
 }
@@ -125,7 +120,7 @@ pub fn forLenMismatch() noreturn {
     @trap();
 }
 
-pub fn memcpyLenMismatch() noreturn {
+pub fn copyLenMismatch() noreturn {
     @branchHint(.cold);
     @trap();
 }

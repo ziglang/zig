@@ -12,26 +12,26 @@
 // F_NON_I386  - function available on everything but i386
 // F_NON_X64   - function available on everything but x86_64
 // F_NON_ARM64 - function available on everything but arm64
-#if defined(DEF_X64)
+#if defined(__x86_64__)
 #define F64(x) x
 #define F_X64(x) x
 #define F_X86_ANY(x) x
 #define F_NON_I386(x) x
 #define F_NON_ARM64(x) x
-#elif defined(DEF_I386)
+#elif defined(__i386__)
 #define F32(x) x
 #define F_I386(x) x
 #define F_X86_ANY(x) x
 #define F_NON_X64(x) x
 #define F_NON_ARM64(x) x
-#elif defined(DEF_ARM32)
+#elif defined(__arm__)
 #define F32(x) x
 #define F_ARM32(x) x
 #define F_ARM_ANY(x) x
 #define F_NON_I386(x) x
 #define F_NON_X64(x) x
 #define F_NON_ARM64(x) x
-#elif defined(DEF_ARM64)
+#elif defined(__aarch64__)
 #define F64(x) x
 #define F_ARM64(x) x
 #define F_ARM_ANY(x) x
@@ -75,9 +75,17 @@
 #define F_NON_ARM64(x)
 #endif
 
-#if defined(DEF_I386)
+#if defined(__i386__)
 #define STDCALL_DECORATED_EXPORT(symbol) symbol == _ ## symbol
 #define FASTCALL_DECORATED_EXPORT(symbol) symbol == symbol
+#endif
+
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
+#define F_LD64(x) x
+#define F_LD80(x)
+#else
+#define F_LD64(x)
+#define F_LD80(x) x
 #endif
 
 #endif // FUNC_DEF_IN

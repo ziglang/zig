@@ -19,6 +19,26 @@ code_model: std.builtin.CodeModel,
 omit_frame_pointer: bool,
 wasi_exec_model: std.builtin.WasiExecModel,
 
+/// Compute an abstract hash representing this `Builtin`. This is *not* a hash
+/// of the resulting file contents.
+pub fn hash(opts: @This()) [std.Build.Cache.bin_digest_len]u8 {
+    var h: Cache.Hasher = Cache.hasher_init;
+    inline for (@typeInfo(@This()).@"struct".fields) |f| {
+        if (comptime std.mem.eql(u8, f.name, "target")) {
+            // This needs special handling.
+            std.hash.autoHash(&h, opts.target.cpu);
+            std.hash.autoHash(&h, opts.target.os.tag);
+            std.hash.autoHash(&h, opts.target.os.versionRange());
+            std.hash.autoHash(&h, opts.target.abi);
+            std.hash.autoHash(&h, opts.target.ofmt);
+            std.hash.autoHash(&h, opts.target.dynamic_linker);
+        } else {
+            std.hash.autoHash(&h, @field(opts, f.name));
+        }
+    }
+    return h.finalResult();
+}
+
 pub fn generate(opts: @This(), allocator: Allocator) Allocator.Error![:0]u8 {
     var buffer = std.ArrayList(u8).init(allocator);
     try append(opts, &buffer);
@@ -27,7 +47,7 @@ pub fn generate(opts: @This(), allocator: Allocator) Allocator.Error![:0]u8 {
 
 pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
     const target = opts.target;
-    const generic_arch_name = target.cpu.arch.genericName();
+    const arch_family_name = @tagName(target.cpu.arch.family());
     const zig_backend = opts.zig_backend;
 
     @setEvalBranchQuota(4000);
@@ -60,9 +80,9 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         opts.single_threaded,
         std.zig.fmtId(@tagName(target.abi)),
         std.zig.fmtId(@tagName(target.cpu.arch)),
-        std.zig.fmtId(generic_arch_name),
+        std.zig.fmtId(arch_family_name),
         std.zig.fmtId(target.cpu.model.name),
-        std.zig.fmtId(generic_arch_name),
+        std.zig.fmtId(arch_family_name),
     });
 
     for (target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
@@ -263,50 +283,66 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
     }
 }
 
-pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
-    if (mod.root.statFile(mod.root_src_path)) |stat| {
+/// This essentially takes the place of `Zcu.PerThread.updateFile`, but for 'builtin' modules.
+/// Instead of reading the file from disk, its contents are generated in-memory.
+pub fn populateFile(opts: @This(), gpa: Allocator, file: *File) Allocator.Error!void {
+    assert(file.is_builtin);
+    assert(file.status == .never_loaded);
+    assert(file.source == null);
+    assert(file.tree == null);
+    assert(file.zir == null);
+
+    file.source = try opts.generate(gpa);
+
+    log.debug("parsing and generating 'builtin.zig'", .{});
+
+    file.tree = try std.zig.Ast.parse(gpa, file.source.?, .zig);
+    assert(file.tree.?.errors.len == 0); // builtin.zig must parse
+
+    file.zir = try AstGen.generate(gpa, file.tree.?);
+    assert(!file.zir.?.hasCompileErrors()); // builtin.zig must not have astgen errors
+    file.status = .success;
+}
+
+/// After `populateFile` succeeds, call this function to write the generated file out to disk
+/// if necessary. This is useful for external tooling such as debuggers.
+/// Assumes that `file.mod` is correctly set to the builtin module.
+pub fn updateFileOnDisk(file: *File, comp: *Compilation) !void {
+    assert(file.is_builtin);
+    assert(file.status == .success);
+    assert(file.source != null);
+
+    const root_dir, const sub_path = file.path.openInfo(comp.dirs);
+
+    if (root_dir.statFile(sub_path)) |stat| {
         if (stat.size != file.source.?.len) {
             std.log.warn(
-                "the cached file '{}{s}' had the wrong size. Expected {d}, found {d}. " ++
+                "the cached file '{}' had the wrong size. Expected {d}, found {d}. " ++
                     "Overwriting with correct file contents now",
-                .{ mod.root, mod.root_src_path, file.source.?.len, stat.size },
+                .{ file.path.fmt(comp), file.source.?.len, stat.size },
             );
-
-            try writeFile(file, mod);
         } else {
             file.stat = .{
                 .size = stat.size,
                 .inode = stat.inode,
                 .mtime = stat.mtime,
             };
+            return;
         }
     } else |err| switch (err) {
-        error.BadPathName => unreachable, // it's always "builtin.zig"
-        error.NameTooLong => unreachable, // it's always "builtin.zig"
-        error.PipeBusy => unreachable, // it's not a pipe
-        error.NoDevice => unreachable, // it's not a pipe
+        error.FileNotFound => {},
+
         error.WouldBlock => unreachable, // not asking for non-blocking I/O
+        error.BadPathName => unreachable, // it's always "o/digest/builtin.zig"
+        error.NameTooLong => unreachable, // it's always "o/digest/builtin.zig"
 
-        error.FileNotFound => try writeFile(file, mod),
-
+        // We don't expect the file to be a pipe, but can't mark `error.PipeBusy` as `unreachable`,
+        // because the user could always replace the file on disk.
         else => |e| return e,
     }
 
-    log.debug("parsing and generating '{s}'", .{mod.root_src_path});
-
-    file.tree = try std.zig.Ast.parse(comp.gpa, file.source.?, .zig);
-    assert(file.tree.?.errors.len == 0); // builtin.zig must parse
-
-    file.zir = try AstGen.generate(comp.gpa, file.tree.?);
-    assert(!file.zir.?.hasCompileErrors()); // builtin.zig must not have astgen errors
-    file.status = .success;
-    // Note that whilst we set `zir` here, we populated `path_digest`
-    // all the way back in `Package.Module.create`.
-}
-
-fn writeFile(file: *File, mod: *Module) !void {
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    var af = try mod.root.atomicFile(mod.root_src_path, .{ .make_path = true }, &buf);
+    // `make_path` matters because the dir hasn't actually been created yet.
+    var af = try root_dir.atomicFile(sub_path, .{ .make_path = true });
     defer af.deinit();
     try af.file.writeAll(file.source.?);
     af.finish() catch |err| switch (err) {
@@ -331,6 +367,7 @@ fn writeFile(file: *File, mod: *Module) !void {
 const builtin = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Cache = std.Build.Cache;
 const build_options = @import("build_options");
 const Module = @import("Package/Module.zig");
 const assert = std.debug.assert;

@@ -1394,6 +1394,7 @@ test "pwritev, preadv" {
 test "setEndPos" {
     // https://github.com/ziglang/zig/issues/20747 (open fd does not have write permission)
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23806
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1434,14 +1435,17 @@ test "setEndPos" {
     try testing.expectEqual(0, try f.preadAll(&buffer, 0));
 
     // Invalid file length should error gracefully. Actual limit is host
-    // and file-system dependent, but 1PB should fail most everywhere.
-    // Except MacOS APFS limit is 8 exabytes.
+    // and file-system dependent, but 1PB should fail on filesystems like
+    // EXT4 and NTFS.  But XFS or Btrfs support up to 8EiB files.
     f.setEndPos(0x4_0000_0000_0000) catch |err| if (err != error.FileTooBig) {
         return err;
     };
 
-    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63))); // Maximum signed value
+    f.setEndPos(std.math.maxInt(u63)) catch |err| if (err != error.FileTooBig) {
+        return err;
+    };
 
+    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63) + 1));
     try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u64)));
 }
 

@@ -898,7 +898,7 @@ pub fn readFromPackedMemory(
 pub fn toFloat(val: Value, comptime T: type, zcu: *const Zcu) T {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .int => |int| switch (int.storage) {
-            .big_int => |big_int| big_int.toFloat(T),
+            .big_int => |big_int| big_int.toFloat(T, .nearest_even)[0],
             inline .u64, .i64 => |x| {
                 if (T == f80) {
                     @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
@@ -995,16 +995,6 @@ pub fn floatCast(val: Value, dest_ty: Type, pt: Zcu.PerThread) !Value {
             else => unreachable,
         },
     } }));
-}
-
-/// Asserts the value is a float
-pub fn floatHasFraction(self: Value, zcu: *const Zcu) bool {
-    return switch (zcu.intern_pool.indexToKey(self.toIntern())) {
-        .float => |float| switch (float.storage) {
-            inline else => |x| @rem(x, 1) != 0,
-        },
-        else => unreachable,
-    };
 }
 
 pub fn orderAgainstZero(lhs: Value, zcu: *Zcu) std.math.Order {
@@ -1325,21 +1315,6 @@ pub fn isLazySize(val: Value, zcu: *Zcu) bool {
     };
 }
 
-pub fn isPtrRuntimeValue(val: Value, zcu: *Zcu) bool {
-    const ip = &zcu.intern_pool;
-    const nav = ip.getBackingNav(val.toIntern()).unwrap() orelse return false;
-    const nav_val = switch (ip.getNav(nav).status) {
-        .unresolved => unreachable,
-        .type_resolved => |r| return r.is_threadlocal,
-        .fully_resolved => |r| r.val,
-    };
-    return switch (ip.indexToKey(nav_val)) {
-        .@"extern" => |e| e.is_threadlocal or e.is_dll_import,
-        .variable => |v| v.is_threadlocal,
-        else => false,
-    };
-}
-
 // Asserts that the provided start/end are in-bounds.
 pub fn sliceArray(
     val: Value,
@@ -1572,17 +1547,13 @@ pub fn floatFromIntAdvanced(
 }
 
 pub fn floatFromIntScalar(val: Value, float_ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) !Value {
-    const zcu = pt.zcu;
-    return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
+    return switch (pt.zcu.intern_pool.indexToKey(val.toIntern())) {
         .undef => try pt.undefValue(float_ty),
         .int => |int| switch (int.storage) {
-            .big_int => |big_int| {
-                const float = big_int.toFloat(f128);
-                return pt.floatValue(float_ty, float);
-            },
+            .big_int => |big_int| pt.floatValue(float_ty, big_int.toFloat(f128, .nearest_even)[0]),
             inline .u64, .i64 => |x| floatFromIntInner(x, float_ty, pt),
-            .lazy_align => |ty| return floatFromIntInner((try Type.fromInterned(ty).abiAlignmentInner(strat.toLazy(), pt.zcu, pt.tid)).scalar.toByteUnits() orelse 0, float_ty, pt),
-            .lazy_size => |ty| return floatFromIntInner((try Type.fromInterned(ty).abiSizeInner(strat.toLazy(), pt.zcu, pt.tid)).scalar, float_ty, pt),
+            .lazy_align => |ty| floatFromIntInner((try Type.fromInterned(ty).abiAlignmentInner(strat.toLazy(), pt.zcu, pt.tid)).scalar.toByteUnits() orelse 0, float_ty, pt),
+            .lazy_size => |ty| floatFromIntInner((try Type.fromInterned(ty).abiSizeInner(strat.toLazy(), pt.zcu, pt.tid)).scalar, float_ty, pt),
         },
         else => unreachable,
     };
@@ -1642,7 +1613,7 @@ pub fn numberMin(lhs: Value, rhs: Value, zcu: *Zcu) Value {
     };
 }
 
-/// operands must be (vectors of) integers; handles undefined scalars.
+/// operands must be (vectors of) integers or bools; handles undefined scalars.
 pub fn bitwiseNot(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (ty.zigTypeTag(zcu) == .vector) {
@@ -1660,7 +1631,7 @@ pub fn bitwiseNot(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Va
     return bitwiseNotScalar(val, ty, arena, pt);
 }
 
-/// operands must be integers; handles undefined.
+/// operands must be integers or bools; handles undefined.
 pub fn bitwiseNotScalar(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (val.isUndef(zcu)) return Value.fromInterned(try pt.intern(.{ .undef = ty.toIntern() }));
@@ -1686,7 +1657,7 @@ pub fn bitwiseNotScalar(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThrea
     return pt.intValue_big(ty, result_bigint.toConst());
 }
 
-/// operands must be (vectors of) integers; handles undefined scalars.
+/// operands must be (vectors of) integers or bools; handles undefined scalars.
 pub fn bitwiseAnd(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (ty.zigTypeTag(zcu) == .vector) {
@@ -1705,7 +1676,7 @@ pub fn bitwiseAnd(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zc
     return bitwiseAndScalar(lhs, rhs, ty, allocator, pt);
 }
 
-/// operands must be integers; handles undefined.
+/// operands must be integers or bools; handles undefined.
 pub fn bitwiseAndScalar(orig_lhs: Value, orig_rhs: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     // If one operand is defined, we turn the other into `0xAA` so the bitwise AND can
@@ -1759,7 +1730,7 @@ fn intValueAa(ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     return pt.intValue_big(ty, result_bigint.toConst());
 }
 
-/// operands must be (vectors of) integers; handles undefined scalars.
+/// operands must be (vectors of) integers or bools; handles undefined scalars.
 pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (ty.zigTypeTag(zcu) == .vector) {
@@ -1778,7 +1749,7 @@ pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: Allocator, pt: Zcu.P
     return bitwiseNandScalar(lhs, rhs, ty, arena, pt);
 }
 
-/// operands must be integers; handles undefined.
+/// operands must be integers or bools; handles undefined.
 pub fn bitwiseNandScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) return Value.fromInterned(try pt.intern(.{ .undef = ty.toIntern() }));
@@ -1789,7 +1760,7 @@ pub fn bitwiseNandScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, pt:
     return bitwiseXor(anded, all_ones, ty, arena, pt);
 }
 
-/// operands must be (vectors of) integers; handles undefined scalars.
+/// operands must be (vectors of) integers or bools; handles undefined scalars.
 pub fn bitwiseOr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (ty.zigTypeTag(zcu) == .vector) {
@@ -1808,7 +1779,7 @@ pub fn bitwiseOr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu
     return bitwiseOrScalar(lhs, rhs, ty, allocator, pt);
 }
 
-/// operands must be integers; handles undefined.
+/// operands must be integers or bools; handles undefined.
 pub fn bitwiseOrScalar(orig_lhs: Value, orig_rhs: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     // If one operand is defined, we turn the other into `0xAA` so the bitwise AND can
     // still zero out some bits.
@@ -1842,7 +1813,7 @@ pub fn bitwiseOrScalar(orig_lhs: Value, orig_rhs: Value, ty: Type, arena: Alloca
     return pt.intValue_big(ty, result_bigint.toConst());
 }
 
-/// operands must be (vectors of) integers; handles undefined scalars.
+/// operands must be (vectors of) integers or bools; handles undefined scalars.
 pub fn bitwiseXor(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (ty.zigTypeTag(zcu) == .vector) {
@@ -1861,7 +1832,7 @@ pub fn bitwiseXor(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zc
     return bitwiseXorScalar(lhs, rhs, ty, allocator, pt);
 }
 
-/// operands must be integers; handles undefined.
+/// operands must be integers or bools; handles undefined.
 pub fn bitwiseXorScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) return Value.fromInterned(try pt.intern(.{ .undef = ty.toIntern() }));
@@ -2910,19 +2881,25 @@ pub fn intValueBounds(val: Value, pt: Zcu.PerThread) !?[2]Value {
 
 pub const BigIntSpace = InternPool.Key.Int.Storage.BigIntSpace;
 
-pub const zero_usize: Value = .{ .ip_index = .zero_usize };
-pub const zero_u8: Value = .{ .ip_index = .zero_u8 };
-pub const zero_comptime_int: Value = .{ .ip_index = .zero };
-pub const one_comptime_int: Value = .{ .ip_index = .one };
-pub const negative_one_comptime_int: Value = .{ .ip_index = .negative_one };
 pub const undef: Value = .{ .ip_index = .undef };
+pub const undef_bool: Value = .{ .ip_index = .undef_bool };
+pub const undef_usize: Value = .{ .ip_index = .undef_usize };
+pub const undef_u1: Value = .{ .ip_index = .undef_u1 };
+pub const zero_comptime_int: Value = .{ .ip_index = .zero };
+pub const zero_usize: Value = .{ .ip_index = .zero_usize };
+pub const zero_u1: Value = .{ .ip_index = .zero_u1 };
+pub const zero_u8: Value = .{ .ip_index = .zero_u8 };
+pub const one_comptime_int: Value = .{ .ip_index = .one };
+pub const one_usize: Value = .{ .ip_index = .one_usize };
+pub const one_u1: Value = .{ .ip_index = .one_u1 };
+pub const one_u8: Value = .{ .ip_index = .one_u8 };
+pub const four_u8: Value = .{ .ip_index = .four_u8 };
+pub const negative_one_comptime_int: Value = .{ .ip_index = .negative_one };
 pub const @"void": Value = .{ .ip_index = .void_value };
-pub const @"null": Value = .{ .ip_index = .null_value };
-pub const @"false": Value = .{ .ip_index = .bool_false };
-pub const @"true": Value = .{ .ip_index = .bool_true };
 pub const @"unreachable": Value = .{ .ip_index = .unreachable_value };
-
-pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type };
+pub const @"null": Value = .{ .ip_index = .null_value };
+pub const @"true": Value = .{ .ip_index = .bool_true };
+pub const @"false": Value = .{ .ip_index = .bool_false };
 pub const empty_tuple: Value = .{ .ip_index = .empty_tuple };
 
 pub fn makeBool(x: bool) Value {
@@ -3814,7 +3791,7 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
         .@"enum" => switch (interpret_mode) {
             .direct => {
                 const int = val.getUnsignedInt(zcu) orelse return error.TypeMismatch;
-                return std.meta.intToEnum(T, int) catch error.TypeMismatch;
+                return std.enums.fromInt(T, int) orelse error.TypeMismatch;
             },
             .by_name => {
                 const field_index = ty.enumTagFieldIndex(val, zcu) orelse return error.TypeMismatch;

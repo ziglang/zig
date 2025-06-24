@@ -284,15 +284,11 @@ fn collectLibDirsAndTriples(
         },
         .x86 => {
             lib_dirs.appendSliceAssumeCapacity(&X86LibDirs);
-            // MCU toolchain is 32 bit only and its triple alias is TargetTriple
-            // itself, which will be appended below.
-            if (target.os.tag != .elfiamcu) {
-                triple_aliases.appendSliceAssumeCapacity(&X86Triples);
-                biarch_libdirs.appendSliceAssumeCapacity(&X86_64LibDirs);
-                biarch_triple_aliases.appendSliceAssumeCapacity(&X86_64Triples);
-                biarch_libdirs.appendSliceAssumeCapacity(&X32LibDirs);
-                biarch_triple_aliases.appendSliceAssumeCapacity(&X32Triples);
-            }
+            triple_aliases.appendSliceAssumeCapacity(&X86Triples);
+            biarch_libdirs.appendSliceAssumeCapacity(&X86_64LibDirs);
+            biarch_triple_aliases.appendSliceAssumeCapacity(&X86_64Triples);
+            biarch_libdirs.appendSliceAssumeCapacity(&X32LibDirs);
+            biarch_triple_aliases.appendSliceAssumeCapacity(&X32Triples);
         },
         .loongarch64 => {
             lib_dirs.appendSliceAssumeCapacity(&LoongArch64LibDirs);
@@ -511,7 +507,7 @@ fn findBiarchMultilibs(
 
     const multilib_filter = Multilib.Filter{
         .base = path,
-        .file = if (target.os.tag == .elfiamcu) "libgcc.a" else "crtbegin.o",
+        .file = "crtbegin.o",
     };
 
     const Want = enum {

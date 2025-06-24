@@ -1,17 +1,22 @@
 const AddOneBit = math.AddOneBit;
+const AsSignedness = math.AsSignedness;
 const cast = math.cast;
+const ChangeScalar = math.ChangeScalar;
 const checkExpected = math.checkExpected;
 const Compare = math.Compare;
 const DoubleBits = math.DoubleBits;
 const fmax = math.fmax;
 const fmin = math.fmin;
 const Gpr = math.Gpr;
+const imax = math.imax;
 const inf = math.inf;
 const Log2Int = math.Log2Int;
 const math = @import("math.zig");
 const nan = math.nan;
 const Scalar = math.Scalar;
+const select = math.select;
 const sign = math.sign;
+const splat = math.splat;
 const Sse = math.Sse;
 const tmin = math.tmin;
 
@@ -79,6 +84,12 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
                 imm_rhs,
                 imm_rhs,
             );
+        }
+        fn testBools() !void {
+            try testArgs(bool, false, false);
+            try testArgs(bool, false, true);
+            try testArgs(bool, true, false);
+            try testArgs(bool, true, true);
         }
         fn testInts() !void {
             try testArgs(i1, 0x0, -0x1);
@@ -1877,6 +1888,23 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
             try testArgs(f128, nan(f128), inf(f128));
             try testArgs(f128, nan(f128), nan(f128));
         }
+        fn testBoolVectors() !void {
+            try testArgs(@Vector(1, bool), .{
+                false,
+            }, .{
+                true,
+            });
+            try testArgs(@Vector(2, bool), .{
+                false, true,
+            }, .{
+                true, false,
+            });
+            try testArgs(@Vector(4, bool), .{
+                false, false, true, true,
+            }, .{
+                false, true, false, true,
+            });
+        }
         fn testIntVectors() !void {
             try testArgs(@Vector(1, i1), .{
                 0x0,
@@ -2615,263 +2643,23 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
                 0x1b, 0x61, 0x73, 0x63, 0x2c, 0x35, 0x25, 0x19, 0x09, 0x0c, 0x75, 0x5d, 0x01, 0x29, 0x3b, 0x0c,
             });
             try testArgs(@Vector(128, u7), .{
-                0x5c,
-                0x65,
-                0x65,
-                0x34,
-                0x31,
-                0x03,
-                0x7a,
-                0x56,
-                0x16,
-                0x74,
-                0x5c,
-                0x7f,
-                0x2a,
-                0x46,
-                0x2a,
-                0x5f,
-                0x62,
-                0x06,
-                0x51,
-                0x23,
-                0x58,
-                0x1f,
-                0x5a,
-                0x2d,
-                0x29,
-                0x21,
-                0x26,
-                0x5a,
-                0x5a,
-                0x13,
-                0x13,
-                0x46,
-                0x26,
-                0x1c,
-                0x06,
-                0x2d,
-                0x08,
-                0x52,
-                0x5b,
-                0x6f,
-                0x2d,
-                0x4a,
-                0x00,
-                0x40,
-                0x68,
-                0x27,
-                0x00,
-                0x4a,
-                0x3a,
-                0x22,
-                0x2d,
-                0x5b,
-                0x05,
-                0x26,
-                0x4e,
-                0x6f,
-                0x46,
-                0x4d,
-                0x14,
-                0x70,
-                0x51,
-                0x04,
-                0x66,
-                0x13,
-                0x4c,
-                0x7c,
-                0x67,
-                0x23,
-                0x13,
-                0x55,
-                0x1b,
-                0x30,
-                0x7d,
-                0x04,
-                0x47,
-                0x78,
-                0x05,
-                0x09,
-                0x5a,
-                0x20,
-                0x2e,
-                0x17,
-                0x11,
-                0x49,
-                0x6c,
-                0x5e,
-                0x34,
-                0x3e,
-                0x66,
-                0x60,
-                0x5d,
-                0x75,
-                0x48,
-                0x1d,
-                0x69,
-                0x67,
-                0x40,
-                0x2d,
-                0x7b,
-                0x31,
-                0x13,
-                0x60,
-                0x19,
-                0x2f,
-                0x3e,
-                0x7d,
-                0x23,
-                0x6a,
-                0x0e,
-                0x16,
-                0x44,
-                0x34,
-                0x5d,
-                0x5a,
-                0x2a,
-                0x0b,
-                0x64,
-                0x07,
-                0x22,
-                0x5b,
-                0x24,
-                0x22,
-                0x3b,
-                0x46,
-                0x23,
-                0x65,
-                0x5d,
-                0x34,
+                0x5c, 0x65, 0x65, 0x34, 0x31, 0x03, 0x7a, 0x56, 0x16, 0x74, 0x5c, 0x7f, 0x2a, 0x46, 0x2a, 0x5f,
+                0x62, 0x06, 0x51, 0x23, 0x58, 0x1f, 0x5a, 0x2d, 0x29, 0x21, 0x26, 0x5a, 0x5a, 0x13, 0x13, 0x46,
+                0x26, 0x1c, 0x06, 0x2d, 0x08, 0x52, 0x5b, 0x6f, 0x2d, 0x4a, 0x00, 0x40, 0x68, 0x27, 0x00, 0x4a,
+                0x3a, 0x22, 0x2d, 0x5b, 0x05, 0x26, 0x4e, 0x6f, 0x46, 0x4d, 0x14, 0x70, 0x51, 0x04, 0x66, 0x13,
+                0x4c, 0x7c, 0x67, 0x23, 0x13, 0x55, 0x1b, 0x30, 0x7d, 0x04, 0x47, 0x78, 0x05, 0x09, 0x5a, 0x20,
+                0x2e, 0x17, 0x11, 0x49, 0x6c, 0x5e, 0x34, 0x3e, 0x66, 0x60, 0x5d, 0x75, 0x48, 0x1d, 0x69, 0x67,
+                0x40, 0x2d, 0x7b, 0x31, 0x13, 0x60, 0x19, 0x2f, 0x3e, 0x7d, 0x23, 0x6a, 0x0e, 0x16, 0x44, 0x34,
+                0x5d, 0x5a, 0x2a, 0x0b, 0x64, 0x07, 0x22, 0x5b, 0x24, 0x22, 0x3b, 0x46, 0x23, 0x65, 0x5d, 0x34,
             }, .{
-                0x4b,
-                0x36,
-                0x7a,
-                0x13,
-                0x5a,
-                0x4b,
-                0x69,
-                0x4b,
-                0x1d,
-                0x02,
-                0x1b,
-                0x3f,
-                0x61,
-                0x21,
-                0x45,
-                0x48,
-                0x44,
-                0x61,
-                0x25,
-                0x42,
-                0x57,
-                0x7d,
-                0x7a,
-                0x45,
-                0x22,
-                0x2e,
-                0x44,
-                0x3f,
-                0x3a,
-                0x14,
-                0x07,
-                0x6e,
-                0x68,
-                0x51,
-                0x03,
-                0x6b,
-                0x11,
-                0x32,
-                0x6d,
-                0x6f,
-                0x44,
-                0x5a,
-                0x61,
-                0x6d,
-                0x71,
-                0x66,
-                0x54,
-                0x14,
-                0x5d,
-                0x56,
-                0x22,
-                0x5c,
-                0x3a,
-                0x72,
-                0x16,
-                0x39,
-                0x59,
-                0x3e,
-                0x27,
-                0x4d,
-                0x3d,
-                0x44,
-                0x72,
-                0x2c,
-                0x71,
-                0x74,
-                0x3b,
-                0x6c,
-                0x70,
-                0x39,
-                0x0f,
-                0x5c,
-                0x71,
-                0x04,
-                0x67,
-                0x02,
-                0x2c,
-                0x18,
-                0x0f,
-                0x14,
-                0x2d,
-                0x24,
-                0x51,
-                0x34,
-                0x6d,
-                0x0c,
-                0x19,
-                0x0f,
-                0x73,
-                0x79,
-                0x3d,
-                0x74,
-                0x20,
-                0x15,
-                0x22,
-                0x25,
-                0x09,
-                0x14,
-                0x09,
-                0x71,
-                0x2d,
-                0x6f,
-                0x09,
-                0x2e,
-                0x27,
-                0x75,
-                0x57,
-                0x62,
-                0x4d,
-                0x07,
-                0x62,
-                0x01,
-                0x41,
-                0x2d,
-                0x5d,
-                0x4c,
-                0x77,
-                0x10,
-                0x7f,
-                0x30,
-                0x0f,
-                0x50,
-                0x15,
-                0x39,
-                0x34,
-                0x7c,
-                0x33,
-                0x16,
+                0x4b, 0x36, 0x7a, 0x13, 0x5a, 0x4b, 0x69, 0x4b, 0x1d, 0x02, 0x1b, 0x3f, 0x61, 0x21, 0x45, 0x48,
+                0x44, 0x61, 0x25, 0x42, 0x57, 0x7d, 0x7a, 0x45, 0x22, 0x2e, 0x44, 0x3f, 0x3a, 0x14, 0x07, 0x6e,
+                0x68, 0x51, 0x03, 0x6b, 0x11, 0x32, 0x6d, 0x6f, 0x44, 0x5a, 0x61, 0x6d, 0x71, 0x66, 0x54, 0x14,
+                0x5d, 0x56, 0x22, 0x5c, 0x3a, 0x72, 0x16, 0x39, 0x59, 0x3e, 0x27, 0x4d, 0x3d, 0x44, 0x72, 0x2c,
+                0x71, 0x74, 0x3b, 0x6c, 0x70, 0x39, 0x0f, 0x5c, 0x71, 0x04, 0x67, 0x02, 0x2c, 0x18, 0x0f, 0x14,
+                0x2d, 0x24, 0x51, 0x34, 0x6d, 0x0c, 0x19, 0x0f, 0x73, 0x79, 0x3d, 0x74, 0x20, 0x15, 0x22, 0x25,
+                0x09, 0x14, 0x09, 0x71, 0x2d, 0x6f, 0x09, 0x2e, 0x27, 0x75, 0x57, 0x62, 0x4d, 0x07, 0x62, 0x01,
+                0x41, 0x2d, 0x5d, 0x4c, 0x77, 0x10, 0x7f, 0x30, 0x0f, 0x50, 0x15, 0x39, 0x34, 0x7c, 0x33, 0x16,
             });
 
             try testArgs(@Vector(1, i8), .{
@@ -5269,8 +5057,7 @@ inline fn addSafe(comptime Type: type, lhs: Type, rhs: Type) AddOneBit(Type) {
 test addSafe {
     const test_add_safe = binary(addSafe, .{});
     try test_add_safe.testInts();
-    try test_add_safe.testFloats();
-    try test_add_safe.testFloatVectors();
+    try test_add_safe.testIntVectors();
 }
 
 inline fn addWrap(comptime Type: type, lhs: Type, rhs: Type) Type {
@@ -5280,6 +5067,15 @@ test addWrap {
     const test_add_wrap = binary(addWrap, .{});
     try test_add_wrap.testInts();
     try test_add_wrap.testIntVectors();
+}
+
+inline fn addSaturate(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return lhs +| rhs;
+}
+test addSaturate {
+    const test_add_saturate = binary(addSaturate, .{});
+    try test_add_saturate.testInts();
+    try test_add_saturate.testIntVectors();
 }
 
 inline fn subUnsafe(comptime Type: type, lhs: Type, rhs: Type) AddOneBit(Type) {
@@ -5315,8 +5111,7 @@ inline fn subSafe(comptime Type: type, lhs: Type, rhs: Type) AddOneBit(Type) {
 test subSafe {
     const test_sub_safe = binary(subSafe, .{});
     try test_sub_safe.testInts();
-    try test_sub_safe.testFloats();
-    try test_sub_safe.testFloatVectors();
+    try test_sub_safe.testIntVectors();
 }
 
 inline fn subWrap(comptime Type: type, lhs: Type, rhs: Type) Type {
@@ -5328,6 +5123,15 @@ test subWrap {
     try test_sub_wrap.testIntVectors();
 }
 
+inline fn subSaturate(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return lhs -| rhs;
+}
+test subSaturate {
+    const test_sub_saturate = binary(subSaturate, .{});
+    try test_sub_saturate.testInts();
+    try test_sub_saturate.testIntVectors();
+}
+
 inline fn mulUnsafe(comptime Type: type, lhs: Type, rhs: Type) DoubleBits(Type) {
     @setRuntimeSafety(false);
     return @as(DoubleBits(Type), lhs) * rhs;
@@ -5336,6 +5140,8 @@ test mulUnsafe {
     const test_mul_unsafe = binary(mulUnsafe, .{});
     try test_mul_unsafe.testInts();
     try test_mul_unsafe.testIntVectors();
+    try test_mul_unsafe.testFloats();
+    try test_mul_unsafe.testFloatVectors();
 }
 
 inline fn mulSafe(comptime Type: type, lhs: Type, rhs: Type) DoubleBits(Type) {
@@ -5345,6 +5151,7 @@ inline fn mulSafe(comptime Type: type, lhs: Type, rhs: Type) DoubleBits(Type) {
 test mulSafe {
     const test_mul_safe = binary(mulSafe, .{});
     try test_mul_safe.testInts();
+    try test_mul_safe.testIntVectors();
 }
 
 inline fn mulWrap(comptime Type: type, lhs: Type, rhs: Type) Type {
@@ -5356,7 +5163,16 @@ test mulWrap {
     try test_mul_wrap.testIntVectors();
 }
 
-inline fn multiply(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs * rhs) {
+inline fn mulSaturate(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return lhs *| rhs;
+}
+test mulSaturate {
+    const test_mul_saturate = binary(mulSaturate, .{});
+    try test_mul_saturate.testInts();
+    try test_mul_saturate.testIntVectors();
+}
+
+inline fn multiply(comptime Type: type, lhs: Type, rhs: Type) Type {
     return lhs * rhs;
 }
 test multiply {
@@ -5365,7 +5181,7 @@ test multiply {
     try test_multiply.testFloatVectors();
 }
 
-inline fn divide(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs / rhs) {
+inline fn divide(comptime Type: type, lhs: Type, rhs: Type) Type {
     return lhs / rhs;
 }
 test divide {
@@ -5374,27 +5190,49 @@ test divide {
     try test_divide.testFloatVectors();
 }
 
-inline fn divTrunc(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@divTrunc(lhs, rhs)) {
+inline fn divTruncUnoptimized(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @divTrunc(lhs, rhs);
 }
-test divTrunc {
-    const test_div_trunc = binary(divTrunc, .{ .compare = .approx_int });
-    try test_div_trunc.testInts();
-    try test_div_trunc.testIntVectors();
-    try test_div_trunc.testFloats();
-    try test_div_trunc.testFloatVectors();
+test divTruncUnoptimized {
+    const test_div_trunc_unoptimized = binary(divTruncUnoptimized, .{ .compare = .approx_int });
+    try test_div_trunc_unoptimized.testInts();
+    try test_div_trunc_unoptimized.testIntVectors();
+    try test_div_trunc_unoptimized.testFloats();
+    try test_div_trunc_unoptimized.testFloatVectors();
 }
 
-inline fn divFloor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@divFloor(lhs, rhs)) {
+inline fn divTruncOptimized(comptime Type: type, lhs: Type, rhs: Type) Type {
+    @setFloatMode(.optimized);
+    return @divTrunc(lhs, select(@abs(rhs) > splat(Type, 0.0), rhs, splat(Type, 1.0)));
+}
+test divTruncOptimized {
+    const test_div_trunc_optimized = binary(divTruncOptimized, .{ .compare = .approx_int });
+    try test_div_trunc_optimized.testFloats();
+    try test_div_trunc_optimized.testFloatVectors();
+}
+
+inline fn divFloorUnoptimized(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @divFloor(lhs, rhs);
 }
-test divFloor {
-    const test_div_floor = binary(divFloor, .{ .compare = .approx_int });
-    try test_div_floor.testFloats();
-    try test_div_floor.testFloatVectors();
+test divFloorUnoptimized {
+    const test_div_floor_unoptimized = binary(divFloorUnoptimized, .{ .compare = .approx_int });
+    try test_div_floor_unoptimized.testInts();
+    try test_div_floor_unoptimized.testIntVectors();
+    try test_div_floor_unoptimized.testFloats();
+    try test_div_floor_unoptimized.testFloatVectors();
 }
 
-inline fn rem(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@rem(lhs, rhs)) {
+inline fn divFloorOptimized(comptime Type: type, lhs: Type, rhs: Type) Type {
+    @setFloatMode(.optimized);
+    return @divFloor(lhs, select(@abs(rhs) > splat(Type, 0.0), rhs, splat(Type, 1.0)));
+}
+test divFloorOptimized {
+    const test_div_floor_optimized = binary(divFloorOptimized, .{ .compare = .approx_int });
+    try test_div_floor_optimized.testFloats();
+    try test_div_floor_optimized.testFloatVectors();
+}
+
+inline fn rem(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @rem(lhs, rhs);
 }
 test rem {
@@ -5405,9 +5243,9 @@ test rem {
     try test_rem.testFloatVectors();
 }
 
-inline fn mod(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@mod(lhs, rhs)) {
+inline fn mod(comptime Type: type, lhs: Type, rhs: Type) Type {
     // workaround llvm backend bugs
-    if (@inComptime()) {
+    if (@inComptime() and @typeInfo(Scalar(Type)) == .float) {
         const scalarMod = struct {
             fn scalarMod(scalar_lhs: Scalar(Type), scalar_rhs: Scalar(Type)) Scalar(Type) {
                 const scalar_rem = @rem(scalar_lhs, scalar_rhs);
@@ -5426,7 +5264,10 @@ inline fn mod(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@mod(lhs, rhs))
     return @mod(lhs, rhs);
 }
 test mod {
+    if (@import("builtin").object_format == .coff) return error.SkipZigTest;
     const test_mod = binary(mod, .{});
+    try test_mod.testInts();
+    try test_mod.testIntVectors();
     try test_mod.testFloats();
     try test_mod.testFloatVectors();
 }
@@ -5453,150 +5294,202 @@ test min {
     try test_min.testFloatVectors();
 }
 
-inline fn addWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
+inline fn addWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, ChangeScalar(Type, u1) } {
     return @addWithOverflow(lhs, rhs);
 }
 test addWithOverflow {
     const test_add_with_overflow = binary(addWithOverflow, .{});
     try test_add_with_overflow.testInts();
+    try test_add_with_overflow.testIntVectors();
 }
 
-inline fn subWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
+inline fn subWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, ChangeScalar(Type, u1) } {
     return @subWithOverflow(lhs, rhs);
 }
 test subWithOverflow {
     const test_sub_with_overflow = binary(subWithOverflow, .{});
     try test_sub_with_overflow.testInts();
+    try test_sub_with_overflow.testIntVectors();
 }
 
-inline fn mulWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, u1 } {
+inline fn mulWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, ChangeScalar(Type, u1) } {
     return @mulWithOverflow(lhs, rhs);
 }
 test mulWithOverflow {
     const test_mul_with_overflow = binary(mulWithOverflow, .{});
     try test_mul_with_overflow.testInts();
+    try test_mul_with_overflow.testIntVectors();
 }
 
-inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
+inline fn shlWithOverflow(comptime Type: type, lhs: Type, rhs: Type) struct { Type, ChangeScalar(Type, u1) } {
+    const bit_cast_rhs: AsSignedness(Type, .unsigned) = @bitCast(rhs);
+    const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
+    return @shlWithOverflow(lhs, if (comptime cast(Log2Int(Scalar(Type)), @bitSizeOf(Scalar(Type)))) |bits| truncate_rhs % splat(Log2Int(Type), bits) else truncate_rhs);
+}
+test shlWithOverflow {
+    const test_shl_with_overflow = binary(shlWithOverflow, .{});
+    try test_shl_with_overflow.testInts();
+    try test_shl_with_overflow.testIntVectors();
+}
+
+inline fn equal(comptime Type: type, lhs: Type, rhs: Type) ChangeScalar(Type, bool) {
     return lhs == rhs;
 }
 test equal {
     const test_equal = binary(equal, .{});
     try test_equal.testInts();
+    try test_equal.testIntVectors();
     try test_equal.testFloats();
+    try test_equal.testFloatVectors();
 }
 
-inline fn notEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs != rhs) {
+inline fn notEqual(comptime Type: type, lhs: Type, rhs: Type) ChangeScalar(Type, bool) {
     return lhs != rhs;
 }
 test notEqual {
     const test_not_equal = binary(notEqual, .{});
     try test_not_equal.testInts();
+    try test_not_equal.testIntVectors();
     try test_not_equal.testFloats();
+    try test_not_equal.testFloatVectors();
 }
 
-inline fn lessThan(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs < rhs) {
+inline fn lessThan(comptime Type: type, lhs: Type, rhs: Type) ChangeScalar(Type, bool) {
     return lhs < rhs;
 }
 test lessThan {
     const test_less_than = binary(lessThan, .{});
     try test_less_than.testInts();
+    try test_less_than.testIntVectors();
     try test_less_than.testFloats();
+    try test_less_than.testFloatVectors();
 }
 
-inline fn lessThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs <= rhs) {
+inline fn lessThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) ChangeScalar(Type, bool) {
     return lhs <= rhs;
 }
 test lessThanOrEqual {
     const test_less_than_or_equal = binary(lessThanOrEqual, .{});
     try test_less_than_or_equal.testInts();
+    try test_less_than_or_equal.testIntVectors();
     try test_less_than_or_equal.testFloats();
+    try test_less_than_or_equal.testFloatVectors();
 }
 
-inline fn greaterThan(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs > rhs) {
+inline fn greaterThan(comptime Type: type, lhs: Type, rhs: Type) ChangeScalar(Type, bool) {
     return lhs > rhs;
 }
 test greaterThan {
     const test_greater_than = binary(greaterThan, .{});
     try test_greater_than.testInts();
+    try test_greater_than.testIntVectors();
     try test_greater_than.testFloats();
+    try test_greater_than.testFloatVectors();
 }
 
-inline fn greaterThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs >= rhs) {
+inline fn greaterThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) ChangeScalar(Type, bool) {
     return lhs >= rhs;
 }
 test greaterThanOrEqual {
     const test_greater_than_or_equal = binary(greaterThanOrEqual, .{});
     try test_greater_than_or_equal.testInts();
+    try test_greater_than_or_equal.testIntVectors();
     try test_greater_than_or_equal.testFloats();
+    try test_greater_than_or_equal.testFloatVectors();
 }
 
-inline fn bitAnd(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs & rhs) {
+inline fn bitAnd(comptime Type: type, lhs: Type, rhs: Type) Type {
     return lhs & rhs;
 }
 test bitAnd {
     const test_bit_and = binary(bitAnd, .{});
+    try test_bit_and.testBools();
+    try test_bit_and.testBoolVectors();
     try test_bit_and.testInts();
     try test_bit_and.testIntVectors();
 }
 
-inline fn bitOr(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs | rhs) {
+inline fn bitOr(comptime Type: type, lhs: Type, rhs: Type) Type {
     return lhs | rhs;
 }
 test bitOr {
     const test_bit_or = binary(bitOr, .{});
+    try test_bit_or.testBools();
+    try test_bit_or.testBoolVectors();
     try test_bit_or.testInts();
     try test_bit_or.testIntVectors();
 }
 
 inline fn shr(comptime Type: type, lhs: Type, rhs: Type) Type {
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: AsSignedness(Type, .unsigned) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
-    return lhs >> if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
+    return lhs >> if (comptime cast(Log2Int(Scalar(Type)), @bitSizeOf(Scalar(Type)))) |bits| truncate_rhs % splat(Log2Int(Type), bits) else truncate_rhs;
 }
 test shr {
     const test_shr = binary(shr, .{});
     try test_shr.testInts();
+    try test_shr.testIntVectors();
 }
 
 inline fn shrExact(comptime Type: type, lhs: Type, rhs: Type) Type {
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: AsSignedness(Type, .unsigned) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
-    const final_rhs = if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
+    const final_rhs = if (comptime cast(Log2Int(Scalar(Type)), @bitSizeOf(Scalar(Type)))) |bits| truncate_rhs % splat(Log2Int(Type), bits) else truncate_rhs;
     return @shrExact(lhs >> final_rhs << final_rhs, final_rhs);
 }
 test shrExact {
     const test_shr_exact = binary(shrExact, .{});
     try test_shr_exact.testInts();
+    try test_shr_exact.testIntVectors();
 }
 
 inline fn shl(comptime Type: type, lhs: Type, rhs: Type) Type {
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: AsSignedness(Type, .unsigned) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
-    return lhs << if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
+    return lhs << if (comptime cast(Log2Int(Scalar(Type)), @bitSizeOf(Scalar(Type)))) |bits| truncate_rhs % splat(Log2Int(Type), bits) else truncate_rhs;
 }
 test shl {
     const test_shl = binary(shl, .{});
     try test_shl.testInts();
+    try test_shl.testIntVectors();
 }
 
 inline fn shlExactUnsafe(comptime Type: type, lhs: Type, rhs: Type) Type {
     @setRuntimeSafety(false);
-    const bit_cast_rhs: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Type) } }) = @bitCast(rhs);
+    const bit_cast_rhs: AsSignedness(Type, .unsigned) = @bitCast(rhs);
     const truncate_rhs: Log2Int(Type) = @truncate(bit_cast_rhs);
-    const final_rhs = if (comptime cast(Log2Int(Type), @bitSizeOf(Type))) |bits| truncate_rhs % bits else truncate_rhs;
+    const final_rhs = if (comptime cast(Log2Int(Scalar(Type)), @bitSizeOf(Scalar(Type)))) |bits| truncate_rhs % splat(Log2Int(Type), bits) else truncate_rhs;
     return @shlExact(lhs << final_rhs >> final_rhs, final_rhs);
 }
 test shlExactUnsafe {
     const test_shl_exact_unsafe = binary(shlExactUnsafe, .{});
     try test_shl_exact_unsafe.testInts();
+    try test_shl_exact_unsafe.testIntVectors();
 }
 
-inline fn bitXor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs ^ rhs) {
+inline fn shlSaturate(comptime Type: type, lhs: Type, rhs: Type) Type {
+    // workaround https://github.com/ziglang/zig/issues/23034
+    if (@inComptime()) {
+        // workaround https://github.com/ziglang/zig/issues/23139
+        return lhs <<| @min(@abs(rhs), splat(ChangeScalar(Type, u64), imax(u64)));
+    }
+    // workaround https://github.com/ziglang/zig/issues/23033
+    @setRuntimeSafety(false);
+    return lhs <<| @abs(rhs);
+}
+test shlSaturate {
+    const test_shl_saturate = binary(shlSaturate, .{});
+    try test_shl_saturate.testInts();
+    try test_shl_saturate.testIntVectors();
+}
+
+inline fn bitXor(comptime Type: type, lhs: Type, rhs: Type) Type {
     return lhs ^ rhs;
 }
 test bitXor {
     const test_bit_xor = binary(bitXor, .{});
+    try test_bit_xor.testBools();
+    try test_bit_xor.testBoolVectors();
     try test_bit_xor.testInts();
     try test_bit_xor.testIntVectors();
 }
@@ -5621,7 +5514,61 @@ test optionalsNotEqual {
     try test_optionals_not_equal.testFloats();
 }
 
-inline fn mulAdd(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@mulAdd(Type, lhs, rhs, rhs)) {
+inline fn reduceAndEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    return @reduce(.And, lhs == rhs);
+}
+test reduceAndEqual {
+    const test_reduce_and_equal = binary(reduceAndEqual, .{});
+    try test_reduce_and_equal.testIntVectors();
+    try test_reduce_and_equal.testFloatVectors();
+}
+
+inline fn reduceAndNotEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    return @reduce(.And, lhs != rhs);
+}
+test reduceAndNotEqual {
+    const test_reduce_and_not_equal = binary(reduceAndNotEqual, .{});
+    try test_reduce_and_not_equal.testIntVectors();
+    try test_reduce_and_not_equal.testFloatVectors();
+}
+
+inline fn reduceOrEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    return @reduce(.Or, lhs == rhs);
+}
+test reduceOrEqual {
+    const test_reduce_or_equal = binary(reduceOrEqual, .{});
+    try test_reduce_or_equal.testIntVectors();
+    try test_reduce_or_equal.testFloatVectors();
+}
+
+inline fn reduceOrNotEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    return @reduce(.Or, lhs != rhs);
+}
+test reduceOrNotEqual {
+    const test_reduce_or_not_equal = binary(reduceOrNotEqual, .{});
+    try test_reduce_or_not_equal.testIntVectors();
+    try test_reduce_or_not_equal.testFloatVectors();
+}
+
+inline fn reduceXorEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    return @reduce(.Xor, lhs == rhs);
+}
+test reduceXorEqual {
+    const test_reduce_xor_equal = binary(reduceXorEqual, .{});
+    try test_reduce_xor_equal.testIntVectors();
+    try test_reduce_xor_equal.testFloatVectors();
+}
+
+inline fn reduceXorNotEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    return @reduce(.Xor, lhs != rhs);
+}
+test reduceXorNotEqual {
+    const test_reduce_xor_not_equal = binary(reduceXorNotEqual, .{});
+    try test_reduce_xor_not_equal.testIntVectors();
+    try test_reduce_xor_not_equal.testFloatVectors();
+}
+
+inline fn mulAdd(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @mulAdd(Type, lhs, rhs, rhs);
 }
 test mulAdd {

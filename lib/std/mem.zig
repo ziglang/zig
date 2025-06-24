@@ -232,6 +232,7 @@ test "Allocator alloc and remap with zero-bit type" {
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
+/// This function is deprecated; use @memmove instead.
 pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
     for (dest[0..source.len], source) |*d, s| d.* = s;
 }
@@ -239,6 +240,7 @@ pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be >= src.ptr.
+/// This function is deprecated; use @memmove instead.
 pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     // TODO instead of manually doing this check for the whole array
     // and turning off runtime safety, the compiler should detect loops like
@@ -673,10 +675,12 @@ test lessThan {
 }
 
 const eqlBytes_allowed = switch (builtin.zig_backend) {
+    // These backends don't support vectors yet.
+    .stage2_powerpc,
+    .stage2_riscv64,
+    => false,
     // The SPIR-V backend does not support the optimized path yet.
-    .stage2_spirv64 => false,
-    // The RISC-V does not support vectors.
-    .stage2_riscv64 => false,
+    .stage2_spirv => false,
     // The naive memory comparison implementation is more useful for fuzzers to
     // find interesting inputs.
     else => !builtin.fuzz,
@@ -1198,18 +1202,32 @@ pub fn allEqual(comptime T: type, slice: []const T, scalar: T) bool {
 }
 
 /// Remove a set of values from the beginning of a slice.
-pub fn trimLeft(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
+pub fn trimStart(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var begin: usize = 0;
     while (begin < slice.len and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
     return slice[begin..];
 }
 
+test trimStart {
+    try testing.expectEqualSlices(u8, "foo\n ", trimStart(u8, " foo\n ", " \n"));
+}
+
+/// Deprecated: use `trimStart` instead.
+pub const trimLeft = trimStart;
+
 /// Remove a set of values from the end of a slice.
-pub fn trimRight(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
+pub fn trimEnd(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
     var end: usize = slice.len;
     while (end > 0 and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
     return slice[0..end];
 }
+
+test trimEnd {
+    try testing.expectEqualSlices(u8, " foo", trimEnd(u8, " foo\n ", " \n"));
+}
+
+/// Deprecated: use `trimEnd` instead.
+pub const trimRight = trimEnd;
 
 /// Remove a set of values from the beginning and end of a slice.
 pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []const T {
@@ -1221,8 +1239,6 @@ pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) []co
 }
 
 test trim {
-    try testing.expectEqualSlices(u8, "foo\n ", trimLeft(u8, " foo\n ", " \n"));
-    try testing.expectEqualSlices(u8, " foo", trimRight(u8, " foo\n ", " \n"));
     try testing.expectEqualSlices(u8, "foo", trim(u8, " foo\n ", " \n"));
     try testing.expectEqualSlices(u8, "foo", trim(u8, "foo", " \n"));
 }
@@ -2134,7 +2150,7 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                     } else {
                         byteSwapAllFields(f.type, &@field(ptr, f.name));
                     },
-                    .array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
+                    .@"union", .array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
                     .@"enum" => {
                         @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
                     },
@@ -2148,10 +2164,25 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                 }
             }
         },
+        .@"union" => |union_info| {
+            if (union_info.tag_type != null) {
+                @compileError("byteSwapAllFields expects an untagged union");
+            }
+
+            const first_size = @bitSizeOf(union_info.fields[0].type);
+            inline for (union_info.fields) |field| {
+                if (@bitSizeOf(field.type) != first_size) {
+                    @compileError("Unable to byte-swap unions with varying field sizes");
+                }
+            }
+
+            const BackingInt = std.meta.Int(.unsigned, @bitSizeOf(S));
+            ptr.* = @bitCast(@byteSwap(@as(BackingInt, @bitCast(ptr.*))));
+        },
         .array => {
             for (ptr) |*item| {
                 switch (@typeInfo(@TypeOf(item.*))) {
-                    .@"struct", .array => byteSwapAllFields(@TypeOf(item.*), item),
+                    .@"struct", .@"union", .array => byteSwapAllFields(@TypeOf(item.*), item),
                     .@"enum" => {
                         item.* = @enumFromInt(@byteSwap(@intFromEnum(item.*)));
                     },
@@ -2177,6 +2208,7 @@ test byteSwapAllFields {
         f3: [1]u8,
         f4: bool,
         f5: f32,
+        f6: extern union { f0: u16, f1: u16 },
     };
     const K = extern struct {
         f0: u8,
@@ -2193,6 +2225,7 @@ test byteSwapAllFields {
         .f3 = .{0x12},
         .f4 = true,
         .f5 = @as(f32, @bitCast(@as(u32, 0x4640e400))),
+        .f6 = .{ .f0 = 0x1234 },
     };
     var k = K{
         .f0 = 0x12,
@@ -2211,6 +2244,7 @@ test byteSwapAllFields {
         .f3 = .{0x12},
         .f4 = true,
         .f5 = @as(f32, @bitCast(@as(u32, 0x00e44046))),
+        .f6 = .{ .f0 = 0x3412 },
     }, s);
     try std.testing.expectEqual(K{
         .f0 = 0x12,

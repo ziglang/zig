@@ -120,10 +120,12 @@ struct iconv_hooks {
 	void				*data;
 };
 
+#ifndef __APPLE__
 /*
  * Fallbacks aren't supported but type definitions are provided for
  * source compatibility.
  */
+#endif
 typedef void (*iconv_unicode_mb_to_uc_fallback) (const char*,
 		size_t, void (*write_replacement) (const unsigned int *,
 		size_t, void*),	void*, void*);

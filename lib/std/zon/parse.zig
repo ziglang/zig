@@ -593,7 +593,7 @@ const Parser = struct {
         switch (node.get(self.zoir)) {
             .int_literal => |int| switch (int) {
                 .small => |val| return @floatFromInt(val),
-                .big => |val| return val.toFloat(T),
+                .big => |val| return val.toFloat(T, .nearest_even)[0],
             },
             .float_literal => |val| return @floatCast(val),
             .pos_inf => return std.math.inf(T),
@@ -3091,7 +3091,6 @@ test "std.zon free on error" {
 
 test "std.zon vector" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/15330
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/15329
 
     const gpa = std.testing.allocator;
 

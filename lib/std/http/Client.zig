@@ -13,7 +13,6 @@ const net = std.net;
 const Uri = std.Uri;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
-const use_vectors = builtin.zig_backend != .stage2_x86_64;
 
 const Client = @This();
 const proto = @import("protocol.zig");
@@ -473,7 +472,7 @@ pub const Response = struct {
         };
         if (first_line[8] != ' ') return error.HttpHeadersInvalid;
         const status: http.Status = @enumFromInt(parseInt3(first_line[9..12]));
-        const reason = mem.trimLeft(u8, first_line[12..], " ");
+        const reason = mem.trimStart(u8, first_line[12..], " ");
 
         res.version = version;
         res.status = status;
@@ -594,13 +593,10 @@ pub const Response = struct {
     }
 
     fn parseInt3(text: *const [3]u8) u10 {
-        if (use_vectors) {
-            const nnn: @Vector(3, u8) = text.*;
-            const zero: @Vector(3, u8) = .{ '0', '0', '0' };
-            const mmm: @Vector(3, u10) = .{ 100, 10, 1 };
-            return @reduce(.Add, @as(@Vector(3, u10), nnn -% zero) *% mmm);
-        }
-        return std.fmt.parseInt(u10, text, 10) catch unreachable;
+        const nnn: @Vector(3, u8) = text.*;
+        const zero: @Vector(3, u8) = .{ '0', '0', '0' };
+        const mmm: @Vector(3, u10) = .{ 100, 10, 1 };
+        return @reduce(.Add, (nnn -% zero) *% mmm);
     }
 
     test parseInt3 {
@@ -1796,5 +1792,6 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
 }
 
 test {
+    _ = Response;
     _ = &initDefaultProxies;
 }

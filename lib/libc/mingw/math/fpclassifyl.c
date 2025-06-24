@@ -6,7 +6,9 @@
 #include <math.h>
 
 int __fpclassifyl (long double _x){
-#if defined(__x86_64__) || defined(_AMD64_)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
+    return __fpclassify(_x);
+#elif defined(_AMD64_) || defined(__x86_64__)
     __mingw_ldbl_type_t hlp;
     unsigned int e;
     hlp.x = _x;
@@ -23,8 +25,6 @@ int __fpclassifyl (long double _x){
       return (((hlp.lh.high & 0x7fffffff) | hlp.lh.low) == 0 ?
 	      FP_INFINITE : FP_NAN);
     return FP_NORMAL;
-#elif defined(__arm__) || defined(_ARM_) || defined(__aarch64__) || defined(_ARM64_)
-    return __fpclassify(_x);
 #elif defined(__i386__) || defined(_X86_)
   unsigned short sw;
   __asm__ __volatile__ (

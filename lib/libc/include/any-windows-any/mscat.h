@@ -66,7 +66,7 @@ extern "C" {
 #define CRYPTCAT_VERSION_1  0x100
 #define CRYPTCAT_VERSION_2  0x200
 
-#include <pshpack8.h>
+#pragma pack(push,8)
 
 typedef struct CRYPTCATATTRIBUTE_
 {
@@ -110,7 +110,7 @@ typedef struct CRYPTCATCDF_
     HANDLE hCATStore;
 } CRYPTCATCDF;
 
-#include <poppack.h>
+#pragma pack(pop)
 
 typedef void (WINAPI *PFN_CDF_PARSE_ERROR_CALLBACK)(DWORD, DWORD, WCHAR *);
 

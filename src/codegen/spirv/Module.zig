@@ -92,11 +92,12 @@ pub const Decl = struct {
 /// This models a kernel entry point.
 pub const EntryPoint = struct {
     /// The declaration that should be exported.
-    decl_index: Decl.Index,
+    decl_index: ?Decl.Index = null,
     /// The name of the kernel to be exported.
-    name: []const u8,
+    name: ?[]const u8 = null,
     /// Calling Convention
-    execution_model: spec.ExecutionModel,
+    exec_model: ?spec.ExecutionModel = null,
+    exec_mode: ?spec.ExecutionMode = null,
 };
 
 /// A general-purpose allocator which may be used to allocate resources for this module
@@ -106,7 +107,7 @@ gpa: Allocator,
 arena: std.heap.ArenaAllocator,
 
 /// Target info
-target: std.Target,
+target: *const std.Target,
 
 /// The target SPIR-V version
 version: spec.Version,
@@ -164,8 +165,6 @@ cache: struct {
     void_type: ?IdRef = null,
     int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, IdRef) = .empty,
     float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, IdRef) = .empty,
-    // This cache is required so that @Vector(X, u1) in direct representation has the
-    // same ID as @Vector(X, bool) in indirect representation.
     vector_types: std.AutoHashMapUnmanaged(struct { IdRef, u32 }, IdRef) = .empty,
     array_types: std.AutoHashMapUnmanaged(struct { IdRef, IdRef }, IdRef) = .empty,
 
@@ -186,17 +185,17 @@ decls: std.ArrayListUnmanaged(Decl) = .empty,
 decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
 
 /// The list of entry points that should be exported from this module.
-entry_points: std.ArrayListUnmanaged(EntryPoint) = .empty,
+entry_points: std.AutoArrayHashMapUnmanaged(IdRef, EntryPoint) = .empty,
 
-pub fn init(gpa: Allocator, target: std.Target) Module {
+pub fn init(gpa: Allocator, target: *const std.Target) Module {
     const version_minor: u8 = blk: {
         // Prefer higher versions
-        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_6)) break :blk 6;
-        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_5)) break :blk 5;
-        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_4)) break :blk 4;
-        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_3)) break :blk 3;
-        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_2)) break :blk 2;
-        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_1)) break :blk 1;
+        if (target.cpu.has(.spirv, .v1_6)) break :blk 6;
+        if (target.cpu.has(.spirv, .v1_5)) break :blk 5;
+        if (target.cpu.has(.spirv, .v1_4)) break :blk 4;
+        if (target.cpu.has(.spirv, .v1_3)) break :blk 3;
+        if (target.cpu.has(.spirv, .v1_2)) break :blk 2;
+        if (target.cpu.has(.spirv, .v1_1)) break :blk 1;
         break :blk 0;
     };
 
@@ -269,7 +268,7 @@ pub fn idBound(self: Module) Word {
 }
 
 pub fn hasFeature(self: *Module, feature: std.Target.spirv.Feature) bool {
-    return std.Target.spirv.featureSetHas(self.target.cpu.features, feature);
+    return self.target.cpu.has(.spirv, feature);
 }
 
 fn addEntryPointDeps(
@@ -306,19 +305,30 @@ fn entryPoints(self: *Module) !Section {
     var seen = try std.DynamicBitSetUnmanaged.initEmpty(self.gpa, self.decls.items.len);
     defer seen.deinit(self.gpa);
 
-    for (self.entry_points.items) |entry_point| {
+    for (self.entry_points.keys(), self.entry_points.values()) |entry_point_id, entry_point| {
         interface.items.len = 0;
         seen.setRangeValue(.{ .start = 0, .end = self.decls.items.len }, false);
 
-        try self.addEntryPointDeps(entry_point.decl_index, &seen, &interface);
-
-        const entry_point_id = self.declPtr(entry_point.decl_index).result_id;
+        try self.addEntryPointDeps(entry_point.decl_index.?, &seen, &interface);
         try entry_points.emit(self.gpa, .OpEntryPoint, .{
-            .execution_model = entry_point.execution_model,
+            .execution_model = entry_point.exec_model.?,
             .entry_point = entry_point_id,
-            .name = entry_point.name,
+            .name = entry_point.name.?,
             .interface = interface.items,
         });
+
+        if (entry_point.exec_mode == null and entry_point.exec_model == .Fragment) {
+            switch (self.target.os.tag) {
+                .vulkan, .opengl => |tag| {
+                    try self.sections.execution_modes.emit(self.gpa, .OpExecutionMode, .{
+                        .entry_point = entry_point_id,
+                        .mode = if (tag == .vulkan) .OriginUpperLeft else .OriginLowerLeft,
+                    });
+                },
+                .opencl => {},
+                else => unreachable,
+            }
+        }
     }
 
     return entry_points;
@@ -326,60 +336,55 @@ fn entryPoints(self: *Module) !Section {
 
 pub fn finalize(self: *Module, a: Allocator) ![]Word {
     // Emit capabilities and extensions
-    for (std.Target.spirv.all_features) |feature| {
-        if (self.target.cpu.features.isEnabled(feature.index)) {
-            const feature_tag: std.Target.spirv.Feature = @enumFromInt(feature.index);
-            switch (feature_tag) {
-                // Versions
-                .v1_0, .v1_1, .v1_2, .v1_3, .v1_4, .v1_5, .v1_6 => {},
-                // Features with no dependencies
-                .int64 => try self.addCapability(.Int64),
-                .float16 => try self.addCapability(.Float16),
-                .float64 => try self.addCapability(.Float64),
-                .matrix => try self.addCapability(.Matrix),
-                .storage_push_constant16 => {
-                    try self.addExtension("SPV_KHR_16bit_storage");
-                    try self.addCapability(.StoragePushConstant16);
-                },
-                .arbitrary_precision_integers => {
-                    try self.addExtension("SPV_INTEL_arbitrary_precision_integers");
-                    try self.addCapability(.ArbitraryPrecisionIntegersINTEL);
-                },
-                .addresses => try self.addCapability(.Addresses),
-                // Kernel
-                .kernel => try self.addCapability(.Kernel),
-                .generic_pointer => try self.addCapability(.GenericPointer),
-                .vector16 => try self.addCapability(.Vector16),
-                // Shader
-                .shader => try self.addCapability(.Shader),
-                .physical_storage_buffer => {
-                    try self.addExtension("SPV_KHR_physical_storage_buffer");
-                    try self.addCapability(.PhysicalStorageBufferAddresses);
-                },
+    switch (self.target.os.tag) {
+        .opengl => {
+            try self.addCapability(.Shader);
+            try self.addCapability(.Matrix);
+        },
+        .vulkan => {
+            try self.addCapability(.Shader);
+            try self.addCapability(.Matrix);
+            if (self.target.cpu.arch == .spirv64) {
+                try self.addExtension("SPV_KHR_physical_storage_buffer");
+                try self.addCapability(.PhysicalStorageBufferAddresses);
             }
-        }
+        },
+        .opencl, .amdhsa => {
+            try self.addCapability(.Kernel);
+            try self.addCapability(.Addresses);
+        },
+        else => unreachable,
+    }
+    if (self.target.cpu.arch == .spirv64) try self.addCapability(.Int64);
+    if (self.target.cpu.has(.spirv, .int64)) try self.addCapability(.Int64);
+    if (self.target.cpu.has(.spirv, .float16)) try self.addCapability(.Float16);
+    if (self.target.cpu.has(.spirv, .float64)) try self.addCapability(.Float64);
+    if (self.target.cpu.has(.spirv, .generic_pointer)) try self.addCapability(.GenericPointer);
+    if (self.target.cpu.has(.spirv, .vector16)) try self.addCapability(.Vector16);
+    if (self.target.cpu.has(.spirv, .storage_push_constant16)) {
+        try self.addExtension("SPV_KHR_16bit_storage");
+        try self.addCapability(.StoragePushConstant16);
+    }
+    if (self.target.cpu.has(.spirv, .arbitrary_precision_integers)) {
+        try self.addExtension("SPV_INTEL_arbitrary_precision_integers");
+        try self.addCapability(.ArbitraryPrecisionIntegersINTEL);
+    }
+    if (self.target.cpu.has(.spirv, .variable_pointers)) {
+        try self.addExtension("SPV_KHR_variable_pointers");
+        try self.addCapability(.VariablePointersStorageBuffer);
+        try self.addCapability(.VariablePointers);
     }
     // These are well supported
     try self.addCapability(.Int8);
     try self.addCapability(.Int16);
 
     // Emit memory model
-    const addressing_model: spec.AddressingModel = blk: {
-        if (self.hasFeature(.shader)) {
-            break :blk switch (self.target.cpu.arch) {
-                .spirv32 => .Logical, // TODO: I don't think this will ever be implemented.
-                .spirv64 => .PhysicalStorageBuffer64,
-                else => unreachable,
-            };
-        } else if (self.hasFeature(.kernel)) {
-            break :blk switch (self.target.cpu.arch) {
-                .spirv32 => .Physical32,
-                .spirv64 => .Physical64,
-                else => unreachable,
-            };
-        }
-
-        unreachable;
+    const addressing_model: spec.AddressingModel = switch (self.target.os.tag) {
+        .opengl => .Logical,
+        .vulkan => if (self.target.cpu.arch == .spirv32) .Logical else .PhysicalStorageBuffer64,
+        .opencl => if (self.target.cpu.arch == .spirv32) .Physical32 else .Physical64,
+        .amdhsa => .Physical64,
+        else => unreachable,
     };
     try self.sections.memory_model.emit(self.gpa, .OpMemoryModel, .{
         .addressing_model = addressing_model,
@@ -746,13 +751,15 @@ pub fn declareEntryPoint(
     self: *Module,
     decl_index: Decl.Index,
     name: []const u8,
-    execution_model: spec.ExecutionModel,
+    exec_model: spec.ExecutionModel,
+    exec_mode: ?spec.ExecutionMode,
 ) !void {
-    try self.entry_points.append(self.gpa, .{
-        .decl_index = decl_index,
-        .name = try self.arena.allocator().dupe(u8, name),
-        .execution_model = execution_model,
-    });
+    const gop = try self.entry_points.getOrPut(self.gpa, self.declPtr(decl_index).result_id);
+    gop.value_ptr.decl_index = decl_index;
+    gop.value_ptr.name = try self.arena.allocator().dupe(u8, name);
+    gop.value_ptr.exec_model = exec_model;
+    // Might've been set by assembler
+    if (!gop.found_existing) gop.value_ptr.exec_mode = exec_mode;
 }
 
 pub fn debugName(self: *Module, target: IdResult, name: []const u8) !void {

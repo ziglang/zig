@@ -1055,7 +1055,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
             _ = try astrl.expr(args[2], block, ResultInfo.none);
             return false;
         },
-        .memcpy => {
+        .memcpy, .memmove => {
             _ = try astrl.expr(args[0], block, ResultInfo.none);
             _ = try astrl.expr(args[1], block, ResultInfo.none);
             return false;

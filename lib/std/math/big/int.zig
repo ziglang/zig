@@ -18,17 +18,28 @@ const Signedness = std.builtin.Signedness;
 const native_endian = builtin.cpu.arch.endian();
 
 /// Returns the number of limbs needed to store `scalar`, which must be a
-/// primitive integer value.
+/// primitive integer or float value.
 /// Note: A comptime-known upper bound of this value that may be used
 /// instead if `scalar` is not already comptime-known is
 /// `calcTwosCompLimbCount(@typeInfo(@TypeOf(scalar)).int.bits)`
 pub fn calcLimbLen(scalar: anytype) usize {
-    if (scalar == 0) {
-        return 1;
+    switch (@typeInfo(@TypeOf(scalar))) {
+        .int, .comptime_int => {
+            if (scalar == 0) return 1;
+            const w_value = @abs(scalar);
+            return @as(usize, @intCast(@divFloor(@as(Limb, @intCast(math.log2(w_value))), limb_bits) + 1));
+        },
+        .float => {
+            const repr: std.math.FloatRepr(@TypeOf(scalar)) = @bitCast(scalar);
+            return switch (repr.exponent) {
+                .denormal => 1,
+                else => return calcNonZeroTwosCompLimbCount(@as(usize, 2) + @max(repr.exponent.unbias(), 0)),
+                .infinite => 0,
+            };
+        },
+        .comptime_float => return calcLimbLen(@as(f128, scalar)),
+        else => @compileError("expected float or int, got " ++ @typeName(@TypeOf(scalar))),
     }
-
-    const w_value = @abs(scalar);
-    return @as(usize, @intCast(@divFloor(@as(Limb, @intCast(math.log2(w_value))), limb_bits) + 1));
 }
 
 pub fn calcToStringLimbsBufferLen(a_len: usize, base: u8) usize {
@@ -134,6 +145,22 @@ pub const TwosCompIntLimit = enum {
     max,
 };
 
+pub const Round = enum {
+    /// Round to the nearest representable value, with ties broken by the representation
+    /// that ends with a 0 bit.
+    nearest_even,
+    /// Round away from zero.
+    away,
+    /// Round towards zero.
+    trunc,
+    /// Round towards negative infinity.
+    floor,
+    /// Round towards positive infinity.
+    ceil,
+};
+
+pub const Exactness = enum { inexact, exact };
+
 /// A arbitrary-precision big integer, with a fixed set of mutable limbs.
 pub const Mutable = struct {
     /// Raw digits. These are:
@@ -153,6 +180,20 @@ pub const Mutable = struct {
             .limbs = self.limbs[0..self.len],
             .positive = self.positive,
         };
+    }
+
+    pub const ConvertError = Const.ConvertError;
+
+    /// Convert `self` to `Int`.
+    ///
+    /// Returns an error if self cannot be narrowed into the requested type without truncation.
+    pub fn toInt(self: Mutable, comptime Int: type) ConvertError!Int {
+        return self.toConst().toInt(Int);
+    }
+
+    /// Convert `self` to `Float`.
+    pub fn toFloat(self: Mutable, comptime Float: type, round: Round) struct { Float, Exactness } {
+        return self.toConst().toFloat(Float, round);
     }
 
     /// Returns true if `a == 0`.
@@ -401,6 +442,65 @@ pub const Mutable = struct {
         }
     }
 
+    /// Sets the Mutable to a float value rounded according to `round`.
+    /// Returns whether the conversion was exact (`round` had no effect on the result).
+    pub fn setFloat(self: *Mutable, value: anytype, round: Round) Exactness {
+        const Float = @TypeOf(value);
+        if (Float == comptime_float) return self.setFloat(@as(f128, value), round);
+        const abs_value = @abs(value);
+        if (abs_value < 1.0) {
+            if (abs_value == 0.0) {
+                self.set(0);
+                return .exact;
+            }
+            self.set(@as(i2, round: switch (round) {
+                .nearest_even => if (abs_value <= 0.5) 0 else continue :round .away,
+                .away => if (value < 0.0) -1 else 1,
+                .trunc => 0,
+                .floor => -@as(i2, @intFromBool(value < 0.0)),
+                .ceil => @intFromBool(value > 0.0),
+            }));
+            return .inexact;
+        }
+        const Repr = std.math.FloatRepr(Float);
+        const repr: Repr = @bitCast(value);
+        const exponent = repr.exponent.unbias();
+        assert(exponent >= 0);
+        const int_bit: Repr.Mantissa = 1 << (@bitSizeOf(Repr.Mantissa) - 1);
+        const mantissa = int_bit | repr.mantissa;
+        if (exponent >= @bitSizeOf(Repr.Normalized.Fraction)) {
+            self.set(mantissa);
+            self.shiftLeft(self.toConst(), @intCast(exponent - @bitSizeOf(Repr.Normalized.Fraction)));
+            self.positive = repr.sign == .positive;
+            return .exact;
+        }
+        self.set(mantissa >> @intCast(@bitSizeOf(Repr.Normalized.Fraction) - exponent));
+        const round_bits: Repr.Normalized.Fraction = @truncate(mantissa << @intCast(exponent));
+        if (round_bits == 0) {
+            self.positive = repr.sign == .positive;
+            return .exact;
+        }
+        round: switch (round) {
+            .nearest_even => {
+                const half: Repr.Normalized.Fraction = 1 << (@bitSizeOf(Repr.Normalized.Fraction) - 1);
+                if (round_bits >= half) self.addScalar(self.toConst(), 1);
+                if (round_bits == half) self.limbs[0] &= ~@as(Limb, 1);
+            },
+            .away => self.addScalar(self.toConst(), 1),
+            .trunc => {},
+            .floor => switch (repr.sign) {
+                .positive => {},
+                .negative => continue :round .away,
+            },
+            .ceil => switch (repr.sign) {
+                .positive => continue :round .away,
+                .negative => {},
+            },
+        }
+        self.positive = repr.sign == .positive;
+        return .inexact;
+    }
+
     /// r = a + scalar
     ///
     /// r and a may be aliases.
@@ -415,12 +515,12 @@ pub const Mutable = struct {
         // in the case that scalar happens to be small in magnitude within its type, but it
         // is well worth being able to use the stack and not needing an allocator passed in.
         // Note that Mutable.init still sets len to calcLimbLen(scalar) in any case.
-        const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
+        const limbs_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
             .comptime_int => calcLimbLen(scalar),
             .int => |info| calcTwosCompLimbCount(info.bits),
             else => @compileError("expected scalar to be an int"),
         };
-        var limbs: [limb_len]Limb = undefined;
+        var limbs: [limbs_len]Limb = undefined;
         const operand = init(&limbs, scalar).toConst();
         return add(r, a, operand);
     }
@@ -2117,25 +2217,25 @@ pub const Const = struct {
     /// Deprecated; use `toInt`.
     pub const to = toInt;
 
-    /// Convert self to integer type T.
+    /// Convert `self` to `Int`.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
-    pub fn toInt(self: Const, comptime T: type) ConvertError!T {
-        switch (@typeInfo(T)) {
+    pub fn toInt(self: Const, comptime Int: type) ConvertError!Int {
+        switch (@typeInfo(Int)) {
             .int => |info| {
                 // Make sure -0 is handled correctly.
                 if (self.eqlZero()) return 0;
 
-                const UT = std.meta.Int(.unsigned, info.bits);
+                const Unsigned = std.meta.Int(.unsigned, info.bits);
 
                 if (!self.fitsInTwosComp(info.signedness, info.bits)) {
                     return error.TargetTooSmall;
                 }
 
-                var r: UT = 0;
+                var r: Unsigned = 0;
 
-                if (@sizeOf(UT) <= @sizeOf(Limb)) {
-                    r = @as(UT, @intCast(self.limbs[0]));
+                if (@sizeOf(Unsigned) <= @sizeOf(Limb)) {
+                    r = @intCast(self.limbs[0]);
                 } else {
                     for (self.limbs[0..self.limbs.len], 0..) |_, ri| {
                         const limb = self.limbs[self.limbs.len - ri - 1];
@@ -2145,40 +2245,76 @@ pub const Const = struct {
                 }
 
                 if (info.signedness == .unsigned) {
-                    return if (self.positive) @as(T, @intCast(r)) else error.NegativeIntoUnsigned;
+                    return if (self.positive) @intCast(r) else error.NegativeIntoUnsigned;
                 } else {
                     if (self.positive) {
                         return @intCast(r);
                     } else {
-                        if (math.cast(T, r)) |ok| {
+                        if (math.cast(Int, r)) |ok| {
                             return -ok;
                         } else {
-                            return minInt(T);
+                            return minInt(Int);
                         }
                     }
                 }
             },
-            else => @compileError("expected int type, found '" ++ @typeName(T) ++ "'"),
+            else => @compileError("expected int type, found '" ++ @typeName(Int) ++ "'"),
         }
     }
 
-    /// Convert self to float type T.
-    pub fn toFloat(self: Const, comptime T: type) T {
-        if (self.limbs.len == 0) return 0;
+    /// Convert self to `Float`.
+    pub fn toFloat(self: Const, comptime Float: type, round: Round) struct { Float, Exactness } {
+        if (Float == comptime_float) return self.toFloat(f128, round);
+        const normalized_abs: Const = .{
+            .limbs = self.limbs[0..llnormalize(self.limbs)],
+            .positive = true,
+        };
+        if (normalized_abs.eqlZero()) return .{ if (self.positive) 0.0 else -0.0, .exact };
 
-        const base = std.math.maxInt(std.math.big.Limb) + 1;
-        var result: f128 = 0;
-        var i: usize = self.limbs.len;
-        while (i != 0) {
-            i -= 1;
-            const limb: f128 = @floatFromInt(self.limbs[i]);
-            result = @mulAdd(f128, base, result, limb);
-        }
-        if (self.positive) {
-            return @floatCast(result);
-        } else {
-            return @floatCast(-result);
-        }
+        const Repr = std.math.FloatRepr(Float);
+        var mantissa_limbs: [calcNonZeroTwosCompLimbCount(1 + @bitSizeOf(Repr.Mantissa))]Limb = undefined;
+        var mantissa: Mutable = .{
+            .limbs = &mantissa_limbs,
+            .positive = undefined,
+            .len = undefined,
+        };
+        var exponent = normalized_abs.bitCountAbs() - 1;
+        const exactness: Exactness = exactness: {
+            if (exponent <= @bitSizeOf(Repr.Normalized.Fraction)) {
+                mantissa.shiftLeft(normalized_abs, @intCast(@bitSizeOf(Repr.Normalized.Fraction) - exponent));
+                break :exactness .exact;
+            }
+            const shift: usize = @intCast(exponent - @bitSizeOf(Repr.Normalized.Fraction));
+            mantissa.shiftRight(normalized_abs, shift);
+            const final_limb_index = (shift - 1) / limb_bits;
+            const round_bits = normalized_abs.limbs[final_limb_index] << @truncate(-%shift) |
+                @intFromBool(!std.mem.allEqual(Limb, normalized_abs.limbs[0..final_limb_index], 0));
+            if (round_bits == 0) break :exactness .exact;
+            round: switch (round) {
+                .nearest_even => {
+                    const half: Limb = 1 << (limb_bits - 1);
+                    if (round_bits >= half) mantissa.addScalar(mantissa.toConst(), 1);
+                    if (round_bits == half) mantissa.limbs[0] &= ~@as(Limb, 1);
+                },
+                .away => mantissa.addScalar(mantissa.toConst(), 1),
+                .trunc => {},
+                .floor => if (!self.positive) continue :round .away,
+                .ceil => if (self.positive) continue :round .away,
+            }
+            break :exactness .inexact;
+        };
+        const normalized_res: Repr.Normalized = .{
+            .fraction = @truncate(mantissa.toInt(Repr.Mantissa) catch |err| switch (err) {
+                error.NegativeIntoUnsigned => unreachable,
+                error.TargetTooSmall => fraction: {
+                    assert(mantissa.toConst().orderAgainstScalar(1 << @bitSizeOf(Repr.Mantissa)).compare(.eq));
+                    exponent += 1;
+                    break :fraction 1 << (@bitSizeOf(Repr.Mantissa) - 1);
+                },
+            }),
+            .exponent = std.math.lossyCast(Repr.Normalized.Exponent, exponent),
+        };
+        return .{ normalized_res.reconstruct(if (self.positive) .positive else .negative), exactness };
     }
 
     /// To allow `std.fmt.format` to work with this type.
@@ -2454,12 +2590,12 @@ pub const Const = struct {
         // in the case that scalar happens to be small in magnitude within its type, but it
         // is well worth being able to use the stack and not needing an allocator passed in.
         // Note that Mutable.init still sets len to calcLimbLen(scalar) in any case.
-        const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
+        const limbs_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
             .comptime_int => calcLimbLen(scalar),
             .int => |info| calcTwosCompLimbCount(info.bits),
             else => @compileError("expected scalar to be an int"),
         };
-        var limbs: [limb_len]Limb = undefined;
+        var limbs: [limbs_len]Limb = undefined;
         const rhs = Mutable.init(&limbs, scalar);
         return order(lhs, rhs.toConst());
     }
@@ -2739,16 +2875,16 @@ pub const Managed = struct {
     /// Deprecated; use `toInt`.
     pub const to = toInt;
 
-    /// Convert self to integer type T.
+    /// Convert `self` to `Int`.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
-    pub fn toInt(self: Managed, comptime T: type) ConvertError!T {
-        return self.toConst().toInt(T);
+    pub fn toInt(self: Managed, comptime Int: type) ConvertError!Int {
+        return self.toConst().toInt(Int);
     }
 
-    /// Convert self to float type T.
-    pub fn toFloat(self: Managed, comptime T: type) T {
-        return self.toConst().toFloat(T);
+    /// Convert `self` to `Float`.
+    pub fn toFloat(self: Managed, comptime Float: type, round: Round) struct { Float, Exactness } {
+        return self.toConst().toFloat(Float, round);
     }
 
     /// Set self from the string representation `value`.
@@ -3807,7 +3943,7 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) usize {
 
     // if the most significant limb becomes 0 after the shift
     const shrink = a[a.len - 1] >> bit_shift == 0;
-    std.debug.assert(r.len >= a.len - @intFromBool(!shrink));
+    std.debug.assert(r.len >= a.len - @intFromBool(shrink));
 
     var i: usize = 0;
     while (i < a.len - 1) : (i += 1) {
@@ -4240,7 +4376,7 @@ test {
 
 const testing_allocator = std.testing.allocator;
 test "llshl shift by whole number of limb" {
-    const padding = std.math.maxInt(Limb);
+    const padding = maxInt(Limb);
 
     var r: [10]Limb = @splat(padding);
 
@@ -4390,8 +4526,8 @@ test "llshr to 0" {
     try testOneShiftCase(.llshr, .{1,   &.{0}, &.{1}});
     try testOneShiftCase(.llshr, .{5,   &.{0}, &.{1}});
     try testOneShiftCase(.llshr, .{65,  &.{0}, &.{0, 1}});
-    try testOneShiftCase(.llshr, .{193, &.{0}, &.{0, 0, std.math.maxInt(Limb)}});
-    try testOneShiftCase(.llshr, .{193, &.{0}, &.{std.math.maxInt(Limb), 1, std.math.maxInt(Limb)}});
+    try testOneShiftCase(.llshr, .{193, &.{0}, &.{0, 0, maxInt(Limb)}});
+    try testOneShiftCase(.llshr, .{193, &.{0}, &.{maxInt(Limb), 1, maxInt(Limb)}});
     try testOneShiftCase(.llshr, .{193, &.{0}, &.{0xdeadbeef, 0xabcdefab, 0x1234}});
     // zig fmt: on
 }
@@ -4475,7 +4611,7 @@ fn testOneShiftCase(comptime function: enum { llshr, llshl }, case: Case) !void 
 }
 
 fn testOneShiftCaseNoAliasing(func: fn ([]Limb, []const Limb, usize) usize, case: Case) !void {
-    const padding = std.math.maxInt(Limb);
+    const padding = maxInt(Limb);
     var r: [20]Limb = @splat(padding);
 
     const shift = case[0];
@@ -4492,7 +4628,7 @@ fn testOneShiftCaseNoAliasing(func: fn ([]Limb, []const Limb, usize) usize, case
 }
 
 fn testOneShiftCaseAliasing(func: fn ([]Limb, []const Limb, usize) usize, case: Case, shift_direction: isize) !void {
-    const padding = std.math.maxInt(Limb);
+    const padding = maxInt(Limb);
     var r: [60]Limb = @splat(padding);
     const base = 20;
 

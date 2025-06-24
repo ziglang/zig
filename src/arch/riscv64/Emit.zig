@@ -50,8 +50,8 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
                     const sym = zo.symbol(symbol.sym_index);
 
-                    if (sym.flags.is_extern_ptr and emit.lower.pic) {
-                        return emit.fail("emit GOT relocation for symbol '{s}'", .{sym.name(elf_file)});
+                    if (emit.lower.pic) {
+                        return emit.fail("know when to emit GOT relocation for symbol '{s}'", .{sym.name(elf_file)});
                     }
 
                     const hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);

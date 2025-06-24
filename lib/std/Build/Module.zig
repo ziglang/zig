@@ -22,7 +22,7 @@ unwind_tables: ?std.builtin.UnwindTables,
 single_threaded: ?bool,
 stack_protector: ?bool,
 stack_check: ?bool,
-sanitize_c: ?bool,
+sanitize_c: ?std.zig.SanitizeC,
 sanitize_thread: ?bool,
 fuzz: ?bool,
 code_model: std.builtin.CodeModel,
@@ -33,6 +33,7 @@ omit_frame_pointer: ?bool,
 error_tracing: ?bool,
 link_libc: ?bool,
 link_libcpp: ?bool,
+no_builtin: ?bool,
 
 /// Symbols to be exported when compiling to WebAssembly.
 export_symbol_names: []const []const u8 = &.{},
@@ -172,39 +173,25 @@ pub const IncludeDir = union(enum) {
         zig_args: *std.ArrayList([]const u8),
         asking_step: ?*Step,
     ) !void {
-        switch (include_dir) {
-            .path => |include_path| {
-                try zig_args.appendSlice(&.{ "-I", include_path.getPath2(b, asking_step) });
+        const flag: []const u8, const lazy_path: LazyPath = switch (include_dir) {
+            // zig fmt: off
+            .path                  => |lp|   .{ "-I",          lp },
+            .path_system           => |lp|   .{ "-isystem",    lp },
+            .path_after            => |lp|   .{ "-idirafter",  lp },
+            .framework_path        => |lp|   .{ "-F",          lp },
+            .framework_path_system => |lp|   .{ "-iframework", lp },
+            .config_header_step    => |ch|   .{ "-I",          ch.getOutputDir() },
+            .other_step            => |comp| .{ "-I",          comp.installed_headers_include_tree.?.getDirectory() },
+            // zig fmt: on
+            .embed_path => |lazy_path| {
+                // Special case: this is a single arg.
+                const resolved = lazy_path.getPath3(b, asking_step);
+                const arg = b.fmt("--embed-dir={}", .{resolved});
+                return zig_args.append(arg);
             },
-            .path_system => |include_path| {
-                try zig_args.appendSlice(&.{ "-isystem", include_path.getPath2(b, asking_step) });
-            },
-            .path_after => |include_path| {
-                try zig_args.appendSlice(&.{ "-idirafter", include_path.getPath2(b, asking_step) });
-            },
-            .framework_path => |include_path| {
-                try zig_args.appendSlice(&.{ "-F", include_path.getPath2(b, asking_step) });
-            },
-            .framework_path_system => |include_path| {
-                try zig_args.appendSlice(&.{ "-iframework", include_path.getPath2(b, asking_step) });
-            },
-            .other_step => |other| {
-                if (other.generated_h) |header| {
-                    try zig_args.appendSlice(&.{ "-isystem", std.fs.path.dirname(header.getPath()).? });
-                }
-                if (other.installed_headers_include_tree) |include_tree| {
-                    try zig_args.appendSlice(&.{ "-I", include_tree.generated_directory.getPath() });
-                }
-            },
-            .config_header_step => |config_header| {
-                const full_file_path = config_header.output_file.getPath();
-                const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
-                try zig_args.appendSlice(&.{ "-I", header_dir_path });
-            },
-            .embed_path => |embed_path| {
-                try zig_args.append(try std.mem.concat(b.allocator, u8, &.{ "--embed-dir=", embed_path.getPath2(b, asking_step) }));
-            },
-        }
+        };
+        const resolved_str = try lazy_path.getPath3(b, asking_step).toString(b.graph.arena);
+        return zig_args.appendSlice(&.{ flag, resolved_str });
     }
 };
 
@@ -256,7 +243,7 @@ pub const CreateOptions = struct {
     code_model: std.builtin.CodeModel = .default,
     stack_protector: ?bool = null,
     stack_check: ?bool = null,
-    sanitize_c: ?bool = null,
+    sanitize_c: ?std.zig.SanitizeC = null,
     sanitize_thread: ?bool = null,
     fuzz: ?bool = null,
     /// Whether to emit machine code that integrates with Valgrind.
@@ -268,6 +255,7 @@ pub const CreateOptions = struct {
     /// more difficult to obtain stack traces. Has target-dependent effects.
     omit_frame_pointer: ?bool = null,
     error_tracing: ?bool = null,
+    no_builtin: ?bool = null,
 };
 
 pub const Import = struct {
@@ -314,6 +302,7 @@ pub fn init(
                 .omit_frame_pointer = options.omit_frame_pointer,
                 .error_tracing = options.error_tracing,
                 .export_symbol_names = &.{},
+                .no_builtin = options.no_builtin,
             };
 
             m.import_table.ensureUnusedCapacity(allocator, options.imports.len) catch @panic("OOM");
@@ -474,7 +463,7 @@ pub fn addObjectFile(m: *Module, object: LazyPath) void {
 }
 
 pub fn addObject(m: *Module, object: *Step.Compile) void {
-    assert(object.kind == .obj);
+    assert(object.kind == .obj or object.kind == .test_obj);
     m.linkLibraryOrObject(object);
 }
 
@@ -559,12 +548,18 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.stack_protector, "-fstack-protector", "-fno-stack-protector");
     try addFlag(zig_args, m.omit_frame_pointer, "-fomit-frame-pointer", "-fno-omit-frame-pointer");
     try addFlag(zig_args, m.error_tracing, "-ferror-tracing", "-fno-error-tracing");
-    try addFlag(zig_args, m.sanitize_c, "-fsanitize-c", "-fno-sanitize-c");
     try addFlag(zig_args, m.sanitize_thread, "-fsanitize-thread", "-fno-sanitize-thread");
     try addFlag(zig_args, m.fuzz, "-ffuzz", "-fno-fuzz");
     try addFlag(zig_args, m.valgrind, "-fvalgrind", "-fno-valgrind");
     try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
     try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
+    try addFlag(zig_args, m.no_builtin, "-fno-builtin", "-fbuiltin");
+
+    if (m.sanitize_c) |sc| switch (sc) {
+        .off => try zig_args.append("-fno-sanitize-c"),
+        .trap => try zig_args.append("-fsanitize-c=trap"),
+        .full => try zig_args.append("-fsanitize-c=full"),
+    };
 
     if (m.dwarf_format) |dwarf_format| {
         try zig_args.append(switch (dwarf_format) {
@@ -660,10 +655,10 @@ fn linkLibraryOrObject(m: *Module, other: *Step.Compile) void {
     m.include_dirs.append(allocator, .{ .other_step = other }) catch @panic("OOM");
 }
 
-fn requireKnownTarget(m: *Module) std.Target {
-    const resolved_target = m.resolved_target orelse
-        @panic("this API requires the Module to be created with a known 'target' field");
-    return resolved_target.result;
+fn requireKnownTarget(m: *Module) *const std.Target {
+    const resolved_target = &(m.resolved_target orelse
+        @panic("this API requires the Module to be created with a known 'target' field"));
+    return &resolved_target.result;
 }
 
 /// Elements of `modules` and `names` are matched one-to-one.

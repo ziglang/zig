@@ -96,7 +96,7 @@ pub fn parseHeader(
     file_path: Path,
     fs_file: std.fs.File,
     stat: Stat,
-    target: std.Target,
+    target: *const std.Target,
 ) !Header {
     var ehdr: elf.Elf64_Ehdr = undefined;
     {

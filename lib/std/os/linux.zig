@@ -115,7 +115,6 @@ pub const user_desc = arch_bits.user_desc;
 pub const getcontext = arch_bits.getcontext;
 
 pub const tls = @import("linux/tls.zig");
-pub const pie = @import("linux/pie.zig");
 pub const BPF = @import("linux/bpf.zig");
 pub const IOCTL = @import("linux/ioctl.zig");
 pub const SECCOMP = @import("linux/seccomp.zig");
@@ -506,7 +505,12 @@ pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 /// Whether an external or internal getauxval implementation is used.
 const extern_getauxval = switch (builtin.zig_backend) {
     // Calling extern functions is not yet supported with these backends
-    .stage2_aarch64, .stage2_arm, .stage2_riscv64, .stage2_sparc64 => false,
+    .stage2_aarch64,
+    .stage2_arm,
+    .stage2_powerpc,
+    .stage2_riscv64,
+    .stage2_sparc64,
+    => false,
     else => !builtin.link_libc,
 };
 
@@ -523,6 +527,7 @@ pub const getauxval = if (extern_getauxval) struct {
 }.getauxval else getauxvalImpl;
 
 fn getauxvalImpl(index: usize) callconv(.c) usize {
+    @disableInstrumentation();
     const auxv = elf_aux_maybe orelse return 0;
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
@@ -668,23 +673,43 @@ pub fn fallocate(fd: i32, mode: i32, offset: i64, length: i64) usize {
     }
 }
 
-pub fn futex_wait(uaddr: *const i32, futex_op: u32, val: i32, timeout: ?*const timespec) usize {
-    return syscall4(.futex, @intFromPtr(uaddr), futex_op, @as(u32, @bitCast(val)), @intFromPtr(timeout));
+// The 4th parameter to the v1 futex syscall can either be an optional
+// pointer to a timespec, or a uint32, depending on which "op" is being
+// performed.
+pub const futex_param4 = extern union {
+    timeout: ?*const timespec,
+    /// On all platforms only the bottom 32-bits of `val2` are relevant.
+    /// This is 64-bit to match the pointer in the union.
+    val2: usize,
+};
+
+/// The futex v1 syscall, see also the newer the futex2_{wait,wakeup,requeue,waitv} syscalls.
+///
+/// The futex_op parameter is a sub-command and flags.  The sub-command
+/// defines which of the subsequent paramters are relevant.
+pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout: futex_param4, uaddr2: ?*const anyopaque, val3: u32) usize {
+    return syscall6(.futex, @intFromPtr(uaddr), @as(u32, @bitCast(futex_op)), val, @intFromPtr(val2timeout.timeout), @intFromPtr(uaddr2), val3);
 }
 
-pub fn futex_wake(uaddr: *const i32, futex_op: u32, val: i32) usize {
-    return syscall3(.futex, @intFromPtr(uaddr), futex_op, @as(u32, @bitCast(val)));
+/// Three-argument variation of the v1 futex call.  Only suitable for a
+/// futex_op that ignores the remaining arguments (e.g., FUTUX_OP.WAKE).
+pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
+    return syscall3(.futex, @intFromPtr(uaddr), @as(u32, @bitCast(futex_op)), val);
 }
 
-/// Given an array of `futex_waitv`, wait on each uaddr.
+/// Four-argument variation on the v1 futex call.  Only suitable for
+/// futex_op that ignores the remaining arguments (e.g., FUTEX_OP.WAIT).
+pub fn futex_4arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
+    return syscall4(.futex, @intFromPtr(uaddr), @as(u32, @bitCast(futex_op)), val, @intFromPtr(timeout));
+}
+
+/// Given an array of `futex2_waitone`, wait on each uaddr.
 /// The thread wakes if a futex_wake() is performed at any uaddr.
-/// The syscall returns immediately if any waiter has *uaddr != val.
-/// timeout is an optional timeout value for the operation.
-/// Each waiter has individual flags.
-/// The `flags` argument for the syscall should be used solely for specifying
-/// the timeout as realtime, if needed.
-/// Flags for private futexes, sizes, etc. should be used on the
-/// individual flags of each waiter.
+/// The syscall returns immediately if any futex has *uaddr != val.
+/// timeout is an optional, absolute timeout value for the operation.
+/// The `flags` argument is for future use and currently should be `.{}`.
+/// Flags for private futexes, sizes, etc. should be set on the
+/// individual flags of each `futex2_waitone`.
 ///
 /// Returns the array index of one of the woken futexes.
 /// No further information is provided: any number of other futexes may also
@@ -692,42 +717,43 @@ pub fn futex_wake(uaddr: *const i32, futex_op: u32, val: i32) usize {
 /// the returned index may refer to any one of them.
 /// (It is not necessaryily the futex with the smallest index, nor the one
 /// most recently woken, nor...)
+///
+/// Requires at least kernel v5.16.
 pub fn futex2_waitv(
-    /// List of futexes to wait on.
-    waiters: [*]futex_waitv,
-    /// Length of `waiters`.
+    futexes: [*]const futex2_waitone,
+    /// Length of `futexes`.  Max of FUTEX2_WAITONE_MAX.
     nr_futexes: u32,
-    /// Flag for timeout (monotonic/realtime).
-    flags: u32,
-    /// Optional absolute timeout.
-    timeout: ?*const timespec,
+    flags: FUTEX2_FLAGS_WAITV,
+    /// Optional absolute timeout.  Always 64-bit, even on 32-bit platforms.
+    timeout: ?*const kernel_timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
     clockid: clockid_t,
 ) usize {
     return syscall5(
         .futex_waitv,
-        @intFromPtr(waiters),
+        @intFromPtr(futexes),
         nr_futexes,
-        flags,
+        @as(u32, @bitCast(flags)),
         @intFromPtr(timeout),
-        @bitCast(@as(isize, @intFromEnum(clockid))),
+        @intFromEnum(clockid),
     );
 }
 
-/// Wait on a futex.
-/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
-/// futex2 familiy of calls.
+/// Wait on a single futex.
+/// Identical to the futex v1 `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
+/// futex2 family of calls.
+///
+/// Requires at least kernel v6.7.
 pub fn futex2_wait(
     /// Address of the futex to wait on.
     uaddr: *const anyopaque,
     /// Value of `uaddr`.
     val: usize,
-    /// Bitmask.
+    /// Bitmask to match against incoming wakeup masks.  Must not be zero.
     mask: usize,
-    /// `FUTEX2` flags.
-    flags: u32,
-    /// Optional absolute timeout.
-    timeout: ?*const timespec,
+    flags: FUTEX2_FLAGS,
+    /// Optional absolute timeout.  Always 64-bit, even on 32-bit platforms.
+    timeout: ?*const kernel_timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
     clockid: clockid_t,
 ) usize {
@@ -736,52 +762,55 @@ pub fn futex2_wait(
         @intFromPtr(uaddr),
         val,
         mask,
-        flags,
+        @as(u32, @bitCast(flags)),
         @intFromPtr(timeout),
-        @bitCast(@as(isize, @intFromEnum(clockid))),
+        @intFromEnum(clockid),
     );
 }
 
-/// Wake a number of futexes.
-/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
+/// Wake (subset of) waiters on given futex.
+/// Identical to the traditional `FUTEX.FUTEX_WAKE_BITSET` op, except it is part of the
 /// futex2 family of calls.
+///
+/// Requires at least kernel v6.7.
 pub fn futex2_wake(
-    /// Address of the futex(es) to wake.
+    /// Futex to wake
     uaddr: *const anyopaque,
-    /// Bitmask
+    /// Bitmask to match against waiters.
     mask: usize,
-    /// Number of the futexes to wake.
-    nr: i32,
-    /// `FUTEX2` flags.
-    flags: u32,
+    /// Maximum number of waiters on the futex to wake.
+    nr_wake: i32,
+    flags: FUTEX2_FLAGS,
 ) usize {
     return syscall4(
         .futex_wake,
         @intFromPtr(uaddr),
         mask,
-        @bitCast(@as(isize, nr)),
-        flags,
+        @as(u32, @bitCast(nr_wake)),
+        @as(u32, @bitCast(flags)),
     );
 }
 
-/// Requeue a waiter from one futex to another.
+/// Wake and/or requeue waiter(s) from one futex to another.
 /// Identical to `FUTEX.CMP_REQUEUE`, except it is part of the futex2 family of calls.
+///
+/// Requires at least kernel v6.7.
 pub fn futex2_requeue(
-    /// Array describing the source and destination futex.
-    waiters: [*]futex_waitv,
-    /// Unused.
-    flags: u32,
-    /// Number of futexes to wake.
+    /// The source and destination futexes.  Must be a 2-element array.
+    waiters: [*]const futex2_waitone,
+    /// Currently unused.
+    flags: FUTEX2_FLAGS_REQUEUE,
+    /// Maximum number of waiters to wake on the source futex.
     nr_wake: i32,
-    /// Number of futexes to requeue.
+    /// Maximum number of waiters to transfer to the destination futex.
     nr_requeue: i32,
 ) usize {
     return syscall4(
         .futex_requeue,
         @intFromPtr(waiters),
-        flags,
-        @bitCast(@as(isize, nr_wake)),
-        @bitCast(@as(isize, nr_requeue)),
+        @as(u32, @bitCast(flags)),
+        @as(u32, @bitCast(nr_wake)),
+        @as(u32, @bitCast(nr_requeue)),
     );
 }
 
@@ -906,7 +935,7 @@ pub fn mknodat(dirfd: i32, path: [*:0]const u8, mode: u32, dev: u32) usize {
     return syscall4(.mknodat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode, dev);
 }
 
-pub fn mount(special: [*:0]const u8, dir: [*:0]const u8, fstype: ?[*:0]const u8, flags: u32, data: usize) usize {
+pub fn mount(special: ?[*:0]const u8, dir: [*:0]const u8, fstype: ?[*:0]const u8, flags: u32, data: usize) usize {
     return syscall5(.mount, @intFromPtr(special), @intFromPtr(dir), @intFromPtr(fstype), flags, data);
 }
 
@@ -1745,8 +1774,9 @@ pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*
     return syscall4(.rt_sigprocmask, flags, @intFromPtr(set), @intFromPtr(oldset), NSIG / 8);
 }
 
-pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
-    assert(sig >= 1);
+pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
+    assert(sig > 0);
+    assert(sig < NSIG);
     assert(sig != SIG.KILL);
     assert(sig != SIG.STOP);
 
@@ -1755,14 +1785,15 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
+        // Zig needs to install our arch restorer function with any signal handler, so
+        // must copy the Sigaction struct
         const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
         ksa = k_sigaction{
             .handler = new.handler.handler,
             .flags = new.flags | SA.RESTORER,
-            .mask = undefined,
+            .mask = new.mask,
             .restorer = @ptrCast(restorer_fn),
         };
-        @memcpy(@as([*]u8, @ptrCast(&ksa.mask))[0..mask_size], @as([*]const u8, @ptrCast(&new.mask)));
     }
 
     const ksa_arg = if (act != null) @intFromPtr(&ksa) else 0;
@@ -1777,8 +1808,8 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
 
     if (oact) |old| {
         old.handler.handler = oldksa.handler;
-        old.flags = @as(c_uint, @truncate(oldksa.flags));
-        @memcpy(@as([*]u8, @ptrCast(&old.mask))[0..mask_size], @as([*]const u8, @ptrCast(&oldksa.mask)));
+        old.flags = oldksa.flags;
+        old.mask = oldksa.mask;
     }
 
     return 0;
@@ -1786,25 +1817,48 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
 
 const usize_bits = @typeInfo(usize).int.bits;
 
-pub const sigset_t = [1024 / 32]u32;
+/// Defined as one greater than the largest defined signal number.
+pub const NSIG = if (is_mips) 128 else 65;
+
+/// Linux kernel's sigset_t.  This is logically 64-bit on most
+/// architectures, but 128-bit on MIPS.  Contrast with the 1024-bit
+/// sigset_t exported by the glibc and musl library ABIs.
+pub const sigset_t = [(NSIG - 1 + 7) / @bitSizeOf(SigsetElement)]SigsetElement;
+
+const SigsetElement = c_ulong;
 
 const sigset_len = @typeInfo(sigset_t).array.len;
 
-/// Empty set to initialize sigset_t instances from.
-pub const empty_sigset: sigset_t = [_]u32{0} ** sigset_len;
+/// Zig's SIGRTMIN, but is a function for compatibility with glibc
+pub fn sigrtmin() u8 {
+    // Default is 32 in the kernel UAPI: https://github.com/torvalds/linux/blob/78109c591b806e41987e0b83390e61d675d1f724/include/uapi/asm-generic/signal.h#L50
+    // AFAICT, all architectures that override this also set it to 32:
+    // https://github.com/search?q=repo%3Atorvalds%2Flinux+sigrtmin+path%3Auapi&type=code
+    return 32;
+}
 
-pub const filled_sigset: sigset_t = [_]u32{0x7fff_ffff} ++ [_]u32{0} ** (sigset_len - 1);
+/// Zig's SIGRTMAX, but is a function for compatibility with glibc
+pub fn sigrtmax() u8 {
+    return NSIG - 1;
+}
 
-pub const all_mask: sigset_t = [_]u32{0xffff_ffff} ** sigset_len;
+/// Zig's version of sigemptyset.  Returns initialized sigset_t.
+pub fn sigemptyset() sigset_t {
+    return [_]SigsetElement{0} ** sigset_len;
+}
 
-fn sigset_bit_index(sig: usize) struct { word: usize, mask: u32 } {
+/// Zig's version of sigfillset.  Returns initalized sigset_t.
+pub fn sigfillset() sigset_t {
+    return [_]SigsetElement{~@as(SigsetElement, 0)} ** sigset_len;
+}
+
+fn sigset_bit_index(sig: usize) struct { word: usize, mask: SigsetElement } {
     assert(sig > 0);
     assert(sig < NSIG);
     const bit = sig - 1;
-    const shift = @as(u5, @truncate(bit % 32));
     return .{
-        .word = bit / 32,
-        .mask = @as(u32, 1) << shift,
+        .word = bit / @bitSizeOf(SigsetElement),
+        .mask = @as(SigsetElement, 1) << @truncate(bit % @bitSizeOf(SigsetElement)),
     };
 }
 
@@ -2016,7 +2070,7 @@ pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: *[2]i32) usi
 
 pub fn accept(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t) usize {
     if (native_arch == .x86) {
-        return socketcall(SC.accept, &[4]usize{ fd, addr, len, 0 });
+        return socketcall(SC.accept, &[4]usize{ @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len), 0 });
     }
     return accept4(fd, addr, len, 0);
 }
@@ -3355,37 +3409,97 @@ pub const FALLOC = struct {
     pub const FL_UNSHARE_RANGE = 0x40;
 };
 
-pub const FUTEX = struct {
-    pub const WAIT = 0;
-    pub const WAKE = 1;
-    pub const FD = 2;
-    pub const REQUEUE = 3;
-    pub const CMP_REQUEUE = 4;
-    pub const WAKE_OP = 5;
-    pub const LOCK_PI = 6;
-    pub const UNLOCK_PI = 7;
-    pub const TRYLOCK_PI = 8;
-    pub const WAIT_BITSET = 9;
-    pub const WAKE_BITSET = 10;
-    pub const WAIT_REQUEUE_PI = 11;
-    pub const CMP_REQUEUE_PI = 12;
-
-    pub const PRIVATE_FLAG = 128;
-
-    pub const CLOCK_REALTIME = 256;
-
-    /// Max numbers of elements in a `futex_waitv` array.
-    pub const WAITV_MAX = 128;
+// Futex v1 API commands.  See futex man page for each command's
+// interpretation of the futex arguments.
+pub const FUTEX_COMMAND = enum(u7) {
+    WAIT = 0,
+    WAKE = 1,
+    FD = 2,
+    REQUEUE = 3,
+    CMP_REQUEUE = 4,
+    WAKE_OP = 5,
+    LOCK_PI = 6,
+    UNLOCK_PI = 7,
+    TRYLOCK_PI = 8,
+    WAIT_BITSET = 9,
+    WAKE_BITSET = 10,
+    WAIT_REQUEUE_PI = 11,
+    CMP_REQUEUE_PI = 12,
 };
 
-pub const FUTEX2 = struct {
-    pub const SIZE_U8 = 0x00;
-    pub const SIZE_U16 = 0x01;
-    pub const SIZE_U32 = 0x02;
-    pub const SIZE_U64 = 0x03;
-    pub const NUMA = 0x04;
+/// Futex v1 API command and flags for the `futex_op` parameter
+pub const FUTEX_OP = packed struct(u32) {
+    cmd: FUTEX_COMMAND,
+    private: bool,
+    realtime: bool = false, // realtime clock vs. monotonic clock
+    _reserved: u23 = 0,
+};
 
-    pub const PRIVATE = FUTEX.PRIVATE_FLAG;
+/// Futex v1 FUTEX_WAKE_OP `val3` operation:
+pub const FUTEX_WAKE_OP = packed struct(u32) {
+    cmd: FUTEX_WAKE_OP_CMD,
+    /// From C API `FUTEX_OP_ARG_SHIFT`:  Use (1 << oparg) as operand
+    arg_shift: bool = false,
+    cmp: FUTEX_WAKE_OP_CMP,
+    oparg: u12,
+    cmdarg: u12,
+};
+
+/// Futex v1 cmd for FUTEX_WAKE_OP `val3` command.
+pub const FUTEX_WAKE_OP_CMD = enum(u3) {
+    /// uaddr2 = oparg
+    SET = 0,
+    /// uaddr2 += oparg
+    ADD = 1,
+    /// uaddr2 |= oparg
+    OR = 2,
+    /// uaddr2 &= ~oparg
+    ANDN = 3,
+    /// uaddr2 ^= oparg
+    XOR = 4,
+};
+
+/// Futex v1 comparison op for FUTEX_WAKE_OP `val3` cmp
+pub const FUTEX_WAKE_OP_CMP = enum(u4) {
+    EQ = 0,
+    NE = 1,
+    LT = 2,
+    LE = 3,
+    GT = 4,
+    GE = 5,
+};
+
+/// Max numbers of elements in a `futex2_waitone` array.
+pub const FUTEX2_WAITONE_MAX = 128;
+
+/// For futex v2 API, the size of the futex at the uaddr.  v1 futex are
+/// always implicitly U32.  As of kernel v6.14, only U32 is implemented
+/// for v2 futexes.
+pub const FUTEX2_SIZE = enum(u2) {
+    U8 = 0,
+    U16 = 1,
+    U32 = 2,
+    U64 = 3,
+};
+
+/// As of kernel 6.14 there are no defined flags to futex2_waitv.
+pub const FUTEX2_FLAGS_WAITV = packed struct(u32) {
+    _reserved: u32 = 0,
+};
+
+/// As of kernel 6.14 there are no defined flags to futex2_requeue.
+pub const FUTEX2_FLAGS_REQUEUE = packed struct(u32) {
+    _reserved: u32 = 0,
+};
+
+/// Flags for futex v2 APIs (futex2_wait, futex2_wake, futex2_requeue, but
+/// not the futex2_waitv syscall, but also used in the futex2_waitone struct).
+pub const FUTEX2_FLAGS = packed struct(u32) {
+    size: FUTEX2_SIZE,
+    numa: bool = false,
+    _reserved: u4 = 0,
+    private: bool,
+    _undefined: u24 = 0,
 };
 
 pub const PROT = struct {
@@ -3487,6 +3601,7 @@ pub const SIG = if (is_mips) struct {
     pub const UNBLOCK = 2;
     pub const SETMASK = 3;
 
+    // https://github.com/torvalds/linux/blob/ca91b9500108d4cf083a635c2e11c884d5dd20ea/arch/mips/include/uapi/asm/signal.h#L25
     pub const HUP = 1;
     pub const INT = 2;
     pub const QUIT = 3;
@@ -3494,33 +3609,32 @@ pub const SIG = if (is_mips) struct {
     pub const TRAP = 5;
     pub const ABRT = 6;
     pub const IOT = ABRT;
-    pub const BUS = 7;
+    pub const EMT = 7;
     pub const FPE = 8;
     pub const KILL = 9;
-    pub const USR1 = 10;
+    pub const BUS = 10;
     pub const SEGV = 11;
-    pub const USR2 = 12;
+    pub const SYS = 12;
     pub const PIPE = 13;
     pub const ALRM = 14;
     pub const TERM = 15;
-    pub const STKFLT = 16;
-    pub const CHLD = 17;
-    pub const CONT = 18;
-    pub const STOP = 19;
-    pub const TSTP = 20;
-    pub const TTIN = 21;
-    pub const TTOU = 22;
-    pub const URG = 23;
-    pub const XCPU = 24;
-    pub const XFSZ = 25;
-    pub const VTALRM = 26;
-    pub const PROF = 27;
-    pub const WINCH = 28;
-    pub const IO = 29;
-    pub const POLL = 29;
-    pub const PWR = 30;
-    pub const SYS = 31;
-    pub const UNUSED = SIG.SYS;
+    pub const USR1 = 16;
+    pub const USR2 = 17;
+    pub const CHLD = 18;
+    pub const PWR = 19;
+    pub const WINCH = 20;
+    pub const URG = 21;
+    pub const IO = 22;
+    pub const POLL = IO;
+    pub const STOP = 23;
+    pub const TSTP = 24;
+    pub const CONT = 25;
+    pub const TTIN = 26;
+    pub const TTOU = 27;
+    pub const VTALRM = 28;
+    pub const PROF = 29;
+    pub const XCPU = 30;
+    pub const XFZ = 31;
 
     pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
     pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
@@ -5479,38 +5593,33 @@ pub const TFD = switch (native_arch) {
     },
 };
 
-/// NSIG is the total number of signals defined.
-/// As signal numbers are sequential, NSIG is one greater than the largest defined signal number.
-pub const NSIG = if (is_mips) 128 else 65;
-
 const k_sigaction_funcs = struct {
     const handler = ?*align(1) const fn (i32) callconv(.c) void;
     const restorer = *const fn () callconv(.c) void;
 };
 
+/// Kernel sigaction struct, as expected by the `rt_sigaction` syscall.  Includes restorer.
 pub const k_sigaction = switch (native_arch) {
-    .mips, .mipsel => extern struct {
+    .mips, .mipsel, .mips64, .mips64el => extern struct {
         flags: c_uint,
         handler: k_sigaction_funcs.handler,
-        mask: [4]c_ulong,
-        restorer: k_sigaction_funcs.restorer,
-    },
-    .mips64, .mips64el => extern struct {
-        flags: c_uint,
-        handler: k_sigaction_funcs.handler,
-        mask: [2]c_ulong,
+        mask: sigset_t,
         restorer: k_sigaction_funcs.restorer,
     },
     else => extern struct {
         handler: k_sigaction_funcs.handler,
         flags: c_ulong,
         restorer: k_sigaction_funcs.restorer,
-        mask: [2]c_uint,
+        mask: sigset_t,
     },
 };
 
+/// Kernel Sigaction wrapper for the actual ABI `k_sigaction`.  The Zig
+/// linux.zig wrapper library still does some pre-processing on
+/// sigaction() calls (to add the `restorer` field).
+///
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = extern struct {
+pub const Sigaction = struct {
     pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
     pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
@@ -5519,8 +5628,10 @@ pub const Sigaction = extern struct {
         sigaction: ?sigaction_fn,
     },
     mask: sigset_t,
-    flags: c_uint,
-    restorer: ?*const fn () callconv(.c) void = null,
+    flags: switch (native_arch) {
+        .mips, .mipsel, .mips64, .mips64el => c_uint,
+        else => c_ulong,
+    },
 };
 
 pub const SFD = struct {
@@ -9254,17 +9365,17 @@ pub const PTRACE = struct {
     pub const GET_SYSCALL_INFO = 0x420e;
 };
 
-/// A waiter for vectorized wait.
-pub const futex_waitv = extern struct {
-    // Expected value at uaddr
+/// For futex2_waitv and futex2_requeue. Arrays of `futex2_waitone` allow
+/// waiting on multiple futexes in one call.
+pub const futex2_waitone = extern struct {
+    /// Expected value at uaddr, should match size of futex.
     val: u64,
-    /// User address to wait on.
+    /// User address to wait on.  Top-bits must be 0 on 32-bit.
     uaddr: u64,
     /// Flags for this waiter.
-    flags: u32,
+    flags: FUTEX2_FLAGS,
     /// Reserved member to preserve alignment.
-    /// Should be 0.
-    __reserved: u32,
+    __reserved: u32 = 0,
 };
 
 pub const cache_stat_range = extern struct {

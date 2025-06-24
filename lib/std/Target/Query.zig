@@ -94,7 +94,7 @@ pub const OsVersion = union(enum) {
 
 pub const SemanticVersion = std.SemanticVersion;
 
-pub fn fromTarget(target: Target) Query {
+pub fn fromTarget(target: *const Target) Query {
     var result: Query = .{
         .cpu_arch = target.cpu.arch,
         .cpu_model = .{ .explicit = target.cpu.model },
@@ -653,16 +653,16 @@ test parse {
         try std.testing.expect(target.os.tag == .linux);
         try std.testing.expect(target.abi == .gnu);
         try std.testing.expect(target.cpu.arch == .x86_64);
-        try std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .sse));
-        try std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .avx));
-        try std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .cx8));
-        try std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .cmov));
-        try std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .fxsr));
+        try std.testing.expect(!target.cpu.has(.x86, .sse));
+        try std.testing.expect(!target.cpu.has(.x86, .avx));
+        try std.testing.expect(!target.cpu.has(.x86, .cx8));
+        try std.testing.expect(target.cpu.has(.x86, .cmov));
+        try std.testing.expect(target.cpu.has(.x86, .fxsr));
 
-        try std.testing.expect(Target.x86.featureSetHasAny(target.cpu.features, .{ .sse, .avx, .cmov }));
-        try std.testing.expect(!Target.x86.featureSetHasAny(target.cpu.features, .{ .sse, .avx }));
-        try std.testing.expect(Target.x86.featureSetHasAll(target.cpu.features, .{ .mmx, .x87 }));
-        try std.testing.expect(!Target.x86.featureSetHasAll(target.cpu.features, .{ .mmx, .x87, .sse }));
+        try std.testing.expect(target.cpu.hasAny(.x86, &.{ .sse, .avx, .cmov }));
+        try std.testing.expect(!target.cpu.hasAny(.x86, &.{ .sse, .avx }));
+        try std.testing.expect(target.cpu.hasAll(.x86, &.{ .mmx, .x87 }));
+        try std.testing.expect(!target.cpu.hasAll(.x86, &.{ .mmx, .x87, .sse }));
 
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
@@ -679,7 +679,7 @@ test parse {
         try std.testing.expect(target.abi == .musleabihf);
         try std.testing.expect(target.cpu.arch == .arm);
         try std.testing.expect(target.cpu.model == &Target.arm.cpu.generic);
-        try std.testing.expect(Target.arm.featureSetHas(target.cpu.features, .v8a));
+        try std.testing.expect(target.cpu.has(.arm, .v8a));
 
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
