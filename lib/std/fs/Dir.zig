@@ -2667,12 +2667,11 @@ pub fn copyFile(
     });
     defer atomic_file.deinit();
 
-    const size = atomic_file.file_writer.interface.sendFileAll(&file_reader, .unlimited) catch |err| switch (err) {
+    _ = atomic_file.file_writer.interface.sendFileAll(&file_reader, .unlimited) catch |err| switch (err) {
         error.ReadFailed => return file_reader.err.?,
         error.WriteFailed => return atomic_file.file_writer.err.?,
     };
     try atomic_file.finish();
-    _ = size;
 }
 
 pub const AtomicFileOptions = struct {
