@@ -146,7 +146,7 @@ pub fn discard(r: *Reader, limit: Limit) Error!usize {
     } else .unlimited;
     r.seek = 0;
     r.end = 0;
-    const n = r.vtable.discard(r, remaining);
+    const n = try r.vtable.discard(r, remaining);
     assert(n <= @intFromEnum(remaining));
     return buffered_len + n;
 }
@@ -386,7 +386,7 @@ pub fn readVecAll(r: *Reader, data: [][]u8) Error!void {
 pub fn readAll(r: *Reader, w: *Writer, limit: Limit) StreamError!void {
     var remaining = limit;
     while (remaining.nonzero()) {
-        const n = try r.read(w, remaining);
+        const n = try r.stream(w, remaining);
         remaining = remaining.subtract(n).?;
     }
 }
@@ -1472,7 +1472,7 @@ pub fn Hashed(comptime Hasher: type) type {
         fn discard(r: *Reader, limit: Limit) Error!usize {
             const this: *@This() = @alignCast(@fieldParentPtr("interface", r));
             var w = this.hasher.writer(&.{});
-            const n = this.in.read(&w, limit) catch |err| switch (err) {
+            const n = this.in.stream(&w, limit) catch |err| switch (err) {
                 error.WriteFailed => unreachable,
                 else => |e| return e,
             };

@@ -84,11 +84,20 @@ pub const Error = error{
     WriteFailed,
 };
 
-pub const ReadingFileError = error{
+pub const FileAllError = error{
     /// Detailed diagnostics are found on the `File.Reader` struct.
     ReadFailed,
     /// See the `Writer` implementation for detailed diagnostics.
     WriteFailed,
+};
+
+pub const FileReadingError = error{
+    /// Detailed diagnostics are found on the `File.Reader` struct.
+    ReadFailed,
+    /// See the `Writer` implementation for detailed diagnostics.
+    WriteFailed,
+    /// Reached the end of the file being read.
+    EndOfStream,
 };
 
 pub const FileError = error{
@@ -96,6 +105,8 @@ pub const FileError = error{
     ReadFailed,
     /// See the `Writer` implementation for detailed diagnostics.
     WriteFailed,
+    /// Reached the end of the file being read.
+    EndOfStream,
     /// Indicates the caller should do its own file reading; the callee cannot
     /// offer a more efficient implementation.
     Unimplemented,
@@ -642,28 +653,24 @@ pub fn sendFileTo(w: *Writer, other: *Writer, file_reader: *File.Reader, limit: 
 }
 
 /// Asserts nonzero buffer capacity.
-pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) ReadingFileError!usize {
+pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) FileReadingError!usize {
     const dest = limit.slice(try w.writableSliceGreedy(1));
-    const n = file_reader.read(dest) catch |err| switch (err) {
-        error.EndOfStream => 0,
-        error.ReadFailed => return error.ReadFailed,
-    };
+    const n = try file_reader.read(dest);
     w.advance(n);
     return n;
 }
 
-pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) ReadingFileError!usize {
+pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
         const n = sendFile(w, file_reader, .limited(remaining)) catch |err| switch (err) {
-            error.EndOfStream => return 0,
-            error.ReadFailed => return error.ReadFailed,
-            error.WriteFailed => return error.WriteFailed,
+            error.EndOfStream => break,
             error.Unimplemented => {
                 file_reader.mode = file_reader.mode.toReading();
-                try w.sendFileReadingAll(file_reader, remaining);
-                return;
+                remaining -= try w.sendFileReadingAll(file_reader, .limited(remaining));
+                break;
             },
+            else => |e| return e,
         };
         remaining -= n;
     }
@@ -676,13 +683,15 @@ pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) ReadingF
 /// that error code does not appear in this function's error set.
 ///
 /// Asserts nonzero buffer capacity.
-pub fn sendFileReadingAll(w: *Writer, file_reader: *File.Reader, limit: Limit) ReadingFileError!void {
-    var remaining = limit;
-    while (remaining.nonzero()) {
-        const n = try sendFileReading(w, file_reader, remaining);
-        if (n == 0) return;
-        remaining = remaining.subtract(n).?;
+pub fn sendFileReadingAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
+    var remaining = @intFromEnum(limit);
+    while (remaining > 0) {
+        remaining -= sendFileReading(w, file_reader, .limited(remaining)) catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => |e| return e,
+        };
     }
+    return @intFromEnum(limit) - remaining;
 }
 
 pub fn alignBuffer(
