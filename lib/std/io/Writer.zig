@@ -326,11 +326,27 @@ pub const VectorWrapper = struct {
 };
 
 pub fn writableVectorIterator(w: *Writer) Error!WritableVectorIterator {
-    if (w.context == &VectorWrapper.unique_address) {
+    if (@as(*u8, @ptrCast(w.context)) == &VectorWrapper.unique_address) {
         const wrapper: *VectorWrapper = @fieldParentPtr("writer", w);
         return wrapper.it;
     }
     return .{ .first = try writableSliceGreedy(w, 1) };
+}
+
+pub fn writableVectorPosix(w: *Writer, buffer: []std.posix.iovec, limit: Limit) Error![]std.posix.iovec {
+    var it = try writableVectorIterator(w);
+    var i: usize = 0;
+    var remaining = limit;
+    while (it.next()) |full_buffer| {
+        if (!remaining.nonzero()) break;
+        if (buffer.len - i == 0) break;
+        const buf = remaining.slice(full_buffer);
+        if (buf.len == 0) continue;
+        buffer[i] = .{ .base = buf.ptr, .len = buf.len };
+        i += 1;
+        remaining = remaining.subtract(buf.len).?;
+    }
+    return buffer[0..i];
 }
 
 pub fn ensureUnusedCapacity(w: *Writer, n: usize) Error!void {
@@ -351,6 +367,13 @@ pub fn advance(w: *Writer, n: usize) void {
     assert(new_end <= w.buffer.len);
     w.end = new_end;
     w.count += n;
+}
+
+/// After calling `writableVector`, this function tracks how many bytes were
+/// written to it.
+pub fn advanceVector(w: *Writer, n: usize) usize {
+    w.count += n;
+    return consume(w, n);
 }
 
 /// The `data` parameter is mutable because this function needs to mutate the
@@ -1828,6 +1851,13 @@ pub fn consume(w: *Writer, n: usize) usize {
     }
     defer w.end = 0;
     return n - w.end;
+}
+
+/// Shortcut for setting `end` to zero and returning zero. Equivalent to
+/// calling `consume` with `end`.
+pub fn consumeAll(w: *Writer) usize {
+    w.end = 0;
+    return 0;
 }
 
 /// For use when the `Writer` implementation can cannot offer a more efficient

@@ -969,6 +969,14 @@ pub const Reader = struct {
         };
     }
 
+    pub fn initMode(file: File, buffer: []u8, init_mode: Reader.Mode) Reader {
+        return .{
+            .file = file,
+            .interface = initInterface(buffer),
+            .mode = init_mode,
+        };
+    }
+
     pub fn getSize(r: *Reader) GetEndPosError!u64 {
         return r.size orelse {
             if (r.size_err) |err| return err;
@@ -1038,7 +1046,7 @@ pub const Reader = struct {
     fn stream(io_reader: *std.io.Reader, w: *std.io.Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
         const r: *Reader = @fieldParentPtr("interface", io_reader);
         switch (r.mode) {
-            .positional, .streaming => return w.writeFile(r, limit, &.{}, 0) catch |write_err| switch (write_err) {
+            .positional, .streaming => return w.sendFile(r, limit) catch |write_err| switch (write_err) {
                 error.ReadFailed => return error.ReadFailed,
                 error.WriteFailed => return error.WriteFailed,
                 error.Unimplemented => {
@@ -1056,7 +1064,7 @@ pub const Reader = struct {
                     return n;
                 }
                 var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
-                const dest = w.writableVectorPosix(&iovecs_buffer, limit);
+                const dest = try w.writableVectorPosix(&iovecs_buffer, limit);
                 assert(dest[0].len > 0);
                 const n = posix.preadv(r.file.handle, dest, r.pos) catch |err| switch (err) {
                     error.Unseekable => {
@@ -1089,9 +1097,10 @@ pub const Reader = struct {
                     return n;
                 }
                 var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
-                const dest = w.writableVectorPosix(&iovecs_buffer, limit);
+                const dest = try w.writableVectorPosix(&iovecs_buffer, limit);
                 assert(dest[0].len > 0);
-                const n = posix.pread(r.file.handle, dest) catch |err| {
+                // TODO also add buffer at the end
+                const n = posix.readv(r.file.handle, dest) catch |err| {
                     r.err = err;
                     return error.ReadFailed;
                 };
@@ -1296,33 +1305,70 @@ pub const Writer = struct {
     pub fn drain(io_writer: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
         const w: *Writer = @fieldParentPtr("interface", io_writer);
         const handle = w.file.handle;
-        if (true) @panic("update to check for buffered data");
+        const buffered = io_writer.buffered();
         var splat_buffer: [256]u8 = undefined;
         if (is_windows) {
-            if (data.len == 1 and splat == 0) return 0;
-            return windows.WriteFile(handle, data[0], null);
+            var i: usize = 0;
+            while (i < buffered.len) {
+                const n = windows.WriteFile(handle, buffered[i..], null) catch |err| {
+                    w.err = err;
+                    w.pos += i;
+                    _ = io_writer.consume(i);
+                    return error.WriteFailed;
+                };
+                i += n;
+                if (data.len > 0 and buffered.len - i < n) {
+                    w.pos += i;
+                    return io_writer.consume(i);
+                }
+            }
+            if (i != 0 or data.len == 0 or (data.len == 1 and splat == 0)) {
+                w.pos += i;
+                return io_writer.consume(i);
+            }
+            const n = windows.WriteFile(handle, data[0], null) catch |err| {
+                w.err = err;
+                return 0;
+            };
+            w.pos += n;
+            return n;
+        }
+        if (data.len == 0) {
+            var i: usize = 0;
+            while (i < buffered.len) {
+                i += std.posix.write(handle, buffered) catch |err| {
+                    w.err = err;
+                    w.pos += i;
+                    _ = io_writer.consume(i);
+                    return error.WriteFailed;
+                };
+            }
+            w.pos += i;
+            return io_writer.consumeAll();
         }
         var iovecs: [max_buffers_len]std.posix.iovec_const = undefined;
-        var len: usize = @min(iovecs.len, data.len);
-        for (iovecs[0..len], data[0..len]) |*v, d| v.* = .{
-            .base = if (d.len == 0) "" else d.ptr, // OS sadly checks ptr addr before length.
-            .len = d.len,
-        };
+        var len: usize = 0;
+        if (buffered.len > 0) {
+            iovecs[len] = .{ .base = buffered.ptr, .len = buffered.len };
+            len += 1;
+        }
+        for (data) |d| {
+            if (d.len == 0) continue;
+            if (iovecs.len - len == 0) break;
+            iovecs[len] = .{ .base = d.ptr, .len = d.len };
+            len += 1;
+        }
         switch (splat) {
-            0 => return std.posix.writev(handle, iovecs[0 .. len - 1]) catch |err| {
-                w.err = err;
-                return error.WriteFailed;
+            0 => if (data[data.len - 1].len != 0) {
+                len -= 1;
             },
-            1 => return std.posix.writev(handle, iovecs[0..len]) catch |err| {
-                w.err = err;
-                return error.WriteFailed;
-            },
-            else => {
-                const pattern = data[data.len - 1];
-                if (pattern.len == 1) {
+            1 => {},
+            else => switch (data[data.len - 1].len) {
+                0 => {},
+                1 => {
                     const memset_len = @min(splat_buffer.len, splat);
                     const buf = splat_buffer[0..memset_len];
-                    @memset(buf, pattern[0]);
+                    @memset(buf, data[data.len - 1][0]);
                     iovecs[len - 1] = .{ .base = buf.ptr, .len = buf.len };
                     var remaining_splat = splat - buf.len;
                     while (remaining_splat > splat_buffer.len and len < iovecs.len) {
@@ -1338,13 +1384,20 @@ pub const Writer = struct {
                         w.err = err;
                         return error.WriteFailed;
                     };
-                }
+                },
+                else => for (0..splat - 1) |_| {
+                    if (iovecs.len - len == 0) break;
+                    iovecs[len] = .{ .base = data[data.len - 1].ptr, .len = data[data.len - 1].len };
+                    len += 1;
+                },
             },
         }
-        return std.posix.writev(handle, iovecs[0..len]) catch |err| {
+        const n = std.posix.writev(handle, iovecs[0..len]) catch |err| {
             w.err = err;
             return error.WriteFailed;
         };
+        w.pos += n;
+        return io_writer.consume(n);
     }
 
     pub fn sendFile(
