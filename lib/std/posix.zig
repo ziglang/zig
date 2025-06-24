@@ -2599,6 +2599,7 @@ pub const RenameError = error{
     FileBusy,
     DiskQuota,
     IsDir,
+    CircularLoop,
     SymLinkLoop,
     LinkQuotaExceeded,
     NameTooLong,
@@ -2614,8 +2615,11 @@ pub const RenameError = error{
     /// Windows-only; file paths provided by the user must be valid WTF-8.
     /// https://simonsapin.github.io/wtf-8/
     InvalidWtf8,
+    /// This can also indicate that the rename would form a circular-loop
     BadPathName,
     NoDevice,
+    /// On some versions of Windows, this can also be used to indicate that the
+    /// rename would form a circular-loop
     SharingViolation,
     PipeBusy,
     /// On Windows, `\\server` or `\\server\share` was not found.
@@ -2662,7 +2666,7 @@ pub fn renameZ(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!voi
         .BUSY => return error.FileBusy,
         .DQUOT => return error.DiskQuota,
         .FAULT => unreachable,
-        .INVAL => unreachable,
+        .INVAL => return error.BadPathName,
         .ISDIR => return error.IsDir,
         .LOOP => return error.SymLinkLoop,
         .MLINK => return error.LinkQuotaExceeded,
@@ -2725,7 +2729,7 @@ fn renameatWasi(old: RelativePathWasi, new: RelativePathWasi) RenameError!void {
         .BUSY => return error.FileBusy,
         .DQUOT => return error.DiskQuota,
         .FAULT => unreachable,
-        .INVAL => unreachable,
+        .INVAL => return error.BadPathName,
         .ISDIR => return error.IsDir,
         .LOOP => return error.SymLinkLoop,
         .MLINK => return error.LinkQuotaExceeded,
@@ -2777,7 +2781,7 @@ pub fn renameatZ(
         .BUSY => return error.FileBusy,
         .DQUOT => return error.DiskQuota,
         .FAULT => unreachable,
-        .INVAL => unreachable,
+        .INVAL => return error.BadPathName,
         .ISDIR => return error.IsDir,
         .LOOP => return error.SymLinkLoop,
         .MLINK => return error.LinkQuotaExceeded,
@@ -2891,7 +2895,6 @@ pub fn renameatW(
     switch (rc) {
         .SUCCESS => {},
         .INVALID_HANDLE => unreachable,
-        .INVALID_PARAMETER => unreachable,
         .OBJECT_PATH_SYNTAX_BAD => unreachable,
         .ACCESS_DENIED => return error.AccessDenied,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
@@ -2901,6 +2904,8 @@ pub fn renameatW(
         .DIRECTORY_NOT_EMPTY => return error.PathAlreadyExists,
         .FILE_IS_A_DIRECTORY => return error.IsDir,
         .NOT_A_DIRECTORY => return error.NotDir,
+        .INVALID_PARAMETER => return error.CircularLoop,
+        .SHARING_VIOLATION => return error.SharingViolation,
         else => return windows.unexpectedStatus(rc),
     }
 }
