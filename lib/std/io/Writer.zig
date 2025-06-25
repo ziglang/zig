@@ -333,11 +333,11 @@ pub const WritableVectorIterator = struct {
 pub const VectorWrapper = struct {
     writer: Writer,
     it: WritableVectorIterator,
-    pub var unique_address: u8 = undefined;
+    pub const vtable: VTable = .{ .drain = fixedDrain };
 };
 
 pub fn writableVectorIterator(w: *Writer) Error!WritableVectorIterator {
-    if (@as(*u8, @ptrCast(w.context)) == &VectorWrapper.unique_address) {
+    if (w.vtable == &VectorWrapper.vtable) {
         const wrapper: *VectorWrapper = @fieldParentPtr("writer", w);
         return wrapper.it;
     }
