@@ -344,11 +344,13 @@ pub fn HashMap(
         }
 
         /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
+        /// If there is a previous Entry, the key parameter is not used.
         pub fn fetchPut(self: *Self, key: K, value: V) Allocator.Error!?KV {
             return self.unmanaged.fetchPutContext(self.allocator, key, value, self.ctx);
         }
 
         /// Inserts a new `Entry` into the hash map, returning the previous one, if any.
+        /// If there is a previous Entry, the key parameter is not used.
         /// If insertion happens, asserts there is enough capacity without allocating.
         pub fn fetchPutAssumeCapacity(self: *Self, key: K, value: V) ?KV {
             return self.unmanaged.fetchPutAssumeCapacityContext(key, value, self.ctx);
