@@ -328,6 +328,7 @@ pub const Header = struct {
 
 pub const Reader = struct {
     in: *std.io.Reader,
+    interface: std.io.Reader,
     /// Keeps track of whether the stream is ready to accept a new request,
     /// making invalid API usage cause assertion failures rather than HTTP
     /// protocol violations.
@@ -438,37 +439,41 @@ pub const Reader = struct {
         buffer: []u8,
         transfer_encoding: TransferEncoding,
         content_length: ?u64,
-    ) std.io.Reader {
+    ) *std.io.Reader {
         assert(reader.state == .received_head);
-        return switch (transfer_encoding) {
+        switch (transfer_encoding) {
             .chunked => {
                 reader.state = .{ .body_remaining_chunk_len = .head };
-                return .{
+                reader.interface = .{
                     .buffer = buffer,
-                    .context = reader,
+                    .seek = 0,
+                    .end = 0,
                     .vtable = &.{
-                        .read = chunkedRead,
+                        .stream = chunkedStream,
                         .discard = chunkedDiscard,
                     },
                 };
+                return &reader.interface;
             },
             .none => {
                 if (content_length) |len| {
                     reader.state = .{ .body_remaining_content_length = len };
-                    return .{
+                    reader.interface = .{
                         .buffer = buffer,
-                        .context = reader,
+                        .seek = 0,
+                        .end = 0,
                         .vtable = &.{
-                            .read = contentLengthRead,
+                            .stream = contentLengthStream,
                             .discard = contentLengthDiscard,
                         },
                     };
+                    return &reader.interface;
                 } else {
                     reader.state = .body_none;
-                    return reader.in.reader();
+                    return reader.in;
                 }
             },
-        };
+        }
     }
 
     /// If compressed body has been negotiated this will return decompressed bytes.
@@ -511,25 +516,25 @@ pub const Reader = struct {
         return decompressor.reader(transfer_reader, decompression_buffer, content_encoding);
     }
 
-    fn contentLengthRead(
-        ctx: ?*anyopaque,
-        bw: *Writer,
+    fn contentLengthStream(
+        io_r: *std.io.Reader,
+        w: *Writer,
         limit: std.io.Limit,
     ) std.io.Reader.StreamError!usize {
-        const reader: *Reader = @alignCast(@ptrCast(ctx));
+        const reader: *Reader = @fieldParentPtr("interface", io_r);
         const remaining_content_length = &reader.state.body_remaining_content_length;
         const remaining = remaining_content_length.*;
         if (remaining == 0) {
             reader.state = .ready;
             return error.EndOfStream;
         }
-        const n = try reader.in.read(bw, limit.min(.limited(remaining)));
+        const n = try reader.in.stream(w, limit.min(.limited(remaining)));
         remaining_content_length.* = remaining - n;
         return n;
     }
 
-    fn contentLengthDiscard(ctx: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {
-        const reader: *Reader = @alignCast(@ptrCast(ctx));
+    fn contentLengthDiscard(io_r: *std.io.Reader, limit: std.io.Limit) std.io.Reader.Error!usize {
+        const reader: *Reader = @fieldParentPtr("interface", io_r);
         const remaining_content_length = &reader.state.body_remaining_content_length;
         const remaining = remaining_content_length.*;
         if (remaining == 0) {
@@ -541,18 +546,14 @@ pub const Reader = struct {
         return n;
     }
 
-    fn chunkedRead(
-        ctx: ?*anyopaque,
-        bw: *Writer,
-        limit: std.io.Limit,
-    ) std.io.Reader.StreamError!usize {
-        const reader: *Reader = @alignCast(@ptrCast(ctx));
+    fn chunkedStream(io_r: *std.io.Reader, w: *Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
+        const reader: *Reader = @fieldParentPtr("interface", io_r);
         const chunk_len_ptr = switch (reader.state) {
             .ready => return error.EndOfStream,
             .body_remaining_chunk_len => |*x| x,
             else => unreachable,
         };
-        return chunkedReadEndless(reader, bw, limit, chunk_len_ptr) catch |err| switch (err) {
+        return chunkedReadEndless(reader, w, limit, chunk_len_ptr) catch |err| switch (err) {
             error.ReadFailed => return error.ReadFailed,
             error.WriteFailed => return error.WriteFailed,
             error.EndOfStream => {
@@ -568,7 +569,7 @@ pub const Reader = struct {
 
     fn chunkedReadEndless(
         reader: *Reader,
-        bw: *Writer,
+        w: *Writer,
         limit: std.io.Limit,
         chunk_len_ptr: *RemainingChunkLen,
     ) (BodyError || std.io.Reader.StreamError)!usize {
@@ -592,7 +593,7 @@ pub const Reader = struct {
                     }
                 }
                 if (cp.chunk_len == 0) return parseTrailers(reader, 0);
-                const n = try in.read(bw, limit.min(.limited(cp.chunk_len)));
+                const n = try in.stream(w, limit.min(.limited(cp.chunk_len)));
                 chunk_len_ptr.* = .init(cp.chunk_len + 2 - n);
                 return n;
             },
@@ -608,15 +609,15 @@ pub const Reader = struct {
                 continue :len .head;
             },
             else => |remaining_chunk_len| {
-                const n = try in.read(bw, limit.min(.limited(@intFromEnum(remaining_chunk_len) - 2)));
+                const n = try in.stream(w, limit.min(.limited(@intFromEnum(remaining_chunk_len) - 2)));
                 chunk_len_ptr.* = .init(@intFromEnum(remaining_chunk_len) - n);
                 return n;
             },
         }
     }
 
-    fn chunkedDiscard(ctx: ?*anyopaque, limit: std.io.Limit) std.io.Reader.Error!usize {
-        const reader: *Reader = @alignCast(@ptrCast(ctx));
+    fn chunkedDiscard(io_r: *std.io.Reader, limit: std.io.Limit) std.io.Reader.Error!usize {
+        const reader: *Reader = @fieldParentPtr("interface", io_r);
         const chunk_len_ptr = switch (reader.state) {
             .ready => return error.EndOfStream,
             .body_remaining_chunk_len => |*x| x,
@@ -758,7 +759,6 @@ pub const BodyWriter = struct {
     /// state of this other than via methods of `BodyWriter`.
     http_protocol_output: *Writer,
     state: State,
-    elide: bool,
     interface: Writer,
 
     pub const Error = Writer.Error;
@@ -796,6 +796,10 @@ pub const BodyWriter = struct {
         };
     };
 
+    pub fn isEliding(w: *const BodyWriter) bool {
+        return w.interface.vtable.drain == Writer.discardingDrain;
+    }
+
     /// Sends all buffered data across `BodyWriter.http_protocol_output`.
     pub fn flush(w: *BodyWriter) Error!void {
         const out = w.http_protocol_output;
@@ -825,7 +829,7 @@ pub const BodyWriter = struct {
     /// with empty trailers, then flushes the stream to the system. Asserts any
     /// started chunk has been completely finished.
     ///
-    /// Respects the value of `elide` to omit all data after the headers.
+    /// Respects the value of `isEliding` to omit all data after the headers.
     ///
     /// See also:
     /// * `endUnflushed`
@@ -841,7 +845,7 @@ pub const BodyWriter = struct {
     /// Otherwise, transfer-encoding: chunked is being used, and it writes the
     /// end-of-stream message with empty trailers.
     ///
-    /// Respects the value of `elide` to omit all data after the headers.
+    /// Respects the value of `isEliding` to omit all data after the headers.
     ///
     /// See also:
     /// * `end`
@@ -867,7 +871,7 @@ pub const BodyWriter = struct {
     ///
     /// Asserts that the BodyWriter is using transfer-encoding: chunked.
     ///
-    /// Respects the value of `elide` to omit all data after the headers.
+    /// Respects the value of `isEliding` to omit all data after the headers.
     ///
     /// See also:
     /// * `endChunkedUnflushed`
@@ -883,7 +887,7 @@ pub const BodyWriter = struct {
     ///
     /// Asserts that the BodyWriter is using transfer-encoding: chunked.
     ///
-    /// Respects the value of `elide` to omit all data after the headers.
+    /// Respects the value of `isEliding` to omit all data after the headers.
     ///
     /// See also:
     /// * `endChunked`
@@ -891,7 +895,7 @@ pub const BodyWriter = struct {
     /// * `end`
     pub fn endChunkedUnflushed(w: *BodyWriter, options: EndChunkedOptions) Error!void {
         const chunked = &w.state.chunked;
-        if (w.elide) {
+        if (w.isEliding()) {
             w.state = .end;
             return;
         }
@@ -922,7 +926,7 @@ pub const BodyWriter = struct {
 
     fn contentLengthDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
         const bw: *BodyWriter = @fieldParentPtr("interface", w);
-        assert(!bw.elide);
+        assert(!bw.isEliding());
         const out = w.http_protocol_output;
         const n = try w.drainTo(out, data, splat);
         w.state.content_length -= n;
@@ -931,7 +935,7 @@ pub const BodyWriter = struct {
 
     fn noneDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
         const bw: *BodyWriter = @fieldParentPtr("interface", w);
-        assert(!bw.elide);
+        assert(!bw.isEliding());
         const out = w.http_protocol_output;
         return try w.drainTo(out, data, splat);
     }
@@ -939,13 +943,13 @@ pub const BodyWriter = struct {
     /// Returns `null` if size cannot be computed without making any syscalls.
     fn noneSendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) Writer.FileError!usize {
         const bw: *BodyWriter = @fieldParentPtr("interface", w);
-        assert(!bw.elide);
+        assert(!bw.isEliding());
         return w.sendFileTo(bw.http_protocol_output, file_reader, limit);
     }
 
     fn contentLengthSendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) Writer.FileError!usize {
         const bw: *BodyWriter = @fieldParentPtr("interface", w);
-        assert(!bw.elide);
+        assert(!bw.isEliding());
         const n = try w.sendFileTo(bw.http_protocol_output, file_reader, limit);
         bw.state.content_length -= n;
         return n;
@@ -953,7 +957,7 @@ pub const BodyWriter = struct {
 
     fn chunkedSendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) Writer.FileError!usize {
         const bw: *BodyWriter = @fieldParentPtr("interface", w);
-        assert(!bw.elide);
+        assert(!bw.isEliding());
         const data_len = w.countSendFileUpperBound(file_reader, limit) orelse {
             // If the file size is unknown, we cannot lower to a `writeFile` since we would
             // have to flush the chunk header before knowing the chunk length.
@@ -1001,7 +1005,7 @@ pub const BodyWriter = struct {
 
     fn chunkedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
         const bw: *BodyWriter = @fieldParentPtr("interface", w);
-        assert(!bw.elide);
+        assert(!bw.isEliding());
         const out = w.http_protocol_output;
         const data_len = Writer.countSplat(w.end, data, splat);
         const chunked = &bw.state.chunked;
@@ -1058,27 +1062,6 @@ pub const BodyWriter = struct {
             buf[index] = std.fmt.digitToChar(@intCast(digit), .lower);
             a /= base;
         }
-    }
-
-    pub fn writer(w: *BodyWriter) Writer {
-        return if (w.elide) .discarding else .{
-            .context = w,
-            .vtable = switch (w.state) {
-                .none => &.{
-                    .drain = noneDrain,
-                    .sendFile = noneSendFile,
-                },
-                .content_length => &.{
-                    .drain = contentLengthDrain,
-                    .sendFile = contentLengthSendFile,
-                },
-                .chunked => &.{
-                    .drain = chunkedDrain,
-                    .sendFile = chunkedSendFile,
-                },
-                .end => unreachable,
-            },
-        };
     }
 };
 

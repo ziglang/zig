@@ -9,12 +9,6 @@ const File = std.fs.File;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
-/// There are two strategies for obtaining context; one can use this field, or
-/// embed the `Writer` and use `@fieldParentPtr`. This field must be either set
-/// to a valid pointer or left as `null` because the interface will sometimes
-/// check if this pointer value is a known special value, for example to make
-/// `writableVector` work.
-context: ?*anyopaque = null,
 vtable: *const VTable,
 /// If this has length zero, the writer is unbuffered, and `flush` is a no-op.
 buffer: []u8,

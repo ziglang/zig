@@ -381,6 +381,8 @@ pub const Request = struct {
         content_length: ?u64 = null,
         /// Options that are shared with the `respond` method.
         respond_options: RespondOptions = .{},
+        /// Used by `http.BodyWriter`.
+        buffer: []u8,
     };
 
     /// The header is not guaranteed to be sent until `BodyWriter.flush` or
@@ -436,16 +438,38 @@ pub const Request = struct {
 
         try out.writeAll("\r\n");
         const elide_body = request.head.method == .HEAD;
+        const state: http.BodyWriter.State = if (o.transfer_encoding) |te| switch (te) {
+            .chunked => .{ .chunked = .init },
+            .none => .none,
+        } else if (options.content_length) |len| .{
+            .content_length = len,
+        } else .{ .chunked = .init };
 
-        return .{
+        return if (elide_body) .{
             .http_protocol_output = request.server.out,
-            .state = if (o.transfer_encoding) |te| switch (te) {
-                .chunked => .{ .chunked = .init },
-                .none => .none,
-            } else if (options.content_length) |len| .{
-                .content_length = len,
-            } else .{ .chunked = .init },
-            .elide = elide_body,
+            .state = state,
+            .interface = .discarding(options.buffer),
+        } else .{
+            .http_protocol_output = request.server.out,
+            .state = state,
+            .interface = .{
+                .buffer = options.buffer,
+                .vtable = switch (state) {
+                    .none => &.{
+                        .drain = http.BodyWriter.noneDrain,
+                        .sendFile = http.BodyWriter.noneSendFile,
+                    },
+                    .content_length => &.{
+                        .drain = http.BodyWriter.contentLengthDrain,
+                        .sendFile = http.BodyWriter.contentLengthSendFile,
+                    },
+                    .chunked => &.{
+                        .drain = http.BodyWriter.chunkedDrain,
+                        .sendFile = http.BodyWriter.chunkedSendFile,
+                    },
+                    .end => unreachable,
+                },
+            },
         };
     }
 

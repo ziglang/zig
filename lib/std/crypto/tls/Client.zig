@@ -21,11 +21,15 @@ const array = tls.array;
 /// here via `reader`.
 ///
 /// The buffer is asserted to have capacity at least `min_buffer_len`.
-input: *std.io.Reader,
+input: *Reader,
+/// Decrypted stream from the server to the client.
+reader: Reader,
 
 /// The encrypted stream from the client to the server. Bytes are pushed here
 /// via `writer`.
 output: *Writer,
+/// The plaintext stream from the client to the server.
+writer: Writer,
 
 /// Populated when `error.TlsAlert` is returned.
 alert: ?tls.Alert = null,
@@ -36,14 +40,6 @@ write_seq: u64,
 /// When this is true, the stream may still not be at the end because there
 /// may be data in the input buffer.
 received_close_notify: bool,
-/// By default, reaching the end-of-stream when reading from the server will
-/// cause `error.TlsConnectionTruncated` to be returned, unless a close_notify
-/// message has been received. By setting this flag to `true`, instead, the
-/// end-of-stream will be forwarded to the application layer above TLS.
-///
-/// This makes the application vulnerable to truncation attacks unless the
-/// application layer itself verifies that the amount of data received equals
-/// the amount of data expected, such as HTTP with the Content-Length header.
 allow_truncation_attacks: bool,
 application_cipher: tls.ApplicationCipher,
 
@@ -85,7 +81,7 @@ pub const SslKeyLog = struct {
     }
 };
 
-/// The `std.io.Reader` supplied to `init` requires a buffer capacity
+/// The `Reader` supplied to `init` requires a buffer capacity
 /// at least this amount.
 pub const min_buffer_len = tls.max_ciphertext_record_len;
 
@@ -116,6 +112,20 @@ pub const Options = struct {
     /// Only the `writer` field is observed during the handshake (`init`).
     /// After that, the other fields are populated.
     ssl_key_log: ?*SslKeyLog = null,
+    /// By default, reaching the end-of-stream when reading from the server will
+    /// cause `error.TlsConnectionTruncated` to be returned, unless a close_notify
+    /// message has been received. By setting this flag to `true`, instead, the
+    /// end-of-stream will be forwarded to the application layer above TLS.
+    ///
+    /// This makes the application vulnerable to truncation attacks unless the
+    /// application layer itself verifies that the amount of data received equals
+    /// the amount of data expected, such as HTTP with the Content-Length header.
+    allow_truncation_attacks: bool = false,
+    write_buffer: []u8,
+    /// Asserted to have capacity at least `min_buffer_len`.
+    read_buffer: []u8,
+    /// Populated when `error.TlsAlert` is returned from `init`.
+    alert: ?*tls.Alert = null,
 };
 
 const InitError = error{
@@ -173,14 +183,8 @@ const InitError = error{
 /// `host` is only borrowed during this function call.
 ///
 /// `input` is asserted to have buffer capacity at least `min_buffer_len`.
-pub fn init(
-    client: *Client,
-    input: *std.io.Reader,
-    output: *Writer,
-    options: Options,
-) InitError!void {
+pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client {
     assert(input.buffer.len >= min_buffer_len);
-    client.alert = null;
     const host = switch (options.host) {
         .no_verification => "",
         .explicit => |host| host,
@@ -411,7 +415,7 @@ pub fn init(
         switch (ct) {
             .alert => {
                 ctd.ensure(2) catch continue :fragment;
-                client.alert = .{
+                if (options.alert) |a| a.* = .{
                     .level = ctd.decode(tls.Alert.Level),
                     .description = ctd.decode(tls.Alert.Description),
                 };
@@ -852,9 +856,28 @@ pub fn init(
                                 else => unreachable,
                             },
                         };
-                        client.* = .{
+                        if (options.ssl_key_log) |ssl_key_log| ssl_key_log.* = .{
+                            .client_key_seq = key_seq,
+                            .server_key_seq = key_seq,
+                            .client_random = client_hello_rand,
+                            .writer = ssl_key_log.writer,
+                        };
+                        return .{
                             .input = input,
+                            .reader = .{
+                                .buffer = options.read_buffer,
+                                .vtable = &.{ .stream = stream },
+                                .seek = 0,
+                                .end = 0,
+                            },
                             .output = output,
+                            .writer = .{
+                                .buffer = options.write_buffer,
+                                .vtable = &.{
+                                    .drain = drain,
+                                    .sendFile = Writer.unimplementedSendFile,
+                                },
+                            },
                             .tls_version = tls_version,
                             .read_seq = switch (tls_version) {
                                 .tls_1_3 => 0,
@@ -867,17 +890,10 @@ pub fn init(
                                 else => unreachable,
                             },
                             .received_close_notify = false,
-                            .allow_truncation_attacks = false,
+                            .allow_truncation_attacks = options.allow_truncation_attacks,
                             .application_cipher = app_cipher,
                             .ssl_key_log = options.ssl_key_log,
                         };
-                        if (options.ssl_key_log) |ssl_key_log| ssl_key_log.* = .{
-                            .client_key_seq = key_seq,
-                            .server_key_seq = key_seq,
-                            .client_random = client_hello_rand,
-                            .writer = ssl_key_log.writer,
-                        };
-                        return;
                     },
                     else => return error.TlsUnexpectedMessage,
                 }
@@ -891,25 +907,9 @@ pub fn init(
     }
 }
 
-pub fn reader(c: *Client) Reader {
-    return .{
-        .context = c,
-        .vtable = &.{ .read = read },
-    };
-}
-
-pub fn writer(c: *Client) Writer {
-    return .{
-        .context = c,
-        .vtable = &.{
-            .writeSplat = writeSplat,
-            .writeFile = Writer.unimplementedWriteFile,
-        },
-    };
-}
-
-fn writeSplat(context: ?*anyopaque, data: []const []const u8, splat: usize) Writer.Error!usize {
-    const c: *Client = @alignCast(@ptrCast(context));
+fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
+    const c: *Client = @fieldParentPtr("writer", w);
+    if (true) @panic("update to use the buffer and flush");
     const sliced_data = if (splat == 0) data[0..data.len -| 1] else data;
     const output = c.output;
     const ciphertext_buf = try output.writableSliceGreedy(min_buffer_len);
@@ -1043,8 +1043,8 @@ pub fn eof(c: Client) bool {
     return c.received_close_notify;
 }
 
-fn read(context: ?*anyopaque, bw: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
-    const c: *Client = @ptrCast(@alignCast(context));
+fn stream(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
+    const c: *Client = @fieldParentPtr("reader", r);
     if (c.eof()) return error.EndOfStream;
     const input = c.input;
     // If at least one full encrypted record is not buffered, read once.
@@ -1214,7 +1214,7 @@ fn read(context: ?*anyopaque, bw: *Writer, limit: std.io.Limit) Reader.StreamErr
         },
         .application_data => {
             if (@intFromEnum(limit) < cleartext.len) return failRead(c, error.OutputBufferUndersize);
-            try bw.writeAll(cleartext);
+            try w.writeAll(cleartext);
             return cleartext.len;
         },
         else => return failRead(c, error.TlsUnexpectedMessage),
@@ -1226,8 +1226,8 @@ fn failRead(c: *Client, err: ReadError) error{ReadFailed} {
     return error.ReadFailed;
 }
 
-fn logSecrets(bw: *Writer, context: anytype, secrets: anytype) void {
-    inline for (@typeInfo(@TypeOf(secrets)).@"struct".fields) |field| bw.print("{s}" ++
+fn logSecrets(w: *Writer, context: anytype, secrets: anytype) void {
+    inline for (@typeInfo(@TypeOf(secrets)).@"struct".fields) |field| w.print("{s}" ++
         (if (@hasField(@TypeOf(context), "counter")) "_{d}" else "") ++ " {x} {x}\n", .{field.name} ++
         (if (@hasField(@TypeOf(context), "counter")) .{context.counter} else .{}) ++ .{
         context.client_random,
