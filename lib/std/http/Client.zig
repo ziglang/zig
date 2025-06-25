@@ -14,6 +14,7 @@ const Uri = std.Uri;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 const Writer = std.io.Writer;
+const Reader = std.io.Reader;
 
 const Client = @This();
 
@@ -228,12 +229,6 @@ pub const Connection = struct {
     client: *Client,
     stream_writer: net.Stream.Writer,
     stream_reader: net.Stream.Reader,
-    /// HTTP protocol from client to server.
-    /// This either goes directly to `stream_writer`, or to a TLS client.
-    writer: Writer,
-    /// HTTP protocol from server to client.
-    /// This either comes directly from `stream_reader`, or from a TLS client.
-    reader: std.io.Reader,
     /// Entry in `ConnectionPool.used` or `ConnectionPool.free`.
     pool_node: std.DoublyLinkedList.Node,
     port: u16,
@@ -264,10 +259,8 @@ pub const Connection = struct {
             plain.* = .{
                 .connection = .{
                     .client = client,
-                    .stream_writer = stream.writer(),
-                    .stream_reader = stream.reader(),
-                    .writer = plain.connection.stream_writer.interface().buffered(socket_write_buffer),
-                    .reader = plain.connection.stream_reader.interface().buffered(socket_read_buffer),
+                    .stream_writer = stream.writer(socket_write_buffer),
+                    .stream_reader = stream.reader(socket_read_buffer),
                     .pool_node = .{},
                     .port = port,
                     .host_len = @intCast(remote_host.len),
@@ -297,10 +290,6 @@ pub const Connection = struct {
     };
 
     const Tls = struct {
-        /// Data from `client` to `Connection.stream`.
-        writer: Writer,
-        /// Data from `Connection.stream` to `client`.
-        reader: std.io.Reader,
         client: std.crypto.tls.Client,
         connection: Connection,
 
@@ -324,10 +313,8 @@ pub const Connection = struct {
             tls.* = .{
                 .connection = .{
                     .client = client,
-                    .stream_writer = stream.writer(),
-                    .stream_reader = stream.reader(),
-                    .writer = tls.client.writer().buffered(socket_write_buffer),
-                    .reader = tls.client.reader().unbuffered(),
+                    .stream_writer = stream.writer(socket_write_buffer),
+                    .stream_reader = stream.reader(&.{}),
                     .pool_node = .{},
                     .port = port,
                     .host_len = @intCast(remote_host.len),
@@ -335,20 +322,22 @@ pub const Connection = struct {
                     .closing = false,
                     .protocol = .tls,
                 },
-                .writer = tls.connection.stream_writer.interface().buffered(tls_write_buffer),
-                .reader = tls.connection.stream_reader.interface().buffered(tls_read_buffer),
-                .client = undefined,
+                // TODO data race here on ca_bundle if the user sets next_https_rescan_certs to true
+                .client = std.crypto.tls.Client.init(
+                    tls.connection.stream_reader.interface(),
+                    &tls.connection.stream_writer.interface,
+                    .{
+                        .host = .{ .explicit = remote_host },
+                        .ca = .{ .bundle = client.ca_bundle },
+                        .ssl_key_log = client.ssl_key_log,
+                        .read_buffer = tls_read_buffer,
+                        .write_buffer = tls_write_buffer,
+                        // This is appropriate for HTTPS because the HTTP headers contain
+                        // the content length which is used to detect truncation attacks.
+                        .allow_truncation_attacks = true,
+                    },
+                ) catch return error.TlsInitializationFailed,
             };
-            // TODO data race here on ca_bundle if the user sets next_https_rescan_certs to true
-            tls.client.init(&tls.reader, &tls.writer, .{
-                .host = .{ .explicit = remote_host },
-                .ca = .{ .bundle = client.ca_bundle },
-                .ssl_key_log = client.ssl_key_log,
-            }) catch return error.TlsInitializationFailed;
-            // This is appropriate for HTTPS because the HTTP headers contain
-            // the content length which is used to detect truncation attacks.
-            tls.client.allow_truncation_attacks = true;
-
             return tls;
         }
 
@@ -404,26 +393,52 @@ pub const Connection = struct {
         }
     }
 
+    /// HTTP protocol from client to server.
+    /// This either goes directly to `stream_writer`, or to a TLS client.
+    pub fn writer(c: *Connection) *Writer {
+        return switch (c.protocol) {
+            .tls => {
+                if (disable_tls) unreachable;
+                const tls: *Tls = @fieldParentPtr("connection", c);
+                return &tls.client.writer;
+            },
+            .plain => &c.stream_writer.interface,
+        };
+    }
+
+    /// HTTP protocol from server to client.
+    /// This either comes directly from `stream_reader`, or from a TLS client.
+    pub fn reader(c: *const Connection) *Reader {
+        return switch (c.protocol) {
+            .tls => {
+                if (disable_tls) unreachable;
+                const tls: *Tls = @fieldParentPtr("connection", c);
+                return &tls.client.reader;
+            },
+            .plain => c.stream_reader.interface(),
+        };
+    }
+
     pub fn flush(c: *Connection) Writer.Error!void {
-        try c.writer.flush();
         if (c.protocol == .tls) {
             if (disable_tls) unreachable;
             const tls: *Tls = @fieldParentPtr("connection", c);
-            try tls.writer.flush();
+            try tls.client.writer.flush();
         }
+        try c.stream_writer.interface.flush();
     }
 
     /// If the connection is a TLS connection, sends the close_notify alert.
     ///
     /// Flushes all buffers.
     pub fn end(c: *Connection) Writer.Error!void {
-        try c.writer.flush();
         if (c.protocol == .tls) {
             if (disable_tls) unreachable;
             const tls: *Tls = @fieldParentPtr("connection", c);
             try tls.client.end();
-            try tls.writer.flush();
+            try tls.client.writer.flush();
         }
+        try c.stream_writer.interface.flush();
     }
 };
 
@@ -660,14 +675,14 @@ pub const Response = struct {
 
     /// If compressed body has been negotiated this will return compressed bytes.
     ///
-    /// If the returned `std.io.Reader` returns `error.ReadFailed` the error is
+    /// If the returned `Reader` returns `error.ReadFailed` the error is
     /// available via `bodyErr`.
     ///
     /// Asserts that this function is only called once.
     ///
     /// See also:
     /// * `readerDecompressing`
-    pub fn reader(response: *Response, buffer: []u8) std.io.Reader {
+    pub fn reader(response: *Response, buffer: []u8) Reader {
         const req = response.request;
         if (!req.method.responseHasBody()) return .ending;
         const head = &response.head;
@@ -676,7 +691,7 @@ pub const Response = struct {
 
     /// If compressed body has been negotiated this will return decompressed bytes.
     ///
-    /// If the returned `std.io.Reader` returns `error.ReadFailed` the error is
+    /// If the returned `Reader` returns `error.ReadFailed` the error is
     /// available via `bodyErr`.
     ///
     /// Asserts that this function is only called once.
@@ -687,7 +702,7 @@ pub const Response = struct {
         response: *Response,
         decompressor: *http.Decompressor,
         decompression_buffer: []u8,
-    ) std.io.Reader {
+    ) Reader {
         const head = &response.head;
         return response.request.reader.bodyReaderDecompressing(
             head.transfer_encoding,
@@ -698,7 +713,7 @@ pub const Response = struct {
         );
     }
 
-    /// After receiving `error.ReadFailed` from the `std.io.Reader` returned by
+    /// After receiving `error.ReadFailed` from the `Reader` returned by
     /// `reader` or `readerDecompressing`, this function accesses the
     /// more specific error code.
     pub fn bodyErr(response: *const Response) ?http.Reader.BodyError {
@@ -835,8 +850,8 @@ pub const Request = struct {
     ///
     /// See also:
     /// * `sendBodyUnflushed`
-    pub fn sendBody(r: *Request) Writer.Error!http.BodyWriter {
-        const result = try sendBodyUnflushed(r);
+    pub fn sendBody(r: *Request, buffer: []u8) Writer.Error!http.BodyWriter {
+        const result = try sendBodyUnflushed(r, buffer);
         try r.connection.?.flush();
         return result;
     }
@@ -846,17 +861,44 @@ pub const Request = struct {
     ///
     /// See also:
     /// * `sendBody`
-    pub fn sendBodyUnflushed(r: *Request) Writer.Error!http.BodyWriter {
+    pub fn sendBodyUnflushed(r: *Request, buffer: []u8) Writer.Error!http.BodyWriter {
         assert(r.method.requestHasBody());
         try sendHead(r);
-        return .{
-            .http_protocol_output = &r.connection.?.writer,
-            .state = switch (r.transfer_encoding) {
-                .chunked => .{ .chunked = .init },
-                .content_length => |len| .{ .content_length = len },
-                .none => .none,
+        const http_protocol_output = &r.connection.?.writer;
+        return switch (r.transfer_encoding) {
+            .chunked => .{
+                .http_protocol_output = http_protocol_output,
+                .state = .{ .chunked = .init },
+                .interface = .{
+                    .buffer = buffer,
+                    .interface = &.{
+                        .drain = http.BodyWriter.chunkedDrain,
+                        .sendFile = http.BodyWriter.chunkedSendFile,
+                    },
+                },
             },
-            .elide = false,
+            .content_length => |len| .{
+                .http_protocol_output = http_protocol_output,
+                .state = .{ .content_length = len },
+                .interface = .{
+                    .buffer = buffer,
+                    .interface = &.{
+                        .drain = http.BodyWriter.contentLengthDrain,
+                        .sendFile = http.BodyWriter.contentLengthSendFile,
+                    },
+                },
+            },
+            .none => .{
+                .http_protocol_output = http_protocol_output,
+                .state = .none,
+                .interface = .{
+                    .buffer = buffer,
+                    .interface = &.{
+                        .drain = http.BodyWriter.noneDrain,
+                        .sendFile = http.BodyWriter.noneSendFile,
+                    },
+                },
+            },
         };
     }
 

@@ -943,7 +943,6 @@ pub const Reader = struct {
 
     pub fn initInterface(buffer: []u8) std.io.Reader {
         return .{
-            .context = undefined,
             .vtable = &.{
                 .stream = Reader.stream,
                 .discard = Reader.discard,
@@ -1291,7 +1290,6 @@ pub const Writer = struct {
 
     pub fn initInterface(buffer: []u8) std.io.Writer {
         return .{
-            .context = undefined,
             .vtable = &.{
                 .drain = drain,
                 .sendFile = sendFile,

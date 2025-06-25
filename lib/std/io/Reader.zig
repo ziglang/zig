@@ -13,7 +13,6 @@ const Limit = std.io.Limit;
 
 pub const Limited = @import("Reader/Limited.zig");
 
-context: ?*anyopaque = null,
 vtable: *const VTable,
 buffer: []u8,
 /// Number of bytes which have been consumed from `buffer`.
@@ -88,7 +87,6 @@ pub const ShortError = error{
 };
 
 pub const failing: Reader = .{
-    .context = undefined,
     .vtable = &.{
         .read = failingStream,
         .discard = failingDiscard,
@@ -107,7 +105,6 @@ pub fn limited(r: *Reader, limit: Limit, buffer: []u8) Limited {
 /// Constructs a `Reader` such that it will read from `buffer` and then end.
 pub fn fixed(buffer: []const u8) Reader {
     return .{
-        .context = undefined,
         .vtable = &.{
             .stream = endingStream,
             .discard = endingDiscard,
@@ -1401,12 +1398,6 @@ test "readAlloc when the backing reader provides one byte at a time" {
             dest[0] = self.str[self.curr];
             self.curr += 1;
             return 1;
-        }
-
-        fn reader(self: *@This()) std.io.Reader {
-            return .{
-                .context = self,
-            };
         }
     };
 
