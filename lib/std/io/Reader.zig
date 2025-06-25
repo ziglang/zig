@@ -313,9 +313,8 @@ pub fn readVecLimit(r: *Reader, data: []const []u8, limit: Limit) Error!usize {
                 .last = r.buffer,
             },
             .writer = .{
-                .context = &Writer.VectorWrapper.unique_address,
                 .buffer = if (first.len >= r.buffer.len) first else r.buffer,
-                .vtable = &.{ .drain = Writer.fixedDrain },
+                .vtable = &Writer.VectorWrapper.vtable,
             },
         };
         var n = r.vtable.stream(r, &wrapper.writer, .limited(remaining)) catch |err| switch (err) {
@@ -591,9 +590,8 @@ pub fn readSliceShort(r: *Reader, buffer: []u8) ShortError!usize {
                 .last = r.buffer,
             },
             .writer = .{
-                .context = &Writer.VectorWrapper.unique_address,
                 .buffer = if (remaining.len >= r.buffer.len) remaining else r.buffer,
-                .vtable = &.{ .drain = Writer.fixedDrain },
+                .vtable = &Writer.VectorWrapper.vtable,
             },
         };
         const n = r.vtable.stream(r, &wrapper.writer, .unlimited) catch |err| switch (err) {
