@@ -50,7 +50,9 @@ static const char *WasmMut_toC(enum WasmMut val_type) {
     switch (val_type) {
         case WasmMut_const: return "const ";
         case WasmMut_var: return "";
-        default: panic("unsupported mut");
+        default:
+            panic("unsupported mut");
+            return NULL;
     }
 }
 
