@@ -12,6 +12,8 @@ extra: []const u32,
 string_bytes: []const u8,
 locals: []const Local,
 table: []const Inst.Index,
+/// Optional data which, when present, can be used to accelerate encoding speed.
+memoized_encodings: []const u0 = &.{},
 frame_locs: std.MultiArrayList(FrameLoc).Slice,
 
 pub const Inst = struct {
@@ -1963,6 +1965,7 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     gpa.free(mir.string_bytes);
     gpa.free(mir.locals);
     gpa.free(mir.table);
+    gpa.free(mir.memoized_encodings);
     mir.frame_locs.deinit(gpa);
     mir.* = undefined;
 }

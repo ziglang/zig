@@ -92,7 +92,7 @@ const DebugFrame = struct {
     };
 
     fn headerBytes(dwarf: *Dwarf) u32 {
-        const target = dwarf.bin_file.comp.root_mod.resolved_target.result;
+        const target = &dwarf.bin_file.comp.root_mod.resolved_target.result;
         return @intCast(switch (dwarf.debug_frame.header.format) {
             .none => return 0,
             .debug_frame => dwarf.unitLengthBytes() + dwarf.sectionOffsetBytes() + 1 + "\x00".len + 1 + 1,
@@ -2140,7 +2140,7 @@ fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 pub fn init(lf: *link.File, format: DW.Format) Dwarf {
     const comp = lf.comp;
     const gpa = comp.gpa;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     return .{
         .gpa = gpa,
         .bin_file = lf,
@@ -2573,7 +2573,7 @@ fn initWipNavInner(
             try wip_nav.infoAddrSym(sym_index, 0);
             wip_nav.func_high_pc = @intCast(wip_nav.debug_info.items.len);
             try diw.writeInt(u32, 0, dwarf.endian);
-            const target = mod.resolved_target.result;
+            const target = &mod.resolved_target.result;
             try uleb128(diw, switch (nav.status.fully_resolved.alignment) {
                 .none => target_info.defaultFunctionAlignment(target),
                 else => |a| a.maxStrict(target_info.minFunctionAlignment(target)),
@@ -4529,7 +4529,7 @@ pub fn flush(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
         dwarf.debug_aranges.section.dirty = false;
     }
     if (dwarf.debug_frame.section.dirty) {
-        const target = dwarf.bin_file.comp.root_mod.resolved_target.result;
+        const target = &dwarf.bin_file.comp.root_mod.resolved_target.result;
         switch (dwarf.debug_frame.header.format) {
             .none => {},
             .debug_frame => unreachable,

@@ -163,7 +163,7 @@ pub fn createEmpty(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*MachO {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     assert(target.ofmt == .macho);
 
     const gpa = comp.gpa;
@@ -3092,7 +3092,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     return self.getZigObject().?.lowerUav(self, pt, uav, explicit_alignment, src_loc);
 }
 
@@ -3545,8 +3545,8 @@ pub fn markDirty(self: *MachO, sect_index: u8) void {
     }
 }
 
-pub fn getTarget(self: MachO) std.Target {
-    return self.base.comp.root_mod.resolved_target.result;
+pub fn getTarget(self: *const MachO) *const std.Target {
+    return &self.base.comp.root_mod.resolved_target.result;
 }
 
 /// XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
@@ -4233,7 +4233,7 @@ pub const Platform = struct {
         }
     }
 
-    pub fn fromTarget(target: std.Target) Platform {
+    pub fn fromTarget(target: *const std.Target) Platform {
         return .{
             .os_tag = target.os.tag,
             .abi = target.abi,

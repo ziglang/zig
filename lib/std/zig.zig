@@ -141,7 +141,7 @@ pub fn lineDelta(source: []const u8, start: usize, end: usize) isize {
 
 pub const BinNameOptions = struct {
     root_name: []const u8,
-    target: std.Target,
+    target: *const std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: ?std.builtin.LinkMode = null,
     version: ?std.SemanticVersion = null,

@@ -9,12 +9,11 @@ const Arch = std.Target.Cpu.Arch;
 ///
 /// See also `std.debug.SelfInfo.supportsUnwinding` which tells whether the Zig
 /// standard library has a working implementation of unwinding for this target.
-pub fn supportsUnwinding(target: std.Target) bool {
+pub fn supportsUnwinding(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .amdgcn,
         .nvptx,
         .nvptx64,
-        .spirv,
         .spirv32,
         .spirv64,
         => false,

@@ -94,7 +94,7 @@ test "destructure from labeled block" {
 }
 
 test "destructure tuple value" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const tup: struct { f32, u32, i64 } = .{ 10.0, 20, 30 };
     const x, const y, const z = tup;

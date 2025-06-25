@@ -204,11 +204,10 @@ pub fn setName(run: *Run, name: []const u8) void {
 
 pub fn enableTestRunnerMode(run: *Run) void {
     const b = run.step.owner;
-    const arena = b.allocator;
     run.stdio = .zig_test;
+    run.addPrefixedDirectoryArg("--cache-dir=", .{ .cwd_relative = b.cache_root.path orelse "." });
     run.addArgs(&.{
-        std.fmt.allocPrint(arena, "--seed=0x{x}", .{b.graph.random_seed}) catch @panic("OOM"),
-        std.fmt.allocPrint(arena, "--cache-dir={s}", .{b.cache_root.path orelse ""}) catch @panic("OOM"),
+        b.fmt("--seed=0x{x}", .{b.graph.random_seed}),
         "--listen=-",
     });
 }
@@ -456,11 +455,28 @@ pub fn addPathDir(run: *Run, search_path: []const u8) void {
     const b = run.step.owner;
     const env_map = getEnvMapInternal(run);
 
-    const key = "PATH";
+    const use_wine = b.enable_wine and b.graph.host.result.os.tag != .windows and use_wine: switch (run.argv.items[0]) {
+        .artifact => |p| p.artifact.rootModuleTarget().os.tag == .windows,
+        .lazy_path => |p| {
+            switch (p.lazy_path) {
+                .generated => |g| if (g.file.step.cast(Step.Compile)) |cs| break :use_wine cs.rootModuleTarget().os.tag == .windows,
+                else => {},
+            }
+            break :use_wine std.mem.endsWith(u8, p.lazy_path.basename(b, &run.step), ".exe");
+        },
+        .decorated_directory => false,
+        .bytes => |bytes| std.mem.endsWith(u8, bytes, ".exe"),
+        .output_file, .output_directory => false,
+    };
+    const key = if (use_wine) "WINEPATH" else "PATH";
     const prev_path = env_map.get(key);
 
     if (prev_path) |pp| {
-        const new_path = b.fmt("{s}" ++ [1]u8{fs.path.delimiter} ++ "{s}", .{ pp, search_path });
+        const new_path = b.fmt("{s}{c}{s}", .{
+            pp,
+            if (use_wine) fs.path.delimiter_windows else fs.path.delimiter,
+            search_path,
+        });
         env_map.put(key, new_path) catch @panic("OOM");
     } else {
         env_map.put(key, b.dupePath(search_path)) catch @panic("OOM");
@@ -622,6 +638,31 @@ fn checksContainStderr(checks: []const StdIo.Check) bool {
     return false;
 }
 
+/// If `path` is cwd-relative, make it relative to the cwd of the child instead.
+///
+/// Whenever a path is included in the argv of a child, it should be put through this function first
+/// to make sure the child doesn't see paths relative to a cwd other than its own.
+fn convertPathArg(run: *Run, path: Build.Cache.Path) []const u8 {
+    const b = run.step.owner;
+    const path_str = path.toString(b.graph.arena) catch @panic("OOM");
+    if (std.fs.path.isAbsolute(path_str)) {
+        // Absolute paths don't need changing.
+        return path_str;
+    }
+    const child_cwd_rel: []const u8 = rel: {
+        const child_lazy_cwd = run.cwd orelse break :rel path_str;
+        const child_cwd = child_lazy_cwd.getPath3(b, &run.step).toString(b.graph.arena) catch @panic("OOM");
+        // Convert it from relative to *our* cwd, to relative to the *child's* cwd.
+        break :rel std.fs.path.relative(b.graph.arena, child_cwd, path_str) catch @panic("OOM");
+    };
+    assert(!std.fs.path.isAbsolute(child_cwd_rel));
+    // We're not done yet. In some cases this path must be prefixed with './':
+    // * On POSIX, the executable name cannot be a single component like 'foo'
+    // * Some executables might treat a leading '-' like a flag, which we must avoid
+    // There's no harm in it, so just *always* apply this prefix.
+    return std.fs.path.join(b.graph.arena, &.{ ".", child_cwd_rel }) catch @panic("OOM");
+}
+
 const IndexedOutput = struct {
     index: usize,
     tag: @typeInfo(Arg).@"union".tag_type.?,
@@ -676,14 +717,14 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 man.hash.addBytes(bytes);
             },
             .lazy_path => |file| {
-                const file_path = file.lazy_path.getPath2(b, step);
-                try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, file_path }));
+                const file_path = file.lazy_path.getPath3(b, step);
+                try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, run.convertPathArg(file_path) }));
                 man.hash.addBytes(file.prefix);
-                _ = try man.addFile(file_path, null);
+                _ = try man.addFilePath(file_path, null);
             },
             .decorated_directory => |dd| {
                 const file_path = dd.lazy_path.getPath3(b, step);
-                const resolved_arg = b.fmt("{s}{}{s}", .{ dd.prefix, file_path, dd.suffix });
+                const resolved_arg = b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(file_path), dd.suffix });
                 try argv_list.append(resolved_arg);
                 man.hash.addBytes(resolved_arg);
             },
@@ -696,7 +737,10 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 }
                 const file_path = artifact.installed_path orelse artifact.generated_bin.?.path.?;
 
-                try argv_list.append(b.fmt("{s}{s}", .{ pa.prefix, file_path }));
+                try argv_list.append(b.fmt("{s}{s}", .{
+                    pa.prefix,
+                    run.convertPathArg(.{ .root_dir = .cwd(), .sub_path = file_path }),
+                }));
 
                 _ = try man.addFile(file_path, null);
             },
@@ -739,6 +783,11 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     for (run.file_inputs.items) |lazy_path| {
         _ = try man.addFile(lazy_path.getPath2(b, step), null);
+    }
+
+    if (run.cwd) |cwd| {
+        const cwd_path = cwd.getPath3(b, step);
+        _ = man.hash.addBytes(try cwd_path.toString(arena));
     }
 
     if (!has_side_effects and try step.cacheHitAndWatch(&man)) {
@@ -787,11 +836,14 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                     b.cache_root, output_sub_dir_path, @errorName(err),
                 });
             };
-            const output_path = placeholder.output.generated_file.path.?;
+            const arg_output_path = run.convertPathArg(.{
+                .root_dir = .cwd(),
+                .sub_path = placeholder.output.generated_file.getPath(),
+            });
             argv_list.items[placeholder.index] = if (placeholder.output.prefix.len == 0)
-                output_path
+                arg_output_path
             else
-                b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
+                b.fmt("{s}{s}", .{ placeholder.output.prefix, arg_output_path });
         }
 
         try runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node, null);
@@ -816,18 +868,21 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 b.cache_root, output_sub_dir_path, @errorName(err),
             });
         };
-        const output_path = try b.cache_root.join(arena, &output_components);
-        placeholder.output.generated_file.path = output_path;
-        argv_list.items[placeholder.index] = if (placeholder.output.prefix.len == 0)
-            output_path
-        else
-            b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
+        const raw_output_path: Build.Cache.Path = .{
+            .root_dir = b.cache_root,
+            .sub_path = b.pathJoin(&output_components),
+        };
+        placeholder.output.generated_file.path = raw_output_path.toString(b.graph.arena) catch @panic("OOM");
+        argv_list.items[placeholder.index] = b.fmt("{s}{s}", .{
+            placeholder.output.prefix,
+            run.convertPathArg(raw_output_path),
+        });
     }
 
     try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node, null);
 
     const dep_file_dir = std.fs.cwd();
-    const dep_file_basename = dep_output_file.generated_file.getPath();
+    const dep_file_basename = dep_output_file.generated_file.getPath2(b, step);
     if (has_side_effects)
         try man.addDepFile(dep_file_dir, dep_file_basename)
     else
@@ -899,20 +954,23 @@ pub fn rerunInFuzzMode(
                 try argv_list.append(arena, bytes);
             },
             .lazy_path => |file| {
-                const file_path = file.lazy_path.getPath2(b, step);
-                try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, file_path }));
+                const file_path = file.lazy_path.getPath3(b, step);
+                try argv_list.append(arena, b.fmt("{s}{s}", .{ file.prefix, run.convertPathArg(file_path) }));
             },
             .decorated_directory => |dd| {
                 const file_path = dd.lazy_path.getPath3(b, step);
-                try argv_list.append(arena, b.fmt("{s}{}{s}", .{ dd.prefix, file_path, dd.suffix }));
+                try argv_list.append(arena, b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(file_path), dd.suffix }));
             },
             .artifact => |pa| {
                 const artifact = pa.artifact;
-                const file_path = if (artifact == run.producer.?)
-                    b.fmt("{}", .{run.rebuilt_executable.?})
-                else
-                    (artifact.installed_path orelse artifact.generated_bin.?.path.?);
-                try argv_list.append(arena, b.fmt("{s}{s}", .{ pa.prefix, file_path }));
+                const file_path: []const u8 = p: {
+                    if (artifact == run.producer.?) break :p b.fmt("{}", .{run.rebuilt_executable.?});
+                    break :p artifact.installed_path orelse artifact.generated_bin.?.path.?;
+                };
+                try argv_list.append(arena, b.fmt("{s}{s}", .{
+                    pa.prefix,
+                    run.convertPathArg(.{ .root_dir = .cwd(), .sub_path = file_path }),
+                }));
             },
             .output_file, .output_directory => unreachable,
         }
@@ -1049,7 +1107,7 @@ fn runCommand(
             const need_cross_libc = exe.is_linking_libc and
                 (root_target.isGnuLibC() or (root_target.isMuslLibC() and exe.linkage == .dynamic));
             const other_target = exe.root_module.resolved_target.?.result;
-            switch (std.zig.system.getExternalExecutor(b.graph.host.result, &other_target, .{
+            switch (std.zig.system.getExternalExecutor(&b.graph.host.result, &other_target, .{
                 .qemu_fixes_dl = need_cross_libc and b.libc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {

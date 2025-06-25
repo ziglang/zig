@@ -324,7 +324,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     comp.tsan_lib = crt_file;
 }
 
-fn addCcArgs(target: std.Target, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
+fn addCcArgs(target: *const std.Target, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
         "-nostdinc++",
         "-fvisibility=hidden",

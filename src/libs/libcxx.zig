@@ -121,7 +121,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     const root_name = "c++";
     const output_mode = .Lib;
     const link_mode = .static;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
 
     const cxxabi_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxxabi", "include" });
     const cxx_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxx", "include" });
@@ -314,7 +314,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     const root_name = "c++abi";
     const output_mode = .Lib;
     const link_mode = .static;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
 
     const cxxabi_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxxabi", "include" });
     const cxx_include_path = try comp.dirs.zig_lib.join(arena, &.{ "libcxx", "include" });

@@ -861,6 +861,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .sub_safe,
             .mul_safe,
             .intcast_safe,
+            .int_from_float_safe,
+            .int_from_float_optimized_safe,
             => return self.fail("TODO implement safety_checked_instructions", .{}),
 
             .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
@@ -6173,7 +6175,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
         self.pt,
         self.src_loc,
         val,
-        self.target.*,
+        self.target,
     )) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
@@ -6377,7 +6379,7 @@ fn registerAlias(self: *Self, reg: Register, ty: Type) Register {
         },
         .stack_pointer => unreachable, // we can't store/load the sp
         .floating_point => {
-            return switch (ty.floatBits(self.target.*)) {
+            return switch (ty.floatBits(self.target)) {
                 16 => reg.toH(),
                 32 => reg.toS(),
                 64 => reg.toD(),

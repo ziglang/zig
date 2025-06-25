@@ -26,7 +26,7 @@ pub const FindError = error{
 pub fn parse(
     allocator: Allocator,
     libc_file: []const u8,
-    target: std.Target,
+    target: *const std.Target,
 ) !LibCInstallation {
     var self: LibCInstallation = .{};
 
@@ -157,7 +157,7 @@ pub fn render(self: LibCInstallation, out: anytype) !void {
 
 pub const FindNativeOptions = struct {
     allocator: Allocator,
-    target: std.Target,
+    target: *const std.Target,
 
     /// If enabled, will print human-friendly errors to stderr.
     verbose: bool = false,
@@ -700,7 +700,7 @@ pub const CrtBasenames = struct {
     crtn: ?[]const u8 = null,
 
     pub const GetArgs = struct {
-        target: std.Target,
+        target: *const std.Target,
         link_libc: bool,
         output_mode: std.builtin.OutputMode,
         link_mode: std.builtin.LinkMode,
@@ -965,7 +965,7 @@ pub fn resolveCrtPaths(
     lci: LibCInstallation,
     arena: Allocator,
     crt_basenames: CrtBasenames,
-    target: std.Target,
+    target: *const std.Target,
 ) error{ OutOfMemory, LibCInstallationMissingCrtDir }!CrtPaths {
     const crt_dir_path: Path = .{
         .root_dir = std.Build.Cache.Directory.cwd(),

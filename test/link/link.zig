@@ -13,7 +13,7 @@ pub const Options = struct {
 };
 
 pub fn addTestStep(b: *Build, prefix: []const u8, opts: Options) *Step {
-    const target = opts.target.result.zigTriple(b.allocator) catch @panic("OOM");
+    const target = opts.target.query.zigTriple(b.allocator) catch @panic("OOM");
     const optimize = @tagName(opts.optimize);
     const use_llvm = if (opts.use_llvm) "llvm" else "no-llvm";
     const use_lld = if (opts.use_lld) "lld" else "no-lld";

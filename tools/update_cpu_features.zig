@@ -1106,11 +1106,6 @@ const targets = [_]ArchTarget{
                 .deps = &.{"v1_0"},
             },
             .{
-                .zig_name = "matrix",
-                .desc = "Enable Matrix capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
                 .zig_name = "storage_push_constant16",
                 .desc = "Enable SPV_KHR_16bit_storage extension and the StoragePushConstant16 capability",
                 .deps = &.{"v1_3"},
@@ -1121,38 +1116,18 @@ const targets = [_]ArchTarget{
                 .deps = &.{"v1_5"},
             },
             .{
-                .zig_name = "kernel",
-                .desc = "Enable Kernel capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
-                .zig_name = "addresses",
-                .desc = "Enable Addresses capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
                 .zig_name = "generic_pointer",
                 .desc = "Enable GenericPointer capability",
-                .deps = &.{ "v1_0", "addresses" },
+                .deps = &.{"v1_0"},
             },
             .{
                 .zig_name = "vector16",
                 .desc = "Enable Vector16 capability",
-                .deps = &.{ "v1_0", "kernel" },
-            },
-            .{
-                .zig_name = "shader",
-                .desc = "Enable Shader capability",
-                .deps = &.{ "v1_0", "matrix" },
+                .deps = &.{"v1_0"},
             },
             .{
                 .zig_name = "variable_pointers",
                 .desc = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
-                .zig_name = "physical_storage_buffer",
-                .desc = "Enable SPV_KHR_variable_pointers extension and the (VariablePointers, VariablePointersStorageBuffer) capabilities",
                 .deps = &.{"v1_0"},
             },
         },
@@ -1160,12 +1135,12 @@ const targets = [_]ArchTarget{
             .{
                 .llvm_name = null,
                 .zig_name = "vulkan_v1_2",
-                .features = &.{ "v1_5", "shader" },
+                .features = &.{"v1_5"},
             },
             .{
                 .llvm_name = null,
                 .zig_name = "opencl_v2",
-                .features = &.{ "v1_2", "kernel", "addresses", "generic_pointer" },
+                .features = &.{"v1_2"},
             },
         },
     },

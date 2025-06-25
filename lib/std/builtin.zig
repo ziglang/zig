@@ -189,7 +189,7 @@ pub const CallingConvention = union(enum(u8)) {
     pub const kernel: CallingConvention = switch (builtin.target.cpu.arch) {
         .amdgcn => .amdgcn_kernel,
         .nvptx, .nvptx64 => .nvptx_kernel,
-        .spirv, .spirv32, .spirv64 => .spirv_kernel,
+        .spirv32, .spirv64 => .spirv_kernel,
         else => unreachable,
     };
 
@@ -1121,7 +1121,7 @@ pub const CompilerBackend = enum(u64) {
     stage2_sparc64 = 10,
     /// The reference implementation self-hosted compiler of Zig, using the
     /// spirv backend.
-    stage2_spirv64 = 11,
+    stage2_spirv = 11,
     /// The reference implementation self-hosted compiler of Zig, using the
     /// powerpc backend.
     stage2_powerpc = 12,

@@ -5,16 +5,11 @@ const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
-    addresses,
     arbitrary_precision_integers,
     float16,
     float64,
     generic_pointer,
     int64,
-    kernel,
-    matrix,
-    physical_storage_buffer,
-    shader,
     storage_push_constant16,
     v1_0,
     v1_1,
@@ -37,13 +32,6 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
-    result[@intFromEnum(Feature.addresses)] = .{
-        .llvm_name = null,
-        .description = "Enable Addresses capability",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_0,
-        }),
-    };
     result[@intFromEnum(Feature.arbitrary_precision_integers)] = .{
         .llvm_name = null,
         .description = "Enable SPV_INTEL_arbitrary_precision_integers extension and the ArbitraryPrecisionIntegersINTEL capability",
@@ -69,7 +57,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable GenericPointer capability",
         .dependencies = featureSet(&[_]Feature{
-            .addresses,
+            .v1_0,
         }),
     };
     result[@intFromEnum(Feature.int64)] = .{
@@ -77,34 +65,6 @@ pub const all_features = blk: {
         .description = "Enable Int64 capability",
         .dependencies = featureSet(&[_]Feature{
             .v1_0,
-        }),
-    };
-    result[@intFromEnum(Feature.kernel)] = .{
-        .llvm_name = null,
-        .description = "Enable Kernel capability",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_0,
-        }),
-    };
-    result[@intFromEnum(Feature.matrix)] = .{
-        .llvm_name = null,
-        .description = "Enable Matrix capability",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_0,
-        }),
-    };
-    result[@intFromEnum(Feature.physical_storage_buffer)] = .{
-        .llvm_name = null,
-        .description = "Enable SPV_KHR_variable_pointers extension and the (VariablePointers, VariablePointersStorageBuffer) capabilities",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_0,
-        }),
-    };
-    result[@intFromEnum(Feature.shader)] = .{
-        .llvm_name = null,
-        .description = "Enable Shader capability",
-        .dependencies = featureSet(&[_]Feature{
-            .matrix,
         }),
     };
     result[@intFromEnum(Feature.storage_push_constant16)] = .{
@@ -172,7 +132,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable Vector16 capability",
         .dependencies = featureSet(&[_]Feature{
-            .kernel,
+            .v1_0,
         }),
     };
     const ti = @typeInfo(Feature);
@@ -193,8 +153,6 @@ pub const cpu = struct {
         .name = "opencl_v2",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
-            .generic_pointer,
-            .kernel,
             .v1_2,
         }),
     };
@@ -202,7 +160,6 @@ pub const cpu = struct {
         .name = "vulkan_v1_2",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
-            .shader,
             .v1_5,
         }),
     };

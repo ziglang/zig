@@ -28,7 +28,7 @@ pub const GetExternalExecutorOptions = struct {
 /// Return whether or not the given host is capable of running executables of
 /// the other target.
 pub fn getExternalExecutor(
-    host: std.Target,
+    host: *const std.Target,
     candidate: *const std.Target,
     options: GetExternalExecutorOptions,
 ) Executor {

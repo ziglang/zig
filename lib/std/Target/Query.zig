@@ -94,7 +94,7 @@ pub const OsVersion = union(enum) {
 
 pub const SemanticVersion = std.SemanticVersion;
 
-pub fn fromTarget(target: Target) Query {
+pub fn fromTarget(target: *const Target) Query {
     var result: Query = .{
         .cpu_arch = target.cpu.arch,
         .cpu_model = .{ .explicit = target.cpu.model },

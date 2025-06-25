@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
         .cpu_arch = .aarch64,
         .os_tag = .ios,
     });
-    const sdk = std.zig.system.darwin.getSdk(b.allocator, target.result) orelse
+    const sdk = std.zig.system.darwin.getSdk(b.allocator, &target.result) orelse
         @panic("no iOS SDK found");
     b.sysroot = sdk;
 

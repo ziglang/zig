@@ -1539,10 +1539,10 @@ const LinuxThreadImpl = struct {
                 continue;
             }
 
-            switch (linux.E.init(linux.futex_wait(
+            switch (linux.E.init(linux.futex_4arg(
                 &self.thread.child_tid.raw,
-                linux.FUTEX.WAIT,
-                tid,
+                .{ .cmd = .WAIT, .private = false },
+                @bitCast(tid),
                 null,
             ))) {
                 .SUCCESS => continue,

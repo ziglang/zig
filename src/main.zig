@@ -340,7 +340,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         dev.check(.targets_command);
         const host = std.zig.resolveTargetQueryOrFatal(.{});
         const stdout = io.getStdOut().writer();
-        return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, host);
+        return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, &host);
     } else if (mem.eql(u8, cmd, "version")) {
         dev.check(.version_command);
         try std.io.getStdOut().writeAll(build_options.version ++ "\n");
@@ -3086,7 +3086,7 @@ fn buildOutputType(
         else => main_mod,
     };
 
-    const target = main_mod.resolved_target.result;
+    const target = &main_mod.resolved_target.result;
 
     if (target.cpu.arch == .arc or target.cpu.arch.isNvptx()) {
         if (emit_bin != .no and create_module.resolved_options.use_llvm) {
@@ -3655,7 +3655,7 @@ fn buildOutputType(
             test_exec_args.items,
             self_exe_path,
             arg_mode,
-            &target,
+            target,
             &comp_destroyed,
             all_args,
             runtime_args_start,
@@ -3800,12 +3800,12 @@ fn createModule(
         // This block is for initializing the fields of
         // `Compilation.Config.Options` that require knowledge of the
         // target (which was just now resolved for the root module above).
-        const resolved_target = cli_mod.inherited.resolved_target.?;
-        create_module.opts.resolved_target = resolved_target;
+        const resolved_target = &cli_mod.inherited.resolved_target.?;
+        create_module.opts.resolved_target = resolved_target.*;
         create_module.opts.root_optimize_mode = cli_mod.inherited.optimize_mode;
         create_module.opts.root_strip = cli_mod.inherited.strip;
         create_module.opts.root_error_tracing = cli_mod.inherited.error_tracing;
-        const target = resolved_target.result;
+        const target = &resolved_target.result;
 
         // First, remove libc, libc++, and compiler_rt libraries from the system libraries list.
         // We need to know whether the set of system libraries contains anything besides these
@@ -6482,7 +6482,7 @@ fn warnAboutForeignBinaries(
     const host_query: std.Target.Query = .{};
     const host_target = std.zig.resolveTargetQueryOrFatal(host_query);
 
-    switch (std.zig.system.getExternalExecutor(host_target, target, .{ .link_libc = link_libc })) {
+    switch (std.zig.system.getExternalExecutor(&host_target, target, .{ .link_libc = link_libc })) {
         .native => return,
         .rosetta => {
             const host_name = try host_target.zigTriple(arena);

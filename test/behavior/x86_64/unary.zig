@@ -1,9 +1,11 @@
+const AsSignedness = math.AsSignedness;
 const checkExpected = math.checkExpected;
 const Compare = math.Compare;
 const fmax = math.fmax;
 const fmin = math.fmin;
 const Gpr = math.Gpr;
 const inf = math.inf;
+const Log2IntCeil = math.Log2IntCeil;
 const math = @import("math.zig");
 const nan = math.nan;
 const RoundBitsUp = math.RoundBitsUp;
@@ -56,6 +58,10 @@ fn unary(comptime op: anytype, comptime opts: struct {
                             f128 => libc_name ++ "q",
                             else => break :libc,
                         },
+                        .library_name = switch (@import("builtin").object_format) {
+                            else => null,
+                            .coff => "compiler_rt",
+                        },
                     });
                     switch (@typeInfo(Type)) {
                         else => break :expected libc_func(imm_arg),
@@ -97,6 +103,10 @@ fn unary(comptime op: anytype, comptime opts: struct {
                 imm_arg,
                 imm_arg,
             );
+        }
+        fn testBools() !void {
+            try testArgs(bool, false);
+            try testArgs(bool, true);
         }
         fn testIntTypes() !void {
             try testArgs(i1, undefined);
@@ -4804,16 +4814,27 @@ fn unary(comptime op: anytype, comptime opts: struct {
     };
 }
 
-inline fn bitNot(comptime Type: type, rhs: Type) @TypeOf(~rhs) {
+inline fn boolNot(comptime Type: type, rhs: Type) Type {
+    return !rhs;
+}
+test boolNot {
+    const test_bool_not = unary(boolNot, .{});
+    try test_bool_not.testBools();
+    try test_bool_not.testBoolVectors();
+}
+
+inline fn bitNot(comptime Type: type, rhs: Type) Type {
     return ~rhs;
 }
 test bitNot {
     const test_bit_not = unary(bitNot, .{});
+    try test_bit_not.testBools();
+    try test_bit_not.testBoolVectors();
     try test_bit_not.testInts();
     try test_bit_not.testIntVectors();
 }
 
-inline fn clz(comptime Type: type, rhs: Type) @TypeOf(@clz(rhs)) {
+inline fn clz(comptime Type: type, rhs: Type) Log2IntCeil(Type) {
     return @clz(rhs);
 }
 test clz {
@@ -4822,7 +4843,7 @@ test clz {
     try test_clz.testIntVectors();
 }
 
-inline fn ctz(comptime Type: type, rhs: Type) @TypeOf(@ctz(rhs)) {
+inline fn ctz(comptime Type: type, rhs: Type) Log2IntCeil(Type) {
     return @ctz(rhs);
 }
 test ctz {
@@ -4831,7 +4852,7 @@ test ctz {
     try test_ctz.testIntVectors();
 }
 
-inline fn popCount(comptime Type: type, rhs: Type) @TypeOf(@popCount(rhs)) {
+inline fn popCount(comptime Type: type, rhs: Type) Log2IntCeil(Type) {
     return @popCount(rhs);
 }
 test popCount {
@@ -4849,7 +4870,7 @@ test byteSwap {
     try test_byte_swap.testIntVectors();
 }
 
-inline fn bitReverse(comptime Type: type, rhs: Type) @TypeOf(@bitReverse(rhs)) {
+inline fn bitReverse(comptime Type: type, rhs: Type) Type {
     return @bitReverse(rhs);
 }
 test bitReverse {
@@ -4858,7 +4879,7 @@ test bitReverse {
     try test_bit_reverse.testIntVectors();
 }
 
-inline fn sqrt(comptime Type: type, rhs: Type) @TypeOf(@sqrt(rhs)) {
+inline fn sqrt(comptime Type: type, rhs: Type) Type {
     return @sqrt(rhs);
 }
 test sqrt {
@@ -4867,7 +4888,7 @@ test sqrt {
     try test_sqrt.testFloatVectors();
 }
 
-inline fn sin(comptime Type: type, rhs: Type) @TypeOf(@sin(rhs)) {
+inline fn sin(comptime Type: type, rhs: Type) Type {
     return @sin(rhs);
 }
 test sin {
@@ -4876,7 +4897,7 @@ test sin {
     try test_sin.testFloatVectors();
 }
 
-inline fn cos(comptime Type: type, rhs: Type) @TypeOf(@cos(rhs)) {
+inline fn cos(comptime Type: type, rhs: Type) Type {
     return @cos(rhs);
 }
 test cos {
@@ -4885,7 +4906,7 @@ test cos {
     try test_cos.testFloatVectors();
 }
 
-inline fn tan(comptime Type: type, rhs: Type) @TypeOf(@tan(rhs)) {
+inline fn tan(comptime Type: type, rhs: Type) Type {
     return @tan(rhs);
 }
 test tan {
@@ -4894,7 +4915,7 @@ test tan {
     try test_tan.testFloatVectors();
 }
 
-inline fn exp(comptime Type: type, rhs: Type) @TypeOf(@exp(rhs)) {
+inline fn exp(comptime Type: type, rhs: Type) Type {
     return @exp(rhs);
 }
 test exp {
@@ -4903,7 +4924,7 @@ test exp {
     try test_exp.testFloatVectors();
 }
 
-inline fn exp2(comptime Type: type, rhs: Type) @TypeOf(@exp2(rhs)) {
+inline fn exp2(comptime Type: type, rhs: Type) Type {
     return @exp2(rhs);
 }
 test exp2 {
@@ -4912,7 +4933,7 @@ test exp2 {
     try test_exp2.testFloatVectors();
 }
 
-inline fn log(comptime Type: type, rhs: Type) @TypeOf(@log(rhs)) {
+inline fn log(comptime Type: type, rhs: Type) Type {
     return @log(rhs);
 }
 test log {
@@ -4921,7 +4942,7 @@ test log {
     try test_log.testFloatVectors();
 }
 
-inline fn log2(comptime Type: type, rhs: Type) @TypeOf(@log2(rhs)) {
+inline fn log2(comptime Type: type, rhs: Type) Type {
     return @log2(rhs);
 }
 test log2 {
@@ -4930,7 +4951,7 @@ test log2 {
     try test_log2.testFloatVectors();
 }
 
-inline fn log10(comptime Type: type, rhs: Type) @TypeOf(@log10(rhs)) {
+inline fn log10(comptime Type: type, rhs: Type) Type {
     return @log10(rhs);
 }
 test log10 {
@@ -4939,7 +4960,7 @@ test log10 {
     try test_log10.testFloatVectors();
 }
 
-inline fn abs(comptime Type: type, rhs: Type) @TypeOf(@abs(rhs)) {
+inline fn abs(comptime Type: type, rhs: Type) AsSignedness(Type, .unsigned) {
     return @abs(rhs);
 }
 test abs {
@@ -4950,7 +4971,7 @@ test abs {
     try test_abs.testFloatVectors();
 }
 
-inline fn floor(comptime Type: type, rhs: Type) @TypeOf(@floor(rhs)) {
+inline fn floor(comptime Type: type, rhs: Type) Type {
     return @floor(rhs);
 }
 test floor {
@@ -4959,7 +4980,7 @@ test floor {
     try test_floor.testFloatVectors();
 }
 
-inline fn ceil(comptime Type: type, rhs: Type) @TypeOf(@ceil(rhs)) {
+inline fn ceil(comptime Type: type, rhs: Type) Type {
     return @ceil(rhs);
 }
 test ceil {
@@ -4968,7 +4989,7 @@ test ceil {
     try test_ceil.testFloatVectors();
 }
 
-inline fn round(comptime Type: type, rhs: Type) @TypeOf(@round(rhs)) {
+inline fn round(comptime Type: type, rhs: Type) Type {
     return @round(rhs);
 }
 test round {
@@ -4977,7 +4998,7 @@ test round {
     try test_round.testFloatVectors();
 }
 
-inline fn trunc(comptime Type: type, rhs: Type) @TypeOf(@trunc(rhs)) {
+inline fn trunc(comptime Type: type, rhs: Type) Type {
     return @trunc(rhs);
 }
 test trunc {
@@ -4986,7 +5007,7 @@ test trunc {
     try test_trunc.testFloatVectors();
 }
 
-inline fn negate(comptime Type: type, rhs: Type) @TypeOf(-rhs) {
+inline fn negate(comptime Type: type, rhs: Type) Type {
     return -rhs;
 }
 test negate {
@@ -5098,40 +5119,40 @@ test reduceXor {
     try test_reduce_xor.testIntVectors();
 }
 
-inline fn reduceMin(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
+inline fn reduceMinUnoptimized(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
     return @reduce(.Min, rhs);
 }
-test reduceMin {
-    const test_reduce_min = unary(reduceMin, .{});
-    try test_reduce_min.testIntVectors();
-    try test_reduce_min.testFloatVectors();
+test reduceMinUnoptimized {
+    const test_reduce_min_unoptimized = unary(reduceMinUnoptimized, .{});
+    try test_reduce_min_unoptimized.testIntVectors();
+    try test_reduce_min_unoptimized.testFloatVectors();
 }
 
-inline fn reduceMax(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
+inline fn reduceMaxUnoptimized(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
     return @reduce(.Max, rhs);
 }
-test reduceMax {
-    const test_reduce_max = unary(reduceMax, .{});
-    try test_reduce_max.testIntVectors();
-    try test_reduce_max.testFloatVectors();
+test reduceMaxUnoptimized {
+    const test_reduce_max_unoptimized = unary(reduceMaxUnoptimized, .{});
+    try test_reduce_max_unoptimized.testIntVectors();
+    try test_reduce_max_unoptimized.testFloatVectors();
 }
 
-inline fn reduceAdd(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
+inline fn reduceAddUnoptimized(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
     return @reduce(.Add, rhs);
 }
-test reduceAdd {
-    const test_reduce_add = unary(reduceAdd, .{});
-    try test_reduce_add.testIntVectors();
-    try test_reduce_add.testFloatVectors();
+test reduceAddUnoptimized {
+    const test_reduce_add_unoptimized = unary(reduceAddUnoptimized, .{});
+    try test_reduce_add_unoptimized.testIntVectors();
+    try test_reduce_add_unoptimized.testFloatVectors();
 }
 
-inline fn reduceMul(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
+inline fn reduceMulUnoptimized(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {
     return @reduce(.Mul, rhs);
 }
-test reduceMul {
-    const test_reduce_mul = unary(reduceMul, .{});
-    try test_reduce_mul.testIntVectors();
-    try test_reduce_mul.testFloatVectors();
+test reduceMulUnoptimized {
+    const test_reduce_mul_unoptimized = unary(reduceMulUnoptimized, .{});
+    try test_reduce_mul_unoptimized.testIntVectors();
+    try test_reduce_mul_unoptimized.testFloatVectors();
 }
 
 inline fn reduceMinOptimized(comptime Type: type, rhs: Type) @typeInfo(Type).vector.child {

@@ -102,7 +102,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     if (options.inherited.error_tracing == true) assert(options.global.any_error_tracing);
 
     const resolved_target = options.inherited.resolved_target orelse options.parent.?.resolved_target;
-    const target = resolved_target.result;
+    const target = &resolved_target.result;
 
     const optimize_mode = options.inherited.optimize_mode orelse
         if (options.parent) |p| p.optimize_mode else options.global.root_optimize_mode;
@@ -363,7 +363,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         .root_src_path = options.paths.root_src_path,
         .fully_qualified_name = options.fully_qualified_name,
         .resolved_target = .{
-            .result = target,
+            .result = target.*,
             .is_native_os = resolved_target.is_native_os,
             .is_native_abi = resolved_target.is_native_abi,
             .is_explicit_dynamic_linker = resolved_target.is_explicit_dynamic_linker,
@@ -474,7 +474,7 @@ pub fn getBuiltinOptions(m: Module, global: Compilation.Config) Builtin {
     assert(global.have_zcu);
     return .{
         .target = m.resolved_target.result,
-        .zig_backend = target_util.zigBackend(m.resolved_target.result, global.use_llvm),
+        .zig_backend = target_util.zigBackend(&m.resolved_target.result, global.use_llvm),
         .output_mode = global.output_mode,
         .link_mode = global.link_mode,
         .unwind_tables = m.unwind_tables,

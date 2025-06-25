@@ -69,7 +69,7 @@ pub fn parse(
     /// For error reporting purposes only.
     path: Path,
     handle: fs.File,
-    target: std.Target,
+    target: *const std.Target,
     debug_fmt_strip: bool,
     default_sym_version: elf.Versym,
 ) !void {
@@ -98,7 +98,7 @@ pub fn parseCommon(
     diags: *Diags,
     path: Path,
     handle: fs.File,
-    target: std.Target,
+    target: *const std.Target,
 ) !void {
     const offset = if (self.archive) |ar| ar.offset else 0;
     const file_size = (try handle.stat()).size;
@@ -182,7 +182,7 @@ pub fn parseCommon(
 pub fn validateEFlags(
     diags: *Diags,
     path: Path,
-    target: std.Target,
+    target: *const std.Target,
     e_flags: elf.Word,
 ) !void {
     switch (target.cpu.arch) {
@@ -263,7 +263,7 @@ fn initAtoms(
     path: Path,
     handle: fs.File,
     debug_fmt_strip: bool,
-    target: std.Target,
+    target: *const std.Target,
 ) !void {
     const shdrs = self.shdrs.items;
     try self.atoms.ensureTotalCapacityPrecise(gpa, shdrs.len);
@@ -420,7 +420,7 @@ fn parseEhFrame(
     gpa: Allocator,
     handle: fs.File,
     shndx: u32,
-    target: std.Target,
+    target: *const std.Target,
 ) !void {
     const relocs_shndx = for (self.shdrs.items, 0..) |shdr, i| switch (shdr.sh_type) {
         elf.SHT_RELA => if (shdr.sh_info == shndx) break @as(u32, @intCast(i)),

@@ -41,13 +41,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const install_file: *InstallFile = @fieldParentPtr("step", step);
     try step.singleUnchangingWatchInput(install_file.source);
 
-    const full_src_path = install_file.source.getPath2(b, step);
     const full_dest_path = b.getInstallPath(install_file.dir, install_file.dest_rel_path);
-    const cwd = std.fs.cwd();
-    const prev = std.fs.Dir.updateFile(cwd, full_src_path, cwd, full_dest_path, .{}) catch |err| {
-        return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-            full_src_path, full_dest_path, @errorName(err),
-        });
-    };
-    step.result_cached = prev == .fresh;
+    const p = try step.installFile(install_file.source, full_dest_path);
+    step.result_cached = p == .fresh;
 }

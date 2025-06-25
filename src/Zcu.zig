@@ -3773,8 +3773,8 @@ pub fn errNote(
 /// Deprecated. There is no global target for a Zig Compilation Unit. Instead,
 /// look up the target based on the Module that contains the source code being
 /// analyzed.
-pub fn getTarget(zcu: *const Zcu) Target {
-    return zcu.root_mod.resolved_target.result;
+pub fn getTarget(zcu: *const Zcu) *const Target {
+    return &zcu.root_mod.resolved_target.result;
 }
 
 /// Deprecated. There is no global optimization mode for a Zig Compilation
@@ -3863,7 +3863,7 @@ pub const Feature = enum {
 };
 
 pub fn backendSupportsFeature(zcu: *const Zcu, comptime feature: Feature) bool {
-    const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
+    const backend = target_util.zigBackend(&zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
     return target_util.backendSupportsFeature(backend, feature);
 }
 
@@ -3935,7 +3935,6 @@ pub fn atomicPtrAlignment(
         .s390x,
         .wasm64,
         .ve,
-        .spirv,
         .spirv64,
         .loongarch64,
         => 64,
@@ -4585,7 +4584,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
             .naked => true,
             else => false,
         },
-        .stage2_spirv64 => switch (cc) {
+        .stage2_spirv => switch (cc) {
             .spirv_device, .spirv_kernel => true,
             .spirv_fragment, .spirv_vertex => target.os.tag == .vulkan,
             else => false,

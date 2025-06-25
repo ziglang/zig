@@ -196,7 +196,7 @@ pub fn createEmpty(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*Elf {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     assert(target.ofmt == .elf);
 
     const use_llvm = comp.config.use_llvm;
@@ -473,7 +473,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     return self.zigObjectPtr().?.lowerUav(self, pt, uav, explicit_alignment, src_loc);
 }
 
@@ -1073,7 +1073,7 @@ fn parseObject(self: *Elf, obj: link.Input.Object) !void {
 
     const gpa = self.base.comp.gpa;
     const diags = &self.base.comp.link_diags;
-    const target = self.base.comp.root_mod.resolved_target.result;
+    const target = &self.base.comp.root_mod.resolved_target.result;
     const debug_fmt_strip = self.base.comp.config.debug_format == .strip;
     const default_sym_version = self.default_sym_version;
     const file_handles = &self.file_handles;
@@ -1104,7 +1104,7 @@ fn parseArchive(
     diags: *Diags,
     file_handles: *std.ArrayListUnmanaged(File.Handle),
     files: *std.MultiArrayList(File.Entry),
-    target: std.Target,
+    target: *const std.Target,
     debug_fmt_strip: bool,
     default_sym_version: elf.Versym,
     objects: *std.ArrayListUnmanaged(File.Index),
@@ -1139,7 +1139,7 @@ fn parseDso(
     dso: link.Input.Dso,
     shared_objects: *std.StringArrayHashMapUnmanaged(File.Index),
     files: *std.MultiArrayList(File.Entry),
-    target: std.Target,
+    target: *const std.Target,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -4121,8 +4121,8 @@ pub fn lsearch(comptime T: type, haystack: []const T, predicate: anytype) usize 
     return i;
 }
 
-pub fn getTarget(self: Elf) std.Target {
-    return self.base.comp.root_mod.resolved_target.result;
+pub fn getTarget(self: *const Elf) *const std.Target {
+    return &self.base.comp.root_mod.resolved_target.result;
 }
 
 fn requiresThunks(self: Elf) bool {

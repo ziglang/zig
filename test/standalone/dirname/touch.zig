@@ -26,15 +26,10 @@ fn run(allocator: std.mem.Allocator) !void {
         return error.BadUsage;
     };
 
-    if (!std.fs.path.isAbsolute(path)) {
-        std.log.err("path must be absolute: {s}", .{path});
-        return error.BadUsage;
-    }
-
     const dir_path = std.fs.path.dirname(path) orelse unreachable;
     const basename = std.fs.path.basename(path);
 
-    var dir = try std.fs.openDirAbsolute(dir_path, .{});
+    var dir = try std.fs.cwd().openDir(dir_path, .{});
     defer dir.close();
 
     _ = dir.statFile(basename) catch {

@@ -1440,7 +1440,7 @@ const test_targets = blk: {
         .{
             .target = std.Target.Query.parse(.{
                 .arch_os_abi = "spirv64-vulkan",
-                .cpu_features = "vulkan_v1_2+physical_storage_buffer+int64+float16+float64",
+                .cpu_features = "vulkan_v1_2+float16+float64",
             }) catch unreachable,
             .use_llvm = false,
             .use_lld = false,
@@ -1554,6 +1554,15 @@ const test_targets = blk: {
                 .cpu_arch = .x86_64,
                 .os_tag = .windows,
                 .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
             },
             .use_llvm = false,
             .use_lld = false,
@@ -2310,8 +2319,8 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (options.skip_llvm and would_use_llvm) continue;
 
         const resolved_target = b.resolveTargetQuery(test_target.target);
-        const target = resolved_target.result;
-        const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
+        const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
+        const target = &resolved_target.result;
 
         if (options.test_target_filters.len > 0) {
             for (options.test_target_filters) |filter| {
@@ -2518,7 +2527,7 @@ fn wouldUseLlvm(use_llvm: ?bool, query: std.Target.Query, optimize_mode: Optimiz
     const cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
     switch (cpu_arch) {
         .x86_64 => if (std.Target.ptrBitWidth_arch_abi(cpu_arch, query.abi orelse .none) != 64) return true,
-        .spirv, .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return false,
         else => return true,
     }
     return false;
@@ -2556,8 +2565,8 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
             if (options.skip_llvm and would_use_llvm) continue;
 
             const resolved_target = b.resolveTargetQuery(c_abi_target.target);
-            const target = resolved_target.result;
-            const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
+            const triple_txt = resolved_target.query.zigTriple(b.allocator) catch @panic("OOM");
+            const target = &resolved_target.result;
 
             if (options.test_target_filters.len > 0) {
                 for (options.test_target_filters) |filter| {
@@ -2659,7 +2668,7 @@ pub fn addDebuggerTests(b: *std.Build, options: DebuggerContext.Options) ?*Step 
         .options = options,
         .root_step = step,
     };
-    context.addTestsForTarget(.{
+    context.addTestsForTarget(&.{
         .resolved = b.resolveTargetQuery(.{
             .cpu_arch = .x86_64,
             .os_tag = .linux,
@@ -2668,7 +2677,7 @@ pub fn addDebuggerTests(b: *std.Build, options: DebuggerContext.Options) ?*Step 
         .pic = false,
         .test_name_suffix = "x86_64-linux",
     });
-    context.addTestsForTarget(.{
+    context.addTestsForTarget(&.{
         .resolved = b.resolveTargetQuery(.{
             .cpu_arch = .x86_64,
             .os_tag = .linux,
