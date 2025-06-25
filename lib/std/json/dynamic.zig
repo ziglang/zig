@@ -78,6 +78,7 @@ pub const Value = union(enum) {
                 }
                 try jws.endObject();
             },
+            else => unreachable,
         }
     }
 
@@ -111,6 +112,7 @@ pub const Value = union(enum) {
                 }
                 try container.end();
             },
+            else => unreachable,
         }
     }
 
