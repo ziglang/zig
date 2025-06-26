@@ -3032,7 +3032,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
                 const field_type: Type = .fromInterned(loaded_union.field_types.get(ip)[field_index]);
                 try wip_nav.refType(field_type);
                 try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
-                    field_type.abiAlignment(zcu).toByteUnits().?);
+                    if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(zcu).toByteUnits().?);
             }
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
             break :tag .done;
