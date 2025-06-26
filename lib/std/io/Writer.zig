@@ -2172,6 +2172,7 @@ pub const Allocating = struct {
     }
 
     fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+        if (data.len == 0) return 0; // flush
         const a: *Allocating = @fieldParentPtr("interface", w);
         const gpa = a.allocator;
         const pattern = data[data.len - 1];
@@ -2179,14 +2180,16 @@ pub const Allocating = struct {
         var list = a.toArrayList();
         defer setArrayList(a, list);
         const start_len = list.items.len;
-        for (data[0 .. data.len - 1]) |bytes| {
+        for (data) |bytes| {
             list.ensureUnusedCapacity(gpa, bytes.len + splat_len) catch return error.WriteFailed;
             list.appendSliceAssumeCapacity(bytes);
         }
-        switch (pattern.len) {
+        if (splat == 0) {
+            list.items.len -= pattern.len;
+        } else switch (pattern.len) {
             0 => {},
-            1 => list.appendNTimesAssumeCapacity(pattern[0], splat),
-            else => for (0..splat) |_| list.appendSliceAssumeCapacity(pattern),
+            1 => list.appendNTimesAssumeCapacity(pattern[0], splat - 1),
+            else => for (0..splat - 1) |_| list.appendSliceAssumeCapacity(pattern),
         }
         return list.items.len - start_len;
     }
