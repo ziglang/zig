@@ -221,11 +221,12 @@ pub fn writeSplatLimit(
 /// `end`.
 pub fn flush(w: *Writer) Error!void {
     assert(0 == try w.vtable.drain(w, &.{}, 0));
+    if (w.end != 0) assert(w.vtable.drain == &fixedDrain);
 }
 
 /// Calls `VTable.drain` but hides the last `preserve_length` bytes from the
 /// implementation, keeping them buffered.
-pub fn drainLimited(w: *Writer, preserve_length: usize) Error!void {
+pub fn drainPreserve(w: *Writer, preserve_length: usize) Error!void {
     const temp_end = w.end -| preserve_length;
     const preserved = w.buffer[temp_end..w.end];
     w.end = temp_end;
@@ -233,6 +234,67 @@ pub fn drainLimited(w: *Writer, preserve_length: usize) Error!void {
     assert(0 == try w.vtable.drain(w, &.{""}, 1));
     assert(w.end <= temp_end + preserved.len);
     @memmove(w.buffer[w.end..][0..preserved.len], preserved);
+}
+
+/// Forwards a `drain` to a second `Writer` instance. `w` is only used for its
+/// buffer, but it has its `end` and `count` adjusted accordingly depending on
+/// how much was consumed.
+///
+/// Returns how many bytes from `data` were consumed.
+pub fn drainTo(noalias w: *Writer, noalias other: *Writer, data: []const []const u8, splat: usize) Error!usize {
+    assert(w != other);
+    const header = w.buffered();
+    const new_end = other.end + header.len;
+    if (new_end <= other.buffer.len) {
+        @memcpy(other.buffer[other.end..][0..header.len], header);
+        other.end = new_end;
+        other.count += header.len;
+        w.end = 0;
+        const n = try other.vtable.drain(other, data, splat);
+        other.count += n;
+        return n;
+    }
+    if (other.vtable == &VectorWrapper.vtable) {
+        const wrapper: *VectorWrapper = @fieldParentPtr("writer", w);
+        while (wrapper.it.next()) |dest| {
+            _ = dest;
+            @panic("TODO");
+        }
+    }
+    var vecs: [8][]const u8 = undefined; // Arbitrarily chosen size.
+    var i: usize = 1;
+    vecs[0] = header;
+    for (data) |buf| {
+        if (buf.len == 0) continue;
+        vecs[i] = buf;
+        i += 1;
+        if (vecs.len - i == 0) break;
+    }
+    const new_splat = if (vecs[i - 1].ptr == data[data.len - 1].ptr) splat else 1;
+    const n = try other.vtable.drain(other, vecs[0..i], new_splat);
+    other.count += n;
+    if (n < header.len) {
+        const remaining = w.buffer[n..w.end];
+        @memmove(w.buffer[0..remaining.len], remaining);
+        w.end = remaining.len;
+        return 0;
+    }
+    defer w.end = 0;
+    return n - header.len;
+}
+
+pub fn drainToLimit(
+    noalias w: *Writer,
+    noalias other: *Writer,
+    data: []const []const u8,
+    splat: usize,
+    limit: Limit,
+) Error!usize {
+    assert(w != other);
+    _ = data;
+    _ = splat;
+    _ = limit;
+    @panic("TODO");
 }
 
 pub fn unusedCapacitySlice(w: *const Writer) []u8 {
@@ -285,10 +347,10 @@ pub fn writableSliceGreedy(w: *Writer, minimum_length: usize) Error![]u8 {
 /// remain buffered.
 ///
 /// If `preserve_length` is zero, this is equivalent to `writableSliceGreedy`.
-pub fn writableSliceGreedyPreserving(w: *Writer, preserve_length: usize, minimum_length: usize) Error![]u8 {
+pub fn writableSliceGreedyPreserve(w: *Writer, preserve_length: usize, minimum_length: usize) Error![]u8 {
     assert(w.buffer.len >= preserve_length + minimum_length);
     while (w.buffer.len - w.end < minimum_length) {
-        try drainLimited(w, preserve_length);
+        try drainPreserve(w, preserve_length);
     } else {
         @branchHint(.likely);
         return w.buffer[w.end..];
@@ -444,7 +506,7 @@ pub fn write(w: *Writer, bytes: []const u8) Error!usize {
 }
 
 /// Asserts `buffer` capacity exceeds `preserve_length`.
-pub fn writePreserving(w: *Writer, preserve_length: usize, bytes: []const u8) Error!usize {
+pub fn writePreserve(w: *Writer, preserve_length: usize, bytes: []const u8) Error!usize {
     assert(preserve_length <= w.buffer.len);
     if (w.end + bytes.len <= w.buffer.len) {
         @branchHint(.likely);
@@ -478,9 +540,9 @@ pub fn writeAll(w: *Writer, bytes: []const u8) Error!void {
 /// remain buffered.
 ///
 /// Asserts `buffer` capacity exceeds `preserve_length`.
-pub fn writeAllPreserving(w: *Writer, preserve_length: usize, bytes: []const u8) Error!void {
+pub fn writeAllPreserve(w: *Writer, preserve_length: usize, bytes: []const u8) Error!void {
     var index: usize = 0;
-    while (index < bytes.len) index += try w.writePreserving(preserve_length, bytes[index..]);
+    while (index < bytes.len) index += try w.writePreserve(preserve_length, bytes[index..]);
 }
 
 pub fn print(w: *Writer, comptime format: []const u8, args: anytype) Error!void {
@@ -505,9 +567,9 @@ pub fn writeByte(w: *Writer, byte: u8) Error!void {
 
 /// When draining the buffer, ensures that at least `preserve_length` bytes
 /// remain buffered.
-pub fn writeBytePreserving(w: *Writer, preserve_length: usize, byte: u8) Error!void {
+pub fn writeBytePreserve(w: *Writer, preserve_length: usize, byte: u8) Error!void {
     while (w.buffer.len - w.end == 0) {
-        try drainLimited(w, preserve_length);
+        try drainPreserve(w, preserve_length);
     } else {
         @branchHint(.likely);
         w.buffer[w.end] = byte;
@@ -615,19 +677,26 @@ pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!u
 /// on how much was consumed.
 ///
 /// Returns how many bytes from `file_reader` were consumed.
-pub fn sendFileTo(w: *Writer, other: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+pub fn sendFileTo(
+    noalias w: *Writer,
+    noalias other: *Writer,
+    file_reader: *File.Reader,
+    limit: Limit,
+) FileError!usize {
+    assert(w != other);
     const header = w.buffered();
     const new_end = other.end + header.len;
     if (new_end <= other.buffer.len) {
         @memcpy(other.buffer[other.end..][0..header.len], header);
         other.end = new_end;
+        other.count += header.len;
         w.end = 0;
         return other.vtable.sendFile(other, file_reader, limit);
     }
     assert(header.len > 0);
     var vec_buf: [2][]const u8 = .{ header, undefined };
     var vec_i: usize = 1;
-    const buffered_contents = limit.slice(file_reader.buffered());
+    const buffered_contents = limit.slice(file_reader.interface.buffered());
     if (buffered_contents.len > 0) {
         vec_buf[vec_i] = buffered_contents;
         vec_i += 1;

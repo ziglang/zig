@@ -2061,7 +2061,7 @@ pub fn runAllowFail(
     try child.spawn();
 
     var file_reader = child.stdout.?.readerStreaming();
-    const stdout = try file_reader.interface().readRemainingAlloc(b.allocator, .limited(max_output_size));
+    const stdout = try file_reader.interface().allocRemaining(b.allocator, .limited(max_output_size));
     errdefer b.allocator.free(stdout);
 
     const term = try child.wait();
