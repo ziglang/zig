@@ -328,6 +328,9 @@ pub const Header = struct {
 
 pub const Reader = struct {
     in: *std.io.Reader,
+    /// This is preallocated memory that might be used by `bodyReader`. That
+    /// function might return a pointer to this field, or a different
+    /// `*std.io.Reader`. Advisable to not access this field directly.
     interface: std.io.Reader,
     /// Keeps track of whether the stream is ready to accept a new request,
     /// making invalid API usage cause assertion failures rather than HTTP
@@ -489,31 +492,31 @@ pub const Reader = struct {
         content_encoding: ContentEncoding,
         decompressor: *Decompressor,
         decompression_buffer: []u8,
-    ) std.io.Reader {
+    ) *std.io.Reader {
         if (transfer_encoding == .none and content_length == null) {
             assert(reader.state == .received_head);
             reader.state = .body_none;
             switch (content_encoding) {
                 .identity => {
-                    return reader.in.reader();
+                    return reader.in;
                 },
                 .deflate => {
-                    decompressor.compression = .{ .deflate = .init(reader.in) };
-                    return decompressor.compression.deflate.reader();
+                    decompressor.* = .{ .flate = .init(reader.in, .raw, decompression_buffer) };
+                    return &decompressor.flate.reader;
                 },
                 .gzip => {
-                    decompressor.compression = .{ .gzip = .init(reader.in) };
-                    return decompressor.compression.gzip.reader();
+                    decompressor.* = .{ .flate = .init(reader.in, .gzip, decompression_buffer) };
+                    return &decompressor.flate.reader;
                 },
                 .zstd => {
-                    decompressor.compression = .{ .zstd = .init(reader.in, .{ .verify_checksum = false }) };
-                    return decompressor.compression.zstd.reader();
+                    decompressor.* = .{ .zstd = .init(reader.in, decompression_buffer, .{ .verify_checksum = false }) };
+                    return &decompressor.zstd.reader;
                 },
                 .compress => unreachable,
             }
         }
-        const transfer_reader = bodyReader(reader, transfer_encoding, content_length);
-        return decompressor.reader(transfer_reader, decompression_buffer, content_encoding);
+        const transfer_reader = bodyReader(reader, &.{}, transfer_encoding, content_length);
+        return decompressor.init(transfer_reader, decompression_buffer, content_encoding);
     }
 
     fn contentLengthStream(
@@ -711,42 +714,33 @@ pub const Reader = struct {
     }
 };
 
-pub const Decompressor = struct {
-    compression: Compression,
-    buffered_reader: std.io.Reader,
+pub const Decompressor = union(enum) {
+    flate: std.compress.flate.Decompress,
+    zstd: std.compress.zstd.Decompress,
+    none: *std.io.Reader,
 
-    pub const Compression = union(enum) {
-        deflate: std.compress.flate.Decompressor,
-        gzip: std.compress.flate.Decompressor,
-        zstd: std.compress.zstd.Decompress,
-        none: void,
-    };
-
-    pub fn reader(
+    pub fn init(
         decompressor: *Decompressor,
-        transfer_reader: std.io.Reader,
+        transfer_reader: *std.io.Reader,
         buffer: []u8,
         content_encoding: ContentEncoding,
-    ) std.io.Reader {
+    ) *std.io.Reader {
         switch (content_encoding) {
             .identity => {
-                decompressor.compression = .none;
+                decompressor.* = .{ .none = transfer_reader };
                 return transfer_reader;
             },
             .deflate => {
-                decompressor.buffered_reader = transfer_reader.buffered(buffer);
-                decompressor.compression = .{ .deflate = .init(&decompressor.buffered_reader) };
-                return decompressor.compression.deflate.reader();
+                decompressor.* = .{ .flate = .init(transfer_reader, .raw, buffer) };
+                return &decompressor.flate.reader;
             },
             .gzip => {
-                decompressor.buffered_reader = transfer_reader.buffered(buffer);
-                decompressor.compression = .{ .gzip = .init(&decompressor.buffered_reader) };
-                return decompressor.compression.gzip.reader();
+                decompressor.* = .{ .flate = .init(transfer_reader, .gzip, buffer) };
+                return &decompressor.flate.reader;
             },
             .zstd => {
-                decompressor.buffered_reader = transfer_reader.buffered(buffer);
-                decompressor.compression = .{ .zstd = .init(&decompressor.buffered_reader, .{}) };
-                return decompressor.compression.gzip.reader();
+                decompressor.* = .{ .zstd = .init(transfer_reader, buffer, .{ .verify_checksum = false }) };
+                return &decompressor.zstd.reader;
             },
             .compress => unreachable,
         }
@@ -759,7 +753,7 @@ pub const BodyWriter = struct {
     /// state of this other than via methods of `BodyWriter`.
     http_protocol_output: *Writer,
     state: State,
-    interface: Writer,
+    writer: Writer,
 
     pub const Error = Writer.Error;
 
@@ -797,7 +791,7 @@ pub const BodyWriter = struct {
     };
 
     pub fn isEliding(w: *const BodyWriter) bool {
-        return w.interface.vtable.drain == Writer.discardingDrain;
+        return w.writer.vtable.drain == Writer.discardingDrain;
     }
 
     /// Sends all buffered data across `BodyWriter.http_protocol_output`.
@@ -924,42 +918,42 @@ pub const BodyWriter = struct {
         w.state = .end;
     }
 
-    fn contentLengthDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-        const bw: *BodyWriter = @fieldParentPtr("interface", w);
+    pub fn contentLengthDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+        const bw: *BodyWriter = @fieldParentPtr("writer", w);
         assert(!bw.isEliding());
-        const out = w.http_protocol_output;
+        const out = bw.http_protocol_output;
         const n = try w.drainTo(out, data, splat);
-        w.state.content_length -= n;
+        bw.state.content_length -= n;
         return n;
     }
 
-    fn noneDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-        const bw: *BodyWriter = @fieldParentPtr("interface", w);
+    pub fn noneDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+        const bw: *BodyWriter = @fieldParentPtr("writer", w);
         assert(!bw.isEliding());
-        const out = w.http_protocol_output;
+        const out = bw.http_protocol_output;
         return try w.drainTo(out, data, splat);
     }
 
     /// Returns `null` if size cannot be computed without making any syscalls.
-    fn noneSendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) Writer.FileError!usize {
-        const bw: *BodyWriter = @fieldParentPtr("interface", w);
+    pub fn noneSendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) Writer.FileError!usize {
+        const bw: *BodyWriter = @fieldParentPtr("writer", w);
         assert(!bw.isEliding());
         return w.sendFileTo(bw.http_protocol_output, file_reader, limit);
     }
 
-    fn contentLengthSendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) Writer.FileError!usize {
-        const bw: *BodyWriter = @fieldParentPtr("interface", w);
+    pub fn contentLengthSendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) Writer.FileError!usize {
+        const bw: *BodyWriter = @fieldParentPtr("writer", w);
         assert(!bw.isEliding());
         const n = try w.sendFileTo(bw.http_protocol_output, file_reader, limit);
         bw.state.content_length -= n;
         return n;
     }
 
-    fn chunkedSendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) Writer.FileError!usize {
-        const bw: *BodyWriter = @fieldParentPtr("interface", w);
+    pub fn chunkedSendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) Writer.FileError!usize {
+        const bw: *BodyWriter = @fieldParentPtr("writer", w);
         assert(!bw.isEliding());
-        const data_len = w.countSendFileUpperBound(file_reader, limit) orelse {
-            // If the file size is unknown, we cannot lower to a `writeFile` since we would
+        const data_len = if (file_reader.getSize()) |x| w.end + x else |_| {
+            // If the file size is unknown, we cannot lower to a `sendFile` since we would
             // have to flush the chunk header before knowing the chunk length.
             return error.Unimplemented;
         };
@@ -1003,10 +997,10 @@ pub const BodyWriter = struct {
         }
     }
 
-    fn chunkedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-        const bw: *BodyWriter = @fieldParentPtr("interface", w);
+    pub fn chunkedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+        const bw: *BodyWriter = @fieldParentPtr("writer", w);
         assert(!bw.isEliding());
-        const out = w.http_protocol_output;
+        const out = bw.http_protocol_output;
         const data_len = Writer.countSplat(w.end, data, splat);
         const chunked = &bw.state.chunked;
         state: switch (chunked.*) {
@@ -1018,7 +1012,7 @@ pub const BodyWriter = struct {
                 const buffered_len = out.end - offset - chunk_header_template.len;
                 const chunk_len = data_len + buffered_len;
                 writeHex(out.buffer[offset..][0..chunk_len_digits], chunk_len);
-                const n = try w.drainTo(w, data, splat);
+                const n = try w.drainTo(out, data, splat);
                 chunked.* = .{ .chunk_len = data_len + 2 - n };
                 return n;
             },
@@ -1041,7 +1035,7 @@ pub const BodyWriter = struct {
                     continue :l 1;
                 },
                 else => {
-                    const n = try w.drainToLimit(data, splat, .limited(chunk_len - 2));
+                    const n = try w.drainToLimit(out, data, splat, .limited(chunk_len - 2));
                     chunked.chunk_len = chunk_len - n;
                     return n;
                 },

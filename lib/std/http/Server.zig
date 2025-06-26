@@ -26,6 +26,8 @@ pub fn init(in: *std.io.Reader, out: *Writer) Server {
         .reader = .{
             .in = in,
             .state = .ready,
+            // Populated when `http.Reader.bodyReader` is called.
+            .interface = undefined,
         },
         .out = out,
     };
@@ -58,7 +60,7 @@ pub const Request = struct {
     /// Pointers in this struct are invalidated with the next call to
     /// `receiveHead`.
     head: Head,
-    respond_err: ?RespondError,
+    respond_err: ?RespondError = null,
 
     pub const RespondError = error{
         /// The request contained an `expect` header with an unrecognized value.
@@ -243,6 +245,7 @@ pub const Request = struct {
                 .in = undefined,
                 .state = .received_head,
                 .head_buffer = @constCast(request_bytes),
+                .interface = undefined,
             },
             .out = undefined,
         };
@@ -381,8 +384,6 @@ pub const Request = struct {
         content_length: ?u64 = null,
         /// Options that are shared with the `respond` method.
         respond_options: RespondOptions = .{},
-        /// Used by `http.BodyWriter`.
-        buffer: []u8,
     };
 
     /// The header is not guaranteed to be sent until `BodyWriter.flush` or
@@ -400,7 +401,11 @@ pub const Request = struct {
     /// be done to satisfy the request.
     ///
     /// Asserts status is not `continue`.
-    pub fn respondStreaming(request: *Request, options: RespondStreamingOptions) Writer.Error!http.BodyWriter {
+    pub fn respondStreaming(
+        request: *Request,
+        buffer: []u8,
+        options: RespondStreamingOptions,
+    ) ExpectContinueError!http.BodyWriter {
         try writeExpectContinue(request);
         const o = options.respond_options;
         assert(o.status != .@"continue");
@@ -448,12 +453,12 @@ pub const Request = struct {
         return if (elide_body) .{
             .http_protocol_output = request.server.out,
             .state = state,
-            .interface = .discarding(options.buffer),
+            .writer = .discarding(buffer),
         } else .{
             .http_protocol_output = request.server.out,
             .state = state,
-            .interface = .{
-                .buffer = options.buffer,
+            .writer = .{
+                .buffer = buffer,
                 .vtable = switch (state) {
                     .none => &.{
                         .drain = http.BodyWriter.noneDrain,
@@ -559,11 +564,11 @@ pub const Request = struct {
     ///
     /// See `readerExpectNone` for an infallible alternative that cannot write
     /// to the server output stream.
-    pub fn readerExpectContinue(request: *Request) ExpectContinueError!std.io.Reader {
+    pub fn readerExpectContinue(request: *Request, buffer: []u8) ExpectContinueError!*std.io.Reader {
         const flush = request.head.expect != null;
         try writeExpectContinue(request);
         if (flush) try request.server.out.flush();
-        return readerExpectNone(request);
+        return readerExpectNone(request, buffer);
     }
 
     /// Asserts the expect header is `null`. The caller must handle the
@@ -571,11 +576,11 @@ pub const Request = struct {
     /// this function.
     ///
     /// Asserts that this function is only called once.
-    pub fn readerExpectNone(request: *Request) std.io.Reader {
+    pub fn readerExpectNone(request: *Request, buffer: []u8) *std.io.Reader {
         assert(request.server.reader.state == .received_head);
         assert(request.head.expect == null);
         if (!request.head.method.requestHasBody()) return .ending;
-        return request.server.reader.bodyReader(request.head.transfer_encoding, request.head.content_length);
+        return request.server.reader.bodyReader(buffer, request.head.transfer_encoding, request.head.content_length);
     }
 
     pub const ExpectContinueError = error{
@@ -611,7 +616,7 @@ pub const Request = struct {
             .received_head => {
                 if (request.head.method.requestHasBody()) {
                     assert(request.head.transfer_encoding != .none or request.head.content_length != null);
-                    const reader_interface = request.reader() catch return false;
+                    const reader_interface = request.readerExpectContinue(&.{}) catch return false;
                     _ = reader_interface.discardRemaining() catch return false;
                     assert(r.state == .ready);
                 } else {

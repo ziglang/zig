@@ -2242,7 +2242,7 @@ pub const ElfModule = struct {
 
                 var zlib_stream: std.compress.flate.Decompress = .init(&section_reader, .zlib, &.{});
 
-                const decompressed_section = zlib_stream.interface.allocRemaining(gpa, .limited(ch_size)) catch
+                const decompressed_section = zlib_stream.reader.allocRemaining(gpa, .limited(ch_size)) catch
                     continue;
                 if (decompressed_section.len != ch_size) {
                     gpa.free(decompressed_section);

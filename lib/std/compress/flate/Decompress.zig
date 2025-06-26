@@ -8,7 +8,7 @@ const Writer = std.io.Writer;
 const Reader = std.io.Reader;
 
 input: *Reader,
-interface: Reader,
+reader: Reader,
 /// Hashes, produces checksum, of uncompressed data for gzip/zlib footer.
 hasher: Container.Hasher,
 
@@ -51,7 +51,7 @@ pub const Error = Container.Error || error{
 
 pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
     return .{
-        .interface = .{
+        .reader = .{
             // TODO populate discard so that when an amount is discarded that
             // includes an entire frame, skip decoding that frame.
             .vtable = &.{ .stream = stream },
@@ -130,7 +130,7 @@ fn decodeSymbol(self: *Decompress, decoder: anytype) !Symbol {
 }
 
 pub fn stream(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
-    const d: *Decompress = @alignCast(@fieldParentPtr("interface", r));
+    const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
     return readInner(d, w, limit) catch |err| switch (err) {
         error.EndOfStream => return error.EndOfStream,
         error.WriteFailed => return error.WriteFailed,
@@ -247,7 +247,7 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.io.Limit) (Error || Reader.S
             }
         },
         .stored_block => |remaining_len| {
-            const out = try w.writableSliceGreedyPreserving(flate.history_len, 1);
+            const out = try w.writableSliceGreedyPreserve(flate.history_len, 1);
             const limited_out = limit.min(.limited(remaining_len)).slice(out);
             const n = try d.input.readVec(&.{limited_out});
             if (remaining_len - n == 0) {
@@ -263,7 +263,7 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.io.Limit) (Error || Reader.S
             while (@intFromEnum(limit) > w.count - start) {
                 const code = try d.readFixedCode();
                 switch (code) {
-                    0...255 => try w.writeBytePreserving(flate.history_len, @intCast(code)),
+                    0...255 => try w.writeBytePreserve(flate.history_len, @intCast(code)),
                     256 => {
                         d.state = if (d.final_block) .protocol_footer else .block_header;
                         return w.count - start;
@@ -289,7 +289,7 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.io.Limit) (Error || Reader.S
                 const sym = try d.decodeSymbol(&d.lit_dec);
 
                 switch (sym.kind) {
-                    .literal => try w.writeBytePreserving(flate.history_len, sym.symbol),
+                    .literal => try w.writeBytePreserve(flate.history_len, sym.symbol),
                     .match => {
                         // Decode match backreference <length, distance>
                         const length = try d.decodeLength(sym.symbol);

@@ -408,7 +408,7 @@ pub const Connection = struct {
 
     /// HTTP protocol from server to client.
     /// This either comes directly from `stream_reader`, or from a TLS client.
-    pub fn reader(c: *const Connection) *Reader {
+    pub fn reader(c: *Connection) *Reader {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
@@ -682,7 +682,7 @@ pub const Response = struct {
     ///
     /// See also:
     /// * `readerDecompressing`
-    pub fn reader(response: *Response, buffer: []u8) Reader {
+    pub fn reader(response: *Response, buffer: []u8) *Reader {
         const req = response.request;
         if (!req.method.responseHasBody()) return .ending;
         const head = &response.head;
@@ -702,7 +702,7 @@ pub const Response = struct {
         response: *Response,
         decompressor: *http.Decompressor,
         decompression_buffer: []u8,
-    ) Reader {
+    ) *Reader {
         const head = &response.head;
         return response.request.reader.bodyReaderDecompressing(
             head.transfer_encoding,
@@ -864,14 +864,14 @@ pub const Request = struct {
     pub fn sendBodyUnflushed(r: *Request, buffer: []u8) Writer.Error!http.BodyWriter {
         assert(r.method.requestHasBody());
         try sendHead(r);
-        const http_protocol_output = &r.connection.?.writer;
+        const http_protocol_output = r.connection.?.writer();
         return switch (r.transfer_encoding) {
             .chunked => .{
                 .http_protocol_output = http_protocol_output,
                 .state = .{ .chunked = .init },
-                .interface = .{
+                .writer = .{
                     .buffer = buffer,
-                    .interface = &.{
+                    .vtable = &.{
                         .drain = http.BodyWriter.chunkedDrain,
                         .sendFile = http.BodyWriter.chunkedSendFile,
                     },
@@ -880,9 +880,9 @@ pub const Request = struct {
             .content_length => |len| .{
                 .http_protocol_output = http_protocol_output,
                 .state = .{ .content_length = len },
-                .interface = .{
+                .writer = .{
                     .buffer = buffer,
-                    .interface = &.{
+                    .vtable = &.{
                         .drain = http.BodyWriter.contentLengthDrain,
                         .sendFile = http.BodyWriter.contentLengthSendFile,
                     },
@@ -891,9 +891,9 @@ pub const Request = struct {
             .none => .{
                 .http_protocol_output = http_protocol_output,
                 .state = .none,
-                .interface = .{
+                .writer = .{
                     .buffer = buffer,
-                    .interface = &.{
+                    .vtable = &.{
                         .drain = http.BodyWriter.noneDrain,
                         .sendFile = http.BodyWriter.noneSendFile,
                     },
@@ -906,7 +906,7 @@ pub const Request = struct {
     fn sendHead(r: *Request) Writer.Error!void {
         const uri = r.uri;
         const connection = r.connection.?;
-        const w = &connection.writer;
+        const w = connection.writer();
 
         try r.method.write(w);
         try w.writeByte(' ');
@@ -1085,7 +1085,7 @@ pub const Request = struct {
             if (head.status.class() == .redirect and r.redirect_behavior != .unhandled) {
                 if (r.redirect_behavior == .not_allowed) {
                     // Connection can still be reused by skipping the body.
-                    var reader = r.reader.bodyReader(head.transfer_encoding, head.content_length);
+                    const reader = r.reader.bodyReader(&.{}, head.transfer_encoding, head.content_length);
                     _ = reader.discardRemaining() catch |err| switch (err) {
                         error.ReadFailed => connection.closing = true,
                     };
@@ -1117,7 +1117,7 @@ pub const Request = struct {
         {
             // Skip the body of the redirect response to leave the connection in
             // the correct state. This causes `new_location` to be invalidated.
-            var reader = r.reader.bodyReader(head.transfer_encoding, head.content_length);
+            const reader = r.reader.bodyReader(&.{}, head.transfer_encoding, head.content_length);
             _ = reader.discardRemaining() catch |err| switch (err) {
                 error.ReadFailed => return r.reader.body_err.?,
             };
@@ -1169,8 +1169,10 @@ pub const Request = struct {
         r.uri = new_uri;
         r.connection = new_connection;
         r.reader = .{
-            .in = &new_connection.reader,
+            .in = new_connection.reader(),
             .state = .ready,
+            // Populated when `http.Reader.bodyReader` is called.
+            .interface = undefined,
         };
         r.redirect_behavior.subtractOne();
     }
@@ -1292,12 +1294,12 @@ pub const basic_authorization = struct {
 
     pub fn write(uri: Uri, out: *Writer) Writer.Error!void {
         var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
-        var bw: Writer = .fixed(&buf);
-        bw.print("{fuser}:{fpassword}", .{
+        var w: Writer = .fixed(&buf);
+        w.print("{fuser}:{fpassword}", .{
             uri.user orelse Uri.Component.empty,
             uri.password orelse Uri.Component.empty,
         }) catch unreachable;
-        try out.print("Basic {b64}", .{bw.getWritten()});
+        try out.print("Basic {b64}", .{w.buffered()});
     }
 };
 
@@ -1622,8 +1624,10 @@ pub fn request(
         .client = client,
         .connection = connection,
         .reader = .{
-            .in = &connection.reader,
+            .in = connection.reader(),
             .state = .ready,
+            // Populated when `http.Reader.bodyReader` is called.
+            .interface = undefined,
         },
         .keep_alive = options.keep_alive,
         .method = method,
@@ -1711,9 +1715,8 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
 
     if (options.payload) |payload| {
         req.transfer_encoding = .{ .content_length = payload.len };
-        var body = try req.sendBody();
-        var bw = body.writer().unbuffered();
-        try bw.writeAll(payload);
+        var body = try req.sendBody(&.{});
+        try body.writer.writeAll(payload);
         try body.end();
     } else {
         try req.sendBodiless();
@@ -1726,7 +1729,7 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
     var response = try req.receiveHead(redirect_buffer);
 
     const storage = options.response_storage orelse {
-        var reader = response.reader();
+        const reader = response.reader(&.{});
         _ = reader.discardRemaining() catch |err| switch (err) {
             error.ReadFailed => return response.bodyErr().?,
         };
@@ -1741,18 +1744,17 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
     defer if (options.decompress_buffer == null) client.allocator.free(decompress_buffer);
 
     var decompressor: http.Decompressor = undefined;
-    var reader = response.readerDecompressing(&decompressor, decompress_buffer);
+    const reader = response.readerDecompressing(&decompressor, decompress_buffer);
     const list = storage.list;
 
     if (storage.allocator) |allocator| {
-        reader.readRemainingArrayList(allocator, null, list, storage.append_limit, 128) catch |err| switch (err) {
+        reader.appendRemaining(allocator, null, list, storage.append_limit) catch |err| switch (err) {
             error.ReadFailed => return response.bodyErr().?,
             else => |e| return e,
         };
     } else {
-        var br = reader.unbuffered();
         const buf = storage.append_limit.slice(list.unusedCapacitySlice());
-        list.items.len += br.readSliceShort(buf) catch |err| switch (err) {
+        list.items.len += reader.readSliceShort(buf) catch |err| switch (err) {
             error.ReadFailed => return response.bodyErr().?,
         };
     }

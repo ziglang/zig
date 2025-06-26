@@ -7,7 +7,7 @@ const zstd = @import("../zstd.zig");
 const Writer = std.io.Writer;
 
 input: *Reader,
-interface: Reader,
+reader: Reader,
 state: State,
 verify_checksum: bool,
 err: ?Error = null,
@@ -68,7 +68,7 @@ pub fn init(input: *Reader, buffer: []u8, options: Options) Decompress {
         .input = input,
         .state = .new_frame,
         .verify_checksum = options.verify_checksum,
-        .interface = .{
+        .reader = .{
             .vtable = &.{ .stream = stream },
             .buffer = buffer,
             .seek = 0,
@@ -78,7 +78,7 @@ pub fn init(input: *Reader, buffer: []u8, options: Options) Decompress {
 }
 
 fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
-    const d: *Decompress = @alignCast(@fieldParentPtr("interface", r));
+    const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
     const in = d.input;
 
     switch (d.state) {

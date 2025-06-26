@@ -21,7 +21,7 @@ test "trailers" {
 
                 var connection_br = connection.stream.reader(&recv_buffer);
                 var connection_bw = connection.stream.writer(&send_buffer);
-                var server = http.Server.init(&connection_br, &connection_bw);
+                var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
 
                 try expectEqual(.ready, server.reader.state);
                 var request = try server.receiveHead();
@@ -33,11 +33,10 @@ test "trailers" {
         fn serve(request: *http.Server.Request) !void {
             try expectEqualStrings(request.head.target, "/trailer");
 
-            var response = try request.respondStreaming(.{});
-            var bw = response.writer().unbuffered();
-            try bw.writeAll("Hello, ");
+            var response = try request.respondStreaming(&.{}, .{});
+            try response.writer.writeAll("Hello, ");
             try response.flush();
-            try bw.writeAll("World!\n");
+            try response.writer.writeAll("World!\n");
             try response.flush();
             try response.endChunked(.{
                 .trailers = &.{
@@ -66,7 +65,7 @@ test "trailers" {
         try req.sendBodiless();
         var response = try req.receiveHead(&.{});
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -104,13 +103,13 @@ test "HTTP server handles a chunked transfer coding request" {
 
             var connection_br = connection.stream.reader(&recv_buffer);
             var connection_bw = connection.stream.writer(&send_buffer);
-            var server = http.Server.init(&connection_br, &connection_bw);
+            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
             var request = try server.receiveHead();
 
             try expect(request.head.transfer_encoding == .chunked);
 
             var buf: [128]u8 = undefined;
-            var br = (try request.reader()).unbuffered();
+            var br = try request.readerExpectContinue(&.{});
             const n = try br.readSliceShort(&buf);
             try expectEqualStrings("ABCD", buf[0..n]);
 
@@ -141,9 +140,8 @@ test "HTTP server handles a chunked transfer coding request" {
     const gpa = std.testing.allocator;
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
     defer stream.close();
-    var stream_writer = stream.writer();
-    var writer = stream_writer.interface().unbuffered();
-    try writer.writeAll(request_bytes);
+    var stream_writer = stream.writer(&.{});
+    try stream_writer.interface.writeAll(request_bytes);
 
     const expected_response =
         "HTTP/1.1 200 OK\r\n" ++
@@ -152,8 +150,8 @@ test "HTTP server handles a chunked transfer coding request" {
         "content-type: text/plain\r\n" ++
         "\r\n" ++
         "message from server!\n";
-    var stream_reader = stream.reader();
-    const response = try stream_reader.interface().readRemainingAlloc(gpa, .limited(expected_response.len));
+    var stream_reader = stream.reader(&.{});
+    const response = try stream_reader.interface().allocRemaining(gpa, .limited(expected_response.len));
     defer gpa.free(response);
     try expectEqualStrings(expected_response, response);
 }
@@ -169,11 +167,9 @@ test "echo content server" {
                 const connection = try net_server.accept();
                 defer connection.stream.close();
 
-                var stream_reader = connection.stream.reader();
-                var stream_writer = connection.stream.writer();
-                var connection_br = stream_reader.interface().buffered(&recv_buffer);
-                var connection_bw = stream_writer.interface().buffered(&send_buffer);
-                var http_server = http.Server.init(&connection_br, &connection_bw);
+                var connection_br = connection.stream.reader(&recv_buffer);
+                var connection_bw = connection.stream.writer(&send_buffer);
+                var http_server = http.Server.init(connection_br.interface(), &connection_bw.interface);
 
                 while (http_server.reader.state == .ready) {
                     var request = http_server.receiveHead() catch |err| switch (err) {
@@ -185,7 +181,7 @@ test "echo content server" {
                     }
                     if (request.head.expect) |expect_header_value| {
                         if (mem.eql(u8, expect_header_value, "garbage")) {
-                            try expectError(error.HttpExpectationFailed, request.reader());
+                            try expectError(error.HttpExpectationFailed, request.readerExpectContinue(&.{}));
                             try request.respond("", .{ .keep_alive = false });
                             continue;
                         }
@@ -207,14 +203,14 @@ test "echo content server" {
             //    request.head.target,
             //});
 
-            const body = try (try request.reader()).readRemainingAlloc(std.testing.allocator, .limited(8192));
+            const body = try (try request.readerExpectContinue(&.{})).allocRemaining(std.testing.allocator, .limited(8192));
             defer std.testing.allocator.free(body);
 
             try expect(mem.startsWith(u8, request.head.target, "/echo-content"));
             try expectEqualStrings("Hello, World!\n", body);
             try expectEqualStrings("text/plain", request.head.content_type.?);
 
-            var response = try request.respondStreaming(.{
+            var response = try request.respondStreaming(&.{}, .{
                 .content_length = switch (request.head.transfer_encoding) {
                     .chunked => null,
                     .none => len: {
@@ -224,9 +220,9 @@ test "echo content server" {
                 },
             });
             try response.flush(); // Test an early flush to send the HTTP headers before the body.
-            var bw = response.writer().unbuffered();
-            try bw.writeAll("Hello, ");
-            try bw.writeAll("World!\n");
+            const w = &response.writer;
+            try w.writeAll("Hello, ");
+            try w.writeAll("World!\n");
             try response.end();
             //std.debug.print("  server finished responding\n", .{});
         }
@@ -259,27 +255,25 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
                 const connection = try net_server.accept();
                 defer connection.stream.close();
 
-                var stream_reader = connection.stream.reader();
-                var stream_writer = connection.stream.writer();
-                var connection_br = stream_reader.interface().buffered(&recv_buffer);
-                var connection_bw = stream_writer.interface().buffered(&send_buffer);
-                var server = http.Server.init(&connection_br, &connection_bw);
+                var connection_br = connection.stream.reader(&recv_buffer);
+                var connection_bw = connection.stream.writer(&send_buffer);
+                var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
 
                 try expectEqual(.ready, server.reader.state);
                 var request = try server.receiveHead();
                 try expectEqualStrings(request.head.target, "/foo");
-                var response = try request.respondStreaming(.{
+                var buf: [30]u8 = undefined;
+                var response = try request.respondStreaming(&buf, .{
                     .respond_options = .{
                         .transfer_encoding = .none,
                     },
                 });
-                var buf: [30]u8 = undefined;
-                var bw = response.writer().buffered(&buf);
+                const w = &response.writer;
                 for (0..500) |i| {
-                    try bw.print("{d}, ah ha ha!\n", .{i});
+                    try w.print("{d}, ah ha ha!\n", .{i});
                 }
-                try expectEqual(7390, bw.count);
-                try bw.flush();
+                try expectEqual(7390, w.count);
+                try w.flush();
                 try response.end();
                 try expectEqual(.closing, server.reader.state);
             }
@@ -291,12 +285,11 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
     const gpa = std.testing.allocator;
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
     defer stream.close();
-    var stream_writer = stream.writer();
-    var writer = stream_writer.interface().unbuffered();
-    try writer.writeAll(request_bytes);
+    var stream_writer = stream.writer(&.{});
+    try stream_writer.interface.writeAll(request_bytes);
 
-    var stream_reader = stream.reader();
-    const response = try stream_reader.interface().readRemainingAlloc(gpa, .limited(8192));
+    var stream_reader = stream.reader(&.{});
+    const response = try stream_reader.interface().allocRemaining(gpa, .limited(8192));
     defer gpa.free(response);
 
     var expected_response = std.ArrayList(u8).init(gpa);
@@ -329,11 +322,9 @@ test "receiving arbitrary http headers from the client" {
                 const connection = try net_server.accept();
                 defer connection.stream.close();
 
-                var stream_reader = connection.stream.reader();
-                var stream_writer = connection.stream.writer();
-                var connection_br = stream_reader.interface().buffered(&recv_buffer);
-                var connection_bw = stream_writer.interface().buffered(&send_buffer);
-                var server = http.Server.init(&connection_br, &connection_bw);
+                var connection_br = connection.stream.reader(&recv_buffer);
+                var connection_bw = connection.stream.writer(&send_buffer);
+                var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
 
                 try expectEqual(.ready, server.reader.state);
                 var request = try server.receiveHead();
@@ -364,12 +355,11 @@ test "receiving arbitrary http headers from the client" {
     const gpa = std.testing.allocator;
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
     defer stream.close();
-    var stream_writer = stream.writer();
-    var writer = stream_writer.interface().unbuffered();
-    try writer.writeAll(request_bytes);
+    var stream_writer = stream.writer(&.{});
+    try stream_writer.interface.writeAll(request_bytes);
 
-    var stream_reader = stream.reader();
-    const response = try stream_reader.interface().readRemainingAlloc(gpa, .limited(8192));
+    var stream_reader = stream.reader(&.{});
+    const response = try stream_reader.interface().allocRemaining(gpa, .limited(8192));
     defer gpa.free(response);
 
     var expected_response = std.ArrayList(u8).init(gpa);
@@ -397,11 +387,9 @@ test "general client/server API coverage" {
                 var connection = try net_server.accept();
                 defer connection.stream.close();
 
-                var stream_reader = connection.stream.reader();
-                var stream_writer = connection.stream.writer();
-                var connection_br = stream_reader.interface().buffered(&recv_buffer);
-                var connection_bw = stream_writer.interface().buffered(&send_buffer);
-                var http_server = http.Server.init(&connection_br, &connection_bw);
+                var connection_br = connection.stream.reader(&recv_buffer);
+                var connection_bw = connection.stream.writer(&send_buffer);
+                var http_server = http.Server.init(connection_br.interface(), &connection_bw.interface);
 
                 while (http_server.reader.state == .ready) {
                     var request = http_server.receiveHead() catch |err| switch (err) {
@@ -424,11 +412,11 @@ test "general client/server API coverage" {
             });
 
             const gpa = std.testing.allocator;
-            const body = try (try request.reader()).readRemainingAlloc(gpa, .limited(8192));
+            const body = try (try request.readerExpectContinue(&.{})).allocRemaining(gpa, .limited(8192));
             defer gpa.free(body);
 
             if (mem.startsWith(u8, request.head.target, "/get")) {
-                var response = try request.respondStreaming(.{
+                var response = try request.respondStreaming(&.{}, .{
                     .content_length = if (mem.indexOf(u8, request.head.target, "?chunked") == null)
                         14
                     else
@@ -439,35 +427,35 @@ test "general client/server API coverage" {
                         },
                     },
                 });
-                var bw = response.writer().unbuffered();
-                try bw.writeAll("Hello, ");
-                try bw.writeAll("World!\n");
+                const w = &response.writer;
+                try w.writeAll("Hello, ");
+                try w.writeAll("World!\n");
                 try response.end();
                 // Writing again would cause an assertion failure.
             } else if (mem.startsWith(u8, request.head.target, "/large")) {
-                var response = try request.respondStreaming(.{
+                var response = try request.respondStreaming(&.{}, .{
                     .content_length = 14 * 1024 + 14 * 10,
                 });
 
                 try response.flush(); // Test an early flush to send the HTTP headers before the body.
 
-                var bw = response.writer().unbuffered();
+                const w = &response.writer;
 
                 var i: u32 = 0;
                 while (i < 5) : (i += 1) {
-                    try bw.writeAll("Hello, World!\n");
+                    try w.writeAll("Hello, World!\n");
                 }
 
-                try bw.writeAll("Hello, World!\n" ** 1024);
+                try w.writeAll("Hello, World!\n" ** 1024);
 
                 i = 0;
                 while (i < 5) : (i += 1) {
-                    try bw.writeAll("Hello, World!\n");
+                    try w.writeAll("Hello, World!\n");
                 }
 
                 try response.end();
             } else if (mem.eql(u8, request.head.target, "/redirect/1")) {
-                var response = try request.respondStreaming(.{
+                var response = try request.respondStreaming(&.{}, .{
                     .respond_options = .{
                         .status = .found,
                         .extra_headers = &.{
@@ -476,9 +464,9 @@ test "general client/server API coverage" {
                     },
                 });
 
-                var bw = response.writer().unbuffered();
-                try bw.writeAll("Hello, ");
-                try bw.writeAll("Redirected!\n");
+                const w = &response.writer;
+                try w.writeAll("Hello, ");
+                try w.writeAll("Redirected!\n");
                 try response.end();
             } else if (mem.eql(u8, request.head.target, "/redirect/2")) {
                 try request.respond("Hello, Redirected!\n", .{
@@ -567,7 +555,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -590,7 +578,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192 * 1024));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192 * 1024));
         defer gpa.free(body);
 
         try expectEqual(@as(usize, 14 * 1024 + 14 * 10), body.len);
@@ -612,7 +600,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("", body);
@@ -636,7 +624,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -659,7 +647,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("", body);
@@ -685,7 +673,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -714,7 +702,7 @@ test "general client/server API coverage" {
 
         try std.testing.expectEqual(.ok, response.head.status);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("", body);
@@ -751,7 +739,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -773,7 +761,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -795,7 +783,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -836,7 +824,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Encoded redirect successful!\n", body);
@@ -878,20 +866,18 @@ test "Server streams both reading and writing" {
             const connection = try net_server.accept();
             defer connection.stream.close();
 
-            var stream_reader = connection.stream.reader();
-            var stream_writer = connection.stream.writer();
-            var connection_br = stream_reader.interface().buffered(&recv_buffer);
-            var connection_bw = stream_writer.interface().buffered(&send_buffer);
-            var server = http.Server.init(&connection_br, &connection_bw);
+            var connection_br = connection.stream.reader(&recv_buffer);
+            var connection_bw = connection.stream.writer(&send_buffer);
+            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
             var request = try server.receiveHead();
             var read_buffer: [100]u8 = undefined;
-            var br = (try request.reader()).buffered(&read_buffer);
-            var response = try request.respondStreaming(.{
+            var br = try request.readerExpectContinue(&read_buffer);
+            var response = try request.respondStreaming(&.{}, .{
                 .respond_options = .{
                     .transfer_encoding = .none, // Causes keep_alive=false
                 },
             });
-            var bw = response.writer().unbuffered();
+            const w = &response.writer;
 
             while (true) {
                 try response.flush();
@@ -901,7 +887,7 @@ test "Server streams both reading and writing" {
                 };
                 br.toss(buf.len);
                 for (buf) |*b| b.* = std.ascii.toUpper(b.*);
-                try bw.writeAll(buf);
+                try w.writeAll(buf);
             }
             try response.end();
         }
@@ -921,15 +907,14 @@ test "Server streams both reading and writing" {
     defer req.deinit();
 
     req.transfer_encoding = .chunked;
-    var body_writer = try req.sendBody();
+    var body_writer = try req.sendBody(&.{});
     var response = try req.receiveHead(&redirect_buffer);
 
-    var w = body_writer.writer().unbuffered();
-    try w.writeAll("one ");
-    try w.writeAll("fish");
+    try body_writer.writer.writeAll("one ");
+    try body_writer.writer.writeAll("fish");
     try body_writer.end();
 
-    const body = try response.reader().readRemainingAlloc(std.testing.allocator, .limited(8192));
+    const body = try response.reader(&.{}).allocRemaining(std.testing.allocator, .limited(8192));
     defer std.testing.allocator.free(body);
 
     try expectEqualStrings("ONE FISH", body);
@@ -954,15 +939,14 @@ fn echoTests(client: *http.Client, port: u16) !void {
 
         req.transfer_encoding = .{ .content_length = 14 };
 
-        var body_writer = try req.sendBody();
-        var w = body_writer.writer().unbuffered();
-        try w.writeAll("Hello, ");
-        try w.writeAll("World!\n");
+        var body_writer = try req.sendBody(&.{});
+        try body_writer.writer.writeAll("Hello, ");
+        try body_writer.writer.writeAll("World!\n");
         try body_writer.end();
 
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -988,15 +972,14 @@ fn echoTests(client: *http.Client, port: u16) !void {
 
         req.transfer_encoding = .chunked;
 
-        var body_writer = try req.sendBody();
-        var w = body_writer.writer().unbuffered();
-        try w.writeAll("Hello, ");
-        try w.writeAll("World!\n");
+        var body_writer = try req.sendBody(&.{});
+        try body_writer.writer.writeAll("Hello, ");
+        try body_writer.writer.writeAll("World!\n");
         try body_writer.end();
 
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -1042,16 +1025,15 @@ fn echoTests(client: *http.Client, port: u16) !void {
 
         req.transfer_encoding = .chunked;
 
-        var body_writer = try req.sendBody();
-        var w = body_writer.writer().unbuffered();
-        try w.writeAll("Hello, ");
-        try w.writeAll("World!\n");
+        var body_writer = try req.sendBody(&.{});
+        try body_writer.writer.writeAll("Hello, ");
+        try body_writer.writer.writeAll("World!\n");
         try body_writer.end();
 
         var response = try req.receiveHead(&redirect_buffer);
         try expectEqual(.ok, response.head.status);
 
-        const body = try response.reader().readRemainingAlloc(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -1073,11 +1055,11 @@ fn echoTests(client: *http.Client, port: u16) !void {
 
         req.transfer_encoding = .chunked;
 
-        var body_writer = try req.sendBody();
+        var body_writer = try req.sendBody(&.{});
         try body_writer.flush();
         var response = try req.receiveHead(&redirect_buffer);
         try expectEqual(.expectation_failed, response.head.status);
-        _ = try response.reader().discardRemaining();
+        _ = try response.reader(&.{}).discardRemaining();
     }
 }
 
@@ -1128,11 +1110,9 @@ test "redirect to different connection" {
             const connection = try net_server.accept();
             defer connection.stream.close();
 
-            var stream_reader = connection.stream.reader();
-            var stream_writer = connection.stream.writer();
-            var connection_br = stream_reader.interface().buffered(&recv_buffer);
-            var connection_bw = stream_writer.interface().buffered(&send_buffer);
-            var server = http.Server.init(&connection_br, &connection_bw);
+            var connection_br = connection.stream.reader(&recv_buffer);
+            var connection_bw = connection.stream.writer(&send_buffer);
+            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
             var request = try server.receiveHead();
             try expectEqualStrings(request.head.target, "/ok");
             try request.respond("good job, you pass", .{});
@@ -1161,7 +1141,7 @@ test "redirect to different connection" {
 
             var connection_br = connection.stream.reader(&recv_buffer);
             var connection_bw = connection.stream.writer(&send_buffer);
-            var server = http.Server.init(&connection_br, &connection_bw);
+            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
             var request = try server.receiveHead();
             try expectEqualStrings(request.head.target, "/help");
             try request.respond("", .{

@@ -1788,7 +1788,7 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
             stderr_bytes = poller.reader(.stderr).buffered();
         } else {
             var fr = stdout.readerStreaming();
-            stdout_bytes = fr.interface().readRemainingAlloc(arena, run.stdio_limit) catch |err| switch (err) {
+            stdout_bytes = fr.interface().allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.ReadFailed => return fr.err.?,
                 error.StreamTooLong => return error.StdoutStreamTooLong,
@@ -1796,7 +1796,7 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
         }
     } else if (child.stderr) |stderr| {
         var fr = stderr.readerStreaming();
-        stderr_bytes = fr.interface().readRemainingAlloc(arena, run.stdio_limit) catch |err| switch (err) {
+        stderr_bytes = fr.interface().allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ReadFailed => return fr.err.?,
             error.StreamTooLong => return error.StderrStreamTooLong,
