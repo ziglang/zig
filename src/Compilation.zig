@@ -4573,7 +4573,7 @@ fn performAllTheWork(
         try zcu.flushRetryableFailures();
 
         // It's analysis time! Queue up our initial analysis.
-        for (zcu.analysis_roots.slice()) |mod| {
+        for (zcu.analysis_roots.items()) |mod| {
             try comp.queueJob(.{ .analyze_mod = mod });
         }
 
