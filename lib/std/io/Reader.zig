@@ -942,7 +942,7 @@ pub fn fill(r: *Reader, n: usize) Error!void {
         writer.end = r.end;
         r.end += r.vtable.stream(r, &writer, .limited(r.buffer.len - r.end)) catch |err| switch (err) {
             error.WriteFailed => unreachable,
-            else => |e| return e,
+            error.ReadFailed, error.EndOfStream => |e| return e,
         };
     }
 }
@@ -1168,9 +1168,9 @@ fn takeMultipleOf7Leb128(r: *Reader, comptime Result: type) TakeLeb128Error!Resu
 
 /// Left-aligns data such that `r.seek` becomes zero.
 pub fn rebase(r: *Reader) void {
+    if (r.seek == 0) return;
     const data = r.buffer[r.seek..r.end];
-    const dest = r.buffer[0..data.len];
-    std.mem.copyForwards(u8, dest, data);
+    @memmove(r.buffer[0..data.len], data);
     r.seek = 0;
     r.end = data.len;
 }

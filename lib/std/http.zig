@@ -701,9 +701,13 @@ pub const Reader = struct {
         var hp: HeadParser = .{ .state = .seen_rn };
         var trailers_len: usize = 2;
         while (true) {
-            if (trailers_len >= in.buffer.len) return error.HttpHeadersOversize;
-            try in.fill(trailers_len + 1);
-            trailers_len += hp.feed(in.buffered()[trailers_len..]);
+            if (in.buffer.len - trailers_len == 0) return error.HttpHeadersOversize;
+            const remaining = in.buffered()[trailers_len..];
+            if (remaining.len == 0) {
+                try in.fillMore();
+                continue;
+            }
+            trailers_len += hp.feed(remaining);
             if (hp.state == .finished) {
                 reader.state = .ready;
                 reader.trailers = in.buffered()[0..trailers_len];

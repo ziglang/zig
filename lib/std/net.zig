@@ -1943,7 +1943,7 @@ pub const Stream = struct {
                     else => |err| return windows.unexpectedWSAError(err),
                 };
                 if (n == 0) return error.EndOfStream;
-                return io_w.advanceVector(n);
+                return n;
             }
         },
         else => struct {

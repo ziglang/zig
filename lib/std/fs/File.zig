@@ -1083,7 +1083,7 @@ pub const Reader = struct {
                     return error.EndOfStream;
                 }
                 r.pos += n;
-                return w.advanceVector(n);
+                return n;
             },
             .streaming_reading => {
                 if (is_windows) {
@@ -1106,7 +1106,7 @@ pub const Reader = struct {
                     return error.EndOfStream;
                 }
                 r.pos += n;
-                return w.advanceVector(n);
+                return n;
             },
             .failure => return error.ReadFailed,
         }
