@@ -23,12 +23,7 @@ pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
         const I = if (@bitSizeOf(W) < 8) u8 else W;
         const lookup_table = blk: {
             @setEvalBranchQuota(2500);
-
-            const poly = if (algorithm.reflect_input)
-                @bitReverse(@as(I, algorithm.polynomial)) >> (@bitSizeOf(I) - @bitSizeOf(W))
-            else
-                @as(I, algorithm.polynomial) << (@bitSizeOf(I) - @bitSizeOf(W));
-
+            const poly = reflect(algorithm.polynomial);
             var table: [256]I = undefined;
             for (&table, 0..) |*e, i| {
                 var crc: I = i;
@@ -52,15 +47,13 @@ pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
         crc: I,
 
         pub fn init() Self {
-            const initial = if (algorithm.reflect_input)
-                @bitReverse(@as(I, algorithm.initial)) >> (@bitSizeOf(I) - @bitSizeOf(W))
-            else
-                @as(I, algorithm.initial) << (@bitSizeOf(I) - @bitSizeOf(W));
-            return Self{ .crc = initial };
+            const initial = reflect(algorithm.initial);
+            return .{ .crc = initial };
         }
 
         inline fn tableEntry(index: I) I {
-            return lookup_table[@as(u8, @intCast(index & 0xFF))];
+            const short: u8 = @truncate(index);
+            return lookup_table[short];
         }
 
         pub fn update(self: *Self, bytes: []const u8) void {
@@ -90,13 +83,21 @@ pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
             if (!algorithm.reflect_output) {
                 c >>= @bitSizeOf(I) - @bitSizeOf(W);
             }
-            return @as(W, @intCast(c ^ algorithm.xor_output));
+            return @intCast(c ^ algorithm.xor_output);
         }
 
         pub fn hash(bytes: []const u8) W {
             var c = Self.init();
             c.update(bytes);
             return c.final();
+        }
+
+        fn reflect(x: I) I {
+            const offset = @bitSizeOf(I) - @bitSizeOf(W);
+            if (algorithm.reflect_input)
+                return @bitReverse(x) >> offset
+            else
+                return x << offset;
         }
     };
 }
