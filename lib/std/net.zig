@@ -1999,44 +1999,56 @@ pub const Stream = struct {
                 const w: *Writer = @fieldParentPtr("interface", io_w);
                 const buffered = io_w.buffered();
                 comptime assert(native_os == .windows);
-                var splat_buffer: [splat_buffer_len]u8 = undefined;
                 var iovecs: [max_buffers_len]windows.WSABUF = undefined;
                 var len: u32 = 0;
                 if (buffered.len != 0) {
                     iovecs[len] = .{
-                        .base = buffered.ptr,
+                        .buf = buffered.ptr,
                         .len = buffered.len,
                     };
                     len += 1;
                 }
-                for (data[0..data.len]) |bytes| {
+                for (data) |bytes| {
                     if (bytes.len == 0) continue;
                     iovecs[len] = .{
                         .buf = bytes.ptr,
                         .len = bytes.len,
                     };
                     len += 1;
+                    if (iovecs.len - len == 0) break;
                 }
+                if (len == 0) return 0;
                 const pattern = data[data.len - 1];
                 switch (splat) {
-                    0 => len -= 1,
+                    0 => if (iovecs[len - 1].buf == data[data.len - 1].ptr) {
+                        len -= 1;
+                    },
                     1 => {},
                     else => switch (pattern.len) {
                         0 => {},
-                        1 => {
+                        1 => memset: {
                             // Replace the 1-byte buffer with a bigger one.
+                            if (iovecs[len - 1].buf == data[data.len - 1].ptr) len -= 1;
+                            if (iovecs.len - len == 0) break :memset;
+                            const splat_buffer_candidate = io_w.buffer[io_w.end..];
+                            var backup_buffer: [32]u8 = undefined;
+                            const splat_buffer = if (splat_buffer_candidate.len >= backup_buffer.len)
+                                splat_buffer_candidate
+                            else
+                                &backup_buffer;
                             const memset_len = @min(splat_buffer.len, splat);
                             const buf = splat_buffer[0..memset_len];
                             @memset(buf, pattern[0]);
-                            iovecs[len - 1] = .{ .buf = buf.ptr, .len = buf.len };
+                            iovecs[len] = .{ .buf = buf.ptr, .len = buf.len };
+                            len += 1;
                             var remaining_splat = splat - buf.len;
                             while (remaining_splat > splat_buffer.len and len < iovecs.len) {
-                                iovecs[len] = .{ .buf = &splat_buffer, .len = splat_buffer.len };
+                                iovecs[len] = .{ .buf = splat_buffer.ptr, .len = splat_buffer.len };
                                 remaining_splat -= splat_buffer.len;
                                 len += 1;
                             }
-                            if (remaining_splat > 0 and len < iovecs.len) {
-                                iovecs[len] = .{ .buf = &splat_buffer, .len = remaining_splat };
+                            if (remaining_splat > 0 and iovecs.len - len != 0) {
+                                iovecs[len] = .{ .buf = splat_buffer.ptr, .len = remaining_splat };
                                 len += 1;
                             }
                         },
@@ -2134,48 +2146,52 @@ pub const Stream = struct {
                         .flags = 0,
                     };
                 };
-                if (data.len != 0) {
-                    const pattern = data[data.len - 1];
-                    switch (splat) {
-                        0 => if (msg.iovlen != 0 and iovecs[msg.iovlen - 1].base == data[data.len - 1].ptr) {
-                            msg.iovlen -= 1;
-                        },
-                        1 => {},
-                        else => switch (pattern.len) {
-                            0 => {},
-                            1 => memset: {
-                                // Replace the 1-byte buffer with a bigger one.
-                                if (msg.iovlen != 0 and iovecs[msg.iovlen - 1].base == data[data.len - 1].ptr)
-                                    msg.iovlen -= 1;
-                                if (iovecs.len - msg.iovlen == 0) break :memset;
-                                const splat_buffer = io_w.buffer[io_w.end..];
-                                const memset_len = @min(splat_buffer.len, splat);
-                                const buf = splat_buffer[0..memset_len];
-                                @memset(buf, pattern[0]);
-                                iovecs[msg.iovlen] = .{ .base = buf.ptr, .len = buf.len };
+                if (msg.iovlen == 0) return 0;
+                const pattern = data[data.len - 1];
+                switch (splat) {
+                    0 => if (iovecs[msg.iovlen - 1].base == data[data.len - 1].ptr) {
+                        msg.iovlen -= 1;
+                    },
+                    1 => {},
+                    else => switch (pattern.len) {
+                        0 => {},
+                        1 => memset: {
+                            // Replace the 1-byte buffer with a bigger one.
+                            if (iovecs[msg.iovlen - 1].base == data[data.len - 1].ptr) msg.iovlen -= 1;
+                            if (iovecs.len - msg.iovlen == 0) break :memset;
+                            const splat_buffer_candidate = io_w.buffer[io_w.end..];
+                            var backup_buffer: [32]u8 = undefined;
+                            const splat_buffer = if (splat_buffer_candidate.len >= backup_buffer.len)
+                                splat_buffer_candidate
+                            else
+                                &backup_buffer;
+                            if (splat_buffer.len == 0) break :memset;
+                            const memset_len = @min(splat_buffer.len, splat);
+                            const buf = splat_buffer[0..memset_len];
+                            @memset(buf, pattern[0]);
+                            iovecs[msg.iovlen] = .{ .base = buf.ptr, .len = buf.len };
+                            msg.iovlen += 1;
+                            var remaining_splat = splat - buf.len;
+                            while (remaining_splat > splat_buffer.len and iovecs.len - msg.iovlen != 0) {
+                                assert(buf.len == splat_buffer.len);
+                                iovecs[msg.iovlen] = .{ .base = splat_buffer.ptr, .len = splat_buffer.len };
                                 msg.iovlen += 1;
-                                var remaining_splat = splat - buf.len;
-                                while (remaining_splat > splat_buffer.len and iovecs.len - msg.iovlen != 0) {
-                                    assert(buf.len == splat_buffer.len);
-                                    iovecs[msg.iovlen] = .{ .base = splat_buffer.ptr, .len = splat_buffer.len };
-                                    msg.iovlen += 1;
-                                    remaining_splat -= splat_buffer.len;
-                                }
-                                if (remaining_splat > 0 and iovecs.len - msg.iovlen != 0) {
-                                    iovecs[msg.iovlen] = .{ .base = splat_buffer.ptr, .len = remaining_splat };
-                                    msg.iovlen += 1;
-                                }
-                            },
-                            else => for (0..splat - 1) |_| {
-                                if (iovecs.len - msg.iovlen == 0) break;
-                                iovecs[msg.iovlen] = .{
-                                    .base = pattern.ptr,
-                                    .len = pattern.len,
-                                };
+                                remaining_splat -= splat_buffer.len;
+                            }
+                            if (remaining_splat > 0 and iovecs.len - msg.iovlen != 0) {
+                                iovecs[msg.iovlen] = .{ .base = splat_buffer.ptr, .len = remaining_splat };
                                 msg.iovlen += 1;
-                            },
+                            }
                         },
-                    }
+                        else => for (0..splat - 1) |_| {
+                            if (iovecs.len - msg.iovlen == 0) break;
+                            iovecs[msg.iovlen] = .{
+                                .base = pattern.ptr,
+                                .len = pattern.len,
+                            };
+                            msg.iovlen += 1;
+                        },
+                    },
                 }
                 const flags = posix.MSG.NOSIGNAL;
                 return io_w.consume(std.posix.sendmsg(w.file_writer.file.handle, &msg, flags) catch |err| {
@@ -2186,7 +2202,8 @@ pub const Stream = struct {
 
             fn sendFile(io_w: *io.Writer, file_reader: *File.Reader, limit: io.Limit) io.Writer.FileError!usize {
                 const w: *Writer = @fieldParentPtr("interface", io_w);
-                return io_w.sendFileTo(&w.file_writer.interface, file_reader, limit);
+                const n = try w.file_writer.interface.sendFileHeader(io_w.buffered(), file_reader, limit);
+                return io_w.consume(n);
             }
         },
     };
