@@ -12,5 +12,5 @@ pub fn main() void {
 // backend=stage2
 // target=native
 //
-// :4:5: error: no field named 'one' in enum 'tmp.E'
-// :2:11: note: enum declared here
+// :3:5: error: no field named 'one' in enum 'tmp.E'
+// :1:11: note: enum declared here
