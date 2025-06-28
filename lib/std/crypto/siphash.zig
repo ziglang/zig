@@ -240,7 +240,7 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         }
 
         pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const Writer = std.io.GenericWriter(*Self, Error, write);
 
         fn write(self: *Self, bytes: []const u8) Error!usize {
             self.update(bytes);

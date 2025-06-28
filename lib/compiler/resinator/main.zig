@@ -471,7 +471,7 @@ const IoStream = struct {
             allocator: std.mem.Allocator,
         };
         pub const WriteError = std.mem.Allocator.Error || std.fs.File.WriteError;
-        pub const Writer = std.io.Writer(WriterContext, WriteError, write);
+        pub const Writer = std.io.GenericWriter(WriterContext, WriteError, write);
 
         pub fn write(ctx: WriterContext, bytes: []const u8) WriteError!usize {
             switch (ctx.self.*) {

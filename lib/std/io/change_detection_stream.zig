@@ -8,7 +8,7 @@ pub fn ChangeDetectionStream(comptime WriterType: type) type {
     return struct {
         const Self = @This();
         pub const Error = WriterType.Error;
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.GenericWriter(*Self, Error, write);
 
         anything_changed: bool,
         underlying_writer: WriterType,

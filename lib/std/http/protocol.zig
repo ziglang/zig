@@ -344,7 +344,7 @@ const MockBufferedConnection = struct {
     }
 
     pub const ReadError = std.io.FixedBufferStream([]const u8).ReadError || error{EndOfStream};
-    pub const Reader = std.io.Reader(*MockBufferedConnection, ReadError, read);
+    pub const Reader = std.io.GenericReader(*MockBufferedConnection, ReadError, read);
 
     pub fn reader(conn: *MockBufferedConnection) Reader {
         return Reader{ .context = conn };
@@ -359,7 +359,7 @@ const MockBufferedConnection = struct {
     }
 
     pub const WriteError = std.io.FixedBufferStream([]const u8).WriteError;
-    pub const Writer = std.io.Writer(*MockBufferedConnection, WriteError, write);
+    pub const Writer = std.io.GenericWriter(*MockBufferedConnection, WriteError, write);
 
     pub fn writer(conn: *MockBufferedConnection) Writer {
         return Writer{ .context = conn };
