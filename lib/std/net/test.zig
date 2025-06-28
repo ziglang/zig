@@ -404,3 +404,38 @@ test "non-blocking tcp server" {
     const msg = buf[0..len];
     try testing.expect(mem.eql(u8, msg, "hello from server\n"));
 }
+
+test "non-blocking tcp client" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    if (builtin.os.tag == .windows) {
+        _ = try std.os.windows.WSAStartup(2, 2);
+    }
+    defer {
+        if (builtin.os.tag == .windows) {
+            std.os.windows.WSACleanup() catch unreachable;
+        }
+    }
+
+    // create a blocking server that accepts a single connection then ignores it
+    const listenAddress = std.net.Address.initIp4(.{ 127, 0, 0, 1 }, 0);
+    var localhost = try listenAddress.listen(.{});
+    defer localhost.deinit();
+
+    // Address.listen calls getsockname to fill localhost.listen_address with a port
+    const address = localhost.listen_address;
+
+    const tpe: u32 = std.posix.SOCK.STREAM | std.posix.SOCK.NONBLOCK | std.posix.SOCK.CLOEXEC;
+    const protocol = std.posix.IPPROTO.TCP;
+    const socket = try std.posix.socket(address.any.family, tpe, protocol);
+    defer std.posix.close(socket);
+
+    // first call returns .WouldBlock like usual
+    try testing.expectError(error.WouldBlock, std.posix.connect(socket, &address.any, address.getOsSockLen()));
+
+    var con = try localhost.accept();
+    defer con.stream.close();
+
+    // another call after accept returns returns gracefully
+    try std.posix.connect(socket, &address.any, address.getOsSockLen());
+}
