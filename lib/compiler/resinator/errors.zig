@@ -63,14 +63,14 @@ pub const Diagnostics = struct {
     pub fn renderToStdErr(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, tty_config: std.io.tty.Config, source_mappings: ?SourceMappings) void {
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
-        const stderr = std.io.getStdErr().writer();
+        const stderr = std.fs.File.stderr().writer();
         for (self.errors.items) |err_details| {
             renderErrorMessage(stderr, tty_config, cwd, err_details, source, self.strings.items, source_mappings) catch return;
         }
     }
 
     pub fn renderToStdErrDetectTTY(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, source_mappings: ?SourceMappings) void {
-        const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
+        const tty_config = std.io.tty.detectConfig(std.fs.File.stderr());
         return self.renderToStdErr(cwd, source, tty_config, source_mappings);
     }
 

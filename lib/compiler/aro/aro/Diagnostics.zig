@@ -541,7 +541,7 @@ const MsgWriter = struct {
     fn init(config: std.io.tty.Config) MsgWriter {
         std.debug.lockStdErr();
         return .{
-            .w = std.io.bufferedWriter(std.io.getStdErr().writer()),
+            .w = std.io.bufferedWriter(std.fs.File.stderr().writer()),
             .config = config,
         };
     }

@@ -73,11 +73,11 @@ pub fn writeInst(
 }
 
 pub fn dump(air: Air, pt: Zcu.PerThread, liveness: ?Air.Liveness) void {
-    air.write(std.io.getStdErr().writer(), pt, liveness);
+    air.write(std.fs.File.stderr().writer(), pt, liveness);
 }
 
 pub fn dumpInst(air: Air, inst: Air.Inst.Index, pt: Zcu.PerThread, liveness: ?Air.Liveness) void {
-    air.writeInst(std.io.getStdErr().writer(), inst, pt, liveness);
+    air.writeInst(std.fs.File.stderr().writer(), inst, pt, liveness);
 }
 
 const Writer = struct {

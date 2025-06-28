@@ -77,54 +77,6 @@ pub const Limit = enum(usize) {
 pub const Reader = @import("io/Reader.zig");
 pub const Writer = @import("io/Writer.zig");
 
-fn getStdOutHandle() posix.fd_t {
-    if (is_windows) {
-        return windows.peb().ProcessParameters.hStdOutput;
-    }
-
-    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdOutHandle")) {
-        return root.os.io.getStdOutHandle();
-    }
-
-    return posix.STDOUT_FILENO;
-}
-
-pub fn getStdOut() File {
-    return .{ .handle = getStdOutHandle() };
-}
-
-fn getStdErrHandle() posix.fd_t {
-    if (is_windows) {
-        return windows.peb().ProcessParameters.hStdError;
-    }
-
-    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdErrHandle")) {
-        return root.os.io.getStdErrHandle();
-    }
-
-    return posix.STDERR_FILENO;
-}
-
-pub fn getStdErr() File {
-    return .{ .handle = getStdErrHandle() };
-}
-
-fn getStdInHandle() posix.fd_t {
-    if (is_windows) {
-        return windows.peb().ProcessParameters.hStdInput;
-    }
-
-    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdInHandle")) {
-        return root.os.io.getStdInHandle();
-    }
-
-    return posix.STDIN_FILENO;
-}
-
-pub fn getStdIn() File {
-    return .{ .handle = getStdInHandle() };
-}
-
 /// Deprecated in favor of `Reader`.
 pub fn GenericReader(
     comptime Context: type,

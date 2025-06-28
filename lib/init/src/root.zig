@@ -5,7 +5,7 @@ pub fn bufferedPrint() !void {
     // Stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to
     // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
+    const stdout_file = std.fs.File.stdout().writer();
     // Buffering can improve performance significantly in print-heavy programs.
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();

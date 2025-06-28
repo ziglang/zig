@@ -54,7 +54,7 @@ fn cmdObjCopy(
                 fatal("unexpected positional argument: '{s}'", .{arg});
             }
         } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-            return std.io.getStdOut().writeAll(usage);
+            return std.fs.File.stdout().writeAll(usage);
         } else if (mem.eql(u8, arg, "-O") or mem.eql(u8, arg, "--output-target")) {
             i += 1;
             if (i >= args.len) fatal("expected another argument after '{s}'", .{arg});
@@ -227,8 +227,8 @@ fn cmdObjCopy(
     if (listen) {
         var server = try Server.init(.{
             .gpa = gpa,
-            .in = std.io.getStdIn(),
-            .out = std.io.getStdOut(),
+            .in = .stdin(),
+            .out = .stdout(),
             .zig_version = builtin.zig_version_string,
         });
         defer server.deinit();

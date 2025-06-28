@@ -1,3 +1,11 @@
+const std = @import("std");
+const mem = std.mem;
+const fs = std.fs;
+const process = std.process;
+const Allocator = std.mem.Allocator;
+const Color = std.zig.Color;
+const fatal = std.process.fatal;
+
 const usage_fmt =
     \\Usage: zig fmt [file]...
     \\
@@ -52,7 +60,7 @@ pub fn run(
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.io.getStdOut().writer();
+                    const stdout = std.fs.File.stdout().writer();
                     try stdout.writeAll(usage_fmt);
                     return process.cleanExit();
                 } else if (mem.eql(u8, arg, "--color")) {
@@ -93,7 +101,7 @@ pub fn run(
             fatal("cannot use --stdin with positional arguments", .{});
         }
 
-        const stdin = std.io.getStdIn();
+        const stdin: fs.File = .stdin();
         const source_code = std.zig.readSourceFileToEndAlloc(gpa, stdin, null) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
@@ -146,7 +154,7 @@ pub fn run(
             process.exit(code);
         }
 
-        return std.io.getStdOut().writeAll(formatted);
+        return std.fs.File.stdout().writeAll(formatted);
     }
 
     if (input_files.items.len == 0) {
@@ -363,7 +371,7 @@ fn fmtPathFile(
         return;
 
     if (check_mode) {
-        const stdout = std.io.getStdOut().writer();
+        const stdout = std.fs.File.stdout().writer();
         try stdout.print("{s}\n", .{file_path});
         fmt.any_error = true;
     } else {
@@ -372,15 +380,7 @@ fn fmtPathFile(
 
         try af.file.writeAll(fmt.out_buffer.items);
         try af.finish();
-        const stdout = std.io.getStdOut().writer();
+        const stdout = std.fs.File.stdout().writer();
         try stdout.print("{s}\n", .{file_path});
     }
 }
-
-const std = @import("std");
-const mem = std.mem;
-const fs = std.fs;
-const process = std.process;
-const Allocator = std.mem.Allocator;
-const Color = std.zig.Color;
-const fatal = std.process.fatal;
