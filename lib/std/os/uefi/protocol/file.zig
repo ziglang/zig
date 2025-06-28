@@ -88,8 +88,8 @@ pub const File = extern struct {
         getPosition,
         getEndPos,
     );
-    pub const Reader = io.Reader(*File, ReadError, read);
-    pub const Writer = io.Writer(*File, WriteError, write);
+    pub const Reader = io.GenericReader(*File, ReadError, read);
+    pub const Writer = io.GenericWriter(*File, WriteError, write);
 
     pub fn seekableStream(self: *File) SeekableStream {
         return .{ .context = self };

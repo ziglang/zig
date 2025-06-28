@@ -9,7 +9,7 @@ pub fn LimitedReader(comptime ReaderType: type) type {
         bytes_left: u64,
 
         pub const Error = ReaderType.Error;
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.GenericReader(*Self, Error, read);
 
         const Self = @This();
 

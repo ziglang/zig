@@ -311,7 +311,7 @@ pub const Connection = struct {
         EndOfStream,
     };
 
-    pub const Reader = std.io.Reader(*Connection, ReadError, read);
+    pub const Reader = std.io.GenericReader(*Connection, ReadError, read);
 
     pub fn reader(conn: *Connection) Reader {
         return Reader{ .context = conn };
@@ -374,7 +374,7 @@ pub const Connection = struct {
         UnexpectedWriteFailure,
     };
 
-    pub const Writer = std.io.Writer(*Connection, WriteError, write);
+    pub const Writer = std.io.GenericWriter(*Connection, WriteError, write);
 
     pub fn writer(conn: *Connection) Writer {
         return Writer{ .context = conn };
@@ -934,7 +934,7 @@ pub const Request = struct {
 
     const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
 
-    const TransferReader = std.io.Reader(*Request, TransferReadError, transferRead);
+    const TransferReader = std.io.GenericReader(*Request, TransferReadError, transferRead);
 
     fn transferReader(req: *Request) TransferReader {
         return .{ .context = req };
@@ -1094,7 +1094,7 @@ pub const Request = struct {
     pub const ReadError = TransferReadError || proto.HeadersParser.CheckCompleteHeadError ||
         error{ DecompressionFailure, InvalidTrailers };
 
-    pub const Reader = std.io.Reader(*Request, ReadError, read);
+    pub const Reader = std.io.GenericReader(*Request, ReadError, read);
 
     pub fn reader(req: *Request) Reader {
         return .{ .context = req };
@@ -1134,7 +1134,7 @@ pub const Request = struct {
 
     pub const WriteError = Connection.WriteError || error{ NotWriteable, MessageTooLong };
 
-    pub const Writer = std.io.Writer(*Request, WriteError, write);
+    pub const Writer = std.io.GenericWriter(*Request, WriteError, write);
 
     pub fn writer(req: *Request) Writer {
         return .{ .context = req };

@@ -3245,7 +3245,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
     return struct {
         const Self = @This();
         pub const WriteError = UnderlyingWriter.Error;
-        pub const Writer = std.io.Writer(*Self, WriteError, write);
+        pub const Writer = std.io.GenericWriter(*Self, WriteError, write);
 
         pub const IndentType = enum {
             normal,

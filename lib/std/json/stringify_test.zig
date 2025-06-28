@@ -307,7 +307,7 @@ test "stringify tuple" {
 fn testStringify(expected: []const u8, value: anytype, options: StringifyOptions) !void {
     const ValidationWriter = struct {
         const Self = @This();
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const Writer = std.io.GenericWriter(*Self, Error, write);
         pub const Error = error{
             TooMuchData,
             DifferentData,
