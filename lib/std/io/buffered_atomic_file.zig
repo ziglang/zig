@@ -11,7 +11,7 @@ pub const BufferedAtomicFile = struct {
 
     pub const buffer_size = 4096;
     pub const BufferedWriter = std.io.BufferedWriter(buffer_size, File.Writer);
-    pub const Writer = std.io.Writer(*BufferedWriter, BufferedWriter.Error, BufferedWriter.write);
+    pub const Writer = std.io.GenericWriter(*BufferedWriter, BufferedWriter.Error, BufferedWriter.write);
 
     /// TODO when https://github.com/ziglang/zig/issues/2761 is solved
     /// this API will not need an allocator

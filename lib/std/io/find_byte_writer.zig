@@ -8,7 +8,7 @@ pub fn FindByteWriter(comptime UnderlyingWriter: type) type {
     return struct {
         const Self = @This();
         pub const Error = UnderlyingWriter.Error;
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.GenericWriter(*Self, Error, write);
 
         underlying_writer: UnderlyingWriter,
         byte_found: bool,

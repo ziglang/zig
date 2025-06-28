@@ -269,7 +269,7 @@ pub const Sha1 = struct {
     }
 
     pub const Error = error{};
-    pub const Writer = std.io.Writer(*Self, Error, write);
+    pub const Writer = std.io.GenericWriter(*Self, Error, write);
 
     fn write(self: *Self, bytes: []const u8) Error!usize {
         self.update(bytes);

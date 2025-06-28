@@ -1845,8 +1845,8 @@ pub const Stream = struct {
     pub const ReadError = posix.ReadError;
     pub const WriteError = posix.WriteError;
 
-    pub const Reader = io.Reader(Stream, ReadError, read);
-    pub const Writer = io.Writer(Stream, WriteError, write);
+    pub const Reader = io.GenericReader(Stream, ReadError, read);
+    pub const Writer = io.GenericWriter(Stream, WriteError, write);
 
     pub fn reader(self: Stream) Reader {
         return .{ .context = self };

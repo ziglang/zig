@@ -38,7 +38,7 @@ pub const StringifyOptions = struct {
     emit_nonportable_numbers_as_strings: bool = false,
 };
 
-/// Writes the given value to the `std.io.Writer` stream.
+/// Writes the given value to the `std.io.GenericWriter` stream.
 /// See `WriteStream` for how the given value is serialized into JSON.
 /// The maximum nesting depth of the output JSON document is 256.
 /// See also `stringifyMaxDepth` and `stringifyArbitraryDepth`.
@@ -81,7 +81,7 @@ pub fn stringifyArbitraryDepth(
 }
 
 /// Calls `stringifyArbitraryDepth` and stores the result in dynamically allocated memory
-/// instead of taking a `std.io.Writer`.
+/// instead of taking a `std.io.GenericWriter`.
 ///
 /// Caller owns returned memory.
 pub fn stringifyAlloc(
