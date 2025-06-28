@@ -6,6 +6,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
+const Writer = std.io.Writer;
 
 const CheckObject = @This();
 
@@ -28,14 +29,14 @@ pub fn create(
     const gpa = owner.allocator;
     const check_object = gpa.create(CheckObject) catch @panic("OOM");
     check_object.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = "CheckObject",
             .owner = owner,
             .makeFn = make,
         }),
         .source = source.dupe(owner),
-        .checks = std.ArrayList(Check).init(gpa),
+        .checks = .init(gpa),
         .obj_format = obj_format,
     };
     check_object.source.addStepDependencies(&check_object.step);
@@ -74,13 +75,13 @@ const Action = struct {
         b: *std.Build,
         step: *Step,
         haystack: []const u8,
-        global_vars: anytype,
+        global_vars: *std.StringHashMap(u64),
     ) !bool {
         assert(act.tag == .extract);
         const hay = mem.trim(u8, haystack, " ");
         const phrase = mem.trim(u8, act.phrase.resolve(b, step), " ");
 
-        var candidate_vars = std.ArrayList(struct { name: []const u8, value: u64 }).init(b.allocator);
+        var candidate_vars: std.ArrayList(struct { name: []const u8, value: u64 }) = .init(b.allocator);
         var hay_it = mem.tokenizeScalar(u8, hay, ' ');
         var needle_it = mem.tokenizeScalar(u8, phrase, ' ');
 
@@ -153,11 +154,11 @@ const Action = struct {
     /// Will return true if the `phrase` is correctly parsed into an RPN program and
     /// its reduced, computed value compares using `op` with the expected value, either
     /// a literal or another extracted variable.
-    fn computeCmp(act: Action, b: *std.Build, step: *Step, global_vars: anytype) !bool {
+    fn computeCmp(act: Action, b: *std.Build, step: *Step, global_vars: std.StringHashMap(u64)) !bool {
         const gpa = step.owner.allocator;
         const phrase = act.phrase.resolve(b, step);
-        var op_stack = std.ArrayList(enum { add, sub, mod, mul }).init(gpa);
-        var values = std.ArrayList(u64).init(gpa);
+        var op_stack: std.ArrayList(enum { add, sub, mod, mul }) = .init(gpa);
+        var values: std.ArrayList(u64) = .init(gpa);
 
         var it = mem.tokenizeScalar(u8, phrase, ' ');
         while (it.next()) |next| {
@@ -230,17 +231,15 @@ const ComputeCompareExpected = struct {
     },
 
     pub fn format(
-        value: @This(),
+        value: ComputeCompareExpected,
+        bw: *Writer,
         comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
     ) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, value);
-        _ = options;
-        try writer.print("{s} ", .{@tagName(value.op)});
+        try bw.print("{s} ", .{@tagName(value.op)});
         switch (value.value) {
-            .variable => |name| try writer.writeAll(name),
-            .literal => |x| try writer.print("{x}", .{x}),
+            .variable => |name| try bw.writeAll(name),
+            .literal => |x| try bw.print("{x}", .{x}),
         }
     }
 };
@@ -248,56 +247,63 @@ const ComputeCompareExpected = struct {
 const Check = struct {
     kind: Kind,
     payload: Payload,
-    data: std.ArrayList(u8),
-    actions: std.ArrayList(Action),
+    allocator: Allocator,
+    data: std.ArrayListUnmanaged(u8),
+    actions: std.ArrayListUnmanaged(Action),
 
     fn create(allocator: Allocator, kind: Kind) Check {
         return .{
             .kind = kind,
             .payload = .{ .none = {} },
-            .data = std.ArrayList(u8).init(allocator),
-            .actions = std.ArrayList(Action).init(allocator),
+            .allocator = allocator,
+            .data = .empty,
+            .actions = .empty,
         };
     }
 
-    fn dumpSection(allocator: Allocator, name: [:0]const u8) Check {
-        var check = Check.create(allocator, .dump_section);
+    fn dumpSection(gpa: Allocator, name: [:0]const u8) Check {
+        var check = Check.create(gpa, .dump_section);
         const off: u32 = @intCast(check.data.items.len);
-        check.data.writer().print("{s}\x00", .{name}) catch @panic("OOM");
+        check.data.print(gpa, "{s}\x00", .{name}) catch @panic("OOM");
         check.payload = .{ .dump_section = off };
         return check;
     }
 
     fn extract(check: *Check, phrase: SearchPhrase) void {
-        check.actions.append(.{
+        const gpa = check.allocator;
+        check.actions.append(gpa, .{
             .tag = .extract,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
 
     fn exact(check: *Check, phrase: SearchPhrase) void {
-        check.actions.append(.{
+        const gpa = check.allocator;
+        check.actions.append(gpa, .{
             .tag = .exact,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
 
     fn contains(check: *Check, phrase: SearchPhrase) void {
-        check.actions.append(.{
+        const gpa = check.allocator;
+        check.actions.append(gpa, .{
             .tag = .contains,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
 
     fn notPresent(check: *Check, phrase: SearchPhrase) void {
-        check.actions.append(.{
+        const gpa = check.allocator;
+        check.actions.append(gpa, .{
             .tag = .not_present,
             .phrase = phrase,
         }) catch @panic("OOM");
     }
 
     fn computeCmp(check: *Check, phrase: SearchPhrase, expected: ComputeCompareExpected) void {
-        check.actions.append(.{
+        const gpa = check.allocator;
+        check.actions.append(gpa, .{
             .tag = .compute_cmp,
             .phrase = phrase,
             .expected = expected,
@@ -565,9 +571,9 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         null,
         .of(u64),
         null,
-    ) catch |err| return step.fail("unable to read '{'}': {s}", .{ src_path, @errorName(err) });
+    ) catch |err| return step.fail("unable to read '{f'}': {s}", .{ src_path, @errorName(err) });
 
-    var vars = std.StringHashMap(u64).init(gpa);
+    var vars: std.StringHashMap(u64) = .init(gpa);
     for (check_object.checks.items) |chk| {
         if (chk.kind == .compute_compare) {
             assert(chk.actions.items.len == 1);
@@ -581,7 +587,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                 return step.fail(
                     \\
                     \\========= comparison failed for action: ===========
-                    \\{s} {}
+                    \\{s} {f}
                     \\===================================================
                 , .{ act.phrase.resolve(b, step), act.expected.? });
             }
@@ -600,7 +606,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         // we either format message string with escaped codes, or not to aid debugging
         // the failed test.
         const fmtMessageString = struct {
-            fn fmtMessageString(kind: Check.Kind, msg: []const u8) std.fmt.Formatter(formatMessageString) {
+            fn fmtMessageString(kind: Check.Kind, msg: []const u8) std.fmt.Formatter(Ctx, formatMessageString) {
                 return .{ .data = .{
                     .kind = kind,
                     .msg = msg,
@@ -612,17 +618,10 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                 msg: []const u8,
             };
 
-            fn formatMessageString(
-                ctx: Ctx,
-                comptime unused_fmt_string: []const u8,
-                options: std.fmt.FormatOptions,
-                writer: anytype,
-            ) !void {
-                _ = unused_fmt_string;
-                _ = options;
+            fn formatMessageString(ctx: Ctx, w: *Writer) !void {
                 switch (ctx.kind) {
-                    .dump_section => try writer.print("{s}", .{std.fmt.fmtSliceEscapeLower(ctx.msg)}),
-                    else => try writer.writeAll(ctx.msg),
+                    .dump_section => try w.print("{f}", .{std.ascii.hexEscape(ctx.msg, .lower)}),
+                    else => try w.writeAll(ctx.msg),
                 }
             }
         }.fmtMessageString;
@@ -637,11 +636,11 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                         return step.fail(
                             \\
                             \\========= expected to find: ==========================
-                            \\{s}
+                            \\{f}
                             \\========= but parsed file does not contain it: =======
-                            \\{s}
+                            \\{f}
                             \\========= file path: =================================
-                            \\{}
+                            \\{f}
                         , .{
                             fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
                             fmtMessageString(chk.kind, output),
@@ -657,11 +656,11 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                         return step.fail(
                             \\
                             \\========= expected to find: ==========================
-                            \\*{s}*
+                            \\*{f}*
                             \\========= but parsed file does not contain it: =======
-                            \\{s}
+                            \\{f}
                             \\========= file path: =================================
-                            \\{}
+                            \\{f}
                         , .{
                             fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
                             fmtMessageString(chk.kind, output),
@@ -676,11 +675,11 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                         return step.fail(
                             \\
                             \\========= expected not to find: ===================
-                            \\{s}
+                            \\{f}
                             \\========= but parsed file does contain it: ========
-                            \\{s}
+                            \\{f}
                             \\========= file path: ==============================
-                            \\{}
+                            \\{f}
                         , .{
                             fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
                             fmtMessageString(chk.kind, output),
@@ -696,13 +695,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                         return step.fail(
                             \\
                             \\========= expected to find and extract: ==============
-                            \\{s}
+                            \\{f}
                             \\========= but parsed file does not contain it: =======
-                            \\{s}
+                            \\{f}
                             \\========= file path: ==============================
-                            \\{}
+                            \\{f}
                         , .{
-                            act.phrase.resolve(b, step),
+                            fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
                             fmtMessageString(chk.kind, output),
                             src_path,
                         });
@@ -755,14 +754,14 @@ const MachODumper = struct {
                     },
                     .SYMTAB => {
                         const lc = cmd.cast(macho.symtab_command).?;
-                        const symtab = @as([*]align(1) const macho.nlist_64, @ptrCast(ctx.data.ptr + lc.symoff))[0..lc.nsyms];
+                        const symtab = @as([*]align(1) const macho.nlist_64, @ptrCast(ctx.data[lc.symoff..].ptr))[0..lc.nsyms];
                         const strtab = ctx.data[lc.stroff..][0..lc.strsize];
                         try ctx.symtab.appendUnalignedSlice(ctx.gpa, symtab);
                         try ctx.strtab.appendSlice(ctx.gpa, strtab);
                     },
                     .DYSYMTAB => {
                         const lc = cmd.cast(macho.dysymtab_command).?;
-                        const indexes = @as([*]align(1) const u32, @ptrCast(ctx.data.ptr + lc.indirectsymoff))[0..lc.nindirectsyms];
+                        const indexes = @as([*]align(1) const u32, @ptrCast(ctx.data[lc.indirectsymoff..].ptr))[0..lc.nindirectsyms];
                         try ctx.indsymtab.appendUnalignedSlice(ctx.gpa, indexes);
                     },
                     .LOAD_DYLIB,
@@ -780,7 +779,7 @@ const MachODumper = struct {
 
         fn getString(ctx: ObjectContext, off: u32) [:0]const u8 {
             assert(off < ctx.strtab.items.len);
-            return mem.sliceTo(@as([*:0]const u8, @ptrCast(ctx.strtab.items.ptr + off)), 0);
+            return mem.sliceTo(@as([*:0]const u8, @ptrCast(ctx.strtab.items[off..].ptr)), 0);
         }
 
         fn getLoadCommandIterator(ctx: ObjectContext) macho.LoadCommandIterator {
@@ -810,7 +809,7 @@ const MachODumper = struct {
             return null;
         }
 
-        fn dumpHeader(hdr: macho.mach_header_64, writer: anytype) !void {
+        fn dumpHeader(hdr: macho.mach_header_64, bw: *Writer) !void {
             const cputype = switch (hdr.cputype) {
                 macho.CPU_TYPE_ARM64 => "ARM64",
                 macho.CPU_TYPE_X86_64 => "X86_64",
@@ -831,7 +830,7 @@ const MachODumper = struct {
                 else => "Unknown",
             };
 
-            try writer.print(
+            try bw.print(
                 \\header
                 \\cputype {s}
                 \\filetype {s}
@@ -846,41 +845,41 @@ const MachODumper = struct {
             });
 
             if (hdr.flags > 0) {
-                if (hdr.flags & macho.MH_NOUNDEFS != 0) try writer.writeAll(" NOUNDEFS");
-                if (hdr.flags & macho.MH_INCRLINK != 0) try writer.writeAll(" INCRLINK");
-                if (hdr.flags & macho.MH_DYLDLINK != 0) try writer.writeAll(" DYLDLINK");
-                if (hdr.flags & macho.MH_BINDATLOAD != 0) try writer.writeAll(" BINDATLOAD");
-                if (hdr.flags & macho.MH_PREBOUND != 0) try writer.writeAll(" PREBOUND");
-                if (hdr.flags & macho.MH_SPLIT_SEGS != 0) try writer.writeAll(" SPLIT_SEGS");
-                if (hdr.flags & macho.MH_LAZY_INIT != 0) try writer.writeAll(" LAZY_INIT");
-                if (hdr.flags & macho.MH_TWOLEVEL != 0) try writer.writeAll(" TWOLEVEL");
-                if (hdr.flags & macho.MH_FORCE_FLAT != 0) try writer.writeAll(" FORCE_FLAT");
-                if (hdr.flags & macho.MH_NOMULTIDEFS != 0) try writer.writeAll(" NOMULTIDEFS");
-                if (hdr.flags & macho.MH_NOFIXPREBINDING != 0) try writer.writeAll(" NOFIXPREBINDING");
-                if (hdr.flags & macho.MH_PREBINDABLE != 0) try writer.writeAll(" PREBINDABLE");
-                if (hdr.flags & macho.MH_ALLMODSBOUND != 0) try writer.writeAll(" ALLMODSBOUND");
-                if (hdr.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0) try writer.writeAll(" SUBSECTIONS_VIA_SYMBOLS");
-                if (hdr.flags & macho.MH_CANONICAL != 0) try writer.writeAll(" CANONICAL");
-                if (hdr.flags & macho.MH_WEAK_DEFINES != 0) try writer.writeAll(" WEAK_DEFINES");
-                if (hdr.flags & macho.MH_BINDS_TO_WEAK != 0) try writer.writeAll(" BINDS_TO_WEAK");
-                if (hdr.flags & macho.MH_ALLOW_STACK_EXECUTION != 0) try writer.writeAll(" ALLOW_STACK_EXECUTION");
-                if (hdr.flags & macho.MH_ROOT_SAFE != 0) try writer.writeAll(" ROOT_SAFE");
-                if (hdr.flags & macho.MH_SETUID_SAFE != 0) try writer.writeAll(" SETUID_SAFE");
-                if (hdr.flags & macho.MH_NO_REEXPORTED_DYLIBS != 0) try writer.writeAll(" NO_REEXPORTED_DYLIBS");
-                if (hdr.flags & macho.MH_PIE != 0) try writer.writeAll(" PIE");
-                if (hdr.flags & macho.MH_DEAD_STRIPPABLE_DYLIB != 0) try writer.writeAll(" DEAD_STRIPPABLE_DYLIB");
-                if (hdr.flags & macho.MH_HAS_TLV_DESCRIPTORS != 0) try writer.writeAll(" HAS_TLV_DESCRIPTORS");
-                if (hdr.flags & macho.MH_NO_HEAP_EXECUTION != 0) try writer.writeAll(" NO_HEAP_EXECUTION");
-                if (hdr.flags & macho.MH_APP_EXTENSION_SAFE != 0) try writer.writeAll(" APP_EXTENSION_SAFE");
-                if (hdr.flags & macho.MH_NLIST_OUTOFSYNC_WITH_DYLDINFO != 0) try writer.writeAll(" NLIST_OUTOFSYNC_WITH_DYLDINFO");
+                if (hdr.flags & macho.MH_NOUNDEFS != 0) try bw.writeAll(" NOUNDEFS");
+                if (hdr.flags & macho.MH_INCRLINK != 0) try bw.writeAll(" INCRLINK");
+                if (hdr.flags & macho.MH_DYLDLINK != 0) try bw.writeAll(" DYLDLINK");
+                if (hdr.flags & macho.MH_BINDATLOAD != 0) try bw.writeAll(" BINDATLOAD");
+                if (hdr.flags & macho.MH_PREBOUND != 0) try bw.writeAll(" PREBOUND");
+                if (hdr.flags & macho.MH_SPLIT_SEGS != 0) try bw.writeAll(" SPLIT_SEGS");
+                if (hdr.flags & macho.MH_LAZY_INIT != 0) try bw.writeAll(" LAZY_INIT");
+                if (hdr.flags & macho.MH_TWOLEVEL != 0) try bw.writeAll(" TWOLEVEL");
+                if (hdr.flags & macho.MH_FORCE_FLAT != 0) try bw.writeAll(" FORCE_FLAT");
+                if (hdr.flags & macho.MH_NOMULTIDEFS != 0) try bw.writeAll(" NOMULTIDEFS");
+                if (hdr.flags & macho.MH_NOFIXPREBINDING != 0) try bw.writeAll(" NOFIXPREBINDING");
+                if (hdr.flags & macho.MH_PREBINDABLE != 0) try bw.writeAll(" PREBINDABLE");
+                if (hdr.flags & macho.MH_ALLMODSBOUND != 0) try bw.writeAll(" ALLMODSBOUND");
+                if (hdr.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0) try bw.writeAll(" SUBSECTIONS_VIA_SYMBOLS");
+                if (hdr.flags & macho.MH_CANONICAL != 0) try bw.writeAll(" CANONICAL");
+                if (hdr.flags & macho.MH_WEAK_DEFINES != 0) try bw.writeAll(" WEAK_DEFINES");
+                if (hdr.flags & macho.MH_BINDS_TO_WEAK != 0) try bw.writeAll(" BINDS_TO_WEAK");
+                if (hdr.flags & macho.MH_ALLOW_STACK_EXECUTION != 0) try bw.writeAll(" ALLOW_STACK_EXECUTION");
+                if (hdr.flags & macho.MH_ROOT_SAFE != 0) try bw.writeAll(" ROOT_SAFE");
+                if (hdr.flags & macho.MH_SETUID_SAFE != 0) try bw.writeAll(" SETUID_SAFE");
+                if (hdr.flags & macho.MH_NO_REEXPORTED_DYLIBS != 0) try bw.writeAll(" NO_REEXPORTED_DYLIBS");
+                if (hdr.flags & macho.MH_PIE != 0) try bw.writeAll(" PIE");
+                if (hdr.flags & macho.MH_DEAD_STRIPPABLE_DYLIB != 0) try bw.writeAll(" DEAD_STRIPPABLE_DYLIB");
+                if (hdr.flags & macho.MH_HAS_TLV_DESCRIPTORS != 0) try bw.writeAll(" HAS_TLV_DESCRIPTORS");
+                if (hdr.flags & macho.MH_NO_HEAP_EXECUTION != 0) try bw.writeAll(" NO_HEAP_EXECUTION");
+                if (hdr.flags & macho.MH_APP_EXTENSION_SAFE != 0) try bw.writeAll(" APP_EXTENSION_SAFE");
+                if (hdr.flags & macho.MH_NLIST_OUTOFSYNC_WITH_DYLDINFO != 0) try bw.writeAll(" NLIST_OUTOFSYNC_WITH_DYLDINFO");
             }
 
-            try writer.writeByte('\n');
+            try bw.writeByte('\n');
         }
 
-        fn dumpLoadCommand(lc: macho.LoadCommandIterator.LoadCommand, index: usize, writer: anytype) !void {
+        fn dumpLoadCommand(lc: macho.LoadCommandIterator.LoadCommand, index: usize, bw: *Writer) !void {
             // print header first
-            try writer.print(
+            try bw.print(
                 \\LC {d}
                 \\cmd {s}
                 \\cmdsize {d}
@@ -889,8 +888,8 @@ const MachODumper = struct {
             switch (lc.cmd()) {
                 .SEGMENT_64 => {
                     const seg = lc.cast(macho.segment_command_64).?;
-                    try writer.writeByte('\n');
-                    try writer.print(
+                    try bw.writeByte('\n');
+                    try bw.print(
                         \\segname {s}
                         \\vmaddr {x}
                         \\vmsize {x}
@@ -905,8 +904,8 @@ const MachODumper = struct {
                     });
 
                     for (lc.getSections()) |sect| {
-                        try writer.writeByte('\n');
-                        try writer.print(
+                        try bw.writeByte('\n');
+                        try bw.print(
                             \\sectname {s}
                             \\addr {x}
                             \\size {x}
@@ -928,8 +927,8 @@ const MachODumper = struct {
                 .REEXPORT_DYLIB,
                 => {
                     const dylib = lc.cast(macho.dylib_command).?;
-                    try writer.writeByte('\n');
-                    try writer.print(
+                    try bw.writeByte('\n');
+                    try bw.print(
                         \\name {s}
                         \\timestamp {d}
                         \\current version {x}
@@ -944,16 +943,16 @@ const MachODumper = struct {
 
                 .MAIN => {
                     const main = lc.cast(macho.entry_point_command).?;
-                    try writer.writeByte('\n');
-                    try writer.print(
+                    try bw.writeByte('\n');
+                    try bw.print(
                         \\entryoff {x}
                         \\stacksize {x}
                     , .{ main.entryoff, main.stacksize });
                 },
 
                 .RPATH => {
-                    try writer.writeByte('\n');
-                    try writer.print(
+                    try bw.writeByte('\n');
+                    try bw.print(
                         \\path {s}
                     , .{
                         lc.getRpathPathName(),
@@ -962,8 +961,8 @@ const MachODumper = struct {
 
                 .UUID => {
                     const uuid = lc.cast(macho.uuid_command).?;
-                    try writer.writeByte('\n');
-                    try writer.print("uuid {x}", .{std.fmt.fmtSliceHexLower(&uuid.uuid)});
+                    try bw.writeByte('\n');
+                    try bw.print("uuid {x}", .{&uuid.uuid});
                 },
 
                 .DATA_IN_CODE,
@@ -971,8 +970,8 @@ const MachODumper = struct {
                 .CODE_SIGNATURE,
                 => {
                     const llc = lc.cast(macho.linkedit_data_command).?;
-                    try writer.writeByte('\n');
-                    try writer.print(
+                    try bw.writeByte('\n');
+                    try bw.print(
                         \\dataoff {x}
                         \\datasize {x}
                     , .{ llc.dataoff, llc.datasize });
@@ -980,8 +979,8 @@ const MachODumper = struct {
 
                 .DYLD_INFO_ONLY => {
                     const dlc = lc.cast(macho.dyld_info_command).?;
-                    try writer.writeByte('\n');
-                    try writer.print(
+                    try bw.writeByte('\n');
+                    try bw.print(
                         \\rebaseoff {x}
                         \\rebasesize {x}
                         \\bindoff {x}
@@ -1008,8 +1007,8 @@ const MachODumper = struct {
 
                 .SYMTAB => {
                     const slc = lc.cast(macho.symtab_command).?;
-                    try writer.writeByte('\n');
-                    try writer.print(
+                    try bw.writeByte('\n');
+                    try bw.print(
                         \\symoff {x}
                         \\nsyms {x}
                         \\stroff {x}
@@ -1024,8 +1023,8 @@ const MachODumper = struct {
 
                 .DYSYMTAB => {
                     const dlc = lc.cast(macho.dysymtab_command).?;
-                    try writer.writeByte('\n');
-                    try writer.print(
+                    try bw.writeByte('\n');
+                    try bw.print(
                         \\ilocalsym {x}
                         \\nlocalsym {x}
                         \\iextdefsym {x}
@@ -1048,8 +1047,8 @@ const MachODumper = struct {
 
                 .BUILD_VERSION => {
                     const blc = lc.cast(macho.build_version_command).?;
-                    try writer.writeByte('\n');
-                    try writer.print(
+                    try bw.writeByte('\n');
+                    try bw.print(
                         \\platform {s}
                         \\minos {d}.{d}.{d}
                         \\sdk {d}.{d}.{d}
@@ -1065,12 +1064,12 @@ const MachODumper = struct {
                         blc.ntools,
                     });
                     for (lc.getBuildVersionTools()) |tool| {
-                        try writer.writeByte('\n');
+                        try bw.writeByte('\n');
                         switch (tool.tool) {
-                            .CLANG, .SWIFT, .LD, .LLD, .ZIG => try writer.print("tool {s}\n", .{@tagName(tool.tool)}),
-                            else => |x| try writer.print("tool {d}\n", .{@intFromEnum(x)}),
+                            .CLANG, .SWIFT, .LD, .LLD, .ZIG => try bw.print("tool {s}\n", .{@tagName(tool.tool)}),
+                            else => |x| try bw.print("tool {d}\n", .{@intFromEnum(x)}),
                         }
-                        try writer.print(
+                        try bw.print(
                             \\version {d}.{d}.{d}
                         , .{
                             tool.version >> 16,
@@ -1086,8 +1085,8 @@ const MachODumper = struct {
                 .VERSION_MIN_TVOS,
                 => {
                     const vlc = lc.cast(macho.version_min_command).?;
-                    try writer.writeByte('\n');
-                    try writer.print(
+                    try bw.writeByte('\n');
+                    try bw.print(
                         \\version {d}.{d}.{d}
                         \\sdk {d}.{d}.{d}
                     , .{
@@ -1104,8 +1103,8 @@ const MachODumper = struct {
             }
         }
 
-        fn dumpSymtab(ctx: ObjectContext, writer: anytype) !void {
-            try writer.writeAll(symtab_label ++ "\n");
+        fn dumpSymtab(ctx: ObjectContext, bw: *Writer) !void {
+            try bw.writeAll(symtab_label ++ "\n");
 
             for (ctx.symtab.items) |sym| {
                 const sym_name = ctx.getString(sym.n_strx);
@@ -1120,32 +1119,32 @@ const MachODumper = struct {
                         macho.N_STSYM => "STSYM",
                         else => "UNKNOWN STAB",
                     };
-                    try writer.print("{x}", .{sym.n_value});
+                    try bw.print("{x}", .{sym.n_value});
                     if (sym.n_sect > 0) {
                         const sect = ctx.sections.items[sym.n_sect - 1];
-                        try writer.print(" ({s},{s})", .{ sect.segName(), sect.sectName() });
+                        try bw.print(" ({s},{s})", .{ sect.segName(), sect.sectName() });
                     }
-                    try writer.print(" {s} (stab) {s}\n", .{ tt, sym_name });
+                    try bw.print(" {s} (stab) {s}\n", .{ tt, sym_name });
                 } else if (sym.sect()) {
                     const sect = ctx.sections.items[sym.n_sect - 1];
-                    try writer.print("{x} ({s},{s})", .{
+                    try bw.print("{x} ({s},{s})", .{
                         sym.n_value,
                         sect.segName(),
                         sect.sectName(),
                     });
-                    if (sym.n_desc & macho.REFERENCED_DYNAMICALLY != 0) try writer.writeAll(" [referenced dynamically]");
-                    if (sym.weakDef()) try writer.writeAll(" weak");
-                    if (sym.weakRef()) try writer.writeAll(" weakref");
+                    if (sym.n_desc & macho.REFERENCED_DYNAMICALLY != 0) try bw.writeAll(" [referenced dynamically]");
+                    if (sym.weakDef()) try bw.writeAll(" weak");
+                    if (sym.weakRef()) try bw.writeAll(" weakref");
                     if (sym.ext()) {
-                        if (sym.pext()) try writer.writeAll(" private");
-                        try writer.writeAll(" external");
-                    } else if (sym.pext()) try writer.writeAll(" (was private external)");
-                    try writer.print(" {s}\n", .{sym_name});
+                        if (sym.pext()) try bw.writeAll(" private");
+                        try bw.writeAll(" external");
+                    } else if (sym.pext()) try bw.writeAll(" (was private external)");
+                    try bw.print(" {s}\n", .{sym_name});
                 } else if (sym.tentative()) {
                     const alignment = (sym.n_desc >> 8) & 0x0F;
-                    try writer.print("  0x{x:0>16} (common) (alignment 2^{d})", .{ sym.n_value, alignment });
-                    if (sym.ext()) try writer.writeAll(" external");
-                    try writer.print(" {s}\n", .{sym_name});
+                    try bw.print("  0x{x:0>16} (common) (alignment 2^{d})", .{ sym.n_value, alignment });
+                    if (sym.ext()) try bw.writeAll(" external");
+                    try bw.print(" {s}\n", .{sym_name});
                 } else if (sym.undf()) {
                     const ordinal = @divFloor(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
                     const import_name = blk: {
@@ -1164,10 +1163,10 @@ const MachODumper = struct {
                         const ext = mem.lastIndexOfScalar(u8, basename, '.') orelse basename.len;
                         break :blk basename[0..ext];
                     };
-                    try writer.writeAll("(undefined)");
-                    if (sym.weakRef()) try writer.writeAll(" weakref");
-                    if (sym.ext()) try writer.writeAll(" external");
-                    try writer.print(" {s} (from {s})\n", .{
+                    try bw.writeAll("(undefined)");
+                    if (sym.weakRef()) try bw.writeAll(" weakref");
+                    if (sym.ext()) try bw.writeAll(" external");
+                    try bw.print(" {s} (from {s})\n", .{
                         sym_name,
                         import_name,
                     });
@@ -1175,8 +1174,8 @@ const MachODumper = struct {
             }
         }
 
-        fn dumpIndirectSymtab(ctx: ObjectContext, writer: anytype) !void {
-            try writer.writeAll(indirect_symtab_label ++ "\n");
+        fn dumpIndirectSymtab(ctx: ObjectContext, bw: *Writer) !void {
+            try bw.writeAll(indirect_symtab_label ++ "\n");
 
             var sects_buffer: [3]macho.section_64 = undefined;
             const sects = blk: {
@@ -1214,35 +1213,33 @@ const MachODumper = struct {
                     break :blk @sizeOf(u64);
                 };
 
-                try writer.print("{s},{s}\n", .{ sect.segName(), sect.sectName() });
-                try writer.print("nentries {d}\n", .{end - start});
+                try bw.print("{s},{s}\n", .{ sect.segName(), sect.sectName() });
+                try bw.print("nentries {d}\n", .{end - start});
                 for (ctx.indsymtab.items[start..end], 0..) |index, j| {
                     const sym = ctx.symtab.items[index];
                     const addr = sect.addr + entry_size * j;
-                    try writer.print("0x{x} {d} {s}\n", .{ addr, index, ctx.getString(sym.n_strx) });
+                    try bw.print("0x{x} {d} {s}\n", .{ addr, index, ctx.getString(sym.n_strx) });
                 }
             }
         }
 
-        fn dumpRebaseInfo(ctx: ObjectContext, data: []const u8, writer: anytype) !void {
-            var rebases = std.ArrayList(u64).init(ctx.gpa);
+        fn dumpRebaseInfo(ctx: ObjectContext, data: []const u8, bw: *Writer) !void {
+            var rebases: std.ArrayList(u64) = .init(ctx.gpa);
             defer rebases.deinit();
             try ctx.parseRebaseInfo(data, &rebases);
             mem.sort(u64, rebases.items, {}, std.sort.asc(u64));
             for (rebases.items) |addr| {
-                try writer.print("0x{x}\n", .{addr});
+                try bw.print("0x{x}\n", .{addr});
             }
         }
 
         fn parseRebaseInfo(ctx: ObjectContext, data: []const u8, rebases: *std.ArrayList(u64)) !void {
-            var stream = std.io.fixedBufferStream(data);
-            var creader = std.io.countingReader(stream.reader());
-            const reader = creader.reader();
+            var br: std.io.Reader = .fixed(data);
 
             var seg_id: ?u8 = null;
             var offset: u64 = 0;
             while (true) {
-                const byte = reader.readByte() catch break;
+                const byte = br.takeByte() catch break;
                 const opc = byte & macho.REBASE_OPCODE_MASK;
                 const imm = byte & macho.REBASE_IMMEDIATE_MASK;
                 switch (opc) {
@@ -1250,17 +1247,17 @@ const MachODumper = struct {
                     macho.REBASE_OPCODE_SET_TYPE_IMM => {},
                     macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
                         seg_id = imm;
-                        offset = try std.leb.readUleb128(u64, reader);
+                        offset = try br.takeLeb128(u64);
                     },
                     macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED => {
                         offset += imm * @sizeOf(u64);
                     },
                     macho.REBASE_OPCODE_ADD_ADDR_ULEB => {
-                        const addend = try std.leb.readUleb128(u64, reader);
+                        const addend = try br.takeLeb128(u64);
                         offset += addend;
                     },
                     macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB => {
-                        const addend = try std.leb.readUleb128(u64, reader);
+                        const addend = try br.takeLeb128(u64);
                         const seg = ctx.segments.items[seg_id.?];
                         const addr = seg.vmaddr + offset;
                         try rebases.append(addr);
@@ -1277,11 +1274,11 @@ const MachODumper = struct {
                                 ntimes = imm;
                             },
                             macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES => {
-                                ntimes = try std.leb.readUleb128(u64, reader);
+                                ntimes = try br.takeLeb128(u64);
                             },
                             macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB => {
-                                ntimes = try std.leb.readUleb128(u64, reader);
-                                skip = try std.leb.readUleb128(u64, reader);
+                                ntimes = try br.takeLeb128(u64);
+                                skip = try br.takeLeb128(u64);
                             },
                             else => unreachable,
                         }
@@ -1323,8 +1320,8 @@ const MachODumper = struct {
             };
         };
 
-        fn dumpBindInfo(ctx: ObjectContext, data: []const u8, writer: anytype) !void {
-            var bindings = std.ArrayList(Binding).init(ctx.gpa);
+        fn dumpBindInfo(ctx: ObjectContext, data: []const u8, bw: *Writer) !void {
+            var bindings: std.ArrayList(Binding) = .init(ctx.gpa);
             defer {
                 for (bindings.items) |*b| {
                     b.deinit(ctx.gpa);
@@ -1334,22 +1331,20 @@ const MachODumper = struct {
             try ctx.parseBindInfo(data, &bindings);
             mem.sort(Binding, bindings.items, {}, Binding.lessThan);
             for (bindings.items) |binding| {
-                try writer.print("0x{x} [addend: {d}]", .{ binding.address, binding.addend });
-                try writer.writeAll(" (");
+                try bw.print("0x{x} [addend: {d}]", .{ binding.address, binding.addend });
+                try bw.writeAll(" (");
                 switch (binding.tag) {
-                    .self => try writer.writeAll("self"),
-                    .exe => try writer.writeAll("main executable"),
-                    .flat => try writer.writeAll("flat lookup"),
-                    .ord => try writer.writeAll(std.fs.path.basename(ctx.imports.items[binding.ordinal - 1])),
+                    .self => try bw.writeAll("self"),
+                    .exe => try bw.writeAll("main executable"),
+                    .flat => try bw.writeAll("flat lookup"),
+                    .ord => try bw.writeAll(std.fs.path.basename(ctx.imports.items[binding.ordinal - 1])),
                 }
-                try writer.print(") {s}\n", .{binding.name});
+                try bw.print(") {s}\n", .{binding.name});
             }
         }
 
         fn parseBindInfo(ctx: ObjectContext, data: []const u8, bindings: *std.ArrayList(Binding)) !void {
-            var stream = std.io.fixedBufferStream(data);
-            var creader = std.io.countingReader(stream.reader());
-            const reader = creader.reader();
+            var br: std.io.Reader = .fixed(data);
 
             var seg_id: ?u8 = null;
             var tag: Binding.Tag = .self;
@@ -1357,11 +1352,10 @@ const MachODumper = struct {
             var offset: u64 = 0;
             var addend: i64 = 0;
 
-            var name_buf = std.ArrayList(u8).init(ctx.gpa);
+            var name_buf: std.ArrayList(u8) = .init(ctx.gpa);
             defer name_buf.deinit();
 
-            while (true) {
-                const byte = reader.readByte() catch break;
+            while (br.takeByte()) |byte| {
                 const opc = byte & macho.BIND_OPCODE_MASK;
                 const imm = byte & macho.BIND_IMMEDIATE_MASK;
                 switch (opc) {
@@ -1382,18 +1376,19 @@ const MachODumper = struct {
                     },
                     macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
                         seg_id = imm;
-                        offset = try std.leb.readUleb128(u64, reader);
+                        offset = try br.takeLeb128(u64);
                     },
                     macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
                         name_buf.clearRetainingCapacity();
-                        try reader.readUntilDelimiterArrayList(&name_buf, 0, std.math.maxInt(u32));
+                        if (true) @panic("TODO fix this");
+                        //try reader.readUntilDelimiterArrayList(&name_buf, 0, std.math.maxInt(u32));
                         try name_buf.append(0);
                     },
                     macho.BIND_OPCODE_SET_ADDEND_SLEB => {
-                        addend = try std.leb.readIleb128(i64, reader);
+                        addend = try br.takeLeb128(i64);
                     },
                     macho.BIND_OPCODE_ADD_ADDR_ULEB => {
-                        const x = try std.leb.readUleb128(u64, reader);
+                        const x = try br.takeLeb128(u64);
                         offset = @intCast(@as(i64, @intCast(offset)) + @as(i64, @bitCast(x)));
                     },
                     macho.BIND_OPCODE_DO_BIND,
@@ -1408,14 +1403,14 @@ const MachODumper = struct {
                         switch (opc) {
                             macho.BIND_OPCODE_DO_BIND => {},
                             macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB => {
-                                add_addr = try std.leb.readUleb128(u64, reader);
+                                add_addr = try br.takeLeb128(u64);
                             },
                             macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED => {
                                 add_addr = imm * @sizeOf(u64);
                             },
                             macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB => {
-                                count = try std.leb.readUleb128(u64, reader);
-                                skip = try std.leb.readUleb128(u64, reader);
+                                count = try br.takeLeb128(u64);
+                                skip = try br.takeLeb128(u64);
                             },
                             else => unreachable,
                         }
@@ -1436,18 +1431,18 @@ const MachODumper = struct {
                     },
                     else => break,
                 }
-            }
+            } else |_| {}
         }
 
-        fn dumpExportsTrie(ctx: ObjectContext, data: []const u8, writer: anytype) !void {
+        fn dumpExportsTrie(ctx: ObjectContext, data: []const u8, bw: *Writer) !void {
             const seg = ctx.getSegmentByName("__TEXT") orelse return;
 
             var arena = std.heap.ArenaAllocator.init(ctx.gpa);
             defer arena.deinit();
 
-            var exports = std.ArrayList(Export).init(arena.allocator());
-            var it = TrieIterator{ .data = data };
-            try parseTrieNode(arena.allocator(), &it, "", &exports);
+            var exports: std.ArrayList(Export) = .init(arena.allocator());
+            var br: std.io.Reader = .fixed(data);
+            try parseTrieNode(arena.allocator(), &br, "", &exports);
 
             mem.sort(Export, exports.items, {}, Export.lessThan);
 
@@ -1456,65 +1451,25 @@ const MachODumper = struct {
                     .@"export" => {
                         const info = exp.data.@"export";
                         if (info.kind != .regular or info.weak) {
-                            try writer.writeByte('[');
+                            try bw.writeByte('[');
                         }
                         switch (info.kind) {
                             .regular => {},
-                            .absolute => try writer.writeAll("ABS, "),
-                            .tlv => try writer.writeAll("THREAD_LOCAL, "),
+                            .absolute => try bw.writeAll("ABS, "),
+                            .tlv => try bw.writeAll("THREAD_LOCAL, "),
                         }
-                        if (info.weak) try writer.writeAll("WEAK");
+                        if (info.weak) try bw.writeAll("WEAK");
                         if (info.kind != .regular or info.weak) {
-                            try writer.writeAll("] ");
+                            try bw.writeAll("] ");
                         }
-                        try writer.print("{x} ", .{seg.vmaddr + info.vmoffset});
+                        try bw.print("{x} ", .{seg.vmaddr + info.vmoffset});
                     },
                     else => {},
                 }
 
-                try writer.print("{s}\n", .{exp.name});
+                try bw.print("{s}\n", .{exp.name});
             }
         }
-
-        const TrieIterator = struct {
-            data: []const u8,
-            pos: usize = 0,
-
-            fn getStream(it: *TrieIterator) std.io.FixedBufferStream([]const u8) {
-                return std.io.fixedBufferStream(it.data[it.pos..]);
-            }
-
-            fn readUleb128(it: *TrieIterator) !u64 {
-                var stream = it.getStream();
-                var creader = std.io.countingReader(stream.reader());
-                const reader = creader.reader();
-                const value = try std.leb.readUleb128(u64, reader);
-                it.pos += creader.bytes_read;
-                return value;
-            }
-
-            fn readString(it: *TrieIterator) ![:0]const u8 {
-                var stream = it.getStream();
-                const reader = stream.reader();
-
-                var count: usize = 0;
-                while (true) : (count += 1) {
-                    const byte = try reader.readByte();
-                    if (byte == 0) break;
-                }
-
-                const str = @as([*:0]const u8, @ptrCast(it.data.ptr + it.pos))[0..count :0];
-                it.pos += count + 1;
-                return str;
-            }
-
-            fn readByte(it: *TrieIterator) !u8 {
-                var stream = it.getStream();
-                const value = try stream.reader().readByte();
-                it.pos += 1;
-                return value;
-            }
-        };
 
         const Export = struct {
             name: []const u8,
@@ -1555,17 +1510,17 @@ const MachODumper = struct {
 
         fn parseTrieNode(
             arena: Allocator,
-            it: *TrieIterator,
+            br: *std.io.Reader,
             prefix: []const u8,
             exports: *std.ArrayList(Export),
         ) !void {
-            const size = try it.readUleb128();
+            const size = try br.takeLeb128(u64);
             if (size > 0) {
-                const flags = try it.readUleb128();
+                const flags = try br.takeLeb128(u8);
                 switch (flags) {
                     macho.EXPORT_SYMBOL_FLAGS_REEXPORT => {
-                        const ord = try it.readUleb128();
-                        const name = try arena.dupe(u8, try it.readString());
+                        const ord = try br.takeLeb128(u64);
+                        const name = try br.takeSentinel(0);
                         try exports.append(.{
                             .name = if (name.len > 0) name else prefix,
                             .tag = .reexport,
@@ -1573,8 +1528,8 @@ const MachODumper = struct {
                         });
                     },
                     macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER => {
-                        const stub_offset = try it.readUleb128();
-                        const resolver_offset = try it.readUleb128();
+                        const stub_offset = try br.takeLeb128(u64);
+                        const resolver_offset = try br.takeLeb128(u64);
                         try exports.append(.{
                             .name = prefix,
                             .tag = .stub_resolver,
@@ -1585,7 +1540,7 @@ const MachODumper = struct {
                         });
                     },
                     else => {
-                        const vmoff = try it.readUleb128();
+                        const vmoff = try br.takeLeb128(u64);
                         try exports.append(.{
                             .name = prefix,
                             .tag = .@"export",
@@ -1604,21 +1559,21 @@ const MachODumper = struct {
                 }
             }
 
-            const nedges = try it.readByte();
+            const nedges = try br.takeByte();
             for (0..nedges) |_| {
-                const label = try it.readString();
-                const off = try it.readUleb128();
+                const label = try br.takeSentinel(0);
+                const off = try br.takeLeb128(usize);
                 const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
-                const curr = it.pos;
-                it.pos = off;
-                try parseTrieNode(arena, it, prefix_label, exports);
-                it.pos = curr;
+                const seek = br.seek;
+                br.seek = off;
+                try parseTrieNode(arena, br, prefix_label, exports);
+                br.seek = seek;
             }
         }
 
-        fn dumpSection(ctx: ObjectContext, sect: macho.section_64, writer: anytype) !void {
+        fn dumpSection(ctx: ObjectContext, sect: macho.section_64, bw: *Writer) !void {
             const data = ctx.data[sect.offset..][0..sect.size];
-            try writer.print("{s}", .{data});
+            try bw.print("{s}", .{data});
         }
     };
 
@@ -1632,29 +1587,30 @@ const MachODumper = struct {
         var ctx = ObjectContext{ .gpa = gpa, .data = bytes, .header = hdr };
         try ctx.parse();
 
-        var output = std.ArrayList(u8).init(gpa);
-        const writer = output.writer();
+        var aw: std.io.Writer.Allocating = .init(gpa);
+        defer aw.deinit();
+        const bw = &aw.interface;
 
         switch (check.kind) {
             .headers => {
-                try ObjectContext.dumpHeader(ctx.header, writer);
+                try ObjectContext.dumpHeader(ctx.header, bw);
 
                 var it = ctx.getLoadCommandIterator();
                 var i: usize = 0;
                 while (it.next()) |cmd| {
-                    try ObjectContext.dumpLoadCommand(cmd, i, writer);
-                    try writer.writeByte('\n');
+                    try ObjectContext.dumpLoadCommand(cmd, i, bw);
+                    try bw.writeByte('\n');
 
                     i += 1;
                 }
             },
 
             .symtab => if (ctx.symtab.items.len > 0) {
-                try ctx.dumpSymtab(writer);
+                try ctx.dumpSymtab(bw);
             } else return step.fail("no symbol table found", .{}),
 
             .indirect_symtab => if (ctx.symtab.items.len > 0 and ctx.indsymtab.items.len > 0) {
-                try ctx.dumpIndirectSymtab(writer);
+                try ctx.dumpIndirectSymtab(bw);
             } else return step.fail("no indirect symbol table found", .{}),
 
             .dyld_rebase,
@@ -1669,26 +1625,26 @@ const MachODumper = struct {
                 switch (check.kind) {
                     .dyld_rebase => if (lc.rebase_size > 0) {
                         const data = ctx.data[lc.rebase_off..][0..lc.rebase_size];
-                        try writer.writeAll(dyld_rebase_label ++ "\n");
-                        try ctx.dumpRebaseInfo(data, writer);
+                        try bw.writeAll(dyld_rebase_label ++ "\n");
+                        try ctx.dumpRebaseInfo(data, bw);
                     } else return step.fail("no rebase data found", .{}),
 
                     .dyld_bind => if (lc.bind_size > 0) {
                         const data = ctx.data[lc.bind_off..][0..lc.bind_size];
-                        try writer.writeAll(dyld_bind_label ++ "\n");
-                        try ctx.dumpBindInfo(data, writer);
+                        try bw.writeAll(dyld_bind_label ++ "\n");
+                        try ctx.dumpBindInfo(data, bw);
                     } else return step.fail("no bind data found", .{}),
 
                     .dyld_weak_bind => if (lc.weak_bind_size > 0) {
                         const data = ctx.data[lc.weak_bind_off..][0..lc.weak_bind_size];
-                        try writer.writeAll(dyld_weak_bind_label ++ "\n");
-                        try ctx.dumpBindInfo(data, writer);
+                        try bw.writeAll(dyld_weak_bind_label ++ "\n");
+                        try ctx.dumpBindInfo(data, bw);
                     } else return step.fail("no weak bind data found", .{}),
 
                     .dyld_lazy_bind => if (lc.lazy_bind_size > 0) {
                         const data = ctx.data[lc.lazy_bind_off..][0..lc.lazy_bind_size];
-                        try writer.writeAll(dyld_lazy_bind_label ++ "\n");
-                        try ctx.dumpBindInfo(data, writer);
+                        try bw.writeAll(dyld_lazy_bind_label ++ "\n");
+                        try ctx.dumpBindInfo(data, bw);
                     } else return step.fail("no lazy bind data found", .{}),
 
                     else => unreachable,
@@ -1700,8 +1656,8 @@ const MachODumper = struct {
                     const lc = cmd.cast(macho.dyld_info_command).?;
                     if (lc.export_size > 0) {
                         const data = ctx.data[lc.export_off..][0..lc.export_size];
-                        try writer.writeAll(exports_label ++ "\n");
-                        try ctx.dumpExportsTrie(data, writer);
+                        try bw.writeAll(exports_label ++ "\n");
+                        try ctx.dumpExportsTrie(data, bw);
                         break :blk;
                     }
                 }
@@ -1709,20 +1665,20 @@ const MachODumper = struct {
             },
 
             .dump_section => {
-                const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(check.data.items.ptr + check.payload.dump_section)), 0);
+                const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(check.data.items[check.payload.dump_section..].ptr)), 0);
                 const sep_index = mem.indexOfScalar(u8, name, ',') orelse
                     return step.fail("invalid section name: {s}", .{name});
                 const segname = name[0..sep_index];
                 const sectname = name[sep_index + 1 ..];
                 const sect = ctx.getSectionByName(segname, sectname) orelse
                     return step.fail("section '{s}' not found", .{name});
-                try ctx.dumpSection(sect, writer);
+                try ctx.dumpSection(sect, bw);
             },
 
             else => return step.fail("invalid check kind for MachO file format: {s}", .{@tagName(check.kind)}),
         }
 
-        return output.toOwnedSlice();
+        return aw.toOwnedSlice();
     }
 };
 
@@ -1741,161 +1697,138 @@ const ElfDumper = struct {
 
     fn parseAndDumpArchive(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var stream = std.io.fixedBufferStream(bytes);
-        const reader = stream.reader();
+        var br: std.io.Reader = .fixed(bytes);
 
-        const magic = try reader.readBytesNoEof(elf.ARMAG.len);
-        if (!mem.eql(u8, &magic, elf.ARMAG)) {
-            return error.InvalidArchiveMagicNumber;
-        }
+        if (!mem.eql(u8, try br.takeArray(elf.ARMAG.len), elf.ARMAG)) return error.InvalidArchiveMagicNumber;
 
-        var ctx = ArchiveContext{
+        var ctx: ArchiveContext = .{
             .gpa = gpa,
             .data = bytes,
-            .strtab = &[0]u8{},
+            .symtab = &.{},
+            .strtab = &.{},
+            .objects = .empty,
         };
-        defer {
-            for (ctx.objects.items) |*object| {
-                gpa.free(object.name);
-            }
-            ctx.objects.deinit(gpa);
-        }
+        defer ctx.deinit();
 
-        while (true) {
-            if (stream.pos >= ctx.data.len) break;
-            if (!mem.isAligned(stream.pos, 2)) stream.pos += 1;
-
-            const hdr = try reader.readStruct(elf.ar_hdr);
+        while (br.seek < bytes.len) {
+            const hdr_seek = std.mem.alignForward(usize, br.seek, 2);
+            br.seek = hdr_seek;
+            const hdr = try br.takeStruct(elf.ar_hdr);
 
             if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) return error.InvalidArchiveHeaderMagicNumber;
 
-            const size = try hdr.size();
-            defer {
-                _ = stream.seekBy(size) catch {};
-            }
+            const data = try br.take(try hdr.size());
 
             if (hdr.isSymtab()) {
-                try ctx.parseSymtab(ctx.data[stream.pos..][0..size], .p32);
+                try ctx.parseSymtab(data, .p32);
                 continue;
             }
             if (hdr.isSymtab64()) {
-                try ctx.parseSymtab(ctx.data[stream.pos..][0..size], .p64);
+                try ctx.parseSymtab(data, .p64);
                 continue;
             }
             if (hdr.isStrtab()) {
-                ctx.strtab = ctx.data[stream.pos..][0..size];
+                ctx.strtab = data;
                 continue;
             }
             if (hdr.isSymdef() or hdr.isSymdefSorted()) continue;
 
-            const name = if (hdr.name()) |name|
-                try gpa.dupe(u8, name)
-            else if (try hdr.nameOffset()) |off|
-                try gpa.dupe(u8, ctx.getString(off))
-            else
-                unreachable;
-
-            try ctx.objects.append(gpa, .{ .name = name, .off = stream.pos, .len = size });
+            const name = hdr.name() orelse ctx.getString((try hdr.nameOffset()).?);
+            try ctx.objects.putNoClobber(gpa, hdr_seek, .{
+                .name = name,
+                .data = data,
+            });
         }
 
-        var output = std.ArrayList(u8).init(gpa);
-        const writer = output.writer();
+        var aw: std.io.Writer.Allocating = .init(gpa);
+        defer aw.deinit();
+        const bw = &aw.interface;
 
         switch (check.kind) {
-            .archive_symtab => if (ctx.symtab.items.len > 0) {
-                try ctx.dumpSymtab(writer);
+            .archive_symtab => if (ctx.symtab.len > 0) {
+                try ctx.dumpSymtab(bw);
             } else return step.fail("no archive symbol table found", .{}),
 
-            else => if (ctx.objects.items.len > 0) {
-                try ctx.dumpObjects(step, check, writer);
+            else => if (ctx.objects.count() > 0) {
+                try ctx.dumpObjects(step, check, bw);
             } else return step.fail("empty archive", .{}),
         }
 
-        return output.toOwnedSlice();
+        return aw.toOwnedSlice();
     }
 
     const ArchiveContext = struct {
         gpa: Allocator,
         data: []const u8,
-        symtab: std.ArrayListUnmanaged(ArSymtabEntry) = .empty,
+        symtab: []ArSymtabEntry,
         strtab: []const u8,
-        objects: std.ArrayListUnmanaged(struct { name: []const u8, off: usize, len: usize }) = .empty,
+        objects: std.AutoArrayHashMapUnmanaged(usize, struct { name: []const u8, data: []const u8 }),
 
-        fn parseSymtab(ctx: *ArchiveContext, raw: []const u8, ptr_width: enum { p32, p64 }) !void {
-            var stream = std.io.fixedBufferStream(raw);
-            const reader = stream.reader();
+        fn deinit(ctx: *ArchiveContext) void {
+            ctx.gpa.free(ctx.symtab);
+            ctx.objects.deinit(ctx.gpa);
+        }
+
+        fn parseSymtab(ctx: *ArchiveContext, data: []const u8, ptr_width: enum { p32, p64 }) !void {
+            var br: std.io.Reader = .fixed(data);
             const num = switch (ptr_width) {
-                .p32 => try reader.readInt(u32, .big),
-                .p64 => try reader.readInt(u64, .big),
+                .p32 => try br.takeInt(u32, .big),
+                .p64 => try br.takeInt(u64, .big),
             };
             const ptr_size: usize = switch (ptr_width) {
                 .p32 => @sizeOf(u32),
                 .p64 => @sizeOf(u64),
             };
-            const strtab_off = (num + 1) * ptr_size;
-            const strtab_len = raw.len - strtab_off;
-            const strtab = raw[strtab_off..][0..strtab_len];
+            _ = try br.discard(.limited(num * ptr_size));
+            const strtab = br.buffered();
 
-            try ctx.symtab.ensureTotalCapacityPrecise(ctx.gpa, num);
+            assert(ctx.symtab.len == 0);
+            ctx.symtab = try ctx.gpa.alloc(ArSymtabEntry, num);
 
             var stroff: usize = 0;
-            for (0..num) |_| {
+            for (ctx.symtab) |*entry| {
                 const off = switch (ptr_width) {
-                    .p32 => try reader.readInt(u32, .big),
-                    .p64 => try reader.readInt(u64, .big),
+                    .p32 => try br.takeInt(u32, .big),
+                    .p64 => try br.takeInt(u64, .big),
                 };
-                const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + stroff)), 0);
+                const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab[stroff..].ptr)), 0);
                 stroff += name.len + 1;
-                ctx.symtab.appendAssumeCapacity(.{ .off = off, .name = name });
+                entry.* = .{ .off = off, .name = name };
             }
         }
 
-        fn dumpSymtab(ctx: ArchiveContext, writer: anytype) !void {
-            var files = std.AutoHashMap(usize, []const u8).init(ctx.gpa);
-            defer files.deinit();
-            try files.ensureUnusedCapacity(@intCast(ctx.objects.items.len));
-
-            for (ctx.objects.items) |object| {
-                files.putAssumeCapacityNoClobber(object.off - @sizeOf(elf.ar_hdr), object.name);
-            }
-
-            var symbols = std.AutoArrayHashMap(usize, std.ArrayList([]const u8)).init(ctx.gpa);
+        fn dumpSymtab(ctx: ArchiveContext, bw: *Writer) !void {
+            var symbols: std.AutoArrayHashMap(usize, std.ArrayList([]const u8)) = .init(ctx.gpa);
             defer {
-                for (symbols.values()) |*value| {
-                    value.deinit();
-                }
+                for (symbols.values()) |*value| value.deinit();
                 symbols.deinit();
             }
 
-            for (ctx.symtab.items) |entry| {
+            for (ctx.symtab) |entry| {
                 const gop = try symbols.getOrPut(@intCast(entry.off));
-                if (!gop.found_existing) {
-                    gop.value_ptr.* = std.ArrayList([]const u8).init(ctx.gpa);
-                }
+                if (!gop.found_existing) gop.value_ptr.* = .init(ctx.gpa);
                 try gop.value_ptr.append(entry.name);
             }
 
-            try writer.print("{s}\n", .{archive_symtab_label});
+            try bw.print("{s}\n", .{archive_symtab_label});
             for (symbols.keys(), symbols.values()) |off, values| {
-                try writer.print("in object {s}\n", .{files.get(off).?});
-                for (values.items) |value| {
-                    try writer.print("{s}\n", .{value});
-                }
+                try bw.print("in object {s}\n", .{ctx.objects.get(off).?.name});
+                for (values.items) |value| try bw.print("{s}\n", .{value});
             }
         }
 
-        fn dumpObjects(ctx: ArchiveContext, step: *Step, check: Check, writer: anytype) !void {
-            for (ctx.objects.items) |object| {
-                try writer.print("object {s}\n", .{object.name});
-                const output = try parseAndDumpObject(step, check, ctx.data[object.off..][0..object.len]);
+        fn dumpObjects(ctx: ArchiveContext, step: *Step, check: Check, bw: *Writer) !void {
+            for (ctx.objects.values()) |object| {
+                try bw.print("object {s}\n", .{object.name});
+                const output = try parseAndDumpObject(step, check, object.data);
                 defer ctx.gpa.free(output);
-                try writer.print("{s}\n", .{output});
+                try bw.print("{s}\n", .{output});
             }
         }
 
         fn getString(ctx: ArchiveContext, off: u32) []const u8 {
             assert(off < ctx.strtab.len);
-            const name = mem.sliceTo(@as([*:'\n']const u8, @ptrCast(ctx.strtab.ptr + off)), 0);
+            const name = mem.sliceTo(@as([*:'\n']const u8, @ptrCast(ctx.strtab[off..].ptr)), 0);
             return name[0 .. name.len - 1];
         }
 
@@ -1907,24 +1840,23 @@ const ElfDumper = struct {
 
     fn parseAndDumpObject(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var stream = std.io.fixedBufferStream(bytes);
-        const reader = stream.reader();
+        var br: std.io.Reader = .fixed(bytes);
 
-        const hdr = try reader.readStruct(elf.Elf64_Ehdr);
-        if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) {
-            return error.InvalidMagicNumber;
-        }
+        const hdr = try br.takeStruct(elf.Elf64_Ehdr);
+        if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) return error.InvalidMagicNumber;
 
-        const shdrs = @as([*]align(1) const elf.Elf64_Shdr, @ptrCast(bytes.ptr + hdr.e_shoff))[0..hdr.e_shnum];
-        const phdrs = @as([*]align(1) const elf.Elf64_Phdr, @ptrCast(bytes.ptr + hdr.e_phoff))[0..hdr.e_phnum];
+        const shdrs = @as([*]align(1) const elf.Elf64_Shdr, @ptrCast(bytes[hdr.e_shoff..].ptr))[0..hdr.e_shnum];
+        const phdrs = @as([*]align(1) const elf.Elf64_Phdr, @ptrCast(bytes[hdr.e_phoff..].ptr))[0..hdr.e_phnum];
 
-        var ctx = ObjectContext{
+        var ctx: ObjectContext = .{
             .gpa = gpa,
             .data = bytes,
             .hdr = hdr,
             .shdrs = shdrs,
             .phdrs = phdrs,
             .shstrtab = undefined,
+            .symtab = .{},
+            .dysymtab = .{},
         };
         ctx.shstrtab = ctx.getSectionContents(ctx.hdr.e_shstrndx);
 
@@ -1955,120 +1887,121 @@ const ElfDumper = struct {
             else => {},
         };
 
-        var output = std.ArrayList(u8).init(gpa);
-        const writer = output.writer();
+        var aw: std.io.Writer.Allocating = .init(gpa);
+        defer aw.deinit();
+        const bw = &aw.interface;
 
         switch (check.kind) {
             .headers => {
-                try ctx.dumpHeader(writer);
-                try ctx.dumpShdrs(writer);
-                try ctx.dumpPhdrs(writer);
+                try ctx.dumpHeader(bw);
+                try ctx.dumpShdrs(bw);
+                try ctx.dumpPhdrs(bw);
             },
 
             .symtab => if (ctx.symtab.symbols.len > 0) {
-                try ctx.dumpSymtab(.symtab, writer);
+                try ctx.dumpSymtab(.symtab, bw);
             } else return step.fail("no symbol table found", .{}),
 
             .dynamic_symtab => if (ctx.dysymtab.symbols.len > 0) {
-                try ctx.dumpSymtab(.dysymtab, writer);
+                try ctx.dumpSymtab(.dysymtab, bw);
             } else return step.fail("no dynamic symbol table found", .{}),
 
             .dynamic_section => if (ctx.getSectionByName(".dynamic")) |shndx| {
-                try ctx.dumpDynamicSection(shndx, writer);
+                try ctx.dumpDynamicSection(shndx, bw);
             } else return step.fail("no .dynamic section found", .{}),
 
             .dump_section => {
-                const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(check.data.items.ptr + check.payload.dump_section)), 0);
+                const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(check.data.items[check.payload.dump_section..].ptr)), 0);
                 const shndx = ctx.getSectionByName(name) orelse return step.fail("no '{s}' section found", .{name});
-                try ctx.dumpSection(shndx, writer);
+                try ctx.dumpSection(shndx, bw);
             },
 
             else => return step.fail("invalid check kind for ELF file format: {s}", .{@tagName(check.kind)}),
         }
 
-        return output.toOwnedSlice();
+        return aw.toOwnedSlice();
     }
 
     const ObjectContext = struct {
         gpa: Allocator,
         data: []const u8,
-        hdr: elf.Elf64_Ehdr,
+        hdr: *align(1) const elf.Elf64_Ehdr,
         shdrs: []align(1) const elf.Elf64_Shdr,
         phdrs: []align(1) const elf.Elf64_Phdr,
         shstrtab: []const u8,
-        symtab: Symtab = .{},
-        dysymtab: Symtab = .{},
+        symtab: Symtab,
+        dysymtab: Symtab,
 
-        fn dumpHeader(ctx: ObjectContext, writer: anytype) !void {
-            try writer.writeAll("header\n");
-            try writer.print("type {s}\n", .{@tagName(ctx.hdr.e_type)});
-            try writer.print("entry {x}\n", .{ctx.hdr.e_entry});
+        fn dumpHeader(ctx: ObjectContext, bw: *Writer) !void {
+            try bw.writeAll("header\n");
+            try bw.print("type {s}\n", .{@tagName(ctx.hdr.e_type)});
+            try bw.print("entry {x}\n", .{ctx.hdr.e_entry});
         }
 
-        fn dumpPhdrs(ctx: ObjectContext, writer: anytype) !void {
+        fn dumpPhdrs(ctx: ObjectContext, bw: *Writer) !void {
             if (ctx.phdrs.len == 0) return;
 
-            try writer.writeAll("program headers\n");
+            try bw.writeAll("program headers\n");
 
             for (ctx.phdrs, 0..) |phdr, phndx| {
-                try writer.print("phdr {d}\n", .{phndx});
-                try writer.print("type {s}\n", .{fmtPhType(phdr.p_type)});
-                try writer.print("vaddr {x}\n", .{phdr.p_vaddr});
-                try writer.print("paddr {x}\n", .{phdr.p_paddr});
-                try writer.print("offset {x}\n", .{phdr.p_offset});
-                try writer.print("memsz {x}\n", .{phdr.p_memsz});
-                try writer.print("filesz {x}\n", .{phdr.p_filesz});
-                try writer.print("align {x}\n", .{phdr.p_align});
+                try bw.print("phdr {d}\n", .{phndx});
+                try bw.print("type {f}\n", .{fmtPhType(phdr.p_type)});
+                try bw.print("vaddr {x}\n", .{phdr.p_vaddr});
+                try bw.print("paddr {x}\n", .{phdr.p_paddr});
+                try bw.print("offset {x}\n", .{phdr.p_offset});
+                try bw.print("memsz {x}\n", .{phdr.p_memsz});
+                try bw.print("filesz {x}\n", .{phdr.p_filesz});
+                try bw.print("align {x}\n", .{phdr.p_align});
 
                 {
                     const flags = phdr.p_flags;
-                    try writer.writeAll("flags");
-                    if (flags > 0) try writer.writeByte(' ');
+                    try bw.writeAll("flags");
+                    if (flags > 0) try bw.writeByte(' ');
                     if (flags & elf.PF_R != 0) {
-                        try writer.writeByte('R');
+                        try bw.writeByte('R');
                     }
                     if (flags & elf.PF_W != 0) {
-                        try writer.writeByte('W');
+                        try bw.writeByte('W');
                     }
                     if (flags & elf.PF_X != 0) {
-                        try writer.writeByte('E');
+                        try bw.writeByte('E');
                     }
                     if (flags & elf.PF_MASKOS != 0) {
-                        try writer.writeAll("OS");
+                        try bw.writeAll("OS");
                     }
                     if (flags & elf.PF_MASKPROC != 0) {
-                        try writer.writeAll("PROC");
+                        try bw.writeAll("PROC");
                     }
-                    try writer.writeByte('\n');
+                    try bw.writeByte('\n');
                 }
             }
         }
 
-        fn dumpShdrs(ctx: ObjectContext, writer: anytype) !void {
+        fn dumpShdrs(ctx: ObjectContext, bw: *Writer) !void {
             if (ctx.shdrs.len == 0) return;
 
-            try writer.writeAll("section headers\n");
+            try bw.writeAll("section headers\n");
 
             for (ctx.shdrs, 0..) |shdr, shndx| {
-                try writer.print("shdr {d}\n", .{shndx});
-                try writer.print("name {s}\n", .{ctx.getSectionName(shndx)});
-                try writer.print("type {s}\n", .{fmtShType(shdr.sh_type)});
-                try writer.print("addr {x}\n", .{shdr.sh_addr});
-                try writer.print("offset {x}\n", .{shdr.sh_offset});
-                try writer.print("size {x}\n", .{shdr.sh_size});
-                try writer.print("addralign {x}\n", .{shdr.sh_addralign});
+                try bw.print("shdr {d}\n", .{shndx});
+                try bw.print("name {s}\n", .{ctx.getSectionName(shndx)});
+                try bw.print("type {f}\n", .{fmtShType(shdr.sh_type)});
+                try bw.print("addr {x}\n", .{shdr.sh_addr});
+                try bw.print("offset {x}\n", .{shdr.sh_offset});
+                try bw.print("size {x}\n", .{shdr.sh_size});
+                try bw.print("addralign {x}\n", .{shdr.sh_addralign});
                 // TODO dump formatted sh_flags
             }
         }
 
-        fn dumpDynamicSection(ctx: ObjectContext, shndx: usize, writer: anytype) !void {
+        fn dumpDynamicSection(ctx: ObjectContext, shndx: usize, bw: *Writer) !void {
             const shdr = ctx.shdrs[shndx];
             const strtab = ctx.getSectionContents(shdr.sh_link);
             const data = ctx.getSectionContents(shndx);
             const nentries = @divExact(data.len, @sizeOf(elf.Elf64_Dyn));
             const entries = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(data.ptr))[0..nentries];
 
-            try writer.writeAll(ElfDumper.dynamic_section_label ++ "\n");
+            try bw.writeAll(ElfDumper.dynamic_section_label ++ "\n");
 
             for (entries) |entry| {
                 const key = @as(u64, @bitCast(entry.d_tag));
@@ -2109,7 +2042,7 @@ const ElfDumper = struct {
                     elf.DT_NULL => "NULL",
                     else => "UNKNOWN",
                 };
-                try writer.print("{s}", .{key_str});
+                try bw.print("{s}", .{key_str});
 
                 switch (key) {
                     elf.DT_NEEDED,
@@ -2118,7 +2051,7 @@ const ElfDumper = struct {
                     elf.DT_RUNPATH,
                     => {
                         const name = getString(strtab, @intCast(value));
-                        try writer.print(" {s}", .{name});
+                        try bw.print(" {s}", .{name});
                     },
 
                     elf.DT_INIT_ARRAY,
@@ -2136,7 +2069,7 @@ const ElfDumper = struct {
                     elf.DT_INIT,
                     elf.DT_FINI,
                     elf.DT_NULL,
-                    => try writer.print(" {x}", .{value}),
+                    => try bw.print(" {x}", .{value}),
 
                     elf.DT_INIT_ARRAYSZ,
                     elf.DT_FINI_ARRAYSZ,
@@ -2146,77 +2079,77 @@ const ElfDumper = struct {
                     elf.DT_RELASZ,
                     elf.DT_RELAENT,
                     elf.DT_RELACOUNT,
-                    => try writer.print(" {d}", .{value}),
+                    => try bw.print(" {d}", .{value}),
 
-                    elf.DT_PLTREL => try writer.writeAll(switch (value) {
+                    elf.DT_PLTREL => try bw.writeAll(switch (value) {
                         elf.DT_REL => " REL",
                         elf.DT_RELA => " RELA",
                         else => " UNKNOWN",
                     }),
 
                     elf.DT_FLAGS => if (value > 0) {
-                        if (value & elf.DF_ORIGIN != 0) try writer.writeAll(" ORIGIN");
-                        if (value & elf.DF_SYMBOLIC != 0) try writer.writeAll(" SYMBOLIC");
-                        if (value & elf.DF_TEXTREL != 0) try writer.writeAll(" TEXTREL");
-                        if (value & elf.DF_BIND_NOW != 0) try writer.writeAll(" BIND_NOW");
-                        if (value & elf.DF_STATIC_TLS != 0) try writer.writeAll(" STATIC_TLS");
+                        if (value & elf.DF_ORIGIN != 0) try bw.writeAll(" ORIGIN");
+                        if (value & elf.DF_SYMBOLIC != 0) try bw.writeAll(" SYMBOLIC");
+                        if (value & elf.DF_TEXTREL != 0) try bw.writeAll(" TEXTREL");
+                        if (value & elf.DF_BIND_NOW != 0) try bw.writeAll(" BIND_NOW");
+                        if (value & elf.DF_STATIC_TLS != 0) try bw.writeAll(" STATIC_TLS");
                     },
 
                     elf.DT_FLAGS_1 => if (value > 0) {
-                        if (value & elf.DF_1_NOW != 0) try writer.writeAll(" NOW");
-                        if (value & elf.DF_1_GLOBAL != 0) try writer.writeAll(" GLOBAL");
-                        if (value & elf.DF_1_GROUP != 0) try writer.writeAll(" GROUP");
-                        if (value & elf.DF_1_NODELETE != 0) try writer.writeAll(" NODELETE");
-                        if (value & elf.DF_1_LOADFLTR != 0) try writer.writeAll(" LOADFLTR");
-                        if (value & elf.DF_1_INITFIRST != 0) try writer.writeAll(" INITFIRST");
-                        if (value & elf.DF_1_NOOPEN != 0) try writer.writeAll(" NOOPEN");
-                        if (value & elf.DF_1_ORIGIN != 0) try writer.writeAll(" ORIGIN");
-                        if (value & elf.DF_1_DIRECT != 0) try writer.writeAll(" DIRECT");
-                        if (value & elf.DF_1_TRANS != 0) try writer.writeAll(" TRANS");
-                        if (value & elf.DF_1_INTERPOSE != 0) try writer.writeAll(" INTERPOSE");
-                        if (value & elf.DF_1_NODEFLIB != 0) try writer.writeAll(" NODEFLIB");
-                        if (value & elf.DF_1_NODUMP != 0) try writer.writeAll(" NODUMP");
-                        if (value & elf.DF_1_CONFALT != 0) try writer.writeAll(" CONFALT");
-                        if (value & elf.DF_1_ENDFILTEE != 0) try writer.writeAll(" ENDFILTEE");
-                        if (value & elf.DF_1_DISPRELDNE != 0) try writer.writeAll(" DISPRELDNE");
-                        if (value & elf.DF_1_DISPRELPND != 0) try writer.writeAll(" DISPRELPND");
-                        if (value & elf.DF_1_NODIRECT != 0) try writer.writeAll(" NODIRECT");
-                        if (value & elf.DF_1_IGNMULDEF != 0) try writer.writeAll(" IGNMULDEF");
-                        if (value & elf.DF_1_NOKSYMS != 0) try writer.writeAll(" NOKSYMS");
-                        if (value & elf.DF_1_NOHDR != 0) try writer.writeAll(" NOHDR");
-                        if (value & elf.DF_1_EDITED != 0) try writer.writeAll(" EDITED");
-                        if (value & elf.DF_1_NORELOC != 0) try writer.writeAll(" NORELOC");
-                        if (value & elf.DF_1_SYMINTPOSE != 0) try writer.writeAll(" SYMINTPOSE");
-                        if (value & elf.DF_1_GLOBAUDIT != 0) try writer.writeAll(" GLOBAUDIT");
-                        if (value & elf.DF_1_SINGLETON != 0) try writer.writeAll(" SINGLETON");
-                        if (value & elf.DF_1_STUB != 0) try writer.writeAll(" STUB");
-                        if (value & elf.DF_1_PIE != 0) try writer.writeAll(" PIE");
+                        if (value & elf.DF_1_NOW != 0) try bw.writeAll(" NOW");
+                        if (value & elf.DF_1_GLOBAL != 0) try bw.writeAll(" GLOBAL");
+                        if (value & elf.DF_1_GROUP != 0) try bw.writeAll(" GROUP");
+                        if (value & elf.DF_1_NODELETE != 0) try bw.writeAll(" NODELETE");
+                        if (value & elf.DF_1_LOADFLTR != 0) try bw.writeAll(" LOADFLTR");
+                        if (value & elf.DF_1_INITFIRST != 0) try bw.writeAll(" INITFIRST");
+                        if (value & elf.DF_1_NOOPEN != 0) try bw.writeAll(" NOOPEN");
+                        if (value & elf.DF_1_ORIGIN != 0) try bw.writeAll(" ORIGIN");
+                        if (value & elf.DF_1_DIRECT != 0) try bw.writeAll(" DIRECT");
+                        if (value & elf.DF_1_TRANS != 0) try bw.writeAll(" TRANS");
+                        if (value & elf.DF_1_INTERPOSE != 0) try bw.writeAll(" INTERPOSE");
+                        if (value & elf.DF_1_NODEFLIB != 0) try bw.writeAll(" NODEFLIB");
+                        if (value & elf.DF_1_NODUMP != 0) try bw.writeAll(" NODUMP");
+                        if (value & elf.DF_1_CONFALT != 0) try bw.writeAll(" CONFALT");
+                        if (value & elf.DF_1_ENDFILTEE != 0) try bw.writeAll(" ENDFILTEE");
+                        if (value & elf.DF_1_DISPRELDNE != 0) try bw.writeAll(" DISPRELDNE");
+                        if (value & elf.DF_1_DISPRELPND != 0) try bw.writeAll(" DISPRELPND");
+                        if (value & elf.DF_1_NODIRECT != 0) try bw.writeAll(" NODIRECT");
+                        if (value & elf.DF_1_IGNMULDEF != 0) try bw.writeAll(" IGNMULDEF");
+                        if (value & elf.DF_1_NOKSYMS != 0) try bw.writeAll(" NOKSYMS");
+                        if (value & elf.DF_1_NOHDR != 0) try bw.writeAll(" NOHDR");
+                        if (value & elf.DF_1_EDITED != 0) try bw.writeAll(" EDITED");
+                        if (value & elf.DF_1_NORELOC != 0) try bw.writeAll(" NORELOC");
+                        if (value & elf.DF_1_SYMINTPOSE != 0) try bw.writeAll(" SYMINTPOSE");
+                        if (value & elf.DF_1_GLOBAUDIT != 0) try bw.writeAll(" GLOBAUDIT");
+                        if (value & elf.DF_1_SINGLETON != 0) try bw.writeAll(" SINGLETON");
+                        if (value & elf.DF_1_STUB != 0) try bw.writeAll(" STUB");
+                        if (value & elf.DF_1_PIE != 0) try bw.writeAll(" PIE");
                     },
 
-                    else => try writer.print(" {x}", .{value}),
+                    else => try bw.print(" {x}", .{value}),
                 }
-                try writer.writeByte('\n');
+                try bw.writeByte('\n');
             }
         }
 
-        fn dumpSymtab(ctx: ObjectContext, comptime @"type": enum { symtab, dysymtab }, writer: anytype) !void {
+        fn dumpSymtab(ctx: ObjectContext, comptime @"type": enum { symtab, dysymtab }, bw: *Writer) !void {
             const symtab = switch (@"type") {
                 .symtab => ctx.symtab,
                 .dysymtab => ctx.dysymtab,
             };
 
-            try writer.writeAll(switch (@"type") {
+            try bw.writeAll(switch (@"type") {
                 .symtab => symtab_label,
                 .dysymtab => dynamic_symtab_label,
             } ++ "\n");
 
             for (symtab.symbols, 0..) |sym, index| {
-                try writer.print("{x} {x}", .{ sym.st_value, sym.st_size });
+                try bw.print("{x} {x}", .{ sym.st_value, sym.st_size });
 
                 {
                     if (elf.SHN_LORESERVE <= sym.st_shndx and sym.st_shndx < elf.SHN_HIRESERVE) {
                         if (elf.SHN_LOPROC <= sym.st_shndx and sym.st_shndx < elf.SHN_HIPROC) {
-                            try writer.print(" LO+{d}", .{sym.st_shndx - elf.SHN_LOPROC});
+                            try bw.print(" LO+{d}", .{sym.st_shndx - elf.SHN_LOPROC});
                         } else {
                             const sym_ndx = switch (sym.st_shndx) {
                                 elf.SHN_ABS => "ABS",
@@ -2224,12 +2157,12 @@ const ElfDumper = struct {
                                 elf.SHN_LIVEPATCH => "LIV",
                                 else => "UNK",
                             };
-                            try writer.print(" {s}", .{sym_ndx});
+                            try bw.print(" {s}", .{sym_ndx});
                         }
                     } else if (sym.st_shndx == elf.SHN_UNDEF) {
-                        try writer.writeAll(" UND");
+                        try bw.writeAll(" UND");
                     } else {
-                        try writer.print(" {x}", .{sym.st_shndx});
+                        try bw.print(" {x}", .{sym.st_shndx});
                     }
                 }
 
@@ -2246,12 +2179,12 @@ const ElfDumper = struct {
                         elf.STT_NUM => "NUM",
                         elf.STT_GNU_IFUNC => "IFUNC",
                         else => if (elf.STT_LOPROC <= tt and tt < elf.STT_HIPROC) {
-                            break :blk try writer.print(" LOPROC+{d}", .{tt - elf.STT_LOPROC});
+                            break :blk try bw.print(" LOPROC+{d}", .{tt - elf.STT_LOPROC});
                         } else if (elf.STT_LOOS <= tt and tt < elf.STT_HIOS) {
-                            break :blk try writer.print(" LOOS+{d}", .{tt - elf.STT_LOOS});
+                            break :blk try bw.print(" LOOS+{d}", .{tt - elf.STT_LOOS});
                         } else "UNK",
                     };
-                    try writer.print(" {s}", .{sym_type});
+                    try bw.print(" {s}", .{sym_type});
                 }
 
                 blk: {
@@ -2262,28 +2195,28 @@ const ElfDumper = struct {
                         elf.STB_WEAK => "WEAK",
                         elf.STB_NUM => "NUM",
                         else => if (elf.STB_LOPROC <= bind and bind < elf.STB_HIPROC) {
-                            break :blk try writer.print(" LOPROC+{d}", .{bind - elf.STB_LOPROC});
+                            break :blk try bw.print(" LOPROC+{d}", .{bind - elf.STB_LOPROC});
                         } else if (elf.STB_LOOS <= bind and bind < elf.STB_HIOS) {
-                            break :blk try writer.print(" LOOS+{d}", .{bind - elf.STB_LOOS});
+                            break :blk try bw.print(" LOOS+{d}", .{bind - elf.STB_LOOS});
                         } else "UNKNOWN",
                     };
-                    try writer.print(" {s}", .{sym_bind});
+                    try bw.print(" {s}", .{sym_bind});
                 }
 
                 const sym_vis = @as(elf.STV, @enumFromInt(@as(u2, @truncate(sym.st_other))));
-                try writer.print(" {s}", .{@tagName(sym_vis)});
+                try bw.print(" {s}", .{@tagName(sym_vis)});
 
                 const sym_name = switch (sym.st_type()) {
                     elf.STT_SECTION => ctx.getSectionName(sym.st_shndx),
                     else => symtab.getName(index).?,
                 };
-                try writer.print(" {s}\n", .{sym_name});
+                try bw.print(" {s}\n", .{sym_name});
             }
         }
 
-        fn dumpSection(ctx: ObjectContext, shndx: usize, writer: anytype) !void {
+        fn dumpSection(ctx: ObjectContext, shndx: usize, bw: *Writer) !void {
             const data = ctx.getSectionContents(shndx);
-            try writer.print("{s}", .{data});
+            try bw.print("{s}", .{data});
         }
 
         inline fn getSectionName(ctx: ObjectContext, shndx: usize) []const u8 {
@@ -2321,22 +2254,15 @@ const ElfDumper = struct {
     };
 
     fn getString(strtab: []const u8, off: u32) []const u8 {
-        assert(off < strtab.len);
-        return mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + off)), 0);
+        const str = strtab[off..];
+        return str[0..std.mem.indexOfScalar(u8, str, 0).?];
     }
 
-    fn fmtShType(sh_type: u32) std.fmt.Formatter(formatShType) {
+    fn fmtShType(sh_type: u32) std.fmt.Formatter(u32, formatShType) {
         return .{ .data = sh_type };
     }
 
-    fn formatShType(
-        sh_type: u32,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn formatShType(sh_type: u32, w: *Writer) Writer.Error!void {
         const name = switch (sh_type) {
             elf.SHT_NULL => "NULL",
             elf.SHT_PROGBITS => "PROGBITS",
@@ -2362,28 +2288,21 @@ const ElfDumper = struct {
             elf.SHT_GNU_VERNEED => "VERNEED",
             elf.SHT_GNU_VERSYM => "VERSYM",
             else => if (elf.SHT_LOOS <= sh_type and sh_type < elf.SHT_HIOS) {
-                return try writer.print("LOOS+0x{x}", .{sh_type - elf.SHT_LOOS});
+                return try w.print("LOOS+0x{x}", .{sh_type - elf.SHT_LOOS});
             } else if (elf.SHT_LOPROC <= sh_type and sh_type < elf.SHT_HIPROC) {
-                return try writer.print("LOPROC+0x{x}", .{sh_type - elf.SHT_LOPROC});
+                return try w.print("LOPROC+0x{x}", .{sh_type - elf.SHT_LOPROC});
             } else if (elf.SHT_LOUSER <= sh_type and sh_type < elf.SHT_HIUSER) {
-                return try writer.print("LOUSER+0x{x}", .{sh_type - elf.SHT_LOUSER});
+                return try w.print("LOUSER+0x{x}", .{sh_type - elf.SHT_LOUSER});
             } else "UNKNOWN",
         };
-        try writer.writeAll(name);
+        try w.writeAll(name);
     }
 
-    fn fmtPhType(ph_type: u32) std.fmt.Formatter(formatPhType) {
+    fn fmtPhType(ph_type: u32) std.fmt.Formatter(u32, formatPhType) {
         return .{ .data = ph_type };
     }
 
-    fn formatPhType(
-        ph_type: u32,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn formatPhType(ph_type: u32, w: *Writer) Writer.Error!void {
         const p_type = switch (ph_type) {
             elf.PT_NULL => "NULL",
             elf.PT_LOAD => "LOAD",
@@ -2398,12 +2317,12 @@ const ElfDumper = struct {
             elf.PT_GNU_STACK => "GNU_STACK",
             elf.PT_GNU_RELRO => "GNU_RELRO",
             else => if (elf.PT_LOOS <= ph_type and ph_type < elf.PT_HIOS) {
-                return try writer.print("LOOS+0x{x}", .{ph_type - elf.PT_LOOS});
+                return try w.print("LOOS+0x{x}", .{ph_type - elf.PT_LOOS});
             } else if (elf.PT_LOPROC <= ph_type and ph_type < elf.PT_HIPROC) {
-                return try writer.print("LOPROC+0x{x}", .{ph_type - elf.PT_LOPROC});
+                return try w.print("LOPROC+0x{x}", .{ph_type - elf.PT_LOPROC});
             } else "UNKNOWN",
         };
-        try writer.writeAll(p_type);
+        try w.writeAll(p_type);
     }
 };
 
@@ -2412,49 +2331,39 @@ const WasmDumper = struct {
 
     fn parseAndDump(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var fbs = std.io.fixedBufferStream(bytes);
-        const reader = fbs.reader();
+        var br: std.io.Reader = .fixed(bytes);
 
-        const buf = try reader.readBytesNoEof(8);
-        if (!mem.eql(u8, buf[0..4], &std.wasm.magic)) {
-            return error.InvalidMagicByte;
-        }
-        if (!mem.eql(u8, buf[4..], &std.wasm.version)) {
-            return error.UnsupportedWasmVersion;
-        }
+        const buf = try br.takeArray(8);
+        if (!mem.eql(u8, buf[0..4], &std.wasm.magic)) return error.InvalidMagicByte;
+        if (!mem.eql(u8, buf[4..8], &std.wasm.version)) return error.UnsupportedWasmVersion;
 
-        var output = std.ArrayList(u8).init(gpa);
-        defer output.deinit();
-        parseAndDumpInner(step, check, bytes, &fbs, &output) catch |err| switch (err) {
-            error.EndOfStream => try output.appendSlice("\n<UnexpectedEndOfStream>"),
+        var aw: std.io.Writer.Allocating = .init(gpa);
+        defer aw.deinit();
+        const bw = &aw.interface;
+
+        parseAndDumpInner(step, check, &br, bw) catch |err| switch (err) {
+            error.EndOfStream => try bw.writeAll("\n<UnexpectedEndOfStream>"),
             else => |e| return e,
         };
-        return output.toOwnedSlice();
+        return aw.toOwnedSlice();
     }
 
     fn parseAndDumpInner(
         step: *Step,
         check: Check,
-        bytes: []const u8,
-        fbs: *std.io.FixedBufferStream([]const u8),
-        output: *std.ArrayList(u8),
+        br: *std.io.Reader,
+        bw: *Writer,
     ) !void {
-        const reader = fbs.reader();
-        const writer = output.writer();
-
+        var section_br: std.io.Reader = undefined;
         switch (check.kind) {
-            .headers => {
-                while (reader.readByte()) |current_byte| {
-                    const section = std.enums.fromInt(std.wasm.Section, current_byte) orelse {
-                        return step.fail("Found invalid section id '{d}'", .{current_byte});
-                    };
-
-                    const section_length = try std.leb.readUleb128(u32, reader);
-                    try parseAndDumpSection(step, section, bytes[fbs.pos..][0..section_length], writer);
-                    fbs.pos += section_length;
-                } else |_| {} // reached end of stream
+            .headers => while (br.takeEnum(std.wasm.Section, .little)) |section| {
+                section_br = .fixed(try br.take(try br.takeLeb128(u32)));
+                try parseAndDumpSection(step, section, &section_br, bw);
+            } else |err| switch (err) {
+                error.InvalidEnumTag => return step.fail("invalid section id", .{}),
+                error.EndOfStream => {},
+                else => |e| return e,
             },
-
             else => return step.fail("invalid check kind for Wasm file format: {s}", .{@tagName(check.kind)}),
         }
     }
@@ -2462,16 +2371,13 @@ const WasmDumper = struct {
     fn parseAndDumpSection(
         step: *Step,
         section: std.wasm.Section,
-        data: []const u8,
-        writer: anytype,
+        br: *std.io.Reader,
+        bw: *Writer,
     ) !void {
-        var fbs = std.io.fixedBufferStream(data);
-        const reader = fbs.reader();
-
-        try writer.print(
+        try bw.print(
             \\Section {s}
             \\size {d}
-        , .{ @tagName(section), data.len });
+        , .{ @tagName(section), br.buffer.len });
 
         switch (section) {
             .type,
@@ -2485,96 +2391,83 @@ const WasmDumper = struct {
             .code,
             .data,
             => {
-                const entries = try std.leb.readUleb128(u32, reader);
-                try writer.print("\nentries {d}\n", .{entries});
-                try parseSection(step, section, data[fbs.pos..], entries, writer);
+                const entries = try br.takeLeb128(u32);
+                try bw.print("\nentries {d}\n", .{entries});
+                try parseSection(step, section, br, entries, bw);
             },
             .custom => {
-                const name_length = try std.leb.readUleb128(u32, reader);
-                const name = data[fbs.pos..][0..name_length];
-                fbs.pos += name_length;
-                try writer.print("\nname {s}\n", .{name});
+                const name = try br.take(try br.takeLeb128(u32));
+                try bw.print("\nname {s}\n", .{name});
 
                 if (mem.eql(u8, name, "name")) {
-                    try parseDumpNames(step, reader, writer, data);
+                    try parseDumpNames(step, br, bw);
                 } else if (mem.eql(u8, name, "producers")) {
-                    try parseDumpProducers(reader, writer, data);
+                    try parseDumpProducers(br, bw);
                 } else if (mem.eql(u8, name, "target_features")) {
-                    try parseDumpFeatures(reader, writer, data);
+                    try parseDumpFeatures(br, bw);
                 }
                 // TODO: Implement parsing and dumping other custom sections (such as relocations)
             },
             .start => {
-                const start = try std.leb.readUleb128(u32, reader);
-                try writer.print("\nstart {d}\n", .{start});
+                const start = try br.takeLeb128(u32);
+                try bw.print("\nstart {d}\n", .{start});
             },
             .data_count => {
-                const count = try std.leb.readUleb128(u32, reader);
-                try writer.print("\ncount {d}\n", .{count});
+                const count = try br.takeLeb128(u32);
+                try bw.print("\ncount {d}\n", .{count});
             },
             else => {}, // skip unknown sections
         }
     }
 
-    fn parseSection(step: *Step, section: std.wasm.Section, data: []const u8, entries: u32, writer: anytype) !void {
-        var fbs = std.io.fixedBufferStream(data);
-        const reader = fbs.reader();
-
+    fn parseSection(step: *Step, section: std.wasm.Section, br: *std.io.Reader, entries: u32, bw: *Writer) !void {
         switch (section) {
             .type => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    const func_type = try reader.readByte();
+                    const func_type = try br.takeByte();
                     if (func_type != std.wasm.function_type) {
                         return step.fail("expected function type, found byte '{d}'", .{func_type});
                     }
-                    const params = try std.leb.readUleb128(u32, reader);
-                    try writer.print("params {d}\n", .{params});
+                    const params = try br.takeLeb128(u32);
+                    try bw.print("params {d}\n", .{params});
                     var index: u32 = 0;
                     while (index < params) : (index += 1) {
-                        _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
+                        _ = try parseDumpType(step, std.wasm.Valtype, br, bw);
                     } else index = 0;
-                    const returns = try std.leb.readUleb128(u32, reader);
-                    try writer.print("returns {d}\n", .{returns});
+                    const returns = try br.takeLeb128(u32);
+                    try bw.print("returns {d}\n", .{returns});
                     while (index < returns) : (index += 1) {
-                        _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
+                        _ = try parseDumpType(step, std.wasm.Valtype, br, bw);
                     }
                 }
             },
             .import => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    const module_name_len = try std.leb.readUleb128(u32, reader);
-                    const module_name = data[fbs.pos..][0..module_name_len];
-                    fbs.pos += module_name_len;
-                    const name_len = try std.leb.readUleb128(u32, reader);
-                    const name = data[fbs.pos..][0..name_len];
-                    fbs.pos += name_len;
-
-                    const kind = std.enums.fromInt(std.wasm.ExternalKind, try reader.readByte()) orelse {
-                        return step.fail("invalid import kind", .{});
+                    const module_name = try br.take(try br.takeLeb128(u32));
+                    const name = try br.take(try br.takeLeb128(u32));
+                    const kind = br.takeEnum(std.wasm.ExternalKind, .little) catch |err| switch (err) {
+                        error.InvalidEnumTag => return step.fail("invalid import kind", .{}),
+                        else => |e| return e,
                     };
 
-                    try writer.print(
+                    try bw.print(
                         \\module {s}
                         \\name {s}
                         \\kind {s}
                     , .{ module_name, name, @tagName(kind) });
-                    try writer.writeByte('\n');
+                    try bw.writeByte('\n');
                     switch (kind) {
-                        .function => {
-                            try writer.print("index {d}\n", .{try std.leb.readUleb128(u32, reader)});
-                        },
-                        .memory => {
-                            try parseDumpLimits(reader, writer);
-                        },
+                        .function => try bw.print("index {d}\n", .{try br.takeLeb128(u32)}),
+                        .memory => try parseDumpLimits(br, bw),
                         .global => {
-                            _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
-                            try writer.print("mutable {}\n", .{0x01 == try std.leb.readUleb128(u32, reader)});
+                            _ = try parseDumpType(step, std.wasm.Valtype, br, bw);
+                            try bw.print("mutable {}\n", .{0x01 == try br.takeLeb128(u32)});
                         },
                         .table => {
-                            _ = try parseDumpType(step, std.wasm.RefType, reader, writer);
-                            try parseDumpLimits(reader, writer);
+                            _ = try parseDumpType(step, std.wasm.RefType, br, bw);
+                            try parseDumpLimits(br, bw);
                         },
                     }
                 }
@@ -2582,60 +2475,58 @@ const WasmDumper = struct {
             .function => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try writer.print("index {d}\n", .{try std.leb.readUleb128(u32, reader)});
+                    try bw.print("index {d}\n", .{try br.takeLeb128(u32)});
                 }
             },
             .table => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    _ = try parseDumpType(step, std.wasm.RefType, reader, writer);
-                    try parseDumpLimits(reader, writer);
+                    _ = try parseDumpType(step, std.wasm.RefType, br, bw);
+                    try parseDumpLimits(br, bw);
                 }
             },
             .memory => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try parseDumpLimits(reader, writer);
+                    try parseDumpLimits(br, bw);
                 }
             },
             .global => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
-                    try writer.print("mutable {}\n", .{0x01 == try std.leb.readUleb128(u1, reader)});
-                    try parseDumpInit(step, reader, writer);
+                    _ = try parseDumpType(step, std.wasm.Valtype, br, bw);
+                    try bw.print("mutable {}\n", .{0x01 == try br.takeLeb128(u1)});
+                    try parseDumpInit(step, br, bw);
                 }
             },
             .@"export" => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    const name_len = try std.leb.readUleb128(u32, reader);
-                    const name = data[fbs.pos..][0..name_len];
-                    fbs.pos += name_len;
-                    const kind_byte = try std.leb.readUleb128(u8, reader);
-                    const kind = std.enums.fromInt(std.wasm.ExternalKind, kind_byte) orelse {
-                        return step.fail("invalid export kind value '{d}'", .{kind_byte});
+                    const name = try br.take(try br.takeLeb128(u32));
+                    const kind = br.takeEnum(std.wasm.ExternalKind, .little) catch |err| switch (err) {
+                        error.InvalidEnumTag => return step.fail("invalid export kind value", .{}),
+                        else => |e| return e,
                     };
-                    const index = try std.leb.readUleb128(u32, reader);
-                    try writer.print(
+                    const index = try br.takeLeb128(u32);
+                    try bw.print(
                         \\name {s}
                         \\kind {s}
                         \\index {d}
                     , .{ name, @tagName(kind), index });
-                    try writer.writeByte('\n');
+                    try bw.writeByte('\n');
                 }
             },
             .element => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try writer.print("table index {d}\n", .{try std.leb.readUleb128(u32, reader)});
-                    try parseDumpInit(step, reader, writer);
+                    try bw.print("table index {d}\n", .{try br.takeLeb128(u32)});
+                    try parseDumpInit(step, br, bw);
 
-                    const function_indexes = try std.leb.readUleb128(u32, reader);
+                    const function_indexes = try br.takeLeb128(u32);
                     var function_index: u32 = 0;
-                    try writer.print("indexes {d}\n", .{function_indexes});
+                    try bw.print("indexes {d}\n", .{function_indexes});
                     while (function_index < function_indexes) : (function_index += 1) {
-                        try writer.print("index {d}\n", .{try std.leb.readUleb128(u32, reader)});
+                        try bw.print("index {d}\n", .{try br.takeLeb128(u32)});
                     }
                 }
             },
@@ -2643,101 +2534,95 @@ const WasmDumper = struct {
             .data => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    const flags = try std.leb.readUleb128(u32, reader);
-                    const index = if (flags & 0x02 != 0)
-                        try std.leb.readUleb128(u32, reader)
-                    else
-                        0;
-                    try writer.print("memory index 0x{x}\n", .{index});
-                    if (flags == 0) {
-                        try parseDumpInit(step, reader, writer);
-                    }
-
-                    const size = try std.leb.readUleb128(u32, reader);
-                    try writer.print("size {d}\n", .{size});
-                    try reader.skipBytes(size, .{}); // we do not care about the content of the segments
+                    const flags: packed struct(u32) {
+                        passive: bool,
+                        memidx: bool,
+                        unused: u30,
+                    } = @bitCast(try br.takeLeb128(u32));
+                    const index = if (flags.memidx) try br.takeLeb128(u32) else 0;
+                    try bw.print("memory index 0x{x}\n", .{index});
+                    if (!flags.passive) try parseDumpInit(step, br, bw);
+                    const size = try br.takeLeb128(u32);
+                    try bw.print("size {d}\n", .{size});
+                    _ = try br.discard(.limited(size)); // we do not care about the content of the segments
                 }
             },
             else => unreachable,
         }
     }
 
-    fn parseDumpType(step: *Step, comptime E: type, reader: anytype, writer: anytype) !E {
-        const byte = try reader.readByte();
-        const tag = std.enums.fromInt(E, byte) orelse {
-            return step.fail("invalid wasm type value '{d}'", .{byte});
+    fn parseDumpType(step: *Step, comptime E: type, br: *std.io.Reader, bw: *Writer) !E {
+        const tag = br.takeEnum(E, .little) catch |err| switch (err) {
+            error.InvalidEnumTag => return step.fail("invalid wasm type value", .{}),
+            else => |e| return e,
         };
-        try writer.print("type {s}\n", .{@tagName(tag)});
+        try bw.print("type {s}\n", .{@tagName(tag)});
         return tag;
     }
 
-    fn parseDumpLimits(reader: anytype, writer: anytype) !void {
-        const flags = try std.leb.readUleb128(u8, reader);
-        const min = try std.leb.readUleb128(u32, reader);
+    fn parseDumpLimits(br: *std.io.Reader, bw: *Writer) !void {
+        const flags = try br.takeLeb128(u8);
+        const min = try br.takeLeb128(u32);
 
-        try writer.print("min {x}\n", .{min});
-        if (flags != 0) {
-            try writer.print("max {x}\n", .{try std.leb.readUleb128(u32, reader)});
-        }
+        try bw.print("min {x}\n", .{min});
+        if (flags != 0) try bw.print("max {x}\n", .{try br.takeLeb128(u32)});
     }
 
-    fn parseDumpInit(step: *Step, reader: anytype, writer: anytype) !void {
-        const byte = try reader.readByte();
-        const opcode = std.enums.fromInt(std.wasm.Opcode, byte) orelse {
-            return step.fail("invalid wasm opcode '{d}'", .{byte});
+    fn parseDumpInit(step: *Step, br: *std.io.Reader, bw: *Writer) !void {
+        const opcode = br.takeEnum(std.wasm.Opcode, .little) catch |err| switch (err) {
+            error.InvalidEnumTag => return step.fail("invalid wasm opcode", .{}),
+            else => |e| return e,
         };
         switch (opcode) {
-            .i32_const => try writer.print("i32.const {x}\n", .{try std.leb.readIleb128(i32, reader)}),
-            .i64_const => try writer.print("i64.const {x}\n", .{try std.leb.readIleb128(i64, reader)}),
-            .f32_const => try writer.print("f32.const {x}\n", .{@as(f32, @bitCast(try reader.readInt(u32, .little)))}),
-            .f64_const => try writer.print("f64.const {x}\n", .{@as(f64, @bitCast(try reader.readInt(u64, .little)))}),
-            .global_get => try writer.print("global.get {x}\n", .{try std.leb.readUleb128(u32, reader)}),
+            .i32_const => try bw.print("i32.const {x}\n", .{try br.takeLeb128(i32)}),
+            .i64_const => try bw.print("i64.const {x}\n", .{try br.takeLeb128(i64)}),
+            .f32_const => try bw.print("f32.const {x}\n", .{@as(f32, @bitCast(try br.takeInt(u32, .little)))}),
+            .f64_const => try bw.print("f64.const {x}\n", .{@as(f64, @bitCast(try br.takeInt(u64, .little)))}),
+            .global_get => try bw.print("global.get {x}\n", .{try br.takeLeb128(u32)}),
             else => unreachable,
         }
-        const end_opcode = try std.leb.readUleb128(u8, reader);
+        const end_opcode = try br.takeLeb128(u8);
         if (end_opcode != @intFromEnum(std.wasm.Opcode.end)) {
             return step.fail("expected 'end' opcode in init expression", .{});
         }
     }
 
     /// https://webassembly.github.io/spec/core/appendix/custom.html
-    fn parseDumpNames(step: *Step, reader: anytype, writer: anytype, data: []const u8) !void {
-        while (reader.context.pos < data.len) {
-            switch (try parseDumpType(step, std.wasm.NameSubsection, reader, writer)) {
+    fn parseDumpNames(step: *Step, br: *std.io.Reader, bw: *Writer) !void {
+        var subsection_br: std.io.Reader = undefined;
+        while (br.seek < br.buffer.len) {
+            switch (try parseDumpType(step, std.wasm.NameSubsection, br, bw)) {
                 // The module name subsection ... consists of a single name
                 // that is assigned to the module itself.
                 .module => {
-                    const size = try std.leb.readUleb128(u32, reader);
-                    const name_len = try std.leb.readUleb128(u32, reader);
-                    if (size != name_len + 1) return error.BadSubsectionSize;
-                    if (reader.context.pos + name_len > data.len) return error.UnexpectedEndOfStream;
-                    try writer.print("name {s}\n", .{data[reader.context.pos..][0..name_len]});
-                    reader.context.pos += name_len;
+                    subsection_br = .fixed(try br.take(try br.takeLeb128(u32)));
+                    const name = try subsection_br.take(try subsection_br.takeLeb128(u32));
+                    try bw.print(
+                        \\name {s}
+                        \\
+                    , .{name});
+                    if (subsection_br.seek != subsection_br.buffer.len) return error.BadSubsectionSize;
                 },
 
                 // The function name subsection ... consists of a name map
                 // assigning function names to function indices.
                 .function, .global, .data_segment => {
-                    const size = try std.leb.readUleb128(u32, reader);
-                    const entries = try std.leb.readUleb128(u32, reader);
-                    try writer.print(
-                        \\size {d}
+                    subsection_br = .fixed(try br.take(try br.takeLeb128(u32)));
+                    const entries = try br.takeLeb128(u32);
+                    try bw.print(
                         \\names {d}
                         \\
-                    , .{ size, entries });
+                    , .{entries});
                     for (0..entries) |_| {
-                        const index = try std.leb.readUleb128(u32, reader);
-                        const name_len = try std.leb.readUleb128(u32, reader);
-                        if (reader.context.pos + name_len > data.len) return error.UnexpectedEndOfStream;
-                        const name = data[reader.context.pos..][0..name_len];
-                        reader.context.pos += name.len;
-
-                        try writer.print(
+                        const index = try br.takeLeb128(u32);
+                        const name = try br.take(try br.takeLeb128(u32));
+                        try bw.print(
                             \\index {d}
                             \\name {s}
                             \\
                         , .{ index, name });
                     }
+                    if (subsection_br.seek != subsection_br.buffer.len) return error.BadSubsectionSize;
                 },
 
                 // The local name subsection ... consists of an indirect name
@@ -2752,52 +2637,49 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpProducers(reader: anytype, writer: anytype, data: []const u8) !void {
-        const field_count = try std.leb.readUleb128(u32, reader);
-        try writer.print("fields {d}\n", .{field_count});
+    fn parseDumpProducers(br: *std.io.Reader, bw: *Writer) !void {
+        const field_count = try br.takeLeb128(u32);
+        try bw.print(
+            \\fields {d}
+            \\
+        , .{field_count});
         var current_field: u32 = 0;
         while (current_field < field_count) : (current_field += 1) {
-            const field_name_length = try std.leb.readUleb128(u32, reader);
-            const field_name = data[reader.context.pos..][0..field_name_length];
-            reader.context.pos += field_name_length;
-
-            const value_count = try std.leb.readUleb128(u32, reader);
-            try writer.print(
+            const field_name = try br.take(try br.takeLeb128(u32));
+            const value_count = try br.takeLeb128(u32);
+            try bw.print(
                 \\field_name {s}
                 \\values {d}
+                \\
             , .{ field_name, value_count });
-            try writer.writeByte('\n');
             var current_value: u32 = 0;
             while (current_value < value_count) : (current_value += 1) {
-                const value_length = try std.leb.readUleb128(u32, reader);
-                const value = data[reader.context.pos..][0..value_length];
-                reader.context.pos += value_length;
-
-                const version_length = try std.leb.readUleb128(u32, reader);
-                const version = data[reader.context.pos..][0..version_length];
-                reader.context.pos += version_length;
-
-                try writer.print(
+                const value = try br.take(try br.takeLeb128(u32));
+                const version = try br.take(try br.takeLeb128(u32));
+                try bw.print(
                     \\value_name {s}
                     \\version {s}
+                    \\
                 , .{ value, version });
-                try writer.writeByte('\n');
             }
         }
     }
 
-    fn parseDumpFeatures(reader: anytype, writer: anytype, data: []const u8) !void {
-        const feature_count = try std.leb.readUleb128(u32, reader);
-        try writer.print("features {d}\n", .{feature_count});
+    fn parseDumpFeatures(br: *std.io.Reader, bw: *Writer) !void {
+        const feature_count = try br.takeLeb128(u32);
+        try bw.print(
+            \\features {d}
+            \\
+        , .{feature_count});
 
         var index: u32 = 0;
         while (index < feature_count) : (index += 1) {
-            const prefix_byte = try std.leb.readUleb128(u8, reader);
-            const name_length = try std.leb.readUleb128(u32, reader);
-            const feature_name = data[reader.context.pos..][0..name_length];
-            reader.context.pos += name_length;
-
-            try writer.print("{c} {s}\n", .{ prefix_byte, feature_name });
+            const prefix_byte = try br.takeLeb128(u8);
+            const feature_name = try br.take(try br.takeLeb128(u32));
+            try bw.print(
+                \\{c} {s}
+                \\
+            , .{ prefix_byte, feature_name });
         }
     }
 };

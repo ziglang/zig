@@ -1,6 +1,7 @@
 const std = @import("std");
 const Document = @import("Document.zig");
 const Node = Document.Node;
+const assert = std.debug.assert;
 
 /// A Markdown document renderer.
 ///
@@ -229,18 +230,11 @@ pub fn renderInlineNodeText(
     }
 }
 
-pub fn fmtHtml(bytes: []const u8) std.fmt.Formatter(formatHtml) {
+pub fn fmtHtml(bytes: []const u8) std.fmt.Formatter([]const u8, formatHtml) {
     return .{ .data = bytes };
 }
 
-fn formatHtml(
-    bytes: []const u8,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = fmt;
-    _ = options;
+fn formatHtml(bytes: []const u8, writer: *std.io.Writer) std.io.Writer.Error!void {
     for (bytes) |b| {
         switch (b) {
             '<' => try writer.writeAll("&lt;"),

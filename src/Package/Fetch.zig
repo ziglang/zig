@@ -201,7 +201,7 @@ pub const JobQueue = struct {
             const hash_slice = hash.toSlice();
 
             try buf.writer().print(
-                \\    pub const {} = struct {{
+                \\    pub const {f} = struct {{
                 \\
             , .{std.zig.fmtId(hash_slice)});
 
@@ -233,9 +233,9 @@ pub const JobQueue = struct {
 
             if (fetch.has_build_zig) {
                 try buf.writer().print(
-                    \\        pub const build_zig = @import("{}");
+                    \\        pub const build_zig = @import("{f}");
                     \\
-                , .{std.zig.fmtEscapes(hash_slice)});
+                , .{std.zig.fmtString(hash_slice)});
             }
 
             if (fetch.manifest) |*manifest| {
@@ -246,8 +246,8 @@ pub const JobQueue = struct {
                 for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
                     const h = depDigest(fetch.package_root, jq.global_cache, dep) orelse continue;
                     try buf.writer().print(
-                        "            .{{ \"{}\", \"{}\" }},\n",
-                        .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h.toSlice()) },
+                        "            .{{ \"{f}\", \"{f}\" }},\n",
+                        .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
                     );
                 }
 
@@ -278,8 +278,8 @@ pub const JobQueue = struct {
         for (root_manifest.dependencies.keys(), root_manifest.dependencies.values()) |name, dep| {
             const h = depDigest(root_fetch.package_root, jq.global_cache, dep) orelse continue;
             try buf.writer().print(
-                "    .{{ \"{}\", \"{}\" }},\n",
-                .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h.toSlice()) },
+                "    .{{ \"{f}\", \"{f}\" }},\n",
+                .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
             );
         }
         try buf.appendSlice("};\n");
@@ -1321,7 +1321,7 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
                 .{@errorName(err)},
             ));
             if (len == 0) break;
-            zip_file.writer().writeAll(buf[0..len]) catch |err| return f.fail(f.location_tok, try eb.printString(
+            zip_file.deprecatedWriter().writeAll(buf[0..len]) catch |err| return f.fail(f.location_tok, try eb.printString(
                 "write temporary zip file failed: {s}",
                 .{@errorName(err)},
             ));
@@ -1374,7 +1374,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
         var pack_file = try pack_dir.createFile("pkg.pack", .{ .read = true });
         defer pack_file.close();
         var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
-        try fifo.pump(resource.fetch_stream.reader(), pack_file.writer());
+        try fifo.pump(resource.fetch_stream.reader(), pack_file.deprecatedWriter());
         try pack_file.sync();
 
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
@@ -1382,7 +1382,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
         {
             const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
-            var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
+            var index_buffered_writer = std.io.bufferedWriter(index_file.deprecatedWriter());
             try git.indexPack(gpa, object_format, pack_file, index_buffered_writer.writer());
             try index_buffered_writer.flush();
             try index_file.sync();
@@ -1655,13 +1655,13 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
     const stdout: std.fs.File = .stdout();
-    var bw = std.io.bufferedWriter(stdout.writer());
+    var bw = std.io.bufferedWriter(stdout.deprecatedWriter());
     const w = bw.writer();
 
     for (all_files) |hashed_file| {
-        try w.print("{s}: {s}: {s}\n", .{
+        try w.print("{s}: {x}: {s}\n", .{
             @tagName(hashed_file.kind),
-            std.fmt.fmtSliceHexLower(&hashed_file.hash),
+            &hashed_file.hash,
             hashed_file.normalized_path,
         });
     }
@@ -2074,7 +2074,7 @@ test "zip" {
     {
         var zip_file = try tmp.dir.createFile("test.zip", .{});
         defer zip_file.close();
-        var bw = std.io.bufferedWriter(zip_file.writer());
+        var bw = std.io.bufferedWriter(zip_file.deprecatedWriter());
         var store: [test_files.len]std.zip.testutil.FileStore = undefined;
         try std.zip.testutil.writeZip(bw.writer(), &test_files, &store, .{});
         try bw.flush();
@@ -2107,7 +2107,7 @@ test "zip with one root folder" {
     {
         var zip_file = try tmp.dir.createFile("test.zip", .{});
         defer zip_file.close();
-        var bw = std.io.bufferedWriter(zip_file.writer());
+        var bw = std.io.bufferedWriter(zip_file.deprecatedWriter());
         var store: [test_files.len]std.zip.testutil.FileStore = undefined;
         try std.zip.testutil.writeZip(bw.writer(), &test_files, &store, .{});
         try bw.flush();

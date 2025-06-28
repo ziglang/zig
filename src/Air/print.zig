@@ -73,11 +73,11 @@ pub fn writeInst(
 }
 
 pub fn dump(air: Air, pt: Zcu.PerThread, liveness: ?Air.Liveness) void {
-    air.write(std.fs.File.stderr().writer(), pt, liveness);
+    air.write(std.fs.File.stderr().deprecatedWriter(), pt, liveness);
 }
 
 pub fn dumpInst(air: Air, inst: Air.Inst.Index, pt: Zcu.PerThread, liveness: ?Air.Liveness) void {
-    air.writeInst(std.fs.File.stderr().writer(), inst, pt, liveness);
+    air.writeInst(std.fs.File.stderr().deprecatedWriter(), inst, pt, liveness);
 }
 
 const Writer = struct {
@@ -704,7 +704,7 @@ const Writer = struct {
             }
         }
         const asm_source = std.mem.sliceAsBytes(w.air.extra.items[extra_i..])[0..extra.data.source_len];
-        try s.print(", \"{}\"", .{std.zig.fmtEscapes(asm_source)});
+        try s.print(", \"{f}\"", .{std.zig.fmtString(asm_source)});
     }
 
     fn writeDbgStmt(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
@@ -716,7 +716,7 @@ const Writer = struct {
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         try w.writeOperand(s, inst, 0, pl_op.operand);
         const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
-        try s.print(", \"{}\"", .{std.zig.fmtEscapes(name.toSlice(w.air))});
+        try s.print(", \"{f}\"", .{std.zig.fmtString(name.toSlice(w.air))});
     }
 
     fn writeCall(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

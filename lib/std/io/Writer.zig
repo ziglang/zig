@@ -37,6 +37,10 @@ pub const VTable = struct {
     /// The last element of `data` is repeated as necessary so that it is
     /// written `splat` number of times, which may be zero.
     ///
+    /// This function may not be called if the data to be written could have
+    /// been stored in `buffer` instead, including when the amount of data to
+    /// be written is zero and the buffer capacity is zero.
+    ///
     /// Number of bytes consumed from `data` is returned, excluding bytes from
     /// `buffer`.
     ///
@@ -800,18 +804,13 @@ pub fn printValue(
 ) Error!void {
     const T = @TypeOf(value);
 
-    if (comptime std.mem.eql(u8, fmt, "*")) {
-        return w.printAddress(value);
-    }
+    if (comptime std.mem.eql(u8, fmt, "*")) return w.printAddress(value);
+    if (fmt.len > 0 and fmt[0] == 'f') return value.format(w, fmt[1..]);
 
     const is_any = comptime std.mem.eql(u8, fmt, ANY);
-    if (!is_any and std.meta.hasMethod(T, "format")) {
-        if (fmt.len > 0 and fmt[0] == 'f') {
-            return value.format(w, fmt[1..]);
-        } else if (fmt.len == 0) {
-            // after 0.15.0 is tagged, delete the hasMethod condition and this compile error
-            @compileError("ambiguous format string; specify {f} to call format method, or {any} to skip it");
-        }
+    if (!is_any and std.meta.hasMethod(T, "format") and fmt.len == 0) {
+        // after 0.15.0 is tagged, delete this compile error and its condition
+        @compileError("ambiguous format string; specify {f} to call format method, or {any} to skip it");
     }
 
     switch (@typeInfo(T)) {
@@ -952,9 +951,8 @@ pub fn printValue(
         },
         .pointer => |ptr_info| switch (ptr_info.size) {
             .one => switch (@typeInfo(ptr_info.child)) {
-                .array, .@"enum", .@"union", .@"struct" => {
-                    return w.printValue(fmt, options, value.*, max_depth);
-                },
+                .array => |array_info| return w.printValue(fmt, options, @as([]const array_info.child, value), max_depth),
+                .@"enum", .@"union", .@"struct" => return w.printValue(fmt, options, value.*, max_depth),
                 else => {
                     var buffers: [2][]const u8 = .{ @typeName(ptr_info.child), "@" };
                     try w.writeVecAll(&buffers);
@@ -1120,7 +1118,12 @@ pub fn printAscii(w: *Writer, bytes: []const u8, options: std.fmt.Options) Error
 
 pub fn printUnicodeCodepoint(w: *Writer, c: u21, options: std.fmt.Options) Error!void {
     var buf: [4]u8 = undefined;
-    const len = try std.unicode.utf8Encode(c, &buf);
+    const len = std.unicode.utf8Encode(c, &buf) catch |err| switch (err) {
+        error.Utf8CannotEncodeSurrogateHalf, error.CodepointTooLarge => l: {
+            buf[0..3].* = std.unicode.replacement_character_utf8;
+            break :l 3;
+        },
+    };
     return w.alignBufferOptions(buf[0..len], options);
 }
 
@@ -1553,13 +1556,7 @@ test "formatValue max_depth" {
         x: f32,
         y: f32,
 
-        pub fn format(
-            self: SelfType,
-            comptime fmt: []const u8,
-            options: std.fmt.Options,
-            w: *Writer,
-        ) Error!void {
-            _ = options;
+        pub fn format(self: SelfType, w: *Writer, comptime fmt: []const u8) Error!void {
             if (fmt.len == 0) {
                 return w.print("({d:.3},{d:.3})", .{ self.x, self.y });
             } else {
@@ -1600,131 +1597,131 @@ test "formatValue max_depth" {
     try w.printValue("", .{}, inst, 0);
     try testing.expectEqualStrings("io.Writer.test.printValue max_depth.S{ ... }", w.buffered());
 
-    w.reset();
+    w = .fixed(&buf);
     try w.printValue("", .{}, inst, 1);
     try testing.expectEqualStrings("io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ ... }, .tu = io.Writer.test.printValue max_depth.TU{ ... }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }", w.buffered());
 
-    w.reset();
+    w = .fixed(&buf);
     try w.printValue("", .{}, inst, 2);
     try testing.expectEqualStrings("io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ ... }, .tu = io.Writer.test.printValue max_depth.TU{ ... }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }, .tu = io.Writer.test.printValue max_depth.TU{ .ptr = io.Writer.test.printValue max_depth.TU{ ... } }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }", w.buffered());
 
-    w.reset();
+    w = .fixed(&buf);
     try w.printValue("", .{}, inst, 3);
     try testing.expectEqualStrings("io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ ... }, .tu = io.Writer.test.printValue max_depth.TU{ ... }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }, .tu = io.Writer.test.printValue max_depth.TU{ .ptr = io.Writer.test.printValue max_depth.TU{ ... } }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }, .tu = io.Writer.test.printValue max_depth.TU{ .ptr = io.Writer.test.printValue max_depth.TU{ .ptr = io.Writer.test.printValue max_depth.TU{ ... } } }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }", w.buffered());
 
     const vec: @Vector(4, i32) = .{ 1, 2, 3, 4 };
-    w.reset();
+    w = .fixed(&buf);
     try w.printValue("", .{}, vec, 0);
     try testing.expectEqualStrings("{ ... }", w.buffered());
 
-    w.reset();
+    w = .fixed(&buf);
     try w.printValue("", .{}, vec, 1);
     try testing.expectEqualStrings("{ 1, 2, 3, 4 }", w.buffered());
 }
 
 test printDuration {
-    testDurationCase("0ns", 0);
-    testDurationCase("1ns", 1);
-    testDurationCase("999ns", std.time.ns_per_us - 1);
-    testDurationCase("1us", std.time.ns_per_us);
-    testDurationCase("1.45us", 1450);
-    testDurationCase("1.5us", 3 * std.time.ns_per_us / 2);
-    testDurationCase("14.5us", 14500);
-    testDurationCase("145us", 145000);
-    testDurationCase("999.999us", std.time.ns_per_ms - 1);
-    testDurationCase("1ms", std.time.ns_per_ms + 1);
-    testDurationCase("1.5ms", 3 * std.time.ns_per_ms / 2);
-    testDurationCase("1.11ms", 1110000);
-    testDurationCase("1.111ms", 1111000);
-    testDurationCase("1.111ms", 1111100);
-    testDurationCase("999.999ms", std.time.ns_per_s - 1);
-    testDurationCase("1s", std.time.ns_per_s);
-    testDurationCase("59.999s", std.time.ns_per_min - 1);
-    testDurationCase("1m", std.time.ns_per_min);
-    testDurationCase("1h", std.time.ns_per_hour);
-    testDurationCase("1d", std.time.ns_per_day);
-    testDurationCase("1w", std.time.ns_per_week);
-    testDurationCase("1y", 365 * std.time.ns_per_day);
-    testDurationCase("1y52w23h59m59.999s", 730 * std.time.ns_per_day - 1); // 365d = 52w1
-    testDurationCase("1y1h1.001s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms);
-    testDurationCase("1y1h1s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us);
-    testDurationCase("1y1h999.999us", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1);
-    testDurationCase("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms);
-    testDurationCase("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1);
-    testDurationCase("1y1m999ns", 365 * std.time.ns_per_day + std.time.ns_per_min + 999);
-    testDurationCase("584y49w23h34m33.709s", std.math.maxInt(u64));
+    try testDurationCase("0ns", 0);
+    try testDurationCase("1ns", 1);
+    try testDurationCase("999ns", std.time.ns_per_us - 1);
+    try testDurationCase("1us", std.time.ns_per_us);
+    try testDurationCase("1.45us", 1450);
+    try testDurationCase("1.5us", 3 * std.time.ns_per_us / 2);
+    try testDurationCase("14.5us", 14500);
+    try testDurationCase("145us", 145000);
+    try testDurationCase("999.999us", std.time.ns_per_ms - 1);
+    try testDurationCase("1ms", std.time.ns_per_ms + 1);
+    try testDurationCase("1.5ms", 3 * std.time.ns_per_ms / 2);
+    try testDurationCase("1.11ms", 1110000);
+    try testDurationCase("1.111ms", 1111000);
+    try testDurationCase("1.111ms", 1111100);
+    try testDurationCase("999.999ms", std.time.ns_per_s - 1);
+    try testDurationCase("1s", std.time.ns_per_s);
+    try testDurationCase("59.999s", std.time.ns_per_min - 1);
+    try testDurationCase("1m", std.time.ns_per_min);
+    try testDurationCase("1h", std.time.ns_per_hour);
+    try testDurationCase("1d", std.time.ns_per_day);
+    try testDurationCase("1w", std.time.ns_per_week);
+    try testDurationCase("1y", 365 * std.time.ns_per_day);
+    try testDurationCase("1y52w23h59m59.999s", 730 * std.time.ns_per_day - 1); // 365d = 52w1
+    try testDurationCase("1y1h1.001s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms);
+    try testDurationCase("1y1h1s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us);
+    try testDurationCase("1y1h999.999us", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1);
+    try testDurationCase("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms);
+    try testDurationCase("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1);
+    try testDurationCase("1y1m999ns", 365 * std.time.ns_per_day + std.time.ns_per_min + 999);
+    try testDurationCase("584y49w23h34m33.709s", std.math.maxInt(u64));
 
-    testing.expectFmt("=======0ns", "{D:=>10}", .{0});
-    testing.expectFmt("1ns=======", "{D:=<10}", .{1});
-    testing.expectFmt("  999ns   ", "{D:^10}", .{std.time.ns_per_us - 1});
+    try testing.expectFmt("=======0ns", "{D:=>10}", .{0});
+    try testing.expectFmt("1ns=======", "{D:=<10}", .{1});
+    try testing.expectFmt("  999ns   ", "{D:^10}", .{std.time.ns_per_us - 1});
 }
 
 test printDurationSigned {
-    testDurationCaseSigned("0ns", 0);
-    testDurationCaseSigned("1ns", 1);
-    testDurationCaseSigned("-1ns", -(1));
-    testDurationCaseSigned("999ns", std.time.ns_per_us - 1);
-    testDurationCaseSigned("-999ns", -(std.time.ns_per_us - 1));
-    testDurationCaseSigned("1us", std.time.ns_per_us);
-    testDurationCaseSigned("-1us", -(std.time.ns_per_us));
-    testDurationCaseSigned("1.45us", 1450);
-    testDurationCaseSigned("-1.45us", -(1450));
-    testDurationCaseSigned("1.5us", 3 * std.time.ns_per_us / 2);
-    testDurationCaseSigned("-1.5us", -(3 * std.time.ns_per_us / 2));
-    testDurationCaseSigned("14.5us", 14500);
-    testDurationCaseSigned("-14.5us", -(14500));
-    testDurationCaseSigned("145us", 145000);
-    testDurationCaseSigned("-145us", -(145000));
-    testDurationCaseSigned("999.999us", std.time.ns_per_ms - 1);
-    testDurationCaseSigned("-999.999us", -(std.time.ns_per_ms - 1));
-    testDurationCaseSigned("1ms", std.time.ns_per_ms + 1);
-    testDurationCaseSigned("-1ms", -(std.time.ns_per_ms + 1));
-    testDurationCaseSigned("1.5ms", 3 * std.time.ns_per_ms / 2);
-    testDurationCaseSigned("-1.5ms", -(3 * std.time.ns_per_ms / 2));
-    testDurationCaseSigned("1.11ms", 1110000);
-    testDurationCaseSigned("-1.11ms", -(1110000));
-    testDurationCaseSigned("1.111ms", 1111000);
-    testDurationCaseSigned("-1.111ms", -(1111000));
-    testDurationCaseSigned("1.111ms", 1111100);
-    testDurationCaseSigned("-1.111ms", -(1111100));
-    testDurationCaseSigned("999.999ms", std.time.ns_per_s - 1);
-    testDurationCaseSigned("-999.999ms", -(std.time.ns_per_s - 1));
-    testDurationCaseSigned("1s", std.time.ns_per_s);
-    testDurationCaseSigned("-1s", -(std.time.ns_per_s));
-    testDurationCaseSigned("59.999s", std.time.ns_per_min - 1);
-    testDurationCaseSigned("-59.999s", -(std.time.ns_per_min - 1));
-    testDurationCaseSigned("1m", std.time.ns_per_min);
-    testDurationCaseSigned("-1m", -(std.time.ns_per_min));
-    testDurationCaseSigned("1h", std.time.ns_per_hour);
-    testDurationCaseSigned("-1h", -(std.time.ns_per_hour));
-    testDurationCaseSigned("1d", std.time.ns_per_day);
-    testDurationCaseSigned("-1d", -(std.time.ns_per_day));
-    testDurationCaseSigned("1w", std.time.ns_per_week);
-    testDurationCaseSigned("-1w", -(std.time.ns_per_week));
-    testDurationCaseSigned("1y", 365 * std.time.ns_per_day);
-    testDurationCaseSigned("-1y", -(365 * std.time.ns_per_day));
-    testDurationCaseSigned("1y52w23h59m59.999s", 730 * std.time.ns_per_day - 1); // 365d = 52w1d
-    testDurationCaseSigned("-1y52w23h59m59.999s", -(730 * std.time.ns_per_day - 1)); // 365d = 52w1d
-    testDurationCaseSigned("1y1h1.001s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms);
-    testDurationCaseSigned("-1y1h1.001s", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms));
-    testDurationCaseSigned("1y1h1s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us);
-    testDurationCaseSigned("-1y1h1s", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us));
-    testDurationCaseSigned("1y1h999.999us", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1);
-    testDurationCaseSigned("-1y1h999.999us", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1));
-    testDurationCaseSigned("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms);
-    testDurationCaseSigned("-1y1h1ms", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms));
-    testDurationCaseSigned("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1);
-    testDurationCaseSigned("-1y1h1ms", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1));
-    testDurationCaseSigned("1y1m999ns", 365 * std.time.ns_per_day + std.time.ns_per_min + 999);
-    testDurationCaseSigned("-1y1m999ns", -(365 * std.time.ns_per_day + std.time.ns_per_min + 999));
-    testDurationCaseSigned("292y24w3d23h47m16.854s", std.math.maxInt(i64));
-    testDurationCaseSigned("-292y24w3d23h47m16.854s", std.math.minInt(i64) + 1);
-    testDurationCaseSigned("-292y24w3d23h47m16.854s", std.math.minInt(i64));
+    try testDurationCaseSigned("0ns", 0);
+    try testDurationCaseSigned("1ns", 1);
+    try testDurationCaseSigned("-1ns", -(1));
+    try testDurationCaseSigned("999ns", std.time.ns_per_us - 1);
+    try testDurationCaseSigned("-999ns", -(std.time.ns_per_us - 1));
+    try testDurationCaseSigned("1us", std.time.ns_per_us);
+    try testDurationCaseSigned("-1us", -(std.time.ns_per_us));
+    try testDurationCaseSigned("1.45us", 1450);
+    try testDurationCaseSigned("-1.45us", -(1450));
+    try testDurationCaseSigned("1.5us", 3 * std.time.ns_per_us / 2);
+    try testDurationCaseSigned("-1.5us", -(3 * std.time.ns_per_us / 2));
+    try testDurationCaseSigned("14.5us", 14500);
+    try testDurationCaseSigned("-14.5us", -(14500));
+    try testDurationCaseSigned("145us", 145000);
+    try testDurationCaseSigned("-145us", -(145000));
+    try testDurationCaseSigned("999.999us", std.time.ns_per_ms - 1);
+    try testDurationCaseSigned("-999.999us", -(std.time.ns_per_ms - 1));
+    try testDurationCaseSigned("1ms", std.time.ns_per_ms + 1);
+    try testDurationCaseSigned("-1ms", -(std.time.ns_per_ms + 1));
+    try testDurationCaseSigned("1.5ms", 3 * std.time.ns_per_ms / 2);
+    try testDurationCaseSigned("-1.5ms", -(3 * std.time.ns_per_ms / 2));
+    try testDurationCaseSigned("1.11ms", 1110000);
+    try testDurationCaseSigned("-1.11ms", -(1110000));
+    try testDurationCaseSigned("1.111ms", 1111000);
+    try testDurationCaseSigned("-1.111ms", -(1111000));
+    try testDurationCaseSigned("1.111ms", 1111100);
+    try testDurationCaseSigned("-1.111ms", -(1111100));
+    try testDurationCaseSigned("999.999ms", std.time.ns_per_s - 1);
+    try testDurationCaseSigned("-999.999ms", -(std.time.ns_per_s - 1));
+    try testDurationCaseSigned("1s", std.time.ns_per_s);
+    try testDurationCaseSigned("-1s", -(std.time.ns_per_s));
+    try testDurationCaseSigned("59.999s", std.time.ns_per_min - 1);
+    try testDurationCaseSigned("-59.999s", -(std.time.ns_per_min - 1));
+    try testDurationCaseSigned("1m", std.time.ns_per_min);
+    try testDurationCaseSigned("-1m", -(std.time.ns_per_min));
+    try testDurationCaseSigned("1h", std.time.ns_per_hour);
+    try testDurationCaseSigned("-1h", -(std.time.ns_per_hour));
+    try testDurationCaseSigned("1d", std.time.ns_per_day);
+    try testDurationCaseSigned("-1d", -(std.time.ns_per_day));
+    try testDurationCaseSigned("1w", std.time.ns_per_week);
+    try testDurationCaseSigned("-1w", -(std.time.ns_per_week));
+    try testDurationCaseSigned("1y", 365 * std.time.ns_per_day);
+    try testDurationCaseSigned("-1y", -(365 * std.time.ns_per_day));
+    try testDurationCaseSigned("1y52w23h59m59.999s", 730 * std.time.ns_per_day - 1); // 365d = 52w1d
+    try testDurationCaseSigned("-1y52w23h59m59.999s", -(730 * std.time.ns_per_day - 1)); // 365d = 52w1d
+    try testDurationCaseSigned("1y1h1.001s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms);
+    try testDurationCaseSigned("-1y1h1.001s", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms));
+    try testDurationCaseSigned("1y1h1s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us);
+    try testDurationCaseSigned("-1y1h1s", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us));
+    try testDurationCaseSigned("1y1h999.999us", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1);
+    try testDurationCaseSigned("-1y1h999.999us", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1));
+    try testDurationCaseSigned("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms);
+    try testDurationCaseSigned("-1y1h1ms", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms));
+    try testDurationCaseSigned("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1);
+    try testDurationCaseSigned("-1y1h1ms", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1));
+    try testDurationCaseSigned("1y1m999ns", 365 * std.time.ns_per_day + std.time.ns_per_min + 999);
+    try testDurationCaseSigned("-1y1m999ns", -(365 * std.time.ns_per_day + std.time.ns_per_min + 999));
+    try testDurationCaseSigned("292y24w3d23h47m16.854s", std.math.maxInt(i64));
+    try testDurationCaseSigned("-292y24w3d23h47m16.854s", std.math.minInt(i64) + 1);
+    try testDurationCaseSigned("-292y24w3d23h47m16.854s", std.math.minInt(i64));
 
-    testing.expectFmt("=======0ns", "{s:=>10}", .{0});
-    testing.expectFmt("1ns=======", "{s:=<10}", .{1});
-    testing.expectFmt("-1ns======", "{s:=<10}", .{-(1)});
-    testing.expectFmt("  -999ns  ", "{s:^10}", .{-(std.time.ns_per_us - 1)});
+    try testing.expectFmt("=======0ns", "{D:=>10}", .{0});
+    try testing.expectFmt("1ns=======", "{D:=<10}", .{1});
+    try testing.expectFmt("-1ns======", "{D:=<10}", .{-(1)});
+    try testing.expectFmt("  -999ns  ", "{D:^10}", .{-(std.time.ns_per_us - 1)});
 }
 
 fn testDurationCase(expected: []const u8, input: u64) !void {
@@ -1762,7 +1759,7 @@ test printIntOptions {
 test "printInt with comptime_int" {
     var buf: [20]u8 = undefined;
     var w: Writer = .fixed(&buf);
-    try w.printInt(@as(comptime_int, 123456789123456789), "", .{});
+    try w.printInt("", .{}, @as(comptime_int, 123456789123456789));
     try std.testing.expectEqualStrings("123456789123456789", w.buffered());
 }
 
@@ -1777,7 +1774,7 @@ test "printFloat with comptime_float" {
 fn testPrintIntCase(expected: []const u8, value: anytype, base: u8, case: std.fmt.Case, options: std.fmt.Options) !void {
     var buffer: [100]u8 = undefined;
     var w: Writer = .fixed(&buffer);
-    w.printIntOptions(value, base, case, options);
+    try w.printIntOptions(value, base, case, options);
     try testing.expectEqualStrings(expected, w.buffered());
 }
 
@@ -1832,17 +1829,15 @@ test "fixed output" {
     try w.writeAll("world");
     try testing.expect(std.mem.eql(u8, w.buffered(), "Helloworld"));
 
-    try testing.expectError(error.WriteStreamEnd, w.writeAll("!"));
+    try testing.expectError(error.WriteFailed, w.writeAll("!"));
     try testing.expect(std.mem.eql(u8, w.buffered(), "Helloworld"));
 
-    w.reset();
+    w = .fixed(&buffer);
+
     try testing.expect(w.buffered().len == 0);
 
-    try testing.expectError(error.WriteStreamEnd, w.writeAll("Hello world!"));
+    try testing.expectError(error.WriteFailed, w.writeAll("Hello world!"));
     try testing.expect(std.mem.eql(u8, w.buffered(), "Hello worl"));
-
-    try w.seekTo((try w.getEndPos()) + 1);
-    try testing.expectError(error.WriteStreamEnd, w.writeAll("H"));
 }
 
 pub fn failingDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {

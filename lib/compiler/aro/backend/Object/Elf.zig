@@ -171,7 +171,7 @@ pub fn addRelocation(elf: *Elf, name: []const u8, section_kind: Object.Section, 
 /// strtab
 /// section headers
 pub fn finish(elf: *Elf, file: std.fs.File) !void {
-    var buf_writer = std.io.bufferedWriter(file.writer());
+    var buf_writer = std.io.bufferedWriter(file.deprecatedWriter());
     const w = buf_writer.writer();
 
     var num_sections: std.elf.Elf64_Half = additional_sections;

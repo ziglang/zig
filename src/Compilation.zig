@@ -1002,7 +1002,7 @@ pub const CObject = struct {
 
                 var line = std.ArrayList(u8).init(eb.gpa);
                 defer line.deinit();
-                file.reader().readUntilDelimiterArrayList(&line, '\n', 1 << 10) catch break :source_line 0;
+                file.deprecatedReader().readUntilDelimiterArrayList(&line, '\n', 1 << 10) catch break :source_line 0;
 
                 break :source_line try eb.addString(line.items);
             };
@@ -1070,7 +1070,7 @@ pub const CObject = struct {
 
                 const file = try std.fs.cwd().openFile(path, .{});
                 defer file.close();
-                var br = std.io.bufferedReader(file.reader());
+                var br = std.io.bufferedReader(file.deprecatedReader());
                 const reader = br.reader();
                 var bc = std.zig.llvm.BitcodeReader.init(gpa, .{ .reader = reader.any() });
                 defer bc.deinit();
@@ -1882,7 +1882,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             if (options.root_mod.resolved_target.llvm_cpu_features) |cf| print: {
                 std.debug.lockStdErr();
                 defer std.debug.unlockStdErr();
-                const stderr = std.fs.File.stderr().writer();
+                const stderr = std.fs.File.stderr().deprecatedWriter();
                 nosuspend {
                     stderr.print("compilation: {s}\n", .{options.root_name}) catch break :print;
                     stderr.print("  target: {s}\n", .{try target.zigTriple(arena)}) catch break :print;
@@ -3943,7 +3943,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             // This AU is referenced and has a transitive compile error, meaning it referenced something with a compile error.
             // However, we haven't reported any such error.
             // This is a compiler bug.
-            const stderr = std.fs.File.stderr().writer();
+            const stderr = std.fs.File.stderr().deprecatedWriter();
             try stderr.writeAll("referenced transitive analysis errors, but none actually emitted\n");
             try stderr.print("{} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
             while (ref) |r| {
@@ -4905,7 +4905,7 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
     var walker = try mod_dir.walk(comp.gpa);
     defer walker.deinit();
 
-    var archiver = std.tar.writer(tar_file.writer().any());
+    var archiver = std.tar.writer(tar_file.deprecatedWriter().any());
     archiver.prefix = name;
 
     while (try walker.next()) |entry| {
@@ -7225,7 +7225,7 @@ pub fn lockAndSetMiscFailure(
 pub fn dump_argv(argv: []const []const u8) void {
     std.debug.lockStdErr();
     defer std.debug.unlockStdErr();
-    const stderr = std.fs.File.stderr().writer();
+    const stderr = std.fs.File.stderr().deprecatedWriter();
     for (argv[0 .. argv.len - 1]) |arg| {
         nosuspend stderr.print("{s} ", .{arg}) catch return;
     }

@@ -10,7 +10,7 @@ pub fn main() !void {
         dir_name, .{});
     const file_name = args.next().?;
     const file = try dir.createFile(file_name, .{});
-    try file.writer().print(
+    try file.deprecatedWriter().print(
         \\{s}
         \\{s}
         \\Hello, world!

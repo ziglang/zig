@@ -29,7 +29,7 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     if (args.len < 2) {
-        try renderErrorMessage(stderr.writer(), stderr_config, .err, "expected zig lib dir as first argument", .{});
+        try renderErrorMessage(stderr.deprecatedWriter(), stderr_config, .err, "expected zig lib dir as first argument", .{});
         std.process.exit(1);
     }
     const zig_lib_dir = args[1];
@@ -82,14 +82,14 @@ pub fn main() !void {
 
     if (options.print_help_and_exit) {
         const stdout = std.fs.File.stdout();
-        try cli.writeUsage(stdout.writer(), "zig rc");
+        try cli.writeUsage(stdout.deprecatedWriter(), "zig rc");
         return;
     }
 
     // Don't allow verbose when integrating with Zig via stdout
     options.verbose = false;
 
-    const stdout_writer = std.fs.File.stdout().writer();
+    const stdout_writer = std.fs.File.stdout().deprecatedWriter();
     if (options.verbose) {
         try options.dumpVerbose(stdout_writer);
         try stdout_writer.writeByte('\n');
@@ -290,7 +290,7 @@ pub fn main() !void {
                     };
                     defer depfile.close();
 
-                    const depfile_writer = depfile.writer();
+                    const depfile_writer = depfile.deprecatedWriter();
                     var depfile_buffered_writer = std.io.bufferedWriter(depfile_writer);
                     switch (options.depfile_fmt) {
                         .json => {
@@ -645,7 +645,7 @@ const ErrorHandler = union(enum) {
             },
             .tty => {
                 // extra newline to separate this line from the aro errors
-                try renderErrorMessage(std.fs.File.stderr().writer(), self.tty, .err, "{s}\n", .{fail_msg});
+                try renderErrorMessage(std.fs.File.stderr().deprecatedWriter(), self.tty, .err, "{s}\n", .{fail_msg});
                 aro.Diagnostics.render(comp, self.tty);
             },
         }
@@ -690,7 +690,7 @@ const ErrorHandler = union(enum) {
                 try server.serveErrorBundle(error_bundle);
             },
             .tty => {
-                try renderErrorMessage(std.fs.File.stderr().writer(), self.tty, msg_type, format, args);
+                try renderErrorMessage(std.fs.File.stderr().deprecatedWriter(), self.tty, msg_type, format, args);
             },
         }
     }

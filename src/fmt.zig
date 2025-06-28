@@ -60,7 +60,7 @@ pub fn run(
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.fs.File.stdout().writer();
+                    const stdout = std.fs.File.stdout().deprecatedWriter();
                     try stdout.writeAll(usage_fmt);
                     return process.cleanExit();
                 } else if (mem.eql(u8, arg, "--color")) {
@@ -371,7 +371,7 @@ fn fmtPathFile(
         return;
 
     if (check_mode) {
-        const stdout = std.fs.File.stdout().writer();
+        const stdout = std.fs.File.stdout().deprecatedWriter();
         try stdout.print("{s}\n", .{file_path});
         fmt.any_error = true;
     } else {
@@ -380,7 +380,7 @@ fn fmtPathFile(
 
         try af.file.writeAll(fmt.out_buffer.items);
         try af.finish();
-        const stdout = std.fs.File.stdout().writer();
+        const stdout = std.fs.File.stdout().deprecatedWriter();
         try stdout.print("{s}\n", .{file_path});
     }
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Token = @import("lex.zig").Token;
 const SourceMappings = @import("source_mapping.zig").SourceMappings;
 const utils = @import("utils.zig");
@@ -63,7 +64,7 @@ pub const Diagnostics = struct {
     pub fn renderToStdErr(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, tty_config: std.io.tty.Config, source_mappings: ?SourceMappings) void {
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
-        const stderr = std.fs.File.stderr().writer();
+        const stderr = std.fs.File.stderr().deprecatedWriter();
         for (self.errors.items) |err_details| {
             renderErrorMessage(stderr, tty_config, cwd, err_details, source, self.strings.items, source_mappings) catch return;
         }
@@ -409,15 +410,7 @@ pub const ErrorDetails = struct {
         failed_to_open_cwd,
     };
 
-    fn formatToken(
-        ctx: TokenFormatContext,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
-
+    fn formatToken(ctx: TokenFormatContext, writer: *std.io.Writer) std.io.Writer.Error!void {
         switch (ctx.token.id) {
             .eof => return writer.writeAll(ctx.token.id.nameForErrorDisplay()),
             else => {},
@@ -441,7 +434,7 @@ pub const ErrorDetails = struct {
         code_page: SupportedCodePage,
     };
 
-    fn fmtToken(self: ErrorDetails, source: []const u8) std.fmt.Formatter(formatToken) {
+    fn fmtToken(self: ErrorDetails, source: []const u8) std.fmt.Formatter(TokenFormatContext, formatToken) {
         return .{ .data = .{
             .token = self.token,
             .code_page = self.code_page,
@@ -466,10 +459,14 @@ pub const ErrorDetails = struct {
                 .hint => return,
             },
             .illegal_byte => {
-                return writer.print("character '{s}' is not allowed", .{std.fmt.fmtSliceEscapeUpper(self.token.slice(source))});
+                return writer.print("character '{f}' is not allowed", .{
+                    std.ascii.hexEscape(self.token.slice(source), .upper),
+                });
             },
             .illegal_byte_outside_string_literals => {
-                return writer.print("character '{s}' is not allowed outside of string literals", .{std.fmt.fmtSliceEscapeUpper(self.token.slice(source))});
+                return writer.print("character '{f}' is not allowed outside of string literals", .{
+                    std.ascii.hexEscape(self.token.slice(source), .upper),
+                });
             },
             .illegal_codepoint_outside_string_literals => {
                 // This is somewhat hacky, but we know that:
@@ -1106,7 +1103,7 @@ const CorrespondingLines = struct {
             .code_page = err_details.code_page,
         };
         corresponding_lines.buffered_reader = BufferedReaderType{
-            .unbuffered_reader = corresponding_lines.file.reader(),
+            .unbuffered_reader = corresponding_lines.file.deprecatedReader(),
         };
         errdefer corresponding_lines.deinit();
 

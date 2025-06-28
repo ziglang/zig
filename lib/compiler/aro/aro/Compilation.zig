@@ -1432,7 +1432,7 @@ fn getFileContents(comp: *Compilation, path: []const u8, limit: ?u32) ![]const u
     defer buf.deinit();
 
     const max = limit orelse std.math.maxInt(u32);
-    file.reader().readAllArrayList(&buf, max) catch |e| switch (e) {
+    file.deprecatedReader().readAllArrayList(&buf, max) catch |e| switch (e) {
         error.StreamTooLong => if (limit == null) return e,
         else => return e,
     };
