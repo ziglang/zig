@@ -160,7 +160,7 @@ fn mainImpl() !void {
     var doc = try parser.endInput();
     defer doc.deinit(gpa);
 
-    var stdout_buf = std.io.bufferedWriter(std.fs.File.stdout().writer());
+    var stdout_buf = std.io.bufferedWriter(std.fs.File.stdout().deprecatedWriter());
     try doc.render(stdout_buf.writer());
     try stdout_buf.flush();
 }

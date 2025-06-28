@@ -651,7 +651,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
     }
 
     const file: fs.File = .{ .handle = fd };
-    const stream = file.reader();
+    const stream = file.deprecatedReader();
     stream.readNoEof(buf) catch return error.Unexpected;
 }
 

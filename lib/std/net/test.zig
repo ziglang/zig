@@ -7,18 +7,12 @@ const testing = std.testing;
 test "parse and render IP addresses at comptime" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
     comptime {
-        var ipAddrBuffer: [16]u8 = undefined;
-        // Parses IPv6 at comptime
         const ipv6addr = net.Address.parseIp("::1", 0) catch unreachable;
-        var ipv6 = std.fmt.bufPrint(ipAddrBuffer[0..], "{}", .{ipv6addr}) catch unreachable;
-        try std.testing.expect(std.mem.eql(u8, "::1", ipv6[1 .. ipv6.len - 3]));
+        try std.testing.expectFmt("[::1]:0", "{f}", .{ipv6addr});
 
-        // Parses IPv4 at comptime
         const ipv4addr = net.Address.parseIp("127.0.0.1", 0) catch unreachable;
-        var ipv4 = std.fmt.bufPrint(ipAddrBuffer[0..], "{}", .{ipv4addr}) catch unreachable;
-        try std.testing.expect(std.mem.eql(u8, "127.0.0.1", ipv4[0 .. ipv4.len - 2]));
+        try std.testing.expectFmt("127.0.0.1:0", "{f}", .{ipv4addr});
 
-        // Returns error for invalid IP addresses at comptime
         try testing.expectError(error.InvalidIPAddressFormat, net.Address.parseIp("::123.123.123.123", 0));
         try testing.expectError(error.InvalidIPAddressFormat, net.Address.parseIp("127.01.0.1", 0));
         try testing.expectError(error.InvalidIPAddressFormat, net.Address.resolveIp("::123.123.123.123", 0));
@@ -28,13 +22,8 @@ test "parse and render IP addresses at comptime" {
 
 test "format IPv6 address with no zero runs" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
     const addr = try std.net.Address.parseIp6("2001:db8:1:2:3:4:5:6", 0);
-
-    var buffer: [50]u8 = undefined;
-    const result = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
-
-    try std.testing.expectEqualStrings("[2001:db8:1:2:3:4:5:6]:0", result);
+    try std.testing.expectFmt("[2001:db8:1:2:3:4:5:6]:0", "{f}", .{addr});
 }
 
 test "parse IPv6 addresses and check compressed form" {
@@ -111,12 +100,12 @@ test "parse and render IPv6 addresses" {
     };
     for (ips, 0..) |ip, i| {
         const addr = net.Address.parseIp6(ip, 0) catch unreachable;
-        var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
+        var newIp = std.fmt.bufPrint(buffer[0..], "{f}", .{addr}) catch unreachable;
         try std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
 
         if (builtin.os.tag == .linux) {
             const addr_via_resolve = net.Address.resolveIp6(ip, 0) catch unreachable;
-            var newResolvedIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr_via_resolve}) catch unreachable;
+            var newResolvedIp = std.fmt.bufPrint(buffer[0..], "{f}", .{addr_via_resolve}) catch unreachable;
             try std.testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
         }
     }
@@ -159,7 +148,7 @@ test "parse and render IPv4 addresses" {
         "127.0.0.1",
     }) |ip| {
         const addr = net.Address.parseIp4(ip, 0) catch unreachable;
-        var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
+        var newIp = std.fmt.bufPrint(buffer[0..], "{f}", .{addr}) catch unreachable;
         try std.testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
     }
 
@@ -175,10 +164,8 @@ test "parse and render UNIX addresses" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
     if (!net.has_unix_sockets) return error.SkipZigTest;
 
-    var buffer: [14]u8 = undefined;
     const addr = net.Address.initUnix("/tmp/testpath") catch unreachable;
-    const fmt_addr = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
-    try std.testing.expectEqualSlices(u8, "/tmp/testpath", fmt_addr);
+    try std.testing.expectFmt("/tmp/testpath", "{f}", .{addr});
 
     const too_long = [_]u8{'a'} ** 200;
     try testing.expectError(error.NameTooLong, net.Address.initUnix(too_long[0..]));

@@ -2322,13 +2322,7 @@ pub const Const = struct {
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn format(
-        self: Const,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        _ = options;
+    pub fn format(self: Const, w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
         comptime var base = 10;
         comptime var case: std.fmt.Case = .lower;
 
@@ -2350,7 +2344,7 @@ pub const Const = struct {
 
         const available_len = 64;
         if (self.limbs.len > available_len)
-            return out_stream.writeAll("(BigInt)");
+            return w.writeAll("(BigInt)");
 
         var limbs: [calcToStringLimbsBufferLen(available_len, base)]Limb = undefined;
 
@@ -2360,7 +2354,7 @@ pub const Const = struct {
         };
         var buf: [biggest.sizeInBaseUpperBound(base)]u8 = undefined;
         const len = self.toString(&buf, base, case, &limbs);
-        return out_stream.writeAll(buf[0..len]);
+        return w.writeAll(buf[0..len]);
     }
 
     /// Converts self to a string in the requested base.
@@ -2934,13 +2928,8 @@ pub const Managed = struct {
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn format(
-        self: Managed,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        return self.toConst().format(fmt, options, out_stream);
+    pub fn format(self: Managed, w: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
+        return self.toConst().format(w, f);
     }
 
     /// Returns math.Order.lt, math.Order.eq, math.Order.gt if |a| < |b|, |a| ==

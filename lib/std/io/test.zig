@@ -24,7 +24,7 @@ test "write a file, read it, then delete it" {
         var file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
-        var buf_stream = io.bufferedWriter(file.writer());
+        var buf_stream = io.bufferedWriter(file.deprecatedWriter());
         const st = buf_stream.writer();
         try st.print("begin", .{});
         try st.writeAll(data[0..]);
@@ -45,7 +45,7 @@ test "write a file, read it, then delete it" {
         const expected_file_size: u64 = "begin".len + data.len + "end".len;
         try expectEqual(expected_file_size, file_size);
 
-        var buf_stream = io.bufferedReader(file.reader());
+        var buf_stream = io.bufferedReader(file.deprecatedReader());
         const st = buf_stream.reader();
         const contents = try st.readAllAlloc(std.testing.allocator, 2 * 1024);
         defer std.testing.allocator.free(contents);
@@ -66,7 +66,7 @@ test "BitStreams with File Stream" {
         var file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
-        var bit_stream = io.bitWriter(native_endian, file.writer());
+        var bit_stream = io.bitWriter(native_endian, file.deprecatedWriter());
 
         try bit_stream.writeBits(@as(u2, 1), 1);
         try bit_stream.writeBits(@as(u5, 2), 2);
@@ -80,7 +80,7 @@ test "BitStreams with File Stream" {
         var file = try tmp.dir.openFile(tmp_file_name, .{});
         defer file.close();
 
-        var bit_stream = io.bitReader(native_endian, file.reader());
+        var bit_stream = io.bitReader(native_endian, file.deprecatedReader());
 
         var out_bits: u16 = undefined;
 

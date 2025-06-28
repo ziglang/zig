@@ -803,9 +803,9 @@ pub fn initRelaSections(self: *ZigObject, elf_file: *Elf) !void {
         const out_shndx = atom_ptr.output_section_index;
         const out_shdr = elf_file.sections.items(.shdr)[out_shndx];
         if (out_shdr.sh_type == elf.SHT_NOBITS) continue;
-        const rela_sect_name = try std.fmt.allocPrintZ(gpa, ".rela{s}", .{
+        const rela_sect_name = try std.fmt.allocPrintSentinel(gpa, ".rela{s}", .{
             elf_file.getShString(out_shdr.sh_name),
-        });
+        }, 0);
         defer gpa.free(rela_sect_name);
         _ = elf_file.sectionByName(rela_sect_name) orelse
             try elf_file.addRelaShdr(try elf_file.insertShString(rela_sect_name), out_shndx);
@@ -824,9 +824,9 @@ pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
         const out_shndx = atom_ptr.output_section_index;
         const out_shdr = elf_file.sections.items(.shdr)[out_shndx];
         if (out_shdr.sh_type == elf.SHT_NOBITS) continue;
-        const rela_sect_name = try std.fmt.allocPrintZ(gpa, ".rela{s}", .{
+        const rela_sect_name = try std.fmt.allocPrintSentinel(gpa, ".rela{s}", .{
             elf_file.getShString(out_shdr.sh_name),
-        });
+        }, 0);
         defer gpa.free(rela_sect_name);
         const out_rela_shndx = elf_file.sectionByName(rela_sect_name).?;
         const out_rela_shdr = &elf_file.sections.items(.shdr)[out_rela_shndx];

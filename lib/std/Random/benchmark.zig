@@ -122,7 +122,7 @@ fn mode(comptime x: comptime_int) comptime_int {
 }
 
 pub fn main() !void {
-    const stdout = std.fs.File.stdout().writer();
+    const stdout = std.fs.File.stdout().deprecatedWriter();
 
     var buffer: [1024]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);

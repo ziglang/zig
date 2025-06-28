@@ -65,7 +65,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const src_dir_path = install_dir.options.source_dir.getPath3(b, step);
     const need_derived_inputs = try step.addDirectoryWatchInput(install_dir.options.source_dir);
     var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
-        return step.fail("unable to open source directory '{}': {s}", .{
+        return step.fail("unable to open source directory '{f}': {s}", .{
             src_dir_path, @errorName(err),
         });
     };

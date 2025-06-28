@@ -40,7 +40,7 @@ pub fn main() !void {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.fs.File.stdout().writer();
+                    const stdout = std.fs.File.stdout().deprecatedWriter();
                     try stdout.writeAll(usage_libc);
                     return std.process.cleanExit();
                 } else if (mem.eql(u8, arg, "-target")) {
@@ -97,7 +97,7 @@ pub fn main() !void {
             fatal("no include dirs detected for target {s}", .{zig_target});
         }
 
-        var bw = std.io.bufferedWriter(std.fs.File.stdout().writer());
+        var bw = std.io.bufferedWriter(std.fs.File.stdout().deprecatedWriter());
         var writer = bw.writer();
         for (libc_dirs.libc_include_dir_list) |include_dir| {
             try writer.writeAll(include_dir);
@@ -125,7 +125,7 @@ pub fn main() !void {
         };
         defer libc.deinit(gpa);
 
-        var bw = std.io.bufferedWriter(std.fs.File.stdout().writer());
+        var bw = std.io.bufferedWriter(std.fs.File.stdout().deprecatedWriter());
         try libc.render(bw.writer());
         try bw.flush();
     }

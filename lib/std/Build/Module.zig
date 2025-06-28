@@ -186,7 +186,7 @@ pub const IncludeDir = union(enum) {
             .embed_path => |lazy_path| {
                 // Special case: this is a single arg.
                 const resolved = lazy_path.getPath3(b, asking_step);
-                const arg = b.fmt("--embed-dir={}", .{resolved});
+                const arg = b.fmt("--embed-dir={f}", .{resolved});
                 return zig_args.append(arg);
             },
         };

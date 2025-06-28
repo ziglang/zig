@@ -147,9 +147,9 @@ pub fn initStartStopSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
     for (slice.items(.shdr)) |shdr| {
         // TODO use getOrPut for incremental so that we don't create duplicates
         if (elf_file.getStartStopBasename(shdr)) |name| {
-            const start_name = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
+            const start_name = try std.fmt.allocPrintSentinel(gpa, "__start_{s}", .{name}, 0);
             defer gpa.free(start_name);
-            const stop_name = try std.fmt.allocPrintZ(gpa, "__stop_{s}", .{name});
+            const stop_name = try std.fmt.allocPrintSentinel(gpa, "__stop_{s}", .{name}, 0);
             defer gpa.free(stop_name);
 
             for (&[_][]const u8{ start_name, stop_name }) |nn| {

@@ -1745,7 +1745,7 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
             return true;
         },
         .lazy_path, .lazy_path_list => {
-            log.warn("the lazy path value type isn't added from the CLI, but somehow '{s}' is a .{}", .{ name, std.zig.fmtId(@tagName(gop.value_ptr.value)) });
+            log.warn("the lazy path value type isn't added from the CLI, but somehow '{s}' is a .{f}", .{ name, std.zig.fmtId(@tagName(gop.value_ptr.value)) });
             return true;
         },
     }
@@ -2059,7 +2059,7 @@ pub fn runAllowFail(
     try Step.handleVerbose2(b, null, child.env_map, argv);
     try child.spawn();
 
-    const stdout = child.stdout.?.reader().readAllAlloc(b.allocator, max_output_size) catch {
+    const stdout = child.stdout.?.deprecatedReader().readAllAlloc(b.allocator, max_output_size) catch {
         return error.ReadFailure;
     };
     errdefer b.allocator.free(stdout);
@@ -2770,7 +2770,7 @@ fn dumpBadDirnameHelp(
     defer debug.unlockStdErr();
 
     const stderr: fs.File = .stderr();
-    const w = stderr.writer();
+    const w = stderr.deprecatedWriter();
     try w.print(msg, args);
 
     const tty_config = std.io.tty.detectConfig(stderr);
@@ -2785,7 +2785,7 @@ fn dumpBadDirnameHelp(
 
     if (asking_step) |as| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        try stderr.deprecatedWriter().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
         tty_config.setColor(w, .reset) catch {};
 
         as.dump(stderr);
@@ -2803,7 +2803,7 @@ pub fn dumpBadGetPathHelp(
     src_builder: *Build,
     asking_step: ?*Step,
 ) anyerror!void {
-    const w = stderr.writer();
+    const w = stderr.deprecatedWriter();
     try w.print(
         \\getPath() was called on a GeneratedFile that wasn't built yet.
         \\  source package path: {s}
@@ -2822,7 +2822,7 @@ pub fn dumpBadGetPathHelp(
     s.dump(stderr);
     if (asking_step) |as| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        try stderr.deprecatedWriter().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
         tty_config.setColor(w, .reset) catch {};
 
         as.dump(stderr);
