@@ -1316,7 +1316,7 @@ fn testGcSectionsZig(b: *Build, opts: Options) *Step {
             \\extern fn live_fn2() void;
             \\pub fn main() void {
             \\    const stdout = std.io.getStdOut();
-            \\    stdout.writer().print("{d} {d}\n", .{ live_var1, live_var2 }) catch unreachable;
+            \\    stdout.deprecatedWriter().print("{d} {d}\n", .{ live_var1, live_var2 }) catch unreachable;
             \\    live_fn2();
             \\}
             ,
@@ -1358,7 +1358,7 @@ fn testGcSectionsZig(b: *Build, opts: Options) *Step {
             \\extern fn live_fn2() void;
             \\pub fn main() void {
             \\    const stdout = std.io.getStdOut();
-            \\    stdout.writer().print("{d} {d}\n", .{ live_var1, live_var2 }) catch unreachable;
+            \\    stdout.deprecatedWriter().print("{d} {d}\n", .{ live_var1, live_var2 }) catch unreachable;
             \\    live_fn2();
             \\}
             ,

@@ -340,7 +340,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "targets")) {
         dev.check(.targets_command);
         const host = std.zig.resolveTargetQueryOrFatal(.{});
-        const stdout = fs.File.stdout().writer();
+        const stdout = fs.File.stdout().deprecatedWriter();
         return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, &host);
     } else if (mem.eql(u8, cmd, "version")) {
         dev.check(.version_command);
@@ -352,7 +352,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "env")) {
         dev.check(.env_command);
         verifyLibcxxCorrectlyLinked();
-        return @import("print_env.zig").cmdEnv(arena, cmd_args, fs.File.stdout().writer());
+        return @import("print_env.zig").cmdEnv(arena, cmd_args, fs.File.stdout().deprecatedWriter());
     } else if (mem.eql(u8, cmd, "reduce")) {
         return jitCmd(gpa, arena, cmd_args, .{
             .cmd_name = "reduce",
@@ -3333,9 +3333,8 @@ fn buildOutputType(
         var bin_digest: Cache.BinDigest = undefined;
         hasher.final(&bin_digest);
 
-        const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{s}-stdin{s}", .{
-            std.fmt.fmtSliceHexLower(&bin_digest),
-            ext.canonicalName(target),
+        const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-stdin{s}", .{
+            &bin_digest, ext.canonicalName(target),
         });
         try dirs.local_cache.handle.rename(dump_path, sub_path);
 
@@ -6110,7 +6109,7 @@ fn cmdAstCheck(
                 const stdout = fs.File.stdout();
                 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
                 // zig fmt: off
-                try stdout.writer().print(
+                try stdout.deprecatedWriter().print(
                     \\# Source bytes:       {}
                     \\# Tokens:             {} ({})
                     \\# AST Nodes:          {} ({})
@@ -6186,7 +6185,7 @@ fn cmdDetectCpu(args: []const []const u8) !void {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = fs.File.stdout().writer();
+                    const stdout = fs.File.stdout().deprecatedWriter();
                     try stdout.writeAll(detect_cpu_usage);
                     return cleanExit();
                 } else if (mem.eql(u8, arg, "--llvm")) {
@@ -6279,7 +6278,7 @@ fn detectNativeCpuWithLLVM(
 }
 
 fn printCpu(cpu: std.Target.Cpu) !void {
-    var bw = io.bufferedWriter(fs.File.stdout().writer());
+    var bw = io.bufferedWriter(fs.File.stdout().deprecatedWriter());
     const stdout = bw.writer();
 
     if (cpu.model.llvm_name) |llvm_name| {
@@ -6328,7 +6327,7 @@ fn cmdDumpLlvmInts(
     const dl = tm.createTargetDataLayout();
     const context = llvm.Context.create();
 
-    var bw = io.bufferedWriter(fs.File.stdout().writer());
+    var bw = io.bufferedWriter(fs.File.stdout().deprecatedWriter());
     const stdout = bw.writer();
 
     for ([_]u16{ 1, 8, 16, 32, 64, 128, 256 }) |bits| {
@@ -6371,7 +6370,7 @@ fn cmdDumpZir(
         const stdout = fs.File.stdout();
         const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
         // zig fmt: off
-        try stdout.writer().print(
+        try stdout.deprecatedWriter().print(
             \\# Total ZIR bytes:    {}
             \\# Instructions:       {d} ({})
             \\# String Table Bytes: {}
@@ -6444,7 +6443,7 @@ fn cmdChangelist(
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty;
     try Zcu.mapOldZirToNew(arena, old_zir, new_zir, &inst_map);
 
-    var bw = io.bufferedWriter(fs.File.stdout().writer());
+    var bw = io.bufferedWriter(fs.File.stdout().deprecatedWriter());
     const stdout = bw.writer();
     {
         try stdout.print("Instruction mappings:\n", .{});
@@ -6794,7 +6793,7 @@ fn cmdFetch(
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = fs.File.stdout().writer();
+                    const stdout = fs.File.stdout().deprecatedWriter();
                     try stdout.writeAll(usage_fetch);
                     return cleanExit();
                 } else if (mem.eql(u8, arg, "--global-cache-dir")) {
@@ -6908,7 +6907,7 @@ fn cmdFetch(
 
     const name = switch (save) {
         .no => {
-            try fs.File.stdout().writer().print("{s}\n", .{package_hash_slice});
+            try fs.File.stdout().deprecatedWriter().print("{s}\n", .{package_hash_slice});
             return cleanExit();
         },
         .yes, .exact => |name| name: {
@@ -6973,16 +6972,16 @@ fn cmdFetch(
 
     const new_node_init = try std.fmt.allocPrint(arena,
         \\.{{
-        \\            .url = "{}",
-        \\            .hash = "{}",
+        \\            .url = "{f}",
+        \\            .hash = "{f}",
         \\        }}
     , .{
-        std.zig.fmtEscapes(saved_path_or_url),
-        std.zig.fmtEscapes(package_hash_slice),
+        std.zig.fmtString(saved_path_or_url),
+        std.zig.fmtString(package_hash_slice),
     });
 
-    const new_node_text = try std.fmt.allocPrint(arena, ".{p_} = {s},\n", .{
-        std.zig.fmtId(name), new_node_init,
+    const new_node_text = try std.fmt.allocPrint(arena, ".{f} = {s},\n", .{
+        std.zig.fmtIdPU(name), new_node_init,
     });
 
     const dependencies_init = try std.fmt.allocPrint(arena, ".{{\n        {s}    }}", .{
@@ -7008,13 +7007,13 @@ fn cmdFetch(
 
         const location_replace = try std.fmt.allocPrint(
             arena,
-            "\"{}\"",
-            .{std.zig.fmtEscapes(saved_path_or_url)},
+            "\"{f}\"",
+            .{std.zig.fmtString(saved_path_or_url)},
         );
         const hash_replace = try std.fmt.allocPrint(
             arena,
-            "\"{}\"",
-            .{std.zig.fmtEscapes(package_hash_slice)},
+            "\"{f}\"",
+            .{std.zig.fmtString(package_hash_slice)},
         );
 
         warn("overwriting existing dependency named '{s}'", .{name});

@@ -364,6 +364,32 @@ pub fn GenericWriter(
             const ptr: *const Context = @alignCast(@ptrCast(context));
             return writeFn(ptr.*, bytes);
         }
+
+        /// Helper for bridging to the new `Writer` API while upgrading.
+        pub fn adaptToNewApi(self: *const Self) Adapter {
+            return .{
+                .derp_writer = self.*,
+                .new_interface = .{
+                    .buffer = &.{},
+                    .vtable = &.{ .drain = Adapter.drain },
+                },
+            };
+        }
+
+        pub const Adapter = struct {
+            derp_writer: Self,
+            new_interface: Writer,
+            err: ?Error = null,
+
+            fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
+                _ = splat;
+                const a: *@This() = @fieldParentPtr("new_interface", w);
+                return a.derp_writer.write(data[0]) catch |err| {
+                    a.err = err;
+                    return error.WriteFailed;
+                };
+            }
+        };
     };
 }
 
@@ -419,7 +445,7 @@ pub const tty = @import("io/tty.zig");
 /// A Writer that doesn't write to anything.
 pub const null_writer: NullWriter = .{ .context = {} };
 
-pub const NullWriter = Writer(void, error{}, dummyWrite);
+pub const NullWriter = GenericWriter(void, error{}, dummyWrite);
 fn dummyWrite(context: void, data: []const u8) error{}!usize {
     _ = context;
     return data.len;

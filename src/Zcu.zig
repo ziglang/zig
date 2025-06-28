@@ -2811,7 +2811,7 @@ comptime {
 }
 
 pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
-    return loadZirCacheBody(gpa, try cache_file.reader().readStruct(Zir.Header), cache_file);
+    return loadZirCacheBody(gpa, try cache_file.deprecatedReader().readStruct(Zir.Header), cache_file);
 }
 
 pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File) !Zir {

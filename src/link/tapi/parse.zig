@@ -57,14 +57,9 @@ pub const Node = struct {
         }
     }
 
-    pub fn format(
-        self: *const Node,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    pub fn format(self: *const Node, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
         switch (self.tag) {
-            inline else => |tag| return @as(*tag.Type(), @fieldParentPtr("base", self)).format(fmt, options, writer),
+            inline else => |tag| return @as(*tag.Type(), @fieldParentPtr("base", self)).format(writer, fmt),
         }
     }
 
@@ -86,14 +81,8 @@ pub const Node = struct {
             }
         }
 
-        pub fn format(
-            self: *const Doc,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = options;
-            _ = fmt;
+        pub fn format(self: *const Doc, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
+            comptime assert(fmt.len == 0);
             if (self.directive) |id| {
                 try std.fmt.format(writer, "{{ ", .{});
                 const directive = self.base.tree.getRaw(id, id);
@@ -133,14 +122,8 @@ pub const Node = struct {
             self.values.deinit(allocator);
         }
 
-        pub fn format(
-            self: *const Map,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = options;
-            _ = fmt;
+        pub fn format(self: *const Map, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
+            comptime assert(fmt.len == 0);
             try std.fmt.format(writer, "{{ ", .{});
             for (self.values.items) |entry| {
                 const key = self.base.tree.getRaw(entry.key, entry.key);
@@ -172,14 +155,8 @@ pub const Node = struct {
             self.values.deinit(allocator);
         }
 
-        pub fn format(
-            self: *const List,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = options;
-            _ = fmt;
+        pub fn format(self: *const List, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
+            comptime assert(fmt.len == 0);
             try std.fmt.format(writer, "[ ", .{});
             for (self.values.items) |node| {
                 try std.fmt.format(writer, "{}, ", .{node});
@@ -203,14 +180,8 @@ pub const Node = struct {
             self.string_value.deinit(allocator);
         }
 
-        pub fn format(
-            self: *const Value,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = options;
-            _ = fmt;
+        pub fn format(self: *const Value, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
+            comptime assert(fmt.len == 0);
             const raw = self.base.tree.getRaw(self.base.start, self.base.end);
             return std.fmt.format(writer, "{s}", .{raw});
         }

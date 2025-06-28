@@ -570,7 +570,7 @@ pub const Compiler = struct {
             switch (predefined_type) {
                 .GROUP_ICON, .GROUP_CURSOR => {
                     // Check for animated icon first
-                    if (ani.isAnimatedIcon(file.reader())) {
+                    if (ani.isAnimatedIcon(file.deprecatedReader())) {
                         // Animated icons are just put into the resource unmodified,
                         // and the resource type changes to ANIICON/ANICURSOR
 
@@ -586,14 +586,14 @@ pub const Compiler = struct {
 
                         try header.write(writer, self.errContext(node.id));
                         try file.seekTo(0);
-                        try writeResourceData(writer, file.reader(), header.data_size);
+                        try writeResourceData(writer, file.deprecatedReader(), header.data_size);
                         return;
                     }
 
                     // isAnimatedIcon moved the file cursor so reset to the start
                     try file.seekTo(0);
 
-                    const icon_dir = ico.read(self.allocator, file.reader(), try file.getEndPos()) catch |err| switch (err) {
+                    const icon_dir = ico.read(self.allocator, file.deprecatedReader(), try file.getEndPos()) catch |err| switch (err) {
                         error.OutOfMemory => |e| return e,
                         else => |e| {
                             return self.iconReadError(
@@ -672,7 +672,7 @@ pub const Compiler = struct {
                         }
 
                         try file.seekTo(entry.data_offset_from_start_of_file);
-                        var header_bytes = file.reader().readBytesNoEof(16) catch {
+                        var header_bytes = file.deprecatedReader().readBytesNoEof(16) catch {
                             return self.iconReadError(
                                 error.UnexpectedEOF,
                                 filename_utf8,
@@ -803,7 +803,7 @@ pub const Compiler = struct {
                         }
 
                         try file.seekTo(entry.data_offset_from_start_of_file);
-                        try writeResourceDataNoPadding(writer, file.reader(), entry.data_size_in_bytes);
+                        try writeResourceDataNoPadding(writer, file.deprecatedReader(), entry.data_size_in_bytes);
                         try writeDataPadding(writer, full_data_size);
 
                         if (self.state.icon_id == std.math.maxInt(u16)) {
@@ -859,7 +859,7 @@ pub const Compiler = struct {
                     header.applyMemoryFlags(node.common_resource_attributes, self.source);
                     const file_size = try file.getEndPos();
 
-                    const bitmap_info = bmp.read(file.reader(), file_size) catch |err| {
+                    const bitmap_info = bmp.read(file.deprecatedReader(), file_size) catch |err| {
                         const filename_string_index = try self.diagnostics.putString(filename_utf8);
                         return self.addErrorDetailsAndFail(.{
                             .err = .bmp_read_error,
@@ -922,7 +922,7 @@ pub const Compiler = struct {
                     header.data_size = bmp_bytes_to_write;
                     try header.write(writer, self.errContext(node.id));
                     try file.seekTo(bmp.file_header_len);
-                    const file_reader = file.reader();
+                    const file_reader = file.deprecatedReader();
                     try writeResourceDataNoPadding(writer, file_reader, bitmap_info.dib_header_size);
                     if (bitmap_info.getBitmasksByteLen() > 0) {
                         try writeResourceDataNoPadding(writer, file_reader, bitmap_info.getBitmasksByteLen());
@@ -968,7 +968,7 @@ pub const Compiler = struct {
                     header.data_size = @intCast(file_size);
                     try header.write(writer, self.errContext(node.id));
 
-                    var header_slurping_reader = headerSlurpingReader(148, file.reader());
+                    var header_slurping_reader = headerSlurpingReader(148, file.deprecatedReader());
                     try writeResourceData(writer, header_slurping_reader.reader(), header.data_size);
 
                     try self.state.font_dir.add(self.arena, FontDir.Font{
@@ -1002,7 +1002,7 @@ pub const Compiler = struct {
         // We now know that the data size will fit in a u32
         header.data_size = @intCast(data_size);
         try header.write(writer, self.errContext(node.id));
-        try writeResourceData(writer, file.reader(), header.data_size);
+        try writeResourceData(writer, file.deprecatedReader(), header.data_size);
     }
 
     fn iconReadError(

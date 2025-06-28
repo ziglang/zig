@@ -21,7 +21,7 @@ pub fn writeAll(self: Self, bytes: []const u8) anyerror!void {
 }
 
 pub fn print(self: Self, comptime format: []const u8, args: anytype) anyerror!void {
-    return std.fmt.format(self, format, args);
+    return std.fmt.deprecatedFormat(self, format, args);
 }
 
 pub fn writeByte(self: Self, byte: u8) anyerror!void {
@@ -81,3 +81,29 @@ pub fn writeFile(self: Self, file: std.fs.File) anyerror!void {
         if (n < buf.len) return;
     }
 }
+
+/// Helper for bridging to the new `Writer` API while upgrading.
+pub fn adaptToNewApi(self: *const Self) Adapter {
+    return .{
+        .derp_writer = self.*,
+        .new_interface = .{
+            .buffer = &.{},
+            .vtable = &.{ .drain = Adapter.drain },
+        },
+    };
+}
+
+pub const Adapter = struct {
+    derp_writer: Self,
+    new_interface: std.io.Writer,
+    err: ?Error = null,
+
+    fn drain(w: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
+        _ = splat;
+        const a: *@This() = @fieldParentPtr("new_interface", w);
+        return a.derp_writer.write(data[0]) catch |err| {
+            a.err = err;
+            return error.WriteFailed;
+        };
+    }
+};

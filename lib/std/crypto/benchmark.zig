@@ -458,7 +458,7 @@ fn mode(comptime x: comptime_int) comptime_int {
 }
 
 pub fn main() !void {
-    const stdout = std.fs.File.stdout().writer();
+    const stdout = std.fs.File.stdout().deprecatedWriter();
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();

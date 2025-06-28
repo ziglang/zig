@@ -328,7 +328,7 @@ pub fn mainSimple() anyerror!void {
         passed += 1;
     }
     if (enable_print and print_summary) {
-        stderr.writer().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
+        stderr.deprecatedWriter().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
     }
     if (failed != 0) std.process.exit(1);
 }

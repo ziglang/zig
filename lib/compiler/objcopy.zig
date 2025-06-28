@@ -635,11 +635,11 @@ const HexWriter = struct {
             const payload_bytes = self.getPayloadBytes();
             assert(payload_bytes.len <= MAX_PAYLOAD_LEN);
 
-            const line = try std.fmt.bufPrint(&outbuf, ":{0X:0>2}{1X:0>4}{2X:0>2}{3s}{4X:0>2}" ++ linesep, .{
+            const line = try std.fmt.bufPrint(&outbuf, ":{0X:0>2}{1X:0>4}{2X:0>2}{3X}{4X:0>2}" ++ linesep, .{
                 @as(u8, @intCast(payload_bytes.len)),
                 self.address,
                 @intFromEnum(self.payload),
-                std.fmt.fmtSliceHexUpper(payload_bytes),
+                payload_bytes,
                 self.checksum(),
             });
             try file.writeAll(line);
@@ -1495,7 +1495,7 @@ const ElfFileHelper = struct {
         if (size < prefix.len) return null;
 
         try in_file.seekTo(offset);
-        var section_reader = std.io.limitedReader(in_file.reader(), size);
+        var section_reader = std.io.limitedReader(in_file.deprecatedReader(), size);
 
         // allocate as large as decompressed data. if the compression doesn't fit, keep the data uncompressed.
         const compressed_data = try allocator.alignedAlloc(u8, .@"8", @intCast(size));

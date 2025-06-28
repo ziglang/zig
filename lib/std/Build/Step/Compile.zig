@@ -1542,7 +1542,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (compile.kind == .lib and compile.linkage != null and compile.linkage.? == .dynamic) {
         if (compile.version) |version| {
             try zig_args.append("--version");
-            try zig_args.append(b.fmt("{}", .{version}));
+            try zig_args.append(b.fmt("{f}", .{version}));
         }
 
         if (compile.rootModuleTarget().os.tag.isDarwin()) {
@@ -1696,9 +1696,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     if (compile.build_id orelse b.build_id) |build_id| {
         try zig_args.append(switch (build_id) {
-            .hexstring => |hs| b.fmt("--build-id=0x{s}", .{
-                std.fmt.fmtSliceHexLower(hs.toSlice()),
-            }),
+            .hexstring => |hs| b.fmt("--build-id=0x{x}", .{hs.toSlice()}),
             .none, .fast, .uuid, .sha1, .md5 => b.fmt("--build-id={s}", .{@tagName(build_id)}),
         });
     }
@@ -1706,7 +1704,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
         dir.getPath2(b, step)
     else if (b.graph.zig_lib_directory.path) |_|
-        b.fmt("{}", .{b.graph.zig_lib_directory})
+        b.fmt("{f}", .{b.graph.zig_lib_directory})
     else
         null;
 
@@ -1746,8 +1744,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     if (compile.error_limit) |err_limit| try zig_args.appendSlice(&.{
-        "--error-limit",
-        b.fmt("{}", .{err_limit}),
+        "--error-limit", b.fmt("{d}", .{err_limit}),
     });
 
     try addFlag(&zig_args, "incremental", b.graph.incremental);
@@ -1793,11 +1790,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         var args_hash: [Sha256.digest_length]u8 = undefined;
         Sha256.hash(args, &args_hash, .{});
         var args_hex_hash: [Sha256.digest_length * 2]u8 = undefined;
-        _ = try std.fmt.bufPrint(
-            &args_hex_hash,
-            "{s}",
-            .{std.fmt.fmtSliceHexLower(&args_hash)},
-        );
+        _ = try std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash});
 
         const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
         try b.cache_root.handle.writeFile(.{ .sub_path = args_file, .data = args });
@@ -1836,7 +1829,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     // Update generated files
     if (maybe_output_dir) |output_dir| {
         if (compile.emit_directory) |lp| {
-            lp.path = b.fmt("{}", .{output_dir});
+            lp.path = b.fmt("{f}", .{output_dir});
         }
 
         // zig fmt: off

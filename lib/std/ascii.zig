@@ -435,3 +435,44 @@ pub fn orderIgnoreCase(lhs: []const u8, rhs: []const u8) std.math.Order {
 pub fn lessThanIgnoreCase(lhs: []const u8, rhs: []const u8) bool {
     return orderIgnoreCase(lhs, rhs) == .lt;
 }
+
+pub const HexEscape = struct {
+    bytes: []const u8,
+    charset: *const [16]u8,
+
+    pub const upper_charset = "0123456789ABCDEF";
+    pub const lower_charset = "0123456789abcdef";
+
+    pub fn format(se: HexEscape, w: *std.io.Writer) std.io.Writer.Error!void {
+        const charset = se.charset;
+
+        var buf: [4]u8 = undefined;
+        buf[0] = '\\';
+        buf[1] = 'x';
+
+        for (se.bytes) |c| {
+            if (std.ascii.isPrint(c)) {
+                try w.writeByte(c);
+            } else {
+                buf[2] = charset[c >> 4];
+                buf[3] = charset[c & 15];
+                try w.writeAll(&buf);
+            }
+        }
+    }
+};
+
+/// Replaces non-ASCII bytes with hex escapes.
+pub fn hexEscape(bytes: []const u8, case: std.fmt.Case) std.fmt.Formatter(HexEscape, HexEscape.format) {
+    return .{ .data = .{ .bytes = bytes, .charset = switch (case) {
+        .lower => HexEscape.lower_charset,
+        .upper => HexEscape.upper_charset,
+    } } };
+}
+
+test hexEscape {
+    try std.testing.expectFmt("abc 123", "{f}", .{hexEscape("abc 123", .lower)});
+    try std.testing.expectFmt("ab\\xffc", "{f}", .{hexEscape("ab\xffc", .lower)});
+    try std.testing.expectFmt("abc 123", "{f}", .{hexEscape("abc 123", .upper)});
+    try std.testing.expectFmt("ab\\xFFc", "{f}", .{hexEscape("ab\xffc", .upper)});
+}

@@ -26,7 +26,8 @@ pub const VTable = struct {
     /// Returns the number of bytes written, which will be at minimum `0` and
     /// at most `limit`. The number returned, including zero, does not indicate
     /// end of stream. `limit` is guaranteed to be at least as large as the
-    /// buffer capacity of `w`.
+    /// buffer capacity of `w`, a value whose minimum size is determined by the
+    /// stream implementation.
     ///
     /// The reader's internal logical seek position moves forward in accordance
     /// with the number of bytes returned from this function.
@@ -1243,10 +1244,10 @@ test peekArray {
 
 test discardAll {
     var r: Reader = .fixed("foobar");
-    try r.discard(3);
+    try r.discardAll(3);
     try testing.expectEqualStrings("bar", try r.take(3));
-    try r.discard(0);
-    try testing.expectError(error.EndOfStream, r.discard(1));
+    try r.discardAll(0);
+    try testing.expectError(error.EndOfStream, r.discardAll(1));
 }
 
 test discardRemaining {
@@ -1355,9 +1356,11 @@ test readVec {
 
 test "expected error.EndOfStream" {
     // Unit test inspired by https://github.com/ziglang/zig/issues/17733
-    var r: std.io.Reader = .fixed("");
-    try std.testing.expectError(error.EndOfStream, r.readEnum(enum(u8) { a, b }, .little));
-    try std.testing.expectError(error.EndOfStream, r.isBytes("foo"));
+    var buffer: [3]u8 = undefined;
+    var r: std.io.Reader = .fixed(&buffer);
+    r.end = 0; // capacity 3, but empty
+    try std.testing.expectError(error.EndOfStream, r.takeEnum(enum(u8) { a, b }, .little));
+    try std.testing.expectError(error.EndOfStream, r.take(3));
 }
 
 fn endingStream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
@@ -1389,21 +1392,30 @@ fn failingDiscard(r: *Reader, limit: Limit) Error!usize {
 test "readAlloc when the backing reader provides one byte at a time" {
     const OneByteReader = struct {
         str: []const u8,
-        curr: usize,
+        i: usize,
+        reader: Reader,
 
-        fn read(self: *@This(), dest: []u8) usize {
-            if (self.str.len <= self.curr or dest.len == 0)
-                return 0;
-
-            dest[0] = self.str[self.curr];
-            self.curr += 1;
+        fn stream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
+            assert(@intFromEnum(limit) >= 1);
+            const self: *@This() = @fieldParentPtr("reader", r);
+            if (self.str.len - self.i == 0) return error.EndOfStream;
+            try w.writeByte(self.str[self.i]);
+            self.i += 1;
             return 1;
         }
     };
-
     const str = "This is a test";
-    var one_byte_stream: OneByteReader = .init(str);
-    const res = try one_byte_stream.reader().streamReadAlloc(std.testing.allocator, str.len + 1);
+    var one_byte_stream: OneByteReader = .{
+        .str = str,
+        .i = 0,
+        .reader = .{
+            .buffer = &.{},
+            .vtable = &.{ .stream = OneByteReader.stream },
+            .seek = 0,
+            .end = 0,
+        },
+    };
+    const res = try one_byte_stream.reader.allocRemaining(std.testing.allocator, .unlimited);
     defer std.testing.allocator.free(res);
     try std.testing.expectEqualStrings(str, res);
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 const mem = std.mem;
 const Source = @import("Source.zig");
@@ -443,18 +444,13 @@ pub fn renderMessage(comp: *Compilation, m: anytype, msg: Message) void {
                 printRt(m, prop.msg, .{"{s}"}, .{&str});
             } else {
                 var buf: [3]u8 = undefined;
-                const str = std.fmt.bufPrint(&buf, "x{x}", .{std.fmt.fmtSliceHexLower(&.{msg.extra.invalid_escape.char})}) catch unreachable;
+                const str = std.fmt.bufPrint(&buf, "x{x}", .{&.{msg.extra.invalid_escape.char}}) catch unreachable;
                 printRt(m, prop.msg, .{"{s}"}, .{str});
             }
         },
         .normalized => {
             const f = struct {
-                pub fn f(
-                    bytes: []const u8,
-                    comptime _: []const u8,
-                    _: std.fmt.FormatOptions,
-                    writer: anytype,
-                ) !void {
+                pub fn f(bytes: []const u8, writer: *std.io.Writer) std.io.Writer.Error!void {
                     var it: std.unicode.Utf8Iterator = .{
                         .bytes = bytes,
                         .i = 0,
@@ -464,22 +460,16 @@ pub fn renderMessage(comp: *Compilation, m: anytype, msg: Message) void {
                             try writer.writeByte(@intCast(codepoint));
                         } else if (codepoint < 0xFFFF) {
                             try writer.writeAll("\\u");
-                            try std.fmt.formatInt(codepoint, 16, .upper, .{
-                                .fill = '0',
-                                .width = 4,
-                            }, writer);
+                            try writer.printIntOptions(codepoint, 16, .upper, .{ .fill = '0', .width = 4 });
                         } else {
                             try writer.writeAll("\\U");
-                            try std.fmt.formatInt(codepoint, 16, .upper, .{
-                                .fill = '0',
-                                .width = 8,
-                            }, writer);
+                            try writer.printIntOptions(codepoint, 16, .upper, .{ .fill = '0', .width = 8 });
                         }
                     }
                 }
             }.f;
-            printRt(m, prop.msg, .{"{s}"}, .{
-                std.fmt.Formatter(f){ .data = msg.extra.normalized },
+            printRt(m, prop.msg, .{"{f}"}, .{
+                std.fmt.Formatter([]const u8, f){ .data = msg.extra.normalized },
             });
         },
         .none, .offset => m.write(prop.msg),
@@ -541,7 +531,7 @@ const MsgWriter = struct {
     fn init(config: std.io.tty.Config) MsgWriter {
         std.debug.lockStdErr();
         return .{
-            .w = std.io.bufferedWriter(std.fs.File.stderr().writer()),
+            .w = std.io.bufferedWriter(std.fs.File.stderr().deprecatedWriter()),
             .config = config,
         };
     }

@@ -9,6 +9,7 @@ const Progress = @This();
 const posix = std.posix;
 const is_big_endian = builtin.cpu.arch.endian() == .big;
 const is_windows = builtin.os.tag == .windows;
+const Writer = std.io.Writer;
 
 /// `null` if the current node (and its children) should
 /// not print on update()
@@ -603,6 +604,36 @@ pub fn lockStdErr() void {
 }
 
 pub fn unlockStdErr() void {
+    stderr_mutex.unlock();
+}
+
+/// Protected by `stderr_mutex`.
+const stderr_writer: *Writer = &stderr_file_writer.interface;
+/// Protected by `stderr_mutex`.
+var stderr_file_writer: std.fs.File.Writer = .{
+    .interface = std.fs.File.Writer.initInterface(&.{}),
+    .file = if (is_windows) undefined else .stderr(),
+    .mode = .streaming,
+};
+
+/// Allows the caller to freely write to the returned `Writer`,
+/// initialized with `buffer`, until `unlockStderrWriter` is called.
+///
+/// During the lock, any `std.Progress` information is cleared from the terminal.
+///
+/// The lock is recursive; the same thread may hold the lock multiple times.
+pub fn lockStderrWriter(buffer: []u8) *Writer {
+    stderr_mutex.lock();
+    clearWrittenWithEscapeCodes() catch {};
+    if (is_windows) stderr_file_writer.file = .stderr();
+    stderr_writer.flush() catch {};
+    stderr_writer.buffer = buffer;
+    return stderr_writer;
+}
+
+pub fn unlockStderrWriter() void {
+    stderr_writer.flush() catch {};
+    stderr_writer.buffer = &.{};
     stderr_mutex.unlock();
 }
 

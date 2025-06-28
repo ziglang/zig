@@ -228,7 +228,7 @@ pub fn main() !void {
     const stdin_file = io.getStdIn();
     const stdout_file = io.getStdOut();
 
-    const stdin = try stdin_file.reader().readAllAlloc(global_allocator, std.math.maxInt(usize));
+    const stdin = try stdin_file.deprecatedReader().readAllAlloc(global_allocator, std.math.maxInt(usize));
     defer global_allocator.free(stdin);
 
     var result_buf = ArrayList(u8).init(global_allocator);

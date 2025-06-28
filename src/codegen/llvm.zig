@@ -2486,7 +2486,7 @@ pub const Object = struct {
                 var union_name_buf: ?[:0]const u8 = null;
                 defer if (union_name_buf) |buf| gpa.free(buf);
                 const union_name = if (layout.tag_size == 0) name else name: {
-                    union_name_buf = try std.fmt.allocPrintZ(gpa, "{s}:Payload", .{name});
+                    union_name_buf = try std.fmt.allocPrintSentinel(gpa, "{s}:Payload", .{name}, 0);
                     break :name union_name_buf.?;
                 };
 

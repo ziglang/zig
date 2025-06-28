@@ -341,7 +341,7 @@ fn loadZirZoirCache(
     };
 
     // First we read the header to determine the lengths of arrays.
-    const header = cache_file.reader().readStruct(Header) catch |err| switch (err) {
+    const header = cache_file.deprecatedReader().readStruct(Header) catch |err| switch (err) {
         // This can happen if Zig bails out of this function between creating
         // the cached file and writing it.
         error.EndOfStream => return .invalid,
@@ -477,11 +477,11 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
                     if (std.zig.srcHashEql(old_hash, new_hash)) {
                         break :hash_changed;
                     }
-                    log.debug("hash for (%{d} -> %{d}) changed: {} -> {}", .{
+                    log.debug("hash for (%{d} -> %{d}) changed: {x} -> {x}", .{
                         old_inst,
                         new_inst,
-                        std.fmt.fmtSliceHexLower(&old_hash),
-                        std.fmt.fmtSliceHexLower(&new_hash),
+                        &old_hash,
+                        &new_hash,
                     });
                 }
                 // The source hash associated with this instruction changed - invalidate relevant dependencies.
@@ -4378,7 +4378,7 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
     if (build_options.enable_debug_extensions and comp.verbose_air) {
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
-        const stderr = std.fs.File.stderr().writer();
+        const stderr = std.fs.File.stderr().deprecatedWriter();
         stderr.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)}) catch {};
         air.write(stderr, pt, liveness);
         stderr.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)}) catch {};

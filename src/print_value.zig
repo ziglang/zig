@@ -232,7 +232,7 @@ fn printAggregate(
                     const len = ty.arrayLenIncludingSentinel(zcu);
                     if (len == 0) break :string;
                     const slice = bytes.toSlice(if (bytes.at(len - 1, ip) == 0) len - 1 else len, ip);
-                    try writer.print("\"{}\"", .{std.zig.fmtEscapes(slice)});
+                    try writer.print("\"{f}\"", .{std.zig.fmtString(slice)});
                     if (!is_ref) try writer.writeAll(".*");
                     return;
                 },
@@ -249,7 +249,7 @@ fn printAggregate(
                     const elem_val = Value.fromInterned(aggregate.storage.values()[0]);
                     if (elem_val.isUndef(zcu)) break :one_byte_str;
                     const byte = elem_val.toUnsignedInt(zcu);
-                    try writer.print("\"{}\"", .{std.zig.fmtEscapes(&.{@intCast(byte)})});
+                    try writer.print("\"{f}\"", .{std.zig.fmtString(&.{@intCast(byte)})});
                     if (!is_ref) try writer.writeAll(".*");
                     return;
                 },

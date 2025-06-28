@@ -187,7 +187,7 @@ pub fn format(
             },
         }
 
-        try writer.print(".{}", .{std.fmt.fmtSliceHexUpper(opc[0 .. opc.len - 1])});
+        try writer.print(".{X}", .{opc[0 .. opc.len - 1]});
         opc = opc[opc.len - 1 ..];
 
         try writer.writeAll(".W");

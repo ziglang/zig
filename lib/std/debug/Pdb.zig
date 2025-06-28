@@ -395,7 +395,7 @@ const Msf = struct {
     streams: []MsfStream,
 
     fn init(allocator: Allocator, file: File) !Msf {
-        const in = file.reader();
+        const in = file.deprecatedReader();
 
         const superblock = try in.readStruct(pdb.SuperBlock);
 
@@ -514,7 +514,7 @@ const MsfStream = struct {
         var offset = self.pos % self.block_size;
 
         try self.in_file.seekTo(block * self.block_size + offset);
-        const in = self.in_file.reader();
+        const in = self.in_file.deprecatedReader();
 
         var size: usize = 0;
         var rem_buffer = buffer;

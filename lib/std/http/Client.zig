@@ -823,21 +823,28 @@ pub const Request = struct {
             return error.UnsupportedTransferEncoding;
 
         const connection = req.connection.?;
-        const w = connection.writer();
+        var connection_writer_adapter = connection.writer().adaptToNewApi();
+        const w = &connection_writer_adapter.new_interface;
+        sendAdapted(req, connection, w) catch |err| switch (err) {
+            error.WriteFailed => return connection_writer_adapter.err.?,
+            else => |e| return e,
+        };
+    }
 
-        try req.method.write(w);
+    fn sendAdapted(req: *Request, connection: *Connection, w: *std.io.Writer) !void {
+        try req.method.format(w, "");
         try w.writeByte(' ');
 
         if (req.method == .CONNECT) {
-            try req.uri.writeToStream(.{ .authority = true }, w);
+            try req.uri.writeToStream(w, .{ .authority = true });
         } else {
-            try req.uri.writeToStream(.{
+            try req.uri.writeToStream(w, .{
                 .scheme = connection.proxied,
                 .authentication = connection.proxied,
                 .authority = connection.proxied,
                 .path = true,
                 .query = true,
-            }, w);
+            });
         }
         try w.writeByte(' ');
         try w.writeAll(@tagName(req.version));
@@ -845,7 +852,7 @@ pub const Request = struct {
 
         if (try emitOverridableHeader("host: ", req.headers.host, w)) {
             try w.writeAll("host: ");
-            try req.uri.writeToStream(.{ .authority = true }, w);
+            try req.uri.writeToStream(w, .{ .authority = true });
             try w.writeAll("\r\n");
         }
 
@@ -1284,10 +1291,10 @@ pub const basic_authorization = struct {
 
     pub fn valueLengthFromUri(uri: Uri) usize {
         var stream = std.io.countingWriter(std.io.null_writer);
-        try stream.writer().print("{user}", .{uri.user orelse Uri.Component.empty});
+        try stream.writer().print("{fuser}", .{uri.user orelse Uri.Component.empty});
         const user_len = stream.bytes_written;
         stream.bytes_written = 0;
-        try stream.writer().print("{password}", .{uri.password orelse Uri.Component.empty});
+        try stream.writer().print("{fpassword}", .{uri.password orelse Uri.Component.empty});
         const password_len = stream.bytes_written;
         return valueLength(@intCast(user_len), @intCast(password_len));
     }
@@ -1295,10 +1302,10 @@ pub const basic_authorization = struct {
     pub fn value(uri: Uri, out: []u8) []u8 {
         var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
         var stream = std.io.fixedBufferStream(&buf);
-        stream.writer().print("{user}", .{uri.user orelse Uri.Component.empty}) catch
+        stream.writer().print("{fuser}", .{uri.user orelse Uri.Component.empty}) catch
             unreachable;
         assert(stream.pos <= max_user_len);
-        stream.writer().print(":{password}", .{uri.password orelse Uri.Component.empty}) catch
+        stream.writer().print(":{fpassword}", .{uri.password orelse Uri.Component.empty}) catch
             unreachable;
 
         @memcpy(out[0..prefix.len], prefix);

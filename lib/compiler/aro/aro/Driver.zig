@@ -591,7 +591,7 @@ pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_
     var macro_buf = std.ArrayList(u8).init(d.comp.gpa);
     defer macro_buf.deinit();
 
-    const std_out = std.fs.File.stdout().writer();
+    const std_out = std.fs.File.stdout().deprecatedWriter();
     if (try parseArgs(d, std_out, macro_buf.writer(), args)) return;
 
     const linking = !(d.only_preprocess or d.only_syntax or d.only_compile or d.only_preprocess_and_compile);
@@ -689,7 +689,7 @@ fn processSource(
             std.fs.File.stdout();
         defer if (d.output_name != null) file.close();
 
-        var buf_w = std.io.bufferedWriter(file.writer());
+        var buf_w = std.io.bufferedWriter(file.deprecatedWriter());
 
         pp.prettyPrintTokens(buf_w.writer(), dump_mode) catch |er|
             return d.fatal("unable to write result: {s}", .{errorDescription(er)});
@@ -705,7 +705,7 @@ fn processSource(
 
     if (d.verbose_ast) {
         const stdout = std.fs.File.stdout();
-        var buf_writer = std.io.bufferedWriter(stdout.writer());
+        var buf_writer = std.io.bufferedWriter(stdout.deprecatedWriter());
         tree.dump(d.detectConfig(stdout), buf_writer.writer()) catch {};
         buf_writer.flush() catch {};
     }
@@ -735,7 +735,7 @@ fn processSource(
 
     if (d.verbose_ir) {
         const stdout = std.fs.File.stdout();
-        var buf_writer = std.io.bufferedWriter(stdout.writer());
+        var buf_writer = std.io.bufferedWriter(stdout.deprecatedWriter());
         ir.dump(d.comp.gpa, d.detectConfig(stdout), buf_writer.writer()) catch {};
         buf_writer.flush() catch {};
     }
@@ -806,10 +806,10 @@ fn processSource(
 }
 
 fn dumpLinkerArgs(items: []const []const u8) !void {
-    const stdout = std.fs.File.stdout().writer();
+    const stdout = std.fs.File.stdout().deprecatedWriter();
     for (items, 0..) |item, i| {
         if (i > 0) try stdout.writeByte(' ');
-        try stdout.print("\"{}\"", .{std.zig.fmtEscapes(item)});
+        try stdout.print("\"{f}\"", .{std.zig.fmtString(item)});
     }
     try stdout.writeByte('\n');
 }

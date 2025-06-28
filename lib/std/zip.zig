@@ -557,7 +557,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
                     self.compression_method,
                     self.uncompressed_size,
                     limited_reader.reader(),
-                    out_file.writer(),
+                    out_file.deprecatedWriter(),
                 );
                 if (limited_reader.bytes_left != 0)
                     return error.ZipDecompressTruncated;

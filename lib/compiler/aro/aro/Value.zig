@@ -982,7 +982,7 @@ pub fn printString(bytes: []const u8, ty: Type, comp: *const Compilation, w: any
     const without_null = bytes[0 .. bytes.len - @intFromEnum(size)];
     try w.writeByte('"');
     switch (size) {
-        .@"1" => try w.print("{}", .{std.zig.fmtEscapes(without_null)}),
+        .@"1" => try w.print("{f}", .{std.zig.fmtString(without_null)}),
         .@"2" => {
             var items: [2]u16 = undefined;
             var i: usize = 0;

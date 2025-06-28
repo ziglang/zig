@@ -268,7 +268,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     const skip_linker_dependencies = !target.os.tag.isDarwin();
     const linker_allow_shlib_undefined = target.os.tag.isDarwin();
     const install_name = if (target.os.tag.isDarwin())
-        try std.fmt.allocPrintZ(arena, "@rpath/{s}", .{basename})
+        try std.fmt.allocPrintSentinel(arena, "@rpath/{s}", .{basename}, 0)
     else
         null;
     // Workaround for https://github.com/llvm/llvm-project/issues/97627

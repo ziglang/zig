@@ -33,7 +33,7 @@ pub const BufferedAtomicFile = struct {
         self.atomic_file = try dir.atomicFile(dest_path, atomic_file_options);
         errdefer self.atomic_file.deinit();
 
-        self.file_writer = self.atomic_file.file.writer();
+        self.file_writer = self.atomic_file.file.deprecatedWriter();
         self.buffered_writer = .{ .unbuffered_writer = self.file_writer };
         return self;
     }

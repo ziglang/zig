@@ -933,9 +933,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             .fast, .uuid, .sha1, .md5 => try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
                 @tagName(base.build_id),
             })),
-            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
-                std.fmt.fmtSliceHexLower(hs.toSlice()),
-            })),
+            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{x}", .{hs.toSlice()})),
         }
 
         try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{elf.image_base}));
@@ -1511,9 +1509,7 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
             .fast, .uuid, .sha1 => try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
                 @tagName(base.build_id),
             })),
-            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
-                std.fmt.fmtSliceHexLower(hs.toSlice()),
-            })),
+            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{x}", .{hs.toSlice()})),
             .md5 => {},
         }
 
@@ -1667,7 +1663,7 @@ fn spawnLld(
                     log.warn("failed to delete response file {s}: {s}", .{ rsp_path, @errorName(err) });
                 {
                     defer rsp_file.close();
-                    var rsp_buf = std.io.bufferedWriter(rsp_file.writer());
+                    var rsp_buf = std.io.bufferedWriter(rsp_file.deprecatedWriter());
                     const rsp_writer = rsp_buf.writer();
                     for (argv[2..]) |arg| {
                         try rsp_writer.writeByte('"');

@@ -1892,7 +1892,7 @@ pub const NullTerminatedString = enum(u32) {
         if (comptime std.mem.eql(u8, specifier, "")) {
             try writer.writeAll(slice);
         } else if (comptime std.mem.eql(u8, specifier, "i")) {
-            try writer.print("{p}", .{std.zig.fmtId(slice)});
+            try writer.print("{f}", .{std.zig.fmtIdP(slice)});
         } else @compileError("invalid format string '" ++ specifier ++ "' for '" ++ @typeName(NullTerminatedString) ++ "'");
     }
 
@@ -11259,7 +11259,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
 }
 
 fn dumpAllFallible(ip: *const InternPool) anyerror!void {
-    var bw = std.io.bufferedWriter(std.fs.File.stderr().writer());
+    var bw = std.io.bufferedWriter(std.fs.File.stderr().deprecatedWriter());
     const w = bw.writer();
     for (ip.locals, 0..) |*local, tid| {
         const items = local.shared.items.view();
@@ -11369,7 +11369,7 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    var bw = std.io.bufferedWriter(std.fs.File.stderr().writer());
+    var bw = std.io.bufferedWriter(std.fs.File.stderr().deprecatedWriter());
     const w = bw.writer();
 
     var instances: std.AutoArrayHashMapUnmanaged(Index, std.ArrayListUnmanaged(Index)) = .empty;

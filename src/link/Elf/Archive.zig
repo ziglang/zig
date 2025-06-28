@@ -44,8 +44,8 @@ pub fn parse(
         pos += @sizeOf(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
-            return diags.failParse(path, "invalid archive header delimiter: {s}", .{
-                std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
+            return diags.failParse(path, "invalid archive header delimiter: {f}", .{
+                std.ascii.hexEscape(&hdr.ar_fmag, .lower),
             });
         }
 
@@ -288,7 +288,7 @@ pub const ArStrtab = struct {
     ) !void {
         _ = unused_fmt_string;
         _ = options;
-        try writer.print("{s}", .{std.fmt.fmtSliceEscapeLower(ar.buffer.items)});
+        try writer.print("{f}", .{std.ascii.hexEscape(ar.buffer.items, .lower)});
     }
 };
 

@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const rc = @import("rc.zig");
 const ResourceType = rc.ResourceType;
 const CommonResourceAttributes = rc.CommonResourceAttributes;
@@ -163,14 +164,8 @@ pub const Language = packed struct(u16) {
         return @bitCast(self);
     }
 
-    pub fn format(
-        language: Language,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
+    pub fn format(language: Language, w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
+        comptime assert(fmt.len == 0);
         const language_id = language.asInt();
         const language_name = language_name: {
             if (std.enums.fromInt(lang.LanguageId, language_id)) |lang_enum_val| {
@@ -181,7 +176,7 @@ pub const Language = packed struct(u16) {
             }
             break :language_name "<UNKNOWN>";
         };
-        try out_stream.print("{s} (0x{X})", .{ language_name, language_id });
+        try w.print("{s} (0x{X})", .{ language_name, language_id });
     }
 };
 
@@ -445,47 +440,34 @@ pub const NameOrOrdinal = union(enum) {
         }
     }
 
-    pub fn format(
-        self: NameOrOrdinal,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
+    pub fn format(self: NameOrOrdinal, w: *std.io.Writer, comptime fmt: []const u8) !void {
+        comptime assert(fmt.len == 0);
         switch (self) {
             .name => |name| {
-                try out_stream.print("{s}", .{std.unicode.fmtUtf16Le(name)});
+                try w.print("{s}", .{std.unicode.fmtUtf16Le(name)});
             },
             .ordinal => |ordinal| {
-                try out_stream.print("{d}", .{ordinal});
+                try w.print("{d}", .{ordinal});
             },
         }
     }
 
-    fn formatResourceType(
-        self: NameOrOrdinal,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
+    fn formatResourceType(self: NameOrOrdinal, w: *std.io.Writer) std.io.Writer.Error!void {
         switch (self) {
             .name => |name| {
-                try out_stream.print("{s}", .{std.unicode.fmtUtf16Le(name)});
+                try w.print("{s}", .{std.unicode.fmtUtf16Le(name)});
             },
             .ordinal => |ordinal| {
                 if (std.enums.tagName(RT, @enumFromInt(ordinal))) |predefined_type_name| {
-                    try out_stream.print("{s}", .{predefined_type_name});
+                    try w.print("{s}", .{predefined_type_name});
                 } else {
-                    try out_stream.print("{d}", .{ordinal});
+                    try w.print("{d}", .{ordinal});
                 }
             },
         }
     }
 
-    pub fn fmtResourceType(type_value: NameOrOrdinal) std.fmt.Formatter(formatResourceType) {
+    pub fn fmtResourceType(type_value: NameOrOrdinal) std.fmt.Formatter(NameOrOrdinal, formatResourceType) {
         return .{ .data = type_value };
     }
 };

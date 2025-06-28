@@ -661,7 +661,7 @@ fn lowerEnum(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
             const field_index = res_ty.enumFieldIndex(field_name_interned, self.sema.pt.zcu) orelse {
                 return self.fail(
                     node,
-                    "enum {} has no member named '{}'",
+                    "enum {f} has no member named '{f}'",
                     .{
                         res_ty.fmt(self.sema.pt),
                         std.zig.fmtId(field_name.get(self.file.zoir.?)),

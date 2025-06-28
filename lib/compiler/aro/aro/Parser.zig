@@ -500,8 +500,8 @@ fn checkDeprecatedUnavailable(p: *Parser, ty: Type, usage_tok: TokenIndex, decl_
 
         const w = p.strings.writer();
         const msg_str = p.comp.interner.get(@"error".msg.ref()).bytes;
-        try w.print("call to '{s}' declared with attribute error: {}", .{
-            p.tokSlice(@"error".__name_tok), std.zig.fmtEscapes(msg_str),
+        try w.print("call to '{s}' declared with attribute error: {f}", .{
+            p.tokSlice(@"error".__name_tok), std.zig.fmtString(msg_str),
         });
         const str = try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
         try p.errStr(.error_attribute, usage_tok, str);
@@ -512,8 +512,8 @@ fn checkDeprecatedUnavailable(p: *Parser, ty: Type, usage_tok: TokenIndex, decl_
 
         const w = p.strings.writer();
         const msg_str = p.comp.interner.get(warning.msg.ref()).bytes;
-        try w.print("call to '{s}' declared with attribute warning: {}", .{
-            p.tokSlice(warning.__name_tok), std.zig.fmtEscapes(msg_str),
+        try w.print("call to '{s}' declared with attribute warning: {f}", .{
+            p.tokSlice(warning.__name_tok), std.zig.fmtString(msg_str),
         });
         const str = try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
         try p.errStr(.warning_attribute, usage_tok, str);
@@ -542,7 +542,7 @@ fn errDeprecated(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex, msg: ?Valu
     try w.writeAll(reason);
     if (msg) |m| {
         const str = p.comp.interner.get(m.ref()).bytes;
-        try w.print(": {}", .{std.zig.fmtEscapes(str)});
+        try w.print(": {f}", .{std.zig.fmtString(str)});
     }
     const str = try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
     return p.errStr(tag, tok_i, str);

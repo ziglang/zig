@@ -79,30 +79,6 @@ pub const File = extern struct {
         VolumeFull,
     };
 
-    pub const SeekableStream = io.SeekableStream(
-        *File,
-        SeekError,
-        SeekError,
-        setPosition,
-        seekBy,
-        getPosition,
-        getEndPos,
-    );
-    pub const Reader = io.GenericReader(*File, ReadError, read);
-    pub const Writer = io.GenericWriter(*File, WriteError, write);
-
-    pub fn seekableStream(self: *File) SeekableStream {
-        return .{ .context = self };
-    }
-
-    pub fn reader(self: *File) Reader {
-        return .{ .context = self };
-    }
-
-    pub fn writer(self: *File) Writer {
-        return .{ .context = self };
-    }
-
     pub fn open(
         self: *const File,
         file_name: [*:0]const u16,

@@ -1,3 +1,7 @@
+const builtin = @import("builtin");
+const std = @import("std.zig");
+const assert = std.debug.assert;
+
 pub const Client = @import("http/Client.zig");
 pub const Server = @import("http/Server.zig");
 pub const protocol = @import("http/protocol.zig");
@@ -38,8 +42,9 @@ pub const Method = enum(u64) {
         return x;
     }
 
-    pub fn write(self: Method, w: anytype) !void {
-        const bytes = std.mem.asBytes(&@intFromEnum(self));
+    pub fn format(self: Method, w: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
+        comptime assert(f.len == 0);
+        const bytes: []const u8 = @ptrCast(&@intFromEnum(self));
         const str = std.mem.sliceTo(bytes, 0);
         try w.writeAll(str);
     }
@@ -77,7 +82,9 @@ pub const Method = enum(u64) {
         };
     }
 
-    /// An HTTP method is idempotent if an identical request can be made once or several times in a row with the same effect while leaving the server in the same state.
+    /// An HTTP method is idempotent if an identical request can be made once
+    /// or several times in a row with the same effect while leaving the server
+    /// in the same state.
     ///
     /// https://developer.mozilla.org/en-US/docs/Glossary/Idempotent
     ///
@@ -90,7 +97,8 @@ pub const Method = enum(u64) {
         };
     }
 
-    /// A cacheable response is an HTTP response that can be cached, that is stored to be retrieved and used later, saving a new request to the server.
+    /// A cacheable response can be stored to be retrieved and used later,
+    /// saving a new request to the server.
     ///
     /// https://developer.mozilla.org/en-US/docs/Glossary/cacheable
     ///
@@ -282,10 +290,10 @@ pub const Status = enum(u10) {
     }
 };
 
+/// compression is intentionally omitted here since it is handled in `ContentEncoding`.
 pub const TransferEncoding = enum {
     chunked,
     none,
-    // compression is intentionally omitted here, as std.http.Client stores it as content-encoding
 };
 
 pub const ContentEncoding = enum {
@@ -307,9 +315,6 @@ pub const Header = struct {
     name: []const u8,
     value: []const u8,
 };
-
-const builtin = @import("builtin");
-const std = @import("std.zig");
 
 test {
     if (builtin.os.tag != .wasi) {

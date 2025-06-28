@@ -565,14 +565,14 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
 
         .invalid_byte => {
             const tok_slice = tree.source[tree.tokens.items(.start)[parse_error.token]..];
-            return stream.print("{s} contains invalid byte: '{'}'", .{
+            return stream.print("{s} contains invalid byte: '{f}'", .{
                 switch (tok_slice[0]) {
                     '\'' => "character literal",
                     '"', '\\' => "string literal",
                     '/' => "comment",
                     else => unreachable,
                 },
-                std.zig.fmtEscapes(tok_slice[parse_error.extra.offset..][0..1]),
+                std.zig.fmtChar(tok_slice[parse_error.extra.offset..][0..1]),
             });
         },
 

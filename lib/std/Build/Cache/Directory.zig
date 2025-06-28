@@ -1,5 +1,6 @@
 const Directory = @This();
 const std = @import("../../std.zig");
+const assert = std.debug.assert;
 const fs = std.fs;
 const fmt = std.fmt;
 const Allocator = std.mem.Allocator;
@@ -55,14 +56,8 @@ pub fn closeAndFree(self: *Directory, gpa: Allocator) void {
     self.* = undefined;
 }
 
-pub fn format(
-    self: Directory,
-    comptime fmt_string: []const u8,
-    options: fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    if (fmt_string.len != 0) fmt.invalidFmtError(fmt_string, self);
+pub fn format(self: Directory, writer: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
+    comptime assert(f.len == 0);
     if (self.path) |p| {
         try writer.writeAll(p);
         try writer.writeAll(fs.path.sep_str);

@@ -165,7 +165,7 @@ pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
     std.debug.lockStdErr();
     defer std.debug.unlockStdErr();
     const stderr: std.fs.File = .stderr();
-    return renderToWriter(eb, options, stderr.writer()) catch return;
+    return renderToWriter(eb, options, stderr.deprecatedWriter()) catch return;
 }
 
 pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, writer: anytype) anyerror!void {
