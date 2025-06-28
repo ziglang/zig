@@ -2030,14 +2030,14 @@ pub fn readFileIntoArrayList(
     var file = try dir.openFile(file_path, .{});
     defer file.close();
 
-    var file_reader = file.reader();
+    var file_reader = file.reader(&.{});
 
     // Apply size hint by adjusting the array list's capacity.
     if (size_hint) |size| {
         try list.ensureUnusedCapacity(gpa, size);
         file_reader.size = size;
     } else if (file_reader.getSize()) |size| {
-        // If the file size doesn't fit a usize it'll be certainly exceed the limit.
+        // If the file size doesn't fit a usize it will certainly exceed the limit.
         try list.ensureUnusedCapacity(gpa, std.math.cast(usize, size) orelse return error.StreamTooLong);
     } else |err| switch (err) {
         // Ignore most errors; size hint is only an optimization.
@@ -2045,7 +2045,7 @@ pub fn readFileIntoArrayList(
         else => |e| return e,
     }
 
-    file_reader.interface().readRemainingArrayList(gpa, alignment, list, limit, 128) catch |err| switch (err) {
+    file_reader.interface.appendRemaining(gpa, alignment, list, limit) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.StreamTooLong => return error.StreamTooLong,
         error.ReadFailed => return file_reader.err.?,

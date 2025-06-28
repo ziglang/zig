@@ -305,8 +305,7 @@ pub const Iterator = struct {
         if (locator_end_offset > stream_len)
             return error.ZipTruncated;
         try input.seekTo(stream_len - locator_end_offset);
-        var br = input.interface().unbuffered();
-        const locator = br.takeStructEndian(EndLocator64, .little) catch |err| switch (err) {
+        const locator = input.interface.takeStructEndian(EndLocator64, .little) catch |err| switch (err) {
             error.ReadFailed => return input.err.?,
             error.EndOfStream => return error.EndOfStream,
         };
@@ -319,7 +318,7 @@ pub const Iterator = struct {
 
         try input.seekTo(locator.record_file_offset);
 
-        const record64 = br.takeStructEndian(EndRecord64, .little) catch |err| switch (err) {
+        const record64 = input.interface.takeStructEndian(EndRecord64, .little) catch |err| switch (err) {
             error.ReadFailed => return input.err.?,
             error.EndOfStream => return error.EndOfStream,
         };
@@ -375,8 +374,7 @@ pub const Iterator = struct {
         const header_zip_offset = self.cd_zip_offset + self.cd_record_offset;
         const input = self.input;
         try input.seekTo(header_zip_offset);
-        var br = input.interface().unbuffered();
-        const header = br.takeStructEndian(CentralDirectoryFileHeader, .little) catch |err| switch (err) {
+        const header = input.interface.takeStructEndian(CentralDirectoryFileHeader, .little) catch |err| switch (err) {
             error.ReadFailed => return input.err.?,
             error.EndOfStream => return error.EndOfStream,
         };
@@ -407,7 +405,7 @@ pub const Iterator = struct {
             const extra = extra_buf[0..header.extra_len];
 
             try input.seekTo(header_zip_offset + @sizeOf(CentralDirectoryFileHeader) + header.filename_len);
-            br.readSlice(extra) catch |err| switch (err) {
+            input.interface.readSlice(extra) catch |err| switch (err) {
                 error.ReadFailed => return input.err.?,
                 error.EndOfStream => return error.EndOfStream,
             };
@@ -472,16 +470,13 @@ pub const Iterator = struct {
             const filename = filename_buf[0..self.filename_len];
             {
                 try stream.seekTo(self.header_zip_offset + @sizeOf(CentralDirectoryFileHeader));
-                var stream_br = stream.readable(&.{});
-                try stream_br.readSlice(filename);
+                try stream.interface.readSlice(filename);
             }
 
             const local_data_header_offset: u64 = local_data_header_offset: {
                 const local_header = blk: {
                     try stream.seekTo(self.file_offset);
-                    var read_buffer: [@sizeOf(LocalFileHeader)]u8 = undefined;
-                    var stream_br = stream.readable(&read_buffer);
-                    break :blk try stream_br.takeStructEndian(LocalFileHeader, .little);
+                    break :blk try stream.interface.takeStructEndian(LocalFileHeader, .little);
                 };
                 if (!std.mem.eql(u8, &local_header.signature, &local_file_header_sig))
                     return error.ZipBadFileOffset;
@@ -507,8 +502,7 @@ pub const Iterator = struct {
 
                     {
                         try stream.seekTo(self.file_offset + @sizeOf(LocalFileHeader) + local_header.filename_len);
-                        var stream_br = stream.readable(&.{});
-                        try stream_br.readSlice(extra);
+                        try stream.interface.readSlice(extra);
                     }
 
                     var extra_offset: usize = 0;
@@ -577,7 +571,7 @@ pub const Iterator = struct {
                 @as(u64, @sizeOf(LocalFileHeader)) +
                 local_data_header_offset;
             try stream.seekTo(local_data_file_offset);
-            var limited_file_reader = stream.interface().limited(.limited(self.compressed_size));
+            var limited_file_reader = stream.interface.limited(.limited(self.compressed_size));
             var file_read_buffer: [1000]u8 = undefined;
             var decompress_read_buffer: [1000]u8 = undefined;
             var limited_br = limited_file_reader.reader().buffered(&file_read_buffer);

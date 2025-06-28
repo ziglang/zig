@@ -48,6 +48,7 @@ const expect = testing.expect;
 const mem = std.mem;
 const math = std.math;
 const Writer = std.io.Writer;
+const Reader = std.io.Reader;
 
 const Compress = @This();
 const Token = @import("Token.zig");
@@ -64,19 +65,12 @@ input: *std.io.Reader,
 block_writer: BlockWriter,
 level: LevelArgs,
 hasher: Container.Hasher,
+reader: std.io.Reader,
 
 // Match and literal at the previous position.
 // Used for lazy match finding in processWindow.
 prev_match: ?Token = null,
 prev_literal: ?u8 = null,
-
-pub fn reader(c: *Compress, buffer: []u8) std.io.Reader {
-    return .{
-        .context = c,
-        .vtable = .{ .read = read },
-        .buffer = buffer,
-    };
-}
 
 pub const Options = struct {
     level: Level = .default,
@@ -125,13 +119,17 @@ const LevelArgs = struct {
     }
 };
 
-pub fn init(input: *std.io.Reader, options: Options) Compress {
+pub fn init(input: *std.io.Reader, buffer: []u8, options: Options) Compress {
     return .{
         .input = input,
         .block_writer = undefined,
         .level = .get(options.level),
         .hasher = .init(options.container),
         .state = .header,
+        .reader = .{
+            .buffer = buffer,
+            .stream = stream,
+        },
     };
 }
 
@@ -758,16 +756,12 @@ fn byFreq(context: void, a: LiteralNode, b: LiteralNode) bool {
     return a.freq < b.freq;
 }
 
-fn read(
-    context: ?*anyopaque,
-    bw: *Writer,
-    limit: std.io.Limit,
-) std.io.Reader.StreamError!usize {
-    const c: *Compress = @ptrCast(@alignCast(context));
+fn stream(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
+    const c: *Compress = @fieldParentPtr("reader", r);
     switch (c.state) {
         .header => |i| {
             const header = c.hasher.container().header();
-            const n = try bw.write(header[i..]);
+            const n = try w.write(header[i..]);
             if (header.len - i - n == 0) {
                 c.state = .middle;
             } else {
@@ -788,18 +782,18 @@ fn read(
             const history_plus_lookahead_len = flate.history_len + min_lookahead;
             if (buffer_contents.len < history_plus_lookahead_len) return 0;
             const lookahead = buffer_contents[flate.history_len..];
-            const start = bw.count;
-            const n = try c.tokenizeSlice(bw, limit, lookahead) catch |err| switch (err) {
+            const start = w.count;
+            const n = try c.tokenizeSlice(w, limit, lookahead) catch |err| switch (err) {
                 error.WriteFailed => return error.WriteFailed,
             };
             c.hasher.update(lookahead[0..n]);
             c.input.toss(n);
-            return bw.count - start;
+            return w.count - start;
         },
         .final => {
             const buffer_contents = c.input.buffered();
-            const start = bw.count;
-            const n = c.tokenizeSlice(bw, limit, buffer_contents) catch |err| switch (err) {
+            const start = w.count;
+            const n = c.tokenizeSlice(w, limit, buffer_contents) catch |err| switch (err) {
                 error.WriteFailed => return error.WriteFailed,
             };
             if (buffer_contents.len - n == 0) {
@@ -840,12 +834,12 @@ fn read(
                     },
                 }
             }
-            return bw.count - start;
+            return w.count - start;
         },
         .ended => return error.EndOfStream,
         .footer => |i| {
             const remaining = c.footer_buffer[i..];
-            const n = try bw.write(limit.slice(remaining));
+            const n = try w.write(limit.slice(remaining));
             c.state = if (n == remaining) .ended else .{ .footer = i - n };
             return n;
         },

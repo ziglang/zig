@@ -381,8 +381,8 @@ pub const Iterator = struct {
             return n;
         }
 
-        pub fn readRemaining(file: *File, out: *std.io.Writer) std.io.Reader.StreamRemainingError!void {
-            return file.reader().readRemaining(out);
+        pub fn streamRemaining(file: *File, out: *std.io.Writer) std.io.Reader.StreamRemainingError!usize {
+            return file.reader().streamRemaining(out);
         }
     };
 

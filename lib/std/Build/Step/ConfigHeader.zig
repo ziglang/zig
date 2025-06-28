@@ -753,17 +753,17 @@ fn testReplaceVariablesAutoconfAt(
     expected: []const u8,
     values: std.StringArrayHashMap(Value),
 ) !void {
-    var output: std.ArrayList(u8) = .init(allocator);
+    var output: std.io.Writer.Allocating = .init(allocator);
     defer output.deinit();
 
     const used = try allocator.alloc(bool, values.count());
     for (used) |*u| u.* = false;
     defer allocator.free(used);
 
-    try expand_variables_autoconf_at(&output, contents, values, used);
+    try expand_variables_autoconf_at(&output.interface, contents, values, used);
 
     for (used) |u| if (!u) return error.UnusedValue;
-    try std.testing.expectEqualStrings(expected, output.items);
+    try std.testing.expectEqualStrings(expected, output.getWritten());
 }
 
 fn testReplaceVariablesCMake(

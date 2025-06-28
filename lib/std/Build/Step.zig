@@ -287,8 +287,8 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 
 /// For debugging purposes, prints identifying information about this Step.
 pub fn dump(step: *Step, file: std.fs.File) void {
-    var fw = file.writer();
-    var bw = fw.interface().unbuffered();
+    var fw = file.writer(&.{});
+    const bw = &fw.interface;
     const tty_config = std.io.tty.detectConfig(file);
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         bw.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
