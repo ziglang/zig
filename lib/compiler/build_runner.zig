@@ -330,7 +330,7 @@ pub fn main() !void {
         }
     }
 
-    const stderr = std.io.getStdErr();
+    const stderr = std.fs.File.stderr();
     const ttyconf = get_tty_conf(color, stderr);
     switch (ttyconf) {
         .no_color => try graph.env_map.put("NO_COLOR", "1"),
@@ -378,7 +378,7 @@ pub fn main() !void {
 
     validateSystemLibraryOptions(builder);
 
-    const stdout_writer = io.getStdOut().writer();
+    const stdout_writer = std.fs.File.stdout().writer();
 
     if (help_menu)
         return usage(builder, stdout_writer);

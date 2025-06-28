@@ -163,7 +163,7 @@ fn prune(elf_file: *Elf) void {
 }
 
 pub fn dumpPrunedAtoms(elf_file: *Elf) !void {
-    const stderr = std.io.getStdErr().writer();
+    const stderr = std.fs.File.stderr().writer();
     for (elf_file.objects.items) |index| {
         const file = elf_file.file(index).?;
         for (file.atoms()) |atom_index| {

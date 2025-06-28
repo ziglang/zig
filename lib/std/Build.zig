@@ -2467,7 +2467,7 @@ pub const GeneratedFile = struct {
     pub fn getPath2(gen: GeneratedFile, src_builder: *Build, asking_step: ?*Step) []const u8 {
         return gen.path orelse {
             std.debug.lockStdErr();
-            const stderr = std.io.getStdErr();
+            const stderr = std.fs.File.stderr();
             dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
             std.debug.unlockStdErr();
             @panic("misconfigured build script");
@@ -2677,7 +2677,7 @@ pub const LazyPath = union(enum) {
                     .root_dir = Cache.Directory.cwd(),
                     .sub_path = gen.file.path orelse {
                         std.debug.lockStdErr();
-                        const stderr = std.io.getStdErr();
+                        const stderr: fs.File = .stderr();
                         dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
                         std.debug.unlockStdErr();
                         @panic("misconfigured build script");
@@ -2769,7 +2769,7 @@ fn dumpBadDirnameHelp(
     debug.lockStdErr();
     defer debug.unlockStdErr();
 
-    const stderr = io.getStdErr();
+    const stderr: fs.File = .stderr();
     const w = stderr.writer();
     try w.print(msg, args);
 

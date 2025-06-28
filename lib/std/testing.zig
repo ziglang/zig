@@ -390,7 +390,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const stderr = std.io.getStdErr();
+    const stderr: std.fs.File = .stderr();
     const ttyconf = std.io.tty.detectConfig(stderr);
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
