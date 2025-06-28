@@ -5277,7 +5277,7 @@ pub const FuncGen = struct {
             try attributes.addParamAttr(0, .{ .sret = llvm_ret_ty }, &o.builder);
 
             const alignment = return_type.abiAlignment(zcu).toLlvm();
-            const ret_ptr = try self.buildAllocaWorkaround(return_type, alignment);
+            const ret_ptr = try self.buildAlloca(llvm_ret_ty, alignment);
             try llvm_args.append(ret_ptr);
             break :blk ret_ptr;
         };
@@ -5325,7 +5325,7 @@ pub const FuncGen = struct {
 
                 const alignment = param_ty.abiAlignment(zcu).toLlvm();
                 const param_llvm_ty = try o.lowerType(param_ty);
-                const arg_ptr = try self.buildAllocaWorkaround(param_ty, alignment);
+                const arg_ptr = try self.buildAlloca(param_llvm_ty, alignment);
                 if (isByRef(param_ty, zcu)) {
                     const loaded = try self.wip.load(.normal, param_llvm_ty, llvm_arg, alignment, "");
                     _ = try self.wip.store(.normal, loaded, arg_ptr, alignment);
@@ -5348,7 +5348,7 @@ pub const FuncGen = struct {
                     // LLVM does not allow bitcasting structs so we must allocate
                     // a local, store as one type, and then load as another type.
                     const alignment = param_ty.abiAlignment(zcu).toLlvm();
-                    const int_ptr = try self.buildAllocaWorkaround(param_ty, alignment);
+                    const int_ptr = try self.buildAlloca(int_llvm_ty, alignment);
                     _ = try self.wip.store(.normal, llvm_arg, int_ptr, alignment);
                     const loaded = try self.wip.load(.normal, int_llvm_ty, int_ptr, alignment, "");
                     try llvm_args.append(loaded);
@@ -5722,8 +5722,8 @@ pub const FuncGen = struct {
         const va_list_ty = ty_op.ty.toType();
         const llvm_va_list_ty = try o.lowerType(va_list_ty);
 
-        const result_alignment = va_list_ty.abiAlignment(pt.zcu).toLlvm();
-        const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
+        const result_alignment = va_list_ty.abiAlignment(zcu).toLlvm();
+        const dest_list = try self.buildAlloca(llvm_va_list_ty, result_alignment);
 
         _ = try self.wip.callIntrinsic(.normal, .none, .va_copy, &.{dest_list.typeOfWip(&self.wip)}, &.{ dest_list, src_list }, "");
         return if (isByRef(va_list_ty, zcu))
@@ -5747,8 +5747,8 @@ pub const FuncGen = struct {
         const va_list_ty = self.typeOfIndex(inst);
         const llvm_va_list_ty = try o.lowerType(va_list_ty);
 
-        const result_alignment = va_list_ty.abiAlignment(pt.zcu).toLlvm();
-        const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
+        const result_alignment = va_list_ty.abiAlignment(zcu).toLlvm();
+        const dest_list = try self.buildAlloca(llvm_va_list_ty, result_alignment);
 
         _ = try self.wip.callIntrinsic(.normal, .none, .va_start, &.{dest_list.typeOfWip(&self.wip)}, &.{dest_list}, "");
         return if (isByRef(va_list_ty, zcu))
@@ -8026,7 +8026,7 @@ pub const FuncGen = struct {
                 self.ret_ptr
             else brk: {
                 const alignment = optional_ty.abiAlignment(zcu).toLlvm();
-                const optional_ptr = try self.buildAllocaWorkaround(optional_ty, alignment);
+                const optional_ptr = try self.buildAlloca(llvm_optional_ty, alignment);
                 break :brk optional_ptr;
             };
 
@@ -8062,8 +8062,8 @@ pub const FuncGen = struct {
             const result_ptr = if (directReturn)
                 self.ret_ptr
             else brk: {
-                const alignment = err_un_ty.abiAlignment(pt.zcu).toLlvm();
-                const result_ptr = try self.buildAllocaWorkaround(err_un_ty, alignment);
+                const alignment = err_un_ty.abiAlignment(zcu).toLlvm();
+                const result_ptr = try self.buildAlloca(err_un_llvm_ty, alignment);
                 break :brk result_ptr;
             };
 
@@ -8102,7 +8102,7 @@ pub const FuncGen = struct {
                 self.ret_ptr
             else brk: {
                 const alignment = err_un_ty.abiAlignment(zcu).toLlvm();
-                const result_ptr = try self.buildAllocaWorkaround(err_un_ty, alignment);
+                const result_ptr = try self.buildAlloca(err_un_llvm_ty, alignment);
                 break :brk result_ptr;
             };
 
@@ -8636,7 +8636,7 @@ pub const FuncGen = struct {
 
         if (isByRef(inst_ty, zcu)) {
             const result_alignment = inst_ty.abiAlignment(zcu).toLlvm();
-            const alloca_inst = try self.buildAllocaWorkaround(inst_ty, result_alignment);
+            const alloca_inst = try self.buildAlloca(llvm_inst_ty, result_alignment);
             {
                 const field_ptr = try self.wip.gepStruct(llvm_inst_ty, alloca_inst, result_index, "");
                 _ = try self.wip.store(.normal, result_val, field_ptr, result_alignment);
@@ -8996,7 +8996,7 @@ pub const FuncGen = struct {
 
         if (isByRef(dest_ty, zcu)) {
             const result_alignment = dest_ty.abiAlignment(zcu).toLlvm();
-            const alloca_inst = try self.buildAllocaWorkaround(dest_ty, result_alignment);
+            const alloca_inst = try self.buildAlloca(llvm_dest_ty, result_alignment);
             {
                 const field_ptr = try self.wip.gepStruct(llvm_dest_ty, alloca_inst, result_index, "");
                 _ = try self.wip.store(.normal, result, field_ptr, result_alignment);
@@ -9421,7 +9421,7 @@ pub const FuncGen = struct {
                 return self.ng.todo("implement bitcast vector to non-ref array", .{});
             }
             const alignment = inst_ty.abiAlignment(zcu).toLlvm();
-            const array_ptr = try self.buildAllocaWorkaround(inst_ty, alignment);
+            const array_ptr = try self.buildAlloca(llvm_dest_ty, .default);
             const bitcast_ok = elem_ty.bitSize(zcu) == elem_ty.abiSize(zcu) * 8;
             if (bitcast_ok) {
                 _ = try self.wip.store(.normal, operand, array_ptr, alignment);
@@ -9482,7 +9482,7 @@ pub const FuncGen = struct {
 
         if (result_is_ref) {
             const alignment = operand_ty.abiAlignment(zcu).max(inst_ty.abiAlignment(zcu)).toLlvm();
-            const result_ptr = try self.buildAllocaWorkaround(inst_ty, alignment);
+            const result_ptr = try self.buildAlloca(llvm_dest_ty, alignment);
             _ = try self.wip.store(.normal, operand, result_ptr, alignment);
             return result_ptr;
         }
@@ -9495,7 +9495,7 @@ pub const FuncGen = struct {
             // but LLVM won't let us bitcast struct values or vectors with padding bits.
             // Therefore, we store operand to alloca, then load for result.
             const alignment = operand_ty.abiAlignment(zcu).max(inst_ty.abiAlignment(zcu)).toLlvm();
-            const result_ptr = try self.buildAllocaWorkaround(inst_ty, alignment);
+            const result_ptr = try self.buildAlloca(llvm_dest_ty, alignment);
             _ = try self.wip.store(.normal, operand, result_ptr, alignment);
             return self.wip.load(.normal, llvm_dest_ty, result_ptr, alignment, "");
         }
@@ -9604,9 +9604,9 @@ pub const FuncGen = struct {
         if (!pointee_type.isFnOrHasRuntimeBitsIgnoreComptime(zcu))
             return (try o.lowerPtrToVoid(ptr_ty)).toValue();
 
-        //const pointee_llvm_ty = try o.lowerType(pointee_type);
+        const pointee_llvm_ty = try o.lowerType(pointee_type);
         const alignment = ptr_ty.ptrAlignment(zcu).toLlvm();
-        return self.buildAllocaWorkaround(pointee_type, alignment);
+        return self.buildAlloca(pointee_llvm_ty, alignment);
     }
 
     fn airRetPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9618,9 +9618,9 @@ pub const FuncGen = struct {
         if (!ret_ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu))
             return (try o.lowerPtrToVoid(ptr_ty)).toValue();
         if (self.ret_ptr != .none) return self.ret_ptr;
-        //const ret_llvm_ty = try o.lowerType(ret_ty);
+        const ret_llvm_ty = try o.lowerType(ret_ty);
         const alignment = ptr_ty.ptrAlignment(zcu).toLlvm();
-        return self.buildAllocaWorkaround(ret_ty, alignment);
+        return self.buildAlloca(ret_llvm_ty, alignment);
     }
 
     /// Use this instead of builder.buildAlloca, because this function makes sure to
@@ -9632,16 +9632,6 @@ pub const FuncGen = struct {
     ) Allocator.Error!Builder.Value {
         const target = self.ng.object.pt.zcu.getTarget();
         return buildAllocaInner(&self.wip, llvm_ty, alignment, target);
-    }
-
-    // Workaround for https://github.com/ziglang/zig/issues/16392
-    fn buildAllocaWorkaround(
-        self: *FuncGen,
-        ty: Type,
-        alignment: Builder.Alignment,
-    ) Allocator.Error!Builder.Value {
-        const o = self.ng.object;
-        return self.buildAlloca(try o.builder.arrayType(ty.abiSize(o.pt.zcu), .i8), alignment);
     }
 
     fn airStore(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !Builder.Value {
@@ -10682,7 +10672,7 @@ pub const FuncGen = struct {
         const llvm_result_ty = accum_init.typeOfWip(&self.wip);
 
         // Allocate and initialize our mutable variables
-        const i_ptr = try self.buildAllocaWorkaround(Type.usize, .default);
+        const i_ptr = try self.buildAlloca(usize_ty, .default);
         _ = try self.wip.store(.normal, try o.builder.intValue(usize_ty, 0), i_ptr, .default);
         const accum_ptr = try self.buildAlloca(llvm_result_ty, .default);
         _ = try self.wip.store(.normal, accum_init, accum_ptr, .default);
@@ -10895,7 +10885,7 @@ pub const FuncGen = struct {
                     // TODO in debug builds init to undef so that the padding will be 0xaa
                     // even if we fully populate the fields.
                     const alignment = result_ty.abiAlignment(zcu).toLlvm();
-                    const alloca_inst = try self.buildAllocaWorkaround(result_ty, alignment);
+                    const alloca_inst = try self.buildAlloca(llvm_result_ty, alignment);
 
                     for (elements, 0..) |elem, i| {
                         if ((try result_ty.structFieldValueComptime(pt, i)) != null) continue;
@@ -10932,7 +10922,7 @@ pub const FuncGen = struct {
                 const llvm_usize = try o.lowerType(Type.usize);
                 const usize_zero = try o.builder.intValue(llvm_usize, 0);
                 const alignment = result_ty.abiAlignment(zcu).toLlvm();
-                const alloca_inst = try self.buildAllocaWorkaround(result_ty, alignment);
+                const alloca_inst = try self.buildAlloca(llvm_result_ty, alignment);
 
                 const array_info = result_ty.arrayInfo(zcu);
                 const elem_ptr_ty = try pt.ptrType(.{
@@ -11007,7 +10997,7 @@ pub const FuncGen = struct {
         // We must construct the correct unnamed struct type here, in order to then set
         // the fields appropriately.
         const alignment = layout.abi_align.toLlvm();
-        const result_ptr = try self.buildAllocaWorkaround(union_ty, alignment);
+        const result_ptr = try self.buildAlloca(union_llvm_ty, alignment);
         const llvm_payload = try self.resolveInst(extra.init);
         const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[extra.field_index]);
         const field_llvm_ty = try o.lowerType(field_ty);
@@ -11303,8 +11293,8 @@ pub const FuncGen = struct {
         const non_null_field = try self.wip.cast(.zext, non_null_bit, .i8, "");
 
         if (isByRef(optional_ty, zcu)) {
-            const payload_alignment = optional_ty.abiAlignment(pt.zcu).toLlvm();
-            const alloca_inst = try self.buildAllocaWorkaround(optional_ty, payload_alignment);
+            const payload_alignment = optional_ty.abiAlignment(zcu).toLlvm();
+            const alloca_inst = try self.buildAlloca(optional_llvm_ty, payload_alignment);
 
             {
                 const field_ptr = try self.wip.gepStruct(optional_llvm_ty, alloca_inst, 0, "");
@@ -11447,10 +11437,10 @@ pub const FuncGen = struct {
     ) !Builder.Value {
         const o = fg.ng.object;
         const pt = o.pt;
-        //const pointee_llvm_ty = try o.lowerType(pointee_type);
+        const pointee_llvm_ty = try o.lowerType(pointee_type);
         const result_align = InternPool.Alignment.fromLlvm(ptr_alignment)
             .max(pointee_type.abiAlignment(pt.zcu)).toLlvm();
-        const result_ptr = try fg.buildAllocaWorkaround(pointee_type, result_align);
+        const result_ptr = try fg.buildAlloca(pointee_llvm_ty, result_align);
         const size_bytes = pointee_type.abiSize(pt.zcu);
         _ = try fg.wip.callMemCpy(
             result_ptr,
@@ -11511,7 +11501,7 @@ pub const FuncGen = struct {
 
         if (isByRef(elem_ty, zcu)) {
             const result_align = elem_ty.abiAlignment(zcu).toLlvm();
-            const result_ptr = try self.buildAllocaWorkaround(elem_ty, result_align);
+            const result_ptr = try self.buildAlloca(elem_llvm_ty, result_align);
 
             const same_size_int = try o.builder.intType(@intCast(elem_bits));
             const truncated_int = try self.wip.cast(.trunc, shifted_value, same_size_int, "");
