@@ -708,7 +708,7 @@ test "decompress" {
 
         var decompress: Decompress = .init(&fb, .raw);
         var decompress_br = decompress.readable(&.{});
-        _ = try decompress_br.readRemaining(&aw.interface);
+        _ = try decompress_br.streamRemaining(&aw.interface);
         try testing.expectEqualStrings(c.out, aw.getWritten());
     }
 }
@@ -767,7 +767,7 @@ test "gzip decompress" {
 
         var decompress: Decompress = .init(&fb, .gzip);
         var decompress_br = decompress.readable(&.{});
-        _ = try decompress_br.readRemaining(&aw.interface);
+        _ = try decompress_br.streamRemaining(&aw.interface);
         try testing.expectEqualStrings(c.out, aw.getWritten());
     }
 }
@@ -795,7 +795,7 @@ test "zlib decompress" {
 
         var decompress: Decompress = .init(&fb, .zlib);
         var decompress_br = decompress.readable(&.{});
-        _ = try decompress_br.readRemaining(&aw.interface);
+        _ = try decompress_br.streamRemaining(&aw.interface);
         try testing.expectEqualStrings(c.out, aw.getWritten());
     }
 }
@@ -857,10 +857,10 @@ test "fuzzing tests" {
         var decompress: Decompress = .init(&in, .raw);
         var decompress_br = decompress.readable(&.{});
         if (c.err) |expected_err| {
-            try testing.expectError(error.ReadFailed, decompress_br.readRemaining(&aw.interface));
+            try testing.expectError(error.ReadFailed, decompress_br.streamRemaining(&aw.interface));
             try testing.expectError(expected_err, decompress.read_err.?);
         } else {
-            _ = try decompress_br.readRemaining(&aw.interface);
+            _ = try decompress_br.streamRemaining(&aw.interface);
             try testing.expectEqualStrings(c.out, aw.getWritten());
         }
     }
@@ -876,7 +876,7 @@ test "bug 18966" {
 
     var decompress: Decompress = .init(&in, .gzip);
     var decompress_br = decompress.readable(&.{});
-    _ = try decompress_br.readRemaining(&aw.interface);
+    _ = try decompress_br.streamRemaining(&aw.interface);
     try testing.expectEqualStrings(expect, aw.getWritten());
 }
 

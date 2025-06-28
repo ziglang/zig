@@ -170,6 +170,12 @@ pub fn defaultDiscard(r: *Reader, limit: Limit) Error!usize {
     return n;
 }
 
+/// "Pump" exactly `n` bytes from the reader to the writer.
+pub fn streamExact(r: *Reader, w: *Writer, n: usize) StreamError!void {
+    var remaining = n;
+    while (remaining != 0) remaining -= try r.stream(w, .limited(remaining));
+}
+
 /// "Pump" data from the reader to the writer, handling `error.EndOfStream` as
 /// a success case.
 ///
@@ -378,15 +384,6 @@ pub fn readVecAll(r: *Reader, data: [][]u8) Error!void {
             truncate -= data[index].len;
             index += 1;
         }
-    }
-}
-
-/// "Pump" data from the reader to the writer.
-pub fn readAll(r: *Reader, w: *Writer, limit: Limit) StreamError!void {
-    var remaining = limit;
-    while (remaining.nonzero()) {
-        const n = try r.stream(w, remaining);
-        remaining = remaining.subtract(n).?;
     }
 }
 

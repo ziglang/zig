@@ -2802,8 +2802,8 @@ pub fn dumpBadGetPathHelp(
     src_builder: *Build,
     asking_step: ?*Step,
 ) anyerror!void {
-    var fw = stderr.writer();
-    var bw = fw.interface().unbuffered();
+    var fw = stderr.writer(&.{});
+    const bw = &fw.interface;
     try bw.print(
         \\getPath() was called on a GeneratedFile that wasn't built yet.
         \\  source package path: {s}

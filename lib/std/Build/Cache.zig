@@ -661,9 +661,9 @@ pub const Manifest = struct {
     } {
         const gpa = self.cache.gpa;
         const input_file_count = self.files.entries.len;
-        var manifest_reader = self.manifest_file.?.reader(); // Reads positionally from zero.
+        var manifest_reader = self.manifest_file.?.reader(&.{}); // Reads positionally from zero.
         const limit: std.io.Limit = .limited(manifest_file_size_max);
-        const file_contents = manifest_reader.interface().allocRemaining(gpa, limit) catch |err| switch (err) {
+        const file_contents = manifest_reader.interface.allocRemaining(gpa, limit) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.StreamTooLong => return error.OutOfMemory,
             error.ReadFailed => {

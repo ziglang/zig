@@ -667,5 +667,5 @@ test Options {
         \\
     , options.contents.items);
 
-    _ = try std.zig.Ast.parse(arena.allocator(), try options.contents.toOwnedSliceSentinel(0), .zig);
+    _ = try std.zig.Ast.parse(arena.allocator(), try options.contents.toOwnedSliceSentinel(arena.allocator(), 0), .zig);
 }

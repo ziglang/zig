@@ -232,16 +232,15 @@ test "compress/decompress" {
                 {
                     var original: std.io.Reader = .fixed(data);
                     var compressed: Writer = .fixed(&cmp_buf);
-                    var compress: Compress = .init(&original, .raw);
-                    var compress_br = compress.readable(&.{});
-                    const n = try compress_br.readRemaining(&compressed, .{ .level = level });
+                    var compress: Compress = .init(&original, &.{}, .{ .container = .raw, .level = level });
+                    const n = try compress.reader.streamRemaining(&compressed);
                     if (compressed_size == 0) {
                         if (container == .gzip)
                             print("case {d} gzip level {} compressed size: {d}\n", .{ case_no, level, compressed.pos });
-                        compressed_size = compressed.pos;
+                        compressed_size = compressed.end;
                     }
                     try testing.expectEqual(compressed_size, n);
-                    try testing.expectEqual(compressed_size, compressed.pos);
+                    try testing.expectEqual(compressed_size, compressed.end);
                 }
                 // decompress compressed stream to decompressed stream
                 {
@@ -450,12 +449,15 @@ test "gzip header" {
 }
 
 test "public interface" {
-    const plain_data = [_]u8{ 'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a };
+    const plain_data_buf = [_]u8{ 'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a };
 
     // deflate final stored block, header + plain (stored) data
     const deflate_block = [_]u8{
         0b0000_0001, 0b0000_1100, 0x00, 0b1111_0011, 0xff, // deflate fixed buffer header len, nlen
-    } ++ plain_data;
+    } ++ plain_data_buf;
+
+    const plain_data: []const u8 = &plain_data_buf;
+    const gzip_data: []const u8 = &deflate_block;
 
     //// gzip header/footer + deflate block
     //const gzip_data =
@@ -471,23 +473,21 @@ test "public interface" {
     // TODO
     //const gzip = @import("gzip.zig");
     //const zlib = @import("zlib.zig");
-    const flate = @This();
 
-    //try testInterface(gzip, &gzip_data, &plain_data);
-    //try testInterface(zlib, &zlib_data, &plain_data);
-    try testInterface(flate, &deflate_block, &plain_data);
-}
-
-fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const u8) !void {
     var buffer1: [64]u8 = undefined;
     var buffer2: [64]u8 = undefined;
+
+    // TODO These used to be functions, need to migrate the tests
+    const decompress = void;
+    const compress = void;
+    const store = void;
 
     // decompress
     {
         var plain: Writer = .fixed(&buffer2);
 
         var in: std.io.Reader = .fixed(gzip_data);
-        try pkg.decompress(&in, &plain);
+        try decompress(&in, &plain);
         try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
     }
 
@@ -497,10 +497,10 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
         var compressed: Writer = .fixed(&buffer1);
 
         var in: std.io.Reader = .fixed(plain_data);
-        try pkg.compress(&in, &compressed, .{});
+        try compress(&in, &compressed, .{});
 
         var compressed_br: std.io.Reader = .fixed(&buffer1);
-        try pkg.decompress(&compressed_br, &plain);
+        try decompress(&compressed_br, &plain);
         try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
     }
 
@@ -510,12 +510,12 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
         var compressed: Writer = .fixed(&buffer1);
 
         var in: std.io.Reader = .fixed(plain_data);
-        var cmp = try pkg.compressor(&compressed, .{});
+        var cmp = try Compress(&compressed, .{});
         try cmp.compress(&in);
         try cmp.finish();
 
         var compressed_br: std.io.Reader = .fixed(&buffer1);
-        var dcp = pkg.decompressor(&compressed_br);
+        var dcp = Decompress(&compressed_br);
         try dcp.decompress(&plain);
         try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
     }
@@ -528,10 +528,10 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
             var compressed: Writer = .fixed(&buffer1);
 
             var in: std.io.Reader = .fixed(plain_data);
-            try pkg.huffman.compress(&in, &compressed);
+            try huffman.compress(&in, &compressed);
 
             var compressed_br: std.io.Reader = .fixed(&buffer1);
-            try pkg.decompress(&compressed_br, &plain);
+            try decompress(&compressed_br, &plain);
             try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
         }
 
@@ -541,12 +541,12 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
             var compressed: Writer = .fixed(&buffer1);
 
             var in: std.io.Reader = .fixed(plain_data);
-            var cmp = try pkg.huffman.compressor(&compressed);
+            var cmp = try huffman.Compressor(&compressed);
             try cmp.compress(&in);
             try cmp.finish();
 
             var compressed_br: std.io.Reader = .fixed(&buffer1);
-            try pkg.decompress(&compressed_br, &plain);
+            try decompress(&compressed_br, &plain);
             try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
         }
     }
@@ -559,10 +559,10 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
             var compressed: Writer = .fixed(&buffer1);
 
             var in: std.io.Reader = .fixed(plain_data);
-            try pkg.store.compress(&in, &compressed);
+            try store.compress(&in, &compressed);
 
             var compressed_br: std.io.Reader = .fixed(&buffer1);
-            try pkg.decompress(&compressed_br, &plain);
+            try decompress(&compressed_br, &plain);
             try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
         }
 
@@ -572,12 +572,12 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
             var compressed: Writer = .fixed(&buffer1);
 
             var in: std.io.Reader = .fixed(plain_data);
-            var cmp = try pkg.store.compressor(&compressed);
+            var cmp = try store.compressor(&compressed);
             try cmp.compress(&in);
             try cmp.finish();
 
             var compressed_br: std.io.Reader = .fixed(&buffer1);
-            try pkg.decompress(&compressed_br, &plain);
+            try decompress(&compressed_br, &plain);
             try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
         }
     }

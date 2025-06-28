@@ -63,9 +63,7 @@ fn makeZipWithStore(
     options: WriteZipOptions,
     store: []FileStore,
 ) !void {
-    var buffer: [200]u8 = undefined;
-    var bw = file_writer.writer(&buffer);
-    try writeZip(&bw, files, store, options);
+    try writeZip(&file_writer.interface, files, store, options);
 }
 
 const WriteZipOptions = struct {
@@ -201,7 +199,7 @@ const Zipper = struct {
                 var br: std.io.Reader = .fixed(opt.content);
                 var compress: std.compress.flate.Compress = .init(&br, .{});
                 var compress_br = compress.reader(&.{});
-                const n = try compress_br.readRemaining(writer);
+                const n = try compress_br.streamRemaining(writer);
                 assert(br.seek == opt.content.len);
                 try testing.expectEqual(n, writer.count - offset);
                 compressed_size = @intCast(n);
