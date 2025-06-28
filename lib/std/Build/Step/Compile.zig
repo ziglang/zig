@@ -1018,7 +1018,7 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
 
     const generated_file = maybe_path orelse {
         std.debug.lockStdErr();
-        const stderr = std.io.getStdErr();
+        const stderr: fs.File = .stderr();
 
         std.Build.dumpBadGetPathHelp(&compile.step, stderr, compile.step.owner, asking_step) catch {};
 
@@ -1027,7 +1027,7 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
 
     const path = generated_file.path orelse {
         std.debug.lockStdErr();
-        const stderr = std.io.getStdErr();
+        const stderr: fs.File = .stderr();
 
         std.Build.dumpBadGetPathHelp(&compile.step, stderr, compile.step.owner, asking_step) catch {};
 

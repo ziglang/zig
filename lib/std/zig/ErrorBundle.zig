@@ -7,6 +7,11 @@
 //! empty, it means there are no errors. This special encoding exists so that
 //! heap allocation is not needed in the common case of no errors.
 
+const std = @import("std");
+const ErrorBundle = @This();
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+
 string_bytes: []const u8,
 /// The first thing in this array is an `ErrorMessageList`.
 extra: []const u32,
@@ -159,7 +164,7 @@ pub const RenderOptions = struct {
 pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
     std.debug.lockStdErr();
     defer std.debug.unlockStdErr();
-    const stderr = std.io.getStdErr();
+    const stderr: std.fs.File = .stderr();
     return renderToWriter(eb, options, stderr.writer()) catch return;
 }
 
@@ -304,11 +309,6 @@ fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, stderr: anytype, indent: usi
         try stderr.writeByteNTimes(' ', indent);
     }
 }
-
-const std = @import("std");
-const ErrorBundle = @This();
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
 
 pub const Wip = struct {
     gpa: Allocator,

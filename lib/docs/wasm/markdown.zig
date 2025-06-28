@@ -145,7 +145,7 @@ fn mainImpl() !void {
     var parser = try Parser.init(gpa);
     defer parser.deinit();
 
-    var stdin_buf = std.io.bufferedReader(std.io.getStdIn().reader());
+    var stdin_buf = std.io.bufferedReader(std.fs.File.stdin().reader());
     var line_buf = std.ArrayList(u8).init(gpa);
     defer line_buf.deinit();
     while (stdin_buf.reader().streamUntilDelimiter(line_buf.writer(), '\n', null)) {
@@ -160,7 +160,7 @@ fn mainImpl() !void {
     var doc = try parser.endInput();
     defer doc.deinit(gpa);
 
-    var stdout_buf = std.io.bufferedWriter(std.io.getStdOut().writer());
+    var stdout_buf = std.io.bufferedWriter(std.fs.File.stdout().writer());
     try doc.render(stdout_buf.writer());
     try stdout_buf.flush();
 }

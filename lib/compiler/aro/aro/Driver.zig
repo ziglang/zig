@@ -519,7 +519,7 @@ fn option(arg: []const u8, name: []const u8) ?[]const u8 {
 
 fn addSource(d: *Driver, path: []const u8) !Source {
     if (mem.eql(u8, "-", path)) {
-        const stdin = std.io.getStdIn().reader();
+        const stdin = std.fs.File.stdin().reader();
         const input = try stdin.readAllAlloc(d.comp.gpa, std.math.maxInt(u32));
         defer d.comp.gpa.free(input);
         return d.comp.addSourceFromBuffer("<stdin>", input);
@@ -541,7 +541,7 @@ pub fn fatal(d: *Driver, comptime fmt: []const u8, args: anytype) error{ FatalEr
 }
 
 pub fn renderErrors(d: *Driver) void {
-    Diagnostics.render(d.comp, d.detectConfig(std.io.getStdErr()));
+    Diagnostics.render(d.comp, d.detectConfig(std.fs.File.stderr()));
 }
 
 pub fn detectConfig(d: *Driver, file: std.fs.File) std.io.tty.Config {
@@ -591,7 +591,7 @@ pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_
     var macro_buf = std.ArrayList(u8).init(d.comp.gpa);
     defer macro_buf.deinit();
 
-    const std_out = std.io.getStdOut().writer();
+    const std_out = std.fs.File.stdout().writer();
     if (try parseArgs(d, std_out, macro_buf.writer(), args)) return;
 
     const linking = !(d.only_preprocess or d.only_syntax or d.only_compile or d.only_preprocess_and_compile);
@@ -686,7 +686,7 @@ fn processSource(
             std.fs.cwd().createFile(some, .{}) catch |er|
                 return d.fatal("unable to create output file '{s}': {s}", .{ some, errorDescription(er) })
         else
-            std.io.getStdOut();
+            std.fs.File.stdout();
         defer if (d.output_name != null) file.close();
 
         var buf_w = std.io.bufferedWriter(file.writer());
@@ -704,7 +704,7 @@ fn processSource(
     defer tree.deinit();
 
     if (d.verbose_ast) {
-        const stdout = std.io.getStdOut();
+        const stdout = std.fs.File.stdout();
         var buf_writer = std.io.bufferedWriter(stdout.writer());
         tree.dump(d.detectConfig(stdout), buf_writer.writer()) catch {};
         buf_writer.flush() catch {};
@@ -734,7 +734,7 @@ fn processSource(
     defer ir.deinit(d.comp.gpa);
 
     if (d.verbose_ir) {
-        const stdout = std.io.getStdOut();
+        const stdout = std.fs.File.stdout();
         var buf_writer = std.io.bufferedWriter(stdout.writer());
         ir.dump(d.comp.gpa, d.detectConfig(stdout), buf_writer.writer()) catch {};
         buf_writer.flush() catch {};
@@ -806,7 +806,7 @@ fn processSource(
 }
 
 fn dumpLinkerArgs(items: []const []const u8) !void {
-    const stdout = std.io.getStdOut().writer();
+    const stdout = std.fs.File.stdout().writer();
     for (items, 0..) |item, i| {
         if (i > 0) try stdout.writeByte(' ');
         try stdout.print("\"{}\"", .{std.zig.fmtEscapes(item)});

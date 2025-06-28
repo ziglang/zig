@@ -22,7 +22,7 @@ pub fn main() !void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const stderr = std.io.getStdErr();
+    const stderr = std.fs.File.stderr();
     const stderr_config = std.io.tty.detectConfig(stderr);
 
     const args = try std.process.argsAlloc(allocator);
@@ -44,7 +44,7 @@ pub fn main() !void {
     var error_handler: ErrorHandler = switch (zig_integration) {
         true => .{
             .server = .{
-                .out = std.io.getStdOut(),
+                .out = std.fs.File.stdout(),
                 .in = undefined, // won't be receiving messages
                 .receive_fifo = undefined, // won't be receiving messages
             },
@@ -81,7 +81,7 @@ pub fn main() !void {
     defer options.deinit();
 
     if (options.print_help_and_exit) {
-        const stdout = std.io.getStdOut();
+        const stdout = std.fs.File.stdout();
         try cli.writeUsage(stdout.writer(), "zig rc");
         return;
     }
@@ -89,7 +89,7 @@ pub fn main() !void {
     // Don't allow verbose when integrating with Zig via stdout
     options.verbose = false;
 
-    const stdout_writer = std.io.getStdOut().writer();
+    const stdout_writer = std.fs.File.stdout().writer();
     if (options.verbose) {
         try options.dumpVerbose(stdout_writer);
         try stdout_writer.writeByte('\n');
@@ -645,7 +645,7 @@ const ErrorHandler = union(enum) {
             },
             .tty => {
                 // extra newline to separate this line from the aro errors
-                try renderErrorMessage(std.io.getStdErr().writer(), self.tty, .err, "{s}\n", .{fail_msg});
+                try renderErrorMessage(std.fs.File.stderr().writer(), self.tty, .err, "{s}\n", .{fail_msg});
                 aro.Diagnostics.render(comp, self.tty);
             },
         }
@@ -690,7 +690,7 @@ const ErrorHandler = union(enum) {
                 try server.serveErrorBundle(error_bundle);
             },
             .tty => {
-                try renderErrorMessage(std.io.getStdErr().writer(), self.tty, msg_type, format, args);
+                try renderErrorMessage(std.fs.File.stderr().writer(), self.tty, msg_type, format, args);
             },
         }
     }

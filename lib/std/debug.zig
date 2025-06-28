@@ -209,7 +209,7 @@ pub fn unlockStdErr() void {
 pub fn print(comptime fmt: []const u8, args: anytype) void {
     lockStdErr();
     defer unlockStdErr();
-    const stderr = io.getStdErr().writer();
+    const stderr = fs.File.stderr().writer();
     nosuspend stderr.print(fmt, args) catch return;
 }
 
@@ -239,7 +239,7 @@ pub fn dumpHex(bytes: []const u8) void {
 
 /// Prints a hexadecimal view of the bytes, unbuffered, returning any error that occurs.
 pub fn dumpHexFallible(bytes: []const u8) !void {
-    const stderr = std.io.getStdErr();
+    const stderr: fs.File = .stderr();
     const ttyconf = std.io.tty.detectConfig(stderr);
     const writer = stderr.writer();
     try dumpHexInternal(bytes, ttyconf, writer);
@@ -318,12 +318,12 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     nosuspend {
         if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
-                const stderr = io.getStdErr().writer();
+                const stderr = fs.File.stderr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
             }
             return;
         }
-        const stderr = io.getStdErr().writer();
+        const stderr = fs.File.stderr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -332,7 +332,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        writeCurrentStackTrace(stderr, debug_info, io.tty.detectConfig(io.getStdErr()), start_addr) catch |err| {
+        writeCurrentStackTrace(stderr, debug_info, io.tty.detectConfig(fs.File.stderr()), start_addr) catch |err| {
             stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -406,12 +406,12 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
     nosuspend {
         if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
-                const stderr = io.getStdErr().writer();
+                const stderr = fs.File.stderr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
             }
             return;
         }
-        const stderr = io.getStdErr().writer();
+        const stderr = fs.File.stderr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -420,7 +420,7 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        const tty_config = io.tty.detectConfig(io.getStdErr());
+        const tty_config = io.tty.detectConfig(fs.File.stderr());
         if (native_os == .windows) {
             // On x86_64 and aarch64, the stack will be unwound using RtlVirtualUnwind using the context
             // provided by the exception handler. On x86, RtlVirtualUnwind doesn't exist. Instead, a new backtrace
@@ -510,12 +510,12 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
     nosuspend {
         if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
-                const stderr = io.getStdErr().writer();
+                const stderr = fs.File.stderr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
             }
             return;
         }
-        const stderr = io.getStdErr().writer();
+        const stderr = fs.File.stderr().writer();
         if (builtin.strip_debug_info) {
             stderr.print("Unable to dump stack trace: debug info stripped\n", .{}) catch return;
             return;
@@ -524,7 +524,7 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        writeStackTrace(stack_trace, stderr, debug_info, io.tty.detectConfig(io.getStdErr())) catch |err| {
+        writeStackTrace(stack_trace, stderr, debug_info, io.tty.detectConfig(fs.File.stderr())) catch |err| {
             stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -678,7 +678,7 @@ pub fn defaultPanic(
                 lockStdErr();
                 defer unlockStdErr();
 
-                const stderr = io.getStdErr().writer();
+                const stderr = fs.File.stderr().writer();
                 if (builtin.single_threaded) {
                     stderr.print("panic: ", .{}) catch posix.abort();
                 } else {
@@ -699,7 +699,7 @@ pub fn defaultPanic(
             // A panic happened while trying to print a previous panic message.
             // We're still holding the mutex but that's fine as we're going to
             // call abort().
-            io.getStdErr().writeAll("aborting due to recursive panic\n") catch {};
+            fs.File.stderr().writeAll("aborting due to recursive panic\n") catch {};
         },
         else => {}, // Panicked while printing the recursive panic message.
     };
@@ -1461,7 +1461,7 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
 }
 
 fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque) void {
-    const stderr = io.getStdErr().writer();
+    const stderr = fs.File.stderr().writer();
     _ = switch (sig) {
         posix.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL
             // x86_64 doesn't have a full 64-bit virtual address space.
@@ -1549,7 +1549,7 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, msg: u8, label:
         },
         1 => {
             panic_stage = 2;
-            io.getStdErr().writeAll("aborting due to recursive panic\n") catch {};
+            fs.File.stderr().writeAll("aborting due to recursive panic\n") catch {};
         },
         else => {},
     };
@@ -1557,7 +1557,7 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, msg: u8, label:
 }
 
 fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8) void {
-    const stderr = io.getStdErr().writer();
+    const stderr = fs.File.stderr().writer();
     _ = switch (msg) {
         0 => stderr.print("{s}\n", .{label.?}),
         1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),
@@ -1591,7 +1591,7 @@ test "manage resources correctly" {
     const writer = std.io.null_writer;
     var di = try SelfInfo.open(testing.allocator);
     defer di.deinit();
-    try printSourceAtAddress(&di, writer, showMyTrace(), io.tty.detectConfig(std.io.getStdErr()));
+    try printSourceAtAddress(&di, writer, showMyTrace(), io.tty.detectConfig(std.fs.File.stderr()));
 }
 
 noinline fn showMyTrace() usize {
@@ -1657,8 +1657,8 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         pub fn dump(t: @This()) void {
             if (!enabled) return;
 
-            const tty_config = io.tty.detectConfig(std.io.getStdErr());
-            const stderr = io.getStdErr().writer();
+            const tty_config = io.tty.detectConfig(std.fs.File.stderr());
+            const stderr = fs.File.stderr().writer();
             const end = @min(t.index, size);
             const debug_info = getSelfDebugInfo() catch |err| {
                 stderr.print(

@@ -9493,7 +9493,8 @@ pub fn asmValue(
 }
 
 pub fn dump(self: *Builder) void {
-    self.print(std.io.getStdErr().writer()) catch {};
+    const stderr: std.fs.File = .stderr();
+    self.print(stderr.writer()) catch {};
 }
 
 pub fn printToFile(self: *Builder, path: []const u8) Allocator.Error!bool {

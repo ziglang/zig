@@ -1072,7 +1072,7 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
         return;
     }
 
-    const out = std.io.getStdErr().writer();
+    const out = std.fs.File.stderr().writer();
 
     try out.writeAll("\n");
     try printSection(out, "<<<< input", input);

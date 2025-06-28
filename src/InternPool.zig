@@ -11259,7 +11259,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
 }
 
 fn dumpAllFallible(ip: *const InternPool) anyerror!void {
-    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
+    var bw = std.io.bufferedWriter(std.fs.File.stderr().writer());
     const w = bw.writer();
     for (ip.locals, 0..) |*local, tid| {
         const items = local.shared.items.view();
@@ -11369,7 +11369,7 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
+    var bw = std.io.bufferedWriter(std.fs.File.stderr().writer());
     const w = bw.writer();
 
     var instances: std.AutoArrayHashMapUnmanaged(Index, std.ArrayListUnmanaged(Index)) = .empty;

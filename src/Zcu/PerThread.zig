@@ -4378,7 +4378,7 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
     if (build_options.enable_debug_extensions and comp.verbose_air) {
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
-        const stderr = std.io.getStdErr().writer();
+        const stderr = std.fs.File.stderr().writer();
         stderr.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)}) catch {};
         air.write(stderr, pt, liveness);
         stderr.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)}) catch {};

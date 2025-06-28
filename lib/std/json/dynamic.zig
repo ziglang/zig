@@ -56,7 +56,7 @@ pub const Value = union(enum) {
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
 
-        const stderr = std.io.getStdErr().writer();
+        const stderr = std.fs.File.stderr().writer();
         stringify(self, .{}, stderr) catch return;
     }
 

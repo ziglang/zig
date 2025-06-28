@@ -112,7 +112,7 @@ fn rebuildTestsWorkerRun(run: *Step.Run, ttyconf: std.io.tty.Config, parent_prog
 
 fn rebuildTestsWorkerRunFallible(run: *Step.Run, ttyconf: std.io.tty.Config, parent_prog_node: std.Progress.Node) !void {
     const gpa = run.step.owner.allocator;
-    const stderr = std.io.getStdErr();
+    const stderr = std.fs.File.stderr();
 
     const compile = run.producer.?;
     const prog_node = parent_prog_node.start(compile.step.name, 0);
@@ -152,7 +152,7 @@ fn fuzzWorkerRun(
 
     run.rerunInFuzzMode(web_server, unit_test_index, prog_node) catch |err| switch (err) {
         error.MakeFailed => {
-            const stderr = std.io.getStdErr();
+            const stderr = std.fs.File.stderr();
             std.debug.lockStdErr();
             defer std.debug.unlockStdErr();
             build_runner.printErrorMessages(gpa, &run.step, .{ .ttyconf = ttyconf }, stderr, false) catch {};

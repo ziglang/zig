@@ -451,7 +451,7 @@ pub fn start(options: Options) Node {
             if (options.disable_printing) {
                 return Node.none;
             }
-            const stderr = std.io.getStdErr();
+            const stderr: std.fs.File = .stderr();
             global_progress.terminal = stderr;
             if (stderr.getOrEnableAnsiEscapeSupport()) {
                 global_progress.terminal_mode = .ansi_escape_codes;

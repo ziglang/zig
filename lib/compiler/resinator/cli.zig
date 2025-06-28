@@ -127,7 +127,7 @@ pub const Diagnostics = struct {
     pub fn renderToStdErr(self: *Diagnostics, args: []const []const u8, config: std.io.tty.Config) void {
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
-        const stderr = std.io.getStdErr().writer();
+        const stderr = std.fs.File.stderr().writer();
         self.renderToWriter(args, stderr, config) catch return;
     }
 
