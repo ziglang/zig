@@ -1014,6 +1014,7 @@ const mingw32_winpthreads_src = [_][]const u8{
     "winpthreads" ++ path.sep_str ++ "thread.c",
 };
 
+// Note: kernel32 and ntdll are always linked even without targeting MinGW-w64.
 pub const always_link_libs = [_][]const u8{
     "api-ms-win-crt-conio-l1-1-0",
     "api-ms-win-crt-convert-l1-1-0",
@@ -1031,8 +1032,6 @@ pub const always_link_libs = [_][]const u8{
     "api-ms-win-crt-time-l1-1-0",
     "api-ms-win-crt-utility-l1-1-0",
     "advapi32",
-    "kernel32",
-    "ntdll",
     "shell32",
     "user32",
 };
