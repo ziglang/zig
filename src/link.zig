@@ -608,8 +608,15 @@ pub const File = struct {
                     .mode = determineMode(output_mode, link_mode),
                 });
             },
-            .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
-        }
+            .spirv => {
+                if (base.file != null) return;
+                dev.check(.spirv_linker);
+                const emit = base.emit;
+                base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
+                    .truncate = true,
+                });
+            },
+            .c => dev.check(.c_linker),
     }
 
     /// Some linkers create a separate file for debug info, which we might need to temporarily close
