@@ -9065,10 +9065,14 @@ fn zirOptionalPayload(
     };
 
     if (try sema.resolveDefinedValue(block, src, operand)) |val| {
-        return if (val.optionalValue(zcu)) |payload|
-            Air.internedToRef(payload.toIntern())
-        else
-            sema.fail(block, src, "unable to unwrap null", .{});
+        if (val.optionalValue(zcu)) |payload| return Air.internedToRef(payload.toIntern());
+        if (block.isComptime()) return sema.fail(block, src, "unable to unwrap null", .{});
+        if (safety_check and block.wantSafety()) {
+            try sema.safetyPanic(block, src, .unwrap_null);
+        } else {
+            _ = try block.addNoOp(.unreach);
+        }
+        return .unreachable_value;
     }
 
     try sema.requireRuntimeBlock(block, src, null);
@@ -36443,7 +36447,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .type_int_unsigned, // u0 handled above
             .type_pointer,
             .type_slice,
-            .type_optional, // ?noreturn handled above
             .type_anyframe,
             .type_error_union,
             .type_anyerror_union,
@@ -36654,6 +36657,15 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 },
 
                 else => unreachable,
+            },
+
+            .type_optional => {
+                const payload_ip = ip.indexToKey(ty.toIntern()).opt_type;
+                // Although ?noreturn is handled above, the element type
+                // can be effectively noreturn for example via an empty
+                // enum or error set.
+                if (ip.isNoReturn(payload_ip)) return try pt.nullValue(ty);
+                return null;
             },
         },
     };
