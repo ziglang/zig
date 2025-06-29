@@ -14,7 +14,7 @@ const dev = @import("../dev.zig");
 pub const CrtFile = enum {
     crt2_o,
     dllcrt2_o,
-    libmingw32_lib,
+    libmingw32_a,
 };
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
@@ -69,7 +69,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             });
         },
 
-        .libmingw32_lib => {
+        .libmingw32_a => {
             var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
 
             {
@@ -174,7 +174,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 }
             }
 
-            return comp.build_crt_file("libmingw32", .Lib, .@"mingw-w64 libmingw32.lib", prog_node, c_source_files.items, .{
+            return comp.build_crt_file("mingw32", .Lib, .@"mingw-w64 libmingw32.a", prog_node, c_source_files.items, .{
                 .unwind_tables = unwind_tables,
                 // https://github.com/llvm/llvm-project/issues/43698#issuecomment-2542660611
                 .allow_lto = false,

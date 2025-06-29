@@ -165,6 +165,14 @@ pub const OptimizeMode = enum {
 /// Deprecated; use OptimizeMode.
 pub const Mode = OptimizeMode;
 
+/// DebugFormat specifies which type of debug information to generate:
+pub const DebugFormat = union(enum) {
+    /// No debug information.
+    strip,
+    dwarf: std.dwarf.Format,
+    code_view,
+};
+
 /// The calling convention of a function defines how arguments and return values are passed, as well
 /// as any other requirements which callers and callees must respect, such as register preservation
 /// and stack alignment.

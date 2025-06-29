@@ -108,7 +108,7 @@ pub fn addCase(self: *LlvmIr, case: TestCase) void {
     obj.dll_export_fns = case.params.dll_export_fns;
     obj.pie = case.params.pie;
 
-    obj.root_module.dwarf_format = case.params.dwarf_format;
+    obj.root_module.debug_format = if (case.params.dwarf_format) |dwarf_format| .{ .dwarf = dwarf_format } else null;
     obj.root_module.no_builtin = case.params.no_builtin;
     obj.root_module.red_zone = case.params.red_zone;
     obj.root_module.stack_check = case.params.stack_check;
