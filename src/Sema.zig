@@ -19560,18 +19560,13 @@ fn structInitAnon(
     try sema.declareDependency(.{ .interned = struct_ty });
     try sema.addTypeReferenceEntry(src, struct_ty);
 
-    const runtime_index = opt_runtime_index orelse {
+    _ = opt_runtime_index orelse {
         const struct_val = try pt.intern(.{ .aggregate = .{
             .ty = struct_ty,
             .storage = .{ .elems = values },
         } });
         return sema.addConstantMaybeRef(struct_val, is_ref);
     };
-
-    try sema.requireRuntimeBlock(block, LazySrcLoc.unneeded, block.src(.{ .init_elem = .{
-        .init_node_offset = src.offset.node_offset.x,
-        .elem_index = @intCast(runtime_index),
-    } }));
 
     if (is_ref) {
         const target = zcu.getTarget();
@@ -19701,7 +19696,7 @@ fn zirArrayInit(
         if (!comptime_known) break @intCast(i);
     } else null;
 
-    const runtime_index = opt_runtime_index orelse {
+    _ = opt_runtime_index orelse {
         const elem_vals = try sema.arena.alloc(InternPool.Index, resolved_args.len);
         for (elem_vals, resolved_args) |*val, arg| {
             // We checked that all args are comptime above.
@@ -19715,11 +19710,6 @@ fn zirArrayInit(
         const result_val = (try sema.resolveValue(result_ref)).?;
         return sema.addConstantMaybeRef(result_val.toIntern(), is_ref);
     };
-
-    try sema.requireRuntimeBlock(block, LazySrcLoc.unneeded, block.src(.{ .init_elem = .{
-        .init_node_offset = src.offset.node_offset.x,
-        .elem_index = runtime_index,
-    } }));
 
     if (is_ref) {
         const target = zcu.getTarget();
