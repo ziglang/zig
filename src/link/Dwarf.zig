@@ -1907,7 +1907,12 @@ pub const WipNav = struct {
         const ty = value.typeOf(zcu);
         if (std.debug.runtime_safety) assert(ty.comptimeOnly(zcu) and try ty.onePossibleValue(wip_nav.pt) == null);
         if (ty.toIntern() == .type_type) return wip_nav.getTypeEntry(value.toType());
-        if (ip.isFunctionType(ty.toIntern()) and !value.isUndef(zcu)) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
+        if (ip.isFunctionType(ty.toIntern()) and !value.isUndef(zcu))
+            return wip_nav.getNavEntry(switch (ip.indexToKey(value.toIntern())) {
+                .@"extern" => |ext| ext.owner_nav,
+                .func => |func| func.owner_nav,
+                else => unreachable,
+            });
         const gop = try wip_nav.dwarf.values.getOrPut(wip_nav.dwarf.gpa, value.toIntern());
         const unit: Unit.Index = .main;
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
