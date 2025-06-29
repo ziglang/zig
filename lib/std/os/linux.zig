@@ -9091,6 +9091,15 @@ pub const perf_event_attr = extern struct {
     __reserved_2: u16 = 0,
 };
 
+pub const perf_event_header = extern struct {
+    /// Event type: sample/mmap/fork/etc.
+    type: u32 = 0,
+    /// Additional informations on the event: kernel/user/hypervisor/etc.
+    miscs: u16 = 0,
+    /// Size of the following record
+    size: u16 = 0,
+};
+
 pub const PERF = struct {
     pub const TYPE = enum(u32) {
         HARDWARE,
@@ -9200,6 +9209,50 @@ pub const PERF = struct {
             pub const NO_CYCLES = 1 << 15;
             pub const TYPE_SAVE = 1 << 16;
             pub const MAX = 1 << 17;
+        };
+    };
+
+    pub const RECORD = struct {
+        pub const MMAP = 1;
+        pub const LOST = 2;
+        pub const COMM = 3;
+        pub const EXIT = 4;
+        pub const THROTTLE = 5;
+        pub const UNTHROTTLE = 6;
+        pub const FORK = 7;
+        pub const READ = 8;
+        pub const SAMPLE = 9;
+        pub const MMAP2 = 10;
+        pub const AUX = 11;
+        pub const ITRACE_START = 12;
+        pub const LOST_SAMPLES = 13;
+        pub const SWITCH = 14;
+        pub const SWITCH_CPU_WIDE = 15;
+        pub const NAMESPACES = 16;
+        pub const KSYMBOL = 17;
+        pub const BPF_EVENT = 18;
+        pub const CGROUP = 19;
+        pub const TEXT_POKE = 20;
+        pub const AUX_OUTPUT_HW_ID = 21;
+        pub const MAX = 22;
+
+        pub const MISC = struct {
+            pub const CPUMODE_MASK = 7 << 0;
+            pub const CPUMODE_UNKNOWN = 0 << 0;
+            pub const KERNEL = 1 << 0;
+            pub const USER = 2 << 0;
+            pub const HYPERVISOR = 3 << 0;
+            pub const GUEST_KERNEL = 4 << 0;
+            pub const GUEST_USER = 5 << 0;
+            pub const PROC_MAP_PARSE_TIMEOUT = 1 << 12;
+            pub const MMAP_DATA = 1 << 13;
+            pub const COMM_EXEC = 1 << 13;
+            pub const FORK_EXEC = 1 << 13;
+            pub const SWITCH_OUT = 1 << 13;
+            pub const EXACT_IP = 1 << 14;
+            pub const SWITCH_OUT_PREEMPT = 1 << 14;
+            pub const MMAP_BUILD_ID = 1 << 14;
+            pub const EXT_RESERVED = 1 << 15;
         };
     };
 
