@@ -37,12 +37,12 @@ const Coff = struct {
                 .Exe => switch (target.cpu.arch) {
                     .aarch64, .x86_64 => 0x140000000,
                     .thumb, .x86 => 0x400000,
-                    else => unreachable,
+                    else => return error.UnsupportedCoffArchitecture,
                 },
                 .Lib => switch (target.cpu.arch) {
                     .aarch64, .x86_64 => 0x180000000,
                     .thumb, .x86 => 0x10000000,
-                    else => unreachable,
+                    else => return error.UnsupportedCoffArchitecture,
                 },
                 .Obj => 0,
             },
