@@ -4335,7 +4335,7 @@ pub const GetSockOptError = error{
 } || UnexpectedError;
 
 pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
-    var len: socklen_t = undefined;
+    var len: socklen_t = @intCast(opt.len);
     switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
         .SUCCESS => {
             std.debug.assert(len == opt.len);
