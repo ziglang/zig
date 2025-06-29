@@ -26,6 +26,17 @@ test "crc32 koopman regression" {
     try testing.expectEqual(crc32.hash("abc"), 0xba2322ac);
 }
 
+test "CRC-32/ISCSI" {
+    const Crc32Iscsi = crc.Crc32Iscsi;
+
+    try testing.expectEqual(@as(u32, 0xe3069283), Crc32Iscsi.hash("123456789"));
+
+    var c = Crc32Iscsi.init();
+    c.update("1234");
+    c.update("56789");
+    try testing.expectEqual(@as(u32, 0xe3069283), c.final());
+}
+
 test "CRC-3/GSM" {
     const Crc3Gsm = crc.Crc3Gsm;
 
@@ -1102,17 +1113,6 @@ test "CRC-32/CKSUM" {
     c.update("1234");
     c.update("56789");
     try testing.expectEqual(@as(u32, 0x765e7680), c.final());
-}
-
-test "CRC-32/ISCSI" {
-    const Crc32Iscsi = crc.Crc32Iscsi;
-
-    try testing.expectEqual(@as(u32, 0xe3069283), Crc32Iscsi.hash("123456789"));
-
-    var c = Crc32Iscsi.init();
-    c.update("1234");
-    c.update("56789");
-    try testing.expectEqual(@as(u32, 0xe3069283), c.final());
 }
 
 test "CRC-32/ISO-HDLC" {
