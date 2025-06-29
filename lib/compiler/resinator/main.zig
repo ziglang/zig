@@ -104,20 +104,11 @@ pub fn main() !void {
     }
     const maybe_dependencies_list: ?*std.ArrayList([]const u8) = if (options.depfile_path != null) &dependencies_list else null;
 
-    const include_paths = getIncludePaths(arena, options.auto_includes, zig_lib_dir) catch |err| switch (err) {
-        error.OutOfMemory => |e| return e,
-        else => |e| {
-            switch (e) {
-                error.MsvcIncludesNotFound => {
-                    try error_handler.emitMessage(allocator, .err, "MSVC include paths could not be automatically detected", .{});
-                },
-                error.MingwIncludesNotFound => {
-                    try error_handler.emitMessage(allocator, .err, "MinGW include paths could not be automatically detected", .{});
-                },
-            }
-            try error_handler.emitMessage(allocator, .note, "to disable auto includes, use the option /:auto-includes none", .{});
-            std.process.exit(1);
-        },
+    var include_paths = LazyIncludePaths{
+        .arena = arena,
+        .auto_includes_option = options.auto_includes,
+        .zig_lib_dir = zig_lib_dir,
+        .target_machine_type = options.coff_options.target,
     };
 
     const full_input = full_input: {
@@ -138,7 +129,8 @@ pub fn main() !void {
             defer argv.deinit();
 
             try argv.append("arocc"); // dummy command name
-            try preprocess.appendAroArgs(aro_arena, &argv, options, include_paths);
+            const resolved_include_paths = try include_paths.get(&error_handler);
+            try preprocess.appendAroArgs(aro_arena, &argv, options, resolved_include_paths);
             try argv.append(switch (options.input_source) {
                 .stdio => "-",
                 .filename => |filename| filename,
@@ -264,7 +256,7 @@ pub fn main() !void {
                     .dependencies_list = maybe_dependencies_list,
                     .ignore_include_env_var = options.ignore_include_env_var,
                     .extra_include_paths = options.extra_include_paths.items,
-                    .system_include_paths = include_paths,
+                    .system_include_paths = try include_paths.get(&error_handler),
                     .default_language_id = options.default_language_id,
                     .default_code_page = default_code_page,
                     .disjoint_code_page = has_disjoint_code_page,
@@ -498,21 +490,71 @@ const IoStream = struct {
     };
 };
 
-fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.AutoIncludes, zig_lib_dir: []const u8) ![]const []const u8 {
+const LazyIncludePaths = struct {
+    arena: std.mem.Allocator,
+    auto_includes_option: cli.Options.AutoIncludes,
+    zig_lib_dir: []const u8,
+    target_machine_type: std.coff.MachineType,
+    resolved_include_paths: ?[]const []const u8 = null,
+
+    pub fn get(self: *LazyIncludePaths, error_handler: *ErrorHandler) ![]const []const u8 {
+        if (self.resolved_include_paths) |include_paths|
+            return include_paths;
+
+        return getIncludePaths(self.arena, self.auto_includes_option, self.zig_lib_dir, self.target_machine_type) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            else => |e| {
+                switch (e) {
+                    error.UnsupportedAutoIncludesMachineType => {
+                        try error_handler.emitMessage(self.arena, .err, "automatic include path detection is not supported for target '{s}'", .{@tagName(self.target_machine_type)});
+                    },
+                    error.MsvcIncludesNotFound => {
+                        try error_handler.emitMessage(self.arena, .err, "MSVC include paths could not be automatically detected", .{});
+                    },
+                    error.MingwIncludesNotFound => {
+                        try error_handler.emitMessage(self.arena, .err, "MinGW include paths could not be automatically detected", .{});
+                    },
+                }
+                try error_handler.emitMessage(self.arena, .note, "to disable auto includes, use the option /:auto-includes none", .{});
+                std.process.exit(1);
+            },
+        };
+    }
+};
+
+fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.AutoIncludes, zig_lib_dir: []const u8, target_machine_type: std.coff.MachineType) ![]const []const u8 {
+    if (auto_includes_option == .none) return &[_][]const u8{};
+
+    const includes_arch: std.Target.Cpu.Arch = switch (target_machine_type) {
+        .X64 => .x86_64,
+        .I386 => .x86,
+        .ARMNT => .thumb,
+        .ARM64 => .aarch64,
+        .ARM64EC => .aarch64,
+        .ARM64X => .aarch64,
+        .IA64, .EBC => {
+            return error.UnsupportedAutoIncludesMachineType;
+        },
+        // The above cases are exhaustive of all the `MachineType`s supported (see supported_targets in cvtres.zig)
+        // This is enforced by the argument parser in cli.zig.
+        else => unreachable,
+    };
+
     var includes = auto_includes_option;
     if (builtin.target.os.tag != .windows) {
         switch (includes) {
+            .none => unreachable,
             // MSVC can't be found when the host isn't Windows, so short-circuit.
             .msvc => return error.MsvcIncludesNotFound,
             // Skip straight to gnu since we won't be able to detect MSVC on non-Windows hosts.
             .any => includes = .gnu,
-            .none, .gnu => {},
+            .gnu => {},
         }
     }
 
     while (true) {
         switch (includes) {
-            .none => return &[_][]const u8{},
+            .none => unreachable,
             .any, .msvc => {
                 // MSVC is only detectable on Windows targets. This unreachable is to signify
                 // that .any and .msvc should be dealt with on non-Windows targets before this point,
@@ -521,6 +563,7 @@ fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.A
 
                 const target_query: std.Target.Query = .{
                     .os_tag = .windows,
+                    .cpu_arch = includes_arch,
                     .abi = .msvc,
                 };
                 const target = std.zig.resolveTargetQueryOrFatal(target_query);
@@ -546,6 +589,7 @@ fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.A
             .gnu => {
                 const target_query: std.Target.Query = .{
                     .os_tag = .windows,
+                    .cpu_arch = includes_arch,
                     .abi = .gnu,
                 };
                 const target = std.zig.resolveTargetQueryOrFatal(target_query);

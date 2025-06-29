@@ -6058,6 +6058,8 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
                 self_exe_path,
                 "rc",
                 "--zig-integration",
+                "/:target",
+                @tagName(comp.getTarget().cpu.arch),
                 "/:no-preprocess",
                 "/x", // ignore INCLUDE environment variable
                 "/c65001", // UTF-8 codepage
@@ -6115,6 +6117,8 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             self_exe_path,
             "rc",
             "--zig-integration",
+            "/:target",
+            @tagName(comp.getTarget().cpu.arch),
             "/:depfile",
             out_dep_path,
             "/:depfile-fmt",
