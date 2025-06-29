@@ -787,11 +787,7 @@ pub const Module = switch (native_os) {
         pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*Dwarf {
             _ = allocator;
             _ = address;
-
-            return switch (self.debug_data) {
-                .dwarf => |*dwarf| dwarf,
-                else => null,
-            };
+            return &(self.dwarf orelse return null);
         }
     },
     .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => Dwarf.ElfModule,
