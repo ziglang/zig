@@ -17,6 +17,7 @@ const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 pub const simplified_logic = switch (builtin.zig_backend) {
     .stage2_aarch64,
     .stage2_arm,
+    .stage2_loongarch,
     .stage2_powerpc,
     .stage2_sparc64,
     .stage2_spirv,
@@ -156,6 +157,14 @@ fn exit2(code: usize) noreturn {
                     : [number] "{g1}" (1),
                       [arg1] "{o0}" (code),
                     : "o0", "o1", "o2", "o3", "o4", "o5", "o6", "o7", "memory"
+                );
+            },
+            .loongarch64 => {
+                asm volatile ("syscall 0"
+                    :
+                    : [number] "{a7}" (93),
+                      [arg1] "{a0}" (code),
+                    : "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "memory"
                 );
             },
             else => @compileError("TODO"),
