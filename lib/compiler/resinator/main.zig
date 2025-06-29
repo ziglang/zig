@@ -121,7 +121,7 @@ pub fn main() !void {
     };
 
     const full_input = full_input: {
-        if (options.preprocess != .no) {
+        if (options.input_format == .rc and options.preprocess != .no) {
             var preprocessed_buf = std.ArrayList(u8).init(allocator);
             errdefer preprocessed_buf.deinit();
 
