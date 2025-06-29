@@ -991,6 +991,42 @@ test "Dir.rename file <-> dir" {
     }.impl);
 }
 
+fn expectCircularLoopError(u: Dir.RenameError!void) !void {
+    return if (u)
+        error.TestExpectedError
+    else |e| switch (e) {
+        error.CircularLoop,
+        error.SharingViolation, // Observed on Windows 10
+        error.BadPathName,
+        error.PermissionDenied, // Observed on CI WASI
+        => {},
+        else => error.TestUnexpectedError,
+    };
+}
+
+test "Dir.rename circular loop causes an error" {
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            const parent_path = try ctx.transformPath("parent");
+            const subdir_path = try ctx.transformPath("parent/subdir");
+            try ctx.dir.makeDir(parent_path);
+
+            try expectCircularLoopError(ctx.dir.rename(parent_path, subdir_path));
+            if (ctx.path_type == .relative) {
+                var parent = try ctx.dir.openDir("parent", .{});
+                defer parent.close();
+                try expectCircularLoopError(parent.rename("../parent", "subdir"));
+            }
+            if (ctx.path_type == .absolute) {
+                try expectCircularLoopError(std.fs.renameAbsolute(
+                    parent_path,
+                    subdir_path,
+                ));
+            }
+        }
+    }.impl);
+}
+
 test "rename" {
     var tmp_dir1 = tmpDir(.{});
     defer tmp_dir1.cleanup();
