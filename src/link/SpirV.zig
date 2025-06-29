@@ -240,6 +240,11 @@ pub fn flush(
         else => |other| return diags.fail("error while linking: {s}", .{@errorName(other)}),
     };
 
+    self.base.makeWritable() catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.LinkFailure,
+    };
+
     self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module)) catch |err|
         return diags.fail("failed to write: {s}", .{@errorName(err)});
 }
