@@ -639,11 +639,14 @@ fn numberLiteral(zg: *ZonGen, num_node: Ast.Node.Index, src_node: Ast.Node.Index
         },
         .big_int => |base| {
             const gpa = zg.gpa;
+            var sfba_state = std.heap.stackFallback(5 * @sizeOf(std.math.big.Limb), gpa);
+            const sfba = sfba_state.get();
+
             const num_without_prefix = switch (base) {
                 .decimal => num_bytes,
                 .hex, .binary, .octal => num_bytes[2..],
             };
-            var big_int: std.math.big.int.Managed = try .init(gpa);
+            var big_int: std.math.big.int.Managed = try .init(sfba);
             defer big_int.deinit();
             big_int.setString(@intFromEnum(base), num_without_prefix) catch |err| switch (err) {
                 error.InvalidCharacter => unreachable, // caught in `parseNumberLiteral`
