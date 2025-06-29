@@ -147,7 +147,7 @@ fn markSecret(ptr: anytype, comptime action: enum { classify, declassify }) void
             @compileError("A pointer value is always assumed leak information via side channels");
         },
         else => {
-            const mem8: *const [@sizeOf(@TypeOf(ptr.*))]u8 = @constCast(@ptrCast(ptr));
+            const mem8: *const [@sizeOf(@TypeOf(ptr.*))]u8 = @ptrCast(@constCast(ptr));
             if (action == .classify) {
                 std.valgrind.memcheck.makeMemUndefined(mem8);
             } else {
