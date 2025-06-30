@@ -8060,7 +8060,7 @@ fn analyzeCall(
         };
 
         try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Call).@"struct".fields.len + runtime_args.len);
-        const result = try block.addInst(.{
+        const maybe_opv = try block.addInst(.{
             .tag = call_tag,
             .data = .{ .pl_op = .{
                 .operand = runtime_func,
@@ -8072,7 +8072,7 @@ fn analyzeCall(
         sema.appendRefsAssumeCapacity(runtime_args);
 
         if (ensure_result_used) {
-            try sema.ensureResultUsed(block, sema.typeOf(result), call_src);
+            try sema.ensureResultUsed(block, sema.typeOf(maybe_opv), call_src);
         }
 
         if (call_tag == .call_always_tail) {
@@ -8082,10 +8082,10 @@ fn analyzeCall(
                 .pointer => func_or_ptr_ty.childType(zcu),
                 else => unreachable,
             };
-            return sema.handleTailCall(block, call_src, runtime_func_ty, result);
+            return sema.handleTailCall(block, call_src, runtime_func_ty, maybe_opv);
         }
 
-        if (resolved_ret_ty.toIntern() == .noreturn_type) {
+        if (ip.isNoReturn(resolved_ret_ty.toIntern())) {
             const want_check = c: {
                 if (!block.wantSafety()) break :c false;
                 if (func_val != null) break :c false;
@@ -8098,6 +8098,11 @@ fn analyzeCall(
             }
             return .unreachable_value;
         }
+
+        const result: Air.Inst.Ref = if (try sema.typeHasOnePossibleValue(sema.typeOf(maybe_opv))) |opv|
+            .fromValue(opv)
+        else
+            maybe_opv;
 
         return result;
     }
@@ -8335,7 +8340,7 @@ fn analyzeCall(
         break :result try sema.resolveAnalyzedBlock(block, call_src, &child_block, &inlining.merges, need_debug_scope);
     };
 
-    const result: Air.Inst.Ref = if (try sema.resolveValue(result_raw)) |result_val| r: {
+    const maybe_opv: Air.Inst.Ref = if (try sema.resolveValue(result_raw)) |result_val| r: {
         const val_resolved = try sema.resolveAdHocInferredErrorSet(block, call_src, result_val.toIntern());
         break :r Air.internedToRef(val_resolved);
     } else r: {
@@ -8347,7 +8352,7 @@ fn analyzeCall(
     };
 
     if (block.isComptime()) {
-        const result_val = (try sema.resolveValue(result)).?;
+        const result_val = (try sema.resolveValue(maybe_opv)).?;
         if (want_memoize and sema.allow_memoize and !result_val.canMutateComptimeVarState(zcu)) {
             _ = try pt.intern(.{ .memoized_call = .{
                 .func = func_val.?.toIntern(),
@@ -8359,10 +8364,10 @@ fn analyzeCall(
     }
 
     if (ensure_result_used) {
-        try sema.ensureResultUsed(block, sema.typeOf(result), call_src);
+        try sema.ensureResultUsed(block, sema.typeOf(maybe_opv), call_src);
     }
 
-    return result;
+    return maybe_opv;
 }
 
 fn handleTailCall(sema: *Sema, block: *Block, call_src: LazySrcLoc, func_ty: Type, result: Air.Inst.Ref) !Air.Inst.Ref {
@@ -9065,10 +9070,14 @@ fn zirOptionalPayload(
     };
 
     if (try sema.resolveDefinedValue(block, src, operand)) |val| {
-        return if (val.optionalValue(zcu)) |payload|
-            Air.internedToRef(payload.toIntern())
-        else
-            sema.fail(block, src, "unable to unwrap null", .{});
+        if (val.optionalValue(zcu)) |payload| return Air.internedToRef(payload.toIntern());
+        if (block.isComptime()) return sema.fail(block, src, "unable to unwrap null", .{});
+        if (safety_check and block.wantSafety()) {
+            try sema.safetyPanic(block, src, .unwrap_null);
+        } else {
+            _ = try block.addNoOp(.unreach);
+        }
+        return .unreachable_value;
     }
 
     try sema.requireRuntimeBlock(block, src, null);
@@ -36443,7 +36452,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .type_int_unsigned, // u0 handled above
             .type_pointer,
             .type_slice,
-            .type_optional, // ?noreturn handled above
             .type_anyframe,
             .type_error_union,
             .type_anyerror_union,
@@ -36654,6 +36662,15 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                 },
 
                 else => unreachable,
+            },
+
+            .type_optional => {
+                const payload_ip = ip.indexToKey(ty.toIntern()).opt_type;
+                // Although ?noreturn is handled above, the element type
+                // can be effectively noreturn for example via an empty
+                // enum or error set.
+                if (ip.isNoReturn(payload_ip)) return try pt.nullValue(ty);
+                return null;
             },
         },
     };
