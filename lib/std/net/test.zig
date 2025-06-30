@@ -5,7 +5,6 @@ const mem = std.mem;
 const testing = std.testing;
 
 test "parse and render IP addresses at comptime" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
     comptime {
         const ipv6addr = net.Address.parseIp("::1", 0) catch unreachable;
         try std.testing.expectFmt("[::1]:0", "{f}", .{ipv6addr});
@@ -21,42 +20,23 @@ test "parse and render IP addresses at comptime" {
 }
 
 test "format IPv6 address with no zero runs" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
     const addr = try std.net.Address.parseIp6("2001:db8:1:2:3:4:5:6", 0);
     try std.testing.expectFmt("[2001:db8:1:2:3:4:5:6]:0", "{f}", .{addr});
 }
 
 test "parse IPv6 addresses and check compressed form" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    const alloc = testing.allocator;
-
-    // 1) Parse an IPv6 address that should compress to [2001:db8::1:0:0:2]:0
-    const addr1 = try std.net.Address.parseIp6("2001:0db8:0000:0000:0001:0000:0000:0002", 0);
-
-    // 2) Parse an IPv6 address that should compress to [2001:db8::1:2]:0
-    const addr2 = try std.net.Address.parseIp6("2001:0db8:0000:0000:0000:0000:0001:0002", 0);
-
-    // 3) Parse an IPv6 address that should compress to [2001:db8:1:0:1::2]:0
-    const addr3 = try std.net.Address.parseIp6("2001:0db8:0001:0000:0001:0000:0000:0002", 0);
-
-    // Print each address in Zig's default "[ipv6]:port" form.
-    const printed1 = try std.fmt.allocPrint(alloc, "{any}", .{addr1});
-    defer testing.allocator.free(printed1);
-    const printed2 = try std.fmt.allocPrint(alloc, "{any}", .{addr2});
-    defer testing.allocator.free(printed2);
-    const printed3 = try std.fmt.allocPrint(alloc, "{any}", .{addr3});
-    defer testing.allocator.free(printed3);
-
-    // Check the exact compressed forms we expect.
-    try std.testing.expectEqualStrings("[2001:db8::1:0:0:2]:0", printed1);
-    try std.testing.expectEqualStrings("[2001:db8::1:2]:0", printed2);
-    try std.testing.expectEqualStrings("[2001:db8:1:0:1::2]:0", printed3);
+    try std.testing.expectFmt("[2001:db8::1:0:0:2]:0", "{f}", .{
+        try std.net.Address.parseIp6("2001:0db8:0000:0000:0001:0000:0000:0002", 0),
+    });
+    try std.testing.expectFmt("[2001:db8::1:2]:0", "{f}", .{
+        try std.net.Address.parseIp6("2001:0db8:0000:0000:0000:0000:0001:0002", 0),
+    });
+    try std.testing.expectFmt("[2001:db8:1:0:1::2]:0", "{f}", .{
+        try std.net.Address.parseIp6("2001:0db8:0001:0000:0001:0000:0000:0002", 0),
+    });
 }
 
 test "parse IPv6 address, check raw bytes" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
     const expected_raw: [16]u8 = .{
         0x20, 0x01, 0x0d, 0xb8, // 2001:db8
         0x00, 0x00, 0x00, 0x00, // :0000:0000
@@ -71,8 +51,6 @@ test "parse IPv6 address, check raw bytes" {
 }
 
 test "parse and render IPv6 addresses" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
     var buffer: [100]u8 = undefined;
     const ips = [_][]const u8{
         "FF01:0:0:0:0:0:0:FB",
@@ -137,8 +115,6 @@ test "invalid but parseable IPv6 scope ids" {
 }
 
 test "parse and render IPv4 addresses" {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
     var buffer: [18]u8 = undefined;
     for ([_][]const u8{
         "0.0.0.0",

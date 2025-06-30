@@ -866,35 +866,31 @@ pub fn printValue(
             }
             const enum_info = @typeInfo(T).@"enum";
             if (enum_info.is_exhaustive) {
-                var vecs: [3][]const u8 = .{ @typeName(T), ".", @tagName(value) };
+                var vecs: [2][]const u8 = .{ ".", @tagName(value) };
                 try w.writeVecAll(&vecs);
                 return;
             }
-            try w.writeAll(@typeName(T));
-            @setEvalBranchQuota(3 * enum_info.fields.len);
-            inline for (enum_info.fields) |field| {
-                if (@intFromEnum(value) == field.value) {
-                    try w.writeAll(".");
-                    try w.writeAll(@tagName(value));
-                    return;
-                }
+            if (std.enums.tagName(T, value)) |tag_name| {
+                var vecs: [2][]const u8 = .{ ".", tag_name };
+                try w.writeVecAll(&vecs);
+                return;
             }
-            try w.writeByte('(');
+            try w.writeAll("@enumFromInt(");
             try w.printValue(ANY, options, @intFromEnum(value), max_depth);
             try w.writeByte(')');
+            return;
         },
         .@"union" => |info| {
             if (!is_any) {
                 if (fmt.len != 0) invalidFmtError(fmt, value);
                 return printValue(w, ANY, options, value, max_depth);
             }
-            try w.writeAll(@typeName(T));
             if (max_depth == 0) {
-                try w.writeAll("{ ... }");
+                try w.writeAll(".{ ... }");
                 return;
             }
             if (info.tag_type) |UnionTagType| {
-                try w.writeAll("{ .");
+                try w.writeAll(".{ .");
                 try w.writeAll(@tagName(@as(UnionTagType, value)));
                 try w.writeAll(" = ");
                 inline for (info.fields) |u_field| {
@@ -903,9 +899,22 @@ pub fn printValue(
                     }
                 }
                 try w.writeAll(" }");
-            } else {
-                try w.writeByte('@');
-                try w.printIntOptions(@intFromPtr(&value), 16, .lower, options);
+            } else switch (info.layout) {
+                .auto => {
+                    return w.writeAll(".{ ... }");
+                },
+                .@"extern", .@"packed" => {
+                    if (info.fields.len == 0) return w.writeAll(".{}");
+                    try w.writeAll(".{ ");
+                    inline for (info.fields) |field| {
+                        try w.writeByte('.');
+                        try w.writeAll(field.name);
+                        try w.writeAll(" = ");
+                        try w.printValue(ANY, options, @field(value, field.name), max_depth - 1);
+                        (try w.writableArray(2)).* = ", ".*;
+                    }
+                    w.buffer[w.end - 2 ..][0..2].* = " }".*;
+                },
             }
         },
         .@"struct" => |info| {
@@ -916,10 +925,10 @@ pub fn printValue(
             if (info.is_tuple) {
                 // Skip the type and field names when formatting tuples.
                 if (max_depth == 0) {
-                    try w.writeAll("{ ... }");
+                    try w.writeAll(".{ ... }");
                     return;
                 }
-                try w.writeAll("{");
+                try w.writeAll(".{");
                 inline for (info.fields, 0..) |f, i| {
                     if (i == 0) {
                         try w.writeAll(" ");
@@ -931,12 +940,11 @@ pub fn printValue(
                 try w.writeAll(" }");
                 return;
             }
-            try w.writeAll(@typeName(T));
             if (max_depth == 0) {
-                try w.writeAll("{ ... }");
+                try w.writeAll(".{ ... }");
                 return;
             }
-            try w.writeAll("{");
+            try w.writeAll(".{");
             inline for (info.fields, 0..) |f, i| {
                 if (i == 0) {
                     try w.writeAll(" .");
@@ -1550,7 +1558,7 @@ fn writeMultipleOf7Leb128(w: *Writer, value: anytype) Error!void {
     }
 }
 
-test "formatValue max_depth" {
+test "printValue max_depth" {
     const Vec2 = struct {
         const SelfType = @This();
         x: f32,
@@ -1595,19 +1603,19 @@ test "formatValue max_depth" {
     var buf: [1000]u8 = undefined;
     var w: Writer = .fixed(&buf);
     try w.printValue("", .{}, inst, 0);
-    try testing.expectEqualStrings("io.Writer.test.printValue max_depth.S{ ... }", w.buffered());
+    try testing.expectEqualStrings(".{ ... }", w.buffered());
 
     w = .fixed(&buf);
     try w.printValue("", .{}, inst, 1);
-    try testing.expectEqualStrings("io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ ... }, .tu = io.Writer.test.printValue max_depth.TU{ ... }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }", w.buffered());
+    try testing.expectEqualStrings(".{ .a = .{ ... }, .tu = .{ ... }, .e = .Two, .vec = .{ ... } }", w.buffered());
 
     w = .fixed(&buf);
     try w.printValue("", .{}, inst, 2);
-    try testing.expectEqualStrings("io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ ... }, .tu = io.Writer.test.printValue max_depth.TU{ ... }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }, .tu = io.Writer.test.printValue max_depth.TU{ .ptr = io.Writer.test.printValue max_depth.TU{ ... } }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }", w.buffered());
+    try testing.expectEqualStrings(".{ .a = .{ .a = .{ ... }, .tu = .{ ... }, .e = .Two, .vec = .{ ... } }, .tu = .{ .ptr = .{ ... } }, .e = .Two, .vec = .{ .x = 10.2, .y = 2.22 } }", w.buffered());
 
     w = .fixed(&buf);
     try w.printValue("", .{}, inst, 3);
-    try testing.expectEqualStrings("io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ ... }, .tu = io.Writer.test.printValue max_depth.TU{ ... }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }, .tu = io.Writer.test.printValue max_depth.TU{ .ptr = io.Writer.test.printValue max_depth.TU{ ... } }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }, .tu = io.Writer.test.printValue max_depth.TU{ .ptr = io.Writer.test.printValue max_depth.TU{ .ptr = io.Writer.test.printValue max_depth.TU{ ... } } }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }", w.buffered());
+    try testing.expectEqualStrings(".{ .a = .{ .a = .{ .a = .{ ... }, .tu = .{ ... }, .e = .Two, .vec = .{ ... } }, .tu = .{ .ptr = .{ ... } }, .e = .Two, .vec = .{ .x = 10.2, .y = 2.22 } }, .tu = .{ .ptr = .{ .ptr = .{ ... } } }, .e = .Two, .vec = .{ .x = 10.2, .y = 2.22 } }", w.buffered());
 
     const vec: @Vector(4, i32) = .{ 1, 2, 3, 4 };
     w = .fixed(&buf);
