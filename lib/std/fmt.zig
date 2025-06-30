@@ -996,7 +996,7 @@ test "slice" {
             x: u8,
         };
         const struct_slice: []const S1 = &[_]S1{ S1{ .x = 8 }, S1{ .x = 42 } };
-        try expectFmt("slice: { fmt.test.slice.S1{ .x = 8 }, fmt.test.slice.S1{ .x = 42 } }", "slice: {any}", .{struct_slice});
+        try expectFmt("slice: { .{ .x = 8 }, .{ .x = 42 } }", "slice: {any}", .{struct_slice});
     }
     {
         const S2 = struct {
@@ -1007,7 +1007,7 @@ test "slice" {
             }
         };
         const struct_slice: []const S2 = &[_]S2{ S2{ .x = 8 }, S2{ .x = 42 } };
-        try expectFmt("slice: { fmt.test.slice.S2{ .x = 8 }, fmt.test.slice.S2{ .x = 42 } }", "slice: {any}", .{struct_slice});
+        try expectFmt("slice: { .{ .x = 8 }, .{ .x = 42 } }", "slice: {any}", .{struct_slice});
     }
 }
 
@@ -1047,8 +1047,8 @@ test "struct" {
             field: u8,
         };
         const value = Struct{ .field = 42 };
-        try expectFmt("struct: fmt.test.struct.Struct{ .field = 42 }\n", "struct: {}\n", .{value});
-        try expectFmt("struct: fmt.test.struct.Struct{ .field = 42 }\n", "struct: {}\n", .{&value});
+        try expectFmt("struct: .{ .field = 42 }\n", "struct: {}\n", .{value});
+        try expectFmt("struct: .{ .field = 42 }\n", "struct: {}\n", .{&value});
     }
     {
         const Struct = struct {
@@ -1056,7 +1056,7 @@ test "struct" {
             b: u1,
         };
         const value = Struct{ .a = 0, .b = 1 };
-        try expectFmt("struct: fmt.test.struct.Struct{ .a = 0, .b = 1 }\n", "struct: {}\n", .{value});
+        try expectFmt("struct: .{ .a = 0, .b = 1 }\n", "struct: {}\n", .{value});
     }
 
     const S = struct {
@@ -1069,11 +1069,11 @@ test "struct" {
         .b = error.Unused,
     };
 
-    try expectFmt("fmt.test.struct.S{ .a = 456, .b = error.Unused }", "{}", .{inst});
+    try expectFmt(".{ .a = 456, .b = error.Unused }", "{}", .{inst});
     // Tuples
-    try expectFmt("{ }", "{}", .{.{}});
-    try expectFmt("{ -1 }", "{}", .{.{-1}});
-    try expectFmt("{ -1, 42, 25000 }", "{}", .{.{ -1, 42, 0.25e5 }});
+    try expectFmt(".{ }", "{}", .{.{}});
+    try expectFmt(".{ -1 }", "{}", .{.{-1}});
+    try expectFmt(".{ -1, 42, 25000 }", "{}", .{.{ -1, 42, 0.25e5 }});
 }
 
 test "enum" {
@@ -1082,15 +1082,15 @@ test "enum" {
         Two,
     };
     const value = Enum.Two;
-    try expectFmt("enum: fmt.test.enum.Enum.Two\n", "enum: {}\n", .{value});
-    try expectFmt("enum: fmt.test.enum.Enum.Two\n", "enum: {}\n", .{&value});
-    try expectFmt("enum: fmt.test.enum.Enum.One\n", "enum: {}\n", .{Enum.One});
-    try expectFmt("enum: fmt.test.enum.Enum.Two\n", "enum: {}\n", .{Enum.Two});
+    try expectFmt("enum: .Two\n", "enum: {}\n", .{value});
+    try expectFmt("enum: .Two\n", "enum: {}\n", .{&value});
+    try expectFmt("enum: .One\n", "enum: {}\n", .{Enum.One});
+    try expectFmt("enum: .Two\n", "enum: {}\n", .{Enum.Two});
 
     // test very large enum to verify ct branch quota is large enough
     // TODO: https://github.com/ziglang/zig/issues/15609
     if (!((builtin.cpu.arch == .wasm32) and builtin.mode == .Debug)) {
-        try expectFmt("enum: os.windows.win32error.Win32Error.INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
+        try expectFmt("enum: .INVALID_FUNCTION\n", "enum: {}\n", .{std.os.windows.Win32Error.INVALID_FUNCTION});
     }
 
     const E = enum {
@@ -1101,7 +1101,7 @@ test "enum" {
 
     const inst = E.Two;
 
-    try expectFmt("fmt.test.enum.E.Two", "{}", .{inst});
+    try expectFmt(".Two", "{}", .{inst});
 }
 
 test "non-exhaustive enum" {
@@ -1110,9 +1110,9 @@ test "non-exhaustive enum" {
         Two = 0xbeef,
         _,
     };
-    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.One\n", "enum: {}\n", .{Enum.One});
-    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum.Two\n", "enum: {}\n", .{Enum.Two});
-    try expectFmt("enum: fmt.test.non-exhaustive enum.Enum(4660)\n", "enum: {}\n", .{@as(Enum, @enumFromInt(0x1234))});
+    try expectFmt("enum: .One\n", "enum: {}\n", .{Enum.One});
+    try expectFmt("enum: .Two\n", "enum: {}\n", .{Enum.Two});
+    try expectFmt("enum: @enumFromInt(4660)\n", "enum: {}\n", .{@as(Enum, @enumFromInt(0x1234))});
     try expectFmt("enum: f\n", "enum: {x}\n", .{Enum.One});
     try expectFmt("enum: beef\n", "enum: {x}\n", .{Enum.Two});
     try expectFmt("enum: BEEF\n", "enum: {X}\n", .{Enum.Two});
@@ -1291,18 +1291,13 @@ test "union" {
         int: u32,
     };
 
-    const tu_inst = TU{ .int = 123 };
-    const uu_inst = UU{ .int = 456 };
-    const eu_inst = EU{ .float = 321.123 };
+    const tu_inst: TU = .{ .int = 123 };
+    const uu_inst: UU = .{ .int = 456 };
+    const eu_inst: EU = .{ .float = 321.123 };
 
-    try expectFmt("fmt.test.union.TU{ .int = 123 }", "{}", .{tu_inst});
-
-    var buf: [100]u8 = undefined;
-    const uu_result = try bufPrint(buf[0..], "{}", .{uu_inst});
-    try std.testing.expectEqualStrings("fmt.test.union.UU@", uu_result[0..18]);
-
-    const eu_result = try bufPrint(buf[0..], "{}", .{eu_inst});
-    try std.testing.expectEqualStrings("fmt.test.union.EU@", eu_result[0..18]);
+    try expectFmt(".{ .int = 123 }", "{}", .{tu_inst});
+    try expectFmt(".{ ... }", "{}", .{uu_inst});
+    try expectFmt(".{ .float = 321.123, .int = 1134596030 }", "{}", .{eu_inst});
 }
 
 test "struct.self-referential" {
@@ -1316,7 +1311,7 @@ test "struct.self-referential" {
     };
     inst.a = &inst;
 
-    try expectFmt("fmt.test.struct.self-referential.S{ .a = fmt.test.struct.self-referential.S{ .a = fmt.test.struct.self-referential.S{ .a = fmt.test.struct.self-referential.S{ ... } } } }", "{}", .{inst});
+    try expectFmt(".{ .a = .{ .a = .{ .a = .{ ... } } } }", "{}", .{inst});
 }
 
 test "struct.zero-size" {
@@ -1331,7 +1326,7 @@ test "struct.zero-size" {
     const a = A{};
     const b = B{ .a = a, .c = 0 };
 
-    try expectFmt("fmt.test.struct.zero-size.B{ .a = fmt.test.struct.zero-size.A{ }, .c = 0 }", "{}", .{b});
+    try expectFmt(".{ .a = .{ }, .c = 0 }", "{}", .{b});
 }
 
 /// Encodes a sequence of bytes as hexadecimal digits.

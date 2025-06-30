@@ -36,7 +36,10 @@ pub const VTable = struct {
     /// sizes combined with short reads (returning a value less than `limit`)
     /// in order to minimize complexity.
     ///
-    /// This function is always called when `buffer` is empty.
+    /// Although this function is usually called when `buffer` is empty, it is
+    /// also called when it needs to be filled more due to the API user
+    /// requesting contiguous memory. In either case, the existing buffer data
+    /// should be ignored; new data written to `w`.
     stream: *const fn (r: *Reader, w: *Writer, limit: Limit) StreamError!usize,
 
     /// Consumes bytes from the internally tracked stream position without
@@ -194,7 +197,7 @@ pub fn streamRemaining(r: *Reader, w: *Writer) StreamRemainingError!usize {
 /// Consumes the stream until the end, ignoring all the data, returning the
 /// number of bytes discarded.
 pub fn discardRemaining(r: *Reader) ShortError!usize {
-    var offset: usize = r.end;
+    var offset: usize = r.end - r.seek;
     r.seek = 0;
     r.end = 0;
     while (true) {
@@ -693,6 +696,17 @@ pub fn takeSentinel(r: *Reader, comptime sentinel: u8) DelimiterError![:sentinel
     return result;
 }
 
+/// Returns a slice of the next bytes of buffered data from the stream until
+/// `sentinel` is found, without advancing the seek position.
+///
+/// Returned slice has a sentinel; end of stream does not count as a delimiter.
+///
+/// Invalidates previously returned values from `peek`.
+///
+/// See also:
+/// * `takeSentinel`
+/// * `peekDelimiterExclusive`
+/// * `peekDelimiterInclusive`
 pub fn peekSentinel(r: *Reader, comptime sentinel: u8) DelimiterError![:sentinel]u8 {
     const result = try r.peekDelimiterInclusive(sentinel);
     return result[0 .. result.len - 1 :sentinel];
@@ -733,27 +747,37 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
         @branchHint(.likely);
         return buffer[seek .. end + 1];
     }
-    if (seek > 0) {
-        const remainder = buffer[seek..];
-        @memmove(buffer[0..remainder.len], remainder);
-        r.end = remainder.len;
-        r.seek = 0;
-    }
-    var writer: Writer = .{
-        .buffer = r.buffer,
-        .vtable = &.{ .drain = Writer.fixedDrain },
-    };
-    while (r.end < r.buffer.len) {
-        writer.end = r.end;
-        const n = r.vtable.stream(r, &writer, .limited(r.buffer.len - r.end)) catch |err| switch (err) {
+    while (r.buffer.len - r.end != 0) {
+        const end_cap = r.buffer[r.end..];
+        var writer: Writer = .fixed(end_cap);
+        const n = r.vtable.stream(r, &writer, .limited(end_cap.len)) catch |err| switch (err) {
             error.WriteFailed => unreachable,
             else => |e| return e,
         };
-        const prev_end = r.end;
-        r.end = prev_end + n;
-        if (std.mem.indexOfScalarPos(u8, r.buffer[0..r.end], prev_end, delimiter)) |end| {
-            return r.buffer[0 .. end + 1];
+        r.end += n;
+        if (std.mem.indexOfScalarPos(u8, end_cap[0..n], 0, delimiter)) |end| {
+            return r.buffer[seek .. r.end - n + end + 1];
         }
+    }
+    var i: usize = 0;
+    while (seek - i != 0) {
+        const begin_cap = r.buffer[i..seek];
+        var writer: Writer = .fixed(begin_cap);
+        const n = r.vtable.stream(r, &writer, .limited(begin_cap.len)) catch |err| switch (err) {
+            error.WriteFailed => unreachable,
+            else => |e| return e,
+        };
+        i += n;
+        if (std.mem.indexOfScalarPos(u8, r.buffer[0..seek], i, delimiter)) |end| {
+            std.mem.rotate(u8, r.buffer, seek);
+            r.seek = 0;
+            r.end += i;
+            return r.buffer[0 .. seek + end + 1];
+        }
+    } else if (i != 0) {
+        std.mem.rotate(u8, r.buffer, seek);
+        r.seek = 0;
+        r.end += i;
     }
     return error.StreamTooLong;
 }
@@ -778,9 +802,10 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 pub fn takeDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
     const result = r.peekDelimiterInclusive(delimiter) catch |err| switch (err) {
         error.EndOfStream => {
-            if (r.end == 0) return error.EndOfStream;
-            r.toss(r.end);
-            return r.buffer[0..r.end];
+            const remaining = r.buffer[r.seek..r.end];
+            if (remaining.len == 0) return error.EndOfStream;
+            r.toss(remaining.len);
+            return remaining;
         },
         else => |e| return e,
     };
@@ -808,8 +833,10 @@ pub fn takeDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 pub fn peekDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
     const result = r.peekDelimiterInclusive(delimiter) catch |err| switch (err) {
         error.EndOfStream => {
-            if (r.end == 0) return error.EndOfStream;
-            return r.buffer[0..r.end];
+            const remaining = r.buffer[r.seek..r.end];
+            if (remaining.len == 0) return error.EndOfStream;
+            r.toss(remaining.len);
+            return remaining;
         },
         else => |e| return e,
     };
@@ -1219,27 +1246,38 @@ test fixed {
 }
 
 test peek {
-    return error.Unimplemented;
+    var r: Reader = .fixed("abc");
+    try testing.expectEqualStrings("ab", try r.peek(2));
+    try testing.expectEqualStrings("a", try r.peek(1));
 }
 
 test peekGreedy {
-    return error.Unimplemented;
+    var r: Reader = .fixed("abc");
+    try testing.expectEqualStrings("abc", try r.peekGreedy(1));
 }
 
 test toss {
-    return error.Unimplemented;
+    var r: Reader = .fixed("abc");
+    r.toss(1);
+    try testing.expectEqualStrings("bc", r.buffered());
 }
 
 test take {
-    return error.Unimplemented;
+    var r: Reader = .fixed("abc");
+    try testing.expectEqualStrings("ab", try r.take(2));
+    try testing.expectEqualStrings("c", try r.take(1));
 }
 
 test takeArray {
-    return error.Unimplemented;
+    var r: Reader = .fixed("abc");
+    try testing.expectEqualStrings("ab", try r.takeArray(2));
+    try testing.expectEqualStrings("c", try r.takeArray(1));
 }
 
 test peekArray {
-    return error.Unimplemented;
+    var r: Reader = .fixed("abc");
+    try testing.expectEqualStrings("ab", try r.peekArray(2));
+    try testing.expectEqualStrings("a", try r.peekArray(1));
 }
 
 test discardAll {
@@ -1251,35 +1289,63 @@ test discardAll {
 }
 
 test discardRemaining {
-    return error.Unimplemented;
+    var r: Reader = .fixed("foobar");
+    r.toss(1);
+    try testing.expectEqual(5, try r.discardRemaining());
+    try testing.expectEqual(0, try r.discardRemaining());
 }
 
 test stream {
-    return error.Unimplemented;
+    var out_buffer: [10]u8 = undefined;
+    var r: Reader = .fixed("foobar");
+    var w: Writer = .fixed(&out_buffer);
+    // Short streams are possible with this function but not with fixed.
+    try testing.expectEqual(2, try r.stream(&w, .limited(2)));
+    try testing.expectEqualStrings("fo", w.buffered());
+    try testing.expectEqual(4, try r.stream(&w, .unlimited));
+    try testing.expectEqualStrings("foobar", w.buffered());
 }
 
 test takeSentinel {
-    return error.Unimplemented;
+    var r: Reader = .fixed("ab\nc");
+    try testing.expectEqualStrings("ab", try r.takeSentinel('\n'));
+    try testing.expectError(error.EndOfStream, r.takeSentinel('\n'));
+    try testing.expectEqualStrings("c", try r.peek(1));
 }
 
 test peekSentinel {
-    return error.Unimplemented;
+    var r: Reader = .fixed("ab\nc");
+    try testing.expectEqualStrings("ab", try r.peekSentinel('\n'));
+    try testing.expectEqualStrings("ab", try r.peekSentinel('\n'));
 }
 
 test takeDelimiterInclusive {
-    return error.Unimplemented;
+    var r: Reader = .fixed("ab\nc");
+    try testing.expectEqualStrings("ab\n", try r.takeDelimiterInclusive('\n'));
+    try testing.expectError(error.EndOfStream, r.takeDelimiterInclusive('\n'));
 }
 
 test peekDelimiterInclusive {
-    return error.Unimplemented;
+    var r: Reader = .fixed("ab\nc");
+    try testing.expectEqualStrings("ab\n", try r.peekDelimiterInclusive('\n'));
+    try testing.expectEqualStrings("ab\n", try r.peekDelimiterInclusive('\n'));
+    r.toss(3);
+    try testing.expectError(error.EndOfStream, r.peekDelimiterInclusive('\n'));
 }
 
 test takeDelimiterExclusive {
-    return error.Unimplemented;
+    var r: Reader = .fixed("ab\nc");
+    try testing.expectEqualStrings("ab", try r.takeDelimiterExclusive('\n'));
+    try testing.expectEqualStrings("c", try r.takeDelimiterExclusive('\n'));
+    try testing.expectError(error.EndOfStream, r.takeDelimiterExclusive('\n'));
 }
 
 test peekDelimiterExclusive {
-    return error.Unimplemented;
+    var r: Reader = .fixed("ab\nc");
+    try testing.expectEqualStrings("ab", try r.peekDelimiterExclusive('\n'));
+    try testing.expectEqualStrings("ab", try r.peekDelimiterExclusive('\n'));
+    r.toss(3);
+    try testing.expectEqualStrings("c", try r.peekDelimiterExclusive('\n'));
 }
 
 test readDelimiter {
@@ -1339,7 +1405,11 @@ test peekStructEndian {
 }
 
 test takeEnum {
-    return error.Unimplemented;
+    var r: Reader = .fixed(&.{ 2, 0, 1 });
+    const E1 = enum(u8) { a, b, c };
+    const E2 = enum(u16) { _ };
+    try testing.expectEqual(E1.c, try r.takeEnum(E1, .little));
+    try testing.expectEqual(@as(E2, @enumFromInt(0x0001)), try r.takeEnum(E2, .big));
 }
 
 test takeLeb128 {
