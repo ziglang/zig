@@ -312,6 +312,12 @@ test dumpHexInternal {
     try std.testing.expectEqualStrings(expected, output.items);
 }
 
+pub const StackTraceMode = enum {
+    none,
+    slim,
+    full,
+};
+
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
@@ -404,6 +410,8 @@ pub inline fn getContext(context: *ThreadContext) bool {
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
     nosuspend {
+        if (std.options.debug_stacktrace_mode == .none) return;
+
         if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
                 const stderr = io.getStdErr().writer();
@@ -508,6 +516,8 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
     nosuspend {
+        if (std.options.debug_stacktrace_mode == .none) return;
+
         if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
                 const stderr = io.getStdErr().writer();
@@ -959,6 +969,8 @@ pub fn writeCurrentStackTrace(
     tty_config: io.tty.Config,
     start_addr: ?usize,
 ) !void {
+    if (std.options.debug_stacktrace_mode == .none) return;
+
     if (native_os == .windows) {
         var context: ThreadContext = undefined;
         assert(getContext(&context));
@@ -1126,6 +1138,8 @@ fn printLineInfo(
     comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
+        if (std.options.debug_stacktrace_mode == .none) return;
+
         try tty_config.setColor(out_stream, .bold);
 
         if (source_location) |*sl| {
@@ -1140,6 +1154,8 @@ fn printLineInfo(
         try out_stream.print("0x{x} in {s} ({s})", .{ address, symbol_name, compile_unit_name });
         try tty_config.setColor(out_stream, .reset);
         try out_stream.writeAll("\n");
+
+        if (std.options.debug_stacktrace_mode != .full) return;
 
         // Show the matching source code line if possible
         if (source_location) |sl| {

@@ -161,6 +161,35 @@ pub const Options = struct {
     http_enable_ssl_key_log_file: bool = @import("builtin").mode == .Debug,
 
     side_channels_mitigations: crypto.SideChannelsMitigations = crypto.default_side_channels_mitigations,
+
+    /// Controls the verbosity of runtime error return and stack traces.
+    ///
+    /// 'full': this is the default value and prints file/line/column/address information as well as a
+    /// snippet of the source code at that line.
+    ///
+    /// ```
+    /// thread 182792 panic: oops!
+    /// /src/test4.zig:28:5: 0x10762c0 in ipsum (test4)
+    ///     @panic("oops!");
+    ///     ^
+    /// ```
+    ///
+    /// 'slim': this is a similar option but does not print the source code excerpt.
+    ///
+    /// ```
+    /// thread 182911 panic: oops!
+    /// /src/test4.zig:28:5: 0x1073880 in ipsum (test4)
+    /// /src/test4.zig:24:10: 0x10660e8 in lorem (test4)
+    /// ```
+    ///
+    /// 'none': this will print no stack trace. By not including the stack printer code this option can
+    /// reduce binary size without stripping thus using an external debugger would still be able inspect.
+    ///
+    /// ```
+    /// thread 183137 panic: oops!
+    /// Aborted (core dumped)
+    /// ```
+    debug_stacktrace_mode: debug.StackTraceMode = if (@import("builtin").strip_debug_info) .none else .full,
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
