@@ -1345,7 +1345,6 @@ test streamDelimiter {
     var out_buffer: [10]u8 = undefined;
     var r: Reader = .fixed("foo\nbars");
     var w: Writer = .fixed(&out_buffer);
-    // Short streams are possible with this function but not with fixed.
     try testing.expectEqual(3, try r.streamDelimiter(&w, '\n'));
     try testing.expectEqualStrings("foo", w.buffered());
     try testing.expectEqual(0, try r.streamDelimiter(&w, '\n'));
@@ -1357,7 +1356,6 @@ test streamDelimiterEnding {
     var out_buffer: [10]u8 = undefined;
     var r: Reader = .fixed("foo\nbars");
     var w: Writer = .fixed(&out_buffer);
-    // Short streams are possible with this function but not with fixed.
     try testing.expectEqual(3, try r.streamDelimiterEnding(&w, '\n'));
     try testing.expectEqualStrings("foo", w.buffered());
     r.toss(1);
@@ -1368,7 +1366,14 @@ test streamDelimiterEnding {
 }
 
 test streamDelimiterLimit {
-    return error.Unimplemented;
+    var out_buffer: [10]u8 = undefined;
+    var r: Reader = .fixed("foo\nbars");
+    var w: Writer = .fixed(&out_buffer);
+    try testing.expectError(error.StreamTooLong, r.streamDelimiterLimit(&w, '\n', .limited(2)));
+    try testing.expectEqual(1, try r.streamDelimiterLimit(&w, '\n', .limited(3)));
+    r.toss(1);
+    try testing.expectEqual(4, try r.streamDelimiterLimit(&w, '\n', .unlimited));
+    try testing.expectEqualStrings("foobars", w.buffered());
 }
 
 test discardDelimiterExclusive {
