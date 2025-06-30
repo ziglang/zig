@@ -1068,6 +1068,9 @@ pub const Object = struct {
                 .full => .FullPreLink,
             },
             .allow_fast_isel = true,
+            // LLVM's RISC-V backend for some reason enables the machine outliner by default even
+            // though it's clearly not ready and produces multiple miscompilations in our std tests.
+            .allow_machine_outliner = !comp.root_mod.resolved_target.result.cpu.arch.isRISCV(),
             .asm_filename = null,
             .bin_filename = options.bin_path,
             .llvm_ir_filename = options.post_ir_path,

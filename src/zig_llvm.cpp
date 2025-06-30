@@ -260,6 +260,16 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
 
     TargetMachine &target_machine = *reinterpret_cast<TargetMachine*>(targ_machine_ref);
 
+    if (options->allow_fast_isel) {
+        target_machine.setO0WantsFastISel(true);
+    } else {
+        target_machine.setFastISel(false);
+    }
+
+    if (!options->allow_machine_outliner) {
+        target_machine.setMachineOutliner(false);
+    }
+
     Module &llvm_module = *unwrap(module_ref);
 
     // Pipeline configurations
@@ -383,12 +393,6 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
             *error_message = strdup("TargetMachine can't emit an assembly file");
             return true;
         }
-    }
-
-    if (options->allow_fast_isel) {
-        target_machine.setO0WantsFastISel(true);
-    } else {
-        target_machine.setFastISel(false);
     }
 
     // Optimization phase

@@ -92,6 +92,7 @@ pub const TargetMachine = opaque {
         sancov: bool,
         lto: LtoPhase,
         allow_fast_isel: bool,
+        allow_machine_outliner: bool,
         asm_filename: ?[*:0]const u8,
         bin_filename: ?[*:0]const u8,
         llvm_ir_filename: ?[*:0]const u8,
