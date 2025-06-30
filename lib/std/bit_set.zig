@@ -1699,6 +1699,7 @@ fn testStaticBitSet(comptime Set: type) !void {
 
 test IntegerBitSet {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (comptime builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24300
 
     try testStaticBitSet(IntegerBitSet(0));
     try testStaticBitSet(IntegerBitSet(1));
