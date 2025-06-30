@@ -76,9 +76,11 @@ const RiscvCpuinfoImpl = struct {
 
     const cpu_names = .{
         .{ "sifive,u54", &Target.riscv.cpu.sifive_u54 },
+        .{ "sifive,u54-mc", &Target.riscv.cpu.sifive_u54 },
         .{ "sifive,u7", &Target.riscv.cpu.sifive_7_series },
         .{ "sifive,u74", &Target.riscv.cpu.sifive_u74 },
         .{ "sifive,u74-mc", &Target.riscv.cpu.sifive_u74 },
+        .{ "spacemit,x60", &Target.riscv.cpu.spacemit_x60 },
     };
 
     fn line_hook(self: *RiscvCpuinfoImpl, key: []const u8, value: []const u8) !bool {
