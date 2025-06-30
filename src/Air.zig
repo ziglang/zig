@@ -1141,6 +1141,20 @@ pub const Inst = struct {
         pub fn toType(ref: Ref) Type {
             return .fromInterned(ref.toInterned().?);
         }
+
+        pub fn fromIntern(ip_index: InternPool.Index) Ref {
+            return switch (ip_index) {
+                .none => .none,
+                else => {
+                    assert(@intFromEnum(ip_index) >> 31 == 0);
+                    return @enumFromInt(@as(u31, @intCast(@intFromEnum(ip_index))));
+                },
+            };
+        }
+
+        pub fn fromValue(v: Value) Ref {
+            return .fromIntern(v.toIntern());
+        }
     };
 
     /// All instructions have an 8-byte payload, which is contained within
@@ -1754,13 +1768,7 @@ pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
 }
 
 pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
-    return switch (ip_index) {
-        .none => .none,
-        else => {
-            assert(@intFromEnum(ip_index) >> 31 == 0);
-            return @enumFromInt(@as(u31, @intCast(@intFromEnum(ip_index))));
-        },
-    };
+    return .fromIntern(ip_index);
 }
 
 /// Returns `null` if runtime-known.
