@@ -2158,8 +2158,11 @@ pub const Allocating = struct {
         var list = a.toArrayList();
         defer setArrayList(a, list);
         const start_len = list.items.len;
+        // Even if we append no data, this function needs to ensure there is more
+        // capacity in the buffer to avoid infinite loop, hence the +1 in this loop.
+        assert(data.len != 0);
         for (data) |bytes| {
-            list.ensureUnusedCapacity(gpa, bytes.len + splat_len) catch return error.WriteFailed;
+            list.ensureUnusedCapacity(gpa, bytes.len + splat_len + 1) catch return error.WriteFailed;
             list.appendSliceAssumeCapacity(bytes);
         }
         if (splat == 0) {
