@@ -7,22 +7,22 @@ const BinaryModule = @import("BinaryModule.zig");
 const Section = @import("../../codegen/spirv/Section.zig");
 const spec = @import("../../codegen/spirv/spec.zig");
 const Opcode = spec.Opcode;
-const ResultId = spec.IdResult;
+const Id = spec.Id;
 const Word = spec.Word;
 
 fn canDeduplicate(opcode: Opcode) bool {
     return switch (opcode) {
-        .OpTypeForwardPointer => false, // Don't need to handle these
-        .OpGroupDecorate, .OpGroupMemberDecorate => {
+        .type_forward_pointer => false, // Don't need to handle these
+        .group_decorate, .group_member_decorate => {
             // These are deprecated, so don't bother supporting them for now.
             return false;
         },
         // Debug decoration-style instructions
-        .OpName, .OpMemberName => true,
+        .name, .member_name => true,
         else => switch (opcode.class()) {
-            .TypeDeclaration,
-            .ConstantCreation,
-            .Annotation,
+            .type_declaration,
+            .constant_creation,
+            .annotation,
             => true,
             else => false,
         },
@@ -54,7 +54,7 @@ const ModuleInfo = struct {
     };
 
     /// Maps result-id to Entity's
-    entities: std.AutoArrayHashMapUnmanaged(ResultId, Entity),
+    entities: std.AutoArrayHashMapUnmanaged(Id, Entity),
     /// A bit set that keeps track of which operands are result-ids.
     /// Note: This also includes any result-id!
     /// Because we need these values when recoding the module anyway,
@@ -68,10 +68,10 @@ const ModuleInfo = struct {
         parser: *BinaryModule.Parser,
         binary: BinaryModule,
     ) !ModuleInfo {
-        var entities = std.AutoArrayHashMap(ResultId, Entity).init(arena);
+        var entities = std.AutoArrayHashMap(Id, Entity).init(arena);
         var id_offsets = std.ArrayList(u16).init(arena);
         var operand_is_id = try std.DynamicBitSetUnmanaged.initEmpty(arena, binary.instructions.len);
-        var decorations = std.MultiArrayList(struct { target_id: ResultId, entity: Entity }){};
+        var decorations = std.MultiArrayList(struct { target_id: Id, entity: Entity }){};
 
         var it = binary.iterateInstructions();
         while (it.next()) |inst| {
@@ -86,12 +86,12 @@ const ModuleInfo = struct {
             if (!canDeduplicate(inst.opcode)) continue;
 
             const result_id_index: u16 = switch (inst.opcode.class()) {
-                .TypeDeclaration, .Annotation, .Debug => 0,
-                .ConstantCreation => 1,
+                .type_declaration, .annotation, .debug => 0,
+                .constant_creation => 1,
                 else => unreachable,
             };
 
-            const result_id: ResultId = @enumFromInt(inst.operands[id_offsets.items[result_id_index]]);
+            const result_id: Id = @enumFromInt(inst.operands[id_offsets.items[result_id_index]]);
             const entity = Entity{
                 .kind = inst.opcode,
                 .first_operand = first_operand_offset,
@@ -101,13 +101,13 @@ const ModuleInfo = struct {
             };
 
             switch (inst.opcode.class()) {
-                .Annotation, .Debug => {
+                .annotation, .debug => {
                     try decorations.append(arena, .{
                         .target_id = result_id,
                         .entity = entity,
                     });
                 },
-                .TypeDeclaration, .ConstantCreation => {
+                .type_declaration, .constant_creation => {
                     const entry = try entities.getOrPut(result_id);
                     if (entry.found_existing) {
                         log.err("type or constant {} has duplicate definition", .{result_id});
@@ -124,8 +124,8 @@ const ModuleInfo = struct {
         // are continuous, but the subsequences also appear in the same order as in `entities`.
 
         const SortContext = struct {
-            entities: std.AutoArrayHashMapUnmanaged(ResultId, Entity),
-            ids: []const ResultId,
+            entities: std.AutoArrayHashMapUnmanaged(Id, Entity),
+            ids: []const Id,
 
             pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
                 // If any index is not in the entities set, its because its not a
@@ -178,8 +178,8 @@ const ModuleInfo = struct {
 
 const EntityContext = struct {
     a: Allocator,
-    ptr_map_a: std.AutoArrayHashMapUnmanaged(ResultId, void) = .empty,
-    ptr_map_b: std.AutoArrayHashMapUnmanaged(ResultId, void) = .empty,
+    ptr_map_a: std.AutoArrayHashMapUnmanaged(Id, void) = .empty,
+    ptr_map_b: std.AutoArrayHashMapUnmanaged(Id, void) = .empty,
     info: *const ModuleInfo,
     binary: *const BinaryModule,
 
@@ -196,14 +196,14 @@ const EntityContext = struct {
         try self.ptr_map_b.ensureTotalCapacity(self.a, cap);
     }
 
-    fn hash(self: *EntityContext, id: ResultId) !u64 {
+    fn hash(self: *EntityContext, id: Id) !u64 {
         var hasher = std.hash.Wyhash.init(0);
         self.ptr_map_a.clearRetainingCapacity();
         try self.hashInner(&hasher, id);
         return hasher.final();
     }
 
-    fn hashInner(self: *EntityContext, hasher: *std.hash.Wyhash, id: ResultId) error{OutOfMemory}!void {
+    fn hashInner(self: *EntityContext, hasher: *std.hash.Wyhash, id: Id) error{OutOfMemory}!void {
         const index = self.info.entities.getIndex(id) orelse {
             // Index unknown, the type or constant may depend on another result-id
             // that couldn't be deduplicated and so it wasn't added to info.entities.
@@ -217,7 +217,7 @@ const EntityContext = struct {
         // If the current pointer is recursive, don't immediately add it to the map. This is to ensure that
         // if the current pointer is already recursive, it gets the same hash a pointer that points to the
         // same child but has a different result-id.
-        if (entity.kind == .OpTypePointer) {
+        if (entity.kind == .type_pointer) {
             // This may be either a pointer that is forward-referenced in the future,
             // or a forward reference to a pointer.
             // Note: We use the **struct** here instead of the pointer itself, to avoid an edge case like this:
@@ -247,7 +247,7 @@ const EntityContext = struct {
             // algorithm though, and because we don't expect any correctness issues with it, we leave that for now.
 
             // TODO: Do we need to mind the storage class here? Its going to be recursive regardless, right?
-            const struct_id: ResultId = @enumFromInt(entity.operands(self.binary)[2]);
+            const struct_id: Id = @enumFromInt(entity.operands(self.binary)[2]);
             const entry = try self.ptr_map_a.getOrPut(self.a, struct_id);
             if (entry.found_existing) {
                 // Pointer already seen. Hash the index instead of recursing into its children.
@@ -264,8 +264,8 @@ const EntityContext = struct {
             try self.hashEntity(hasher, decoration);
         }
 
-        if (entity.kind == .OpTypePointer) {
-            const struct_id: ResultId = @enumFromInt(entity.operands(self.binary)[2]);
+        if (entity.kind == .type_pointer) {
+            const struct_id: Id = @enumFromInt(entity.operands(self.binary)[2]);
             assert(self.ptr_map_a.swapRemove(struct_id));
         }
     }
@@ -288,14 +288,14 @@ const EntityContext = struct {
         }
     }
 
-    fn eql(self: *EntityContext, a: ResultId, b: ResultId) !bool {
+    fn eql(self: *EntityContext, a: Id, b: Id) !bool {
         self.ptr_map_a.clearRetainingCapacity();
         self.ptr_map_b.clearRetainingCapacity();
 
         return try self.eqlInner(a, b);
     }
 
-    fn eqlInner(self: *EntityContext, id_a: ResultId, id_b: ResultId) error{OutOfMemory}!bool {
+    fn eqlInner(self: *EntityContext, id_a: Id, id_b: Id) error{OutOfMemory}!bool {
         const maybe_index_a = self.info.entities.getIndex(id_a);
         const maybe_index_b = self.info.entities.getIndex(id_b);
 
@@ -317,12 +317,12 @@ const EntityContext = struct {
             return false;
         }
 
-        if (entity_a.kind == .OpTypePointer) {
+        if (entity_a.kind == .type_pointer) {
             // May be a forward reference, or should be saved as a potential
             // forward reference in the future. Whatever the case, it should
             // be the same for both a and b.
-            const struct_id_a: ResultId = @enumFromInt(entity_a.operands(self.binary)[2]);
-            const struct_id_b: ResultId = @enumFromInt(entity_b.operands(self.binary)[2]);
+            const struct_id_a: Id = @enumFromInt(entity_a.operands(self.binary)[2]);
+            const struct_id_b: Id = @enumFromInt(entity_b.operands(self.binary)[2]);
 
             const entry_a = try self.ptr_map_a.getOrPut(self.a, struct_id_a);
             const entry_b = try self.ptr_map_b.getOrPut(self.a, struct_id_b);
@@ -353,9 +353,9 @@ const EntityContext = struct {
             }
         }
 
-        if (entity_a.kind == .OpTypePointer) {
-            const struct_id_a: ResultId = @enumFromInt(entity_a.operands(self.binary)[2]);
-            const struct_id_b: ResultId = @enumFromInt(entity_b.operands(self.binary)[2]);
+        if (entity_a.kind == .type_pointer) {
+            const struct_id_a: Id = @enumFromInt(entity_a.operands(self.binary)[2]);
+            const struct_id_b: Id = @enumFromInt(entity_b.operands(self.binary)[2]);
 
             assert(self.ptr_map_a.swapRemove(struct_id_a));
             assert(self.ptr_map_b.swapRemove(struct_id_b));
@@ -409,11 +409,11 @@ const EntityContext = struct {
 const EntityHashContext = struct {
     entity_context: *EntityContext,
 
-    pub fn hash(self: EntityHashContext, key: ResultId) u64 {
+    pub fn hash(self: EntityHashContext, key: Id) u64 {
         return self.entity_context.hash(key) catch unreachable;
     }
 
-    pub fn eql(self: EntityHashContext, a: ResultId, b: ResultId) bool {
+    pub fn eql(self: EntityHashContext, a: Id, b: Id) bool {
         return self.entity_context.eql(a, b) catch unreachable;
     }
 };
@@ -443,10 +443,10 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
     try ctx.equalizeMapCapacity();
 
     // Figure out which entities can be deduplicated.
-    var map = std.HashMap(ResultId, void, EntityHashContext, 80).initContext(a, .{
+    var map = std.HashMap(Id, void, EntityHashContext, 80).initContext(a, .{
         .entity_context = &ctx,
     });
-    var replace = std.AutoArrayHashMap(ResultId, ResultId).init(a);
+    var replace = std.AutoArrayHashMap(Id, Id).init(a);
     for (info.entities.keys()) |id| {
         const entry = try map.getOrPut(id);
         if (entry.found_existing) {
@@ -461,7 +461,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
     var it = binary.iterateInstructions();
     var new_functions_section: ?usize = null;
     var new_operands = std.ArrayList(u32).init(a);
-    var emitted_ptrs = std.AutoHashMap(ResultId, void).init(a);
+    var emitted_ptrs = std.AutoHashMap(Id, void).init(a);
     while (it.next()) |inst| {
         defer sub_node.setCompletedItems(inst.offset);
 
@@ -469,29 +469,29 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
         const inst_spec = parser.getInstSpec(inst.opcode).?;
 
         const maybe_result_id_offset: ?u16 = for (0..2) |i| {
-            if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .IdResult) {
+            if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .id_result) {
                 break @intCast(i);
             }
         } else null;
 
         if (maybe_result_id_offset) |offset| {
-            const result_id: ResultId = @enumFromInt(inst.operands[offset]);
+            const result_id: Id = @enumFromInt(inst.operands[offset]);
             if (replace.contains(result_id)) continue;
         }
 
         switch (inst.opcode) {
-            .OpFunction => if (new_functions_section == null) {
+            .function => if (new_functions_section == null) {
                 new_functions_section = section.instructions.items.len;
             },
-            .OpTypeForwardPointer => continue, // We re-emit these where needed
+            .type_forward_pointer => continue, // We re-emit these where needed
             else => {},
         }
 
         switch (inst.opcode.class()) {
-            .Annotation, .Debug => {
+            .annotation, .debug => {
                 // For decoration-style instructions, only emit them
                 // if the target is not removed.
-                const target: ResultId = @enumFromInt(inst.operands[0]);
+                const target: Id = @enumFromInt(inst.operands[0]);
                 if (replace.contains(target)) continue;
             },
             else => {},
@@ -515,18 +515,18 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
                 // Debug and Annotation instructions don't need the forward pointer, and it
                 // messes up the logical layout of the module.
                 switch (inst.opcode.class()) {
-                    .TypeDeclaration, .ConstantCreation, .Memory => {},
+                    .type_declaration, .constant_creation, .memory => {},
                     else => continue,
                 }
 
-                const id: ResultId = @enumFromInt(operand.*);
+                const id: Id = @enumFromInt(operand.*);
                 const index = info.entities.getIndex(id) orelse continue;
                 const entity = info.entities.values()[index];
-                if (entity.kind == .OpTypePointer and !emitted_ptrs.contains(id)) {
+                if (entity.kind == .type_pointer and !emitted_ptrs.contains(id)) {
                     // Grab the pointer's storage class from its operands in the original
                     // module.
                     const storage_class: spec.StorageClass = @enumFromInt(entity.operands(binary)[1]);
-                    try section.emit(a, .OpTypeForwardPointer, .{
+                    try section.emit(a, .type_forward_pointer, .{
                         .pointer_type = id,
                         .storage_class = storage_class,
                     });
@@ -535,8 +535,8 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
             }
         }
 
-        if (inst.opcode == .OpTypePointer) {
-            const result_id: ResultId = @enumFromInt(new_operands.items[maybe_result_id_offset.?]);
+        if (inst.opcode == .type_pointer) {
+            const result_id: Id = @enumFromInt(new_operands.items[maybe_result_id_offset.?]);
             try emitted_ptrs.put(result_id, {});
         }
 

@@ -7,7 +7,7 @@ const spec = @import("../../codegen/spirv/spec.zig");
 const Opcode = spec.Opcode;
 const Word = spec.Word;
 const InstructionSet = spec.InstructionSet;
-const ResultId = spec.IdResult;
+const Id = spec.Id;
 
 const BinaryModule = @This();
 
@@ -26,12 +26,12 @@ id_bound: u32,
 instructions: []const Word,
 
 /// Maps OpExtInstImport result-ids to their InstructionSet.
-ext_inst_map: std.AutoHashMapUnmanaged(ResultId, InstructionSet),
+ext_inst_map: std.AutoHashMapUnmanaged(Id, InstructionSet),
 
 /// This map contains the width of arithmetic types (OpTypeInt and
 /// OpTypeFloat). We need this information to correctly parse the operands
 /// of Op(Spec)Constant and OpSwitch.
-arith_type_width: std.AutoHashMapUnmanaged(ResultId, u16),
+arith_type_width: std.AutoHashMapUnmanaged(Id, u16),
 
 /// The starting offsets of some sections
 sections: struct {
@@ -230,7 +230,7 @@ pub const Parser = struct {
 
             const operands = binary.instructions[offset..][1..len];
             switch (opcode) {
-                .OpExtInstImport => {
+                .ext_inst_import => {
                     const set_name = std.mem.sliceTo(std.mem.sliceAsBytes(operands[1..]), 0);
                     const set = std.meta.stringToEnum(InstructionSet, set_name) orelse {
                         log.err("invalid instruction set '{s}'", .{set_name});
@@ -239,12 +239,12 @@ pub const Parser = struct {
                     if (set == .core) return error.InvalidExtInstImport;
                     try binary.ext_inst_map.put(self.a, @enumFromInt(operands[0]), set);
                 },
-                .OpTypeInt, .OpTypeFloat => {
+                .type_int, .type_float => {
                     const entry = try binary.arith_type_width.getOrPut(self.a, @enumFromInt(operands[0]));
                     if (entry.found_existing) return error.DuplicateId;
                     entry.value_ptr.* = std.math.cast(u16, operands[1]) orelse return error.InvalidOperands;
                 },
-                .OpFunction => if (maybe_function_section == null) {
+                .function => if (maybe_function_section == null) {
                     maybe_function_section = offset;
                 },
                 else => {},
@@ -254,8 +254,8 @@ pub const Parser = struct {
             // with ALL operations that return an int or float.
             const spec_operands = inst_spec.operands;
             if (spec_operands.len >= 2 and
-                spec_operands[0].kind == .IdResultType and
-                spec_operands[1].kind == .IdResult)
+                spec_operands[0].kind == .id_result_type and
+                spec_operands[1].kind == .id_result)
             {
                 if (operands.len < 2) return error.InvalidOperands;
                 if (binary.arith_type_width.get(@enumFromInt(operands[0]))) |width| {
@@ -287,9 +287,9 @@ pub const Parser = struct {
 
         var offset: usize = 0;
         switch (inst.opcode) {
-            .OpSpecConstantOp => {
-                assert(operands[0].kind == .IdResultType);
-                assert(operands[1].kind == .IdResult);
+            .spec_constant_op => {
+                assert(operands[0].kind == .id_result_type);
+                assert(operands[1].kind == .id_result);
                 offset = try self.parseOperandsResultIds(binary, inst, operands[0..2], offset, offsets);
 
                 if (offset >= inst.operands.len) return error.InvalidPhysicalFormat;
@@ -297,17 +297,17 @@ pub const Parser = struct {
                 const spec_index = self.opcode_table.get(mapSetAndOpcode(.core, spec_opcode)) orelse
                     return error.InvalidPhysicalFormat;
                 const spec_operands = InstructionSet.core.instructions()[spec_index].operands;
-                assert(spec_operands[0].kind == .IdResultType);
-                assert(spec_operands[1].kind == .IdResult);
+                assert(spec_operands[0].kind == .id_result_type);
+                assert(spec_operands[1].kind == .id_result);
                 offset = try self.parseOperandsResultIds(binary, inst, spec_operands[2..], offset + 1, offsets);
             },
-            .OpExtInst => {
-                assert(operands[0].kind == .IdResultType);
-                assert(operands[1].kind == .IdResult);
+            .ext_inst => {
+                assert(operands[0].kind == .id_result_type);
+                assert(operands[1].kind == .id_result);
                 offset = try self.parseOperandsResultIds(binary, inst, operands[0..2], offset, offsets);
 
                 if (offset + 1 >= inst.operands.len) return error.InvalidPhysicalFormat;
-                const set_id: ResultId = @enumFromInt(inst.operands[offset]);
+                const set_id: Id = @enumFromInt(inst.operands[offset]);
                 try offsets.append(@intCast(offset));
                 const set = binary.ext_inst_map.get(set_id) orelse {
                     log.err("invalid instruction set {}", .{@intFromEnum(set_id)});
@@ -405,8 +405,8 @@ pub const Parser = struct {
                 offset += 1;
             },
             else => switch (kind) {
-                .LiteralInteger, .LiteralFloat => offset += 1,
-                .LiteralString => while (true) {
+                .literal_integer, .literal_float => offset += 1,
+                .literal_string => while (true) {
                     if (offset >= inst.operands.len) return error.InvalidPhysicalFormat;
                     const word = inst.operands[offset];
                     offset += 1;
@@ -419,8 +419,8 @@ pub const Parser = struct {
                         break;
                     }
                 },
-                .LiteralContextDependentNumber => {
-                    assert(inst.opcode == .OpConstant or inst.opcode == .OpSpecConstantOp);
+                .literal_context_dependent_number => {
+                    assert(inst.opcode == .constant or inst.opcode == .spec_constant_op);
                     const bit_width = binary.arith_type_width.get(@enumFromInt(inst.operands[0])) orelse {
                         log.err("invalid LiteralContextDependentNumber type {}", .{inst.operands[0]});
                         return error.InvalidId;
@@ -431,10 +431,10 @@ pub const Parser = struct {
                         else => unreachable,
                     };
                 },
-                .LiteralExtInstInteger => unreachable,
-                .LiteralSpecConstantOpInteger => unreachable,
-                .PairLiteralIntegerIdRef => { // Switch case
-                    assert(inst.opcode == .OpSwitch);
+                .literal_ext_inst_integer => unreachable,
+                .literal_spec_constant_op_integer => unreachable,
+                .pair_literal_integer_id_ref => { // Switch case
+                    assert(inst.opcode == .@"switch");
                     const bit_width = binary.arith_type_width.get(@enumFromInt(inst.operands[0])) orelse {
                         log.err("invalid OpSwitch type {}", .{inst.operands[0]});
                         return error.InvalidId;
@@ -447,11 +447,11 @@ pub const Parser = struct {
                     try offsets.append(@intCast(offset));
                     offset += 1;
                 },
-                .PairIdRefLiteralInteger => {
+                .pair_id_ref_literal_integer => {
                     try offsets.append(@intCast(offset));
                     offset += 2;
                 },
-                .PairIdRefIdRef => {
+                .pair_id_ref_id_ref => {
                     try offsets.append(@intCast(offset));
                     try offsets.append(@intCast(offset + 1));
                     offset += 2;

@@ -7,8 +7,7 @@ const assert = std.debug.assert;
 const spec = @import("spec.zig");
 const Opcode = spec.Opcode;
 const Word = spec.Word;
-const IdRef = spec.IdRef;
-const IdResult = spec.IdResult;
+const Id = spec.Id;
 const StorageClass = spec.StorageClass;
 
 const SpvModule = @import("Module.zig");
@@ -127,10 +126,10 @@ const AsmValue = union(enum) {
     unresolved_forward_reference,
 
     /// This result-value is a normal result produced by a different instruction.
-    value: IdRef,
+    value: Id,
 
     /// This result-value represents a type registered into the module's type system.
-    ty: IdRef,
+    ty: Id,
 
     /// This is a pre-supplied constant integer value.
     constant: u32,
@@ -141,7 +140,7 @@ const AsmValue = union(enum) {
     /// Retrieve the result-id of this AsmValue. Asserts that this AsmValue
     /// is of a variant that allows the result to be obtained (not an unresolved
     /// forward declaration, not in the process of being declared, etc).
-    pub fn resultId(self: AsmValue) IdRef {
+    pub fn resultId(self: AsmValue) Id {
         return switch (self) {
             .just_declared,
             .unresolved_forward_reference,
@@ -275,20 +274,20 @@ fn todo(self: *Assembler, comptime fmt: []const u8, args: anytype) Error {
 /// error message has already been emitted into `self.errors`.
 fn processInstruction(self: *Assembler) !void {
     const result: AsmValue = switch (self.inst.opcode) {
-        .OpEntryPoint => {
+        .entry_point => {
             return self.fail(0, "cannot export entry points via OpEntryPoint, export the kernel using callconv(.kernel)", .{});
         },
-        .OpCapability => {
+        .capability => {
             try self.spv.addCapability(@enumFromInt(self.inst.operands.items[0].value));
             return;
         },
-        .OpExtension => {
+        .extension => {
             const ext_name_offset = self.inst.operands.items[0].string;
             const ext_name = std.mem.sliceTo(self.inst.string_bytes.items[ext_name_offset..], 0);
             try self.spv.addExtension(ext_name);
             return;
         },
-        .OpExtInstImport => blk: {
+        .ext_inst_import => blk: {
             const set_name_offset = self.inst.operands.items[1].string;
             const set_name = std.mem.sliceTo(self.inst.string_bytes.items[set_name_offset..], 0);
             const set_tag = std.meta.stringToEnum(spec.InstructionSet, set_name) orelse {
@@ -296,7 +295,7 @@ fn processInstruction(self: *Assembler) !void {
             };
             break :blk .{ .value = try self.spv.importInstructionSet(set_tag) };
         },
-        .OpExecutionMode, .OpExecutionModeId => {
+        .execution_mode, .execution_mode_id => {
             assert(try self.processGenericInstruction() == null);
             const entry_point_id = try self.resolveRefId(self.inst.operands.items[0].ref_id);
             const exec_mode: spec.ExecutionMode = @enumFromInt(self.inst.operands.items[1].value);
@@ -314,7 +313,7 @@ fn processInstruction(self: *Assembler) !void {
             return;
         },
         else => switch (self.inst.opcode.class()) {
-            .TypeDeclaration => try self.processTypeInstruction(),
+            .type_declaration => try self.processTypeInstruction(),
             else => (try self.processGenericInstruction()) orelse return,
         },
     };
@@ -336,9 +335,9 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
     const operands = self.inst.operands.items;
     const section = &self.spv.sections.types_globals_constants;
     const id = switch (self.inst.opcode) {
-        .OpTypeVoid => try self.spv.voidType(),
-        .OpTypeBool => try self.spv.boolType(),
-        .OpTypeInt => blk: {
+        .type_void => try self.spv.voidType(),
+        .type_bool => try self.spv.boolType(),
+        .type_int => blk: {
             const signedness: std.builtin.Signedness = switch (operands[2].literal32) {
                 0 => .unsigned,
                 1 => .signed,
@@ -352,7 +351,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             };
             break :blk try self.spv.intType(signedness, width);
         },
-        .OpTypeFloat => blk: {
+        .type_float => blk: {
             const bits = operands[1].literal32;
             switch (bits) {
                 16, 32, 64 => {},
@@ -362,47 +361,47 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             }
             break :blk try self.spv.floatType(@intCast(bits));
         },
-        .OpTypeVector => blk: {
+        .type_vector => blk: {
             const child_type = try self.resolveRefId(operands[1].ref_id);
             break :blk try self.spv.vectorType(operands[2].literal32, child_type);
         },
-        .OpTypeArray => {
+        .type_array => {
             // TODO: The length of an OpTypeArray is determined by a constant (which may be a spec constant),
             // and so some consideration must be taken when entering this in the type system.
             return self.todo("process OpTypeArray", .{});
         },
-        .OpTypeRuntimeArray => blk: {
+        .type_runtime_array => blk: {
             const element_type = try self.resolveRefId(operands[1].ref_id);
             const result_id = self.spv.allocId();
-            try section.emit(self.spv.gpa, .OpTypeRuntimeArray, .{
+            try section.emit(self.spv.gpa, .type_runtime_array, .{
                 .id_result = result_id,
                 .element_type = element_type,
             });
             break :blk result_id;
         },
-        .OpTypePointer => blk: {
+        .type_pointer => blk: {
             const storage_class: StorageClass = @enumFromInt(operands[1].value);
             const child_type = try self.resolveRefId(operands[2].ref_id);
             const result_id = self.spv.allocId();
-            try section.emit(self.spv.gpa, .OpTypePointer, .{
+            try section.emit(self.spv.gpa, .type_pointer, .{
                 .id_result = result_id,
                 .storage_class = storage_class,
                 .type = child_type,
             });
             break :blk result_id;
         },
-        .OpTypeStruct => blk: {
-            const ids = try self.gpa.alloc(IdRef, operands[1..].len);
+        .type_struct => blk: {
+            const ids = try self.gpa.alloc(Id, operands[1..].len);
             defer self.gpa.free(ids);
             for (operands[1..], ids) |op, *id| id.* = try self.resolveRefId(op.ref_id);
             const result_id = self.spv.allocId();
             try self.spv.structType(result_id, ids, null);
             break :blk result_id;
         },
-        .OpTypeImage => blk: {
+        .type_image => blk: {
             const sampled_type = try self.resolveRefId(operands[1].ref_id);
             const result_id = self.spv.allocId();
-            try section.emit(self.gpa, .OpTypeImage, .{
+            try section.emit(self.gpa, .type_image, .{
                 .id_result = result_id,
                 .sampled_type = sampled_type,
                 .dim = @enumFromInt(operands[2].value),
@@ -414,28 +413,28 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             });
             break :blk result_id;
         },
-        .OpTypeSampler => blk: {
+        .type_sampler => blk: {
             const result_id = self.spv.allocId();
-            try section.emit(self.gpa, .OpTypeSampler, .{ .id_result = result_id });
+            try section.emit(self.gpa, .type_sampler, .{ .id_result = result_id });
             break :blk result_id;
         },
-        .OpTypeSampledImage => blk: {
+        .type_sampled_image => blk: {
             const image_type = try self.resolveRefId(operands[1].ref_id);
             const result_id = self.spv.allocId();
-            try section.emit(self.gpa, .OpTypeSampledImage, .{ .id_result = result_id, .image_type = image_type });
+            try section.emit(self.gpa, .type_sampled_image, .{ .id_result = result_id, .image_type = image_type });
             break :blk result_id;
         },
-        .OpTypeFunction => blk: {
+        .type_function => blk: {
             const param_operands = operands[2..];
             const return_type = try self.resolveRefId(operands[1].ref_id);
 
-            const param_types = try self.spv.gpa.alloc(IdRef, param_operands.len);
+            const param_types = try self.spv.gpa.alloc(Id, param_operands.len);
             defer self.spv.gpa.free(param_types);
             for (param_types, param_operands) |*param, operand| {
                 param.* = try self.resolveRefId(operand.ref_id);
             }
             const result_id = self.spv.allocId();
-            try section.emit(self.spv.gpa, .OpTypeFunction, .{
+            try section.emit(self.spv.gpa, .type_function, .{
                 .id_result = result_id,
                 .return_type = return_type,
                 .id_ref_2 = param_types,
@@ -457,17 +456,17 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
     const operands = self.inst.operands.items;
     var maybe_spv_decl_index: ?SpvModule.Decl.Index = null;
     const section = switch (self.inst.opcode.class()) {
-        .ConstantCreation => &self.spv.sections.types_globals_constants,
-        .Annotation => &self.spv.sections.annotations,
-        .TypeDeclaration => unreachable, // Handled elsewhere.
+        .constant_creation => &self.spv.sections.types_globals_constants,
+        .annotation => &self.spv.sections.annotations,
+        .type_declaration => unreachable, // Handled elsewhere.
         else => switch (self.inst.opcode) {
-            .OpEntryPoint => unreachable,
-            .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
-            .OpVariable => section: {
+            .entry_point => unreachable,
+            .execution_mode, .execution_mode_id => &self.spv.sections.execution_modes,
+            .variable => section: {
                 const storage_class: spec.StorageClass = @enumFromInt(operands[2].value);
-                if (storage_class == .Function) break :section &self.func.prologue;
+                if (storage_class == .function) break :section &self.func.prologue;
                 maybe_spv_decl_index = try self.spv.allocDecl(.global);
-                if (self.spv.version.minor < 4 and storage_class != .Input and storage_class != .Output) {
+                if (self.spv.version.minor < 4 and storage_class != .input and storage_class != .output) {
                     // Before version 1.4, the interface’s storage classes are limited to the Input and Output
                     break :section &self.spv.sections.types_globals_constants;
                 }
@@ -481,7 +480,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
         },
     };
 
-    var maybe_result_id: ?IdResult = null;
+    var maybe_result_id: ?Id = null;
     const first_word = section.instructions.items.len;
     // At this point we're not quite sure how many operands this instruction is going to have,
     // so insert 0 and patch up the actual opcode word later.
@@ -504,12 +503,12 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
                 else
                     self.spv.allocId();
                 try section.ensureUnusedCapacity(self.spv.gpa, 1);
-                section.writeOperand(IdResult, maybe_result_id.?);
+                section.writeOperand(Id, maybe_result_id.?);
             },
             .ref_id => |index| {
                 const result = try self.resolveRef(index);
                 try section.ensureUnusedCapacity(self.spv.gpa, 1);
-                section.writeOperand(spec.IdRef, result.resultId());
+                section.writeOperand(spec.Id, result.resultId());
             },
             .string => |offset| {
                 const text = std.mem.sliceTo(self.inst.string_bytes.items[offset..], 0);
@@ -558,7 +557,7 @@ fn resolveRef(self: *Assembler, ref: AsmValue.Ref) !AsmValue {
     }
 }
 
-fn resolveRefId(self: *Assembler, ref: AsmValue.Ref) !IdRef {
+fn resolveRefId(self: *Assembler, ref: AsmValue.Ref) !Id {
     const value = try self.resolveRef(ref);
     return value.resultId();
 }
@@ -600,7 +599,7 @@ fn parseInstruction(self: *Assembler) !void {
     const expected_operands = inst.operands;
     // This is a loop because the result-id is not always the first operand.
     const requires_lhs_result = for (expected_operands) |op| {
-        if (op.kind == .IdResult) break true;
+        if (op.kind == .id_result) break true;
     } else false;
 
     if (requires_lhs_result and maybe_lhs_result == null) {
@@ -614,7 +613,7 @@ fn parseInstruction(self: *Assembler) !void {
     }
 
     for (expected_operands) |operand| {
-        if (operand.kind == .IdResult) {
+        if (operand.kind == .id_result) {
             try self.inst.operands.append(self.gpa, .{ .result_id = maybe_lhs_result.? });
             continue;
         }
@@ -646,11 +645,11 @@ fn parseOperand(self: *Assembler, kind: spec.OperandKind) Error!void {
         .value_enum => try self.parseValueEnum(kind),
         .id => try self.parseRefId(),
         else => switch (kind) {
-            .LiteralInteger => try self.parseLiteralInteger(),
-            .LiteralString => try self.parseString(),
-            .LiteralContextDependentNumber => try self.parseContextDependentNumber(),
-            .LiteralExtInstInteger => try self.parseLiteralExtInstInteger(),
-            .PairIdRefIdRef => try self.parsePhiSource(),
+            .literal_integer => try self.parseLiteralInteger(),
+            .literal_string => try self.parseString(),
+            .literal_context_dependent_number => try self.parseContextDependentNumber(),
+            .literal_ext_inst_integer => try self.parseLiteralExtInstInteger(),
+            .pair_id_ref_id_ref => try self.parsePhiSource(),
             else => return self.todo("parse operand of type {s}", .{@tagName(kind)}),
         },
     }
@@ -850,7 +849,7 @@ fn parseContextDependentNumber(self: *Assembler) !void {
     // Currently, this operand appears in OpConstant and OpSpecConstant, where the too-be-parsed type
     // is determined by the result type. That means that in this instructions we have to resolve the
     // operand type early and look at the result to see how we need to proceed.
-    assert(self.inst.opcode == .OpConstant or self.inst.opcode == .OpSpecConstant);
+    assert(self.inst.opcode == .constant or self.inst.opcode == .spec_constant);
 
     const tok = self.currentToken();
     const result = try self.resolveRef(self.inst.operands.items[0].ref_id);

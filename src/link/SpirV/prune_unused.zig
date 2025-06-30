@@ -15,14 +15,14 @@ const BinaryModule = @import("BinaryModule.zig");
 const Section = @import("../../codegen/spirv/Section.zig");
 const spec = @import("../../codegen/spirv/spec.zig");
 const Opcode = spec.Opcode;
-const ResultId = spec.IdResult;
+const Id = spec.Id;
 const Word = spec.Word;
 
 /// Return whether a particular opcode's instruction can be pruned.
 /// These are idempotent instructions at globals scope and instructions
 /// within functions that do not have any side effects.
 /// The opcodes that return true here do not necessarily need to
-/// have an .IdResult. If they don't, then they are regarded
+/// have an .id_result. If they don't, then they are regarded
 /// as 'decoration'-style instructions that don't keep their
 /// operands alive, but will be emitted if they are.
 fn canPrune(op: Opcode) bool {
@@ -34,32 +34,32 @@ fn canPrune(op: Opcode) bool {
     // instruction has any non-trivial side effects (like OpLoad
     // with the Volatile memory semantics).
     return switch (op.class()) {
-        .TypeDeclaration,
-        .Conversion,
-        .Arithmetic,
-        .RelationalAndLogical,
-        .Bit,
-        .Annotation,
+        .type_declaration,
+        .conversion,
+        .arithmetic,
+        .relational_and_logical,
+        .bit,
+        .annotation,
         => true,
         else => switch (op) {
-            .OpFunction,
-            .OpUndef,
-            .OpString,
-            .OpName,
-            .OpMemberName,
+            .function,
+            .undef,
+            .string,
+            .name,
+            .member_name,
             // Prune OpConstant* instructions but
             // retain OpSpecConstant declaration instructions
-            .OpConstantTrue,
-            .OpConstantFalse,
-            .OpConstant,
-            .OpConstantComposite,
-            .OpConstantSampler,
-            .OpConstantNull,
-            .OpSpecConstantOp,
+            .constant_true,
+            .constant_false,
+            .constant,
+            .constant_composite,
+            .constant_sampler,
+            .constant_null,
+            .spec_constant_op,
             // Prune ext inst import instructions, but not
             // ext inst instructions themselves, because
             // we don't know if they might have side effects.
-            .OpExtInstImport,
+            .ext_inst_import,
             => true,
             else => false,
         },
@@ -73,14 +73,14 @@ const ModuleInfo = struct {
     };
 
     /// Maps function result-id -> Fn information structure.
-    functions: std.AutoArrayHashMapUnmanaged(ResultId, Fn),
+    functions: std.AutoArrayHashMapUnmanaged(Id, Fn),
     /// For each function, a list of function result-ids that it calls.
-    callee_store: []const ResultId,
+    callee_store: []const Id,
     /// For each instruction, the offset at which it appears in the source module.
-    result_id_to_code_offset: std.AutoArrayHashMapUnmanaged(ResultId, usize),
+    result_id_to_code_offset: std.AutoArrayHashMapUnmanaged(Id, usize),
 
     /// Fetch the list of callees per function. Guaranteed to contain only unique IDs.
-    fn callees(self: ModuleInfo, fn_id: ResultId) []const ResultId {
+    fn callees(self: ModuleInfo, fn_id: Id) []const Id {
         const fn_index = self.functions.getIndex(fn_id).?;
         const values = self.functions.values();
         const first_callee = values[fn_index].first_callee;
@@ -100,18 +100,18 @@ const ModuleInfo = struct {
         parser: *BinaryModule.Parser,
         binary: BinaryModule,
     ) !ModuleInfo {
-        var functions = std.AutoArrayHashMap(ResultId, Fn).init(arena);
-        var calls = std.AutoArrayHashMap(ResultId, void).init(arena);
-        var callee_store = std.ArrayList(ResultId).init(arena);
-        var result_id_to_code_offset = std.AutoArrayHashMap(ResultId, usize).init(arena);
-        var maybe_current_function: ?ResultId = null;
+        var functions = std.AutoArrayHashMap(Id, Fn).init(arena);
+        var calls = std.AutoArrayHashMap(Id, void).init(arena);
+        var callee_store = std.ArrayList(Id).init(arena);
+        var result_id_to_code_offset = std.AutoArrayHashMap(Id, usize).init(arena);
+        var maybe_current_function: ?Id = null;
         var it = binary.iterateInstructions();
         while (it.next()) |inst| {
             const inst_spec = parser.getInstSpec(inst.opcode).?;
 
             // Result-id can only be the first or second operand
-            const maybe_result_id: ?ResultId = for (0..2) |i| {
-                if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .IdResult) {
+            const maybe_result_id: ?Id = for (0..2) |i| {
+                if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .id_result) {
                     break @enumFromInt(inst.operands[i]);
                 }
             } else null;
@@ -126,7 +126,7 @@ const ModuleInfo = struct {
             }
 
             switch (inst.opcode) {
-                .OpFunction => {
+                .function => {
                     if (maybe_current_function) |current_function| {
                         log.err("OpFunction {} does not have an OpFunctionEnd", .{current_function});
                         return error.InvalidPhysicalFormat;
@@ -134,11 +134,11 @@ const ModuleInfo = struct {
 
                     maybe_current_function = @enumFromInt(inst.operands[1]);
                 },
-                .OpFunctionCall => {
-                    const callee: ResultId = @enumFromInt(inst.operands[2]);
+                .function_call => {
+                    const callee: Id = @enumFromInt(inst.operands[2]);
                     try calls.put(callee, {});
                 },
-                .OpFunctionEnd => {
+                .function_end => {
                     const current_function = maybe_current_function orelse {
                         log.err("encountered OpFunctionEnd without corresponding OpFunction", .{});
                         return error.InvalidPhysicalFormat;
@@ -182,7 +182,7 @@ const AliveMarker = struct {
     result_id_offsets: std.ArrayList(u16),
     alive: std.DynamicBitSetUnmanaged,
 
-    fn markAlive(self: *AliveMarker, result_id: ResultId) BinaryModule.ParseError!void {
+    fn markAlive(self: *AliveMarker, result_id: Id) BinaryModule.ParseError!void {
         const index = self.info.result_id_to_code_offset.getIndex(result_id) orelse {
             log.err("undefined result-id {}", .{result_id});
             return error.InvalidId;
@@ -196,7 +196,7 @@ const AliveMarker = struct {
         const offset = self.info.result_id_to_code_offset.values()[index];
         const inst = self.binary.instructionAt(offset);
 
-        if (inst.opcode == .OpFunction) {
+        if (inst.opcode == .function) {
             try self.markFunctionAlive(inst);
         } else {
             try self.markInstructionAlive(inst);
@@ -212,7 +212,7 @@ const AliveMarker = struct {
         var it = self.binary.iterateInstructionsFrom(func_inst.offset);
         try self.markInstructionAlive(it.next().?);
         while (it.next()) |inst| {
-            if (inst.opcode == .OpFunctionEnd) {
+            if (inst.opcode == .function_end) {
                 break;
             }
 
@@ -241,7 +241,7 @@ const AliveMarker = struct {
 };
 
 fn removeIdsFromMap(a: Allocator, map: anytype, info: ModuleInfo, alive_marker: AliveMarker) !void {
-    var to_remove = std.ArrayList(ResultId).init(a);
+    var to_remove = std.ArrayList(Id).init(a);
     var it = map.iterator();
     while (it.next()) |entry| {
         const id = entry.key_ptr.*;
@@ -278,7 +278,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
     {
         var it = binary.iterateInstructions();
         while (it.next()) |inst| {
-            if (inst.opcode == .OpFunction) {
+            if (inst.opcode == .function) {
                 // No need to process further.
                 break;
             } else if (!canPrune(inst.opcode)) {
@@ -304,8 +304,8 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
             }
 
             // Result-id can only be the first or second operand
-            const result_id: ResultId = for (0..2) |i| {
-                if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .IdResult) {
+            const result_id: Id = for (0..2) |i| {
+                if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .id_result) {
                     break @enumFromInt(inst.operands[i]);
                 }
             } else {
@@ -314,7 +314,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
                 alive_marker.result_id_offsets.items.len = 0;
                 try parser.parseInstructionResultIds(binary.*, inst, &alive_marker.result_id_offsets);
                 for (alive_marker.result_id_offsets.items) |offset| {
-                    const id: ResultId = @enumFromInt(inst.operands[offset]);
+                    const id: Id = @enumFromInt(inst.operands[offset]);
                     const index = info.result_id_to_code_offset.getIndex(id).?;
 
                     if (!alive_marker.alive.isSet(index)) {
@@ -330,7 +330,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
                 break :reemit;
             }
 
-            if (inst.opcode != .OpFunction) {
+            if (inst.opcode != .function) {
                 // Instruction can be pruned and its not alive, so skip it.
                 continue :skip;
             }
@@ -338,14 +338,14 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
             // We're at the start of a function that can be pruned, so skip everything until
             // we encounter an OpFunctionEnd.
             while (it.next()) |body_inst| {
-                if (body_inst.opcode == .OpFunctionEnd)
+                if (body_inst.opcode == .function_end)
                     break;
             }
 
             continue :skip;
         }
 
-        if (inst.opcode == .OpFunction and new_functions_section == null) {
+        if (inst.opcode == .function and new_functions_section == null) {
             new_functions_section = section.instructions.items.len;
         }
 

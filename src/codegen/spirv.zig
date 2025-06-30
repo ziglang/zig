@@ -15,9 +15,7 @@ const InternPool = @import("../InternPool.zig");
 const spec = @import("spirv/spec.zig");
 const Opcode = spec.Opcode;
 const Word = spec.Word;
-const IdRef = spec.IdRef;
-const IdResult = spec.IdResult;
-const IdResultType = spec.IdResultType;
+const Id = spec.Id;
 const StorageClass = spec.StorageClass;
 
 const SpvModule = @import("spirv/Module.zig");
@@ -26,7 +24,7 @@ const IdRange = SpvModule.IdRange;
 const SpvSection = @import("spirv/Section.zig");
 const SpvAssembler = @import("spirv/Assembler.zig");
 
-const InstMap = std.AutoHashMapUnmanaged(Air.Inst.Index, IdRef);
+const InstMap = std.AutoHashMapUnmanaged(Air.Inst.Index, Id);
 
 pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
     return comptime &.initMany(&.{
@@ -42,10 +40,10 @@ pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
 pub const zig_call_abi_ver = 3;
 pub const big_int_bits = 32;
 
-const InternMap = std.AutoHashMapUnmanaged(struct { InternPool.Index, NavGen.Repr }, IdResult);
+const InternMap = std.AutoHashMapUnmanaged(struct { InternPool.Index, NavGen.Repr }, Id);
 const PtrTypeMap = std.AutoHashMapUnmanaged(
     struct { InternPool.Index, StorageClass, NavGen.Repr },
-    struct { ty_id: IdRef, fwd_emitted: bool },
+    struct { ty_id: Id, fwd_emitted: bool },
 );
 
 const ControlFlow = union(enum) {
@@ -55,10 +53,10 @@ const ControlFlow = union(enum) {
         /// inside the block must reach the outside.
         const Block = union(enum) {
             const Incoming = struct {
-                src_label: IdRef,
+                src_label: Id,
                 /// Instruction that returns an u32 value of the
                 /// `Air.Inst.Index` that control flow should jump to.
-                next_block: IdRef,
+                next_block: Id,
             };
 
             const SelectionMerge = struct {
@@ -69,7 +67,7 @@ const ControlFlow = union(enum) {
                 /// The label id of the cond_br's merge block.
                 /// For the top-most element in the stack, this
                 /// value is undefined.
-                merge_block: IdRef,
+                merge_block: Id,
             };
 
             /// For a `selection` type block, we cannot use early exits, and we
@@ -100,7 +98,7 @@ const ControlFlow = union(enum) {
                 /// of conditions that jump to the loop exit.
                 merges: std.ArrayListUnmanaged(Incoming) = .empty,
                 /// The label id of the loop's merge block.
-                merge_block: IdRef,
+                merge_block: Id,
             },
 
             fn deinit(self: *Structured.Block, a: Allocator) void {
@@ -116,17 +114,17 @@ const ControlFlow = union(enum) {
         block_stack: std.ArrayListUnmanaged(*Structured.Block) = .empty,
         /// Maps `block` inst indices to the variable that the block's result
         /// value must be written to.
-        block_results: std.AutoHashMapUnmanaged(Air.Inst.Index, IdRef) = .empty,
+        block_results: std.AutoHashMapUnmanaged(Air.Inst.Index, Id) = .empty,
     };
 
     const Unstructured = struct {
         const Incoming = struct {
-            src_label: IdRef,
-            break_value_id: IdRef,
+            src_label: Id,
+            break_value_id: Id,
         };
 
         const Block = struct {
-            label: ?IdRef = null,
+            label: ?Id = null,
             incoming_blocks: std.ArrayListUnmanaged(Incoming) = .empty,
         };
 
@@ -318,7 +316,7 @@ const NavGen = struct {
 
     /// An array of function argument result-ids. Each index corresponds with the
     /// function argument of the same index.
-    args: std.ArrayListUnmanaged(IdRef) = .empty,
+    args: std.ArrayListUnmanaged(Id) = .empty,
 
     /// A counter to keep track of how many `arg` instructions we've seen yet.
     next_arg_index: u32 = 0,
@@ -337,7 +335,7 @@ const NavGen = struct {
     control_flow: ControlFlow,
 
     /// The label of the SPIR-V block we are currently generating.
-    current_block_label: IdRef,
+    current_block_label: Id,
 
     /// The code (prologue and body) for the function we are currently generating code for.
     func: SpvModule.Fn = .{},
@@ -436,17 +434,17 @@ const NavGen = struct {
 
     /// This imports the "default" extended instruction set for the target
     /// For OpenCL, OpenCL.std.100. For Vulkan and OpenGL, GLSL.std.450.
-    fn importExtendedSet(self: *NavGen) !IdResult {
+    fn importExtendedSet(self: *NavGen) !Id {
         const target = self.spv.target;
         return switch (target.os.tag) {
-            .opencl, .amdhsa => try self.spv.importInstructionSet(.@"OpenCL.std"),
-            .vulkan, .opengl => try self.spv.importInstructionSet(.@"GLSL.std.450"),
+            .opencl, .amdhsa => try self.spv.importInstructionSet(.open_cl_std),
+            .vulkan, .opengl => try self.spv.importInstructionSet(.glsl_std_450),
             else => unreachable,
         };
     }
 
     /// Fetch the result-id for a previously generated instruction or constant.
-    fn resolve(self: *NavGen, inst: Air.Inst.Ref) !IdRef {
+    fn resolve(self: *NavGen, inst: Air.Inst.Ref) !Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         if (try self.air.value(inst, pt)) |val| {
@@ -468,7 +466,7 @@ const NavGen = struct {
         return self.inst_results.get(index).?; // Assertion means instruction does not dominate usage.
     }
 
-    fn resolveUav(self: *NavGen, val: InternPool.Index) !IdRef {
+    fn resolveUav(self: *NavGen, val: InternPool.Index) !Id {
         // TODO: This cannot be a function at this point, but it should probably be handled anyway.
 
         const zcu = self.pt.zcu;
@@ -476,16 +474,16 @@ const NavGen = struct {
         const decl_ptr_ty_id = try self.ptrType(ty, self.spvStorageClass(.generic), .indirect);
 
         const spv_decl_index = blk: {
-            const entry = try self.object.uav_link.getOrPut(self.object.gpa, .{ val, .Function });
+            const entry = try self.object.uav_link.getOrPut(self.object.gpa, .{ val, .function });
             if (entry.found_existing) {
-                try self.addFunctionDep(entry.value_ptr.*, .Function);
+                try self.addFunctionDep(entry.value_ptr.*, .function);
 
                 const result_id = self.spv.declPtr(entry.value_ptr.*).result_id;
                 return try self.castToGeneric(decl_ptr_ty_id, result_id);
             }
 
             const spv_decl_index = try self.spv.allocDecl(.invocation_global);
-            try self.addFunctionDep(spv_decl_index, .Function);
+            try self.addFunctionDep(spv_decl_index, .function);
             entry.value_ptr.* = spv_decl_index;
             break :blk spv_decl_index;
         };
@@ -512,32 +510,32 @@ const NavGen = struct {
             const initializer_proto_ty_id = try self.functionType(Type.void, &.{});
 
             const initializer_id = self.spv.allocId();
-            try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
+            try self.func.prologue.emit(self.spv.gpa, .function, .{
                 .id_result_type = try self.resolveType(Type.void, .direct),
                 .id_result = initializer_id,
                 .function_control = .{},
                 .function_type = initializer_proto_ty_id,
             });
             const root_block_id = self.spv.allocId();
-            try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
+            try self.func.prologue.emit(self.spv.gpa, .label, .{
                 .id_result = root_block_id,
             });
             self.current_block_label = root_block_id;
 
             const val_id = try self.constant(ty, Value.fromInterned(val), .indirect);
-            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+            try self.func.body.emit(self.spv.gpa, .store, .{
                 .pointer = result_id,
                 .object = val_id,
             });
 
-            try self.func.body.emit(self.spv.gpa, .OpReturn, {});
-            try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
+            try self.func.body.emit(self.spv.gpa, .@"return", {});
+            try self.func.body.emit(self.spv.gpa, .function_end, {});
             try self.spv.addFunction(spv_decl_index, self.func);
 
             try self.spv.debugNameFmt(initializer_id, "initializer of __anon_{d}", .{@intFromEnum(val)});
 
-            const fn_decl_ptr_ty_id = try self.ptrType(ty, .Function, .indirect);
-            try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
+            const fn_decl_ptr_ty_id = try self.ptrType(ty, .function, .indirect);
+            try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .ext_inst, .{
                 .id_result_type = fn_decl_ptr_ty_id,
                 .id_result = result_id,
                 .set = try self.spv.importInstructionSet(.zig),
@@ -552,7 +550,7 @@ const NavGen = struct {
     fn addFunctionDep(self: *NavGen, decl_index: SpvModule.Decl.Index, storage_class: StorageClass) !void {
         if (self.spv.version.minor < 4) {
             // Before version 1.4, the interface’s storage classes are limited to the Input and Output
-            if (storage_class == .Input or storage_class == .Output) {
+            if (storage_class == .input or storage_class == .output) {
                 try self.func.decl_deps.put(self.spv.gpa, decl_index, {});
             }
         } else {
@@ -560,10 +558,10 @@ const NavGen = struct {
         }
     }
 
-    fn castToGeneric(self: *NavGen, type_id: IdRef, ptr_id: IdRef) !IdRef {
+    fn castToGeneric(self: *NavGen, type_id: Id, ptr_id: Id) !Id {
         if (self.spv.hasFeature(.generic_pointer)) {
             const result_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
+            try self.func.body.emit(self.spv.gpa, .ptr_cast_to_generic, .{
                 .id_result_type = type_id,
                 .id_result = result_id,
                 .pointer = ptr_id,
@@ -578,8 +576,8 @@ const NavGen = struct {
     /// block we are currently generating.
     /// Note that there is no such thing as nested blocks like in ZIR or AIR, so we don't need to
     /// keep track of the previous block.
-    fn beginSpvBlock(self: *NavGen, label: IdResult) !void {
-        try self.func.body.emit(self.spv.gpa, .OpLabel, .{ .id_result = label });
+    fn beginSpvBlock(self: *NavGen, label: Id) !void {
+        try self.func.body.emit(self.spv.gpa, .label, .{ .id_result = label });
         self.current_block_label = label;
     }
 
@@ -705,7 +703,7 @@ const NavGen = struct {
     }
 
     /// Emits a bool constant in a particular representation.
-    fn constBool(self: *NavGen, value: bool, repr: Repr) !IdRef {
+    fn constBool(self: *NavGen, value: bool, repr: Repr) !Id {
         return switch (repr) {
             .indirect => self.constInt(Type.u1, @intFromBool(value)),
             .direct => self.spv.constBool(value),
@@ -715,7 +713,7 @@ const NavGen = struct {
     /// Emits an integer constant.
     /// This function, unlike SpvModule.constInt, takes care to bitcast
     /// the value to an unsigned int first for Kernels.
-    fn constInt(self: *NavGen, ty: Type, value: anytype) !IdRef {
+    fn constInt(self: *NavGen, ty: Type, value: anytype) !Id {
         const zcu = self.pt.zcu;
         const scalar_ty = ty.scalarType(zcu);
         const int_info = scalar_ty.intInfo(zcu);
@@ -773,9 +771,9 @@ const NavGen = struct {
         return self.constructCompositeSplat(ty, result_id);
     }
 
-    pub fn constructComposite(self: *NavGen, result_ty_id: IdRef, constituents: []const IdRef) !IdRef {
+    pub fn constructComposite(self: *NavGen, result_ty_id: Id, constituents: []const Id) !Id {
         const result_id = self.spv.allocId();
-        try self.func.body.emit(self.gpa, .OpCompositeConstruct, .{
+        try self.func.body.emit(self.gpa, .composite_construct, .{
             .id_result_type = result_ty_id,
             .id_result = result_id,
             .constituents = constituents,
@@ -785,11 +783,11 @@ const NavGen = struct {
 
     /// Construct a composite at runtime with all lanes set to the same value.
     /// ty must be an aggregate type.
-    fn constructCompositeSplat(self: *NavGen, ty: Type, constituent: IdRef) !IdRef {
+    fn constructCompositeSplat(self: *NavGen, ty: Type, constituent: Id) !Id {
         const zcu = self.pt.zcu;
         const n: usize = @intCast(ty.arrayLen(zcu));
 
-        const constituents = try self.gpa.alloc(IdRef, n);
+        const constituents = try self.gpa.alloc(Id, n);
         defer self.gpa.free(constituents);
         @memset(constituents, constituent);
 
@@ -803,7 +801,7 @@ const NavGen = struct {
     /// is done by emitting a sequence of instructions that initialize the value.
     //
     /// This function should only be called during function code generation.
-    fn constant(self: *NavGen, ty: Type, val: Value, repr: Repr) !IdRef {
+    fn constant(self: *NavGen, ty: Type, val: Value, repr: Repr) !Id {
         // Note: Using intern_map can only be used with constants that DO NOT generate any runtime code!!
         // Ideally that should be all constants in the future, or it should be cleaned up somehow. For
         // now, only use the intern_map on case-by-case basis by breaking to :cache.
@@ -909,7 +907,7 @@ const NavGen = struct {
                         .payload => |payload| payload,
                     });
 
-                    var constituents: [2]IdRef = undefined;
+                    var constituents: [2]Id = undefined;
                     var types: [2]Type = undefined;
                     if (eu_layout.error_first) {
                         constituents[0] = try self.constant(err_ty, err_val, .indirect);
@@ -967,7 +965,7 @@ const NavGen = struct {
                     inline .array_type, .vector_type => |array_type, tag| {
                         const elem_ty = Type.fromInterned(array_type.child);
 
-                        const constituents = try self.gpa.alloc(IdRef, @intCast(ty.arrayLenIncludingSentinel(zcu)));
+                        const constituents = try self.gpa.alloc(Id, @intCast(ty.arrayLenIncludingSentinel(zcu)));
                         defer self.gpa.free(constituents);
 
                         const child_repr: Repr = switch (tag) {
@@ -1015,7 +1013,7 @@ const NavGen = struct {
                         var types = std.ArrayList(Type).init(self.gpa);
                         defer types.deinit();
 
-                        var constituents = std.ArrayList(IdRef).init(self.gpa);
+                        var constituents = std.ArrayList(Id).init(self.gpa);
                         defer constituents.deinit();
 
                         var it = struct_type.iterateRuntimeOrder(ip);
@@ -1064,7 +1062,7 @@ const NavGen = struct {
         return cacheable_id;
     }
 
-    fn constantPtr(self: *NavGen, ptr_val: Value) Error!IdRef {
+    fn constantPtr(self: *NavGen, ptr_val: Value) Error!Id {
         const pt = self.pt;
 
         if (ptr_val.isUndef(pt.zcu)) {
@@ -1080,7 +1078,7 @@ const NavGen = struct {
         return self.derivePtr(derivation);
     }
 
-    fn derivePtr(self: *NavGen, derivation: Value.PointerDeriveStep) Error!IdRef {
+    fn derivePtr(self: *NavGen, derivation: Value.PointerDeriveStep) Error!Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         switch (derivation) {
@@ -1091,7 +1089,7 @@ const NavGen = struct {
                 // that is not implemented by Mesa yet. Therefore, just generate it
                 // as a runtime operation.
                 const result_ptr_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpConvertUToPtr, .{
+                try self.func.body.emit(self.spv.gpa, .convert_u_to_ptr, .{
                     .id_result_type = result_ty_id,
                     .id_result = result_ptr_id,
                     .integer_value = try self.constant(Type.usize, try pt.intValue(Type.usize, int.addr), .direct),
@@ -1139,7 +1137,7 @@ const NavGen = struct {
                     // Allow changing the pointer type child only to restructure arrays.
                     // e.g. [3][2]T to T is fine, as is [2]T -> [2][1]T.
                     const result_ptr_id = self.spv.allocId();
-                    try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                    try self.func.body.emit(self.spv.gpa, .bitcast, .{
                         .id_result_type = result_ty_id,
                         .id_result = result_ptr_id,
                         .operand = parent_ptr_id,
@@ -1159,7 +1157,7 @@ const NavGen = struct {
         self: *NavGen,
         ty: Type,
         uav: InternPool.Key.Ptr.BaseAddr.Uav,
-    ) !IdRef {
+    ) !Id {
         // TODO: Merge this function with constantDeclRef.
 
         const pt = self.pt;
@@ -1182,13 +1180,13 @@ const NavGen = struct {
 
         // Uav refs are always generic.
         assert(ty.ptrAddressSpace(zcu) == .generic);
-        const decl_ptr_ty_id = try self.ptrType(uav_ty, .Generic, .indirect);
+        const decl_ptr_ty_id = try self.ptrType(uav_ty, .generic, .indirect);
         const ptr_id = try self.resolveUav(uav.val);
 
         if (decl_ptr_ty_id != ty_id) {
             // Differing pointer types, insert a cast.
             const casted_ptr_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+            try self.func.body.emit(self.spv.gpa, .bitcast, .{
                 .id_result_type = ty_id,
                 .id_result = casted_ptr_id,
                 .operand = ptr_id,
@@ -1199,7 +1197,7 @@ const NavGen = struct {
         }
     }
 
-    fn constantNavRef(self: *NavGen, ty: Type, nav_index: InternPool.Nav.Index) !IdRef {
+    fn constantNavRef(self: *NavGen, ty: Type, nav_index: InternPool.Nav.Index) !Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
@@ -1240,14 +1238,14 @@ const NavGen = struct {
         const decl_ptr_ty_id = try self.ptrType(nav_ty, storage_class, .indirect);
 
         const ptr_id = switch (storage_class) {
-            .Generic => try self.castToGeneric(decl_ptr_ty_id, decl_id),
+            .generic => try self.castToGeneric(decl_ptr_ty_id, decl_id),
             else => decl_id,
         };
 
         if (decl_ptr_ty_id != ty_id) {
             // Differing pointer types, insert a cast.
             const casted_ptr_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+            try self.func.body.emit(self.spv.gpa, .bitcast, .{
                 .id_result_type = ty_id,
                 .id_result = casted_ptr_id,
                 .operand = ptr_id,
@@ -1270,7 +1268,7 @@ const NavGen = struct {
     /// The integer type that is returned by this function is the type that is used to perform
     /// actual operations (as well as store) a Zig type of a particular number of bits. To create
     /// a type with an exact size, use SpvModule.intType.
-    fn intType(self: *NavGen, signedness: std.builtin.Signedness, bits: u16) !IdRef {
+    fn intType(self: *NavGen, signedness: std.builtin.Signedness, bits: u16) !Id {
         const backing_bits, const big_int = self.backingIntBits(bits);
         if (big_int) {
             if (backing_bits > 64) {
@@ -1287,12 +1285,12 @@ const NavGen = struct {
         };
     }
 
-    fn arrayType(self: *NavGen, len: u32, child_ty: IdRef) !IdRef {
+    fn arrayType(self: *NavGen, len: u32, child_ty: Id) !Id {
         const len_id = try self.constInt(Type.u32, len);
         return self.spv.arrayType(len_id, child_ty);
     }
 
-    fn ptrType(self: *NavGen, child_ty: Type, storage_class: StorageClass, child_repr: Repr) !IdRef {
+    fn ptrType(self: *NavGen, child_ty: Type, storage_class: StorageClass, child_repr: Repr) !Id {
         const zcu = self.pt.zcu;
         const ip = &zcu.intern_pool;
         const key = .{ child_ty.toIntern(), storage_class, child_repr };
@@ -1300,7 +1298,7 @@ const NavGen = struct {
         if (entry.found_existing) {
             const fwd_id = entry.value_ptr.ty_id;
             if (!entry.value_ptr.fwd_emitted) {
-                try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypeForwardPointer, .{
+                try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .type_forward_pointer, .{
                     .pointer_type = fwd_id,
                     .storage_class = storage_class,
                 });
@@ -1321,7 +1319,7 @@ const NavGen = struct {
             .vulkan, .opengl => {
                 if (child_ty.zigTypeTag(zcu) == .@"struct") {
                     switch (storage_class) {
-                        .Uniform, .PushConstant => try self.spv.decorate(child_ty_id, .Block),
+                        .uniform, .push_constant => try self.spv.decorate(child_ty_id, .block),
                         else => {},
                     }
                 }
@@ -1329,14 +1327,14 @@ const NavGen = struct {
                 switch (ip.indexToKey(child_ty.toIntern())) {
                     .func_type, .opaque_type => {},
                     else => {
-                        try self.spv.decorate(result_id, .{ .ArrayStride = .{ .array_stride = @intCast(child_ty.abiSize(zcu)) } });
+                        try self.spv.decorate(result_id, .{ .array_stride = .{ .array_stride = @intCast(child_ty.abiSize(zcu)) } });
                     },
                 }
             },
             else => {},
         }
 
-        try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
+        try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .type_pointer, .{
             .id_result = result_id,
             .storage_class = storage_class,
             .type = child_ty_id,
@@ -1347,9 +1345,9 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn functionType(self: *NavGen, return_ty: Type, param_types: []const Type) !IdRef {
+    fn functionType(self: *NavGen, return_ty: Type, param_types: []const Type) !Id {
         const return_ty_id = try self.resolveFnReturnType(return_ty);
-        const param_ids = try self.gpa.alloc(IdRef, param_types.len);
+        const param_ids = try self.gpa.alloc(Id, param_types.len);
         defer self.gpa.free(param_ids);
 
         for (param_types, param_ids) |param_ty, *param_id| {
@@ -1377,7 +1375,7 @@ const NavGen = struct {
     ///    padding: [padding_size]u8,
     ///  }
     /// If any of the fields' size is 0, it will be omitted.
-    fn resolveUnionType(self: *NavGen, ty: Type) !IdRef {
+    fn resolveUnionType(self: *NavGen, ty: Type) !Id {
         const zcu = self.pt.zcu;
         const ip = &zcu.intern_pool;
         const union_obj = zcu.typeToUnion(ty).?;
@@ -1392,7 +1390,7 @@ const NavGen = struct {
             return try self.resolveType(Type.fromInterned(union_obj.enum_tag_ty), .indirect);
         }
 
-        var member_types: [4]IdRef = undefined;
+        var member_types: [4]Id = undefined;
         var member_names: [4][]const u8 = undefined;
 
         const u8_ty_id = try self.resolveType(Type.u8, .direct);
@@ -1431,7 +1429,7 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn resolveFnReturnType(self: *NavGen, ret_ty: Type) !IdRef {
+    fn resolveFnReturnType(self: *NavGen, ret_ty: Type) !Id {
         const zcu = self.pt.zcu;
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             // If the return type is an error set or an error union, then we make this
@@ -1448,7 +1446,7 @@ const NavGen = struct {
     }
 
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
-    fn resolveType(self: *NavGen, ty: Type, repr: Repr) Error!IdRef {
+    fn resolveType(self: *NavGen, ty: Type, repr: Repr) Error!Id {
         if (self.intern_map.get(.{ ty.toIntern(), repr })) |id| {
             return id;
         }
@@ -1458,7 +1456,7 @@ const NavGen = struct {
         return id;
     }
 
-    fn resolveTypeInner(self: *NavGen, ty: Type, repr: Repr) Error!IdRef {
+    fn resolveTypeInner(self: *NavGen, ty: Type, repr: Repr) Error!Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
@@ -1479,7 +1477,7 @@ const NavGen = struct {
                 // Pointers to void
                 .indirect => {
                     const result_id = self.spv.allocId();
-                    try section.emit(self.spv.gpa, .OpTypeOpaque, .{
+                    try section.emit(self.spv.gpa, .type_opaque, .{
                         .id_result = result_id,
                         .literal_string = "void",
                     });
@@ -1497,7 +1495,7 @@ const NavGen = struct {
                     // with 0 bits is invalid, so return an opaque type in this case.
                     assert(repr == .indirect);
                     const result_id = self.spv.allocId();
-                    try section.emit(self.spv.gpa, .OpTypeOpaque, .{
+                    try section.emit(self.spv.gpa, .type_opaque, .{
                         .id_result = result_id,
                         .literal_string = "u0",
                     });
@@ -1542,7 +1540,7 @@ const NavGen = struct {
 
                     // We cannot use the child type here, so just use an opaque type.
                     const result_id = self.spv.allocId();
-                    try section.emit(self.spv.gpa, .OpTypeOpaque, .{
+                    try section.emit(self.spv.gpa, .type_opaque, .{
                         .id_result = result_id,
                         .literal_string = "zero-sized array",
                     });
@@ -1562,7 +1560,7 @@ const NavGen = struct {
                     const result_id = try self.arrayType(total_len, elem_ty_id);
                     switch (self.spv.target.os.tag) {
                         .vulkan, .opengl => {
-                            try self.spv.decorate(result_id, .{ .ArrayStride = .{
+                            try self.spv.decorate(result_id, .{ .array_stride = .{
                                 .array_stride = @intCast(elem_ty.abiSize(zcu)),
                             } });
                         },
@@ -1602,7 +1600,7 @@ const NavGen = struct {
                     assert(!fn_info.is_var_args);
 
                     // Note: Logic is different from functionType().
-                    const param_ty_ids = try self.gpa.alloc(IdRef, fn_info.param_types.len);
+                    const param_ty_ids = try self.gpa.alloc(Id, fn_info.param_types.len);
                     defer self.gpa.free(param_ty_ids);
                     var param_index: usize = 0;
                     for (fn_info.param_types.get(ip)) |param_ty_index| {
@@ -1616,7 +1614,7 @@ const NavGen = struct {
                     const return_ty_id = try self.resolveFnReturnType(Type.fromInterned(fn_info.return_type));
 
                     const result_id = self.spv.allocId();
-                    try section.emit(self.spv.gpa, .OpTypeFunction, .{
+                    try section.emit(self.spv.gpa, .type_function, .{
                         .id_result = result_id,
                         .return_type = return_ty_id,
                         .id_ref_2 = param_ty_ids[0..param_index],
@@ -1653,7 +1651,7 @@ const NavGen = struct {
             .@"struct" => {
                 const struct_type = switch (ip.indexToKey(ty.toIntern())) {
                     .tuple_type => |tuple| {
-                        const member_types = try self.gpa.alloc(IdRef, tuple.values.len);
+                        const member_types = try self.gpa.alloc(Id, tuple.values.len);
                         defer self.gpa.free(member_types);
 
                         var member_index: usize = 0;
@@ -1681,7 +1679,7 @@ const NavGen = struct {
                     return try self.resolveType(Type.fromInterned(struct_type.backingIntTypeUnordered(ip)), .direct);
                 }
 
-                var member_types = std.ArrayList(IdRef).init(self.gpa);
+                var member_types = std.ArrayList(Id).init(self.gpa);
                 defer member_types.deinit();
 
                 var member_names = std.ArrayList([]const u8).init(self.gpa);
@@ -1699,7 +1697,7 @@ const NavGen = struct {
 
                     switch (self.spv.target.os.tag) {
                         .vulkan, .opengl => {
-                            try self.spv.decorateMember(result_id, index, .{ .Offset = .{
+                            try self.spv.decorateMember(result_id, index, .{ .offset = .{
                                 .byte_offset = @intCast(ty.structFieldOffset(field_index, zcu)),
                             } });
                         },
@@ -1763,7 +1761,7 @@ const NavGen = struct {
 
                 const payload_ty_id = try self.resolveType(payload_ty, .indirect);
 
-                var member_types: [2]IdRef = undefined;
+                var member_types: [2]Id = undefined;
                 var member_names: [2][]const u8 = undefined;
                 if (eu_layout.error_first) {
                     // Put the error first
@@ -1786,7 +1784,7 @@ const NavGen = struct {
                 defer self.gpa.free(type_name);
 
                 const result_id = self.spv.allocId();
-                try section.emit(self.spv.gpa, .OpTypeOpaque, .{
+                try section.emit(self.spv.gpa, .type_opaque, .{
                     .id_result = result_id,
                     .literal_string = type_name,
                 });
@@ -1807,30 +1805,20 @@ const NavGen = struct {
 
     fn spvStorageClass(self: *NavGen, as: std.builtin.AddressSpace) StorageClass {
         return switch (as) {
-            .generic => if (self.spv.hasFeature(.generic_pointer)) .Generic else .Function,
+            .generic => if (self.spv.hasFeature(.generic_pointer)) .generic else .function,
             .global => switch (self.spv.target.os.tag) {
-                .opencl, .amdhsa => .CrossWorkgroup,
-                else => .StorageBuffer,
+                .opencl, .amdhsa => .cross_workgroup,
+                else => .storage_buffer,
             },
-            .push_constant => {
-                return .PushConstant;
-            },
-            .output => {
-                return .Output;
-            },
-            .uniform => {
-                return .Uniform;
-            },
-            .storage_buffer => {
-                return .StorageBuffer;
-            },
-            .physical_storage_buffer => {
-                return .PhysicalStorageBuffer;
-            },
-            .constant => .UniformConstant,
-            .shared => .Workgroup,
-            .local => .Function,
-            .input => .Input,
+            .push_constant => .push_constant,
+            .output => .output,
+            .uniform => .uniform,
+            .storage_buffer => .storage_buffer,
+            .physical_storage_buffer => .physical_storage_buffer,
+            .constant => .uniform_constant,
+            .shared => .workgroup,
+            .local => .function,
+            .input => .input,
             .gs,
             .fs,
             .ss,
@@ -1978,22 +1966,22 @@ const NavGen = struct {
         value: Temporary.Value,
 
         const Value = union(enum) {
-            singleton: IdResult,
+            singleton: Id,
             exploded_vector: IdRange,
         };
 
-        fn init(ty: Type, singleton: IdResult) Temporary {
+        fn init(ty: Type, singleton: Id) Temporary {
             return .{ .ty = ty, .value = .{ .singleton = singleton } };
         }
 
-        fn materialize(self: Temporary, ng: *NavGen) !IdResult {
+        fn materialize(self: Temporary, ng: *NavGen) !Id {
             const zcu = ng.pt.zcu;
             switch (self.value) {
                 .singleton => |id| return id,
                 .exploded_vector => |range| {
                     assert(self.ty.isVector(zcu));
                     assert(self.ty.vectorLen(zcu) == range.len);
-                    const constituents = try ng.gpa.alloc(IdRef, range.len);
+                    const constituents = try ng.gpa.alloc(Id, range.len);
                     defer ng.gpa.free(constituents);
                     for (constituents, 0..range.len) |*id, i| {
                         id.* = range.at(i);
@@ -2039,7 +2027,7 @@ const NavGen = struct {
 
             for (0..n) |i| {
                 const indexes = [_]u32{@intCast(i)};
-                try ng.func.body.emit(ng.spv.gpa, .OpCompositeExtract, .{
+                try ng.func.body.emit(ng.spv.gpa, .composite_extract, .{
                     .id_result_type = ty_id,
                     .id_result = results.at(i),
                     .composite = id,
@@ -2168,16 +2156,16 @@ const NavGen = struct {
             /// on the operation and input value.
             const Value = union(enum) {
                 /// A single scalar value that is used by a scalar operation.
-                scalar: IdResult,
+                scalar: Id,
                 /// A single scalar that is broadcasted in an unrolled operation.
-                scalar_broadcast: IdResult,
+                scalar_broadcast: Id,
                 /// A vector represented by a consecutive list of IDs that is used in an unrolled operation.
                 vector_exploded: IdRange,
             };
 
             /// Query the value at a particular index of the operation. Note that
             /// the index is *not* the component/lane, but the index of the *operation*.
-            fn at(self: PreparedOperand, i: usize) IdResult {
+            fn at(self: PreparedOperand, i: usize) Id {
                 switch (self.value) {
                     .scalar => |id| {
                         assert(i == 0);
@@ -2242,18 +2230,18 @@ const NavGen = struct {
         const op_result_ty_id = try self.resolveType(op_result_ty, .direct);
 
         const opcode: Opcode = blk: {
-            if (dst_ty.scalarType(zcu).isAnyFloat()) break :blk .OpFConvert;
-            if (dst_ty.scalarType(zcu).isSignedInt(zcu)) break :blk .OpSConvert;
-            break :blk .OpUConvert;
+            if (dst_ty.scalarType(zcu).isAnyFloat()) break :blk .f_convert;
+            if (dst_ty.scalarType(zcu).isSignedInt(zcu)) break :blk .s_convert;
+            break :blk .u_convert;
         };
 
         const op_src = try v.prepare(self, src);
 
         for (0..ops) |i| {
             try self.func.body.emitRaw(self.spv.gpa, opcode, 3);
-            self.func.body.writeOperand(spec.IdResultType, op_result_ty_id);
-            self.func.body.writeOperand(IdResult, results.at(i));
-            self.func.body.writeOperand(IdResult, op_src.at(i));
+            self.func.body.writeOperand(spec.Id, op_result_ty_id);
+            self.func.body.writeOperand(Id, results.at(i));
+            self.func.body.writeOperand(Id, op_src.at(i));
         }
 
         return v.finalize(result_ty, results);
@@ -2288,7 +2276,7 @@ const NavGen = struct {
         };
 
         for (0..ops) |i| {
-            try self.func.body.emit(self.spv.gpa, .OpExtInst, .{
+            try self.func.body.emit(self.spv.gpa, .ext_inst, .{
                 .id_result_type = op_result_ty_id,
                 .id_result = results.at(i),
                 .set = set,
@@ -2318,7 +2306,7 @@ const NavGen = struct {
         const object_2 = try v.prepare(self, rhs);
 
         for (0..ops) |i| {
-            try self.func.body.emit(self.spv.gpa, .OpSelect, .{
+            try self.func.body.emit(self.spv.gpa, .select, .{
                 .id_result_type = op_result_ty_id,
                 .id_result = results.at(i),
                 .condition = cond.at(i),
@@ -2364,32 +2352,32 @@ const NavGen = struct {
         const op_rhs = try v.prepare(self, rhs);
 
         const opcode: Opcode = switch (pred) {
-            .l_eq => .OpLogicalEqual,
-            .l_ne => .OpLogicalNotEqual,
-            .i_eq => .OpIEqual,
-            .i_ne => .OpINotEqual,
-            .s_lt => .OpSLessThan,
-            .s_gt => .OpSGreaterThan,
-            .s_le => .OpSLessThanEqual,
-            .s_ge => .OpSGreaterThanEqual,
-            .u_lt => .OpULessThan,
-            .u_gt => .OpUGreaterThan,
-            .u_le => .OpULessThanEqual,
-            .u_ge => .OpUGreaterThanEqual,
-            .f_oeq => .OpFOrdEqual,
-            .f_une => .OpFUnordNotEqual,
-            .f_olt => .OpFOrdLessThan,
-            .f_ole => .OpFOrdLessThanEqual,
-            .f_ogt => .OpFOrdGreaterThan,
-            .f_oge => .OpFOrdGreaterThanEqual,
+            .l_eq => .logical_equal,
+            .l_ne => .logical_not_equal,
+            .i_eq => .i_equal,
+            .i_ne => .i_not_equal,
+            .s_lt => .s_less_than,
+            .s_gt => .s_greater_than,
+            .s_le => .s_less_than_equal,
+            .s_ge => .s_greater_than_equal,
+            .u_lt => .u_less_than,
+            .u_gt => .u_greater_than,
+            .u_le => .u_less_than_equal,
+            .u_ge => .u_greater_than_equal,
+            .f_oeq => .f_ord_equal,
+            .f_une => .f_unord_not_equal,
+            .f_olt => .f_ord_less_than,
+            .f_ole => .f_ord_less_than_equal,
+            .f_ogt => .f_ord_greater_than,
+            .f_oge => .f_ord_greater_than_equal,
         };
 
         for (0..ops) |i| {
             try self.func.body.emitRaw(self.spv.gpa, opcode, 4);
-            self.func.body.writeOperand(spec.IdResultType, op_result_ty_id);
-            self.func.body.writeOperand(IdResult, results.at(i));
-            self.func.body.writeOperand(IdResult, op_lhs.at(i));
-            self.func.body.writeOperand(IdResult, op_rhs.at(i));
+            self.func.body.writeOperand(spec.Id, op_result_ty_id);
+            self.func.body.writeOperand(Id, results.at(i));
+            self.func.body.writeOperand(Id, op_lhs.at(i));
+            self.func.body.writeOperand(Id, op_rhs.at(i));
         }
 
         return v.finalize(result_ty, results);
@@ -2432,17 +2420,17 @@ const NavGen = struct {
         const op_operand = try v.prepare(self, operand);
 
         if (switch (op) {
-            .l_not => .OpLogicalNot,
-            .bit_not => .OpNot,
-            .i_neg => .OpSNegate,
-            .f_neg => .OpFNegate,
+            .l_not => .logical_not,
+            .bit_not => .not,
+            .i_neg => .s_negate,
+            .f_neg => .f_negate,
             else => @as(?Opcode, null),
         }) |opcode| {
             for (0..ops) |i| {
                 try self.func.body.emitRaw(self.spv.gpa, opcode, 3);
-                self.func.body.writeOperand(spec.IdResultType, op_result_ty_id);
-                self.func.body.writeOperand(IdResult, results.at(i));
-                self.func.body.writeOperand(IdResult, op_operand.at(i));
+                self.func.body.writeOperand(spec.Id, op_result_ty_id);
+                self.func.body.writeOperand(Id, results.at(i));
+                self.func.body.writeOperand(Id, op_operand.at(i));
             }
         } else {
             const set = try self.importExtendedSet();
@@ -2495,7 +2483,7 @@ const NavGen = struct {
             };
 
             for (0..ops) |i| {
-                try self.func.body.emit(self.spv.gpa, .OpExtInst, .{
+                try self.func.body.emit(self.spv.gpa, .ext_inst, .{
                     .id_result_type = op_result_ty_id,
                     .id_result = results.at(i),
                     .set = set,
@@ -2555,36 +2543,36 @@ const NavGen = struct {
         const op_rhs = try v.prepare(self, rhs);
 
         if (switch (op) {
-            .i_add => .OpIAdd,
-            .f_add => .OpFAdd,
-            .i_sub => .OpISub,
-            .f_sub => .OpFSub,
-            .i_mul => .OpIMul,
-            .f_mul => .OpFMul,
-            .s_div => .OpSDiv,
-            .u_div => .OpUDiv,
-            .f_div => .OpFDiv,
-            .s_rem => .OpSRem,
-            .f_rem => .OpFRem,
-            .s_mod => .OpSMod,
-            .u_mod => .OpUMod,
-            .f_mod => .OpFMod,
-            .srl => .OpShiftRightLogical,
-            .sra => .OpShiftRightArithmetic,
-            .sll => .OpShiftLeftLogical,
-            .bit_and => .OpBitwiseAnd,
-            .bit_or => .OpBitwiseOr,
-            .bit_xor => .OpBitwiseXor,
-            .l_and => .OpLogicalAnd,
-            .l_or => .OpLogicalOr,
+            .i_add => .i_add,
+            .f_add => .f_add,
+            .i_sub => .i_sub,
+            .f_sub => .f_sub,
+            .i_mul => .i_mul,
+            .f_mul => .f_mul,
+            .s_div => .s_div,
+            .u_div => .u_div,
+            .f_div => .f_div,
+            .s_rem => .s_rem,
+            .f_rem => .f_rem,
+            .s_mod => .s_mod,
+            .u_mod => .u_mod,
+            .f_mod => .f_mod,
+            .srl => .shift_right_logical,
+            .sra => .shift_right_arithmetic,
+            .sll => .shift_left_logical,
+            .bit_and => .bitwise_and,
+            .bit_or => .bitwise_or,
+            .bit_xor => .bitwise_xor,
+            .l_and => .logical_and,
+            .l_or => .logical_or,
             else => @as(?Opcode, null),
         }) |opcode| {
             for (0..ops) |i| {
                 try self.func.body.emitRaw(self.spv.gpa, opcode, 4);
-                self.func.body.writeOperand(spec.IdResultType, op_result_ty_id);
-                self.func.body.writeOperand(IdResult, results.at(i));
-                self.func.body.writeOperand(IdResult, op_lhs.at(i));
-                self.func.body.writeOperand(IdResult, op_rhs.at(i));
+                self.func.body.writeOperand(spec.Id, op_result_ty_id);
+                self.func.body.writeOperand(Id, results.at(i));
+                self.func.body.writeOperand(Id, op_lhs.at(i));
+                self.func.body.writeOperand(Id, op_rhs.at(i));
             }
         } else {
             const set = try self.importExtendedSet();
@@ -2613,7 +2601,7 @@ const NavGen = struct {
             };
 
             for (0..ops) |i| {
-                try self.func.body.emit(self.spv.gpa, .OpExtInst, .{
+                try self.func.body.emit(self.spv.gpa, .ext_inst, .{
                     .id_result_type = op_result_ty_id,
                     .id_result = results.at(i),
                     .set = set,
@@ -2666,14 +2654,14 @@ const NavGen = struct {
                 };
 
                 for (0..ops) |i| {
-                    try self.func.body.emit(self.spv.gpa, .OpIMul, .{
+                    try self.func.body.emit(self.spv.gpa, .i_mul, .{
                         .id_result_type = arith_op_ty_id,
                         .id_result = value_results.at(i),
                         .operand_1 = lhs_op.at(i),
                         .operand_2 = rhs_op.at(i),
                     });
 
-                    try self.func.body.emit(self.spv.gpa, .OpExtInst, .{
+                    try self.func.body.emit(self.spv.gpa, .ext_inst, .{
                         .id_result_type = arith_op_ty_id,
                         .id_result = overflow_results.at(i),
                         .set = set,
@@ -2692,31 +2680,31 @@ const NavGen = struct {
                 const op_result_ty_id = try self.resolveType(op_result_ty, .direct);
 
                 const opcode: Opcode = switch (op) {
-                    .s_mul_extended => .OpSMulExtended,
-                    .u_mul_extended => .OpUMulExtended,
+                    .s_mul_extended => .s_mul_extended,
+                    .u_mul_extended => .u_mul_extended,
                 };
 
                 for (0..ops) |i| {
                     const op_result = self.spv.allocId();
 
                     try self.func.body.emitRaw(self.spv.gpa, opcode, 4);
-                    self.func.body.writeOperand(spec.IdResultType, op_result_ty_id);
-                    self.func.body.writeOperand(IdResult, op_result);
-                    self.func.body.writeOperand(IdResult, lhs_op.at(i));
-                    self.func.body.writeOperand(IdResult, rhs_op.at(i));
+                    self.func.body.writeOperand(spec.Id, op_result_ty_id);
+                    self.func.body.writeOperand(Id, op_result);
+                    self.func.body.writeOperand(Id, lhs_op.at(i));
+                    self.func.body.writeOperand(Id, rhs_op.at(i));
 
                     // The above operation returns a struct. We might want to expand
                     // Temporary to deal with the fact that these are structs eventually,
                     // but for now, take the struct apart and return two separate vectors.
 
-                    try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
+                    try self.func.body.emit(self.spv.gpa, .composite_extract, .{
                         .id_result_type = arith_op_ty_id,
                         .id_result = value_results.at(i),
                         .composite = op_result,
                         .indexes = &.{0},
                     });
 
-                    try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
+                    try self.func.body.emit(self.spv.gpa, .composite_extract, .{
                         .id_result_type = arith_op_ty_id,
                         .id_result = overflow_results.at(i),
                         .composite = op_result,
@@ -2779,19 +2767,19 @@ const NavGen = struct {
             .opencl, .amdhsa => {
                 const kernel_proto_ty_id = try self.functionType(Type.void, &.{ptr_anyerror_ty});
 
-                try section.emit(self.spv.gpa, .OpFunction, .{
+                try section.emit(self.spv.gpa, .function, .{
                     .id_result_type = try self.resolveType(Type.void, .direct),
                     .id_result = kernel_id,
                     .function_control = .{},
                     .function_type = kernel_proto_ty_id,
                 });
 
-                try section.emit(self.spv.gpa, .OpFunctionParameter, .{
+                try section.emit(self.spv.gpa, .function_parameter, .{
                     .id_result_type = ptr_anyerror_ty_id,
                     .id_result = p_error_id,
                 });
 
-                try section.emit(self.spv.gpa, .OpLabel, .{
+                try section.emit(self.spv.gpa, .label, .{
                     .id_result = self.spv.allocId(),
                 });
             },
@@ -2802,31 +2790,31 @@ const NavGen = struct {
 
                     const buffer_struct_ty_id = self.spv.allocId();
                     try self.spv.structType(buffer_struct_ty_id, &.{anyerror_ty_id}, &.{"error_out"});
-                    try self.spv.decorate(buffer_struct_ty_id, .Block);
-                    try self.spv.decorateMember(buffer_struct_ty_id, 0, .{ .Offset = .{ .byte_offset = 0 } });
+                    try self.spv.decorate(buffer_struct_ty_id, .block);
+                    try self.spv.decorateMember(buffer_struct_ty_id, 0, .{ .offset = .{ .byte_offset = 0 } });
 
                     const ptr_buffer_struct_ty_id = self.spv.allocId();
-                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
+                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .type_pointer, .{
                         .id_result = ptr_buffer_struct_ty_id,
                         .storage_class = self.spvStorageClass(.global),
                         .type = buffer_struct_ty_id,
                     });
 
                     const buffer_struct_id = self.spv.declPtr(spv_err_decl_index).result_id;
-                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpVariable, .{
+                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .variable, .{
                         .id_result_type = ptr_buffer_struct_ty_id,
                         .id_result = buffer_struct_id,
                         .storage_class = self.spvStorageClass(.global),
                     });
-                    try self.spv.decorate(buffer_struct_id, .{ .DescriptorSet = .{ .descriptor_set = 0 } });
-                    try self.spv.decorate(buffer_struct_id, .{ .Binding = .{ .binding_point = 0 } });
+                    try self.spv.decorate(buffer_struct_id, .{ .descriptor_set = .{ .descriptor_set = 0 } });
+                    try self.spv.decorate(buffer_struct_id, .{ .binding = .{ .binding_point = 0 } });
 
                     self.object.error_buffer = spv_err_decl_index;
                 }
 
-                try self.spv.sections.execution_modes.emit(self.spv.gpa, .OpExecutionMode, .{
+                try self.spv.sections.execution_modes.emit(self.spv.gpa, .execution_mode, .{
                     .entry_point = kernel_id,
-                    .mode = .{ .LocalSize = .{
+                    .mode = .{ .local_size = .{
                         .x_size = 1,
                         .y_size = 1,
                         .z_size = 1,
@@ -2834,13 +2822,13 @@ const NavGen = struct {
                 });
 
                 const kernel_proto_ty_id = try self.functionType(Type.void, &.{});
-                try section.emit(self.spv.gpa, .OpFunction, .{
+                try section.emit(self.spv.gpa, .function, .{
                     .id_result_type = try self.resolveType(Type.void, .direct),
                     .id_result = kernel_id,
                     .function_control = .{},
                     .function_type = kernel_proto_ty_id,
                 });
-                try section.emit(self.spv.gpa, .OpLabel, .{
+                try section.emit(self.spv.gpa, .label, .{
                     .id_result = self.spv.allocId(),
                 });
 
@@ -2849,7 +2837,7 @@ const NavGen = struct {
                 try decl_deps.append(spv_err_decl_index);
 
                 const zero_id = try self.constInt(Type.u32, 0);
-                try section.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
+                try section.emit(self.spv.gpa, .in_bounds_access_chain, .{
                     .id_result_type = ptr_anyerror_ty_id,
                     .id_result = p_error_id,
                     .base = buffer_id,
@@ -2861,21 +2849,21 @@ const NavGen = struct {
 
         const test_id = self.spv.declPtr(spv_test_decl_index).result_id;
         const error_id = self.spv.allocId();
-        try section.emit(self.spv.gpa, .OpFunctionCall, .{
+        try section.emit(self.spv.gpa, .function_call, .{
             .id_result_type = anyerror_ty_id,
             .id_result = error_id,
             .function = test_id,
         });
         // Note: Convert to direct not required.
-        try section.emit(self.spv.gpa, .OpStore, .{
+        try section.emit(self.spv.gpa, .store, .{
             .pointer = p_error_id,
             .object = error_id,
             .memory_access = .{
-                .Aligned = .{ .literal_integer = @intCast(Type.abiAlignment(.anyerror, zcu).toByteUnits().?) },
+                .aligned = .{ .literal_integer = @intCast(Type.abiAlignment(.anyerror, zcu).toByteUnits().?) },
             },
         });
-        try section.emit(self.spv.gpa, .OpReturn, {});
-        try section.emit(self.spv.gpa, .OpFunctionEnd, {});
+        try section.emit(self.spv.gpa, .@"return", {});
+        try section.emit(self.spv.gpa, .function_end, {});
 
         // Just generate a quick other name because the intel runtime crashes when the entry-
         // point name is the same as a different OpName.
@@ -2883,8 +2871,8 @@ const NavGen = struct {
         defer self.gpa.free(test_name);
 
         const execution_mode: spec.ExecutionModel = switch (target.os.tag) {
-            .vulkan, .opengl => .GLCompute,
-            .opencl, .amdhsa => .Kernel,
+            .vulkan, .opengl => .gl_compute,
+            .opencl, .amdhsa => .kernel,
             else => unreachable,
         };
 
@@ -2914,7 +2902,7 @@ const NavGen = struct {
                 const return_ty_id = try self.resolveFnReturnType(Type.fromInterned(fn_info.return_type));
 
                 const prototype_ty_id = try self.resolveType(ty, .direct);
-                try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
+                try self.func.prologue.emit(self.spv.gpa, .function, .{
                     .id_result_type = return_ty_id,
                     .id_result = result_id,
                     .function_type = prototype_ty_id,
@@ -2931,7 +2919,7 @@ const NavGen = struct {
 
                     const param_type_id = try self.resolveType(param_ty, .direct);
                     const arg_result_id = self.spv.allocId();
-                    try self.func.prologue.emit(self.spv.gpa, .OpFunctionParameter, .{
+                    try self.func.prologue.emit(self.spv.gpa, .function_parameter, .{
                         .id_result_type = param_type_id,
                         .id_result = arg_result_id,
                     });
@@ -2943,7 +2931,7 @@ const NavGen = struct {
 
                 // The root block of a function declaration should appear before OpVariable instructions,
                 // so it is generated into the function's prologue.
-                try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
+                try self.func.prologue.emit(self.spv.gpa, .label, .{
                     .id_result = root_block_id,
                 });
                 self.current_block_label = root_block_id;
@@ -2954,13 +2942,13 @@ const NavGen = struct {
                         _ = try self.genStructuredBody(.selection, main_body);
                         // We always expect paths to here to end, but we still need the block
                         // to act as a dummy merge block.
-                        try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
+                        try self.func.body.emit(self.spv.gpa, .@"unreachable", {});
                     },
                     .unstructured => {
                         try self.genBody(main_body);
                     },
                 }
-                try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
+                try self.func.body.emit(self.spv.gpa, .function_end, {});
                 // Append the actual code into the functions section.
                 try self.spv.addFunction(spv_decl_index, self.func);
 
@@ -2981,48 +2969,18 @@ const NavGen = struct {
                 assert(maybe_init_val == null); // TODO
 
                 const storage_class = self.spvStorageClass(nav.getAddrspace());
-                assert(storage_class != .Generic); // These should be instance globals
+                assert(storage_class != .generic); // These should be instance globals
 
                 const ptr_ty_id = try self.ptrType(ty, storage_class, .indirect);
 
-                try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpVariable, .{
+                try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .variable, .{
                     .id_result_type = ptr_ty_id,
                     .id_result = result_id,
                     .storage_class = storage_class,
                 });
 
-                if (nav.fqn.eqlSlice("position", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .Position } });
-                } else if (nav.fqn.eqlSlice("point_size", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .PointSize } });
-                } else if (nav.fqn.eqlSlice("invocation_id", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .InvocationId } });
-                } else if (nav.fqn.eqlSlice("frag_coord", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .FragCoord } });
-                } else if (nav.fqn.eqlSlice("point_coord", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .PointCoord } });
-                } else if (nav.fqn.eqlSlice("front_facing", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .FrontFacing } });
-                } else if (nav.fqn.eqlSlice("sample_mask", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .SampleMask } });
-                } else if (nav.fqn.eqlSlice("frag_depth", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .FragDepth } });
-                } else if (nav.fqn.eqlSlice("num_workgroups", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .NumWorkgroups } });
-                } else if (nav.fqn.eqlSlice("workgroup_size", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .WorkgroupSize } });
-                } else if (nav.fqn.eqlSlice("workgroup_id", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .WorkgroupId } });
-                } else if (nav.fqn.eqlSlice("local_invocation_id", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .LocalInvocationId } });
-                } else if (nav.fqn.eqlSlice("global_invocation_id", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .GlobalInvocationId } });
-                } else if (nav.fqn.eqlSlice("local_invocation_index", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .LocalInvocationIndex } });
-                } else if (nav.fqn.eqlSlice("vertex_index", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .VertexIndex } });
-                } else if (nav.fqn.eqlSlice("instance_index", ip)) {
-                    try self.spv.decorate(result_id, .{ .BuiltIn = .{ .built_in = .InstanceIndex } });
+                if (std.meta.stringToEnum(spec.BuiltIn, nav.fqn.toSlice(ip))) |builtin| {
+                    try self.spv.decorate(result_id, .{ .built_in = .{ .built_in = builtin } });
                 }
 
                 try self.spv.debugName(result_id, nav.fqn.toSlice(ip));
@@ -3038,14 +2996,14 @@ const NavGen = struct {
 
                 try self.spv.declareDeclDeps(spv_decl_index, &.{});
 
-                const ptr_ty_id = try self.ptrType(ty, .Function, .indirect);
+                const ptr_ty_id = try self.ptrType(ty, .function, .indirect);
 
                 if (maybe_init_val) |init_val| {
                     // TODO: Combine with resolveAnonDecl?
                     const initializer_proto_ty_id = try self.functionType(Type.void, &.{});
 
                     const initializer_id = self.spv.allocId();
-                    try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
+                    try self.func.prologue.emit(self.spv.gpa, .function, .{
                         .id_result_type = try self.resolveType(Type.void, .direct),
                         .id_result = initializer_id,
                         .function_control = .{},
@@ -3053,24 +3011,24 @@ const NavGen = struct {
                     });
 
                     const root_block_id = self.spv.allocId();
-                    try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
+                    try self.func.prologue.emit(self.spv.gpa, .label, .{
                         .id_result = root_block_id,
                     });
                     self.current_block_label = root_block_id;
 
                     const val_id = try self.constant(ty, init_val, .indirect);
-                    try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                    try self.func.body.emit(self.spv.gpa, .store, .{
                         .pointer = result_id,
                         .object = val_id,
                     });
 
-                    try self.func.body.emit(self.spv.gpa, .OpReturn, {});
-                    try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
+                    try self.func.body.emit(self.spv.gpa, .@"return", {});
+                    try self.func.body.emit(self.spv.gpa, .function_end, {});
                     try self.spv.addFunction(spv_decl_index, self.func);
 
                     try self.spv.debugNameFmt(initializer_id, "initializer of {}", .{nav.fqn.fmt(ip)});
 
-                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
+                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .ext_inst, .{
                         .id_result_type = ptr_ty_id,
                         .id_result = result_id,
                         .set = try self.spv.importInstructionSet(.zig),
@@ -3078,7 +3036,7 @@ const NavGen = struct {
                         .id_ref_4 = &.{initializer_id},
                     });
                 } else {
-                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
+                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .ext_inst, .{
                         .id_result_type = ptr_ty_id,
                         .id_result = result_id,
                         .set = try self.spv.importInstructionSet(.zig),
@@ -3107,7 +3065,7 @@ const NavGen = struct {
 
     /// Convert representation from indirect (in memory) to direct (in 'register')
     /// This converts the argument type from resolveType(ty, .indirect) to resolveType(ty, .direct).
-    fn convertToDirect(self: *NavGen, ty: Type, operand_id: IdRef) !IdRef {
+    fn convertToDirect(self: *NavGen, ty: Type, operand_id: Id) !Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         switch (ty.scalarType(zcu).zigTypeTag(zcu)) {
@@ -3134,7 +3092,7 @@ const NavGen = struct {
 
     /// Convert representation from direct (in 'register) to direct (in memory)
     /// This converts the argument type from resolveType(ty, .direct) to resolveType(ty, .indirect).
-    fn convertToIndirect(self: *NavGen, ty: Type, operand_id: IdRef) !IdRef {
+    fn convertToIndirect(self: *NavGen, ty: Type, operand_id: Id) !Id {
         const zcu = self.pt.zcu;
         switch (ty.scalarType(zcu).zigTypeTag(zcu)) {
             .bool => {
@@ -3145,11 +3103,11 @@ const NavGen = struct {
         }
     }
 
-    fn extractField(self: *NavGen, result_ty: Type, object: IdRef, field: u32) !IdRef {
+    fn extractField(self: *NavGen, result_ty: Type, object: Id, field: u32) !Id {
         const result_ty_id = try self.resolveType(result_ty, .indirect);
         const result_id = self.spv.allocId();
         const indexes = [_]u32{field};
-        try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
+        try self.func.body.emit(self.spv.gpa, .composite_extract, .{
             .id_result_type = result_ty_id,
             .id_result = result_id,
             .composite = object,
@@ -3159,11 +3117,11 @@ const NavGen = struct {
         return try self.convertToDirect(result_ty, result_id);
     }
 
-    fn extractVectorComponent(self: *NavGen, result_ty: Type, vector_id: IdRef, field: u32) !IdRef {
+    fn extractVectorComponent(self: *NavGen, result_ty: Type, vector_id: Id, field: u32) !Id {
         const result_ty_id = try self.resolveType(result_ty, .direct);
         const result_id = self.spv.allocId();
         const indexes = [_]u32{field};
-        try self.func.body.emit(self.spv.gpa, .OpCompositeExtract, .{
+        try self.func.body.emit(self.spv.gpa, .composite_extract, .{
             .id_result_type = result_ty_id,
             .id_result = result_id,
             .composite = vector_id,
@@ -3177,16 +3135,16 @@ const NavGen = struct {
         is_volatile: bool = false,
     };
 
-    fn load(self: *NavGen, value_ty: Type, ptr_id: IdRef, options: MemoryOptions) !IdRef {
+    fn load(self: *NavGen, value_ty: Type, ptr_id: Id, options: MemoryOptions) !Id {
         const zcu = self.pt.zcu;
         const alignment: u32 = @intCast(value_ty.abiAlignment(zcu).toByteUnits().?);
         const indirect_value_ty_id = try self.resolveType(value_ty, .indirect);
         const result_id = self.spv.allocId();
-        const access = spec.MemoryAccess.Extended{
-            .Volatile = options.is_volatile,
-            .Aligned = .{ .literal_integer = alignment },
+        const access: spec.MemoryAccess.Extended = .{
+            .@"volatile" = options.is_volatile,
+            .aligned = .{ .literal_integer = alignment },
         };
-        try self.func.body.emit(self.spv.gpa, .OpLoad, .{
+        try self.func.body.emit(self.spv.gpa, .load, .{
             .id_result_type = indirect_value_ty_id,
             .id_result = result_id,
             .pointer = ptr_id,
@@ -3195,12 +3153,10 @@ const NavGen = struct {
         return try self.convertToDirect(value_ty, result_id);
     }
 
-    fn store(self: *NavGen, value_ty: Type, ptr_id: IdRef, value_id: IdRef, options: MemoryOptions) !void {
+    fn store(self: *NavGen, value_ty: Type, ptr_id: Id, value_id: Id, options: MemoryOptions) !void {
         const indirect_value_id = try self.convertToIndirect(value_ty, value_id);
-        const access = spec.MemoryAccess.Extended{
-            .Volatile = options.is_volatile,
-        };
-        try self.func.body.emit(self.spv.gpa, .OpStore, .{
+        const access: spec.MemoryAccess.Extended = .{ .@"volatile" = options.is_volatile };
+        try self.func.body.emit(self.spv.gpa, .store, .{
             .pointer = ptr_id,
             .object = indirect_value_id,
             .memory_access = access,
@@ -3220,7 +3176,7 @@ const NavGen = struct {
             return;
 
         const air_tags = self.air.instructions.items(.tag);
-        const maybe_result_id: ?IdRef = switch (air_tags[@intFromEnum(inst)]) {
+        const maybe_result_id: ?Id = switch (air_tags[@intFromEnum(inst)]) {
             // zig fmt: off
             .add, .add_wrap, .add_optimized => try self.airArithOp(inst, .f_add, .i_add, .i_add),
             .sub, .sub_wrap, .sub_optimized => try self.airArithOp(inst, .f_sub, .i_sub, .i_sub),
@@ -3388,7 +3344,7 @@ const NavGen = struct {
         try self.inst_results.putNoClobber(self.gpa, inst, result_id);
     }
 
-    fn airBinOpSimple(self: *NavGen, inst: Air.Inst.Index, op: BinaryOp) !?IdRef {
+    fn airBinOpSimple(self: *NavGen, inst: Air.Inst.Index, op: BinaryOp) !?Id {
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.temporary(bin_op.lhs);
         const rhs = try self.temporary(bin_op.rhs);
@@ -3397,7 +3353,7 @@ const NavGen = struct {
         return try result.materialize(self);
     }
 
-    fn airShift(self: *NavGen, inst: Air.Inst.Index, unsigned: BinaryOp, signed: BinaryOp) !?IdRef {
+    fn airShift(self: *NavGen, inst: Air.Inst.Index, unsigned: BinaryOp, signed: BinaryOp) !?Id {
         const zcu = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
@@ -3436,7 +3392,7 @@ const NavGen = struct {
 
     const MinMax = enum { min, max };
 
-    fn airMinMax(self: *NavGen, inst: Air.Inst.Index, op: MinMax) !?IdRef {
+    fn airMinMax(self: *NavGen, inst: Air.Inst.Index, op: MinMax) !?Id {
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
         const lhs = try self.temporary(bin_op.lhs);
@@ -3501,7 +3457,7 @@ const NavGen = struct {
         }
     }
 
-    fn airDivFloor(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airDivFloor(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
         const lhs = try self.temporary(bin_op.lhs);
@@ -3558,7 +3514,7 @@ const NavGen = struct {
         }
     }
 
-    fn airDivTrunc(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airDivTrunc(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
         const lhs = try self.temporary(bin_op.lhs);
@@ -3586,7 +3542,7 @@ const NavGen = struct {
         }
     }
 
-    fn airUnOpSimple(self: *NavGen, inst: Air.Inst.Index, op: UnaryOp) !?IdRef {
+    fn airUnOpSimple(self: *NavGen, inst: Air.Inst.Index, op: UnaryOp) !?Id {
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand = try self.temporary(un_op);
         const result = try self.buildUnary(op, operand);
@@ -3599,7 +3555,7 @@ const NavGen = struct {
         comptime fop: BinaryOp,
         comptime sop: BinaryOp,
         comptime uop: BinaryOp,
-    ) !?IdRef {
+    ) !?Id {
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
         const lhs = try self.temporary(bin_op.lhs);
@@ -3620,7 +3576,7 @@ const NavGen = struct {
         return try result.materialize(self);
     }
 
-    fn airAbs(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airAbs(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.temporary(ty_op.operand);
         // Note: operand_ty may be signed, while ty is always unsigned!
@@ -3660,7 +3616,7 @@ const NavGen = struct {
         comptime add: BinaryOp,
         comptime ucmp: CmpPredicate,
         comptime scmp: CmpPredicate,
-    ) !?IdRef {
+    ) !?Id {
         // Note: OpIAddCarry and OpISubBorrow are not really useful here: For unsigned numbers,
         // there is in both cases only one extra operation required. For signed operations,
         // the overflow bit is set then going from 0x80.. to 0x00.., but this doesn't actually
@@ -3718,7 +3674,7 @@ const NavGen = struct {
         return try self.constructComposite(result_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
     }
 
-    fn airMulOverflow(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airMulOverflow(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const pt = self.pt;
 
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -3890,7 +3846,7 @@ const NavGen = struct {
         return try self.constructComposite(result_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
     }
 
-    fn airShlOverflow(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airShlOverflow(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
 
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -3931,7 +3887,7 @@ const NavGen = struct {
         return try self.constructComposite(result_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
     }
 
-    fn airMulAdd(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airMulAdd(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
 
@@ -3947,7 +3903,7 @@ const NavGen = struct {
         return try result.materialize(self);
     }
 
-    fn airClzCtz(self: *NavGen, inst: Air.Inst.Index, op: UnaryOp) !?IdRef {
+    fn airClzCtz(self: *NavGen, inst: Air.Inst.Index, op: UnaryOp) !?Id {
         if (self.liveness.isUnused(inst)) return null;
 
         const zcu = self.pt.zcu;
@@ -3972,7 +3928,7 @@ const NavGen = struct {
         return try result.materialize(self);
     }
 
-    fn airSelect(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airSelect(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
         const pred = try self.temporary(pl_op.operand);
@@ -3983,7 +3939,7 @@ const NavGen = struct {
         return try result.materialize(self);
     }
 
-    fn airSplat(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airSplat(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
         const operand_id = try self.resolve(ty_op.operand);
@@ -3992,7 +3948,7 @@ const NavGen = struct {
         return try self.constructCompositeSplat(result_ty, operand_id);
     }
 
-    fn airReduce(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airReduce(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
         const reduce = self.air.instructions.items(.data)[@intFromEnum(inst)].reduce;
         const operand = try self.resolve(reduce.operand);
@@ -4028,22 +3984,22 @@ const NavGen = struct {
 
         const opcode: Opcode = switch (info.class) {
             .bool => switch (reduce.operation) {
-                .And => .OpLogicalAnd,
-                .Or => .OpLogicalOr,
-                .Xor => .OpLogicalNotEqual,
+                .And => .logical_and,
+                .Or => .logical_or,
+                .Xor => .logical_not_equal,
                 else => unreachable,
             },
             .strange_integer, .integer => switch (reduce.operation) {
-                .And => .OpBitwiseAnd,
-                .Or => .OpBitwiseOr,
-                .Xor => .OpBitwiseXor,
-                .Add => .OpIAdd,
-                .Mul => .OpIMul,
+                .And => .bitwise_and,
+                .Or => .bitwise_or,
+                .Xor => .bitwise_xor,
+                .Add => .i_add,
+                .Mul => .i_mul,
                 else => unreachable,
             },
             .float => switch (reduce.operation) {
-                .Add => .OpFAdd,
-                .Mul => .OpFMul,
+                .Add => .f_add,
+                .Mul => .f_mul,
                 else => unreachable,
             },
             .composite_integer => unreachable, // TODO
@@ -4055,16 +4011,16 @@ const NavGen = struct {
             result_id = self.spv.allocId();
 
             try self.func.body.emitRaw(self.spv.gpa, opcode, 4);
-            self.func.body.writeOperand(spec.IdResultType, scalar_ty_id);
-            self.func.body.writeOperand(spec.IdResult, result_id);
-            self.func.body.writeOperand(spec.IdResultType, lhs);
-            self.func.body.writeOperand(spec.IdResultType, rhs);
+            self.func.body.writeOperand(spec.Id, scalar_ty_id);
+            self.func.body.writeOperand(spec.Id, result_id);
+            self.func.body.writeOperand(spec.Id, lhs);
+            self.func.body.writeOperand(spec.Id, rhs);
         }
 
         return result_id;
     }
 
-    fn airShuffleOne(ng: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airShuffleOne(ng: *NavGen, inst: Air.Inst.Index) !?Id {
         const pt = ng.pt;
         const zcu = pt.zcu;
         const gpa = zcu.gpa;
@@ -4075,7 +4031,7 @@ const NavGen = struct {
         const elem_ty = result_ty.childType(zcu);
         const operand = try ng.resolve(unwrapped.operand);
 
-        const constituents = try gpa.alloc(IdRef, mask.len);
+        const constituents = try gpa.alloc(Id, mask.len);
         defer gpa.free(constituents);
 
         for (constituents, mask) |*id, mask_elem| {
@@ -4089,7 +4045,7 @@ const NavGen = struct {
         return try ng.constructComposite(result_ty_id, constituents);
     }
 
-    fn airShuffleTwo(ng: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airShuffleTwo(ng: *NavGen, inst: Air.Inst.Index) !?Id {
         const pt = ng.pt;
         const zcu = pt.zcu;
         const gpa = zcu.gpa;
@@ -4102,7 +4058,7 @@ const NavGen = struct {
         const operand_a = try ng.resolve(unwrapped.operand_a);
         const operand_b = try ng.resolve(unwrapped.operand_b);
 
-        const constituents = try gpa.alloc(IdRef, mask.len);
+        const constituents = try gpa.alloc(Id, mask.len);
         defer gpa.free(constituents);
 
         for (constituents, mask) |*id, mask_elem| {
@@ -4117,8 +4073,8 @@ const NavGen = struct {
         return try ng.constructComposite(result_ty_id, constituents);
     }
 
-    fn indicesToIds(self: *NavGen, indices: []const u32) ![]IdRef {
-        const ids = try self.gpa.alloc(IdRef, indices.len);
+    fn indicesToIds(self: *NavGen, indices: []const u32) ![]Id {
+        const ids = try self.gpa.alloc(Id, indices.len);
         errdefer self.gpa.free(ids);
         for (indices, ids) |index, *id| {
             id.* = try self.constInt(Type.u32, index);
@@ -4129,12 +4085,12 @@ const NavGen = struct {
 
     fn accessChainId(
         self: *NavGen,
-        result_ty_id: IdRef,
-        base: IdRef,
-        indices: []const IdRef,
-    ) !IdRef {
+        result_ty_id: Id,
+        base: Id,
+        indices: []const Id,
+    ) !Id {
         const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpInBoundsAccessChain, .{
+        try self.func.body.emit(self.spv.gpa, .in_bounds_access_chain, .{
             .id_result_type = result_ty_id,
             .id_result = result_id,
             .base = base,
@@ -4149,10 +4105,10 @@ const NavGen = struct {
     /// is the latter and PtrAccessChain is the former.
     fn accessChain(
         self: *NavGen,
-        result_ty_id: IdRef,
-        base: IdRef,
+        result_ty_id: Id,
+        base: Id,
         indices: []const u32,
-    ) !IdRef {
+    ) !Id {
         const ids = try self.indicesToIds(indices);
         defer self.gpa.free(ids);
         return try self.accessChainId(result_ty_id, base, ids);
@@ -4160,18 +4116,18 @@ const NavGen = struct {
 
     fn ptrAccessChain(
         self: *NavGen,
-        result_ty_id: IdRef,
-        base: IdRef,
-        element: IdRef,
+        result_ty_id: Id,
+        base: Id,
+        element: Id,
         indices: []const u32,
-    ) !IdRef {
+    ) !Id {
         const ids = try self.indicesToIds(indices);
         defer self.gpa.free(ids);
 
         const result_id = self.spv.allocId();
         switch (self.spv.target.os.tag) {
             .opencl, .amdhsa => {
-                try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
+                try self.func.body.emit(self.spv.gpa, .in_bounds_ptr_access_chain, .{
                     .id_result_type = result_ty_id,
                     .id_result = result_id,
                     .base = base,
@@ -4180,7 +4136,7 @@ const NavGen = struct {
                 });
             },
             else => {
-                try self.func.body.emit(self.spv.gpa, .OpPtrAccessChain, .{
+                try self.func.body.emit(self.spv.gpa, .ptr_access_chain, .{
                     .id_result_type = result_ty_id,
                     .id_result = result_id,
                     .base = base,
@@ -4192,7 +4148,7 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn ptrAdd(self: *NavGen, result_ty: Type, ptr_ty: Type, ptr_id: IdRef, offset_id: IdRef) !IdRef {
+    fn ptrAdd(self: *NavGen, result_ty: Type, ptr_ty: Type, ptr_id: Id, offset_id: Id) !Id {
         const zcu = self.pt.zcu;
         const result_ty_id = try self.resolveType(result_ty, .direct);
 
@@ -4213,7 +4169,7 @@ const NavGen = struct {
         }
     }
 
-    fn airPtrAdd(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airPtrAdd(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_id = try self.resolve(bin_op.lhs);
@@ -4224,7 +4180,7 @@ const NavGen = struct {
         return try self.ptrAdd(result_ty, ptr_ty, ptr_id, offset_id);
     }
 
-    fn airPtrSub(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airPtrSub(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_id = try self.resolve(bin_op.lhs);
@@ -4235,7 +4191,7 @@ const NavGen = struct {
         const result_ty = self.typeOfIndex(inst);
 
         const negative_offset_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpSNegate, .{
+        try self.func.body.emit(self.spv.gpa, .s_negate, .{
             .id_result_type = offset_ty_id,
             .id_result = negative_offset_id,
             .operand = offset_id,
@@ -4281,14 +4237,14 @@ const NavGen = struct {
                 const usize_ty_id = try self.resolveType(Type.usize, .direct);
 
                 const lhs_int_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpConvertPtrToU, .{
+                try self.func.body.emit(self.spv.gpa, .convert_ptr_to_u, .{
                     .id_result_type = usize_ty_id,
                     .id_result = lhs_int_id,
                     .pointer = try lhs.materialize(self),
                 });
 
                 const rhs_int_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpConvertPtrToU, .{
+                try self.func.body.emit(self.spv.gpa, .convert_ptr_to_u, .{
                     .id_result_type = usize_ty_id,
                     .id_result = rhs_int_id,
                     .pointer = try rhs.materialize(self),
@@ -4420,7 +4376,7 @@ const NavGen = struct {
         self: *NavGen,
         inst: Air.Inst.Index,
         comptime op: std.math.CompareOperator,
-    ) !?IdRef {
+    ) !?Id {
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.temporary(bin_op.lhs);
         const rhs = try self.temporary(bin_op.rhs);
@@ -4429,7 +4385,7 @@ const NavGen = struct {
         return try result.materialize(self);
     }
 
-    fn airVectorCmp(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airVectorCmp(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const vec_cmp = self.air.extraData(Air.VectorCmp, ty_pl.payload).data;
         const lhs = try self.temporary(vec_cmp.lhs);
@@ -4445,8 +4401,8 @@ const NavGen = struct {
         self: *NavGen,
         dst_ty: Type,
         src_ty: Type,
-        src_id: IdRef,
-    ) !IdRef {
+        src_id: Id,
+    ) !Id {
         const zcu = self.pt.zcu;
         const src_ty_id = try self.resolveType(src_ty, .direct);
         const dst_ty_id = try self.resolveType(dst_ty, .direct);
@@ -4459,7 +4415,7 @@ const NavGen = struct {
 
             if (src_ty.zigTypeTag(zcu) == .int and dst_ty.isPtrAtRuntime(zcu)) {
                 const result_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpConvertUToPtr, .{
+                try self.func.body.emit(self.spv.gpa, .convert_u_to_ptr, .{
                     .id_result_type = dst_ty_id,
                     .id_result = result_id,
                     .integer_value = src_id,
@@ -4473,7 +4429,7 @@ const NavGen = struct {
             const can_bitcast = (src_ty.isNumeric(zcu) and dst_ty.isNumeric(zcu)) or (src_ty.isPtrAtRuntime(zcu) and dst_ty.isPtrAtRuntime(zcu));
             if (can_bitcast) {
                 const result_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                try self.func.body.emit(self.spv.gpa, .bitcast, .{
                     .id_result_type = dst_ty_id,
                     .id_result = result_id,
                     .operand = src_id,
@@ -4482,12 +4438,12 @@ const NavGen = struct {
                 break :blk result_id;
             }
 
-            const dst_ptr_ty_id = try self.ptrType(dst_ty, .Function, .indirect);
+            const dst_ptr_ty_id = try self.ptrType(dst_ty, .function, .indirect);
 
-            const tmp_id = try self.alloc(src_ty, .{ .storage_class = .Function });
+            const tmp_id = try self.alloc(src_ty, .{ .storage_class = .function });
             try self.store(src_ty, tmp_id, src_id, .{});
             const casted_ptr_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+            try self.func.body.emit(self.spv.gpa, .bitcast, .{
                 .id_result_type = dst_ptr_ty_id,
                 .id_result = casted_ptr_id,
                 .operand = tmp_id,
@@ -4508,7 +4464,7 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn airBitCast(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airBitCast(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_ty = self.typeOf(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
@@ -4521,7 +4477,7 @@ const NavGen = struct {
         return try self.bitCast(result_ty, operand_ty, operand_id);
     }
 
-    fn airIntCast(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airIntCast(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const src = try self.temporary(ty_op.operand);
         const dst_ty = self.typeOfIndex(inst);
@@ -4547,10 +4503,10 @@ const NavGen = struct {
         return try result.materialize(self);
     }
 
-    fn intFromPtr(self: *NavGen, operand_id: IdRef) !IdRef {
+    fn intFromPtr(self: *NavGen, operand_id: Id) !Id {
         const result_type_id = try self.resolveType(Type.usize, .direct);
         const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpConvertPtrToU, .{
+        try self.func.body.emit(self.spv.gpa, .convert_ptr_to_u, .{
             .id_result_type = result_type_id,
             .id_result = result_id,
             .pointer = operand_id,
@@ -4558,7 +4514,7 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn airFloatFromInt(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airFloatFromInt(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_ty = self.typeOf(ty_op.operand);
         const operand_id = try self.resolve(ty_op.operand);
@@ -4566,17 +4522,17 @@ const NavGen = struct {
         return try self.floatFromInt(result_ty, operand_ty, operand_id);
     }
 
-    fn floatFromInt(self: *NavGen, result_ty: Type, operand_ty: Type, operand_id: IdRef) !IdRef {
+    fn floatFromInt(self: *NavGen, result_ty: Type, operand_ty: Type, operand_id: Id) !Id {
         const operand_info = self.arithmeticTypeInfo(operand_ty);
         const result_id = self.spv.allocId();
         const result_ty_id = try self.resolveType(result_ty, .direct);
         switch (operand_info.signedness) {
-            .signed => try self.func.body.emit(self.spv.gpa, .OpConvertSToF, .{
+            .signed => try self.func.body.emit(self.spv.gpa, .convert_s_to_f, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
                 .signed_value = operand_id,
             }),
-            .unsigned => try self.func.body.emit(self.spv.gpa, .OpConvertUToF, .{
+            .unsigned => try self.func.body.emit(self.spv.gpa, .convert_u_to_f, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
                 .unsigned_value = operand_id,
@@ -4585,24 +4541,24 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn airIntFromFloat(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airIntFromFloat(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
         return try self.intFromFloat(result_ty, operand_id);
     }
 
-    fn intFromFloat(self: *NavGen, result_ty: Type, operand_id: IdRef) !IdRef {
+    fn intFromFloat(self: *NavGen, result_ty: Type, operand_id: Id) !Id {
         const result_info = self.arithmeticTypeInfo(result_ty);
         const result_ty_id = try self.resolveType(result_ty, .direct);
         const result_id = self.spv.allocId();
         switch (result_info.signedness) {
-            .signed => try self.func.body.emit(self.spv.gpa, .OpConvertFToS, .{
+            .signed => try self.func.body.emit(self.spv.gpa, .convert_f_to_s, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
                 .float_value = operand_id,
             }),
-            .unsigned => try self.func.body.emit(self.spv.gpa, .OpConvertFToU, .{
+            .unsigned => try self.func.body.emit(self.spv.gpa, .convert_f_to_u, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
                 .float_value = operand_id,
@@ -4611,7 +4567,7 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn airFloatCast(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airFloatCast(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.temporary(ty_op.operand);
         const dest_ty = self.typeOfIndex(inst);
@@ -4619,7 +4575,7 @@ const NavGen = struct {
         return try result.materialize(self);
     }
 
-    fn airNot(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airNot(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.temporary(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
@@ -4638,7 +4594,7 @@ const NavGen = struct {
         return try result.materialize(self);
     }
 
-    fn airArrayToSlice(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airArrayToSlice(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -4663,7 +4619,7 @@ const NavGen = struct {
         return try self.constructComposite(slice_ty_id, &.{ elem_ptr_id, len_id });
     }
 
-    fn airSlice(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airSlice(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_id = try self.resolve(bin_op.lhs);
@@ -4673,7 +4629,7 @@ const NavGen = struct {
         return try self.constructComposite(slice_ty_id, &.{ ptr_id, len_id });
     }
 
-    fn airAggregateInit(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airAggregateInit(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
@@ -4725,7 +4681,7 @@ const NavGen = struct {
 
                 const types = try self.gpa.alloc(Type, elements.len);
                 defer self.gpa.free(types);
-                const constituents = try self.gpa.alloc(IdRef, elements.len);
+                const constituents = try self.gpa.alloc(Id, elements.len);
                 defer self.gpa.free(constituents);
                 var index: usize = 0;
 
@@ -4764,7 +4720,7 @@ const NavGen = struct {
             },
             .vector => {
                 const n_elems = result_ty.vectorLen(zcu);
-                const elem_ids = try self.gpa.alloc(IdRef, n_elems);
+                const elem_ids = try self.gpa.alloc(Id, n_elems);
                 defer self.gpa.free(elem_ids);
 
                 for (elements, 0..) |element, i| {
@@ -4777,7 +4733,7 @@ const NavGen = struct {
             .array => {
                 const array_info = result_ty.arrayInfo(zcu);
                 const n_elems: usize = @intCast(result_ty.arrayLenIncludingSentinel(zcu));
-                const elem_ids = try self.gpa.alloc(IdRef, n_elems);
+                const elem_ids = try self.gpa.alloc(Id, n_elems);
                 defer self.gpa.free(elem_ids);
 
                 for (elements, 0..) |element, i| {
@@ -4796,7 +4752,7 @@ const NavGen = struct {
         }
     }
 
-    fn sliceOrArrayLen(self: *NavGen, operand_id: IdRef, ty: Type) !IdRef {
+    fn sliceOrArrayLen(self: *NavGen, operand_id: Id, ty: Type) !Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         switch (ty.ptrSize(zcu)) {
@@ -4812,7 +4768,7 @@ const NavGen = struct {
         }
     }
 
-    fn sliceOrArrayPtr(self: *NavGen, operand_id: IdRef, ty: Type) !IdRef {
+    fn sliceOrArrayPtr(self: *NavGen, operand_id: Id, ty: Type) !Id {
         const zcu = self.pt.zcu;
         if (ty.isSlice(zcu)) {
             const ptr_ty = ty.slicePtrFieldType(zcu);
@@ -4830,7 +4786,7 @@ const NavGen = struct {
         const dest_ptr = try self.sliceOrArrayPtr(dest_slice, dest_ty);
         const src_ptr = try self.sliceOrArrayPtr(src_slice, src_ty);
         const len = try self.sliceOrArrayLen(dest_slice, dest_ty);
-        try self.func.body.emit(self.spv.gpa, .OpCopyMemorySized, .{
+        try self.func.body.emit(self.spv.gpa, .copy_memory_sized, .{
             .target = dest_ptr,
             .source = src_ptr,
             .size = len,
@@ -4842,14 +4798,14 @@ const NavGen = struct {
         return self.fail("TODO implement airMemcpy for spirv", .{});
     }
 
-    fn airSliceField(self: *NavGen, inst: Air.Inst.Index, field: u32) !?IdRef {
+    fn airSliceField(self: *NavGen, inst: Air.Inst.Index, field: u32) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const field_ty = self.typeOfIndex(inst);
         const operand_id = try self.resolve(ty_op.operand);
         return try self.extractField(field_ty, operand_id, field);
     }
 
-    fn airSliceElemPtr(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airSliceElemPtr(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -4866,7 +4822,7 @@ const NavGen = struct {
         return try self.ptrAccessChain(ptr_ty_id, slice_ptr, index_id, &.{});
     }
 
-    fn airSliceElemVal(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airSliceElemVal(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const slice_ty = self.typeOf(bin_op.lhs);
@@ -4883,7 +4839,7 @@ const NavGen = struct {
         return try self.load(slice_ty.childType(zcu), elem_ptr, .{ .is_volatile = slice_ty.isVolatilePtr(zcu) });
     }
 
-    fn ptrElemPtr(self: *NavGen, ptr_ty: Type, ptr_id: IdRef, index_id: IdRef) !IdRef {
+    fn ptrElemPtr(self: *NavGen, ptr_ty: Type, ptr_id: Id, index_id: Id) !Id {
         const zcu = self.pt.zcu;
         // Construct new pointer type for the resulting pointer
         const elem_ty = ptr_ty.elemType2(zcu); // use elemType() so that we get T for *[N]T.
@@ -4898,7 +4854,7 @@ const NavGen = struct {
         }
     }
 
-    fn airPtrElemPtr(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airPtrElemPtr(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -4916,7 +4872,7 @@ const NavGen = struct {
         return try self.ptrElemPtr(src_ptr_ty, ptr_id, index_id);
     }
 
-    fn airArrayElemVal(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airArrayElemVal(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const array_ty = self.typeOf(bin_op.lhs);
@@ -4931,17 +4887,17 @@ const NavGen = struct {
         const is_vector = array_ty.isVector(zcu);
 
         const elem_repr: Repr = if (is_vector) .direct else .indirect;
-        const ptr_array_ty_id = try self.ptrType(array_ty, .Function, .direct);
-        const ptr_elem_ty_id = try self.ptrType(elem_ty, .Function, elem_repr);
+        const ptr_array_ty_id = try self.ptrType(array_ty, .function, .direct);
+        const ptr_elem_ty_id = try self.ptrType(elem_ty, .function, elem_repr);
 
         const tmp_id = self.spv.allocId();
-        try self.func.prologue.emit(self.spv.gpa, .OpVariable, .{
+        try self.func.prologue.emit(self.spv.gpa, .variable, .{
             .id_result_type = ptr_array_ty_id,
             .id_result = tmp_id,
-            .storage_class = .Function,
+            .storage_class = .function,
         });
 
-        try self.func.body.emit(self.spv.gpa, .OpStore, .{
+        try self.func.body.emit(self.spv.gpa, .store, .{
             .pointer = tmp_id,
             .object = array_id,
         });
@@ -4949,7 +4905,7 @@ const NavGen = struct {
         const elem_ptr_id = try self.accessChainId(ptr_elem_ty_id, tmp_id, &.{index_id});
 
         const result_id = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpLoad, .{
+        try self.func.body.emit(self.spv.gpa, .load, .{
             .id_result_type = try self.resolveType(elem_ty, elem_repr),
             .id_result = result_id,
             .pointer = elem_ptr_id,
@@ -4966,7 +4922,7 @@ const NavGen = struct {
         return try self.convertToDirect(elem_ty, result_id);
     }
 
-    fn airPtrElemVal(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airPtrElemVal(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const ptr_ty = self.typeOf(bin_op.lhs);
@@ -5022,7 +4978,7 @@ const NavGen = struct {
         }
     }
 
-    fn airGetUnionTag(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airGetUnionTag(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const un_ty = self.typeOf(ty_op.operand);
 
@@ -5041,8 +4997,8 @@ const NavGen = struct {
         self: *NavGen,
         ty: Type,
         active_field: u32,
-        payload: ?IdRef,
-    ) !IdRef {
+        payload: ?Id,
+    ) !Id {
         // To initialize a union, generate a temporary variable with the
         // union type, then get the field pointer and pointer-cast it to the
         // right type to store it. Finally load the entire union.
@@ -5093,22 +5049,22 @@ const NavGen = struct {
             return try self.constInt(tag_ty, tag_int);
         }
 
-        const tmp_id = try self.alloc(ty, .{ .storage_class = .Function });
+        const tmp_id = try self.alloc(ty, .{ .storage_class = .function });
 
         if (layout.tag_size != 0) {
-            const tag_ptr_ty_id = try self.ptrType(tag_ty, .Function, .indirect);
+            const tag_ptr_ty_id = try self.ptrType(tag_ty, .function, .indirect);
             const ptr_id = try self.accessChain(tag_ptr_ty_id, tmp_id, &.{@as(u32, @intCast(layout.tag_index))});
             const tag_id = try self.constInt(tag_ty, tag_int);
             try self.store(tag_ty, ptr_id, tag_id, .{});
         }
 
         if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-            const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .Function, .indirect);
+            const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .function, .indirect);
             const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, tmp_id, &.{layout.payload_index});
             const active_pl_ptr_id = if (!layout.payload_ty.eql(payload_ty, zcu)) blk: {
-                const active_pl_ptr_ty_id = try self.ptrType(payload_ty, .Function, .indirect);
+                const active_pl_ptr_ty_id = try self.ptrType(payload_ty, .function, .indirect);
                 const active_pl_ptr_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                try self.func.body.emit(self.spv.gpa, .bitcast, .{
                     .id_result_type = active_pl_ptr_ty_id,
                     .id_result = active_pl_ptr_id,
                     .operand = pl_ptr_id,
@@ -5127,7 +5083,7 @@ const NavGen = struct {
         return try self.load(ty, tmp_id, .{});
     }
 
-    fn airUnionInit(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airUnionInit(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
@@ -5144,7 +5100,7 @@ const NavGen = struct {
         return try self.unionInit(ty, extra.field_index, payload);
     }
 
-    fn airStructFieldVal(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airStructFieldVal(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -5209,15 +5165,15 @@ const NavGen = struct {
                     const layout = self.unionLayout(object_ty);
                     assert(layout.has_payload);
 
-                    const tmp_id = try self.alloc(object_ty, .{ .storage_class = .Function });
+                    const tmp_id = try self.alloc(object_ty, .{ .storage_class = .function });
                     try self.store(object_ty, tmp_id, object_id, .{});
 
-                    const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .Function, .indirect);
+                    const pl_ptr_ty_id = try self.ptrType(layout.payload_ty, .function, .indirect);
                     const pl_ptr_id = try self.accessChain(pl_ptr_ty_id, tmp_id, &.{layout.payload_index});
 
-                    const active_pl_ptr_ty_id = try self.ptrType(field_ty, .Function, .indirect);
+                    const active_pl_ptr_ty_id = try self.ptrType(field_ty, .function, .indirect);
                     const active_pl_ptr_id = self.spv.allocId();
-                    try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                    try self.func.body.emit(self.spv.gpa, .bitcast, .{
                         .id_result_type = active_pl_ptr_ty_id,
                         .id_result = active_pl_ptr_id,
                         .operand = pl_ptr_id,
@@ -5229,7 +5185,7 @@ const NavGen = struct {
         }
     }
 
-    fn airFieldParentPtr(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airFieldParentPtr(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -5253,7 +5209,7 @@ const NavGen = struct {
         };
 
         const base_ptr = self.spv.allocId();
-        try self.func.body.emit(self.spv.gpa, .OpConvertUToPtr, .{
+        try self.func.body.emit(self.spv.gpa, .convert_u_to_ptr, .{
             .id_result_type = result_ty_id,
             .id_result = base_ptr,
             .integer_value = base_ptr_int,
@@ -5266,9 +5222,9 @@ const NavGen = struct {
         self: *NavGen,
         result_ptr_ty: Type,
         object_ptr_ty: Type,
-        object_ptr: IdRef,
+        object_ptr: Id,
         field_index: u32,
-    ) !IdRef {
+    ) !Id {
         const result_ty_id = try self.resolveType(result_ptr_ty, .direct);
 
         const zcu = self.pt.zcu;
@@ -5300,7 +5256,7 @@ const NavGen = struct {
                 };
 
                 const active_pl_ptr_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpBitcast, .{
+                try self.func.body.emit(self.spv.gpa, .bitcast, .{
                     .id_result_type = result_ty_id,
                     .id_result = active_pl_ptr_id,
                     .operand = pl_ptr_id,
@@ -5311,7 +5267,7 @@ const NavGen = struct {
         }
     }
 
-    fn airStructFieldPtrIndex(self: *NavGen, inst: Air.Inst.Index, field_index: u32) !?IdRef {
+    fn airStructFieldPtrIndex(self: *NavGen, inst: Air.Inst.Index, field_index: u32) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const struct_ptr = try self.resolve(ty_op.operand);
         const struct_ptr_ty = self.typeOf(ty_op.operand);
@@ -5320,7 +5276,7 @@ const NavGen = struct {
     }
 
     const AllocOptions = struct {
-        initializer: ?IdRef = null,
+        initializer: ?Id = null,
         /// The final storage class of the pointer. This may be either `.Generic` or `.Function`.
         /// In either case, the local is allocated in the `.Function` storage class, and optionally
         /// cast back to `.Generic`.
@@ -5335,16 +5291,16 @@ const NavGen = struct {
         self: *NavGen,
         ty: Type,
         options: AllocOptions,
-    ) !IdRef {
-        const ptr_fn_ty_id = try self.ptrType(ty, .Function, .indirect);
+    ) !Id {
+        const ptr_fn_ty_id = try self.ptrType(ty, .function, .indirect);
 
         // SPIR-V requires that OpVariable declarations for locals go into the first block, so we are just going to
         // directly generate them into func.prologue instead of the body.
         const var_id = self.spv.allocId();
-        try self.func.prologue.emit(self.spv.gpa, .OpVariable, .{
+        try self.func.prologue.emit(self.spv.gpa, .variable, .{
             .id_result_type = ptr_fn_ty_id,
             .id_result = var_id,
-            .storage_class = .Function,
+            .storage_class = .function,
             .initializer = options.initializer,
         });
 
@@ -5354,17 +5310,17 @@ const NavGen = struct {
         }
 
         switch (options.storage_class) {
-            .Generic => {
-                const ptr_gn_ty_id = try self.ptrType(ty, .Generic, .indirect);
+            .generic => {
+                const ptr_gn_ty_id = try self.ptrType(ty, .generic, .indirect);
                 // Convert to a generic pointer
                 return self.castToGeneric(ptr_gn_ty_id, var_id);
             },
-            .Function => return var_id,
+            .function => return var_id,
             else => unreachable,
         }
     }
 
-    fn airAlloc(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airAlloc(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
         const ptr_ty = self.typeOfIndex(inst);
         const child_ty = ptr_ty.childType(zcu);
@@ -5373,7 +5329,7 @@ const NavGen = struct {
         });
     }
 
-    fn airArg(self: *NavGen) IdRef {
+    fn airArg(self: *NavGen) Id {
         defer self.next_arg_index += 1;
         return self.args.items[self.next_arg_index];
     }
@@ -5382,14 +5338,14 @@ const NavGen = struct {
     /// block to jump to. This function emits instructions, so it should be emitted
     /// inside the merge block of the block.
     /// This function should only be called with structured control flow generation.
-    fn structuredNextBlock(self: *NavGen, incoming: []const ControlFlow.Structured.Block.Incoming) !IdRef {
+    fn structuredNextBlock(self: *NavGen, incoming: []const ControlFlow.Structured.Block.Incoming) !Id {
         assert(self.control_flow == .structured);
 
         const result_id = self.spv.allocId();
         const block_id_ty_id = try self.resolveType(Type.u32, .direct);
-        try self.func.body.emitRaw(self.spv.gpa, .OpPhi, @intCast(2 + incoming.len * 2)); // result type + result + variable/parent...
-        self.func.body.writeOperand(spec.IdResultType, block_id_ty_id);
-        self.func.body.writeOperand(spec.IdRef, result_id);
+        try self.func.body.emitRaw(self.spv.gpa, .phi, @intCast(2 + incoming.len * 2)); // result type + result + variable/parent...
+        self.func.body.writeOperand(spec.Id, block_id_ty_id);
+        self.func.body.writeOperand(spec.Id, result_id);
 
         for (incoming) |incoming_block| {
             self.func.body.writeOperand(spec.PairIdRefIdRef, .{ incoming_block.next_block, incoming_block.src_label });
@@ -5401,7 +5357,7 @@ const NavGen = struct {
     /// Jumps to the block with the target block-id. This function must only be called when
     /// terminating a body, there should be no instructions after it.
     /// This function should only be called with structured control flow generation.
-    fn structuredBreak(self: *NavGen, target_block: IdRef) !void {
+    fn structuredBreak(self: *NavGen, target_block: Id) !void {
         assert(self.control_flow == .structured);
 
         const sblock = self.control_flow.structured.block_stack.getLast();
@@ -5441,12 +5397,12 @@ const NavGen = struct {
             /// Using loops; loops can be early exited by jumping to the merge block at
             /// any time.
             loop: struct {
-                merge_label: IdRef,
-                continue_label: IdRef,
+                merge_label: Id,
+                continue_label: Id,
             },
         },
         body: []const Air.Inst.Index,
-    ) !IdRef {
+    ) !Id {
         assert(self.control_flow == .structured);
 
         var sblock: ControlFlow.Structured.Block = switch (block_merge_type) {
@@ -5526,13 +5482,13 @@ const NavGen = struct {
         }
     }
 
-    fn airBlock(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airBlock(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const inst_datas = self.air.instructions.items(.data);
         const extra = self.air.extraData(Air.Block, inst_datas[@intFromEnum(inst)].ty_pl.payload);
         return self.lowerBlock(inst, @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]));
     }
 
-    fn lowerBlock(self: *NavGen, inst: Air.Inst.Index, body: []const Air.Inst.Index) !?IdRef {
+    fn lowerBlock(self: *NavGen, inst: Air.Inst.Index, body: []const Air.Inst.Index) !?Id {
         // In AIR, a block doesn't really define an entry point like a block, but
         // more like a scope that breaks can jump out of and "return" a value from.
         // This cannot be directly modelled in SPIR-V, so in a block instruction,
@@ -5573,12 +5529,12 @@ const NavGen = struct {
 
                 try self.func.body.emitRaw(
                     self.spv.gpa,
-                    .OpPhi,
+                    .phi,
                     // result type + result + variable/parent...
                     2 + @as(u16, @intCast(block.incoming_blocks.items.len * 2)),
                 );
-                self.func.body.writeOperand(spec.IdResultType, result_type_id);
-                self.func.body.writeOperand(spec.IdRef, result_id);
+                self.func.body.writeOperand(spec.Id, result_type_id);
+                self.func.body.writeOperand(spec.Id, result_id);
 
                 for (block.incoming_blocks.items) |incoming| {
                     self.func.body.writeOperand(
@@ -5592,7 +5548,7 @@ const NavGen = struct {
         };
 
         const maybe_block_result_var_id = if (have_block_result) blk: {
-            const block_result_var_id = try self.alloc(ty, .{ .storage_class = .Function });
+            const block_result_var_id = try self.alloc(ty, .{ .storage_class = .function });
             try cf.block_results.putNoClobber(self.gpa, inst, block_result_var_id);
             break :blk block_result_var_id;
         } else null;
@@ -5608,7 +5564,7 @@ const NavGen = struct {
         const this_block = try self.constInt(Type.u32, @intFromEnum(inst));
         const jump_to_this_block_id = self.spv.allocId();
         const bool_ty_id = try self.resolveType(Type.bool, .direct);
-        try self.func.body.emit(self.spv.gpa, .OpIEqual, .{
+        try self.func.body.emit(self.spv.gpa, .i_equal, .{
             .id_result_type = bool_ty_id,
             .id_result = jump_to_this_block_id,
             .operand_1 = next_block,
@@ -5628,11 +5584,11 @@ const NavGen = struct {
                     // generate a conditional branch to there and to the instructions following this block.
                     const merge_label = self.spv.allocId();
                     const then_label = self.spv.allocId();
-                    try self.func.body.emit(self.spv.gpa, .OpSelectionMerge, .{
+                    try self.func.body.emit(self.spv.gpa, .selection_merge, .{
                         .merge_block = merge_label,
                         .selection_control = .{},
                     });
-                    try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
+                    try self.func.body.emit(self.spv.gpa, .branch_conditional, .{
                         .condition = jump_to_this_block_id,
                         .true_label = then_label,
                         .false_label = merge_label,
@@ -5651,7 +5607,7 @@ const NavGen = struct {
                     // To jump out of a loop block, generate a conditional that exits the block
                     // to the loop merge if the target ID is not the one of this block.
                     const continue_label = self.spv.allocId();
-                    try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
+                    try self.func.body.emit(self.spv.gpa, .branch_conditional, .{
                         .condition = jump_to_this_block_id,
                         .true_label = continue_label,
                         .false_label = merge.merge_block,
@@ -5723,11 +5679,11 @@ const NavGen = struct {
             .structured => {
                 const merge_label = self.spv.allocId();
 
-                try self.func.body.emit(self.spv.gpa, .OpSelectionMerge, .{
+                try self.func.body.emit(self.spv.gpa, .selection_merge, .{
                     .merge_block = merge_label,
                     .selection_control = .{},
                 });
-                try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
+                try self.func.body.emit(self.spv.gpa, .branch_conditional, .{
                     .condition = condition_id,
                     .true_label = then_label,
                     .false_label = else_label,
@@ -5755,7 +5711,7 @@ const NavGen = struct {
                 try self.structuredBreak(next_block);
             },
             .unstructured => {
-                try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
+                try self.func.body.emit(self.spv.gpa, .branch_conditional, .{
                     .condition = condition_id,
                     .true_label = then_label,
                     .false_label = else_label,
@@ -5789,7 +5745,7 @@ const NavGen = struct {
                 try self.beginSpvBlock(header_label);
 
                 // Emit loop header and jump to loop body
-                try self.func.body.emit(self.spv.gpa, .OpLoopMerge, .{
+                try self.func.body.emit(self.spv.gpa, .loop_merge, .{
                     .merge_block = merge_label,
                     .continue_target = continue_label,
                     .loop_control = .{},
@@ -5816,7 +5772,7 @@ const NavGen = struct {
         }
     }
 
-    fn airLoad(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airLoad(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const ptr_ty = self.typeOf(ty_op.operand);
@@ -5850,14 +5806,14 @@ const NavGen = struct {
                 // return type and return zero so they can be function pointers coerced
                 // to functions that return anyerror.
                 const no_err_id = try self.constInt(Type.anyerror, 0);
-                return try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = no_err_id });
+                return try self.func.body.emit(self.spv.gpa, .return_value, .{ .value = no_err_id });
             } else {
-                return try self.func.body.emit(self.spv.gpa, .OpReturn, {});
+                return try self.func.body.emit(self.spv.gpa, .@"return", {});
             }
         }
 
         const operand_id = try self.resolve(operand);
-        try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = operand_id });
+        try self.func.body.emit(self.spv.gpa, .return_value, .{ .value = operand_id });
     }
 
     fn airRetLoad(self: *NavGen, inst: Air.Inst.Index) !void {
@@ -5874,20 +5830,20 @@ const NavGen = struct {
                 // return type and return zero so they can be function pointers coerced
                 // to functions that return anyerror.
                 const no_err_id = try self.constInt(Type.anyerror, 0);
-                return try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = no_err_id });
+                return try self.func.body.emit(self.spv.gpa, .return_value, .{ .value = no_err_id });
             } else {
-                return try self.func.body.emit(self.spv.gpa, .OpReturn, {});
+                return try self.func.body.emit(self.spv.gpa, .@"return", {});
             }
         }
 
         const ptr = try self.resolve(un_op);
         const value = try self.load(ret_ty, ptr, .{ .is_volatile = ptr_ty.isVolatilePtr(zcu) });
-        try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{
+        try self.func.body.emit(self.spv.gpa, .return_value, .{
             .value = value,
         });
     }
 
-    fn airTry(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airTry(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const err_union_id = try self.resolve(pl_op.operand);
@@ -5909,7 +5865,7 @@ const NavGen = struct {
 
             const zero_id = try self.constInt(Type.anyerror, 0);
             const is_err_id = self.spv.allocId();
-            try self.func.body.emit(self.spv.gpa, .OpINotEqual, .{
+            try self.func.body.emit(self.spv.gpa, .i_not_equal, .{
                 .id_result_type = bool_ty_id,
                 .id_result = is_err_id,
                 .operand_1 = err_id,
@@ -5929,7 +5885,7 @@ const NavGen = struct {
                     // to not break and end in a return instruction. Thus,
                     // for structured control flow, we can just naively use
                     // the ok block as the merge block here.
-                    try self.func.body.emit(self.spv.gpa, .OpSelectionMerge, .{
+                    try self.func.body.emit(self.spv.gpa, .selection_merge, .{
                         .merge_block = ok_block,
                         .selection_control = .{},
                     });
@@ -5937,7 +5893,7 @@ const NavGen = struct {
                 .unstructured => {},
             }
 
-            try self.func.body.emit(self.spv.gpa, .OpBranchConditional, .{
+            try self.func.body.emit(self.spv.gpa, .branch_conditional, .{
                 .condition = is_err_id,
                 .true_label = err_block,
                 .false_label = ok_block,
@@ -5957,7 +5913,7 @@ const NavGen = struct {
         return try self.extractField(payload_ty, err_union_id, eu_layout.payloadFieldIndex());
     }
 
-    fn airErrUnionErr(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airErrUnionErr(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
@@ -5980,7 +5936,7 @@ const NavGen = struct {
         return try self.extractField(Type.anyerror, operand_id, eu_layout.errorFieldIndex());
     }
 
-    fn airErrUnionPayload(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airErrUnionPayload(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const payload_ty = self.typeOfIndex(inst);
@@ -5993,7 +5949,7 @@ const NavGen = struct {
         return try self.extractField(payload_ty, operand_id, eu_layout.payloadFieldIndex());
     }
 
-    fn airWrapErrUnionErr(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airWrapErrUnionErr(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const err_union_ty = self.typeOfIndex(inst);
@@ -6007,7 +5963,7 @@ const NavGen = struct {
 
         const payload_ty_id = try self.resolveType(payload_ty, .indirect);
 
-        var members: [2]IdRef = undefined;
+        var members: [2]Id = undefined;
         members[eu_layout.errorFieldIndex()] = operand_id;
         members[eu_layout.payloadFieldIndex()] = try self.spv.constUndef(payload_ty_id);
 
@@ -6019,7 +5975,7 @@ const NavGen = struct {
         return try self.constructComposite(err_union_ty_id, &members);
     }
 
-    fn airWrapErrUnionPayload(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airWrapErrUnionPayload(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const err_union_ty = self.typeOfIndex(inst);
         const operand_id = try self.resolve(ty_op.operand);
@@ -6030,7 +5986,7 @@ const NavGen = struct {
             return try self.constInt(Type.anyerror, 0);
         }
 
-        var members: [2]IdRef = undefined;
+        var members: [2]Id = undefined;
         members[eu_layout.errorFieldIndex()] = try self.constInt(Type.anyerror, 0);
         members[eu_layout.payloadFieldIndex()] = try self.convertToIndirect(payload_ty, operand_id);
 
@@ -6042,7 +5998,7 @@ const NavGen = struct {
         return try self.constructComposite(err_union_ty_id, &members);
     }
 
-    fn airIsNull(self: *NavGen, inst: Air.Inst.Index, is_pointer: bool, pred: enum { is_null, is_non_null }) !?IdRef {
+    fn airIsNull(self: *NavGen, inst: Air.Inst.Index, is_pointer: bool, pred: enum { is_null, is_non_null }) !?Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
@@ -6108,7 +6064,7 @@ const NavGen = struct {
             .is_null => blk: {
                 // Invert condition
                 const result_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpLogicalNot, .{
+                try self.func.body.emit(self.spv.gpa, .logical_not, .{
                     .id_result_type = bool_ty_id,
                     .id_result = result_id,
                     .operand = is_non_null_id,
@@ -6119,7 +6075,7 @@ const NavGen = struct {
         };
     }
 
-    fn airIsErr(self: *NavGen, inst: Air.Inst.Index, pred: enum { is_err, is_non_err }) !?IdRef {
+    fn airIsErr(self: *NavGen, inst: Air.Inst.Index, pred: enum { is_err, is_non_err }) !?Id {
         const zcu = self.pt.zcu;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand_id = try self.resolve(un_op);
@@ -6143,8 +6099,8 @@ const NavGen = struct {
             inline else => |pred_ct| try self.func.body.emit(
                 self.spv.gpa,
                 switch (pred_ct) {
-                    .is_err => .OpINotEqual,
-                    .is_non_err => .OpIEqual,
+                    .is_err => .i_not_equal,
+                    .is_non_err => .i_equal,
                 },
                 .{
                     .id_result_type = bool_ty_id,
@@ -6157,7 +6113,7 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn airUnwrapOptional(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airUnwrapOptional(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -6174,7 +6130,7 @@ const NavGen = struct {
         return try self.extractField(payload_ty, operand_id, 0);
     }
 
-    fn airUnwrapOptionalPtr(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airUnwrapOptionalPtr(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -6199,7 +6155,7 @@ const NavGen = struct {
         return try self.accessChain(result_ty_id, operand_id, &.{0});
     }
 
-    fn airWrapOptional(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airWrapOptional(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -6217,7 +6173,7 @@ const NavGen = struct {
         }
 
         const payload_id = try self.convertToIndirect(payload_ty, operand_id);
-        const members = [_]IdRef{ payload_id, try self.constBool(true, .indirect) };
+        const members = [_]Id{ payload_id, try self.constBool(true, .indirect) };
         const optional_ty_id = try self.resolveType(optional_ty, .direct);
         return try self.constructComposite(optional_ty_id, &members);
     }
@@ -6279,16 +6235,16 @@ const NavGen = struct {
         };
 
         if (self.control_flow == .structured) {
-            try self.func.body.emit(self.spv.gpa, .OpSelectionMerge, .{
+            try self.func.body.emit(self.spv.gpa, .selection_merge, .{
                 .merge_block = merge_label.?,
                 .selection_control = .{},
             });
         }
 
         // Emit the instruction before generating the blocks.
-        try self.func.body.emitRaw(self.spv.gpa, .OpSwitch, 2 + (cond_words + 1) * num_conditions);
-        self.func.body.writeOperand(IdRef, cond_indirect);
-        self.func.body.writeOperand(IdRef, default);
+        try self.func.body.emitRaw(self.spv.gpa, .@"switch", 2 + (cond_words + 1) * num_conditions);
+        self.func.body.writeOperand(Id, cond_indirect);
+        self.func.body.writeOperand(Id, default);
 
         // Emit each of the cases
         {
@@ -6315,7 +6271,7 @@ const NavGen = struct {
                         else => unreachable,
                     };
                     self.func.body.writeOperand(spec.LiteralContextDependentNumber, int_lit);
-                    self.func.body.writeOperand(IdRef, label);
+                    self.func.body.writeOperand(Id, label);
                 }
             }
         }
@@ -6366,7 +6322,7 @@ const NavGen = struct {
                 },
             }
         } else {
-            try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
+            try self.func.body.emit(self.spv.gpa, .@"unreachable", {});
         }
 
         if (self.control_flow == .structured) {
@@ -6377,7 +6333,7 @@ const NavGen = struct {
     }
 
     fn airUnreach(self: *NavGen) !void {
-        try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
+        try self.func.body.emit(self.spv.gpa, .@"unreachable", {});
     }
 
     fn airDbgStmt(self: *NavGen, inst: Air.Inst.Index) !void {
@@ -6385,14 +6341,14 @@ const NavGen = struct {
         const zcu = pt.zcu;
         const dbg_stmt = self.air.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
         const path = zcu.navFileScope(self.owner_nav).sub_file_path;
-        try self.func.body.emit(self.spv.gpa, .OpLine, .{
+        try self.func.body.emit(self.spv.gpa, .line, .{
             .file = try self.spv.resolveString(path),
             .line = self.base_line + dbg_stmt.line + 1,
             .column = dbg_stmt.column + 1,
         });
     }
 
-    fn airDbgInlineBlock(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airDbgInlineBlock(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
         const inst_datas = self.air.instructions.items(.data);
         const extra = self.air.extraData(Air.DbgInlineBlock, inst_datas[@intFromEnum(inst)].ty_pl.payload);
@@ -6409,7 +6365,7 @@ const NavGen = struct {
         try self.spv.debugName(target_id, name.toSlice(self.air));
     }
 
-    fn airAssembly(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airAssembly(self: *NavGen, inst: Air.Inst.Index) !?Id {
         const zcu = self.pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Asm, ty_pl.payload);
@@ -6579,7 +6535,7 @@ const NavGen = struct {
         return null;
     }
 
-    fn airCall(self: *NavGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !?IdRef {
+    fn airCall(self: *NavGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !?Id {
         _ = modifier;
 
         const pt = self.pt;
@@ -6601,7 +6557,7 @@ const NavGen = struct {
         const callee_id = try self.resolve(pl_op.operand);
 
         comptime assert(zig_call_abi_ver == 3);
-        const params = try self.gpa.alloc(spec.IdRef, args.len);
+        const params = try self.gpa.alloc(spec.Id, args.len);
         defer self.gpa.free(params);
         var n_params: usize = 0;
         for (args) |arg| {
@@ -6616,7 +6572,7 @@ const NavGen = struct {
             n_params += 1;
         }
 
-        try self.func.body.emit(self.spv.gpa, .OpFunctionCall, .{
+        try self.func.body.emit(self.spv.gpa, .function_call, .{
             .id_result_type = result_type_id,
             .id_result = result_id,
             .function = callee_id,
@@ -6630,7 +6586,7 @@ const NavGen = struct {
         return result_id;
     }
 
-    fn builtin3D(self: *NavGen, result_ty: Type, builtin: spec.BuiltIn, dimension: u32, out_of_range_value: anytype) !IdRef {
+    fn builtin3D(self: *NavGen, result_ty: Type, builtin: spec.BuiltIn, dimension: u32, out_of_range_value: anytype) !Id {
         if (dimension >= 3) {
             return try self.constInt(result_ty, out_of_range_value);
         }
@@ -6638,7 +6594,7 @@ const NavGen = struct {
             .len = 3,
             .child = result_ty.toIntern(),
         });
-        const ptr_ty_id = try self.ptrType(vec_ty, .Input, .indirect);
+        const ptr_ty_id = try self.ptrType(vec_ty, .input, .indirect);
         const spv_decl_index = try self.spv.builtin(ptr_ty_id, builtin);
         try self.func.decl_deps.put(self.spv.gpa, spv_decl_index, {});
         const ptr = self.spv.declPtr(spv_decl_index).result_id;
@@ -6646,34 +6602,34 @@ const NavGen = struct {
         return try self.extractVectorComponent(result_ty, vec, dimension);
     }
 
-    fn airWorkItemId(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airWorkItemId(self: *NavGen, inst: Air.Inst.Index) !?Id {
         if (self.liveness.isUnused(inst)) return null;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const dimension = pl_op.payload;
         // TODO: Should we make these builtins return usize?
-        const result_id = try self.builtin3D(Type.u64, .LocalInvocationId, dimension, 0);
+        const result_id = try self.builtin3D(Type.u64, .local_invocation_id, dimension, 0);
         const tmp = Temporary.init(Type.u64, result_id);
         const result = try self.buildConvert(Type.u32, tmp);
         return try result.materialize(self);
     }
 
-    fn airWorkGroupSize(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airWorkGroupSize(self: *NavGen, inst: Air.Inst.Index) !?Id {
         if (self.liveness.isUnused(inst)) return null;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const dimension = pl_op.payload;
         // TODO: Should we make these builtins return usize?
-        const result_id = try self.builtin3D(Type.u64, .WorkgroupSize, dimension, 0);
+        const result_id = try self.builtin3D(Type.u64, .workgroup_size, dimension, 0);
         const tmp = Temporary.init(Type.u64, result_id);
         const result = try self.buildConvert(Type.u32, tmp);
         return try result.materialize(self);
     }
 
-    fn airWorkGroupId(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn airWorkGroupId(self: *NavGen, inst: Air.Inst.Index) !?Id {
         if (self.liveness.isUnused(inst)) return null;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const dimension = pl_op.payload;
         // TODO: Should we make these builtins return usize?
-        const result_id = try self.builtin3D(Type.u64, .WorkgroupId, dimension, 0);
+        const result_id = try self.builtin3D(Type.u64, .workgroup_id, dimension, 0);
         const tmp = Temporary.init(Type.u64, result_id);
         const result = try self.buildConvert(Type.u32, tmp);
         return try result.materialize(self);
