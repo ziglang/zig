@@ -1282,11 +1282,13 @@ test printLineFromFileAnyOs {
         defer allocator.free(path);
 
         const overlap = 10;
-        var file_writer = file.writer(&.{});
+        var buf: [16]u8 = undefined;
+        var file_writer = file.writer(&buf);
         const writer = &file_writer.interface;
         try writer.splatByteAll('a', std.heap.page_size_min - overlap);
         try writer.writeByte('\n');
         try writer.splatByteAll('a', overlap);
+        try writer.flush();
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
         try expectEqualStrings(("a" ** overlap) ++ "\n", aw.getWritten());
