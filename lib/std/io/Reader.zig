@@ -106,7 +106,7 @@ const ending_state: Reader = .fixed(&.{});
 pub const ending: *Reader = @constCast(&ending_state);
 
 pub fn limited(r: *Reader, limit: Limit, buffer: []u8) Limited {
-    return Limited.init(r, limit, buffer);
+    return .init(r, limit, buffer);
 }
 
 /// Constructs a `Reader` such that it will read from `buffer` and then end.
@@ -921,21 +921,70 @@ pub fn streamDelimiterLimit(
 /// Reads from the stream until specified byte is found, discarding all data,
 /// including the delimiter.
 ///
-/// If end of stream is found, this function succeeds.
-pub fn discardDelimiterInclusive(r: *Reader, delimiter: u8) Error!void {
-    _ = r;
-    _ = delimiter;
-    @panic("TODO");
+/// Returns number of bytes discarded, or `error.EndOfStream` if the delimiter
+/// is not found.
+///
+/// See also:
+/// * `discardDelimiterExclusive`
+/// * `discardDelimiterLimit`
+pub fn discardDelimiterInclusive(r: *Reader, delimiter: u8) Error!usize {
+    const n = discardDelimiterLimit(r, delimiter, .unlimited) catch |err| switch (err) {
+        error.StreamTooLong => unreachable, // unlimited is passed
+        else => |e| return e,
+    };
+    if (r.seek == r.end) return error.EndOfStream;
+    assert(r.buffer[r.seek] == delimiter);
+    toss(r, 1);
+    return n + 1;
 }
 
 /// Reads from the stream until specified byte is found, discarding all data,
 /// excluding the delimiter.
 ///
-/// Succeeds if stream ends before delimiter found.
-pub fn discardDelimiterExclusive(r: *Reader, delimiter: u8) ShortError!void {
-    _ = r;
-    _ = delimiter;
-    @panic("TODO");
+/// Returns the number of bytes discarded.
+///
+/// Succeeds if stream ends before delimiter found. End of stream can be
+/// detected by checking if the delimiter is buffered.
+///
+/// See also:
+/// * `discardDelimiterInclusive`
+/// * `discardDelimiterLimit`
+pub fn discardDelimiterExclusive(r: *Reader, delimiter: u8) ShortError!usize {
+    return discardDelimiterLimit(r, delimiter, .unlimited) catch |err| switch (err) {
+        error.StreamTooLong => unreachable, // unlimited is passed
+        else => |e| return e,
+    };
+}
+
+pub const DiscardDelimiterLimitError = error{
+    ReadFailed,
+    /// The delimiter was not found within the limit.
+    StreamTooLong,
+};
+
+/// Reads from the stream until specified byte is found, discarding all data,
+/// excluding the delimiter.
+///
+/// Returns the number of bytes discarded.
+///
+/// Succeeds if stream ends before delimiter found. End of stream can be
+/// detected by checking if the delimiter is buffered.
+pub fn discardDelimiterLimit(r: *Reader, delimiter: u8, limit: Limit) DiscardDelimiterLimitError!usize {
+    var remaining = @intFromEnum(limit);
+    while (remaining != 0) {
+        const available = Limit.limited(remaining).slice(r.peekGreedy(1) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => return @intFromEnum(limit) - remaining,
+        });
+        if (std.mem.indexOfScalar(u8, available, delimiter)) |delimiter_index| {
+            r.toss(delimiter_index);
+            remaining -= delimiter_index;
+            return @intFromEnum(limit) - remaining;
+        }
+        r.toss(available.len);
+        remaining -= available.len;
+    }
+    return error.StreamTooLong;
 }
 
 /// Fills the buffer such that it contains at least `n` bytes, without
@@ -950,6 +999,19 @@ pub fn fill(r: *Reader, n: usize) Error!void {
     if (r.seek + n <= r.end) {
         @branchHint(.likely);
         return;
+    }
+    if (r.seek + n <= r.buffer.len) while (true) {
+        const end_cap = r.buffer[r.end..];
+        var writer: Writer = .fixed(end_cap);
+        r.end += r.vtable.stream(r, &writer, .limited(end_cap.len)) catch |err| switch (err) {
+            error.WriteFailed => unreachable,
+            else => |e| return e,
+        };
+        if (r.seek + n <= r.end) return;
+    };
+    if (r.vtable.stream == &endingStream) {
+        // Protect the `@constCast` of `fixed`.
+        return error.EndOfStream;
     }
     rebaseCapacity(r, n);
     var writer: Writer = .{
@@ -1371,37 +1433,65 @@ test streamDelimiterLimit {
     var w: Writer = .fixed(&out_buffer);
     try testing.expectError(error.StreamTooLong, r.streamDelimiterLimit(&w, '\n', .limited(2)));
     try testing.expectEqual(1, try r.streamDelimiterLimit(&w, '\n', .limited(3)));
-    r.toss(1);
+    try testing.expectEqualStrings("\n", try r.take(1));
     try testing.expectEqual(4, try r.streamDelimiterLimit(&w, '\n', .unlimited));
     try testing.expectEqualStrings("foobars", w.buffered());
 }
 
 test discardDelimiterExclusive {
-    return error.Unimplemented;
+    var r: Reader = .fixed("foob\nar");
+    try testing.expectEqual(4, try r.discardDelimiterExclusive('\n'));
+    try testing.expectEqualStrings("\n", try r.take(1));
+    try testing.expectEqual(2, try r.discardDelimiterExclusive('\n'));
+    try testing.expectEqual(0, try r.discardDelimiterExclusive('\n'));
 }
 
 test discardDelimiterInclusive {
-    return error.Unimplemented;
+    var r: Reader = .fixed("foob\nar");
+    try testing.expectEqual(5, try r.discardDelimiterInclusive('\n'));
+    try testing.expectError(error.EndOfStream, r.discardDelimiterInclusive('\n'));
+}
+
+test discardDelimiterLimit {
+    var r: Reader = .fixed("foob\nar");
+    try testing.expectError(error.StreamTooLong, r.discardDelimiterLimit('\n', .limited(4)));
+    try testing.expectEqual(0, try r.discardDelimiterLimit('\n', .limited(2)));
+    try testing.expectEqualStrings("\n", try r.take(1));
+    try testing.expectEqual(2, try r.discardDelimiterLimit('\n', .unlimited));
+    try testing.expectEqual(0, try r.discardDelimiterLimit('\n', .unlimited));
 }
 
 test fill {
-    return error.Unimplemented;
+    var r: Reader = .fixed("abc");
+    try r.fill(1);
+    try r.fill(3);
 }
 
 test takeByte {
-    return error.Unimplemented;
+    var r: Reader = .fixed("ab");
+    try testing.expectEqual('a', try r.takeByte());
+    try testing.expectEqual('b', try r.takeByte());
+    try testing.expectError(error.EndOfStream, r.takeByte());
 }
 
 test takeByteSigned {
-    return error.Unimplemented;
+    var r: Reader = .fixed(&.{ 255, 5 });
+    try testing.expectEqual(-1, try r.takeByteSigned());
+    try testing.expectEqual(5, try r.takeByteSigned());
+    try testing.expectError(error.EndOfStream, r.takeByteSigned());
 }
 
 test takeInt {
-    return error.Unimplemented;
+    var r: Reader = .fixed(&.{ 0x12, 0x34, 0x56 });
+    try testing.expectEqual(0x1234, try r.takeInt(u16, .big));
+    try testing.expectError(error.EndOfStream, r.takeInt(u16, .little));
 }
 
 test takeVarInt {
-    return error.Unimplemented;
+    var r: Reader = .fixed(&.{ 0x12, 0x34, 0x56 });
+    std.debug.print("{x}", .{r.buffer});
+    try testing.expectEqual(0x123456, try r.takeVarInt(u64, .big, 3));
+    try testing.expectError(error.EndOfStream, r.takeVarInt(u16, .little, 1));
 }
 
 test takeStruct {
