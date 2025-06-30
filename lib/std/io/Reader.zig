@@ -846,37 +846,44 @@ pub fn peekDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 /// Appends to `w` contents by reading from the stream until `delimiter` is
 /// found. Does not write the delimiter itself.
 ///
-/// Returns number of bytes streamed.
-pub fn readDelimiter(r: *Reader, w: *Writer, delimiter: u8) StreamError!usize {
-    const amount, const to = try r.readAny(w, delimiter, .unlimited);
-    return switch (to) {
-        .delimiter => amount,
-        .limit => unreachable,
-        .end => error.EndOfStream,
+/// Returns number of bytes streamed, which may be zero, or error.EndOfStream
+/// if the delimiter was not found.
+///
+/// See also:
+/// * `streamDelimiterEnding`
+/// * `streamDelimiterLimit`
+pub fn streamDelimiter(r: *Reader, w: *Writer, delimiter: u8) StreamError!usize {
+    const n = streamDelimiterLimit(r, w, delimiter, .unlimited) catch |err| switch (err) {
+        error.StreamTooLong => unreachable, // unlimited is passed
+        else => |e| return e,
     };
+    if (r.seek == r.end) return error.EndOfStream;
+    return n;
 }
 
 /// Appends to `w` contents by reading from the stream until `delimiter` is found.
 /// Does not write the delimiter itself.
 ///
-/// Succeeds if stream ends before delimiter found.
+/// Returns number of bytes streamed, which may be zero. End of stream can be
+/// detected by checking if the next byte in the stream is the delimiter.
 ///
-/// Returns number of bytes streamed. The end is not signaled to the writer.
-pub fn readDelimiterEnding(
+/// See also:
+/// * `streamDelimiter`
+/// * `streamDelimiterLimit`
+pub fn streamDelimiterEnding(
     r: *Reader,
     w: *Writer,
     delimiter: u8,
 ) StreamRemainingError!usize {
-    const amount, const to = try r.readAny(w, delimiter, .unlimited);
-    return switch (to) {
-        .delimiter, .end => amount,
-        .limit => unreachable,
+    return streamDelimiterLimit(r, w, delimiter, .unlimited) catch |err| switch (err) {
+        error.StreamTooLong => unreachable, // unlimited is passed
+        else => |e| return e,
     };
 }
 
-pub const StreamDelimiterLimitedError = StreamRemainingError || error{
-    /// Stream ended before the delimiter was found.
-    EndOfStream,
+pub const StreamDelimiterLimitError = error{
+    ReadFailed,
+    WriteFailed,
     /// The delimiter was not found within the limit.
     StreamTooLong,
 };
@@ -884,45 +891,31 @@ pub const StreamDelimiterLimitedError = StreamRemainingError || error{
 /// Appends to `w` contents by reading from the stream until `delimiter` is found.
 /// Does not write the delimiter itself.
 ///
-/// Returns number of bytes streamed.
-pub fn readDelimiterLimit(
+/// Returns number of bytes streamed, which may be zero. End of stream can be
+/// detected by checking if the next byte in the stream is the delimiter.
+pub fn streamDelimiterLimit(
     r: *Reader,
     w: *Writer,
     delimiter: u8,
     limit: Limit,
-) StreamDelimiterLimitedError!usize {
-    const amount, const to = try r.readAny(w, delimiter, limit);
-    return switch (to) {
-        .delimiter => amount,
-        .limit => error.StreamTooLong,
-        .end => error.EndOfStream,
-    };
-}
-
-fn readAny(
-    r: *Reader,
-    w: *Writer,
-    delimiter: ?u8,
-    limit: Limit,
-) StreamRemainingError!struct { usize, enum { delimiter, limit, end } } {
-    var amount: usize = 0;
-    var remaining = limit;
-    while (remaining.nonzero()) {
-        const available = remaining.slice(r.peekGreedy(1) catch |err| switch (err) {
-            error.ReadFailed => |e| return e,
-            error.EndOfStream => return .{ amount, .end },
+) StreamDelimiterLimitError!usize {
+    var remaining = @intFromEnum(limit);
+    while (remaining != 0) {
+        const available = Limit.limited(remaining).slice(r.peekGreedy(1) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => return @intFromEnum(limit) - remaining,
         });
-        if (delimiter) |d| if (std.mem.indexOfScalar(u8, available, d)) |delimiter_index| {
+        if (std.mem.indexOfScalar(u8, available, delimiter)) |delimiter_index| {
             try w.writeAll(available[0..delimiter_index]);
-            r.toss(delimiter_index + 1);
-            return .{ amount + delimiter_index, .delimiter };
-        };
+            r.toss(delimiter_index);
+            remaining -= delimiter_index;
+            return @intFromEnum(limit) - remaining;
+        }
         try w.writeAll(available);
         r.toss(available.len);
-        amount += available.len;
-        remaining = remaining.subtract(available.len).?;
+        remaining -= available.len;
     }
-    return .{ amount, .limit };
+    return error.StreamTooLong;
 }
 
 /// Reads from the stream until specified byte is found, discarding all data,
@@ -1348,15 +1341,33 @@ test peekDelimiterExclusive {
     try testing.expectEqualStrings("c", try r.peekDelimiterExclusive('\n'));
 }
 
-test readDelimiter {
-    return error.Unimplemented;
+test streamDelimiter {
+    var out_buffer: [10]u8 = undefined;
+    var r: Reader = .fixed("foo\nbars");
+    var w: Writer = .fixed(&out_buffer);
+    // Short streams are possible with this function but not with fixed.
+    try testing.expectEqual(3, try r.streamDelimiter(&w, '\n'));
+    try testing.expectEqualStrings("foo", w.buffered());
+    try testing.expectEqual(0, try r.streamDelimiter(&w, '\n'));
+    r.toss(1);
+    try testing.expectError(error.EndOfStream, r.streamDelimiter(&w, '\n'));
 }
 
-test readDelimiterEnding {
-    return error.Unimplemented;
+test streamDelimiterEnding {
+    var out_buffer: [10]u8 = undefined;
+    var r: Reader = .fixed("foo\nbars");
+    var w: Writer = .fixed(&out_buffer);
+    // Short streams are possible with this function but not with fixed.
+    try testing.expectEqual(3, try r.streamDelimiterEnding(&w, '\n'));
+    try testing.expectEqualStrings("foo", w.buffered());
+    r.toss(1);
+    try testing.expectEqual(4, try r.streamDelimiterEnding(&w, '\n'));
+    try testing.expectEqualStrings("foobars", w.buffered());
+    try testing.expectEqual(0, try r.streamDelimiterEnding(&w, '\n'));
+    try testing.expectEqual(0, try r.streamDelimiterEnding(&w, '\n'));
 }
 
-test readDelimiterLimit {
+test streamDelimiterLimit {
     return error.Unimplemented;
 }
 
