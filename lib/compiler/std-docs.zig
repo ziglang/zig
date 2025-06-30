@@ -236,10 +236,10 @@ fn serveWasm(
     const wasm_base_path = try buildWasmBinary(arena, context, optimize_mode);
     const bin_name = try std.zig.binNameAlloc(arena, .{
         .root_name = autodoc_root_name,
-        .target = std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
+        .target = &(std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
             .arch_os_abi = autodoc_arch_os_abi,
             .cpu_features = autodoc_cpu_features,
-        }) catch unreachable) catch unreachable,
+        }) catch unreachable) catch unreachable),
         .output_mode = .Exe,
     });
     // std.http.Server does not have a sendfile API yet.
