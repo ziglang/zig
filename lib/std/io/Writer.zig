@@ -126,8 +126,8 @@ pub fn fixed(buffer: []u8) Writer {
     };
 }
 
-pub fn hashed(w: *Writer, hasher: anytype) Hashed(@TypeOf(hasher)) {
-    return .{ .out = w, .hasher = hasher };
+pub fn hashed(w: *Writer, hasher: anytype, buffer: []u8) Hashed(@TypeOf(hasher)) {
+    return .initHasher(w, hasher, buffer);
 }
 
 pub const failing: Writer = .{
@@ -1969,20 +1969,25 @@ pub fn Hashed(comptime Hasher: type) type {
     return struct {
         out: *Writer,
         hasher: Hasher,
-        interface: Writer,
+        writer: Writer,
 
-        pub fn init(out: *Writer) @This() {
+        pub fn init(out: *Writer, buffer: []u8) @This() {
+            return .initHasher(out, .{}, buffer);
+        }
+
+        pub fn initHasher(out: *Writer, hasher: Hasher, buffer: []u8) @This() {
             return .{
                 .out = out,
-                .hasher = .{},
-                .interface = .{
+                .hasher = hasher,
+                .writer = .{
+                    .buffer = buffer,
                     .vtable = &.{@This().drain},
                 },
             };
         }
 
         fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-            const this: *@This() = @alignCast(@fieldParentPtr("interface", w));
+            const this: *@This() = @alignCast(@fieldParentPtr("writer", w));
             if (data.len == 0) {
                 const buf = w.buffered();
                 try this.out.writeAll(buf);

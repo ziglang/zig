@@ -2660,24 +2660,17 @@ fn formatSymtab(
     }
 }
 
-pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Formatter(Object, formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(
-    object: Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatPath(object: Object, writer: *std.io.Writer) std.io.Writer.Error!void {
     if (object.in_archive) |ar| {
-        try writer.print("{}({s})", .{
+        try writer.print("{f}({s})", .{
             @as(Path, ar.path), object.path.basename(),
         });
     } else {
-        try writer.print("{}", .{@as(Path, object.path)});
+        try writer.print("{f}", .{@as(Path, object.path)});
     }
 }
 
