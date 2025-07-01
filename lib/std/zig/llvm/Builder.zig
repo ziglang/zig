@@ -8962,7 +8962,7 @@ pub fn getIntrinsic(
     const name = name: {
         {
             var aw: Writer.Allocating = .fromArrayList(self.gpa, &self.strtab_string_bytes);
-            const w = &aw.interface;
+            const w = &aw.writer;
             defer self.strtab_string_bytes = aw.toArrayList();
             w.print("llvm.{s}", .{@tagName(id)}) catch return error.OutOfMemory;
             for (overload) |ty| w.print(".{fm}", .{ty.fmt(self)}) catch return error.OutOfMemory;

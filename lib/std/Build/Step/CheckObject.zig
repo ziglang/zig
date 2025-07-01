@@ -1380,8 +1380,8 @@ const MachODumper = struct {
                     },
                     macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
                         name_buf.clearRetainingCapacity();
-                        try br.streamDelimiterLimit(&name_buf, 0, .limited(std.math.maxInt(u32)));
-                        try name_buf.writeByte(0);
+                        _ = try br.streamDelimiterLimit(&name_buf.writer, 0, .limited(std.math.maxInt(u32)));
+                        try name_buf.writer.writeByte(0);
                     },
                     macho.BIND_OPCODE_SET_ADDEND_SLEB => {
                         addend = try br.takeLeb128(i64);
@@ -1588,7 +1588,7 @@ const MachODumper = struct {
 
         var aw: std.io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
-        const bw = &aw.interface;
+        const bw = &aw.writer;
 
         switch (check.kind) {
             .headers => {
@@ -1741,7 +1741,7 @@ const ElfDumper = struct {
 
         var aw: std.io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
-        const bw = &aw.interface;
+        const bw = &aw.writer;
 
         switch (check.kind) {
             .archive_symtab => if (ctx.symtab.len > 0) {
@@ -1888,7 +1888,7 @@ const ElfDumper = struct {
 
         var aw: std.io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
-        const bw = &aw.interface;
+        const bw = &aw.writer;
 
         switch (check.kind) {
             .headers => {
@@ -2338,7 +2338,7 @@ const WasmDumper = struct {
 
         var aw: std.io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
-        const bw = &aw.interface;
+        const bw = &aw.writer;
 
         parseAndDumpInner(step, check, &br, bw) catch |err| switch (err) {
             error.EndOfStream => try bw.writeAll("\n<UnexpectedEndOfStream>"),

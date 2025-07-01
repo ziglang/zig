@@ -307,7 +307,7 @@ test dumpHexFallible {
     var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
     defer aw.deinit();
 
-    try dumpHexFallible(&aw.interface, .no_color, bytes);
+    try dumpHexFallible(&aw.writer, .no_color, bytes);
     const expected = try std.fmt.allocPrint(std.testing.allocator,
         \\{x:0>[2]}  00 11 22 33 44 55 66 77  88 99 AA BB CC DD EE FF  .."3DUfw........
         \\{x:0>[2]}  01 12 13                                          ...
@@ -1230,7 +1230,7 @@ fn printLineFromFileAnyOs(writer: *Writer, source_location: SourceLocation) !voi
 test printLineFromFileAnyOs {
     var aw: Writer.Allocating = .init(std.testing.allocator);
     defer aw.deinit();
-    const output_stream = &aw.interface;
+    const output_stream = &aw.writer;
 
     const allocator = std.testing.allocator;
     const join = std.fs.path.join;
