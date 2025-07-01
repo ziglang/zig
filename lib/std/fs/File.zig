@@ -1894,6 +1894,20 @@ pub const Writer = struct {
             },
         }
     }
+
+    pub const EndError = SetEndPosError || std.io.Writer.Error;
+
+    /// Flushes any buffered data and sets the end position of the file.
+    ///
+    /// If not overwriting existing contents, then calling `interface.flush`
+    /// directly is sufficient.
+    ///
+    /// Flush failure is handled by setting `err` so that it can be handled
+    /// along with other write failures.
+    pub fn end(w: *Writer) EndError!void {
+        try w.interface.flush();
+        return w.file.setEndPos(w.pos);
+    }
 };
 
 /// Defaults to positional reading; falls back to streaming.
