@@ -3255,6 +3255,8 @@ const NavGen = struct {
             .shl_with_overflow => try self.airShlOverflow(inst),
             .add_sat           => try self.airAddSubSaturating(inst, .i_add),
             .sub_sat           => try self.airAddSubSaturating(inst, .i_sub),
+            .mul_sat           => try self.airMulSaturating(inst),
+            .shl_sat           => try self.airShlSaturating(inst),
 
             .mul_add => try self.airMulAdd(inst),
 
@@ -3758,16 +3760,14 @@ const NavGen = struct {
         return self.buildAddSub(lhs, rhs, result_ty, op, .Saturating);
     }
 
-    fn airMulOverflow(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+    fn buildMul(
+        self: *NavGen,
+        lhs: Temporary,
+        rhs: Temporary,
+        result_ty: Type,
+        comptime mode: enum { WithOverflow, Saturating },
+    ) !?IdRef {
         const pt = self.pt;
-
-        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-        const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
-
-        const lhs = try self.temporary(extra.lhs);
-        const rhs = try self.temporary(extra.rhs);
-
-        const result_ty = self.typeOfIndex(inst);
 
         const info = self.arithmeticTypeInfo(lhs.ty);
         switch (info.class) {
@@ -3924,26 +3924,80 @@ const NavGen = struct {
             },
         };
 
-        const ov = try self.intFromBool(overflowed);
+        switch (mode) {
+            .WithOverflow => {
+                const ov = try self.intFromBool(overflowed);
 
-        const result_ty_id = try self.resolveType(result_ty, .direct);
-        return try self.constructComposite(result_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
+                const result_ty_id = try self.resolveType(result_ty, .direct);
+                return try self.constructComposite(result_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
+            },
+            .Saturating => {
+                const sat_val_tmp: Temporary = blk: switch (info.signedness) {
+                    .unsigned => {
+                        const scalar_ty = result_ty.scalarType(self.pt.zcu);
+                        const max_val: u64 = if (info.bits == 64) std.math.maxInt(u64) else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1;
+                        const max_id = try self.constInt(scalar_ty, max_val);
+                        break :blk .{ .ty = scalar_ty, .value = .{ .singleton = max_id } };
+                    },
+                    .signed => {
+                        const zero = Temporary.init(rhs.ty, try self.constInt(rhs.ty, 0));
+                        const lhs_is_neg = try self.buildCmp(.s_lt, lhs, zero);
+                        const rhs_is_neg = try self.buildCmp(.s_lt, rhs, zero);
+                        const signs_differ = try self.buildCmp(.l_ne, lhs_is_neg, rhs_is_neg);
+
+                        const scalar_ty = result_ty.scalarType(self.pt.zcu);
+                        const min_val: i64 = if (info.bits == 0) 0 else -(@as(i64, 1) << @as(u6, @intCast(info.bits - 1)));
+                        const max_val: u64 = if (info.bits == 0) 0 else (@as(u64, 1) << @as(u6, @intCast(info.bits - 1))) - 1;
+
+                        const min_id = try self.constInt(scalar_ty, min_val);
+                        const max_id = try self.constInt(scalar_ty, max_val);
+
+                        break :blk try self.buildSelect(
+                            signs_differ,
+                            Temporary.init(scalar_ty, min_id),
+                            Temporary.init(scalar_ty, max_id),
+                        );
+                    },
+                };
+                const final_result = try self.buildSelect(overflowed, sat_val_tmp, result);
+                return try final_result.materialize(self);
+            },
+        }
     }
 
-    fn airShlOverflow(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
-        const zcu = self.pt.zcu;
-
+    fn airMulOverflow(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
 
-        if (self.typeOf(extra.lhs).isVector(zcu) and !self.typeOf(extra.rhs).isVector(zcu)) {
-            return self.fail("vector shift with scalar rhs", .{});
-        }
-
-        const base = try self.temporary(extra.lhs);
-        const shift = try self.temporary(extra.rhs);
+        const lhs = try self.temporary(extra.lhs);
+        const rhs = try self.temporary(extra.rhs);
 
         const result_ty = self.typeOfIndex(inst);
+        return self.buildMul(lhs, rhs, result_ty, .WithOverflow);
+    }
+
+    fn airMulSaturating(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+
+        const lhs = try self.temporary(bin_op.lhs);
+        const rhs = try self.temporary(bin_op.rhs);
+
+        const result_ty = self.typeOfIndex(inst);
+        return self.buildMul(lhs, rhs, result_ty, .Saturating);
+    }
+
+    fn buildShl(
+        self: *NavGen,
+        base: Temporary,
+        shift: Temporary,
+        result_ty: Type,
+        comptime mode: enum { WithOverflow, Saturating },
+    ) !?IdRef {
+        const zcu = self.pt.zcu;
+
+        if (base.ty.isVector(zcu) and !shift.ty.isVector(zcu)) {
+            return self.fail("vector shift with scalar rhs", .{});
+        }
 
         const info = self.arithmeticTypeInfo(base.ty);
         switch (info.class) {
@@ -3965,10 +4019,64 @@ const NavGen = struct {
         };
 
         const overflowed = try self.buildCmp(.i_ne, base, right);
-        const ov = try self.intFromBool(overflowed);
 
-        const result_ty_id = try self.resolveType(result_ty, .direct);
-        return try self.constructComposite(result_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
+        switch (mode) {
+            .WithOverflow => {
+                const ov = try self.intFromBool(overflowed);
+                const result_ty_id = try self.resolveType(result_ty, .direct);
+                return try self.constructComposite(result_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
+            },
+            .Saturating => {
+                const sat_val_tmp: Temporary = blk: switch (info.signedness) {
+                    .unsigned => {
+                        const scalar_ty = result_ty.scalarType(self.pt.zcu);
+                        const max_val: u64 = if (info.bits == 64) std.math.maxInt(u64) else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1;
+                        const max_id = try self.constInt(scalar_ty, max_val);
+                        break :blk .{ .ty = scalar_ty, .value = .{ .singleton = max_id } };
+                    },
+                    .signed => {
+                        const zero = Temporary.init(base.ty, try self.constInt(base.ty, 0));
+                        const base_is_neg = try self.buildCmp(.s_lt, base, zero);
+
+                        const scalar_ty = result_ty.scalarType(self.pt.zcu);
+                        const min_val: i64 = if (info.bits == 0) 0 else -(@as(i64, 1) << @as(u6, @intCast(info.bits - 1)));
+                        const max_val: u64 = if (info.bits == 0) 0 else (@as(u64, 1) << @as(u6, @intCast(info.bits - 1))) - 1;
+
+                        const min_id = try self.constInt(scalar_ty, min_val);
+                        const max_id = try self.constInt(scalar_ty, max_val);
+
+                        break :blk try self.buildSelect(
+                            base_is_neg,
+                            Temporary.init(scalar_ty, min_id),
+                            Temporary.init(scalar_ty, max_id),
+                        );
+                    },
+                };
+                const final_result = try self.buildSelect(overflowed, sat_val_tmp, result);
+                return try final_result.materialize(self);
+            },
+        }
+    }
+
+    fn airShlOverflow(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+        const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+
+        const base = try self.temporary(extra.lhs);
+        const shift = try self.temporary(extra.rhs);
+
+        const result_ty = self.typeOfIndex(inst);
+        return self.buildShl(base, shift, result_ty, .WithOverflow);
+    }
+
+    fn airShlSaturating(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+
+        const base = try self.temporary(bin_op.lhs);
+        const shift = try self.temporary(bin_op.rhs);
+
+        const result_ty = self.typeOfIndex(inst);
+        return self.buildShl(base, shift, result_ty, .Saturating);
     }
 
     fn airMulAdd(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
