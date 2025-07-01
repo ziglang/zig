@@ -445,7 +445,7 @@ pub fn toss(r: *Reader, n: usize) void {
 }
 
 /// Equivalent to `toss(r.bufferedLen())`.
-pub fn tossAll(r: *Reader) void {
+pub fn tossBuffered(r: *Reader) void {
     r.seek = 0;
     r.end = 0;
 }
@@ -557,7 +557,7 @@ pub fn discardShort(r: *Reader, n: usize) ShortError!usize {
 /// See also:
 /// * `peek`
 /// * `readSliceShort`
-pub fn readSlice(r: *Reader, buffer: []u8) Error!void {
+pub fn readSliceAll(r: *Reader, buffer: []u8) Error!void {
     const n = try readSliceShort(r, buffer);
     if (n != buffer.len) return error.EndOfStream;
 }
@@ -571,7 +571,7 @@ pub fn readSlice(r: *Reader, buffer: []u8) Error!void {
 /// only if the stream reached the end.
 ///
 /// See also:
-/// * `readSlice`
+/// * `readSliceAll`
 pub fn readSliceShort(r: *Reader, buffer: []u8) ShortError!usize {
     const in_buffer = r.buffer[r.seek..r.end];
     const copy_len = @min(buffer.len, in_buffer.len);
@@ -630,7 +630,7 @@ pub fn readSliceShort(r: *Reader, buffer: []u8) ShortError!usize {
 /// comptime-known and matches host endianness.
 ///
 /// See also:
-/// * `readSlice`
+/// * `readSliceAll`
 /// * `readSliceEndianAlloc`
 pub inline fn readSliceEndian(
     r: *Reader,
@@ -638,7 +638,7 @@ pub inline fn readSliceEndian(
     buffer: []Elem,
     endian: std.builtin.Endian,
 ) Error!void {
-    try readSlice(r, @ptrCast(buffer));
+    try readSliceAll(r, @ptrCast(buffer));
     if (native_endian != endian) for (buffer) |*elem| std.mem.byteSwapAllFields(Elem, elem);
 }
 
@@ -655,15 +655,16 @@ pub inline fn readSliceEndianAlloc(
 ) ReadAllocError![]Elem {
     const dest = try allocator.alloc(Elem, len);
     errdefer allocator.free(dest);
-    try readSlice(r, @ptrCast(dest));
+    try readSliceAll(r, @ptrCast(dest));
     if (native_endian != endian) for (dest) |*elem| std.mem.byteSwapAllFields(Elem, elem);
     return dest;
 }
 
-pub fn readSliceAlloc(r: *Reader, allocator: Allocator, len: usize) ReadAllocError![]u8 {
+/// Shortcut for calling `readSliceAll` with a buffer provided by `allocator`.
+pub fn readAlloc(r: *Reader, allocator: Allocator, len: usize) ReadAllocError![]u8 {
     const dest = try allocator.alloc(u8, len);
     errdefer allocator.free(dest);
-    try readSlice(r, dest);
+    try readSliceAll(r, dest);
     return dest;
 }
 
@@ -1092,6 +1093,7 @@ pub fn takeVarInt(r: *Reader, comptime Int: type, endian: std.builtin.Endian, n:
 ///
 /// See also:
 /// * `peekStruct`
+/// * `takeStructEndian`
 pub fn takeStruct(r: *Reader, comptime T: type) Error!*align(1) T {
     // Only extern and packed structs have defined in-memory layout.
     comptime assert(@typeInfo(T).@"struct".layout != .auto);
@@ -1104,6 +1106,7 @@ pub fn takeStruct(r: *Reader, comptime T: type) Error!*align(1) T {
 ///
 /// See also:
 /// * `takeStruct`
+/// * `peekStructEndian`
 pub fn peekStruct(r: *Reader, comptime T: type) Error!*align(1) T {
     // Only extern and packed structs have defined in-memory layout.
     comptime assert(@typeInfo(T).@"struct".layout != .auto);
@@ -1114,6 +1117,10 @@ pub fn peekStruct(r: *Reader, comptime T: type) Error!*align(1) T {
 ///
 /// This function is inline to avoid referencing `std.mem.byteSwapAllFields`
 /// when `endian` is comptime-known and matches the host endianness.
+///
+/// See also:
+/// * `takeStruct`
+/// * `peekStructEndian`
 pub inline fn takeStructEndian(r: *Reader, comptime T: type, endian: std.builtin.Endian) Error!T {
     var res = (try r.takeStruct(T)).*;
     if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
@@ -1124,6 +1131,10 @@ pub inline fn takeStructEndian(r: *Reader, comptime T: type, endian: std.builtin
 ///
 /// This function is inline to avoid referencing `std.mem.byteSwapAllFields`
 /// when `endian` is comptime-known and matches the host endianness.
+///
+/// See also:
+/// * `takeStructEndian`
+/// * `peekStruct`
 pub inline fn peekStructEndian(r: *Reader, comptime T: type, endian: std.builtin.Endian) Error!T {
     var res = (try r.peekStruct(T)).*;
     if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
@@ -1489,25 +1500,47 @@ test takeInt {
 
 test takeVarInt {
     var r: Reader = .fixed(&.{ 0x12, 0x34, 0x56 });
-    std.debug.print("{x}", .{r.buffer});
     try testing.expectEqual(0x123456, try r.takeVarInt(u64, .big, 3));
     try testing.expectError(error.EndOfStream, r.takeVarInt(u16, .little, 1));
 }
 
 test takeStruct {
-    return error.Unimplemented;
+    var r: Reader = .fixed(&.{ 0x12, 0x00, 0x34, 0x56 });
+    const S = extern struct { a: u8, b: u16 };
+    switch (native_endian) {
+        .little => try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.takeStruct(S)).*),
+        .big => try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.takeStruct(S)).*),
+    }
+    try testing.expectError(error.EndOfStream, r.takeStruct(S));
 }
 
 test peekStruct {
-    return error.Unimplemented;
+    var r: Reader = .fixed(&.{ 0x12, 0x00, 0x34, 0x56 });
+    const S = extern struct { a: u8, b: u16 };
+    switch (native_endian) {
+        .little => {
+            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.peekStruct(S)).*);
+            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.peekStruct(S)).*);
+        },
+        .big => {
+            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.peekStruct(S)).*);
+            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.peekStruct(S)).*);
+        },
+    }
 }
 
 test takeStructEndian {
-    return error.Unimplemented;
+    var r: Reader = .fixed(&.{ 0x12, 0x00, 0x34, 0x56 });
+    const S = extern struct { a: u8, b: u16 };
+    try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), try r.takeStructEndian(S, .big));
+    try testing.expectError(error.EndOfStream, r.takeStructEndian(S, .little));
 }
 
 test peekStructEndian {
-    return error.Unimplemented;
+    var r: Reader = .fixed(&.{ 0x12, 0x00, 0x34, 0x56 });
+    const S = extern struct { a: u8, b: u16 };
+    try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), try r.peekStructEndian(S, .big));
+    try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), try r.peekStructEndian(S, .little));
 }
 
 test takeEnum {
@@ -1519,15 +1552,46 @@ test takeEnum {
 }
 
 test takeLeb128 {
-    return error.Unimplemented;
+    var r: Reader = .fixed("\xc7\x9f\x7f\x80");
+    try testing.expectEqual(-12345, try r.takeLeb128(i64));
+    try testing.expectEqual(0x80, try r.peekByte());
+    try testing.expectError(error.EndOfStream, r.takeLeb128(i64));
 }
 
 test readSliceShort {
-    return error.Unimplemented;
+    var r: Reader = .fixed("HelloFren");
+    var buf: [5]u8 = undefined;
+    try testing.expectEqual(5, try r.readSliceShort(&buf));
+    try testing.expectEqualStrings("Hello", buf[0..5]);
+    try testing.expectEqual(4, try r.readSliceShort(&buf));
+    try testing.expectEqualStrings("Fren", buf[0..4]);
+    try testing.expectEqual(0, try r.readSliceShort(&buf));
 }
 
 test readVec {
-    return error.Unimplemented;
+    var r: Reader = .fixed(std.ascii.letters);
+    var flat_buffer: [52]u8 = undefined;
+    var bufs: [2][]u8 = .{
+        flat_buffer[0..26],
+        flat_buffer[26..],
+    };
+    // Short reads are possible with this function but not with fixed.
+    try testing.expectEqual(26 * 2, try r.readVec(&bufs));
+    try testing.expectEqualStrings(std.ascii.letters[0..26], bufs[0]);
+    try testing.expectEqualStrings(std.ascii.letters[26..], bufs[1]);
+}
+
+test readVecLimit {
+    var r: Reader = .fixed(std.ascii.letters);
+    var flat_buffer: [52]u8 = undefined;
+    var bufs: [2][]u8 = .{
+        flat_buffer[0..26],
+        flat_buffer[26..],
+    };
+    // Short reads are possible with this function but not with fixed.
+    try testing.expectEqual(50, try r.readVecLimit(&bufs, .limited(50)));
+    try testing.expectEqualStrings(std.ascii.letters[0..26], bufs[0]);
+    try testing.expectEqualStrings(std.ascii.letters[26..50], bufs[1][0..24]);
 }
 
 test "expected error.EndOfStream" {

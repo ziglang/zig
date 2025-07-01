@@ -10,6 +10,10 @@
 
 const std = @import("std");
 
+pub const lowercase = "abcdefghijklmnopqrstuvwxyz";
+pub const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+pub const letters = lowercase ++ uppercase;
+
 /// The C0 control codes of the ASCII encoding.
 ///
 /// See also: https://en.wikipedia.org/wiki/C0_and_C1_control_codes and `isControl`
