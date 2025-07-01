@@ -189,7 +189,7 @@ pub fn flush(
     const sub_prog_node = prog_node.start("SPIR-V Flush", 0);
     defer sub_prog_node.end();
 
-    return flushInner(self, arena, tid) catch |err| switch (err) {
+    return flushInner(self, arena, tid, sub_prog_node) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.LinkFailure => return error.LinkFailure,
         else => |e| return diags.fail("SPIR-V flush failed: {s}", .{@errorName(e)}),
@@ -200,6 +200,7 @@ fn flushInner(
     self: *SpirV,
     arena: Allocator,
     tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
 ) !void {
     // The goal is to never use this because it's only needed if we need to
     // write to InternPool, but flush is too late to be writing to the
@@ -250,7 +251,7 @@ fn flushInner(
     const module = try spv.finalize(arena);
     errdefer arena.free(module);
 
-    const linked_module = self.linkModule(arena, module, std.Progress.Node.none) catch |err| switch (err) {
+    const linked_module = self.linkModule(arena, module, prog_node) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |other| return diags.fail("error while linking: {s}", .{@errorName(other)}),
     };
