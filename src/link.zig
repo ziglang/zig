@@ -568,9 +568,9 @@ pub const File = struct {
         const gpa = comp.gpa;
         switch (base.tag) {
             .lld => assert(base.file == null),
-            .coff, .elf, .macho, .plan9, .wasm, .goff, .xcoff => {
+            .coff, .elf, .macho, .plan9, .wasm, .goff, .xcoff, .spirv => {
                 if (base.file != null) return;
-                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
+                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker, .spirv_linker });
                 const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
@@ -608,15 +608,8 @@ pub const File = struct {
                     .mode = determineMode(output_mode, link_mode),
                 });
             },
-            .spirv => {
-                if (base.file != null) return;
-                dev.check(.spirv_linker);
-                const emit = base.emit;
-                base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
-                    .truncate = true,
-                });
-            },
             .c => dev.check(.c_linker),
+        }
     }
 
     /// Some linkers create a separate file for debug info, which we might need to temporarily close

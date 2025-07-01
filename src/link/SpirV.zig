@@ -180,6 +180,27 @@ pub fn flush(
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
 ) link.File.FlushError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const comp = self.base.comp;
+    const diags = &comp.link_diags;
+
+    const sub_prog_node = prog_node.start("SPIR-V Flush", 0);
+    defer sub_prog_node.end();
+
+    return flushInner(self, arena, tid) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.LinkFailure => return error.LinkFailure,
+        else => |e| return diags.fail("SPIR-V flush failed: {s}", .{@errorName(e)}),
+    };
+}
+
+fn flushInner(
+    self: *SpirV,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+) !void {
     // The goal is to never use this because it's only needed if we need to
     // write to InternPool, but flush is too late to be writing to the
     // InternPool.
@@ -188,12 +209,6 @@ pub fn flush(
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
-
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const sub_prog_node = prog_node.start("Flush Module", 0);
-    defer sub_prog_node.end();
 
     const comp = self.base.comp;
     const spv = &self.object.spv;
@@ -235,18 +250,14 @@ pub fn flush(
     const module = try spv.finalize(arena);
     errdefer arena.free(module);
 
-    const linked_module = self.linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
+    const linked_module = self.linkModule(arena, module, std.Progress.Node.none) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |other| return diags.fail("error while linking: {s}", .{@errorName(other)}),
     };
 
-    self.base.makeWritable() catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => return error.LinkFailure,
-    };
-
-    self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module)) catch |err|
-        return diags.fail("failed to write: {s}", .{@errorName(err)});
+    try self.base.makeWritable();
+    try self.pwriteAll(std.mem.sliceAsBytes(linked_module), 0);
+    try self.setEndPos(linked_module.len * @sizeOf(Word));
 }
 
 fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: std.Progress.Node) ![]Word {
@@ -265,4 +276,20 @@ fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: std.Progress
     try dedup.run(&parser, &binary, progress);
 
     return binary.finalize(a);
+}
+
+pub fn pwriteAll(spirv_file: *SpirV, bytes: []const u8, offset: u64) error{LinkFailure}!void {
+    const comp = spirv_file.base.comp;
+    const diags = &comp.link_diags;
+    spirv_file.base.file.?.pwriteAll(bytes, offset) catch |err| {
+        return diags.fail("failed to write: {s}", .{@errorName(err)});
+    };
+}
+
+pub fn setEndPos(spirv_file: *SpirV, length: u64) error{LinkFailure}!void {
+    const comp = spirv_file.base.comp;
+    const diags = &comp.link_diags;
+    spirv_file.base.file.?.setEndPos(length) catch |err| {
+        return diags.fail("failed to set file end pos: {s}", .{@errorName(err)});
+    };
 }
