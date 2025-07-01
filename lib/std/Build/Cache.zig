@@ -2,6 +2,18 @@
 //! This is not a general-purpose cache. It is designed to be fast and simple,
 //! not to withstand attacks using specially-crafted input.
 
+const Cache = @This();
+const std = @import("std");
+const builtin = @import("builtin");
+const crypto = std.crypto;
+const fs = std.fs;
+const assert = std.debug.assert;
+const testing = std.testing;
+const mem = std.mem;
+const fmt = std.fmt;
+const Allocator = std.mem.Allocator;
+const log = std.log.scoped(.cache);
+
 gpa: Allocator,
 manifest_dir: fs.Dir,
 hash: HashHelper = .{},
@@ -20,18 +32,6 @@ prefixes_len: usize = 0,
 pub const Path = @import("Cache/Path.zig");
 pub const Directory = @import("Cache/Directory.zig");
 pub const DepTokenizer = @import("Cache/DepTokenizer.zig");
-
-const Cache = @This();
-const std = @import("std");
-const builtin = @import("builtin");
-const crypto = std.crypto;
-const fs = std.fs;
-const assert = std.debug.assert;
-const testing = std.testing;
-const mem = std.mem;
-const fmt = std.fmt;
-const Allocator = std.mem.Allocator;
-const log = std.log.scoped(.cache);
 
 pub fn addPrefix(cache: *Cache, directory: Directory) void {
     cache.prefixes_buffer[cache.prefixes_len] = directory;
@@ -1118,30 +1118,32 @@ pub const Manifest = struct {
         if (self.manifest_dirty) {
             self.manifest_dirty = false;
 
-            const gpa = self.cache.gpa;
-            var contents: std.ArrayListUnmanaged(u8) = .empty;
-            defer contents.deinit(gpa);
-
-            try contents.appendSlice(gpa, manifest_header ++ "\n");
-            for (self.files.keys()) |file| {
-                try contents.print(gpa, "{d} {d} {d} {x} {d} {s}\n", .{
-                    file.stat.size,
-                    file.stat.inode,
-                    file.stat.mtime,
-                    &file.bin_digest,
-                    file.prefixed_path.prefix,
-                    file.prefixed_path.sub_path,
-                });
-            }
-
-            try manifest_file.setEndPos(contents.items.len);
-            var pos: usize = 0;
-            while (pos < contents.items.len) pos += try manifest_file.pwrite(contents.items[pos..], pos);
+            var buffer: [4000]u8 = undefined;
+            var fw = manifest_file.writer(&buffer);
+            writeDirtyManifestToStream(self, &fw) catch |err| switch (err) {
+                error.WriteFailed => return fw.err.?,
+                else => |e| return e,
+            };
         }
 
         if (self.want_shared_lock) {
             try self.downgradeToSharedLock();
         }
+    }
+
+    fn writeDirtyManifestToStream(self: *Manifest, fw: *fs.File.Writer) !void {
+        try fw.interface.writeAll(manifest_header ++ "\n");
+        for (self.files.keys()) |file| {
+            try fw.interface.print("{d} {d} {d} {x} {d} {s}\n", .{
+                file.stat.size,
+                file.stat.inode,
+                file.stat.mtime,
+                &file.bin_digest,
+                file.prefixed_path.prefix,
+                file.prefixed_path.sub_path,
+            });
+        }
+        try fw.end();
     }
 
     fn downgradeToSharedLock(self: *Manifest) !void {
