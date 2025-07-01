@@ -180,11 +180,8 @@ pub fn InitError(comptime Stream: type) type {
     };
 }
 
-/// Initiates a TLS handshake and establishes a TLSv1.2 or TLSv1.3 session with `stream`, which
-/// must conform to `StreamInterface`.
-///
-/// `host` is only borrowed during this function call.
-pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client {
+/// Internal function to initiate TLS handshake with specific cipher suites and protocol versions.
+fn initWithCipherSuites(stream: anytype, options: Options, cipher_suite_array: anytype, comptime supported_versions: anytype, comptime tls12_only: bool) InitError(@TypeOf(stream))!Client {
     const host = switch (options.host) {
         .no_verification => "",
         .explicit => |host| host,
@@ -203,10 +200,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
         error.IdentityElement => return error.InsufficientEntropy,
     };
 
-    const extensions_payload = tls.extension(.supported_versions, array(u8, tls.ProtocolVersion, .{
-        .tls_1_3,
-        .tls_1_2,
-    })) ++ tls.extension(.signature_algorithms, array(u16, tls.SignatureScheme, .{
+    const signature_algorithms = array(u16, tls.SignatureScheme, .{
         .ecdsa_secp256r1_sha256,
         .ecdsa_secp384r1_sha384,
         .rsa_pkcs1_sha256,
@@ -220,25 +214,43 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
         .rsa_pss_pss_sha512,
         .rsa_pkcs1_sha1,
         .ed25519,
-    })) ++ tls.extension(.supported_groups, array(u16, tls.NamedGroup, .{
-        .x25519_ml_kem768,
-        .secp256r1,
-        .secp384r1,
-        .x25519,
-    })) ++ tls.extension(.psk_key_exchange_modes, array(u8, tls.PskKeyExchangeMode, .{
-        .psk_dhe_ke,
-    })) ++ tls.extension(.key_share, array(
-        u16,
-        u8,
-        int(u16, @intFromEnum(tls.NamedGroup.x25519_ml_kem768)) ++
-            array(u16, u8, key_share.ml_kem768_kp.public_key.toBytes() ++ key_share.x25519_kp.public_key) ++
-            int(u16, @intFromEnum(tls.NamedGroup.secp256r1)) ++
-            array(u16, u8, key_share.secp256r1_kp.public_key.toUncompressedSec1()) ++
-            int(u16, @intFromEnum(tls.NamedGroup.secp384r1)) ++
-            array(u16, u8, key_share.secp384r1_kp.public_key.toUncompressedSec1()) ++
-            int(u16, @intFromEnum(tls.NamedGroup.x25519)) ++
-            array(u16, u8, key_share.x25519_kp.public_key),
-    ));
+    });
+
+    const supported_groups = if (tls12_only)
+        array(u16, tls.NamedGroup, .{
+            .secp256r1,
+            .secp384r1,
+        })
+    else
+        array(u16, tls.NamedGroup, .{
+            .x25519_ml_kem768,
+            .secp256r1,
+            .secp384r1,
+            .x25519,
+        });
+
+    const base_extensions = tls.extension(.signature_algorithms, signature_algorithms) ++
+        tls.extension(.supported_groups, supported_groups);
+
+    const extensions_payload = if (tls12_only)
+        base_extensions
+    else
+        tls.extension(.supported_versions, array(u8, tls.ProtocolVersion, supported_versions)) ++
+            base_extensions ++
+            tls.extension(.psk_key_exchange_modes, array(u8, tls.PskKeyExchangeMode, .{
+                .psk_dhe_ke,
+            })) ++ tls.extension(.key_share, array(
+            u16,
+            u8,
+            int(u16, @intFromEnum(tls.NamedGroup.x25519_ml_kem768)) ++
+                array(u16, u8, key_share.ml_kem768_kp.public_key.toBytes() ++ key_share.x25519_kp.public_key) ++
+                int(u16, @intFromEnum(tls.NamedGroup.secp256r1)) ++
+                array(u16, u8, key_share.secp256r1_kp.public_key.toUncompressedSec1()) ++
+                int(u16, @intFromEnum(tls.NamedGroup.secp384r1)) ++
+                array(u16, u8, key_share.secp384r1_kp.public_key.toUncompressedSec1()) ++
+                int(u16, @intFromEnum(tls.NamedGroup.x25519)) ++
+                array(u16, u8, key_share.x25519_kp.public_key),
+        ));
     const server_name_extension = int(u16, @intFromEnum(tls.ExtensionType.server_name)) ++
         int(u16, 2 + 1 + 2 + host_len) ++ // byte length of this extension payload
         int(u16, 1 + 2 + host_len) ++ // server_name_list byte count
@@ -258,7 +270,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
         int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
         client_hello_rand ++
         [1]u8{32} ++ legacy_session_id ++
-        cipher_suites ++
+        cipher_suite_array ++
         array(u8, tls.CompressionMethod, .{.null}) ++
         extensions_header;
 
@@ -895,6 +907,20 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
         cleartext_fragment_start = 0;
         cleartext_fragment_end = 0;
     }
+}
+
+/// Initiates a TLS handshake and establishes a TLSv1.2 or TLSv1.3 session with `stream`, which
+/// must conform to `StreamInterface`.
+///
+/// `host` is only borrowed during this function call.
+pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client {
+    return initWithCipherSuites(stream, options, tls_1_3_cipher_suites, .{ .tls_1_3, .tls_1_2 }, false);
+}
+
+/// Initiates a TLS handshake restricted to TLS 1.2-compatible cipher suites only.
+/// This is used as a fallback when the server doesn't support TLS 1.3 cipher suites.
+fn initTls12Only(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client {
+    return initWithCipherSuites(stream, options, tls_1_2_cipher_suites, .{.tls_1_2}, true);
 }
 
 /// Sends TLS-encrypted data to `stream`, which must conform to `StreamInterface`.
@@ -1932,26 +1958,33 @@ fn limitVecs(iovecs: []std.posix.iovec, len: usize) []std.posix.iovec {
 ///        aegis-256:        461 MiB/s
 ///       aes128-gcm:        138 MiB/s
 ///       aes256-gcm:        120 MiB/s
-const cipher_suites = if (crypto.core.aes.has_hardware_support)
+const tls_1_3_cipher_suites = if (crypto.core.aes.has_hardware_support)
     array(u16, tls.CipherSuite, .{
         .AEGIS_128L_SHA256,
         .AEGIS_256_SHA512,
         .AES_128_GCM_SHA256,
-        .ECDHE_RSA_WITH_AES_128_GCM_SHA256,
         .AES_256_GCM_SHA384,
-        .ECDHE_RSA_WITH_AES_256_GCM_SHA384,
         .CHACHA20_POLY1305_SHA256,
-        .ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
     })
 else
     array(u16, tls.CipherSuite, .{
         .CHACHA20_POLY1305_SHA256,
-        .ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
         .AEGIS_128L_SHA256,
         .AEGIS_256_SHA512,
         .AES_128_GCM_SHA256,
-        .ECDHE_RSA_WITH_AES_128_GCM_SHA256,
         .AES_256_GCM_SHA384,
+    });
+
+const tls_1_2_cipher_suites = if (crypto.core.aes.has_hardware_support)
+    array(u16, tls.CipherSuite, .{
+        .ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+        .ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+        .ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+    })
+else
+    array(u16, tls.CipherSuite, .{
+        .ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+        .ECDHE_RSA_WITH_AES_128_GCM_SHA256,
         .ECDHE_RSA_WITH_AES_256_GCM_SHA384,
     });
 
