@@ -2056,12 +2056,12 @@ pub fn Hashed(comptime Hasher: type) type {
 /// When using this API, it is not necessary to call `flush`.
 pub const Allocating = struct {
     allocator: Allocator,
-    interface: Writer,
+    writer: Writer,
 
     pub fn init(allocator: Allocator) Allocating {
         return .{
             .allocator = allocator,
-            .interface = .{
+            .writer = .{
                 .buffer = &.{},
                 .vtable = &vtable,
             },
@@ -2071,7 +2071,7 @@ pub const Allocating = struct {
     pub fn initCapacity(allocator: Allocator, capacity: usize) error{OutOfMemory}!Allocating {
         return .{
             .allocator = allocator,
-            .interface = .{
+            .writer = .{
                 .buffer = try allocator.alloc(u8, capacity),
                 .vtable = &vtable,
             },
@@ -2081,7 +2081,7 @@ pub const Allocating = struct {
     pub fn initOwnedSlice(allocator: Allocator, slice: []u8) Allocating {
         return .{
             .allocator = allocator,
-            .interface = .{
+            .writer = .{
                 .buffer = slice,
                 .vtable = &vtable,
             },
@@ -2093,7 +2093,7 @@ pub const Allocating = struct {
         defer array_list.* = .empty;
         return .{
             .allocator = allocator,
-            .interface = .{
+            .writer = .{
                 .vtable = &vtable,
                 .buffer = array_list.allocatedSlice(),
                 .end = array_list.items.len,
@@ -2108,14 +2108,14 @@ pub const Allocating = struct {
     };
 
     pub fn deinit(a: *Allocating) void {
-        a.allocator.free(a.interface.buffer);
+        a.allocator.free(a.writer.buffer);
         a.* = undefined;
     }
 
     /// Returns an array list that takes ownership of the allocated memory.
     /// Resets the `Allocating` to an empty state.
     pub fn toArrayList(a: *Allocating) std.ArrayListUnmanaged(u8) {
-        const w = &a.interface;
+        const w = &a.writer;
         const result: std.ArrayListUnmanaged(u8) = .{
             .items = w.buffer[0..w.end],
             .capacity = w.buffer.len,
@@ -2137,13 +2137,13 @@ pub const Allocating = struct {
     }
 
     pub fn getWritten(a: *Allocating) []u8 {
-        return a.interface.buffered();
+        return a.writer.buffered();
     }
 
     pub fn shrinkRetainingCapacity(a: *Allocating, new_len: usize) void {
-        const shrink_by = a.interface.end - new_len;
-        a.interface.end = new_len;
-        a.interface.count -= shrink_by;
+        const shrink_by = a.writer.end - new_len;
+        a.writer.end = new_len;
+        a.writer.count -= shrink_by;
     }
 
     pub fn clearRetainingCapacity(a: *Allocating) void {
@@ -2151,7 +2151,7 @@ pub const Allocating = struct {
     }
 
     fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-        const a: *Allocating = @fieldParentPtr("interface", w);
+        const a: *Allocating = @fieldParentPtr("writer", w);
         const gpa = a.allocator;
         const pattern = data[data.len - 1];
         const splat_len = pattern.len * splat;
@@ -2177,7 +2177,7 @@ pub const Allocating = struct {
 
     fn sendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) FileError!usize {
         if (File.Handle == void) return error.Unimplemented;
-        const a: *Allocating = @fieldParentPtr("interface", w);
+        const a: *Allocating = @fieldParentPtr("writer", w);
         const gpa = a.allocator;
         var list = a.toArrayList();
         defer setArrayList(a, list);
@@ -2194,14 +2194,14 @@ pub const Allocating = struct {
     }
 
     fn setArrayList(a: *Allocating, list: std.ArrayListUnmanaged(u8)) void {
-        a.interface.buffer = list.allocatedSlice();
-        a.interface.end = list.items.len;
+        a.writer.buffer = list.allocatedSlice();
+        a.writer.end = list.items.len;
     }
 
     test Allocating {
         var a: Allocating = .init(std.testing.allocator);
         defer a.deinit();
-        const w = &a.interface;
+        const w = &a.writer;
 
         const x: i32 = 42;
         const y: i32 = 1234;

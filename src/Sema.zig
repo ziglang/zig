@@ -3026,7 +3026,7 @@ pub fn createTypeName(
 
             var aw: std.io.Writer.Allocating = .init(gpa);
             defer aw.deinit();
-            const bw = &aw.interface;
+            const bw = &aw.writer;
             bw.print("{f}(", .{block.type_name_ctx.fmt(ip)}) catch return error.OutOfMemory;
 
             var arg_i: usize = 0;
@@ -5908,7 +5908,7 @@ fn zirCompileLog(
 
     var aw: std.io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
-    const bw = &aw.interface;
+    const bw = &aw.writer;
 
     const extra = sema.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
     const src_node = extra.data.src_node;
@@ -37224,7 +37224,7 @@ fn notePathToComptimeAllocPtr(sema: *Sema, msg: *Zcu.ErrorMsg, src: LazySrcLoc, 
     const inter_name = try std.fmt.allocPrint(arena, "v{d}", .{intermediate_value_count});
     const deriv_start = @import("print_value.zig").printPtrDerivation(
         derivation,
-        &second_path_aw.interface,
+        &second_path_aw.writer,
         pt,
         .lvalue,
         .{ .str = inter_name },
