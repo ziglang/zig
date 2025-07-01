@@ -1352,7 +1352,7 @@ const MachODumper = struct {
             var offset: u64 = 0;
             var addend: i64 = 0;
 
-            var name_buf: std.ArrayList(u8) = .init(ctx.gpa);
+            var name_buf: std.io.Writer.Allocating = .init(ctx.gpa);
             defer name_buf.deinit();
 
             while (br.takeByte()) |byte| {
@@ -1380,9 +1380,8 @@ const MachODumper = struct {
                     },
                     macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
                         name_buf.clearRetainingCapacity();
-                        if (true) @panic("TODO fix this");
-                        //try reader.readUntilDelimiterArrayList(&name_buf, 0, std.math.maxInt(u32));
-                        try name_buf.append(0);
+                        try br.streamDelimiterLimit(&name_buf, 0, .limited(std.math.maxInt(u32)));
+                        try name_buf.writeByte(0);
                     },
                     macho.BIND_OPCODE_SET_ADDEND_SLEB => {
                         addend = try br.takeLeb128(i64);
@@ -1424,7 +1423,7 @@ const MachODumper = struct {
                                 .addend = addend,
                                 .tag = tag,
                                 .ordinal = ordinal,
-                                .name = try ctx.gpa.dupe(u8, name_buf.items),
+                                .name = try ctx.gpa.dupe(u8, name_buf.getWritten()),
                             });
                             offset += skip + @sizeOf(u64) + add_addr;
                         }
