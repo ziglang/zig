@@ -266,10 +266,9 @@ pub fn appendRemaining(
             error.EndOfStream => break,
             error.ReadFailed => return error.ReadFailed,
         };
-        if (n >= dest.len) {
+        if (n > dest.len) {
             r.end = n - dest.len;
             list.items.len += dest.len;
-            if (n == dest.len) return;
             return error.StreamTooLong;
         }
         list.items.len += n;
