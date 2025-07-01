@@ -6831,8 +6831,8 @@ pub const FuncGen = struct {
 
             self.maybeMarkAllowZeroAccess(slice_ty.ptrInfo(zcu));
 
-            const elem_alignment = elem_ty.abiAlignment(zcu).toLlvm();
-            return self.loadByRef(ptr, elem_ty, elem_alignment, if (slice_ty.isVolatilePtr(zcu)) .@"volatile" else .normal);
+            const slice_align = (slice_ty.ptrAlignment(zcu).min(elem_ty.abiAlignment(zcu))).toLlvm();
+            return self.loadByRef(ptr, elem_ty, slice_align, if (slice_ty.isVolatilePtr(zcu)) .@"volatile" else .normal);
         }
 
         self.maybeMarkAllowZeroAccess(slice_ty.ptrInfo(zcu));
@@ -6909,8 +6909,8 @@ pub const FuncGen = struct {
 
             self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
 
-            const elem_alignment = elem_ty.abiAlignment(zcu).toLlvm();
-            return self.loadByRef(ptr, elem_ty, elem_alignment, if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal);
+            const ptr_align = (ptr_ty.ptrAlignment(zcu).min(elem_ty.abiAlignment(zcu))).toLlvm();
+            return self.loadByRef(ptr, elem_ty, ptr_align, if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal);
         }
 
         self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
