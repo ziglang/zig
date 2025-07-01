@@ -3661,6 +3661,7 @@ const NavGen = struct {
         comptime ucmp: CmpPredicate,
         comptime scmp: CmpPredicate,
     ) !?IdRef {
+        _ = scmp;
         // Note: OpIAddCarry and OpISubBorrow are not really useful here: For unsigned numbers,
         // there is in both cases only one extra operation required. For signed operations,
         // the overflow bit is set then going from 0x80.. to 0x00.., but this doesn't actually
@@ -3689,26 +3690,30 @@ const NavGen = struct {
             // Overflow happened if the result is smaller than either of the operands. It doesn't matter which.
             // For subtraction the conditions need to be swapped.
             .unsigned => try self.buildCmp(ucmp, result, lhs),
-            // For addition, overflow happened if:
-            // - rhs is negative and value > lhs
-            // - rhs is positive and value < lhs
-            // This can be shortened to:
-            //   (rhs < 0 and value > lhs) or (rhs >= 0 and value <= lhs)
-            // = (rhs < 0) == (value > lhs)
-            // = (rhs < 0) == (lhs < value)
-            // Note that signed overflow is also wrapping in spir-v.
-            // For subtraction, overflow happened if:
-            // - rhs is negative and value < lhs
-            // - rhs is positive and value > lhs
-            // This can be shortened to:
-            //   (rhs < 0 and value < lhs) or (rhs >= 0 and value >= lhs)
-            // = (rhs < 0) == (value < lhs)
-            // = (rhs < 0) == (lhs > value)
+            // For signed operations, we check the signs of the operands and the result.
             .signed => blk: {
+                // Signed overflow detection using the sign bits of the operands and the result.
+                // For addition (a + b), overflow occurs if the operands have the same sign
+                // and the result's sign is different from the operands' sign.
+                //   (sign(a) == sign(b)) && (sign(a) != sign(result))
+                // For subtraction (a - b), overflow occurs if the operands have different signs
+                // and the result's sign is different from the minuend's (a's) sign.
+                //   (sign(a) != sign(b)) && (sign(a) != sign(result))
                 const zero = Temporary.init(rhs.ty, try self.constInt(rhs.ty, 0));
-                const rhs_lt_zero = try self.buildCmp(.s_lt, rhs, zero);
-                const result_gt_lhs = try self.buildCmp(scmp, lhs, result);
-                break :blk try self.buildCmp(.l_eq, rhs_lt_zero, result_gt_lhs);
+
+                const lhs_is_neg = try self.buildCmp(.s_lt, lhs, zero);
+                const rhs_is_neg = try self.buildCmp(.s_lt, rhs, zero);
+                const result_is_neg = try self.buildCmp(.s_lt, result, zero);
+
+                const signs_match = try self.buildCmp(.l_eq, lhs_is_neg, rhs_is_neg);
+                const result_sign_differs = try self.buildCmp(.l_ne, lhs_is_neg, result_is_neg);
+
+                const overflow_condition = if (add == .i_add)
+                    signs_match
+                else // .i_sub
+                    try self.buildUnary(.l_not, signs_match);
+
+                break :blk try self.buildBinary(.l_and, overflow_condition, result_sign_differs);
             },
         };
 
