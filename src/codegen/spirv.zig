@@ -3249,10 +3249,12 @@ const NavGen = struct {
             .rem, .rem_optimized => try self.airArithOp(inst, .f_rem, .s_rem, .u_mod),
             .mod, .mod_optimized => try self.airArithOp(inst, .f_mod, .s_mod, .u_mod),
 
-            .add_with_overflow => try self.airAddSubOverflow(inst, .i_add, .u_lt, .s_lt),
-            .sub_with_overflow => try self.airAddSubOverflow(inst, .i_sub, .u_gt, .s_gt),
+            .add_with_overflow => try self.airAddSubWithOverflow(inst, .i_add),
+            .sub_with_overflow => try self.airAddSubWithOverflow(inst, .i_sub),
             .mul_with_overflow => try self.airMulOverflow(inst),
             .shl_with_overflow => try self.airShlOverflow(inst),
+            .add_sat           => try self.airAddSubSaturating(inst, .i_add),
+            .sub_sat           => try self.airAddSubSaturating(inst, .i_sub),
 
             .mul_add => try self.airMulAdd(inst),
 
@@ -3654,28 +3656,14 @@ const NavGen = struct {
         }
     }
 
-    fn airAddSubOverflow(
+    fn buildAddSub(
         self: *NavGen,
-        inst: Air.Inst.Index,
-        comptime add: BinaryOp,
-        comptime ucmp: CmpPredicate,
-        comptime scmp: CmpPredicate,
+        lhs: Temporary,
+        rhs: Temporary,
+        result_ty: Type,
+        comptime op: BinaryOp,
+        comptime mode: enum { WithOverflow, Saturating },
     ) !?IdRef {
-        _ = scmp;
-        // Note: OpIAddCarry and OpISubBorrow are not really useful here: For unsigned numbers,
-        // there is in both cases only one extra operation required. For signed operations,
-        // the overflow bit is set then going from 0x80.. to 0x00.., but this doesn't actually
-        // normally set a carry bit. So the SPIR-V overflow operations are not particularly
-        // useful here.
-
-        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-        const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
-
-        const lhs = try self.temporary(extra.lhs);
-        const rhs = try self.temporary(extra.rhs);
-
-        const result_ty = self.typeOfIndex(inst);
-
         const info = self.arithmeticTypeInfo(lhs.ty);
         switch (info.class) {
             .composite_integer => unreachable, // TODO
@@ -3683,13 +3671,17 @@ const NavGen = struct {
             .float, .bool => unreachable,
         }
 
-        const sum = try self.buildBinary(add, lhs, rhs);
+        const sum = try self.buildBinary(op, lhs, rhs);
         const result = try self.normalize(sum, info);
 
         const overflowed = switch (info.signedness) {
             // Overflow happened if the result is smaller than either of the operands. It doesn't matter which.
             // For subtraction the conditions need to be swapped.
-            .unsigned => try self.buildCmp(ucmp, result, lhs),
+            .unsigned => switch (op) {
+                .i_add => try self.buildCmp(.u_lt, result, lhs),
+                .i_sub => try self.buildCmp(.u_gt, result, lhs),
+                else => unreachable,
+            },
             // For signed operations, we check the signs of the operands and the result.
             .signed => blk: {
                 // Signed overflow detection using the sign bits of the operands and the result.
@@ -3708,7 +3700,7 @@ const NavGen = struct {
                 const signs_match = try self.buildCmp(.l_eq, lhs_is_neg, rhs_is_neg);
                 const result_sign_differs = try self.buildCmp(.l_ne, lhs_is_neg, result_is_neg);
 
-                const overflow_condition = if (add == .i_add)
+                const overflow_condition = if (op == .i_add)
                     signs_match
                 else // .i_sub
                     try self.buildUnary(.l_not, signs_match);
@@ -3717,10 +3709,53 @@ const NavGen = struct {
             },
         };
 
-        const ov = try self.intFromBool(overflowed);
+        switch (mode) {
+            .WithOverflow => {
+                const ov = try self.intFromBool(overflowed);
+                const struct_ty_id = try self.resolveType(result_ty, .direct);
+                return try self.constructComposite(struct_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
+            },
+            .Saturating => {
+                const sat_val_tmp = blk: {
+                    const scalar_ty = result_ty.scalarType(self.pt.zcu);
+                    if (info.signedness == .signed and op == .i_sub) {
+                        const min_val: i64 = if (info.bits == 0) 0 else -(@as(i64, 1) << @as(u6, @intCast(info.bits - 1)));
+                        const min_id = try self.constInt(scalar_ty, min_val);
+                        break :blk Temporary.init(scalar_ty, min_id);
+                    } else {
+                        const max_val: u64 = if (info.bits == 0) 0 else switch (info.signedness) {
+                            .unsigned => if (info.bits == 64) std.math.maxInt(u64) else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1,
+                            .signed => (@as(u64, 1) << @as(u6, @intCast(info.bits - 1))) - 1,
+                        };
+                        const max_id = try self.constInt(scalar_ty, max_val);
+                        break :blk Temporary.init(scalar_ty, max_id);
+                    }
+                };
+                const final_result = try self.buildSelect(overflowed, sat_val_tmp, result);
+                return try final_result.materialize(self);
+            },
+        }
+    }
 
-        const result_ty_id = try self.resolveType(result_ty, .direct);
-        return try self.constructComposite(result_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
+    fn airAddSubWithOverflow(self: *NavGen, inst: Air.Inst.Index, comptime op: BinaryOp) !?IdRef {
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+        const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+
+        const lhs = try self.temporary(extra.lhs);
+        const rhs = try self.temporary(extra.rhs);
+
+        const result_ty = self.typeOfIndex(inst);
+        return self.buildAddSub(lhs, rhs, result_ty, op, .WithOverflow);
+    }
+
+    fn airAddSubSaturating(self: *NavGen, inst: Air.Inst.Index, comptime op: BinaryOp) !?IdRef {
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+
+        const lhs = try self.temporary(bin_op.lhs);
+        const rhs = try self.temporary(bin_op.rhs);
+
+        const result_ty = self.typeOfIndex(inst);
+        return self.buildAddSub(lhs, rhs, result_ty, op, .Saturating);
     }
 
     fn airMulOverflow(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
