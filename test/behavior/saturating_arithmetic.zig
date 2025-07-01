@@ -8,7 +8,6 @@ test "saturating add" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -82,7 +81,6 @@ test "saturating subtraction" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -160,7 +158,6 @@ fn testSatMul(comptime T: type, a: T, b: T, expected: T) !void {
 test "saturating multiplication <= 32 bits" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -260,7 +257,6 @@ test "saturating multiplication" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -277,10 +273,13 @@ test "saturating multiplication" {
             try testSatMul(i8, -128, -128, 127);
             try testSatMul(i8, maxInt(i8), maxInt(i8), maxInt(i8));
             try testSatMul(i16, maxInt(i16), -1, minInt(i16) + 1);
-            try testSatMul(i128, maxInt(i128), -1, minInt(i128) + 1);
-            try testSatMul(i128, minInt(i128), -1, maxInt(i128));
             try testSatMul(u8, 10, 3, 30);
             try testSatMul(u8, 2, 255, 255);
+
+            if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO composite_integer
+
+            try testSatMul(i128, maxInt(i128), -1, minInt(i128) + 1);
+            try testSatMul(i128, minInt(i128), -1, maxInt(i128));
             try testSatMul(u128, maxInt(u128), maxInt(u128), maxInt(u128));
         }
     };
@@ -298,7 +297,6 @@ test "saturating shift-left" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -306,12 +304,6 @@ test "saturating shift-left" {
             try testSatShl(i8, 1, u8, 2, 4);
             try testSatShl(i8, 127, u8, 1, 127);
             try testSatShl(i8, -128, u8, 1, -128);
-            // TODO: remove this check once #9668 is completed
-            if (!builtin.cpu.arch.isWasm()) {
-                // skip testing ints > 64 bits on wasm due to miscompilation / wasmtime ci error
-                try testSatShl(i128, maxInt(i128), u128, 64, maxInt(i128));
-                try testSatShl(u128, maxInt(u128), u128, 64, maxInt(u128));
-            }
             try testSatShl(u8, 1, u8, 2, 4);
             try testSatShl(u8, 255, u8, 1, 255);
             try testSatShl(i8, -3, u4, 8, minInt(i8));
@@ -319,6 +311,12 @@ test "saturating shift-left" {
             try testSatShl(i8, 3, u4, 8, maxInt(i8));
             try testSatShl(u8, 0, u4, 8, 0);
             try testSatShl(u8, 3, u4, 8, maxInt(u8));
+
+            if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO composite_integer
+            if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO #9668
+
+            try testSatShl(i128, maxInt(i128), u128, 64, maxInt(i128));
+            try testSatShl(u128, maxInt(u128), u128, 64, maxInt(u128));
         }
 
         fn testSatShl(comptime Lhs: type, lhs: Lhs, comptime Rhs: type, rhs: Rhs, expected: Lhs) !void {
