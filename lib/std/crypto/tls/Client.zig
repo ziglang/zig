@@ -919,7 +919,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
 
 /// Initiates a TLS handshake restricted to TLS 1.2-compatible cipher suites only.
 /// This is used as a fallback when the server doesn't support TLS 1.3 cipher suites.
-fn initTls12Only(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client {
+pub fn initTls12Only(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client {
     return initWithCipherSuites(stream, options, tls_1_2_cipher_suites, .{.tls_1_2}, true);
 }
 

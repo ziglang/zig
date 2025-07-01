@@ -1376,7 +1376,36 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
             .host = .{ .explicit = host },
             .ca = .{ .bundle = client.ca_bundle },
             .ssl_key_log_file = ssl_key_log_file,
-        }) catch return error.TlsInitializationFailed;
+        }) catch |err| switch (err) {
+            // Try TLS 1.2 fallback with new connection for compatibility with servers that don't support TLS 1.3 extensions
+            error.TlsAlertHandshakeFailure, error.TlsAlertIllegalParameter, error.TlsAlertDecodeError => blk: {
+                // Close the corrupted connection and create a new one
+                stream.close();
+
+                const fallback_stream = net.tcpConnectToHost(client.allocator, host, port) catch |tcp_err| switch (tcp_err) {
+                    error.ConnectionRefused => return error.ConnectionRefused,
+                    error.NetworkUnreachable => return error.NetworkUnreachable,
+                    error.ConnectionTimedOut => return error.ConnectionTimedOut,
+                    error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
+                    error.TemporaryNameServerFailure => return error.TemporaryNameServerFailure,
+                    error.NameServerFailure => return error.NameServerFailure,
+                    error.UnknownHostName => return error.UnknownHostName,
+                    error.HostLacksNetworkAddresses => return error.HostLacksNetworkAddresses,
+                    else => return error.UnexpectedConnectFailure,
+                };
+                errdefer fallback_stream.close();
+
+                // Update connection to use new stream
+                conn.stream = fallback_stream;
+
+                break :blk std.crypto.tls.Client.initTls12Only(fallback_stream, .{
+                    .host = .{ .explicit = host },
+                    .ca = .{ .bundle = client.ca_bundle },
+                    .ssl_key_log_file = ssl_key_log_file,
+                }) catch return error.TlsInitializationFailed;
+            },
+            else => return error.TlsInitializationFailed,
+        };
         // This is appropriate for HTTPS because the HTTP headers contain
         // the content length which is used to detect truncation attacks.
         conn.tls_client.allow_truncation_attacks = true;
