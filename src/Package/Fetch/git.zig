@@ -1320,7 +1320,7 @@ fn indexPackFirstPass(
     index_entries: *std.AutoHashMapUnmanaged(Oid, IndexEntry),
     pending_deltas: *std.ArrayListUnmanaged(IndexEntry),
 ) !Oid {
-    var pack_buffered_reader = std.io.bufferedReader(pack.reader());
+    var pack_buffered_reader = std.io.bufferedReader(pack.deprecatedReader());
     var pack_counting_reader = std.io.countingReader(pack_buffered_reader.reader());
     var pack_hashed_reader = std.compress.hashedReader(pack_counting_reader.reader(), Oid.Hasher.init(format));
     const pack_reader = pack_hashed_reader.reader();
@@ -1400,7 +1400,7 @@ fn indexPackHashDelta(
         if (cache.get(base_offset)) |base_object| break base_object;
 
         try pack.seekTo(base_offset);
-        base_header = try EntryHeader.read(format, pack.reader());
+        base_header = try EntryHeader.read(format, pack.deprecatedReader());
         switch (base_header) {
             .ofs_delta => |ofs_delta| {
                 try delta_offsets.append(allocator, base_offset);
@@ -1411,7 +1411,7 @@ fn indexPackHashDelta(
                 base_offset = (index_entries.get(ref_delta.base_object) orelse return null).offset;
             },
             else => {
-                const base_data = try readObjectRaw(allocator, pack.reader(), base_header.uncompressedLength());
+                const base_data = try readObjectRaw(allocator, pack.deprecatedReader(), base_header.uncompressedLength());
                 errdefer allocator.free(base_data);
                 const base_object: Object = .{ .type = base_header.objectType(), .data = base_data };
                 try cache.put(allocator, base_offset, base_object);
@@ -1448,8 +1448,8 @@ fn resolveDeltaChain(
 
         const delta_offset = delta_offsets[i];
         try pack.seekTo(delta_offset);
-        const delta_header = try EntryHeader.read(format, pack.reader());
-        const delta_data = try readObjectRaw(allocator, pack.reader(), delta_header.uncompressedLength());
+        const delta_header = try EntryHeader.read(format, pack.deprecatedReader());
+        const delta_data = try readObjectRaw(allocator, pack.deprecatedReader(), delta_header.uncompressedLength());
         defer allocator.free(delta_data);
         var delta_stream = std.io.fixedBufferStream(delta_data);
         const delta_reader = delta_stream.reader();

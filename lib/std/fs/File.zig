@@ -1921,9 +1921,10 @@ pub fn reader(file: File, buffer: []u8) Reader {
 /// Positional is more threadsafe, since the global seek position is not
 /// affected, but when such syscalls are not available, preemptively choosing
 /// `Reader.Mode.streaming` will skip a failed syscall.
-pub fn readerStreaming(file: File) Reader {
+pub fn readerStreaming(file: File, buffer: []u8) Reader {
     return .{
         .file = file,
+        .interface = Reader.initInterface(buffer),
         .mode = .streaming,
         .seek_err = error.Unseekable,
     };
