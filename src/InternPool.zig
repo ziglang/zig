@@ -1887,18 +1887,23 @@ pub const NullTerminatedString = enum(u32) {
     const FormatData = struct {
         string: NullTerminatedString,
         ip: *const InternPool,
+        id: bool,
     };
-    fn format(data: FormatData, bw: *std.io.Writer, comptime specifier: []const u8) std.io.Writer.Error!void {
+    fn format(data: FormatData, writer: *std.io.Writer) std.io.Writer.Error!void {
         const slice = data.string.toSlice(data.ip);
-        if (comptime std.mem.eql(u8, specifier, "")) {
-            try bw.writeAll(slice);
-        } else if (comptime std.mem.eql(u8, specifier, "i")) {
-            try bw.print("{fp}", .{std.zig.fmtId(slice)});
-        } else @compileError("invalid format string '" ++ specifier ++ "' for '" ++ @typeName(NullTerminatedString) ++ "'");
+        if (!data.id) {
+            try writer.writeAll(slice);
+        } else {
+            try writer.print("{f}", .{std.zig.fmtIdP(slice)});
+        }
     }
 
-    pub fn fmt(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(format) {
-        return .{ .data = .{ .string = string, .ip = ip } };
+    pub fn fmt(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(FormatData, format) {
+        return .{ .data = .{ .string = string, .ip = ip, .id = false } };
+    }
+
+    pub fn fmtId(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(FormatData, format) {
+        return .{ .data = .{ .string = string, .ip = ip, .id = true } };
     }
 
     const debug_state = InternPool.debug_state;
@@ -11409,7 +11414,7 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     var it = instances.iterator();
     while (it.next()) |entry| {
         const generic_fn_owner_nav = ip.getNav(ip.funcDeclInfo(entry.key_ptr.*).owner_nav);
-        try stderr_bw.print("{f} ({}): \n", .{ generic_fn_owner_nav.name.fmt(ip), entry.value_ptr.items.len });
+        try stderr_bw.print("{f} ({d}): \n", .{ generic_fn_owner_nav.name.fmt(ip), entry.value_ptr.items.len });
         for (entry.value_ptr.items) |index| {
             const unwrapped_index = index.unwrap(ip);
             const func = ip.extraFuncInstance(unwrapped_index.tid, unwrapped_index.getExtra(ip), unwrapped_index.getData(ip));

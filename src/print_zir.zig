@@ -42,7 +42,7 @@ pub fn renderAsText(gpa: Allocator, tree: ?Ast, zir: Zir, bw: *std.io.Writer) !v
 
             const import_path = zir.nullTerminatedString(item.data.name);
             try bw.print("  @import(\"{f}\") ", .{
-                std.zig.fmtEscapes(import_path),
+                std.zig.fmtString(import_path),
             });
             try writer.writeSrcTokAbs(bw, item.data.token);
             try bw.writeAll("\n");
@@ -785,7 +785,7 @@ const Writer = struct {
     ) Error!void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str;
         const str = inst_data.get(self.code);
-        try stream.print("\"{f}\")", .{std.zig.fmtEscapes(str)});
+        try stream.print("\"{f}\")", .{std.zig.fmtString(str)});
     }
 
     fn writeSliceStart(self: *Writer, stream: *std.io.Writer, inst: Zir.Inst.Index) !void {
@@ -942,7 +942,7 @@ const Writer = struct {
         const extra = self.code.extraData(Zir.Inst.Param, inst_data.payload_index);
         const body = self.code.bodySlice(extra.end, extra.data.type.body_len);
         try stream.print("\"{f}\", ", .{
-            std.zig.fmtEscapes(self.code.nullTerminatedString(extra.data.name)),
+            std.zig.fmtString(self.code.nullTerminatedString(extra.data.name)),
         });
 
         if (extra.data.type.is_generic) try stream.writeAll("[generic] ");
@@ -1212,7 +1212,7 @@ const Writer = struct {
             try stream.writeAll(", ");
         } else {
             const asm_source = self.code.nullTerminatedString(extra.data.asm_source);
-            try stream.print("\"{f}\", ", .{std.zig.fmtEscapes(asm_source)});
+            try stream.print("\"{f}\", ", .{std.zig.fmtString(asm_source)});
         }
         try stream.writeAll(", ");
 
@@ -1230,7 +1230,7 @@ const Writer = struct {
                 const name = self.code.nullTerminatedString(output.data.name);
                 const constraint = self.code.nullTerminatedString(output.data.constraint);
                 try stream.print("output({fp}, \"{f}\", ", .{
-                    std.zig.fmtId(name), std.zig.fmtEscapes(constraint),
+                    std.zig.fmtId(name), std.zig.fmtString(constraint),
                 });
                 try self.writeFlag(stream, "->", is_type);
                 try self.writeInstRef(stream, output.data.operand);
@@ -1249,7 +1249,7 @@ const Writer = struct {
                 const name = self.code.nullTerminatedString(input.data.name);
                 const constraint = self.code.nullTerminatedString(input.data.constraint);
                 try stream.print("input({fp}, \"{f}\", ", .{
-                    std.zig.fmtId(name), std.zig.fmtEscapes(constraint),
+                    std.zig.fmtId(name), std.zig.fmtString(constraint),
                 });
                 try self.writeInstRef(stream, input.data.operand);
                 try stream.writeAll(")");
@@ -1308,7 +1308,7 @@ const Writer = struct {
             .field => {
                 const field_name = self.code.nullTerminatedString(extra.data.field_name_start);
                 try self.writeInstRef(stream, extra.data.obj_ptr);
-                try stream.print(", \"{f}\"", .{std.zig.fmtEscapes(field_name)});
+                try stream.print(", \"{f}\"", .{std.zig.fmtString(field_name)});
             },
         }
         try stream.writeAll(", [");
@@ -2212,7 +2212,7 @@ const Writer = struct {
         const extra = self.code.extraData(Zir.Inst.Field, inst_data.payload_index).data;
         const name = self.code.nullTerminatedString(extra.field_name_start);
         try self.writeInstRef(stream, extra.lhs);
-        try stream.print(", \"{f}\") ", .{std.zig.fmtEscapes(name)});
+        try stream.print(", \"{f}\") ", .{std.zig.fmtString(name)});
         try self.writeSrcNode(stream, inst_data.src_node);
     }
 
@@ -2253,7 +2253,7 @@ const Writer = struct {
     ) Error!void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str_tok;
         const str = inst_data.get(self.code);
-        try stream.print("\"{f}\") ", .{std.zig.fmtEscapes(str)});
+        try stream.print("\"{f}\") ", .{std.zig.fmtString(str)});
         try self.writeSrcTok(stream, inst_data.src_tok);
     }
 
@@ -2261,7 +2261,7 @@ const Writer = struct {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str_op;
         const str = inst_data.getStr(self.code);
         try self.writeInstRef(stream, inst_data.operand);
-        try stream.print(", \"{f}\")", .{std.zig.fmtEscapes(str)});
+        try stream.print(", \"{f}\")", .{std.zig.fmtString(str)});
     }
 
     fn writeFunc(
@@ -2703,10 +2703,10 @@ const Writer = struct {
                 try self.writeInstIndex(stream, ptr_inst);
             },
             .decl_val => |str| try stream.print("decl_val \"{f}\"", .{
-                std.zig.fmtEscapes(self.code.nullTerminatedString(str)),
+                std.zig.fmtString(self.code.nullTerminatedString(str)),
             }),
             .decl_ref => |str| try stream.print("decl_ref \"{f}\"", .{
-                std.zig.fmtEscapes(self.code.nullTerminatedString(str)),
+                std.zig.fmtString(self.code.nullTerminatedString(str)),
             }),
         }
     }
@@ -2839,7 +2839,7 @@ const Writer = struct {
         const extra = self.code.extraData(Zir.Inst.Import, inst_data.payload_index).data;
         try self.writeInstRef(stream, extra.res_ty);
         const import_path = self.code.nullTerminatedString(extra.path);
-        try stream.print(", \"{f}\") ", .{std.zig.fmtEscapes(import_path)});
+        try stream.print(", \"{f}\") ", .{std.zig.fmtString(import_path)});
         try self.writeSrcTok(stream, inst_data.src_tok);
     }
 };

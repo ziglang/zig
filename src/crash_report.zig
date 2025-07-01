@@ -80,19 +80,19 @@ fn dumpStatusReport() !void {
     var fba = std.heap.FixedBufferAllocator.init(&crash_heap);
     const allocator = fba.allocator();
 
-    var stderr_fw = std.fs.File.stderr().writer();
-    var stderr_bw = stderr_fw.interface().unbuffered();
+    var stderr_fw = std.fs.File.stderr().writer(&.{});
+    const stderr = &stderr_fw.interface;
     const block: *Sema.Block = anal.block;
     const zcu = anal.sema.pt.zcu;
 
     const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu) orelse {
         const file = zcu.fileByIndex(block.src_base_inst.resolveFile(&zcu.intern_pool));
-        try stderr_bw.print("Analyzing lost instruction in file '{f}'. This should not happen!\n\n", .{file.path.fmt(zcu.comp)});
+        try stderr.print("Analyzing lost instruction in file '{f}'. This should not happen!\n\n", .{file.path.fmt(zcu.comp)});
         return;
     };
 
-    try stderr_bw.writeAll("Analyzing ");
-    try stderr_bw.print("Analyzing '{f}'\n", .{file.path.fmt(zcu.comp)});
+    try stderr.writeAll("Analyzing ");
+    try stderr.print("Analyzing '{f}'\n", .{file.path.fmt(zcu.comp)});
 
     print_zir.renderInstructionContext(
         allocator,
@@ -101,12 +101,12 @@ fn dumpStatusReport() !void {
         file,
         src_base_node,
         6, // indent
-        &stderr_bw,
+        stderr,
     ) catch |err| switch (err) {
-        error.OutOfMemory => try stderr_bw.writeAll("  <out of memory dumping zir>\n"),
+        error.OutOfMemory => try stderr.writeAll("  <out of memory dumping zir>\n"),
         else => |e| return e,
     };
-    try stderr_bw.print(
+    try stderr.print(
         \\    For full context, use the command
         \\      zig ast-check -t {f}
         \\
@@ -117,30 +117,30 @@ fn dumpStatusReport() !void {
     while (parent) |curr| {
         fba.reset();
         const cur_block_file = zcu.fileByIndex(curr.block.src_base_inst.resolveFile(&zcu.intern_pool));
-        try stderr_bw.print("  in {f}\n", .{cur_block_file.path.fmt(zcu.comp)});
+        try stderr.print("  in {f}\n", .{cur_block_file.path.fmt(zcu.comp)});
         _, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu) orelse {
-            try stderr_bw.writeAll("    > [lost instruction; this should not happen]\n");
+            try stderr.writeAll("    > [lost instruction; this should not happen]\n");
             parent = curr.parent;
             continue;
         };
-        try stderr_bw.writeAll("    > ");
+        try stderr.writeAll("    > ");
         print_zir.renderSingleInstruction(
             allocator,
             curr.body[curr.body_index],
             cur_block_file,
             cur_block_src_base_node,
             6, // indent
-            &stderr_bw,
+            stderr,
         ) catch |err| switch (err) {
-            error.OutOfMemory => try stderr_bw.writeAll("  <out of memory dumping zir>\n"),
+            error.OutOfMemory => try stderr.writeAll("  <out of memory dumping zir>\n"),
             else => |e| return e,
         };
-        try stderr_bw.writeAll("\n");
+        try stderr.writeAll("\n");
 
         parent = curr.parent;
     }
 
-    try stderr_bw.writeByte('\n');
+    try stderr.writeByte('\n');
 }
 
 var crash_heap: [16 * 4096]u8 = undefined;
@@ -269,9 +269,9 @@ const StackContext = union(enum) {
                 debug.dumpCurrentStackTrace(ct.ret_addr);
             },
             .exception => |context| {
-                var stderr_fw = std.fs.File.stderr().writer();
-                var stderr_bw = stderr_fw.interface().unbuffered();
-                debug.dumpStackTraceFromBase(context, &stderr_bw);
+                var stderr_fw = std.fs.File.stderr().writer(&.{});
+                const stderr = &stderr_fw.interface;
+                debug.dumpStackTraceFromBase(context, stderr);
             },
             .not_supported => {
                 std.fs.File.stderr().writeAll("Stack trace not supported on this platform.\n") catch {};
@@ -381,20 +381,20 @@ const PanicSwitch = struct {
 
         state.recover_stage = .release_mutex;
 
-        var stderr_fw = std.fs.File.stderr().writer();
-        var stderr_bw = stderr_fw.interface().unbuffered();
+        var stderr_fw = std.fs.File.stderr().writer(&.{});
+        const stderr = &stderr_fw.interface;
         if (builtin.single_threaded) {
-            stderr_bw.print("panic: ", .{}) catch goTo(releaseMutex, .{state});
+            stderr.print("panic: ", .{}) catch goTo(releaseMutex, .{state});
         } else {
             const current_thread_id = std.Thread.getCurrentId();
-            stderr_bw.print("thread {} panic: ", .{current_thread_id}) catch goTo(releaseMutex, .{state});
+            stderr.print("thread {} panic: ", .{current_thread_id}) catch goTo(releaseMutex, .{state});
         }
-        stderr_bw.print("{s}\n", .{msg}) catch goTo(releaseMutex, .{state});
+        stderr.print("{s}\n", .{msg}) catch goTo(releaseMutex, .{state});
 
         state.recover_stage = .report_stack;
 
         dumpStatusReport() catch |err| {
-            stderr_bw.print("\nIntercepted error.{} while dumping current state.  Continuing...\n", .{err}) catch {};
+            stderr.print("\nIntercepted error.{} while dumping current state.  Continuing...\n", .{err}) catch {};
         };
 
         goTo(reportStack, .{state});
@@ -409,9 +409,9 @@ const PanicSwitch = struct {
         recover(state, trace, stack, msg);
 
         state.recover_stage = .release_mutex;
-        var stderr_fw = std.fs.File.stderr().writer();
-        var stderr_bw = stderr_fw.interface().unbuffered();
-        stderr_bw.writeAll("\nOriginal Error:\n") catch {};
+        var stderr_fw = std.fs.File.stderr().writer(&.{});
+        const stderr = &stderr_fw.interface;
+        stderr.writeAll("\nOriginal Error:\n") catch {};
         goTo(reportStack, .{state});
     }
 
@@ -481,9 +481,9 @@ const PanicSwitch = struct {
         recover(state, trace, stack, msg);
 
         state.recover_stage = .silent_abort;
-        var stderr_fw = std.fs.File.stderr().writer();
-        var stderr_bw = stderr_fw.interface().unbuffered();
-        stderr_bw.writeAll("Aborting...\n") catch {};
+        var stderr_fw = std.fs.File.stderr().writer(&.{});
+        const stderr = &stderr_fw.interface;
+        stderr.writeAll("Aborting...\n") catch {};
         goTo(abort, .{});
     }
 
@@ -510,11 +510,11 @@ const PanicSwitch = struct {
                 // lower the verbosity, and restore it at the end if we don't panic.
                 state.recover_verbosity = .message_only;
 
-                var stderr_fw = std.fs.File.stderr().writer();
-                var stderr_bw = stderr_fw.interface().unbuffered();
-                stderr_bw.writeAll("\nPanicked during a panic: ") catch {};
-                stderr_bw.writeAll(msg) catch {};
-                stderr_bw.writeAll("\nInner panic stack:\n") catch {};
+                var stderr_fw = std.fs.File.stderr().writer(&.{});
+                const stderr = &stderr_fw.interface;
+                stderr.writeAll("\nPanicked during a panic: ") catch {};
+                stderr.writeAll(msg) catch {};
+                stderr.writeAll("\nInner panic stack:\n") catch {};
                 if (trace) |t| {
                     debug.dumpStackTrace(t.*);
                 }
@@ -525,11 +525,11 @@ const PanicSwitch = struct {
             .message_only => {
                 state.recover_verbosity = .silent;
 
-                var stderr_fw = std.fs.File.stderr().writer();
-                var stderr_bw = stderr_fw.interface().unbuffered();
-                stderr_bw.writeAll("\nPanicked while dumping inner panic stack: ") catch {};
-                stderr_bw.writeAll(msg) catch {};
-                stderr_bw.writeByte('\n') catch {};
+                var stderr_fw = std.fs.File.stderr().writer(&.{});
+                const stderr = &stderr_fw.interface;
+                stderr.writeAll("\nPanicked while dumping inner panic stack: ") catch {};
+                stderr.writeAll(msg) catch {};
+                stderr.writeByte('\n') catch {};
 
                 // If we succeed, restore all the way to dumping the stack.
                 state.recover_verbosity = .message_and_stack;

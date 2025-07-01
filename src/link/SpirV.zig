@@ -206,7 +206,7 @@ pub fn flush(
     var error_info: std.io.Writer.Allocating = .init(self.object.gpa);
     defer error_info.deinit();
 
-    try error_info.interface.writeAll("zig_errors:");
+    try error_info.writer.writeAll("zig_errors:");
     const ip = &self.base.comp.zcu.?.intern_pool;
     for (ip.global_error_set.getNamesFromMainThread()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
@@ -214,9 +214,9 @@ pub fn flush(
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
 
-        try error_info.interface.writeByte(':');
+        try error_info.writer.writeByte(':');
         try std.Uri.Component.percentEncode(
-            &error_info.interface,
+            &error_info.writer,
             name.toSlice(ip),
             struct {
                 fn isValidChar(c: u8) bool {
