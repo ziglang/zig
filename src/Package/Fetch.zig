@@ -227,7 +227,7 @@ pub const JobQueue = struct {
             }
 
             try buf.writer().print(
-                \\        pub const build_root = "{q}";
+                \\        pub const build_root = "{fq}";
                 \\
             , .{fetch.package_root});
 
