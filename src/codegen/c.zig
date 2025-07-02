@@ -1282,7 +1282,7 @@ pub const DeclGen = struct {
                     }
                     const ai = ty.arrayInfo(zcu);
                     if (ai.elem_type.eql(.u8, zcu)) {
-                        var literal = stringLiteral(writer, ty.arrayLenIncludingSentinel(zcu));
+                        var literal: StringLiteral = .init(writer, ty.arrayLenIncludingSentinel(zcu));
                         try literal.start();
                         var index: usize = 0;
                         while (index < ai.len) : (index += 1) {
@@ -1841,7 +1841,7 @@ pub const DeclGen = struct {
                     const ai = ty.arrayInfo(zcu);
                     if (ai.elem_type.eql(.u8, zcu)) {
                         const c_len = ty.arrayLenIncludingSentinel(zcu);
-                        var literal = stringLiteral(writer, c_len);
+                        var literal: StringLiteral = .init(writer, c_len);
                         try literal.start();
                         var index: u64 = 0;
                         while (index < c_len) : (index += 1)
@@ -8143,7 +8143,12 @@ fn compareOperatorC(operator: std.math.CompareOperator) []const u8 {
     };
 }
 
-fn StringLiteral(comptime WriterType: type) type {
+const StringLiteral = struct {
+    len: usize,
+    cur_len: usize,
+    start_count: usize,
+    writer: *std.io.Writer,
+
     // MSVC throws C2078 if an array of size 65536 or greater is initialized with a string literal,
     // regardless of the length of the string literal initializing it. Array initializer syntax is
     // used instead.
@@ -8155,81 +8160,66 @@ fn StringLiteral(comptime WriterType: type) type {
     const max_char_len = 4;
     const max_literal_len = @min(16380 - max_char_len, 4095);
 
-    return struct {
-        len: u64,
-        cur_len: u64 = 0,
-        counting_writer: std.io.CountingWriter(WriterType),
+    fn init(writer: *std.io.Writer, len: usize) StringLiteral {
+        return .{
+            .cur_len = 0,
+            .len = len,
+            .start_count = writer.count,
+            .writer = writer,
+        };
+    }
 
-        pub const Error = if (WriterType == *std.io.Writer) error{WriteFailed} else WriterType.Error;
-
-        const Self = @This();
-
-        pub fn start(self: *Self) Error!void {
-            const writer = self.counting_writer.writer();
-            if (self.len <= max_string_initializer_len) {
-                try writer.writeByte('\"');
-            } else {
-                try writer.writeByte('{');
-            }
+    pub fn start(sl: *StringLiteral) std.io.Writer.Error!void {
+        if (sl.len <= max_string_initializer_len) {
+            try sl.writer.writeByte('\"');
+        } else {
+            try sl.writer.writeByte('{');
         }
+    }
 
-        pub fn end(self: *Self) Error!void {
-            const writer = self.counting_writer.writer();
-            if (self.len <= max_string_initializer_len) {
-                try writer.writeByte('\"');
-            } else {
-                try writer.writeByte('}');
-            }
+    pub fn end(sl: *StringLiteral) std.io.Writer.Error!void {
+        if (sl.len <= max_string_initializer_len) {
+            try sl.writer.writeByte('\"');
+        } else {
+            try sl.writer.writeByte('}');
         }
+    }
 
-        fn writeStringLiteralChar(writer: anytype, c: u8) !void {
-            switch (c) {
-                7 => try writer.writeAll("\\a"),
-                8 => try writer.writeAll("\\b"),
-                '\t' => try writer.writeAll("\\t"),
-                '\n' => try writer.writeAll("\\n"),
-                11 => try writer.writeAll("\\v"),
-                12 => try writer.writeAll("\\f"),
-                '\r' => try writer.writeAll("\\r"),
-                '"', '\'', '?', '\\' => try writer.print("\\{c}", .{c}),
-                else => switch (c) {
-                    ' '...'~' => try writer.writeByte(c),
-                    else => try writer.print("\\{o:0>3}", .{c}),
-                },
-            }
+    fn writeStringLiteralChar(sl: *StringLiteral, c: u8) std.io.Writer.Error!void {
+        switch (c) {
+            7 => try sl.writer.writeAll("\\a"),
+            8 => try sl.writer.writeAll("\\b"),
+            '\t' => try sl.writer.writeAll("\\t"),
+            '\n' => try sl.writer.writeAll("\\n"),
+            11 => try sl.writer.writeAll("\\v"),
+            12 => try sl.writer.writeAll("\\f"),
+            '\r' => try sl.writer.writeAll("\\r"),
+            '"', '\'', '?', '\\' => try sl.writer.print("\\{c}", .{c}),
+            else => switch (c) {
+                ' '...'~' => try sl.writer.writeByte(c),
+                else => try sl.writer.print("\\{o:0>3}", .{c}),
+            },
         }
+    }
 
-        pub fn writeChar(self: *Self, c: u8) Error!void {
-            const writer = self.counting_writer.writer();
-            if (self.len <= max_string_initializer_len) {
-                if (self.cur_len == 0 and self.counting_writer.bytes_written > 1)
-                    try writer.writeAll("\"\"");
+    pub fn writeChar(sl: *StringLiteral, c: u8) std.io.Writer.Error!void {
+        if (sl.len <= max_string_initializer_len) {
+            if (sl.cur_len == 0 and sl.writer.count - sl.start_count > 1)
+                try sl.writer.writeAll("\"\"");
 
-                const len = self.counting_writer.bytes_written;
-                try writeStringLiteralChar(writer, c);
+            const count = sl.writer.count;
+            try sl.writeStringLiteralChar(c);
+            const char_len = sl.writer.count - count;
+            assert(char_len <= max_char_len);
+            sl.cur_len += char_len;
 
-                const char_length = self.counting_writer.bytes_written - len;
-                assert(char_length <= max_char_len);
-                self.cur_len += char_length;
-
-                if (self.cur_len >= max_literal_len) self.cur_len = 0;
-            } else {
-                if (self.counting_writer.bytes_written > 1) try writer.writeByte(',');
-                try writer.print("'\\x{x}'", .{c});
-            }
+            if (sl.cur_len >= max_literal_len) sl.cur_len = 0;
+        } else {
+            if (sl.writer.count - sl.start_count > 1) try sl.writer.writeByte(',');
+            try sl.writer.print("'\\x{x}'", .{c});
         }
-    };
-}
-
-fn stringLiteral(
-    child_stream: anytype,
-    len: u64,
-) StringLiteral(@TypeOf(child_stream)) {
-    return .{
-        .len = len,
-        .counting_writer = std.io.countingWriter(child_stream),
-    };
-}
+    }
+};
 
 const FormatStringContext = struct {
     str: []const u8,
@@ -8237,7 +8227,7 @@ const FormatStringContext = struct {
 };
 
 fn formatStringLiteral(data: FormatStringContext, writer: *std.io.Writer) std.io.Writer.Error!void {
-    var literal = stringLiteral(writer, data.str.len + @intFromBool(data.sentinel != null));
+    var literal: StringLiteral = .init(writer, data.str.len + @intFromBool(data.sentinel != null));
     try literal.start();
     for (data.str) |c| try literal.writeChar(c);
     if (data.sentinel) |sentinel| if (sentinel != 0) try literal.writeChar(sentinel);
