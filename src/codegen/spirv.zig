@@ -3580,8 +3580,8 @@ const NavGen = struct {
         const info = self.arithmeticTypeInfo(lhs.ty);
 
         const result = switch (info.class) {
-            .composite_integer => unreachable, // TODO
-            .integer, .strange_integer => switch (info.signedness) {
+            .composite_integer, .strange_integer => unreachable, // TODO
+            .integer => switch (info.signedness) {
                 .signed => try self.buildBinary(sop, lhs, rhs),
                 .unsigned => try self.buildBinary(uop, lhs, rhs),
             },
