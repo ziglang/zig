@@ -3718,23 +3718,38 @@ const NavGen = struct {
                 return try self.constructComposite(struct_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
             },
             .Saturating => {
-                const sat_val_tmp = blk: {
-                    const scalar_ty = result_ty.scalarType(self.pt.zcu);
-                    if (info.signedness == .signed and op == .i_sub) {
-                        const min_val: i64 = if (info.bits == 0) 0 else -(@as(i64, 1) << @as(u6, @intCast(info.bits - 1)));
-                        const min_id = try self.constInt(scalar_ty, min_val);
-                        break :blk Temporary.init(scalar_ty, min_id);
-                    } else {
-                        const max_val: u64 = if (info.bits == 0) 0 else switch (info.signedness) {
-                            .unsigned => if (info.bits == 64) std.math.maxInt(u64) else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1,
-                            .signed => (@as(u64, 1) << @as(u6, @intCast(info.bits - 1))) - 1,
-                        };
-                        const max_id = try self.constInt(scalar_ty, max_val);
-                        break :blk Temporary.init(scalar_ty, max_id);
-                    }
-                };
-                const final_result = try self.buildSelect(overflowed, sat_val_tmp, result);
-                return try final_result.materialize(self);
+                const scalar_ty = result_ty.scalarType(self.pt.zcu);
+
+                if (info.signedness == .signed) {
+                    const min_val: i64 = if (info.bits == 0) 0 else if (info.bits == 64) std.math.minInt(i64) else -(@as(i64, 1) << @as(u6, @intCast(info.bits - 1)));
+                    const max_val: i64 = if (info.bits == 0) 0 else if (info.bits == 64) std.math.maxInt(i64) else (@as(i64, 1) << @as(u6, @intCast(info.bits - 1))) - 1;
+
+                    const min_id = try self.constInt(scalar_ty, min_val);
+                    const max_id = try self.constInt(scalar_ty, max_val);
+
+                    const min_tmp = Temporary.init(scalar_ty, min_id);
+                    const max_tmp = Temporary.init(scalar_ty, max_id);
+
+                    // The sign of the left-hand-side operand predicts the direction of saturation.
+                    // If lhs is negative, any overflow/underflow will be towards min.
+                    // If lhs is positive, any overflow will be towards max.
+                    const zero = Temporary.init(lhs.ty, try self.constInt(lhs.ty, 0));
+                    const lhs_is_neg = try self.buildCmp(.s_lt, lhs, zero);
+
+                    const saturation_value = try self.buildSelect(lhs_is_neg, min_tmp, max_tmp);
+                    const final_result = try self.buildSelect(overflowed, saturation_value, result);
+                    return try final_result.materialize(self);
+                } else {
+                    const saturation_val: u64 = switch (op) {
+                        .i_add => if (info.bits == 0) 0 else if (info.bits == 64) std.math.maxInt(u64) else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1, // saturate to max on overflow
+                        .i_sub => 0, // saturate to min (0) on underflow
+                        else => unreachable,
+                    };
+                    const saturation_id = try self.constInt(scalar_ty, saturation_val);
+                    const saturation_tmp = Temporary.init(scalar_ty, saturation_id);
+                    const final_result = try self.buildSelect(overflowed, saturation_tmp, result);
+                    return try final_result.materialize(self);
+                }
             },
         }
     }
@@ -3932,9 +3947,9 @@ const NavGen = struct {
                 return try self.constructComposite(result_ty_id, &.{ try result.materialize(self), try ov.materialize(self) });
             },
             .Saturating => {
+                const scalar_ty = result_ty.scalarType(self.pt.zcu);
                 const sat_val_tmp: Temporary = blk: switch (info.signedness) {
                     .unsigned => {
-                        const scalar_ty = result_ty.scalarType(self.pt.zcu);
                         const max_val: u64 = if (info.bits == 64) std.math.maxInt(u64) else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1;
                         const max_id = try self.constInt(scalar_ty, max_val);
                         break :blk .{ .ty = scalar_ty, .value = .{ .singleton = max_id } };
@@ -3945,7 +3960,6 @@ const NavGen = struct {
                         const rhs_is_neg = try self.buildCmp(.s_lt, rhs, zero);
                         const signs_differ = try self.buildCmp(.l_ne, lhs_is_neg, rhs_is_neg);
 
-                        const scalar_ty = result_ty.scalarType(self.pt.zcu);
                         const min_val: i64 = if (info.bits == 0) 0 else -(@as(i64, 1) << @as(u6, @intCast(info.bits - 1)));
                         const max_val: u64 = if (info.bits == 0) 0 else (@as(u64, 1) << @as(u6, @intCast(info.bits - 1))) - 1;
 
@@ -4013,12 +4027,22 @@ const NavGen = struct {
         const left = try self.buildBinary(.sll, base, casted_shift);
         const result = try self.normalize(left, info);
 
+        // Check if shift amount >= bit width, which always causes overflow (except when base is 0)
+        const bit_width_id = try self.constInt(base.ty.scalarType(zcu), info.bits);
+        const bit_width_tmp = Temporary.init(base.ty.scalarType(zcu), bit_width_id);
+        const shift_too_large = try self.buildCmp(.u_ge, casted_shift, bit_width_tmp);
+
+        const zero_tmp = Temporary.init(base.ty, try self.constInt(base.ty, 0));
+        const base_is_zero = try self.buildCmp(.i_eq, base, zero_tmp);
+        const large_shift_overflow = try self.buildBinary(.l_and, shift_too_large, try self.buildUnary(.l_not, base_is_zero));
+
         const right = switch (info.signedness) {
             .unsigned => try self.buildBinary(.srl, result, casted_shift),
             .signed => try self.buildBinary(.sra, result, casted_shift),
         };
 
-        const overflowed = try self.buildCmp(.i_ne, base, right);
+        const round_trip_overflow = try self.buildCmp(.i_ne, base, right);
+        const overflowed = try self.buildBinary(.l_or, large_shift_overflow, round_trip_overflow);
 
         switch (mode) {
             .WithOverflow => {
