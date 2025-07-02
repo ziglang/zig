@@ -938,10 +938,9 @@ const x86_64 = struct {
     }
 
     fn encode(insts: []const Instruction, code: []u8) !void {
-        var stream = std.io.fixedBufferStream(code);
-        const writer = stream.writer();
+        var stream: std.io.Writer = .fixed(code);
         for (insts) |inst| {
-            try inst.encode(writer, .{});
+            try inst.encode(&stream, .{});
         }
     }
 

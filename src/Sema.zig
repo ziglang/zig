@@ -3026,8 +3026,8 @@ pub fn createTypeName(
 
             var aw: std.io.Writer.Allocating = .init(gpa);
             defer aw.deinit();
-            const bw = &aw.writer;
-            bw.print("{f}(", .{block.type_name_ctx.fmt(ip)}) catch return error.OutOfMemory;
+            const w = &aw.writer;
+            w.print("{f}(", .{block.type_name_ctx.fmt(ip)}) catch return error.OutOfMemory;
 
             var arg_i: usize = 0;
             for (fn_info.param_body) |zir_inst| switch (zir_tags[@intFromEnum(zir_inst)]) {
@@ -3040,13 +3040,13 @@ pub fn createTypeName(
                     // result in a compile error.
                     const arg_val = try sema.resolveValue(arg) orelse break :func_strat; // fall through to anon strat
 
-                    if (arg_i != 0) bw.writeByte(',') catch return error.OutOfMemory;
+                    if (arg_i != 0) w.writeByte(',') catch return error.OutOfMemory;
 
                     // Limiting the depth here helps avoid type names getting too long, which
                     // in turn helps to avoid unreasonably long symbol names for namespaced
                     // symbols. Such names should ideally be human-readable, and additionally,
                     // some tooling may not support very long symbol names.
-                    bw.print("{f}", .{Value.fmtValueSemaFull(.{
+                    w.print("{f}", .{Value.fmtValueSemaFull(.{
                         .val = arg_val,
                         .pt = pt,
                         .opt_sema = sema,
@@ -3059,7 +3059,7 @@ pub fn createTypeName(
                 else => continue,
             };
 
-            try bw.writeByte(')');
+            w.writeByte(')') catch return error.OutOfMemory;
             return .{
                 .name = try ip.getOrPutString(gpa, pt.tid, aw.getWritten(), .no_embedded_nulls),
                 .nav = .none,

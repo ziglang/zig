@@ -239,12 +239,12 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .none,
         .windows,
         => {},
-        .semver => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+        .semver => |ver| try llvm_triple.print("{d}.{d}.{d}", .{
             ver.min.major,
             ver.min.minor,
             ver.min.patch,
         }),
-        inline .linux, .hurd => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+        inline .linux, .hurd => |ver| try llvm_triple.print("{d}.{d}.{d}", .{
             ver.range.min.major,
             ver.range.min.minor,
             ver.range.min.patch,
@@ -295,13 +295,13 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .windows,
         => {},
         inline .hurd, .linux => |ver| if (target.abi.isGnu()) {
-            try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            try llvm_triple.print("{d}.{d}.{d}", .{
                 ver.glibc.major,
                 ver.glibc.minor,
                 ver.glibc.patch,
             });
         } else if (@TypeOf(ver) == std.Target.Os.LinuxVersionRange and target.abi.isAndroid()) {
-            try llvm_triple.writer().print("{d}", .{ver.android});
+            try llvm_triple.print("{d}", .{ver.android});
         },
     }
 
@@ -746,12 +746,18 @@ pub const Object = struct {
         try wip.finish();
     }
 
-    fn genModuleLevelAssembly(object: *Object) !void {
-        const writer = object.builder.setModuleAsm();
+    fn genModuleLevelAssembly(object: *Object) Allocator.Error!void {
+        const b = &object.builder;
+        const gpa = b.gpa;
+        b.module_asm.clearRetainingCapacity();
         for (object.pt.zcu.global_assembly.values()) |assembly| {
-            try writer.print("{s}\n", .{assembly});
+            try b.module_asm.ensureUnusedCapacity(gpa, assembly.len + 1);
+            b.module_asm.appendSliceAssumeCapacity(assembly);
+            b.module_asm.appendAssumeCapacity('\n');
         }
-        try object.builder.finishModuleAsm();
+        if (b.module_asm.getLastOrNull()) |last| {
+            if (last != '\n') try b.module_asm.append(gpa, '\n');
+        }
     }
 
     pub const EmitOptions = struct {
@@ -939,7 +945,9 @@ pub const Object = struct {
                 if (std.mem.eql(u8, path, "-")) {
                     o.builder.dump();
                 } else {
-                    _ = try o.builder.printToFile(path);
+                    o.builder.printToFilePath(std.fs.cwd(), path) catch |err| {
+                        log.err("failed printing LLVM module to \"{s}\": {s}", .{ path, @errorName(err) });
+                    };
                 }
             }
 
@@ -2680,10 +2688,12 @@ pub const Object = struct {
     }
 
     fn allocTypeName(o: *Object, ty: Type) Allocator.Error![:0]const u8 {
-        var buffer = std.ArrayList(u8).init(o.gpa);
-        errdefer buffer.deinit();
-        try ty.print(buffer.writer(), o.pt);
-        return buffer.toOwnedSliceSentinel(0);
+        var aw: std.io.Writer.Allocating = .init(o.gpa);
+        defer aw.deinit();
+        ty.print(&aw.writer, o.pt) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
+        return aw.toOwnedSliceSentinel(0);
     }
 
     /// If the llvm function does not exist, create it.
@@ -4482,7 +4492,7 @@ pub const Object = struct {
         const target = &zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(ret_ty, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
-            try o.builder.strtabStringFmt("__zig_tag_name_{}", .{enum_type.name.fmt(ip)}),
+            try o.builder.strtabStringFmt("__zig_tag_name_{f}", .{enum_type.name.fmt(ip)}),
             toLlvmAddressSpace(.generic, target),
         );
 
@@ -4633,7 +4643,7 @@ pub const NavGen = struct {
                     if (zcu.getTarget().cpu.arch.isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
                         if (lib_name.toSlice(ip)) |lib_name_slice| {
                             if (!std.mem.eql(u8, lib_name_slice, "c")) {
-                                break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
+                                break :decl_name try o.builder.strtabStringFmt("{f}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
                             }
                         }
                     }
@@ -7472,7 +7482,7 @@ pub const FuncGen = struct {
                 llvm_param_types[llvm_param_i] = llvm_elem_ty;
             }
 
-            try llvm_constraints.writer(self.gpa).print(",{d}", .{output_index});
+            try llvm_constraints.print(self.gpa, ",{d}", .{output_index});
 
             // In the case of indirect inputs, LLVM requires the callsite to have
             // an elementtype(<ty>) attribute.
@@ -7573,7 +7583,7 @@ pub const FuncGen = struct {
                             // we should validate the assembly in Sema; by now it is too late
                             return self.todo("unknown input or output name: '{s}'", .{name});
                         };
-                        try rendered_template.writer().print("{d}", .{index});
+                        try rendered_template.print("{d}", .{index});
                         if (byte == ':') {
                             try rendered_template.append(':');
                             modifier_start = i + 1;
@@ -10370,7 +10380,7 @@ pub const FuncGen = struct {
         const target = &zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(.i1, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
-            try o.builder.strtabStringFmt("__zig_is_named_enum_value_{}", .{enum_type.name.fmt(ip)}),
+            try o.builder.strtabStringFmt("__zig_is_named_enum_value_{f}", .{enum_type.name.fmt(ip)}),
             toLlvmAddressSpace(.generic, target),
         );
 

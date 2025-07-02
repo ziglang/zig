@@ -5852,7 +5852,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
                 try child.spawn();
 
-                const stderr = try child.stderr.?.reader().readAllAlloc(arena, std.math.maxInt(usize));
+                const stderr = try child.stderr.?.deprecatedReader().readAllAlloc(arena, std.math.maxInt(usize));
 
                 const term = child.wait() catch |err| {
                     return comp.failCObj(c_object, "failed to spawn zig clang {s}: {s}", .{ argv.items[0], @errorName(err) });
@@ -6249,7 +6249,7 @@ fn spawnZigRc(
     }
 
     // Just in case there's a failure that didn't send an ErrorBundle (e.g. an error return trace)
-    const stderr_reader = child.stderr.?.reader();
+    const stderr_reader = child.stderr.?.deprecatedReader();
     const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
 
     const term = child.wait() catch |err| {
