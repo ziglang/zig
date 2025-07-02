@@ -542,15 +542,15 @@ const MsgWriter = struct {
     }
 
     pub fn print(m: *MsgWriter, comptime fmt: []const u8, args: anytype) void {
-        m.w.writer().print(fmt, args) catch {};
+        m.w.interface.print(fmt, args) catch {};
     }
 
     fn write(m: *MsgWriter, msg: []const u8) void {
-        m.w.writer().writeAll(msg) catch {};
+        m.w.interface.writeAll(msg) catch {};
     }
 
     fn setColor(m: *MsgWriter, color: std.io.tty.Color) void {
-        m.config.setColor(m.w.writer(), color) catch {};
+        m.config.setColor(m.w.interface, color) catch {};
     }
 
     fn location(m: *MsgWriter, path: []const u8, line: u32, col: u32) void {

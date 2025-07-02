@@ -71,7 +71,7 @@ pub fn lessThan(ctx: void, lhs: Relocation, rhs: Relocation) bool {
 }
 
 pub fn fmtPretty(rel: Relocation, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(Format, Format.pretty) {
-    return .{ .data = .{ rel, cpu_arch } };
+    return .{ .data = .{ .relocation = rel, .arch = cpu_arch } };
 }
 
 const Format = struct {

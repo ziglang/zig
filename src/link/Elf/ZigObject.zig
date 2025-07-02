@@ -2195,60 +2195,46 @@ pub fn setSymbolExtra(self: *ZigObject, index: u32, extra: Symbol.Extra) void {
     }
 }
 
-pub fn fmtSymtab(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
-    return .{ .data = .{
-        .self = self,
-        .elf_file = elf_file,
-    } };
-}
-
-const FormatContext = struct {
+const Format = struct {
     self: *ZigObject,
     elf_file: *Elf,
+
+    fn symtab(f: Format, writer: *std.io.Writer.Error) std.io.Writer.Error!void {
+        const self = f.self;
+        const elf_file = f.elf_file;
+        try writer.writeAll("  locals\n");
+        for (self.local_symbols.items) |index| {
+            const local = self.symbols.items[index];
+            try writer.print("    {f}\n", .{local.fmt(elf_file)});
+        }
+        try writer.writeAll("  globals\n");
+        for (f.self.global_symbols.items) |index| {
+            const global = self.symbols.items[index];
+            try writer.print("    {f}\n", .{global.fmt(elf_file)});
+        }
+    }
+
+    fn atoms(f: Format, writer: *std.io.Writer.Error) std.io.Writer.Error!void {
+        try writer.writeAll("  atoms\n");
+        for (f.self.atoms_indexes.items) |atom_index| {
+            const atom_ptr = f.self.atom(atom_index) orelse continue;
+            try writer.print("    {f}\n", .{atom_ptr.fmt(f.elf_file)});
+        }
+    }
 };
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const self = ctx.self;
-    const elf_file = ctx.elf_file;
-    try writer.writeAll("  locals\n");
-    for (self.local_symbols.items) |index| {
-        const local = self.symbols.items[index];
-        try writer.print("    {}\n", .{local.fmt(elf_file)});
-    }
-    try writer.writeAll("  globals\n");
-    for (ctx.self.global_symbols.items) |index| {
-        const global = self.symbols.items[index];
-        try writer.print("    {}\n", .{global.fmt(elf_file)});
-    }
-}
-
-pub fn fmtAtoms(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(formatAtoms) {
+pub fn fmtSymtab(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
     return .{ .data = .{
         .self = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    try writer.writeAll("  atoms\n");
-    for (ctx.self.atoms_indexes.items) |atom_index| {
-        const atom_ptr = ctx.self.atom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom_ptr.fmt(ctx.elf_file)});
-    }
+pub fn fmtAtoms(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(Format, Format.atoms) {
+    return .{ .data = .{
+        .self = self,
+        .elf_file = elf_file,
+    } };
 }
 
 const ElfSym = struct {

@@ -509,41 +509,21 @@ pub fn setSymbolExtra(self: *SharedObject, index: u32, extra: Symbol.Extra) void
     }
 }
 
-pub fn format(
-    self: SharedObject,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = self;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("unreachable");
-}
-
-pub fn fmtSymtab(self: SharedObject, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: SharedObject, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
     return .{ .data = .{
         .shared = self,
         .elf_file = elf_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     shared: SharedObject,
     elf_file: *Elf,
 };
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const shared = ctx.shared;
-    const elf_file = ctx.elf_file;
+fn formatSymtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    const shared = f.shared;
+    const elf_file = f.elf_file;
     try writer.writeAll("  globals\n");
     for (shared.symbols.items, 0..) |sym, i| {
         const ref = shared.resolveSymbol(@intCast(i), elf_file);

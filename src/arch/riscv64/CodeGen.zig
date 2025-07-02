@@ -937,12 +937,7 @@ const FormatWipMirData = struct {
     func: *Func,
     inst: Mir.Inst.Index,
 };
-fn formatWipMir(
-    data: FormatWipMirData,
-    comptime _: []const u8,
-    _: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
+fn formatWipMir(data: FormatWipMirData, writer: *std.io.Writer) std.io.Writer.Error!void {
     const pt = data.func.pt;
     const comp = pt.zcu.comp;
     var lower: Lower = .{
@@ -982,7 +977,7 @@ fn formatWipMir(
         first = false;
     }
 }
-fn fmtWipMir(func: *Func, inst: Mir.Inst.Index) std.fmt.Formatter(formatWipMir) {
+fn fmtWipMir(func: *Func, inst: Mir.Inst.Index) std.fmt.Formatter(FormatWipMirData, formatWipMir) {
     return .{ .data = .{ .func = func, .inst = inst } };
 }
 
@@ -990,15 +985,10 @@ const FormatNavData = struct {
     ip: *const InternPool,
     nav_index: InternPool.Nav.Index,
 };
-fn formatNav(
-    data: FormatNavData,
-    comptime _: []const u8,
-    _: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    try writer.print("{}", .{data.ip.getNav(data.nav_index).fqn.fmt(data.ip)});
+fn formatNav(data: FormatNavData, writer: *std.io.Writer) std.io.Writer.Error!void {
+    try writer.print("{f}", .{data.ip.getNav(data.nav_index).fqn.fmt(data.ip)});
 }
-fn fmtNav(nav_index: InternPool.Nav.Index, ip: *const InternPool) std.fmt.Formatter(formatNav) {
+fn fmtNav(nav_index: InternPool.Nav.Index, ip: *const InternPool) std.fmt.Formatter(FormatNavData, formatNav) {
     return .{ .data = .{
         .ip = ip,
         .nav_index = nav_index,
@@ -1009,31 +999,25 @@ const FormatAirData = struct {
     func: *Func,
     inst: Air.Inst.Index,
 };
-fn formatAir(
-    data: FormatAirData,
-    comptime _: []const u8,
-    _: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    data.func.air.dumpInst(data.inst, data.func.pt, data.func.liveness);
+fn formatAir(data: FormatAirData, writer: *std.io.Writer) std.io.Writer.Error!void {
+    // Not acceptable implementation because it ignores `writer`:
+    //data.func.air.dumpInst(data.inst, data.func.pt, data.func.liveness);
+    _ = data;
+    _ = writer;
+    @panic("unimplemented");
 }
-fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(formatAir) {
+fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(FormatAirData, formatAir) {
     return .{ .data = .{ .func = func, .inst = inst } };
 }
 
 const FormatTrackingData = struct {
     func: *Func,
 };
-fn formatTracking(
-    data: FormatTrackingData,
-    comptime _: []const u8,
-    _: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
+fn formatTracking(data: FormatTrackingData, writer: *std.io.Writer) std.io.Writer.Error!void {
     var it = data.func.inst_tracking.iterator();
     while (it.next()) |entry| try writer.print("\n%{d} = {}", .{ entry.key_ptr.*, entry.value_ptr.* });
 }
-fn fmtTracking(func: *Func) std.fmt.Formatter(formatTracking) {
+fn fmtTracking(func: *Func) std.fmt.Formatter(FormatTrackingData, formatTracking) {
     return .{ .data = .{ .func = func } };
 }
 

@@ -2552,7 +2552,7 @@ const Format = struct {
         }
     }
 
-    fn formatSymtab(f: Format, w: *Writer) Writer.Error!void {
+    fn symtab(f: Format, w: *Writer) Writer.Error!void {
         const object = f.object;
         const macho_file = f.macho_file;
         try w.writeAll("  symbols\n");
@@ -2695,7 +2695,7 @@ const StabFile = struct {
         };
 
         pub fn fmt(stab: Stab, object: Object) std.fmt.Formatter(Stab.Format, Stab.Format.default) {
-            return .{ .data = .{ stab, object } };
+            return .{ .data = .{ .stab = stab, .object = object } };
         }
     };
 };

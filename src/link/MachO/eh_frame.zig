@@ -211,49 +211,29 @@ pub const Fde = struct {
         return fde.getObject(macho_file).getAtom(fde.lsda);
     }
 
-    pub fn format(
-        fde: Fde,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fde;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format FDEs directly");
-    }
-
-    pub fn fmt(fde: Fde, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(fde: Fde, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{
             .fde = fde,
             .macho_file = macho_file,
         } };
     }
 
-    const FormatContext = struct {
+    const Format = struct {
         fde: Fde,
         macho_file: *MachO,
-    };
 
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        const fde = ctx.fde;
-        const macho_file = ctx.macho_file;
-        try writer.print("@{x} : size({x}) : cie({d}) : {s}", .{
-            fde.offset,
-            fde.getSize(),
-            fde.cie,
-            fde.getAtom(macho_file).getName(macho_file),
-        });
-        if (!fde.alive) try writer.writeAll(" : [*]");
-    }
+        fn default(f: Format, writer: *Writer) Writer.Error!void {
+            const fde = f.fde;
+            const macho_file = f.macho_file;
+            try writer.print("@{x} : size({x}) : cie({d}) : {s}", .{
+                fde.offset,
+                fde.getSize(),
+                fde.cie,
+                fde.getAtom(macho_file).getName(macho_file),
+            });
+            if (!fde.alive) try writer.writeAll(" : [*]");
+        }
+    };
 
     pub const Index = u32;
 };

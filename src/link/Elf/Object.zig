@@ -1432,167 +1432,112 @@ pub fn group(self: *Object, index: Elf.Group.Index) *Elf.Group {
     return &self.groups.items[index];
 }
 
-pub fn format(
-    self: *Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = self;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format objects directly");
-}
-
-pub fn fmtSymtab(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     object: *Object,
     elf_file: *Elf,
+
+    fn symtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const object = f.object;
+        const elf_file = f.elf_file;
+        try writer.writeAll("  locals\n");
+        for (object.locals()) |sym| {
+            try writer.print("    {}\n", .{sym.fmt(elf_file)});
+        }
+        try writer.writeAll("  globals\n");
+        for (object.globals(), 0..) |sym, i| {
+            const first_global = object.first_global.?;
+            const ref = object.resolveSymbol(@intCast(i + first_global), elf_file);
+            if (elf_file.symbol(ref)) |ref_sym| {
+                try writer.print("    {}\n", .{ref_sym.fmt(elf_file)});
+            } else {
+                try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+            }
+        }
+    }
+
+    fn atoms(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const object = f.object;
+        try writer.writeAll("  atoms\n");
+        for (object.atoms_indexes.items) |atom_index| {
+            const atom_ptr = object.atom(atom_index) orelse continue;
+            try writer.print("    {}\n", .{atom_ptr.fmt(f.elf_file)});
+        }
+    }
+
+    fn cies(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const object = f.object;
+        try writer.writeAll("  cies\n");
+        for (object.cies.items, 0..) |cie, i| {
+            try writer.print("    cie({d}) : {}\n", .{ i, cie.fmt(f.elf_file) });
+        }
+    }
+
+    fn fdes(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const object = f.object;
+        try writer.writeAll("  fdes\n");
+        for (object.fdes.items, 0..) |fde, i| {
+            try writer.print("    fde({d}) : {}\n", .{ i, fde.fmt(f.elf_file) });
+        }
+    }
+
+    fn groups(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const object = f.object;
+        const elf_file = f.elf_file;
+        try writer.writeAll("  groups\n");
+        for (object.groups.items, 0..) |g, g_index| {
+            try writer.print("    {s}({d})", .{ if (g.is_comdat) "COMDAT" else "GROUP", g_index });
+            if (!g.alive) try writer.writeAll(" : [*]");
+            try writer.writeByte('\n');
+            const g_members = g.members(elf_file);
+            for (g_members) |shndx| {
+                const atom_index = object.atoms_indexes.items[shndx];
+                const atom_ptr = object.atom(atom_index) orelse continue;
+                try writer.print("      atom({d}) : {s}\n", .{ atom_index, atom_ptr.name(elf_file) });
+            }
+        }
+    }
 };
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    const elf_file = ctx.elf_file;
-    try writer.writeAll("  locals\n");
-    for (object.locals()) |sym| {
-        try writer.print("    {}\n", .{sym.fmt(elf_file)});
-    }
-    try writer.writeAll("  globals\n");
-    for (object.globals(), 0..) |sym, i| {
-        const first_global = object.first_global.?;
-        const ref = object.resolveSymbol(@intCast(i + first_global), elf_file);
-        if (elf_file.symbol(ref)) |ref_sym| {
-            try writer.print("    {}\n", .{ref_sym.fmt(elf_file)});
-        } else {
-            try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
-        }
-    }
-}
-
-pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatAtoms) {
+pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.atoms) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    try writer.writeAll("  atoms\n");
-    for (object.atoms_indexes.items) |atom_index| {
-        const atom_ptr = object.atom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom_ptr.fmt(ctx.elf_file)});
-    }
-}
-
-pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatCies) {
+pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.cies) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatCies(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    try writer.writeAll("  cies\n");
-    for (object.cies.items, 0..) |cie, i| {
-        try writer.print("    cie({d}) : {}\n", .{ i, cie.fmt(ctx.elf_file) });
-    }
-}
-
-pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatFdes) {
+pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.fdes) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatFdes(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    try writer.writeAll("  fdes\n");
-    for (object.fdes.items, 0..) |fde, i| {
-        try writer.print("    fde({d}) : {}\n", .{ i, fde.fmt(ctx.elf_file) });
-    }
-}
-
-pub fn fmtGroups(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatGroups) {
+pub fn fmtGroups(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.groups) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatGroups(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    const elf_file = ctx.elf_file;
-    try writer.writeAll("  groups\n");
-    for (object.groups.items, 0..) |g, g_index| {
-        try writer.print("    {s}({d})", .{ if (g.is_comdat) "COMDAT" else "GROUP", g_index });
-        if (!g.alive) try writer.writeAll(" : [*]");
-        try writer.writeByte('\n');
-        const g_members = g.members(elf_file);
-        for (g_members) |shndx| {
-            const atom_index = object.atoms_indexes.items[shndx];
-            const atom_ptr = object.atom(atom_index) orelse continue;
-            try writer.print("      atom({d}) : {s}\n", .{ atom_index, atom_ptr.name(elf_file) });
-        }
-    }
-}
-
-pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Formatter(Object, formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(
-    object: Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatPath(object: Object, writer: *std.io.Writer) std.io.Writer.Error!void {
     if (object.archive) |ar| {
         try writer.print("{}({})", .{ ar.path, object.path });
     } else {
