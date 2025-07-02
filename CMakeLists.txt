@@ -549,11 +549,6 @@ set(ZIG_STAGE2_SOURCES
     src/Value.zig
     src/Zcu.zig
     src/Zcu/PerThread.zig
-    src/arch/arm/CodeGen.zig
-    src/arch/arm/Emit.zig
-    src/arch/arm/Mir.zig
-    src/arch/arm/abi.zig
-    src/arch/arm/bits.zig
     src/arch/riscv64/abi.zig
     src/arch/riscv64/bits.zig
     src/arch/riscv64/CodeGen.zig
