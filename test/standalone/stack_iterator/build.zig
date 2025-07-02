@@ -8,6 +8,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    if (target.result.cpu.arch.isRISCV() and target.result.os.tag == .linux) {
+        // https://github.com/ziglang/zig/issues/24310
+        return;
+    }
+
     // Unwinding with a frame pointer
     //
     // getcontext version: zig std

@@ -1068,6 +1068,9 @@ pub const Object = struct {
                 .full => .FullPreLink,
             },
             .allow_fast_isel = true,
+            // LLVM's RISC-V backend for some reason enables the machine outliner by default even
+            // though it's clearly not ready and produces multiple miscompilations in our std tests.
+            .allow_machine_outliner = !comp.root_mod.resolved_target.result.cpu.arch.isRISCV(),
             .asm_filename = null,
             .bin_filename = options.bin_path,
             .llvm_ir_filename = options.post_ir_path,
@@ -6831,8 +6834,8 @@ pub const FuncGen = struct {
 
             self.maybeMarkAllowZeroAccess(slice_ty.ptrInfo(zcu));
 
-            const elem_alignment = elem_ty.abiAlignment(zcu).toLlvm();
-            return self.loadByRef(ptr, elem_ty, elem_alignment, if (slice_ty.isVolatilePtr(zcu)) .@"volatile" else .normal);
+            const slice_align = (slice_ty.ptrAlignment(zcu).min(elem_ty.abiAlignment(zcu))).toLlvm();
+            return self.loadByRef(ptr, elem_ty, slice_align, if (slice_ty.isVolatilePtr(zcu)) .@"volatile" else .normal);
         }
 
         self.maybeMarkAllowZeroAccess(slice_ty.ptrInfo(zcu));
@@ -6909,8 +6912,8 @@ pub const FuncGen = struct {
 
             self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
 
-            const elem_alignment = elem_ty.abiAlignment(zcu).toLlvm();
-            return self.loadByRef(ptr, elem_ty, elem_alignment, if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal);
+            const ptr_align = (ptr_ty.ptrAlignment(zcu).min(elem_ty.abiAlignment(zcu))).toLlvm();
+            return self.loadByRef(ptr, elem_ty, ptr_align, if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal);
         }
 
         self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
