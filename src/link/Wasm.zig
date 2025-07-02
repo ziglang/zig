@@ -31,7 +31,7 @@ const mem = std.mem;
 
 const Mir = @import("../arch/wasm/Mir.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
-const abi = @import("../arch/wasm/abi.zig");
+const abi = @import("../codegen/wasm/abi.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
 const InternPool = @import("../InternPool.zig");
