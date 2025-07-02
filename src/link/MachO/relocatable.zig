@@ -202,30 +202,38 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     };
 
     if (build_options.enable_logging) {
-        state_log.debug("ar_symtab\n{f}\n", .{ar_symtab.fmt(macho_file)});
+        state_log.debug("ar_symtab\n{}\n", .{ar_symtab.fmt(macho_file)});
     }
 
-    var bw: Writer = .fixed(try gpa.alloc(u8, total_size));
-    defer gpa.free(bw.buffer);
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+    try buffer.ensureTotalCapacityPrecise(total_size);
+    const writer = buffer.writer();
 
     // Write magic
-    bw.writeAll(Archive.ARMAG) catch unreachable;
+    try writer.writeAll(Archive.ARMAG);
 
     // Write symtab
-    ar_symtab.write(&bw, format, macho_file) catch |err| {
-        return diags.fail("failed to write archive symbol table: {s}", .{@errorName(err)});
+    ar_symtab.write(format, macho_file, writer) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return diags.fail("failed to write archive symbol table: {s}", .{@errorName(e)}),
     };
 
     // Write object files
     for (files.items) |index| {
-        bw.splatByteAll(0, mem.alignForward(usize, bw.end, 2) - bw.end) catch unreachable;
-        macho_file.getFile(index).?.writeAr(&bw, format, macho_file) catch |err|
+        const aligned = mem.alignForward(usize, buffer.items.len, 2);
+        const padding = aligned - buffer.items.len;
+        if (padding > 0) {
+            try writer.writeByteNTimes(0, padding);
+        }
+        macho_file.getFile(index).?.writeAr(format, macho_file, writer) catch |err|
             return diags.fail("failed to write archive: {s}", .{@errorName(err)});
     }
 
-    assert(bw.end == bw.buffer.len);
-    try macho_file.setEndPos(bw.end);
-    try macho_file.pwriteAll(bw.buffer, 0);
+    assert(buffer.items.len == total_size);
+
+    try macho_file.setEndPos(total_size);
+    try macho_file.pwriteAll(buffer.items, 0);
 
     if (diags.hasErrors()) return error.LinkFailure;
 }
@@ -664,7 +672,7 @@ fn writeCompactUnwindWorker(macho_file: *MachO, object: *Object) void {
         diags.addError("failed to write '__LD,__eh_frame' section: {s}", .{@errorName(err)});
 }
 
-fn writeSectionsToFile(macho_file: *MachO) link.File.FlushError!void {
+fn writeSectionsToFile(macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -681,8 +689,12 @@ fn writeSectionsToFile(macho_file: *MachO) link.File.FlushError!void {
 
 fn writeLoadCommands(macho_file: *MachO) error{ LinkFailure, OutOfMemory }!struct { usize, usize } {
     const gpa = macho_file.base.comp.gpa;
-    var bw: Writer = .fixed(try gpa.alloc(u8, load_commands.calcLoadCommandsSizeObject(macho_file)));
-    defer gpa.free(bw.buffer);
+    const needed_size = load_commands.calcLoadCommandsSizeObject(macho_file);
+    const buffer = try gpa.alloc(u8, needed_size);
+    defer gpa.free(buffer);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    const writer = stream.writer();
 
     var ncmds: usize = 0;
 
@@ -690,31 +702,47 @@ fn writeLoadCommands(macho_file: *MachO) error{ LinkFailure, OutOfMemory }!struc
     {
         assert(macho_file.segments.items.len == 1);
         const seg = macho_file.segments.items[0];
-        bw.writeStruct(seg) catch unreachable;
+        writer.writeStruct(seg) catch |err| switch (err) {
+            error.NoSpaceLeft => unreachable,
+        };
         for (macho_file.sections.items(.header)) |header| {
-            bw.writeStruct(header) catch unreachable;
+            writer.writeStruct(header) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable,
+            };
         }
         ncmds += 1;
     }
 
-    bw.writeStruct(macho_file.data_in_code_cmd) catch unreachable;
+    writer.writeStruct(macho_file.data_in_code_cmd) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable,
+    };
     ncmds += 1;
-    bw.writeStruct(macho_file.symtab_cmd) catch unreachable;
+    writer.writeStruct(macho_file.symtab_cmd) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable,
+    };
     ncmds += 1;
-    bw.writeStruct(macho_file.dysymtab_cmd) catch unreachable;
+    writer.writeStruct(macho_file.dysymtab_cmd) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable,
+    };
     ncmds += 1;
 
     if (macho_file.platform.isBuildVersionCompatible()) {
-        load_commands.writeBuildVersionLC(&bw, macho_file.platform, macho_file.sdk_version) catch unreachable;
+        load_commands.writeBuildVersionLC(macho_file.platform, macho_file.sdk_version, writer) catch |err| switch (err) {
+            error.NoSpaceLeft => unreachable,
+        };
         ncmds += 1;
     } else {
-        load_commands.writeVersionMinLC(&bw, macho_file.platform, macho_file.sdk_version) catch unreachable;
+        load_commands.writeVersionMinLC(macho_file.platform, macho_file.sdk_version, writer) catch |err| switch (err) {
+            error.NoSpaceLeft => unreachable,
+        };
         ncmds += 1;
     }
 
-    assert(bw.end == bw.buffer.len);
-    try macho_file.pwriteAll(bw.buffer, @sizeOf(macho.mach_header_64));
-    return .{ ncmds, bw.end };
+    assert(stream.pos == needed_size);
+
+    try macho_file.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
+
+    return .{ ncmds, buffer.len };
 }
 
 fn writeHeader(macho_file: *MachO, ncmds: usize, sizeofcmds: usize) !void {

@@ -261,7 +261,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
 
     sect.offset = @intCast(self.objc_methnames.items.len);
     try self.objc_methnames.ensureUnusedCapacity(gpa, methname.len + 1);
-    self.objc_methnames.print(gpa, "{s}\x00", .{methname}) catch unreachable;
+    self.objc_methnames.writer(gpa).print("{s}\x00", .{methname}) catch unreachable;
 
     const name_str = try self.addString(gpa, "ltmp");
     const sym_index = try self.addSymbol(gpa);

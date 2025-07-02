@@ -297,7 +297,7 @@ const Format = struct {
     symbol: Symbol,
     macho_file: *MachO,
 
-    fn format2(f: Format, w: *Writer) Writer.Error!void {
+    fn default(f: Format, w: *Writer) Writer.Error!void {
         const symbol = f.symbol;
         try w.print("%{d} : {s} : @{x}", .{
             symbol.nlist_idx,

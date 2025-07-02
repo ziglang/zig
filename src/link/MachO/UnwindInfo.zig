@@ -289,9 +289,12 @@ pub fn calcSize(info: UnwindInfo) usize {
     return total_size;
 }
 
-pub fn write(info: UnwindInfo, macho_file: *MachO, bw: *Writer) Writer.Error!void {
+pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
     const seg = macho_file.getTextSegment();
     const header = macho_file.sections.items(.header)[macho_file.unwind_info_sect_index.?];
+
+    var stream = std.io.fixedBufferStream(buffer);
+    const writer = stream.writer();
 
     const common_encodings_offset: u32 = @sizeOf(macho.unwind_info_section_header);
     const common_encodings_count: u32 = info.common_encodings_count;
@@ -300,7 +303,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, bw: *Writer) Writer.Error!voi
     const indexes_offset: u32 = personalities_offset + personalities_count * @sizeOf(u32);
     const indexes_count: u32 = @as(u32, @intCast(info.pages.items.len + 1));
 
-    try bw.writeStruct(macho.unwind_info_section_header{
+    try writer.writeStruct(macho.unwind_info_section_header{
         .commonEncodingsArraySectionOffset = common_encodings_offset,
         .commonEncodingsArrayCount = common_encodings_count,
         .personalityArraySectionOffset = personalities_offset,
@@ -309,11 +312,11 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, bw: *Writer) Writer.Error!voi
         .indexCount = indexes_count,
     });
 
-    try bw.writeAll(mem.sliceAsBytes(info.common_encodings[0..info.common_encodings_count]));
+    try writer.writeAll(mem.sliceAsBytes(info.common_encodings[0..info.common_encodings_count]));
 
     for (info.personalities[0..info.personalities_count]) |ref| {
         const sym = ref.getSymbol(macho_file).?;
-        try bw.writeInt(u32, @intCast(sym.getGotAddress(macho_file) - seg.vmaddr), .little);
+        try writer.writeInt(u32, @intCast(sym.getGotAddress(macho_file) - seg.vmaddr), .little);
     }
 
     const pages_base_offset = @as(u32, @intCast(header.size - (info.pages.items.len * second_level_page_bytes)));
@@ -322,7 +325,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, bw: *Writer) Writer.Error!voi
     for (info.pages.items, 0..) |page, i| {
         assert(page.count > 0);
         const rec = info.records.items[page.start].getUnwindRecord(macho_file);
-        try bw.writeStruct(macho.unwind_info_section_header_index_entry{
+        try writer.writeStruct(macho.unwind_info_section_header_index_entry{
             .functionOffset = @as(u32, @intCast(rec.getAtomAddress(macho_file) - seg.vmaddr)),
             .secondLevelPagesSectionOffset = @as(u32, @intCast(pages_base_offset + i * second_level_page_bytes)),
             .lsdaIndexArraySectionOffset = lsda_base_offset +
@@ -332,7 +335,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, bw: *Writer) Writer.Error!voi
 
     const last_rec = info.records.items[info.records.items.len - 1].getUnwindRecord(macho_file);
     const sentinel_address = @as(u32, @intCast(last_rec.getAtomAddress(macho_file) + last_rec.length - seg.vmaddr));
-    try bw.writeStruct(macho.unwind_info_section_header_index_entry{
+    try writer.writeStruct(macho.unwind_info_section_header_index_entry{
         .functionOffset = sentinel_address,
         .secondLevelPagesSectionOffset = 0,
         .lsdaIndexArraySectionOffset = lsda_base_offset +
@@ -341,20 +344,23 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, bw: *Writer) Writer.Error!voi
 
     for (info.lsdas.items) |index| {
         const rec = info.records.items[index].getUnwindRecord(macho_file);
-        try bw.writeStruct(macho.unwind_info_section_header_lsda_index_entry{
+        try writer.writeStruct(macho.unwind_info_section_header_lsda_index_entry{
             .functionOffset = @as(u32, @intCast(rec.getAtomAddress(macho_file) - seg.vmaddr)),
             .lsdaOffset = @as(u32, @intCast(rec.getLsdaAddress(macho_file) - seg.vmaddr)),
         });
     }
 
     for (info.pages.items) |page| {
-        const start = bw.count;
-        try page.write(info, macho_file, bw);
-        const nwritten = bw.count - start;
-        try bw.splatByteAll(0, math.cast(usize, second_level_page_bytes - nwritten) orelse return error.Overflow);
+        const start = stream.pos;
+        try page.write(info, macho_file, writer);
+        const nwritten = stream.pos - start;
+        if (nwritten < second_level_page_bytes) {
+            const padding = math.cast(usize, second_level_page_bytes - nwritten) orelse return error.Overflow;
+            try writer.writeByteNTimes(0, padding);
+        }
     }
 
-    @memset(bw.unusedCapacitySlice(), 0);
+    @memset(buffer[stream.pos..], 0);
 }
 
 fn getOrPutPersonalityFunction(info: *UnwindInfo, ref: MachO.Ref) error{TooManyPersonalities}!u2 {

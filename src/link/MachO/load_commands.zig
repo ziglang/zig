@@ -181,20 +181,23 @@ pub fn calcMinHeaderPadSize(macho_file: *MachO) !u32 {
     return offset;
 }
 
-pub fn writeDylinkerLC(bw: *Writer) Writer.Error!void {
+pub fn writeDylinkerLC(writer: anytype) !void {
     const name_len = mem.sliceTo(default_dyld_path, 0).len;
     const cmdsize = @as(u32, @intCast(mem.alignForward(
         u64,
         @sizeOf(macho.dylinker_command) + name_len,
         @sizeOf(u64),
     )));
-    try bw.writeStruct(macho.dylinker_command{
+    try writer.writeStruct(macho.dylinker_command{
         .cmd = .LOAD_DYLINKER,
         .cmdsize = cmdsize,
         .name = @sizeOf(macho.dylinker_command),
     });
-    try bw.writeAll(mem.sliceTo(default_dyld_path, 0));
-    try bw.splatByteAll(0, cmdsize - @sizeOf(macho.dylinker_command) - name_len);
+    try writer.writeAll(mem.sliceTo(default_dyld_path, 0));
+    const padding = cmdsize - @sizeOf(macho.dylinker_command) - name_len;
+    if (padding > 0) {
+        try writer.writeByteNTimes(0, padding);
+    }
 }
 
 const WriteDylibLCCtx = struct {
@@ -205,14 +208,14 @@ const WriteDylibLCCtx = struct {
     compatibility_version: u32 = 0x10000,
 };
 
-pub fn writeDylibLC(ctx: WriteDylibLCCtx, bw: *Writer) !void {
+pub fn writeDylibLC(ctx: WriteDylibLCCtx, writer: anytype) !void {
     const name_len = ctx.name.len + 1;
-    const cmdsize: u32 = @intCast(mem.alignForward(
+    const cmdsize = @as(u32, @intCast(mem.alignForward(
         u64,
         @sizeOf(macho.dylib_command) + name_len,
         @sizeOf(u64),
-    ));
-    try bw.writeStruct(macho.dylib_command{
+    )));
+    try writer.writeStruct(macho.dylib_command{
         .cmd = ctx.cmd,
         .cmdsize = cmdsize,
         .dylib = .{
@@ -222,9 +225,12 @@ pub fn writeDylibLC(ctx: WriteDylibLCCtx, bw: *Writer) !void {
             .compatibility_version = ctx.compatibility_version,
         },
     });
-    try bw.writeAll(ctx.name);
-    try bw.writeByte(0);
-    try bw.splatByteAll(0, cmdsize - @sizeOf(macho.dylib_command) - name_len);
+    try writer.writeAll(ctx.name);
+    try writer.writeByte(0);
+    const padding = cmdsize - @sizeOf(macho.dylib_command) - name_len;
+    if (padding > 0) {
+        try writer.writeByteNTimes(0, padding);
+    }
 }
 
 pub fn writeDylibIdLC(macho_file: *MachO, writer: anytype) !void {
@@ -253,23 +259,26 @@ pub fn writeDylibIdLC(macho_file: *MachO, writer: anytype) !void {
     }, writer);
 }
 
-pub fn writeRpathLC(bw: *Writer, rpath: []const u8) !void {
+pub fn writeRpathLC(rpath: []const u8, writer: anytype) !void {
     const rpath_len = rpath.len + 1;
     const cmdsize = @as(u32, @intCast(mem.alignForward(
         u64,
         @sizeOf(macho.rpath_command) + rpath_len,
         @sizeOf(u64),
     )));
-    try bw.writeStruct(macho.rpath_command{
+    try writer.writeStruct(macho.rpath_command{
         .cmdsize = cmdsize,
         .path = @sizeOf(macho.rpath_command),
     });
-    try bw.writeAll(rpath);
-    try bw.writeByte(0);
-    try bw.splatByteAll(0, cmdsize - @sizeOf(macho.rpath_command) - rpath_len);
+    try writer.writeAll(rpath);
+    try writer.writeByte(0);
+    const padding = cmdsize - @sizeOf(macho.rpath_command) - rpath_len;
+    if (padding > 0) {
+        try writer.writeByteNTimes(0, padding);
+    }
 }
 
-pub fn writeVersionMinLC(bw: *Writer, platform: MachO.Platform, sdk_version: ?std.SemanticVersion) Writer.Error!void {
+pub fn writeVersionMinLC(platform: MachO.Platform, sdk_version: ?std.SemanticVersion, writer: anytype) !void {
     const cmd: macho.LC = switch (platform.os_tag) {
         .macos => .VERSION_MIN_MACOSX,
         .ios => .VERSION_MIN_IPHONEOS,
@@ -277,7 +286,7 @@ pub fn writeVersionMinLC(bw: *Writer, platform: MachO.Platform, sdk_version: ?st
         .watchos => .VERSION_MIN_WATCHOS,
         else => unreachable,
     };
-    try bw.writeAll(mem.asBytes(&macho.version_min_command{
+    try writer.writeAll(mem.asBytes(&macho.version_min_command{
         .cmd = cmd,
         .version = platform.toAppleVersion(),
         .sdk = if (sdk_version) |ver|
@@ -287,9 +296,9 @@ pub fn writeVersionMinLC(bw: *Writer, platform: MachO.Platform, sdk_version: ?st
     }));
 }
 
-pub fn writeBuildVersionLC(bw: *Writer, platform: MachO.Platform, sdk_version: ?std.SemanticVersion) Writer.Error!void {
+pub fn writeBuildVersionLC(platform: MachO.Platform, sdk_version: ?std.SemanticVersion, writer: anytype) !void {
     const cmdsize = @sizeOf(macho.build_version_command) + @sizeOf(macho.build_tool_version);
-    try bw.writeStruct(macho.build_version_command{
+    try writer.writeStruct(macho.build_version_command{
         .cmdsize = cmdsize,
         .platform = platform.toApplePlatform(),
         .minos = platform.toAppleVersion(),
@@ -299,7 +308,7 @@ pub fn writeBuildVersionLC(bw: *Writer, platform: MachO.Platform, sdk_version: ?
             platform.toAppleVersion(),
         .ntools = 1,
     });
-    try bw.writeAll(mem.asBytes(&macho.build_tool_version{
+    try writer.writeAll(mem.asBytes(&macho.build_tool_version{
         .tool = .ZIG,
         .version = 0x0,
     }));
