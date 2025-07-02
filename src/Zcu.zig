@@ -1047,9 +1047,9 @@ pub const File = struct {
         const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
         errdefer gpa.free(source);
 
-        var fr = f.reader();
-        var br = fr.interface().unbuffered();
-        try br.readSlice(source);
+        var file_reader = f.reader(&.{});
+        file_reader.size = stat.size;
+        try file_reader.interface.readSliceAll(source);
 
         // Here we do not modify stat fields because this function is the one
         // used for error reporting. We need to keep the stat fields stale so that
@@ -1102,10 +1102,10 @@ pub const File = struct {
         const gpa = pt.zcu.gpa;
         const ip = &pt.zcu.intern_pool;
         const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
-        var bw: Writer = .fixed((try strings.addManyAsSlice(file.fullyQualifiedNameLen()))[0]);
-        file.renderFullyQualifiedName(&bw) catch unreachable;
-        assert(bw.end == bw.buffer.len);
-        return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(bw.end), .no_embedded_nulls);
+        var w: Writer = .fixed((try strings.addManyAsSlice(file.fullyQualifiedNameLen()))[0]);
+        file.renderFullyQualifiedName(&w) catch unreachable;
+        assert(w.end == w.buffer.len);
+        return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(w.end), .no_embedded_nulls);
     }
 
     pub const Index = InternPool.FileIndex;
@@ -2817,13 +2817,13 @@ comptime {
 }
 
 pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
-    var cache_fr = cache_file.reader();
-    var cache_br = cache_fr.interface().unbuffered();
+    var buffer: [2000]u8 = undefined;
+    var file_reader = cache_file.reader(&buffer);
     return result: {
-        const header = cache_br.takeStruct(Zir.Header) catch |err| break :result err;
-        break :result loadZirCacheBody(gpa, header.*, &cache_br);
+        const header = file_reader.interface.takeStruct(Zir.Header) catch |err| break :result err;
+        break :result loadZirCacheBody(gpa, header.*, &file_reader.interface);
     } catch |err| switch (err) {
-        error.ReadFailed => return cache_fr.err.?,
+        error.ReadFailed => return file_reader.err.?,
         else => |e| return e,
     };
 }
@@ -2909,9 +2909,8 @@ pub fn saveZirCache(gpa: Allocator, cache_file: std.fs.File, stat: std.fs.File.S
         zir.string_bytes,
         @ptrCast(zir.extra),
     };
-    var cache_fw = cache_file.writer();
-    var cache_bw = cache_fw.interface().unbuffered();
-    cache_bw.writeVecAll(&vecs) catch |err| switch (err) {
+    var cache_fw = cache_file.writer(&.{});
+    cache_fw.interface.writeVecAll(&vecs) catch |err| switch (err) {
         error.WriteFailed => return cache_fw.err.?,
     };
 }
@@ -2940,9 +2939,8 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
         @ptrCast(zoir.compile_errors),
         @ptrCast(zoir.error_notes),
     };
-    var cache_fw = cache_file.writer();
-    var cache_bw = cache_fw.interface().unbuffered();
-    cache_bw.writeVecAll(&vecs) catch |err| switch (err) {
+    var cache_fw = cache_file.writer(&.{});
+    cache_fw.interface.writeVecAll(&vecs) catch |err| switch (err) {
         error.WriteFailed => return cache_fw.err.?,
     };
 }
@@ -4253,15 +4251,19 @@ pub fn navFileScope(zcu: *Zcu, nav: InternPool.Nav.Index) *File {
     return zcu.fileByIndex(zcu.navFileScopeIndex(nav));
 }
 
-pub fn fmtAnalUnit(zcu: *Zcu, unit: AnalUnit) std.fmt.Formatter(formatAnalUnit) {
+pub fn fmtAnalUnit(zcu: *Zcu, unit: AnalUnit) std.fmt.Formatter(FormatAnalUnit, formatAnalUnit) {
     return .{ .data = .{ .unit = unit, .zcu = zcu } };
 }
-pub fn fmtDependee(zcu: *Zcu, d: InternPool.Dependee) std.fmt.Formatter(formatDependee) {
+pub fn fmtDependee(zcu: *Zcu, d: InternPool.Dependee) std.fmt.Formatter(FormatDependee, formatDependee) {
     return .{ .data = .{ .dependee = d, .zcu = zcu } };
 }
 
-fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, bw: *Writer, comptime fmt: []const u8) !void {
-    _ = fmt;
+const FormatAnalUnit = struct {
+    unit: AnalUnit,
+    zcu: *Zcu,
+};
+
+fn formatAnalUnit(data: FormatAnalUnit, writer: *std.io.Writer) std.io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.unit.unwrap()) {
@@ -4269,69 +4271,71 @@ fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, bw: *Writer, compt
             const cu = ip.getComptimeUnit(cu_id);
             if (cu.zir_index.resolveFull(ip)) |resolved| {
                 const file_path = zcu.fileByIndex(resolved.file).path;
-                return bw.print("comptime(inst=('{f}', %{}) [{}])", .{ file_path.fmt(zcu.comp), @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
+                return writer.print("comptime(inst=('{}', %{}) [{}])", .{ file_path.fmt(zcu.comp), @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
             } else {
-                return bw.print("comptime(inst=<lost> [{}])", .{@intFromEnum(cu_id)});
+                return writer.print("comptime(inst=<lost> [{}])", .{@intFromEnum(cu_id)});
             }
         },
-        .nav_val => |nav| return bw.print("nav_val('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
-        .nav_ty => |nav| return bw.print("nav_ty('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
-        .type => |ty| return bw.print("ty('{f}' [{}])", .{ Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @intFromEnum(ty) }),
+        .nav_val => |nav| return writer.print("nav_val('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
+        .nav_ty => |nav| return writer.print("nav_ty('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
+        .type => |ty| return writer.print("ty('{}' [{}])", .{ Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @intFromEnum(ty) }),
         .func => |func| {
             const nav = zcu.funcInfo(func).owner_nav;
-            return bw.print("func('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(func) });
+            return writer.print("func('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(func) });
         },
-        .memoized_state => return bw.writeAll("memoized_state"),
+        .memoized_state => return writer.writeAll("memoized_state"),
     }
 }
-fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, bw: *Writer, comptime fmt: []const u8) !void {
-    _ = fmt;
+
+const FormatDependee = struct { dependee: InternPool.Dependee, zcu: *Zcu };
+
+fn formatDependee(data: FormatDependee, writer: *std.io.Writer) std.io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.dependee) {
         .src_hash => |ti| {
             const info = ti.resolveFull(ip) orelse {
-                return bw.writeAll("inst(<lost>)");
+                return writer.writeAll("inst(<lost>)");
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return bw.print("inst('{f}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
+            return writer.print("inst('{}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
         },
         .nav_val => |nav| {
             const fqn = ip.getNav(nav).fqn;
-            return bw.print("nav_val('{f}')", .{fqn.fmt(ip)});
+            return writer.print("nav_val('{}')", .{fqn.fmt(ip)});
         },
         .nav_ty => |nav| {
             const fqn = ip.getNav(nav).fqn;
-            return bw.print("nav_ty('{f}')", .{fqn.fmt(ip)});
+            return writer.print("nav_ty('{}')", .{fqn.fmt(ip)});
         },
         .interned => |ip_index| switch (ip.indexToKey(ip_index)) {
-            .struct_type, .union_type, .enum_type => return bw.print("type('{f}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
-            .func => |f| return bw.print("ies('{f}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
+            .struct_type, .union_type, .enum_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
+            .func => |f| return writer.print("ies('{}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
             else => unreachable,
         },
         .zon_file => |file| {
             const file_path = zcu.fileByIndex(file).path;
-            return bw.print("zon_file('{f}')", .{file_path.fmt(zcu.comp)});
+            return writer.print("zon_file('{}')", .{file_path.fmt(zcu.comp)});
         },
         .embed_file => |ef_idx| {
             const ef = ef_idx.get(zcu);
-            return bw.print("embed_file('{f}')", .{ef.path.fmt(zcu.comp)});
+            return writer.print("embed_file('{}')", .{ef.path.fmt(zcu.comp)});
         },
         .namespace => |ti| {
             const info = ti.resolveFull(ip) orelse {
-                return bw.writeAll("namespace(<lost>)");
+                return writer.writeAll("namespace(<lost>)");
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return bw.print("namespace('{f}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
+            return writer.print("namespace('{}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
         },
         .namespace_name => |k| {
             const info = k.namespace.resolveFull(ip) orelse {
-                return bw.print("namespace(<lost>, '{f}')", .{k.name.fmt(ip)});
+                return writer.print("namespace(<lost>, '{}')", .{k.name.fmt(ip)});
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return bw.print("namespace('{f}', %{d}, '{f}')", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst), k.name.fmt(ip) });
+            return writer.print("namespace('{}', %{d}, '{}')", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst), k.name.fmt(ip) });
         },
-        .memoized_state => return bw.writeAll("memoized_state"),
+        .memoized_state => return writer.writeAll("memoized_state"),
     }
 }
 
