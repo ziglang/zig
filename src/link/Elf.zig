@@ -3544,7 +3544,7 @@ pub fn addRelaDyn(self: *Elf, opts: RelaDyn) !void {
 }
 
 pub fn addRelaDynAssumeCapacity(self: *Elf, opts: RelaDyn) void {
-    relocs_log.debug("  {s}: [{x} => {d}({s})] + {x}", .{
+    relocs_log.debug("  {f}: [{x} => {d}({s})] + {x}", .{
         relocation.fmtRelocType(opts.type, self.getTarget().cpu.arch),
         opts.offset,
         opts.sym,
@@ -3791,7 +3791,7 @@ fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
         for (refs.items[0..nrefs]) |ref| {
             const atom_ptr = self.atom(ref).?;
             const file_ptr = atom_ptr.file(self).?;
-            err.addNote("referenced by {s}:{s}", .{ file_ptr.fmtPath(), atom_ptr.name(self) });
+            err.addNote("referenced by {f}:{s}", .{ file_ptr.fmtPath(), atom_ptr.name(self) });
         }
 
         if (refs.items.len > max_notes) {
@@ -4020,19 +4020,19 @@ fn fmtDumpState(self: *Elf, writer: *std.io.Writer) std.io.Writer.Error!void {
     {
         try writer.writeAll("atom lists\n");
         for (slice.items(.shdr), slice.items(.atom_list_2), 0..) |shdr, atom_list, shndx| {
-            try writer.print("shdr({d}) : {s} : {}\n", .{ shndx, self.getShString(shdr.sh_name), atom_list.fmt(self) });
+            try writer.print("shdr({d}) : {s} : {f}\n", .{ shndx, self.getShString(shdr.sh_name), atom_list.fmt(self) });
         }
     }
 
     if (self.requiresThunks()) {
         try writer.writeAll("thunks\n");
         for (self.thunks.items, 0..) |th, index| {
-            try writer.print("thunk({d}) : {}\n", .{ index, th.fmt(self) });
+            try writer.print("thunk({d}) : {f}\n", .{ index, th.fmt(self) });
         }
     }
 
-    try writer.print("{}\n", .{self.got.fmt(self)});
-    try writer.print("{}\n", .{self.plt.fmt(self)});
+    try writer.print("{f}\n", .{self.got.fmt(self)});
+    try writer.print("{f}\n", .{self.plt.fmt(self)});
 
     try writer.writeAll("Output groups\n");
     for (self.group_sections.items) |cg| {
@@ -4041,7 +4041,7 @@ fn fmtDumpState(self: *Elf, writer: *std.io.Writer) std.io.Writer.Error!void {
 
     try writer.writeAll("\nOutput merge sections\n");
     for (self.merge_sections.items) |msec| {
-        try writer.print("  shdr({d}) : {}\n", .{ msec.output_section_index, msec.fmt(self) });
+        try writer.print("  shdr({d}) : {f}\n", .{ msec.output_section_index, msec.fmt(self) });
     }
 
     try writer.writeAll("\nOutput shdrs\n");
@@ -4424,7 +4424,7 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
 
         thunk_ptr.value = try advance(atom_list, thunk_ptr.size(elf_file), Atom.Alignment.fromNonzeroByteUnits(2));
 
-        log.debug("thunk({d}) : {}", .{ thunk_index, thunk_ptr.fmt(elf_file) });
+        log.debug("thunk({d}) : {f}", .{ thunk_index, thunk_ptr.fmt(elf_file) });
     }
 }
 

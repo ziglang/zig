@@ -493,7 +493,7 @@ pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.P
 
     const file = self.base.file.?;
     file.setEndPos(f.file_size) catch |err| return diags.fail("failed to allocate file: {s}", .{@errorName(err)});
-    file.pwritevAll(f.all_buffers.items, 0) catch |err| return diags.fail("failed to write to '{'}': {s}", .{
+    file.pwritevAll(f.all_buffers.items, 0) catch |err| return diags.fail("failed to write to '{f'}': {s}", .{
         self.base.emit, @errorName(err),
     });
 }

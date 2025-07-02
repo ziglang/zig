@@ -399,9 +399,8 @@ pub const Path = struct {
     const Formatter = struct {
         p: Path,
         comp: *Compilation,
-        pub fn format(f: Formatter, comptime unused_fmt: []const u8, options: std.fmt.FormatOptions, w: anytype) !void {
+        pub fn format(f: Formatter, w: *std.io.Writer, comptime unused_fmt: []const u8) std.io.Writer.Error!void {
             comptime assert(unused_fmt.len == 0);
-            _ = options;
             const root_path: []const u8 = switch (f.p.root) {
                 .zig_lib => f.comp.dirs.zig_lib.path orelse ".",
                 .global_cache => f.comp.dirs.global_cache.path orelse ".",
@@ -6034,7 +6033,9 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             // 24 is RT_MANIFEST
             const resource_type = 24;
 
-            const input = try std.fmt.allocPrint(arena, "{} {} \"{s}\"", .{ resource_id, resource_type, fmtRcEscape(src_path) });
+            const input = try std.fmt.allocPrint(arena, "{} {} \"{f}\"", .{
+                resource_id, resource_type, fmtRcEscape(src_path),
+            });
 
             try o_dir.writeFile(.{ .sub_path = rc_basename, .data = input });
 

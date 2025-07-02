@@ -328,8 +328,8 @@ pub fn render(comp: *Compilation, config: std.io.tty.Config) void {
     defer m.deinit();
     renderMessages(comp, &m);
 }
-pub fn defaultMsgWriter(config: std.io.tty.Config) MsgWriter {
-    return MsgWriter.init(config);
+pub fn defaultMsgWriter(config: std.io.tty.Config, buffer: []u8) MsgWriter {
+    return MsgWriter.init(config, buffer);
 }
 
 pub fn renderMessages(comp: *Compilation, m: anytype) void {
@@ -529,16 +529,15 @@ const MsgWriter = struct {
     config: std.io.tty.Config,
 
     fn init(config: std.io.tty.Config, buffer: []u8) MsgWriter {
-        std.debug.lockStdErr();
         return .{
-            .w = std.fs.stderr().writer(buffer),
+            .w = std.debug.lockStderrWriter(buffer),
             .config = config,
         };
     }
 
     pub fn deinit(m: *MsgWriter) void {
-        m.w.flush() catch {};
-        std.debug.unlockStdErr();
+        std.debug.unlockStderrWriter();
+        m.* = undefined;
     }
 
     pub fn print(m: *MsgWriter, comptime fmt: []const u8, args: anytype) void {

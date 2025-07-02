@@ -276,7 +276,7 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
     const S = math.cast(i64, sym.address(.{}, elf_file)) orelse return error.Overflow;
     const A = rel.r_addend;
 
-    relocs_log.debug("  {s}: {x}: [{x} => {x}] ({s})", .{
+    relocs_log.debug("  {f}: {x}: [{x} => {x}] ({s})", .{
         relocation.fmtRelocType(rel.r_type(), cpu_arch),
         offset,
         P,
@@ -398,7 +398,7 @@ fn emitReloc(elf_file: *Elf, r_offset: u64, sym: *const Symbol, rel: elf.Elf64_R
         },
     }
 
-    relocs_log.debug("  {s}: [{x} => {d}({s})] + {x}", .{
+    relocs_log.debug("  {f}: [{x} => {d}({s})] + {x}", .{
         relocation.fmtRelocType(r_type, cpu_arch),
         r_offset,
         r_sym,

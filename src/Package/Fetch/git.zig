@@ -119,14 +119,8 @@ pub const Oid = union(Format) {
         } else error.InvalidOid;
     }
 
-    pub fn format(
-        oid: Oid,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        _ = fmt;
-        _ = options;
+    pub fn format(oid: Oid, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
+        comptime assert(fmt.len == 0);
         try writer.print("{x}", .{oid.slice()});
     }
 
@@ -669,13 +663,13 @@ pub const Session = struct {
         fn init(allocator: Allocator, uri: std.Uri) !Location {
             const scheme = try allocator.dupe(u8, uri.scheme);
             errdefer allocator.free(scheme);
-            const user = if (uri.user) |user| try std.fmt.allocPrint(allocator, "{user}", .{user}) else null;
+            const user = if (uri.user) |user| try std.fmt.allocPrint(allocator, "{fuser}", .{user}) else null;
             errdefer if (user) |s| allocator.free(s);
-            const password = if (uri.password) |password| try std.fmt.allocPrint(allocator, "{password}", .{password}) else null;
+            const password = if (uri.password) |password| try std.fmt.allocPrint(allocator, "{fpassword}", .{password}) else null;
             errdefer if (password) |s| allocator.free(s);
-            const host = if (uri.host) |host| try std.fmt.allocPrint(allocator, "{host}", .{host}) else null;
+            const host = if (uri.host) |host| try std.fmt.allocPrint(allocator, "{fhost}", .{host}) else null;
             errdefer if (host) |s| allocator.free(s);
-            const path = try std.fmt.allocPrint(allocator, "{path}", .{uri.path});
+            const path = try std.fmt.allocPrint(allocator, "{fpath}", .{uri.path});
             errdefer allocator.free(path);
             // The query and fragment are not used as part of the base server URI.
             return .{
@@ -706,7 +700,7 @@ pub const Session = struct {
     fn getCapabilities(session: *Session, http_headers_buffer: []u8) !CapabilityIterator {
         var info_refs_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{session.location.uri.path});
+            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{fpath}", .{session.location.uri.path});
             defer session.allocator.free(session_uri_path);
             info_refs_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "info/refs" }) };
         }
@@ -730,7 +724,7 @@ pub const Session = struct {
         if (request.response.status != .ok) return error.ProtocolError;
         const any_redirects_occurred = request.redirect_behavior.remaining() < max_redirects;
         if (any_redirects_occurred) {
-            const request_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{request.uri.path});
+            const request_uri_path = try std.fmt.allocPrint(session.allocator, "{fpath}", .{request.uri.path});
             defer session.allocator.free(request_uri_path);
             if (!mem.endsWith(u8, request_uri_path, "/info/refs")) return error.UnparseableRedirect;
             var new_uri = request.uri;
@@ -817,7 +811,7 @@ pub const Session = struct {
     pub fn listRefs(session: Session, options: ListRefsOptions) !RefIterator {
         var upload_pack_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{session.location.uri.path});
+            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{fpath}", .{session.location.uri.path});
             defer session.allocator.free(session_uri_path);
             upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
         }
@@ -932,7 +926,7 @@ pub const Session = struct {
     ) !FetchStream {
         var upload_pack_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{session.location.uri.path});
+            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{fpath}", .{session.location.uri.path});
             defer session.allocator.free(session_uri_path);
             upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
         }

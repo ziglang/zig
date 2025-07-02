@@ -488,10 +488,7 @@ fn parseEhFrame(
             if (cie.offset == cie_ptr) break @as(u32, @intCast(cie_index));
         } else {
             // TODO convert into an error
-            log.debug("{s}: no matching CIE found for FDE at offset {x}", .{
-                self.fmtPath(),
-                fde.offset,
-            });
+            log.debug("{f}: no matching CIE found for FDE at offset {x}", .{ self.fmtPath(), fde.offset });
             continue;
         };
         fde.cie_index = cie_index;
@@ -582,7 +579,7 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
             if (sym.flags.import) {
                 if (sym.type(elf_file) != elf.STT_FUNC)
                     // TODO convert into an error
-                    log.debug("{s}: {s}: CIE referencing external data reference", .{
+                    log.debug("{f}: {s}: CIE referencing external data reference", .{
                         self.fmtPath(), sym.name(elf_file),
                     });
                 sym.flags.needs_plt = true;
@@ -1448,14 +1445,14 @@ const Format = struct {
         const elf_file = f.elf_file;
         try writer.writeAll("  locals\n");
         for (object.locals()) |sym| {
-            try writer.print("    {}\n", .{sym.fmt(elf_file)});
+            try writer.print("    {f}\n", .{sym.fmt(elf_file)});
         }
         try writer.writeAll("  globals\n");
         for (object.globals(), 0..) |sym, i| {
             const first_global = object.first_global.?;
             const ref = object.resolveSymbol(@intCast(i + first_global), elf_file);
             if (elf_file.symbol(ref)) |ref_sym| {
-                try writer.print("    {}\n", .{ref_sym.fmt(elf_file)});
+                try writer.print("    {f}\n", .{ref_sym.fmt(elf_file)});
             } else {
                 try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
             }
@@ -1467,7 +1464,7 @@ const Format = struct {
         try writer.writeAll("  atoms\n");
         for (object.atoms_indexes.items) |atom_index| {
             const atom_ptr = object.atom(atom_index) orelse continue;
-            try writer.print("    {}\n", .{atom_ptr.fmt(f.elf_file)});
+            try writer.print("    {f}\n", .{atom_ptr.fmt(f.elf_file)});
         }
     }
 
@@ -1475,7 +1472,7 @@ const Format = struct {
         const object = f.object;
         try writer.writeAll("  cies\n");
         for (object.cies.items, 0..) |cie, i| {
-            try writer.print("    cie({d}) : {}\n", .{ i, cie.fmt(f.elf_file) });
+            try writer.print("    cie({d}) : {f}\n", .{ i, cie.fmt(f.elf_file) });
         }
     }
 
@@ -1483,7 +1480,7 @@ const Format = struct {
         const object = f.object;
         try writer.writeAll("  fdes\n");
         for (object.fdes.items, 0..) |fde, i| {
-            try writer.print("    fde({d}) : {}\n", .{ i, fde.fmt(f.elf_file) });
+            try writer.print("    fde({d}) : {f}\n", .{ i, fde.fmt(f.elf_file) });
         }
     }
 
