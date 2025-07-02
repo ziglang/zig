@@ -110,15 +110,28 @@ pub const String = enum(u32) {
         const quote_behavior = data.quote_behavior orelse return w.writeAll(string_slice);
         return printEscapedString(string_slice, quote_behavior, w);
     }
-    pub fn fmt(
-        self: String,
-        builder: *const Builder,
-        quote_behavior: ?QuoteBehavior,
-    ) std.fmt.Formatter(FormatData, format) {
+
+    pub fn fmt(self: String, builder: *const Builder) std.fmt.Formatter(FormatData, format) {
         return .{ .data = .{
             .string = self,
             .builder = builder,
-            .quote_behavior = quote_behavior,
+            .quote_behavior = .quote_unless_valid_identifier,
+        } };
+    }
+
+    pub fn fmtQ(self: String, builder: *const Builder) std.fmt.Formatter(FormatData, format) {
+        return .{ .data = .{
+            .string = self,
+            .builder = builder,
+            .quote_behavior = .always_quote,
+        } };
+    }
+
+    pub fn fmtRaw(self: String, builder: *const Builder) std.fmt.Formatter(FormatData, format) {
+        return .{ .data = .{
+            .string = self,
+            .builder = builder,
+            .quote_behavior = null,
         } };
     }
 
@@ -684,8 +697,8 @@ pub const Type = enum(u32) {
                 .function, .vararg_function => |kind| {
                     var extra = data.builder.typeExtraDataTrail(Type.Function, item.data);
                     const params = extra.trail.next(extra.data.params_len, Type, data.builder);
-                    try w.print("f_{fm}", .{extra.data.ret.fmt(data.builder)});
-                    for (params) |param| try w.print("{fm}", .{param.fmt(data.builder)});
+                    try w.print("f_{f}", .{extra.data.ret.fmt(data.builder, .m)});
+                    for (params) |param| try w.print("{f}", .{param.fmt(data.builder, .m)});
                     switch (kind) {
                         .function => {},
                         .vararg_function => try w.writeAll("vararg"),
@@ -700,20 +713,20 @@ pub const Type = enum(u32) {
                     const types = extra.trail.next(extra.data.types_len, Type, data.builder);
                     const ints = extra.trail.next(extra.data.ints_len, u32, data.builder);
                     try w.print("t{s}", .{extra.data.name.slice(data.builder).?});
-                    for (types) |ty| try w.print("_{fm}", .{ty.fmt(data.builder)});
+                    for (types) |ty| try w.print("_{f}", .{ty.fmt(data.builder, .m)});
                     for (ints) |int| try w.print("_{d}", .{int});
                     try w.writeByte('t');
                 },
                 .vector, .scalable_vector => |kind| {
                     const extra = data.builder.typeExtraData(Type.Vector, item.data);
-                    try w.print("{s}v{d}{fm}", .{
+                    try w.print("{s}v{d}{f}", .{
                         switch (kind) {
                             .vector => "",
                             .scalable_vector => "nx",
                             else => unreachable,
                         },
                         extra.len,
-                        extra.child.fmt(data.builder),
+                        extra.child.fmt(data.builder, .m),
                     });
                 },
                 inline .small_array, .array => |kind| {
@@ -722,13 +735,13 @@ pub const Type = enum(u32) {
                         .array => Type.Array,
                         else => unreachable,
                     }, item.data);
-                    try w.print("a{d}{fm}", .{ extra.length(), extra.child.fmt(data.builder) });
+                    try w.print("a{d}{f}", .{ extra.length(), extra.child.fmt(data.builder, .m) });
                 },
                 .structure, .packed_structure => {
                     var extra = data.builder.typeExtraDataTrail(Type.Structure, item.data);
                     const fields = extra.trail.next(extra.data.fields_len, Type, data.builder);
                     try w.writeAll("sl_");
-                    for (fields) |field| try w.print("{fm}", .{field.fmt(data.builder)});
+                    for (fields) |field| try w.print("{f}", .{field.fmt(data.builder, .m)});
                     try w.writeByte('s');
                 },
                 .named_structure => {
@@ -747,12 +760,12 @@ pub const Type = enum(u32) {
                 var extra = data.builder.typeExtraDataTrail(Type.Function, item.data);
                 const params = extra.trail.next(extra.data.params_len, Type, data.builder);
                 if (data.mode != .gt)
-                    try w.print("{f%} ", .{extra.data.ret.fmt(data.builder)});
+                    try w.print("{f} ", .{extra.data.ret.fmt(data.builder, .percent)});
                 if (data.mode != .lt) {
                     try w.writeByte('(');
                     for (params, 0..) |param, index| {
                         if (index > 0) try w.writeAll(", ");
-                        try w.print("{f%}", .{param.fmt(data.builder)});
+                        try w.print("{f}", .{param.fmt(data.builder, .percent)});
                     }
                     switch (kind) {
                         .function => {},
@@ -772,22 +785,22 @@ pub const Type = enum(u32) {
                 const types = extra.trail.next(extra.data.types_len, Type, data.builder);
                 const ints = extra.trail.next(extra.data.ints_len, u32, data.builder);
                 try w.print(
-                    \\target({f"}
-                , .{extra.data.name.fmt(data.builder)});
-                for (types) |ty| try w.print(", {f%}", .{ty.fmt(data.builder)});
+                    \\target({f}
+                , .{extra.data.name.fmtQ(data.builder)});
+                for (types) |ty| try w.print(", {f}", .{ty.fmt(data.builder, .percent)});
                 for (ints) |int| try w.print(", {d}", .{int});
                 try w.writeByte(')');
             },
             .vector, .scalable_vector => |kind| {
                 const extra = data.builder.typeExtraData(Type.Vector, item.data);
-                try w.print("<{s}{d} x {f%}>", .{
+                try w.print("<{s}{d} x {f}>", .{
                     switch (kind) {
                         .vector => "",
                         .scalable_vector => "vscale x ",
                         else => unreachable,
                     },
                     extra.len,
-                    extra.child.fmt(data.builder),
+                    extra.child.fmt(data.builder, .percent),
                 });
             },
             inline .small_array, .array => |kind| {
@@ -796,7 +809,7 @@ pub const Type = enum(u32) {
                     .array => Type.Array,
                     else => unreachable,
                 }, item.data);
-                try w.print("[{d} x {f%}]", .{ extra.length(), extra.child.fmt(data.builder) });
+                try w.print("[{d} x {f}]", .{ extra.length(), extra.child.fmt(data.builder, .percent) });
             },
             .structure, .packed_structure => |kind| {
                 var extra = data.builder.typeExtraDataTrail(Type.Structure, item.data);
@@ -809,7 +822,7 @@ pub const Type = enum(u32) {
                 try w.writeAll("{ ");
                 for (fields, 0..) |field, index| {
                     if (index > 0) try w.writeAll(", ");
-                    try w.print("{f%}", .{field.fmt(data.builder)});
+                    try w.print("{f}", .{field.fmt(data.builder, .percent)});
                 }
                 try w.writeAll(" }");
                 switch (kind) {
@@ -1225,7 +1238,7 @@ pub const Attribute = union(Kind) {
                 .inalloca,
                 .sret,
                 .elementtype,
-                => |ty| try w.print(" {s}({f%})", .{ @tagName(attribute), ty.fmt(data.builder) }),
+                => |ty| try w.print(" {s}({f})", .{ @tagName(attribute), ty.fmt(data.builder, .percent) }),
                 .@"align" => |alignment| try w.print("{f }", .{alignment}),
                 .dereferenceable,
                 .dereferenceable_or_null,
@@ -1248,10 +1261,14 @@ pub const Attribute = union(Kind) {
                     }
                     try w.writeByte(')');
                 },
-                .alignstack => |alignment| try w.print(
-                    if (data.mode == .pound) " {s}={d}" else " {s}({d})",
-                    .{ @tagName(attribute), alignment.toByteUnits() orelse return },
-                ),
+                .alignstack => |alignment| {
+                    try w.print(" {s}", .{attribute});
+                    const alignment_bytes = alignment.toByteUnits() orelse return;
+                    switch (data.mode) {
+                        .pound => try w.print("({d})", .{alignment_bytes}),
+                        else => try w.print("={d}", .{alignment_bytes}),
+                    }
+                },
                 .allockind => |allockind| {
                     try w.print(" {s}(\"", .{@tagName(attribute)});
                     var any = false;
@@ -1297,9 +1314,9 @@ pub const Attribute = union(Kind) {
                     vscale_range.max.toByteUnits() orelse 0,
                 }),
                 .string => |string_attr| if (data.mode == .quote) {
-                    try w.print(" {f\"}", .{string_attr.kind.fmt(data.builder)});
+                    try w.print(" {f}", .{string_attr.kind.fmtQ(data.builder)});
                     if (string_attr.value != .empty)
-                        try w.print("={f\"}", .{string_attr.value.fmt(data.builder)});
+                        try w.print("={f}", .{string_attr.value.fmtQ(data.builder)});
                 },
                 .none => unreachable,
             }
@@ -1583,6 +1600,7 @@ pub const Attributes = enum(u32) {
         for (data.attributes.slice(data.builder)) |attribute_index| try Attribute.Index.format(.{
             .attribute_index = attribute_index,
             .builder = data.builder,
+            .mode = .default,
         }, w);
     }
     pub fn fmt(self: Attributes, builder: *const Builder) std.fmt.Formatter(FormatData, format) {
@@ -2315,7 +2333,7 @@ pub const Global = struct {
         };
         fn format(data: FormatData, w: *Writer) Writer.Error!void {
             try w.print("@{f}", .{
-                data.global.unwrap(data.builder).name(data.builder).fmt(data.builder),
+                data.global.unwrap(data.builder).name(data.builder).fmt(data.builder, null),
             });
         }
         pub fn fmt(self: Index, builder: *const Builder) std.fmt.Formatter(FormatData, format) {
@@ -4758,12 +4776,7 @@ pub const Function = struct {
                 instruction: Instruction.Index,
                 function: Function.Index,
                 builder: *Builder,
-                flags: Flags,
-                const Flags = struct {
-                    comma: bool = false,
-                    space: bool = false,
-                    percent: bool = false,
-                };
+                flags: FormatFlags,
             };
             fn format(data: FormatData, w: *Writer) Writer.Error!void {
                 if (data.flags.comma) {
@@ -4775,8 +4788,8 @@ pub const Function = struct {
                     try w.writeByte(' ');
                 }
                 if (data.flags.percent) try w.print(
-                    "{f%} ",
-                    .{data.instruction.typeOf(data.function, data.builder).fmt(data.builder)},
+                    "{f} ",
+                    .{data.instruction.typeOf(data.function, data.builder).fmt(data.builder, .percent)},
                 );
                 assert(data.instruction != .none);
                 try w.print("%{f}", .{
@@ -4787,7 +4800,7 @@ pub const Function = struct {
                 self: Instruction.Index,
                 function: Function.Index,
                 builder: *Builder,
-                flags: FormatData.Flags,
+                flags: FormatFlags,
             ) std.fmt.Formatter(FormatData, format) {
                 return .{ .data = .{
                     .instruction = self,
@@ -6291,10 +6304,10 @@ pub const WipFunction = struct {
 
                         while (true) {
                             gop.value_ptr.* = @enumFromInt(@intFromEnum(gop.value_ptr.*) + 1);
-                            const unique_name = try wip_name.builder.fmt("{fr}{s}{fr}", .{
-                                name.fmt(wip_name.builder),
+                            const unique_name = try wip_name.builder.fmt("{f}{s}{f}", .{
+                                name.fmtRaw(wip_name.builder),
                                 sep,
-                                gop.value_ptr.fmt(wip_name.builder),
+                                gop.value_ptr.fmtRaw(wip_name.builder),
                             });
                             const unique_gop = try wip_name.next_unique_name.getOrPut(unique_name);
                             if (!unique_gop.found_existing) {
@@ -7401,12 +7414,7 @@ pub const Constant = enum(u32) {
     const FormatData = struct {
         constant: Constant,
         builder: *Builder,
-        flags: Flags,
-        const Flags = struct {
-            comma: bool = false,
-            space: bool = false,
-            percent: bool = false,
-        };
+        flags: FormatFlags,
     };
     fn format(data: FormatData, w: *Writer) Writer.Error!void {
         if (data.flags.comma) {
@@ -7418,7 +7426,7 @@ pub const Constant = enum(u32) {
             try w.writeByte(' ');
         }
         if (data.flags.percent)
-            try w.print("{f%} ", .{data.constant.typeOf(data.builder).fmt(data.builder)});
+            try w.print("{f} ", .{data.constant.typeOf(data.builder).fmt(data.builder, .percent)});
         assert(data.constant != .no_init);
         if (std.enums.tagName(Constant, data.constant)) |name| return w.writeAll(name);
         switch (data.constant.unwrap()) {
@@ -7457,7 +7465,7 @@ pub const Constant = enum(u32) {
                         var stack align(@alignOf(ExpectedContents)) =
                             std.heap.stackFallback(@sizeOf(ExpectedContents), data.builder.gpa);
                         const allocator = stack.get();
-                        const str = try bigint.toStringAlloc(allocator, 10, undefined);
+                        const str = bigint.toStringAlloc(allocator, 10, undefined) catch return error.WriteFailed;
                         defer allocator.free(str);
                         try w.writeAll(str);
                     },
@@ -7563,7 +7571,7 @@ pub const Constant = enum(u32) {
                         });
                         for (vals, 0..) |val, index| {
                             if (index > 0) try w.writeAll(", ");
-                            try w.print("{f%}", .{val.fmt(data.builder)});
+                            try w.print("{f}", .{val.fmt(data.builder, .{ .percent = true })});
                         }
                         try w.writeAll(switch (tag) {
                             .structure => " }",
@@ -7579,12 +7587,12 @@ pub const Constant = enum(u32) {
                         try w.writeByte('<');
                         for (0..len) |index| {
                             if (index > 0) try w.writeAll(", ");
-                            try w.print("{f%}", .{extra.value.fmt(data.builder)});
+                            try w.print("{f}", .{extra.value.fmt(data.builder, .{ .percent = true })});
                         }
                         try w.writeByte('>');
                     },
-                    .string => try w.print("c{f\"}", .{
-                        @as(String, @enumFromInt(item.data)).fmt(data.builder),
+                    .string => try w.print("c{f}", .{
+                        @as(String, @enumFromInt(item.data)).fmtQ(data.builder),
                     }),
                     .blockaddress => |tag| {
                         const extra = data.builder.constantExtraData(BlockAddress, item.data);
@@ -7592,7 +7600,7 @@ pub const Constant = enum(u32) {
                         try w.print("{s}({f}, {f})", .{
                             @tagName(tag),
                             function.global.fmt(data.builder),
-                            extra.block.toInst(function).fmt(extra.function, data.builder),
+                            extra.block.toInst(function).fmt(extra.function, data.builder, .{}),
                         });
                     },
                     .dso_local_equivalent,
@@ -7611,10 +7619,10 @@ pub const Constant = enum(u32) {
                     .addrspacecast,
                     => |tag| {
                         const extra = data.builder.constantExtraData(Cast, item.data);
-                        try w.print("{s} ({f%} to {f%})", .{
+                        try w.print("{s} ({f} to {f})", .{
                             @tagName(tag),
-                            extra.val.fmt(data.builder),
-                            extra.type.fmt(data.builder),
+                            extra.val.fmt(data.builder, .{ .percent = true }),
+                            extra.type.fmt(data.builder, .percent),
                         });
                     },
                     .getelementptr,
@@ -7623,12 +7631,12 @@ pub const Constant = enum(u32) {
                         var extra = data.builder.constantExtraDataTrail(GetElementPtr, item.data);
                         const indices =
                             extra.trail.next(extra.data.info.indices_len, Constant, data.builder);
-                        try w.print("{s} ({f%}, {f%}", .{
+                        try w.print("{s} ({f}, {f}", .{
                             @tagName(tag),
-                            extra.data.type.fmt(data.builder),
-                            extra.data.base.fmt(data.builder),
+                            extra.data.type.fmt(data.builder, .percent),
+                            extra.data.base.fmt(data.builder, .{ .percent = true }),
                         });
-                        for (indices) |index| try w.print(", {f%}", .{index.fmt(data.builder)});
+                        for (indices) |index| try w.print(", {f}", .{index.fmt(data.builder, .{ .percent = true })});
                         try w.writeByte(')');
                     },
                     .add,
@@ -7641,10 +7649,10 @@ pub const Constant = enum(u32) {
                     .xor,
                     => |tag| {
                         const extra = data.builder.constantExtraData(Binary, item.data);
-                        try w.print("{s} ({f%}, {f%})", .{
+                        try w.print("{s} ({f}, {f})", .{
                             @tagName(tag),
-                            extra.lhs.fmt(data.builder),
-                            extra.rhs.fmt(data.builder),
+                            extra.lhs.fmt(data.builder, .{ .percent = true }),
+                            extra.rhs.fmt(data.builder, .{ .percent = true }),
                         });
                     },
                     .@"asm",
@@ -7665,10 +7673,10 @@ pub const Constant = enum(u32) {
                     .@"asm sideeffect alignstack inteldialect unwind",
                     => |tag| {
                         const extra = data.builder.constantExtraData(Assembly, item.data);
-                        try w.print("{s} {f\"}, {f\"}", .{
+                        try w.print("{s} {f}, {f}", .{
                             @tagName(tag),
-                            extra.assembly.fmt(data.builder),
-                            extra.constraints.fmt(data.builder),
+                            extra.assembly.fmtQ(data.builder),
+                            extra.constraints.fmtQ(data.builder),
                         });
                     },
                 }
@@ -7676,7 +7684,7 @@ pub const Constant = enum(u32) {
             .global => |global| try w.print("{f}", .{global.fmt(data.builder)}),
         }
     }
-    pub fn fmt(self: Constant, builder: *Builder, flags: FormatData.Flags) std.fmt.Formatter(FormatData, format) {
+    pub fn fmt(self: Constant, builder: *Builder, flags: FormatFlags) std.fmt.Formatter(FormatData, format) {
         return .{ .data = .{
             .constant = self,
             .builder = builder,
@@ -7736,6 +7744,7 @@ pub const Value = enum(u32) {
         value: Value,
         function: Function.Index,
         builder: *Builder,
+        flags: FormatFlags,
     };
     fn format(data: FormatData, w: *Writer) Writer.Error!void {
         switch (data.value.unwrap()) {
@@ -7743,16 +7752,18 @@ pub const Value = enum(u32) {
                 .instruction = instruction,
                 .function = data.function,
                 .builder = data.builder,
+                .flags = data.flags,
             }, w),
             .constant => |constant| try Constant.format(.{
                 .constant = constant,
                 .builder = data.builder,
+                .flags = data.flags,
             }, w),
             .metadata => unreachable,
         }
     }
-    pub fn fmt(self: Value, function: Function.Index, builder: *Builder) std.fmt.Formatter(FormatData, format) {
-        return .{ .data = .{ .value = self, .function = function, .builder = builder } };
+    pub fn fmt(self: Value, function: Function.Index, builder: *Builder, flags: FormatFlags) std.fmt.Formatter(FormatData, format) {
+        return .{ .data = .{ .value = self, .function = function, .builder = builder, .flags = flags } };
     }
 };
 
@@ -8196,9 +8207,7 @@ pub const Metadata = enum(u32) {
             formatter: *Formatter,
             prefix: []const u8 = "",
             node: Node,
-            specialized: ?TODO,
-
-            const TODO = opaque {};
+            specialized: ?FormatFlags,
 
             const Node = union(enum) {
                 none,
@@ -8228,7 +8237,6 @@ pub const Metadata = enum(u32) {
             if (data.node == .none) return;
 
             const is_specialized = data.specialized != null;
-            const recurse_fmt_str = data.specialized orelse {};
 
             if (data.formatter.need_comma) try w.writeAll(", ");
             defer data.formatter.need_comma = true;
@@ -8251,13 +8259,15 @@ pub const Metadata = enum(u32) {
                             for (elements) |element| try format(.{
                                 .formatter = data.formatter,
                                 .node = .{ .u64 = element },
-                            }, w, "%");
+                                .specialized = .{ .percent = true },
+                            }, w);
                             try w.writeByte(')');
                         },
                         .constant => try Constant.format(.{
                             .constant = @enumFromInt(item.data),
                             .builder = builder,
-                        }, w, recurse_fmt_str),
+                            .flags = data.specialized orelse .{},
+                        }, w),
                         else => unreachable,
                     }
                 },
@@ -8266,28 +8276,33 @@ pub const Metadata = enum(u32) {
                     .value = node.value,
                     .function = node.function,
                     .builder = builder,
-                }, w, switch (tag) {
-                    .local_value => recurse_fmt_str,
-                    .local_metadata => "%",
-                    else => unreachable,
-                }),
+                    .flags = switch (tag) {
+                        .local_value => data.specialized orelse .{},
+                        .local_metadata => .{ .percent = true },
+                        else => unreachable,
+                    },
+                }, w),
                 inline .local_inline, .local_index => |node, tag| {
-                    if (comptime std.mem.eql(u8, recurse_fmt_str, "%"))
-                        try w.print("{f%} ", .{Type.metadata.fmt(builder)});
+                    if (data.specialized) |flags| {
+                        if (flags.onlyPercent()) {
+                            try w.print("{f} ", .{Type.metadata.fmt(builder, .percent)});
+                        }
+                    }
                     try format(.{
                         .formatter = data.formatter,
                         .node = @unionInit(FormatData.Node, @tagName(tag)["local_".len..], node),
-                    }, w, "%");
+                        .specialized = .{ .percent = true },
+                    }, w);
                 },
-                .string => |node| try w.print((if (is_specialized) "" else "!") ++ "{f}", .{
-                    node.fmt(builder),
+                .string => |node| try w.print("{s}{f}", .{
+                    @as([]const u8, if (is_specialized) "" else "!"), node.fmt(builder),
                 }),
                 inline .bool, .u32, .u64 => |node| try w.print("{}", .{node}),
                 inline .di_flags, .sp_flags => |node| try w.print("{f}", .{node}),
                 .raw => |node| try w.writeAll(node),
             }
         }
-        inline fn fmt(formatter: *Formatter, prefix: []const u8, node: anytype) switch (@TypeOf(node)) {
+        inline fn fmt(formatter: *Formatter, prefix: []const u8, node: anytype, special: ?FormatFlags) switch (@TypeOf(node)) {
             Metadata => Allocator.Error,
             else => error{},
         }!std.fmt.Formatter(FormatData, format) {
@@ -8327,6 +8342,7 @@ pub const Metadata = enum(u32) {
                     .optional, .null => .none,
                     else => unreachable,
                 },
+                .specialized = special,
             } };
         }
         inline fn fmtLocal(
@@ -8359,6 +8375,7 @@ pub const Metadata = enum(u32) {
                         };
                     },
                 },
+                .specialized = null,
             } };
         }
         fn refUnwrapped(formatter: *Formatter, node: Metadata) Allocator.Error!FormatData.Node {
@@ -8437,6 +8454,7 @@ pub const Metadata = enum(u32) {
             inline for (names) |name| @field(fmt_args, name) = try formatter.fmt(
                 name ++ ": ",
                 @field(nodes, name),
+                null,
             );
             try w.print(fmt_str, fmt_args);
         }
@@ -8965,7 +8983,7 @@ pub fn getIntrinsic(
             const w = &aw.writer;
             defer self.strtab_string_bytes = aw.toArrayList();
             w.print("llvm.{s}", .{@tagName(id)}) catch return error.OutOfMemory;
-            for (overload) |ty| w.print(".{fm}", .{ty.fmt(self)}) catch return error.OutOfMemory;
+            for (overload) |ty| w.print(".{f}", .{ty.fmt(self, .m)}) catch return error.OutOfMemory;
         }
         break :name try self.trailingStrtabString();
     };
@@ -9399,7 +9417,7 @@ pub fn printToFile(b: *Builder, file: std.fs.File, buffer: []u8) !void {
     try fw.interface.flush();
 }
 
-pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
+pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void {
     var need_newline = false;
     var metadata_formatter: Metadata.Formatter = .{ .builder = self, .need_comma = undefined };
     defer metadata_formatter.map.deinit(self.gpa);
@@ -9408,17 +9426,17 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
         if (need_newline) try w.writeByte('\n') else need_newline = true;
         if (self.source_filename != .none) try w.print(
             \\; ModuleID = '{s}'
-            \\source_filename = {f"}
+            \\source_filename = {f}
             \\
-        , .{ self.source_filename.slice(self).?, self.source_filename.fmt(self) });
+        , .{ self.source_filename.slice(self).?, self.source_filename.fmtQ(self) });
         if (self.data_layout != .none) try w.print(
-            \\target datalayout = {f"}
+            \\target datalayout = {f}
             \\
-        , .{self.data_layout.fmt(self)});
+        , .{self.data_layout.fmtQ(self)});
         if (self.target_triple != .none) try w.print(
-            \\target triple = {f"}
+            \\target triple = {f}
             \\
-        , .{self.target_triple.fmt(self)});
+        , .{self.target_triple.fmtQ(self)});
     }
 
     if (self.module_asm.items.len > 0) {
@@ -9436,7 +9454,7 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
         for (self.types.keys(), self.types.values()) |id, ty| try w.print(
             \\%{f} = type {f}
             \\
-        , .{ id.fmt(self), ty.fmt(self) });
+        , .{ id.fmt(self), ty.fmt(self, .default) });
     }
 
     if (self.variables.items.len > 0) {
@@ -9447,7 +9465,7 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
             metadata_formatter.need_comma = true;
             defer metadata_formatter.need_comma = undefined;
             try w.print(
-                \\{f} ={f}{f}{f}{f}{f }{f}{f }{f} {s} {f%}{f }{f, }{f}
+                \\{f} ={f}{f}{f}{f}{f }{f}{f }{f} {s} {f}{f}{f, }{f}
                 \\
             , .{
                 variable.global.fmt(self),
@@ -9461,10 +9479,10 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                 global.addr_space,
                 global.externally_initialized,
                 @tagName(variable.mutability),
-                global.type.fmt(self),
-                variable.init.fmt(self),
+                global.type.fmt(self, .percent),
+                variable.init.fmt(self, .{ .space = true }),
                 variable.alignment,
-                try metadata_formatter.fmt("!dbg ", global.dbg),
+                try metadata_formatter.fmt("!dbg ", global.dbg, null),
             });
         }
     }
@@ -9477,7 +9495,7 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
             metadata_formatter.need_comma = true;
             defer metadata_formatter.need_comma = undefined;
             try w.print(
-                \\{f} ={f}{f}{f}{f}{f }{f} alias {f%}, {f%}{f}
+                \\{f} ={f}{f}{f}{f}{f }{f} alias {f}, {f}{f}
                 \\
             , .{
                 alias.global.fmt(self),
@@ -9487,9 +9505,9 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                 global.dll_storage_class,
                 alias.thread_local,
                 global.unnamed_addr,
-                global.type.fmt(self),
-                alias.aliasee.fmt(self),
-                try metadata_formatter.fmt("!dbg ", global.dbg),
+                global.type.fmt(self, .percent),
+                alias.aliasee.fmt(self, .{ .percent = true }),
+                try metadata_formatter.fmt("!dbg ", global.dbg, null),
             });
         }
     }
@@ -9509,7 +9527,7 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
             \\
         , .{function_attributes.fmt(self)});
         try w.print(
-            \\{s}{f}{f}{f}{f}{f}{f"} {f%} {f}(
+            \\{s}{f}{f}{f}{f}{f}{f} {f} {f}(
         , .{
             if (function.instructions.len > 0) "define" else "declare",
             global.linkage,
@@ -9518,19 +9536,19 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
             global.dll_storage_class,
             function.call_conv,
             function.attributes.ret(self).fmt(self),
-            global.type.functionReturn(self).fmt(self),
+            global.type.functionReturn(self).fmt(self, .percent),
             function.global.fmt(self),
         });
         for (0..params_len) |arg| {
             if (arg > 0) try w.writeAll(", ");
             try w.print(
-                \\{f%}{f"}
+                \\{f}{f}
             , .{
-                global.type.functionParameters(self)[arg].fmt(self),
+                global.type.functionParameters(self)[arg].fmt(self, .percent),
                 function.attributes.param(arg, self).fmt(self),
             });
             if (function.instructions.len > 0)
-                try w.print(" {f}", .{function.arg(@intCast(arg)).fmt(function_index, self)})
+                try w.print(" {f}", .{function.arg(@intCast(arg)).fmt(function_index, self, .{})})
             else
                 try w.print(" %{d}", .{arg});
         }
@@ -9550,7 +9568,7 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
             defer metadata_formatter.need_comma = undefined;
             try w.print("{f }{f}", .{
                 function.alignment,
-                try metadata_formatter.fmt(" !dbg ", global.dbg),
+                try metadata_formatter.fmt(" !dbg ", global.dbg, null),
             });
         }
         if (function.instructions.len > 0) {
@@ -9653,11 +9671,11 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                     .xor,
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Binary, instruction.data);
-                        try w.print("  %{f} = {s} {f%}, {f}", .{
+                        try w.print("  %{f} = {s} {f}, {f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            extra.lhs.fmt(function_index, self),
-                            extra.rhs.fmt(function_index, self),
+                            extra.lhs.fmt(function_index, self, .{ .percent = true }),
+                            extra.rhs.fmt(function_index, self, .{ .percent = true }),
                         });
                     },
                     .addrspacecast,
@@ -9675,25 +9693,28 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                     .zext,
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Cast, instruction.data);
-                        try w.print("  %{f} = {s} {f%} to {f%}", .{
+                        try w.print("  %{f} = {s} {f} to {f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            extra.val.fmt(function_index, self),
-                            extra.type.fmt(self),
+                            extra.val.fmt(function_index, self, .{ .percent = true }),
+                            extra.type.fmt(self, .percent),
                         });
                     },
                     .alloca,
                     .@"alloca inalloca",
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Alloca, instruction.data);
-                        try w.print("  %{f} = {s} {f%}{f,%}{f, }{f, }", .{
+                        try w.print("  %{f} = {s} {f}{f}{f, }{f, }", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            extra.type.fmt(self),
+                            extra.type.fmt(self, .percent),
                             Value.fmt(switch (extra.len) {
                                 .@"1" => .none,
                                 else => extra.len,
-                            }, function_index, self),
+                            }, function_index, self, .{
+                                .comma = true,
+                                .percent = true,
+                            }),
                             extra.info.alignment,
                             extra.info.addr_space,
                         });
@@ -9702,13 +9723,13 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                     .atomicrmw => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.AtomicRmw, instruction.data);
-                        try w.print("  %{f} = {s}{f } {s} {f%}, {f%}{f }{f }{f, }", .{
+                        try w.print("  %{f} = {s}{f } {s} {f}, {f}{f }{f }{f, }", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.info.access_kind,
                             @tagName(extra.info.atomic_rmw_operation),
-                            extra.ptr.fmt(function_index, self),
-                            extra.val.fmt(function_index, self),
+                            extra.ptr.fmt(function_index, self, .{ .percent = true }),
+                            extra.val.fmt(function_index, self, .{ .percent = true }),
                             extra.info.sync_scope,
                             extra.info.success_ordering,
                             extra.info.alignment,
@@ -9724,16 +9745,16 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                     },
                     .br => |tag| {
                         const target: Function.Block.Index = @enumFromInt(instruction.data);
-                        try w.print("  {s} {f%}", .{
-                            @tagName(tag), target.toInst(&function).fmt(function_index, self),
+                        try w.print("  {s} {f}", .{
+                            @tagName(tag), target.toInst(&function).fmt(function_index, self, .{ .percent = true }),
                         });
                     },
                     .br_cond => {
                         const extra = function.extraData(Function.Instruction.BrCond, instruction.data);
-                        try w.print("  br {f%}, {f%}, {f%}", .{
-                            extra.cond.fmt(function_index, self),
-                            extra.then.toInst(&function).fmt(function_index, self),
-                            extra.@"else".toInst(&function).fmt(function_index, self),
+                        try w.print("  br {f}, {f}, {f}", .{
+                            extra.cond.fmt(function_index, self, .{ .percent = true }),
+                            extra.then.toInst(&function).fmt(function_index, self, .{ .percent = true }),
+                            extra.@"else".toInst(&function).fmt(function_index, self, .{ .percent = true }),
                         });
                         metadata_formatter.need_comma = true;
                         defer metadata_formatter.need_comma = undefined;
@@ -9741,7 +9762,7 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                             .none => {},
                             .unpredictable => try w.writeAll("!unpredictable !{}"),
                             _ => try w.print("{f}", .{
-                                try metadata_formatter.fmt("!prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.weights)))),
+                                try metadata_formatter.fmt("!prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.weights))), null),
                             }),
                         }
                     },
@@ -9766,7 +9787,7 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                             }),
                             .none => unreachable,
                         }
-                        try w.print("{s}{f}{f}{f} {f%} {f}(", .{
+                        try w.print("{s}{f}{f}{f} {f} {f}(", .{
                             @tagName(tag),
                             extra.data.info.call_conv,
                             extra.data.attributes.ret(self).fmt(self),
@@ -9774,15 +9795,15 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                             switch (extra.data.ty.functionKind(self)) {
                                 .normal => ret_ty,
                                 .vararg => extra.data.ty,
-                            }.fmt(self),
-                            extra.data.callee.fmt(function_index, self),
+                            }.fmt(self, .percent),
+                            extra.data.callee.fmt(function_index, self, .{}),
                         });
                         for (0.., args) |arg_index, arg| {
                             if (arg_index > 0) try w.writeAll(", ");
                             metadata_formatter.need_comma = false;
                             defer metadata_formatter.need_comma = undefined;
-                            try w.print("{f%}{f}{f}", .{
-                                arg.typeOf(function_index, self).fmt(self),
+                            try w.print("{f}{f}{f}", .{
+                                arg.typeOf(function_index, self).fmt(self, .percent),
                                 extra.data.attributes.param(arg_index, self).fmt(self),
                                 try metadata_formatter.fmtLocal(" ", arg, function_index),
                             });
@@ -9805,13 +9826,13 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                     => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.CmpXchg, instruction.data);
-                        try w.print("  %{f} = {s}{f } {f%}, {f%}, {f%}{f }{f }{f }{f, }", .{
+                        try w.print("  %{f} = {s}{f } {f}, {f}, {f}{f }{f }{f }{f, }", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.info.access_kind,
-                            extra.ptr.fmt(function_index, self),
-                            extra.cmp.fmt(function_index, self),
-                            extra.new.fmt(function_index, self),
+                            extra.ptr.fmt(function_index, self, .{ .percent = true }),
+                            extra.cmp.fmt(function_index, self, .{ .percent = true }),
+                            extra.new.fmt(function_index, self, .{ .percent = true }),
                             extra.info.sync_scope,
                             extra.info.success_ordering,
                             extra.info.failure_ordering,
@@ -9821,11 +9842,11 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                     .extractelement => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.ExtractElement, instruction.data);
-                        try w.print("  %{f} = {s} {f%}, {f%}", .{
+                        try w.print("  %{f} = {s} {f}, {f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            extra.val.fmt(function_index, self),
-                            extra.index.fmt(function_index, self),
+                            extra.val.fmt(function_index, self, .{ .percent = true }),
+                            extra.index.fmt(function_index, self, .{ .percent = true }),
                         });
                     },
                     .extractvalue => |tag| {
@@ -9834,10 +9855,10 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                             instruction.data,
                         );
                         const indices = extra.trail.next(extra.data.indices_len, u32, &function);
-                        try w.print("  %{f} = {s} {f%}", .{
+                        try w.print("  %{f} = {s} {f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            extra.data.val.fmt(function_index, self),
+                            extra.data.val.fmt(function_index, self, .{ .percent = true }),
                         });
                         for (indices) |index| try w.print(", {d}", .{index});
                     },
@@ -9853,10 +9874,10 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                     .@"fneg fast",
                     => |tag| {
                         const val: Value = @enumFromInt(instruction.data);
-                        try w.print("  %{f} = {s} {f%}", .{
+                        try w.print("  %{f} = {s} {f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            val.fmt(function_index, self),
+                            val.fmt(function_index, self, .{ .percent = true }),
                         });
                     },
                     .getelementptr,
@@ -9867,14 +9888,14 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                             instruction.data,
                         );
                         const indices = extra.trail.next(extra.data.indices_len, Value, &function);
-                        try w.print("  %{f} = {s} {f%}, {f%}", .{
+                        try w.print("  %{f} = {s} {f}, {f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            extra.data.type.fmt(self),
-                            extra.data.base.fmt(function_index, self),
+                            extra.data.type.fmt(self, .percent),
+                            extra.data.base.fmt(function_index, self, .{ .percent = true }),
                         });
-                        for (indices) |index| try w.print(", {f%}", .{
-                            index.fmt(function_index, self),
+                        for (indices) |index| try w.print(", {f}", .{
+                            index.fmt(function_index, self, .{ .percent = true }),
                         });
                     },
                     .indirectbr => |tag| {
@@ -9882,14 +9903,14 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                             function.extraDataTrail(Function.Instruction.IndirectBr, instruction.data);
                         const targets =
                             extra.trail.next(extra.data.targets_len, Function.Block.Index, &function);
-                        try w.print("  {s} {f%}, [", .{
+                        try w.print("  {s} {f}, [", .{
                             @tagName(tag),
-                            extra.data.addr.fmt(function_index, self),
+                            extra.data.addr.fmt(function_index, self, .{ .percent = true }),
                         });
                         for (0.., targets) |target_index, target| {
                             if (target_index > 0) try w.writeAll(", ");
-                            try w.print("{f%}", .{
-                                target.toInst(&function).fmt(function_index, self),
+                            try w.print("{f}", .{
+                                target.toInst(&function).fmt(function_index, self, .{ .percent = true }),
                             });
                         }
                         try w.writeByte(']');
@@ -9897,23 +9918,23 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                     .insertelement => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.InsertElement, instruction.data);
-                        try w.print("  %{f} = {s} {f%}, {f%}, {f%}", .{
+                        try w.print("  %{f} = {s} {f}, {f}, {f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            extra.val.fmt(function_index, self),
-                            extra.elem.fmt(function_index, self),
-                            extra.index.fmt(function_index, self),
+                            extra.val.fmt(function_index, self, .{ .percent = true }),
+                            extra.elem.fmt(function_index, self, .{ .percent = true }),
+                            extra.index.fmt(function_index, self, .{ .percent = true }),
                         });
                     },
                     .insertvalue => |tag| {
                         var extra =
                             function.extraDataTrail(Function.Instruction.InsertValue, instruction.data);
                         const indices = extra.trail.next(extra.data.indices_len, u32, &function);
-                        try w.print("  %{f} = {s} {f%}, {f%}", .{
+                        try w.print("  %{f} = {s} {f}, {f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            extra.data.val.fmt(function_index, self),
-                            extra.data.elem.fmt(function_index, self),
+                            extra.data.val.fmt(function_index, self, .{ .percent = true }),
+                            extra.data.elem.fmt(function_index, self, .{ .percent = true }),
                         });
                         for (indices) |index| try w.print(", {d}", .{index});
                     },
@@ -9921,12 +9942,12 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                     .@"load atomic",
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Load, instruction.data);
-                        try w.print("  %{f} = {s}{f } {f%}, {f%}{f }{f }{f, }", .{
+                        try w.print("  %{f} = {s}{f } {f}, {f}{f }{f }{f, }", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.info.access_kind,
-                            extra.type.fmt(self),
-                            extra.ptr.fmt(function_index, self),
+                            extra.type.fmt(self, .percent),
+                            extra.ptr.fmt(function_index, self, .{ .percent = true }),
                             extra.info.sync_scope,
                             extra.info.success_ordering,
                             extra.info.alignment,
@@ -9939,24 +9960,24 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                         const vals = extra.trail.next(block_incoming_len, Value, &function);
                         const blocks =
                             extra.trail.next(block_incoming_len, Function.Block.Index, &function);
-                        try w.print("  %{f} = {s} {f%} ", .{
+                        try w.print("  %{f} = {s} {f} ", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            vals[0].typeOf(function_index, self).fmt(self),
+                            vals[0].typeOf(function_index, self).fmt(self, .percent),
                         });
                         for (0.., vals, blocks) |incoming_index, incoming_val, incoming_block| {
                             if (incoming_index > 0) try w.writeAll(", ");
                             try w.print("[ {f}, {f} ]", .{
-                                incoming_val.fmt(function_index, self),
-                                incoming_block.toInst(&function).fmt(function_index, self),
+                                incoming_val.fmt(function_index, self, .{}),
+                                incoming_block.toInst(&function).fmt(function_index, self, .{}),
                             });
                         }
                     },
                     .ret => |tag| {
                         const val: Value = @enumFromInt(instruction.data);
-                        try w.print("  {s} {f%}", .{
+                        try w.print("  {s} {f}", .{
                             @tagName(tag),
-                            val.fmt(function_index, self),
+                            val.fmt(function_index, self, .{ .percent = true }),
                         });
                     },
                     .@"ret void",
@@ -9966,34 +9987,34 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                     .@"select fast",
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Select, instruction.data);
-                        try w.print("  %{f} = {s} {f%}, {f%}, {f%}", .{
+                        try w.print("  %{f} = {s} {f}, {f}, {f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            extra.cond.fmt(function_index, self),
-                            extra.lhs.fmt(function_index, self),
-                            extra.rhs.fmt(function_index, self),
+                            extra.cond.fmt(function_index, self, .{ .percent = true }),
+                            extra.lhs.fmt(function_index, self, .{ .percent = true }),
+                            extra.rhs.fmt(function_index, self, .{ .percent = true }),
                         });
                     },
                     .shufflevector => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.ShuffleVector, instruction.data);
-                        try w.print("  %{f} = {s} {f%}, {f%}, {f%}", .{
+                        try w.print("  %{f} = {s} {f}, {f}, {f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            extra.lhs.fmt(function_index, self),
-                            extra.rhs.fmt(function_index, self),
-                            extra.mask.fmt(function_index, self),
+                            extra.lhs.fmt(function_index, self, .{ .percent = true }),
+                            extra.rhs.fmt(function_index, self, .{ .percent = true }),
+                            extra.mask.fmt(function_index, self, .{ .percent = true }),
                         });
                     },
                     .store,
                     .@"store atomic",
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Store, instruction.data);
-                        try w.print("  {s}{f } {f%}, {f%}{f }{f }{f, }", .{
+                        try w.print("  {s}{f } {f}, {f}{f }{f }{f, }", .{
                             @tagName(tag),
                             extra.info.access_kind,
-                            extra.val.fmt(function_index, self),
-                            extra.ptr.fmt(function_index, self),
+                            extra.val.fmt(function_index, self, .{ .percent = true }),
+                            extra.ptr.fmt(function_index, self, .{ .percent = true }),
                             extra.info.sync_scope,
                             extra.info.success_ordering,
                             extra.info.alignment,
@@ -10005,16 +10026,16 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                         const vals = extra.trail.next(extra.data.cases_len, Constant, &function);
                         const blocks =
                             extra.trail.next(extra.data.cases_len, Function.Block.Index, &function);
-                        try w.print("  {s} {f%}, {f%} [\n", .{
+                        try w.print("  {s} {f}, {f} [\n", .{
                             @tagName(tag),
-                            extra.data.val.fmt(function_index, self),
-                            extra.data.default.toInst(&function).fmt(function_index, self),
+                            extra.data.val.fmt(function_index, self, .{ .percent = true }),
+                            extra.data.default.toInst(&function).fmt(function_index, self, .{ .percent = true }),
                         });
                         for (vals, blocks) |case_val, case_block| try w.print(
-                            "    {f%}, {f%}\n",
+                            "    {f}, {f}\n",
                             .{
-                                case_val.fmt(self),
-                                case_block.toInst(&function).fmt(function_index, self),
+                                case_val.fmt(self, .{ .percent = true }),
+                                case_block.toInst(&function).fmt(function_index, self, .{ .percent = true }),
                             },
                         );
                         try w.writeAll("  ]");
@@ -10024,17 +10045,17 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                             .none => {},
                             .unpredictable => try w.writeAll("!unpredictable !{}"),
                             _ => try w.print("{f}", .{
-                                try metadata_formatter.fmt("!prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.data.weights)))),
+                                try metadata_formatter.fmt("!prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.data.weights))), null),
                             }),
                         }
                     },
                     .va_arg => |tag| {
                         const extra = function.extraData(Function.Instruction.VaArg, instruction.data);
-                        try w.print("  %{f} = {s} {f%}, {f%}", .{
+                        try w.print("  %{f} = {s} {f}, {f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
-                            extra.list.fmt(function_index, self),
-                            extra.type.fmt(self),
+                            extra.list.fmt(function_index, self, .{ .percent = true }),
+                            extra.type.fmt(self, .percent),
                         });
                     },
                 }
@@ -10068,7 +10089,7 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
             try w.writeAll(" = !{");
             metadata_formatter.need_comma = false;
             defer metadata_formatter.need_comma = undefined;
-            for (elements) |element| try w.print("{f}", .{try metadata_formatter.fmt("", element)});
+            for (elements) |element| try w.print("{f}", .{try metadata_formatter.fmt("", element, null)});
             try w.writeAll("}\n");
         }
     }
@@ -10371,28 +10392,28 @@ pub fn print(self: *Builder, w: *Writer) Writer.Error!void {
                     var extra = self.metadataExtraDataTrail(Metadata.Tuple, metadata_item.data);
                     const elements = extra.trail.next(extra.data.elements_len, Metadata, self);
                     try w.writeAll("!{");
-                    for (elements) |element| try w.print("{[element]f%}", .{
-                        .element = try metadata_formatter.fmt("", element),
+                    for (elements) |element| try w.print("{[element]f}", .{
+                        .element = try metadata_formatter.fmt("", element, .{ .percent = true }),
                     });
                     try w.writeAll("}\n");
                 },
                 .str_tuple => {
                     var extra = self.metadataExtraDataTrail(Metadata.StrTuple, metadata_item.data);
                     const elements = extra.trail.next(extra.data.elements_len, Metadata, self);
-                    try w.print("!{{{[str]f%}", .{
-                        .str = try metadata_formatter.fmt("", extra.data.str),
+                    try w.print("!{{{[str]f}", .{
+                        .str = try metadata_formatter.fmt("", extra.data.str, .{ .percent = true }),
                     });
-                    for (elements) |element| try w.print("{[element]f%}", .{
-                        .element = try metadata_formatter.fmt("", element),
+                    for (elements) |element| try w.print("{[element]f}", .{
+                        .element = try metadata_formatter.fmt("", element, .{ .percent = true }),
                     });
                     try w.writeAll("}\n");
                 },
                 .module_flag => {
                     const extra = self.metadataExtraData(Metadata.ModuleFlag, metadata_item.data);
-                    try w.print("!{{{[behavior]f%}{[name]f%}{[constant]f%}}}\n", .{
-                        .behavior = try metadata_formatter.fmt("", extra.behavior),
-                        .name = try metadata_formatter.fmt("", extra.name),
-                        .constant = try metadata_formatter.fmt("", extra.constant),
+                    try w.print("!{{{[behavior]f}{[name]f}{[constant]f}}}\n", .{
+                        .behavior = try metadata_formatter.fmt("", extra.behavior, .{ .percent = true }),
+                        .name = try metadata_formatter.fmt("", extra.name, .{ .percent = true }),
+                        .constant = try metadata_formatter.fmt("", extra.constant, .{ .percent = true }),
                     });
                 },
                 .local_var => {
@@ -15109,3 +15130,13 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
 
     return bitcode.toOwnedSlice();
 }
+
+const FormatFlags = struct {
+    comma: bool = false,
+    space: bool = false,
+    percent: bool = false,
+
+    fn onlyPercent(f: FormatFlags) bool {
+        return !f.comma and !f.space and f.percent;
+    }
+};

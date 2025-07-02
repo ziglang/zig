@@ -710,7 +710,7 @@ const Writer = struct {
             }
         }
         const asm_source = std.mem.sliceAsBytes(w.air.extra.items[extra_i..])[0..extra.data.source_len];
-        try s.print(", \"{f}\"", .{std.zig.fmtEscapes(asm_source)});
+        try s.print(", \"{f}\"", .{std.zig.fmtString(asm_source)});
     }
 
     fn writeDbgStmt(w: *Writer, s: *std.io.Writer, inst: Air.Inst.Index) Error!void {
@@ -722,7 +722,7 @@ const Writer = struct {
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         try w.writeOperand(s, inst, 0, pl_op.operand);
         const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
-        try s.print(", \"{f}\"", .{std.zig.fmtEscapes(name.toSlice(w.air))});
+        try s.print(", \"{f}\"", .{std.zig.fmtString(name.toSlice(w.air))});
     }
 
     fn writeCall(w: *Writer, s: *std.io.Writer, inst: Air.Inst.Index) Error!void {

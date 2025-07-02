@@ -343,7 +343,7 @@ fn loadZirZoirCache(
         .zon => Zoir.Header,
     };
 
-    var buffer: [@sizeOf(Header)]u8 = undefined;
+    var buffer: [2000]u8 = undefined;
     var cache_fr = cache_file.reader(&buffer);
     cache_fr.size = stat.size;
     const cache_br = &cache_fr.interface;
