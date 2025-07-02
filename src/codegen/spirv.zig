@@ -1260,10 +1260,12 @@ const NavGen = struct {
 
     // Turn a Zig type's name into a cache reference.
     fn resolveTypeName(self: *NavGen, ty: Type) ![]const u8 {
-        var name = std.ArrayList(u8).init(self.gpa);
-        defer name.deinit();
-        try ty.print(name.writer(), self.pt);
-        return try name.toOwnedSlice();
+        var aw: std.io.Writer.Allocating = .init(self.gpa);
+        defer aw.deinit();
+        ty.print(&aw.writer, self.pt) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
+        return try aw.toOwnedSlice();
     }
 
     /// Create an integer type suitable for storing at least 'bits' bits.
