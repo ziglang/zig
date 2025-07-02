@@ -1122,9 +1122,9 @@ test "@subWithOverflow" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    try testAddWithOverflow(u8, 42, 0, 42, 0);
-    try testAddWithOverflow(i8, 42, 0, 42, 0);
-    try testAddWithOverflow(i8, -42, 0, -42, 0);
+    try testSubWithOverflow(u8, 42, 0, 42, 0);
+    try testSubWithOverflow(i8, 42, 0, 42, 0);
+    try testSubWithOverflow(i8, -42, 0, -42, 0);
 
     try testSubWithOverflow(u8, 1, 2, 255, 1);
     try testSubWithOverflow(u8, 1, 1, 0, 0);
