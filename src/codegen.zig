@@ -48,7 +48,7 @@ fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
 fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
     return switch (backend) {
         .other, .stage1 => unreachable,
-        .stage2_aarch64 => @import("arch/aarch64/CodeGen.zig"),
+        .stage2_aarch64 => unreachable,
         .stage2_arm => @import("arch/arm/CodeGen.zig"),
         .stage2_c => @import("codegen/c.zig"),
         .stage2_llvm => @import("codegen/llvm.zig"),
@@ -72,7 +72,6 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
         .stage2_wasm,
         .stage2_arm,
         .stage2_x86_64,
-        .stage2_aarch64,
         .stage2_x86,
         .stage2_riscv64,
         .stage2_sparc64,
@@ -88,7 +87,6 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
 /// MIR from codegen to the linker *regardless* of which backend is in use. So, we use this: a
 /// union of all MIR types. The active tag is known from the backend in use; see `AnyMir.tag`.
 pub const AnyMir = union {
-    aarch64: @import("arch/aarch64/Mir.zig"),
     arm: @import("arch/arm/Mir.zig"),
     riscv64: @import("arch/riscv64/Mir.zig"),
     sparc64: @import("arch/sparc64/Mir.zig"),
@@ -114,8 +112,7 @@ pub const AnyMir = union {
         const backend = target_util.zigBackend(&zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
         switch (backend) {
             else => unreachable,
-            inline .stage2_aarch64,
-            .stage2_arm,
+            inline .stage2_arm,
             .stage2_riscv64,
             .stage2_sparc64,
             .stage2_x86_64,
@@ -144,8 +141,7 @@ pub fn generateFunction(
     const target = &zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
     switch (target_util.zigBackend(target, false)) {
         else => unreachable,
-        inline .stage2_aarch64,
-        .stage2_arm,
+        inline .stage2_arm,
         .stage2_riscv64,
         .stage2_sparc64,
         .stage2_x86_64,
@@ -181,8 +177,7 @@ pub fn emitFunction(
     const target = &zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
     switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
-        inline .stage2_aarch64,
-        .stage2_arm,
+        inline .stage2_arm,
         .stage2_riscv64,
         .stage2_sparc64,
         .stage2_x86_64,
