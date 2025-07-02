@@ -251,9 +251,9 @@ pub fn updateFile(
 
         const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
         defer if (file.source == null) gpa.free(source);
-        var source_fr = source_file.reader();
-        var source_br = source_fr.interface().unbuffered();
-        source_br.readSlice(source) catch |err| switch (err) {
+        var source_fr = source_file.reader(&.{});
+        source_fr.size = stat.size;
+        source_fr.interface.readSliceAll(source) catch |err| switch (err) {
             error.ReadFailed => return source_fr.err.?,
             error.EndOfStream => return error.UnexpectedEndOfFile,
         };
@@ -344,8 +344,8 @@ fn loadZirZoirCache(
     };
 
     var buffer: [@sizeOf(Header)]u8 = undefined;
-    var cache_fr = cache_file.reader();
-    var cache_br = cache_fr.interface().buffered(&buffer);
+    var cache_fr = cache_file.reader(&buffer);
+    const cache_br = &cache_fr.interface;
 
     // First we read the header to determine the lengths of arrays.
     const header = (cache_br.takeStruct(Header) catch |err| switch (err) {
@@ -366,12 +366,12 @@ fn loadZirZoirCache(
     }
 
     switch (mode) {
-        .zig => file.zir = Zcu.loadZirCacheBody(gpa, header, &cache_br) catch |err| switch (err) {
+        .zig => file.zir = Zcu.loadZirCacheBody(gpa, header, cache_br) catch |err| switch (err) {
             error.ReadFailed => return cache_fr.err.?,
             error.EndOfStream => return .truncated,
             else => |e| return e,
         },
-        .zon => file.zoir = Zcu.loadZoirCacheBody(gpa, header, &cache_br) catch |err| switch (err) {
+        .zon => file.zoir = Zcu.loadZoirCacheBody(gpa, header, cache_br) catch |err| switch (err) {
             error.ReadFailed => return cache_fr.err.?,
             error.EndOfStream => return .truncated,
             else => |e| return e,
@@ -2439,9 +2439,9 @@ fn updateEmbedFileInner(
         const old_len = strings.mutate.len;
         errdefer strings.shrinkRetainingCapacity(old_len);
         const bytes = (try strings.addManyAsSlice(size_plus_one))[0];
-        var fr = file.reader();
-        var br = fr.interface().unbuffered();
-        br.readSlice(bytes[0..size]) catch |err| switch (err) {
+        var fr = file.reader(&.{});
+        fr.size = stat.size;
+        fr.interface.readSliceAll(bytes[0..size]) catch |err| switch (err) {
             error.ReadFailed => return fr.err.?,
             error.EndOfStream => return error.UnexpectedEof,
         };

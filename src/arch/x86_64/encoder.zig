@@ -227,89 +227,81 @@ pub const Instruction = struct {
             };
         }
 
-        fn format(op: Operand, bw: *Writer, comptime unused_format_string: []const u8) !void {
-            _ = op;
-            _ = bw;
-            _ = unused_format_string;
-            @compileError("do not format Operand directly; use fmt() instead");
-        }
-
-        const FormatContext = struct {
+        const Format = struct {
             op: Operand,
             enc_op: Encoding.Op,
+
+            fn default(f: Format, w: *Writer) Writer.Error!void {
+                const op = f.op;
+                const enc_op = f.enc_op;
+                switch (op) {
+                    .none => {},
+                    .reg => |reg| try w.writeAll(@tagName(reg)),
+                    .mem => |mem| switch (mem) {
+                        .rip => |rip| {
+                            try w.print("{f} [rip", .{rip.ptr_size});
+                            if (rip.disp != 0) try w.print(" {c} 0x{x}", .{
+                                @as(u8, if (rip.disp < 0) '-' else '+'),
+                                @abs(rip.disp),
+                            });
+                            try w.writeByte(']');
+                        },
+                        .sib => |sib| {
+                            try w.print("{f} ", .{sib.ptr_size});
+
+                            if (mem.isSegmentRegister()) {
+                                return w.print("{s}:0x{x}", .{ @tagName(sib.base.reg), sib.disp });
+                            }
+
+                            try w.writeByte('[');
+
+                            var any = true;
+                            switch (sib.base) {
+                                .none => any = false,
+                                .reg => |reg| try w.print("{s}", .{@tagName(reg)}),
+                                .frame => |frame_index| try w.print("{}", .{frame_index}),
+                                .table => try w.print("Table", .{}),
+                                .rip_inst => |inst_index| try w.print("RipInst({d})", .{inst_index}),
+                                .nav => |nav| try w.print("Nav({d})", .{@intFromEnum(nav)}),
+                                .uav => |uav| try w.print("Uav({d})", .{@intFromEnum(uav.val)}),
+                                .lazy_sym => |lazy_sym| try w.print("LazySym({s}, {d})", .{
+                                    @tagName(lazy_sym.kind),
+                                    @intFromEnum(lazy_sym.ty),
+                                }),
+                                .extern_func => |extern_func| try w.print("ExternFunc({d})", .{@intFromEnum(extern_func)}),
+                            }
+                            if (mem.scaleIndex()) |si| {
+                                if (any) try w.writeAll(" + ");
+                                try w.print("{s} * {d}", .{ @tagName(si.index), si.scale });
+                                any = true;
+                            }
+                            if (sib.disp != 0 or !any) {
+                                if (any)
+                                    try w.print(" {c} ", .{@as(u8, if (sib.disp < 0) '-' else '+')})
+                                else if (sib.disp < 0)
+                                    try w.writeByte('-');
+                                try w.print("0x{x}", .{@abs(sib.disp)});
+                                any = true;
+                            }
+
+                            try w.writeByte(']');
+                        },
+                        .moffs => |moffs| try w.print("{s}:0x{x}", .{
+                            @tagName(moffs.seg),
+                            moffs.offset,
+                        }),
+                    },
+                    .imm => |imm| if (enc_op.isSigned()) {
+                        const imms = imm.asSigned(enc_op.immBitSize());
+                        if (imms < 0) try w.writeByte('-');
+                        try w.print("0x{x}", .{@abs(imms)});
+                    } else try w.print("0x{x}", .{imm.asUnsigned(enc_op.immBitSize())}),
+                    .bytes => unreachable,
+                }
+            }
         };
 
-        fn fmtContext(ctx: FormatContext, bw: *Writer, comptime unused_format_string: []const u8) Writer.Error!void {
-            _ = unused_format_string;
-            const op = ctx.op;
-            const enc_op = ctx.enc_op;
-            switch (op) {
-                .none => {},
-                .reg => |reg| try bw.writeAll(@tagName(reg)),
-                .mem => |mem| switch (mem) {
-                    .rip => |rip| {
-                        try bw.print("{f} [rip", .{rip.ptr_size});
-                        if (rip.disp != 0) try bw.print(" {c} 0x{x}", .{
-                            @as(u8, if (rip.disp < 0) '-' else '+'),
-                            @abs(rip.disp),
-                        });
-                        try bw.writeByte(']');
-                    },
-                    .sib => |sib| {
-                        try bw.print("{f} ", .{sib.ptr_size});
-
-                        if (mem.isSegmentRegister()) {
-                            return bw.print("{s}:0x{x}", .{ @tagName(sib.base.reg), sib.disp });
-                        }
-
-                        try bw.writeByte('[');
-
-                        var any = true;
-                        switch (sib.base) {
-                            .none => any = false,
-                            .reg => |reg| try bw.print("{s}", .{@tagName(reg)}),
-                            .frame => |frame_index| try bw.print("{}", .{frame_index}),
-                            .table => try bw.print("Table", .{}),
-                            .rip_inst => |inst_index| try bw.print("RipInst({d})", .{inst_index}),
-                            .nav => |nav| try bw.print("Nav({d})", .{@intFromEnum(nav)}),
-                            .uav => |uav| try bw.print("Uav({d})", .{@intFromEnum(uav.val)}),
-                            .lazy_sym => |lazy_sym| try bw.print("LazySym({s}, {d})", .{
-                                @tagName(lazy_sym.kind),
-                                @intFromEnum(lazy_sym.ty),
-                            }),
-                            .extern_func => |extern_func| try bw.print("ExternFunc({d})", .{@intFromEnum(extern_func)}),
-                        }
-                        if (mem.scaleIndex()) |si| {
-                            if (any) try bw.writeAll(" + ");
-                            try bw.print("{s} * {d}", .{ @tagName(si.index), si.scale });
-                            any = true;
-                        }
-                        if (sib.disp != 0 or !any) {
-                            if (any)
-                                try bw.print(" {c} ", .{@as(u8, if (sib.disp < 0) '-' else '+')})
-                            else if (sib.disp < 0)
-                                try bw.writeByte('-');
-                            try bw.print("0x{x}", .{@abs(sib.disp)});
-                            any = true;
-                        }
-
-                        try bw.writeByte(']');
-                    },
-                    .moffs => |moffs| try bw.print("{s}:0x{x}", .{
-                        @tagName(moffs.seg),
-                        moffs.offset,
-                    }),
-                },
-                .imm => |imm| if (enc_op.isSigned()) {
-                    const imms = imm.asSigned(enc_op.immBitSize());
-                    if (imms < 0) try bw.writeByte('-');
-                    try bw.print("0x{x}", .{@abs(imms)});
-                } else try bw.print("0x{x}", .{imm.asUnsigned(enc_op.immBitSize())}),
-                .bytes => unreachable,
-            }
-        }
-
-        pub fn fmt(op: Operand, enc_op: Encoding.Op) std.fmt.Formatter(fmtContext) {
+        pub fn fmt(op: Operand, enc_op: Encoding.Op) std.fmt.Formatter(Format, Format.default) {
             return .{ .data = .{ .op = op, .enc_op = enc_op } };
         }
     };
@@ -361,23 +353,23 @@ pub const Instruction = struct {
         return inst;
     }
 
-    pub fn format(inst: Instruction, bw: *Writer, comptime unused_format_string: []const u8) Writer.Error!void {
-        _ = unused_format_string;
+    pub fn format(inst: Instruction, w: *Writer, comptime unused_format_string: []const u8) Writer.Error!void {
+        comptime assert(unused_format_string.len == 0);
         switch (inst.prefix) {
             .none, .directive => {},
-            else => try bw.print("{s} ", .{@tagName(inst.prefix)}),
+            else => try w.print("{s} ", .{@tagName(inst.prefix)}),
         }
-        try bw.print("{s}", .{@tagName(inst.encoding.mnemonic)});
+        try w.print("{s}", .{@tagName(inst.encoding.mnemonic)});
         for (inst.ops, inst.encoding.data.ops, 0..) |op, enc, i| {
             if (op == .none) break;
-            if (i > 0) try bw.writeByte(',');
-            try bw.print(" {f}", .{op.fmt(enc)});
+            if (i > 0) try w.writeByte(',');
+            try w.print(" {f}", .{op.fmt(enc)});
         }
     }
 
-    pub fn encode(inst: Instruction, bw: *Writer, comptime opts: Options) !void {
+    pub fn encode(inst: Instruction, w: *Writer, comptime opts: Options) !void {
         assert(inst.prefix != .directive);
-        const encoder: Encoder(opts) = .{ .bw = bw };
+        const encoder: Encoder(opts) = .{ .w = w };
         const enc = inst.encoding;
         const data = enc.data;
 
@@ -785,7 +777,7 @@ pub const Options = struct { allow_frame_locs: bool = false, allow_symbols: bool
 
 fn Encoder(comptime opts: Options) type {
     return struct {
-        bw: *Writer,
+        w: *Writer,
 
         const Self = @This();
         pub const options = opts;
@@ -800,31 +792,31 @@ fn Encoder(comptime opts: Options) type {
                 // Hopefully this path isn't taken very often, so we'll do it the slow way for now
 
                 // LOCK
-                if (prefixes.prefix_f0) try self.bw.writeByte(0xf0);
+                if (prefixes.prefix_f0) try self.w.writeByte(0xf0);
                 // REPNZ, REPNE, REP, Scalar Double-precision
-                if (prefixes.prefix_f2) try self.bw.writeByte(0xf2);
+                if (prefixes.prefix_f2) try self.w.writeByte(0xf2);
                 // REPZ, REPE, REP, Scalar Single-precision
-                if (prefixes.prefix_f3) try self.bw.writeByte(0xf3);
+                if (prefixes.prefix_f3) try self.w.writeByte(0xf3);
 
                 // CS segment override or Branch not taken
-                if (prefixes.prefix_2e) try self.bw.writeByte(0x2e);
+                if (prefixes.prefix_2e) try self.w.writeByte(0x2e);
                 // DS segment override
-                if (prefixes.prefix_36) try self.bw.writeByte(0x36);
+                if (prefixes.prefix_36) try self.w.writeByte(0x36);
                 // ES segment override
-                if (prefixes.prefix_26) try self.bw.writeByte(0x26);
+                if (prefixes.prefix_26) try self.w.writeByte(0x26);
                 // FS segment override
-                if (prefixes.prefix_64) try self.bw.writeByte(0x64);
+                if (prefixes.prefix_64) try self.w.writeByte(0x64);
                 // GS segment override
-                if (prefixes.prefix_65) try self.bw.writeByte(0x65);
+                if (prefixes.prefix_65) try self.w.writeByte(0x65);
 
                 // Branch taken
-                if (prefixes.prefix_3e) try self.bw.writeByte(0x3e);
+                if (prefixes.prefix_3e) try self.w.writeByte(0x3e);
 
                 // Operand size override
-                if (prefixes.prefix_66) try self.bw.writeByte(0x66);
+                if (prefixes.prefix_66) try self.w.writeByte(0x66);
 
                 // Address size override
-                if (prefixes.prefix_67) try self.bw.writeByte(0x67);
+                if (prefixes.prefix_67) try self.w.writeByte(0x67);
             }
         }
 
@@ -832,7 +824,7 @@ fn Encoder(comptime opts: Options) type {
         ///
         /// Note that this flag is overridden by REX.W, if both are present.
         pub fn prefix16BitMode(self: Self) !void {
-            try self.bw.writeByte(0x66);
+            try self.w.writeByte(0x66);
         }
 
         /// Encodes a REX prefix byte given all the fields
@@ -851,7 +843,7 @@ fn Encoder(comptime opts: Options) type {
             if (fields.x) byte |= 0b0010;
             if (fields.b) byte |= 0b0001;
 
-            try self.bw.writeByte(byte);
+            try self.w.writeByte(byte);
         }
 
         /// Encodes a VEX prefix given all the fields
@@ -859,24 +851,24 @@ fn Encoder(comptime opts: Options) type {
         /// See struct `Vex` for a description of each field.
         pub fn vex(self: Self, fields: Vex) !void {
             if (fields.is3Byte()) {
-                try self.bw.writeByte(0b1100_0100);
+                try self.w.writeByte(0b1100_0100);
 
-                try self.bw.writeByte(
+                try self.w.writeByte(
                     @as(u8, ~@intFromBool(fields.r)) << 7 |
                         @as(u8, ~@intFromBool(fields.x)) << 6 |
                         @as(u8, ~@intFromBool(fields.b)) << 5 |
                         @as(u8, @intFromEnum(fields.m)) << 0,
                 );
 
-                try self.bw.writeByte(
+                try self.w.writeByte(
                     @as(u8, @intFromBool(fields.w)) << 7 |
                         @as(u8, ~@as(u4, @intCast(fields.v.enc()))) << 3 |
                         @as(u8, @intFromBool(fields.l)) << 2 |
                         @as(u8, @intFromEnum(fields.p)) << 0,
                 );
             } else {
-                try self.bw.writeByte(0b1100_0101);
-                try self.bw.writeByte(
+                try self.w.writeByte(0b1100_0101);
+                try self.w.writeByte(
                     @as(u8, ~@intFromBool(fields.r)) << 7 |
                         @as(u8, ~@as(u4, @intCast(fields.v.enc()))) << 3 |
                         @as(u8, @intFromBool(fields.l)) << 2 |
@@ -891,7 +883,7 @@ fn Encoder(comptime opts: Options) type {
 
         /// Encodes a 1 byte opcode
         pub fn opcode_1byte(self: Self, opcode: u8) !void {
-            try self.bw.writeByte(opcode);
+            try self.w.writeByte(opcode);
         }
 
         /// Encodes a 2 byte opcode
@@ -900,7 +892,7 @@ fn Encoder(comptime opts: Options) type {
         ///
         /// encoder.opcode_2byte(0x0f, 0xaf);
         pub fn opcode_2byte(self: Self, prefix: u8, opcode: u8) !void {
-            try self.bw.writeAll(&.{ prefix, opcode });
+            try self.w.writeAll(&.{ prefix, opcode });
         }
 
         /// Encodes a 3 byte opcode
@@ -909,7 +901,7 @@ fn Encoder(comptime opts: Options) type {
         ///
         /// encoder.opcode_3byte(0xf2, 0x0f, 0x10);
         pub fn opcode_3byte(self: Self, prefix_1: u8, prefix_2: u8, opcode: u8) !void {
-            try self.bw.writeAll(&.{ prefix_1, prefix_2, opcode });
+            try self.w.writeAll(&.{ prefix_1, prefix_2, opcode });
         }
 
         /// Encodes a 1 byte opcode with a reg field
@@ -917,7 +909,7 @@ fn Encoder(comptime opts: Options) type {
         /// Remember to add a REX prefix byte if reg is extended!
         pub fn opcode_withReg(self: Self, opcode: u8, reg: u3) !void {
             assert(opcode & 0b111 == 0);
-            try self.bw.writeByte(opcode | reg);
+            try self.w.writeByte(opcode | reg);
         }
 
         // ------
@@ -928,7 +920,7 @@ fn Encoder(comptime opts: Options) type {
         ///
         /// Remember to add a REX prefix byte if reg or rm are extended!
         pub fn modRm(self: Self, mod: u2, reg_or_opx: u3, rm: u3) !void {
-            try self.bw.writeByte(@as(u8, mod) << 6 | @as(u8, reg_or_opx) << 3 | rm);
+            try self.w.writeByte(@as(u8, mod) << 6 | @as(u8, reg_or_opx) << 3 | rm);
         }
 
         /// Construct a ModR/M byte using direct r/m addressing
@@ -1014,7 +1006,7 @@ fn Encoder(comptime opts: Options) type {
         ///
         /// Remember to add a REX prefix byte if index or base are extended!
         pub fn sib(self: Self, scale: u2, index: u3, base: u3) !void {
-            try self.bw.writeByte(@as(u8, scale) << 6 | @as(u8, index) << 3 | base);
+            try self.w.writeByte(@as(u8, scale) << 6 | @as(u8, index) << 3 | base);
         }
 
         /// Construct a SIB byte with scale * index + base, no frills.
@@ -1106,42 +1098,42 @@ fn Encoder(comptime opts: Options) type {
         ///
         /// It is sign-extended to 64 bits by the cpu.
         pub fn disp8(self: Self, disp: i8) !void {
-            try self.bw.writeByte(@as(u8, @bitCast(disp)));
+            try self.w.writeByte(@as(u8, @bitCast(disp)));
         }
 
         /// Encode an 32 bit displacement
         ///
         /// It is sign-extended to 64 bits by the cpu.
         pub fn disp32(self: Self, disp: i32) !void {
-            try self.bw.writeInt(i32, disp, .little);
+            try self.w.writeInt(i32, disp, .little);
         }
 
         /// Encode an 8 bit immediate
         ///
         /// It is sign-extended to 64 bits by the cpu.
         pub fn imm8(self: Self, imm: u8) !void {
-            try self.bw.writeByte(imm);
+            try self.w.writeByte(imm);
         }
 
         /// Encode an 16 bit immediate
         ///
         /// It is sign-extended to 64 bits by the cpu.
         pub fn imm16(self: Self, imm: u16) !void {
-            try self.bw.writeInt(u16, imm, .little);
+            try self.w.writeInt(u16, imm, .little);
         }
 
         /// Encode an 32 bit immediate
         ///
         /// It is sign-extended to 64 bits by the cpu.
         pub fn imm32(self: Self, imm: u32) !void {
-            try self.bw.writeInt(u32, imm, .little);
+            try self.w.writeInt(u32, imm, .little);
         }
 
         /// Encode an 64 bit immediate
         ///
         /// It is sign-extended to 64 bits by the cpu.
         pub fn imm64(self: Self, imm: u64) !void {
-            try self.bw.writeInt(u64, imm, .little);
+            try self.w.writeInt(u64, imm, .little);
         }
     };
 }
@@ -2199,10 +2191,10 @@ const Assembler = struct {
         };
     }
 
-    pub fn assemble(as: *Assembler, bw: *Writer) !void {
+    pub fn assemble(as: *Assembler, w: *Writer) !void {
         while (try as.next()) |parsed_inst| {
             const inst: Instruction = try .new(.none, parsed_inst.mnemonic, &parsed_inst.ops);
-            try inst.encode(bw, .{});
+            try inst.encode(w, .{});
         }
     }
 

@@ -2491,7 +2491,7 @@ pub const Object = struct {
                 var union_name_buf: ?[:0]const u8 = null;
                 defer if (union_name_buf) |buf| gpa.free(buf);
                 const union_name = if (layout.tag_size == 0) name else name: {
-                    union_name_buf = try std.fmt.allocPrintZ(gpa, "{s}:Payload", .{name});
+                    union_name_buf = try std.fmt.allocPrintSentinel(gpa, "{s}:Payload", .{name}, 0);
                     break :name union_name_buf.?;
                 };
 
@@ -2687,7 +2687,9 @@ pub const Object = struct {
     fn allocTypeName(o: *Object, ty: Type) Allocator.Error![:0]const u8 {
         var aw: std.io.Writer.Allocating = .init(o.gpa);
         defer aw.deinit();
-        ty.print(&aw.interface, o.pt) catch return error.OutOfMemory;
+        ty.print(&aw.writer, o.pt) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
         return aw.toOwnedSliceSentinel(0);
     }
 
