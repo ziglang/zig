@@ -5,36 +5,9 @@ const process = std.process;
 const windows = std.os.windows;
 const native_os = builtin.os.tag;
 
-/// Detect suitable TTY configuration options for the given file (commonly stdout/stderr).
-/// This includes feature checks for ANSI escape codes and the Windows console API, as well as
-/// respecting the `NO_COLOR` and `CLICOLOR_FORCE` environment variables to override the default.
-/// Will attempt to enable ANSI escape code support if necessary/possible.
+/// Deprecated in favor of `Config.detect`.
 pub fn detectConfig(file: File) Config {
-    const force_color: ?bool = if (builtin.os.tag == .wasi)
-        null // wasi does not support environment variables
-    else if (process.hasNonEmptyEnvVarConstant("NO_COLOR"))
-        false
-    else if (process.hasNonEmptyEnvVarConstant("CLICOLOR_FORCE"))
-        true
-    else
-        null;
-
-    if (force_color == false) return .no_color;
-
-    if (file.getOrEnableAnsiEscapeSupport()) return .escape_codes;
-
-    if (native_os == .windows and file.isTty()) {
-        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) == windows.FALSE) {
-            return if (force_color == true) .escape_codes else .no_color;
-        }
-        return .{ .windows_api = .{
-            .handle = file.handle,
-            .reset_attributes = info.wAttributes,
-        } };
-    }
-
-    return if (force_color == true) .escape_codes else .no_color;
+    return .detect(file);
 }
 
 pub const Color = enum {
@@ -65,6 +38,38 @@ pub const Config = union(enum) {
     no_color,
     escape_codes,
     windows_api: if (native_os == .windows) WindowsContext else void,
+
+    /// Detect suitable TTY configuration options for the given file (commonly stdout/stderr).
+    /// This includes feature checks for ANSI escape codes and the Windows console API, as well as
+    /// respecting the `NO_COLOR` and `CLICOLOR_FORCE` environment variables to override the default.
+    /// Will attempt to enable ANSI escape code support if necessary/possible.
+    pub fn detect(file: File) Config {
+        const force_color: ?bool = if (builtin.os.tag == .wasi)
+            null // wasi does not support environment variables
+        else if (process.hasNonEmptyEnvVarConstant("NO_COLOR"))
+            false
+        else if (process.hasNonEmptyEnvVarConstant("CLICOLOR_FORCE"))
+            true
+        else
+            null;
+
+        if (force_color == false) return .no_color;
+
+        if (file.getOrEnableAnsiEscapeSupport()) return .escape_codes;
+
+        if (native_os == .windows and file.isTty()) {
+            var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+            if (windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) == windows.FALSE) {
+                return if (force_color == true) .escape_codes else .no_color;
+            }
+            return .{ .windows_api = .{
+                .handle = file.handle,
+                .reset_attributes = info.wAttributes,
+            } };
+        }
+
+        return if (force_color == true) .escape_codes else .no_color;
+    }
 
     pub const WindowsContext = struct {
         handle: File.Handle,
@@ -123,6 +128,7 @@ pub const Config = union(enum) {
                     .dim => windows.FOREGROUND_INTENSITY,
                     .reset => ctx.reset_attributes,
                 };
+                try w.flush();
                 try windows.SetConsoleTextAttribute(ctx.handle, attributes);
             } else {
                 unreachable;
