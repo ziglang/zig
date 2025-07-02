@@ -167,44 +167,27 @@ pub fn lastAtom(list: AtomList, elf_file: *Elf) *Atom {
     return elf_file.atom(list.atoms.keys()[list.atoms.keys().len - 1]).?;
 }
 
-pub fn format(
-    list: AtomList,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = list;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format AtomList directly");
-}
+const Format = struct {
+    atom_list: AtomList,
+    elf_file: *Elf,
 
-const FormatCtx = struct { AtomList, *Elf };
-
-pub fn fmt(list: AtomList, elf_file: *Elf) std.fmt.Formatter(format2) {
-    return .{ .data = .{ list, elf_file } };
-}
-
-fn format2(
-    ctx: FormatCtx,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const list, const elf_file = ctx;
-    try writer.print("list : @{x} : shdr({d}) : align({x}) : size({x})", .{
-        list.address(elf_file),                list.output_section_index,
-        list.alignment.toByteUnits() orelse 0, list.size,
-    });
-    try writer.writeAll(" : atoms{ ");
-    for (list.atoms.keys(), 0..) |ref, i| {
-        try writer.print("{}", .{ref});
-        if (i < list.atoms.keys().len - 1) try writer.writeAll(", ");
+    fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const list, const elf_file = f;
+        try writer.print("list : @{x} : shdr({d}) : align({x}) : size({x})", .{
+            list.address(elf_file),                list.output_section_index,
+            list.alignment.toByteUnits() orelse 0, list.size,
+        });
+        try writer.writeAll(" : atoms{ ");
+        for (list.atoms.keys(), 0..) |ref, i| {
+            try writer.print("{}", .{ref});
+            if (i < list.atoms.keys().len - 1) try writer.writeAll(", ");
+        }
+        try writer.writeAll(" }");
     }
-    try writer.writeAll(" }");
+};
+
+pub fn fmt(list: AtomList, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    return .{ .data = .{ list, elf_file } };
 }
 
 const assert = std.debug.assert;

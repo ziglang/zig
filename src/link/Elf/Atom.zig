@@ -904,65 +904,45 @@ pub fn setExtra(atom: Atom, extras: Extra, elf_file: *Elf) void {
     atom.file(elf_file).?.setAtomExtra(atom.extra_index, extras);
 }
 
-pub fn format(
-    atom: Atom,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = atom;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format Atom directly");
-}
-
-pub fn fmt(atom: Atom, elf_file: *Elf) std.fmt.Formatter(format2) {
+pub fn fmt(atom: Atom, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
     return .{ .data = .{
         .atom = atom,
         .elf_file = elf_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     atom: Atom,
     elf_file: *Elf,
-};
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
-    const atom = ctx.atom;
-    const elf_file = ctx.elf_file;
-    try writer.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x}) : prev({}) : next({})", .{
-        atom.atom_index,           atom.name(elf_file),                   atom.address(elf_file),
-        atom.output_section_index, atom.alignment.toByteUnits() orelse 0, atom.size,
-        atom.prev_atom_ref,        atom.next_atom_ref,
-    });
-    if (atom.file(elf_file)) |atom_file| switch (atom_file) {
-        .object => |object| {
-            if (atom.fdes(object).len > 0) {
-                try writer.writeAll(" : fdes{ ");
-                const extras = atom.extra(elf_file);
-                for (atom.fdes(object), extras.fde_start..) |fde, i| {
-                    try writer.print("{d}", .{i});
-                    if (!fde.alive) try writer.writeAll("([*])");
-                    if (i - extras.fde_start < extras.fde_count - 1) try writer.writeAll(", ");
+    fn default(f: Format, w: *std.io.Writer) std.io.Writer.Error!void {
+        const atom = f.atom;
+        const elf_file = f.elf_file;
+        try w.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x}) : prev({}) : next({})", .{
+            atom.atom_index,           atom.name(elf_file),                   atom.address(elf_file),
+            atom.output_section_index, atom.alignment.toByteUnits() orelse 0, atom.size,
+            atom.prev_atom_ref,        atom.next_atom_ref,
+        });
+        if (atom.file(elf_file)) |atom_file| switch (atom_file) {
+            .object => |object| {
+                if (atom.fdes(object).len > 0) {
+                    try w.writeAll(" : fdes{ ");
+                    const extras = atom.extra(elf_file);
+                    for (atom.fdes(object), extras.fde_start..) |fde, i| {
+                        try w.print("{d}", .{i});
+                        if (!fde.alive) try w.writeAll("([*])");
+                        if (i - extras.fde_start < extras.fde_count - 1) try w.writeAll(", ");
+                    }
+                    try w.writeAll(" }");
                 }
-                try writer.writeAll(" }");
-            }
-        },
-        else => {},
-    };
-    if (!atom.alive) {
-        try writer.writeAll(" : [*]");
+            },
+            else => {},
+        };
+        if (!atom.alive) {
+            try w.writeAll(" : [*]");
+        }
     }
-}
+};
 
 pub const Index = u32;
 

@@ -141,21 +141,14 @@ const FormatRelocTypeCtx = struct {
     cpu_arch: std.Target.Cpu.Arch,
 };
 
-pub fn fmtRelocType(r_type: u32, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(formatRelocType) {
+pub fn fmtRelocType(r_type: u32, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(FormatRelocTypeCtx, formatRelocType) {
     return .{ .data = .{
         .r_type = r_type,
         .cpu_arch = cpu_arch,
     } };
 }
 
-fn formatRelocType(
-    ctx: FormatRelocTypeCtx,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatRelocType(ctx: FormatRelocTypeCtx, writer: *std.io.Writer) std.io.Writer.Error!void {
     const r_type = ctx.r_type;
     switch (ctx.cpu_arch) {
         .x86_64 => try writer.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),

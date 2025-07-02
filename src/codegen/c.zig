@@ -340,13 +340,15 @@ fn isReservedIdent(ident: []const u8) bool {
     } else return reserved_idents.has(ident);
 }
 
-fn formatIdent(
-    ident: []const u8,
-    comptime fmt_str: []const u8,
-    _: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    const solo = fmt_str.len != 0 and fmt_str[0] == ' '; // space means solo; not part of a bigger ident.
+fn formatIdentSolo(ident: []const u8, writer: *std.io.Writer) std.io.Writer.Error!void {
+    return formatIdentOptions(ident, writer, true);
+}
+
+fn formatIdentUnsolo(ident: []const u8, writer: *std.io.Writer) std.io.Writer.Error!void {
+    return formatIdentOptions(ident, writer, false);
+}
+
+fn formatIdentOptions(ident: []const u8, writer: *std.io.Writer, solo: bool) std.io.Writer.Error!void {
     if (solo and isReservedIdent(ident)) {
         try writer.writeAll("zig_e_");
     }
@@ -363,30 +365,36 @@ fn formatIdent(
         }
     }
 }
-pub fn fmtIdent(ident: []const u8) std.fmt.Formatter(formatIdent) {
+
+pub fn fmtIdentSolo(ident: []const u8) std.fmt.Formatter([]const u8, formatIdentSolo) {
+    return .{ .data = ident };
+}
+
+pub fn fmtIdentUnsolo(ident: []const u8) std.fmt.Formatter([]const u8, formatIdentUnsolo) {
     return .{ .data = ident };
 }
 
 const CTypePoolStringFormatData = struct {
     ctype_pool_string: CType.Pool.String,
     ctype_pool: *const CType.Pool,
+    solo: bool,
 };
-fn formatCTypePoolString(
-    data: CTypePoolStringFormatData,
-    comptime fmt_str: []const u8,
-    fmt_opts: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
+fn formatCTypePoolString(data: CTypePoolStringFormatData, writer: *std.io.Writer) std.io.Writer.Error!void {
     if (data.ctype_pool_string.toSlice(data.ctype_pool)) |slice|
-        try formatIdent(slice, fmt_str, fmt_opts, writer)
+        try formatIdentOptions(slice, writer, data.solo)
     else
         try writer.print("{}", .{data.ctype_pool_string.fmt(data.ctype_pool)});
 }
 pub fn fmtCTypePoolString(
     ctype_pool_string: CType.Pool.String,
     ctype_pool: *const CType.Pool,
-) std.fmt.Formatter(formatCTypePoolString) {
-    return .{ .data = .{ .ctype_pool_string = ctype_pool_string, .ctype_pool = ctype_pool } };
+    solo: bool,
+) std.fmt.Formatter(CTypePoolStringFormatData, formatCTypePoolString) {
+    return .{ .data = .{
+        .ctype_pool_string = ctype_pool_string,
+        .ctype_pool = ctype_pool,
+        .solo = solo,
+    } };
 }
 
 // Returns true if `formatIdent` would make any edits to ident.
@@ -596,7 +604,7 @@ pub const Function = struct {
         return f.object.dg.renderIntCast(w, dest_ty, .{ .c_value = .{ .f = f, .value = src, .v = v } }, src_ty, location);
     }
 
-    fn fmtIntLiteral(f: *Function, val: Value) !std.fmt.Formatter(formatIntLiteral) {
+    fn fmtIntLiteral(f: *Function, val: Value) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
         return f.object.dg.fmtIntLiteral(val, .Other);
     }
 
@@ -614,16 +622,16 @@ pub const Function = struct {
             gop.value_ptr.* = .{
                 .fn_name = switch (key) {
                     .tag_name,
-                    => |enum_ty| try ctype_pool.fmt(gpa, "zig_{s}_{}__{d}", .{
+                    => |enum_ty| try ctype_pool.fmt(gpa, "zig_{s}_{f}__{d}", .{
                         @tagName(key),
-                        fmtIdent(ip.loadEnumType(enum_ty).name.toSlice(ip)),
+                        fmtIdentUnsolo(ip.loadEnumType(enum_ty).name.toSlice(ip)),
                         @intFromEnum(enum_ty),
                     }),
                     .never_tail,
                     .never_inline,
                     => |owner_nav| try ctype_pool.fmt(gpa, "zig_{s}_{}__{d}", .{
                         @tagName(key),
-                        fmtIdent(ip.getNav(owner_nav).name.toSlice(ip)),
+                        fmtIdentUnsolo(ip.getNav(owner_nav).name.toSlice(ip)),
                         @intFromEnum(owner_nav),
                     }),
                 },
@@ -965,7 +973,7 @@ pub const DeclGen = struct {
 
     fn renderErrorName(dg: *DeclGen, writer: anytype, err_name: InternPool.NullTerminatedString) !void {
         const ip = &dg.pt.zcu.intern_pool;
-        try writer.print("zig_error_{}", .{fmtIdent(err_name.toSlice(ip))});
+        try writer.print("zig_error_{}", .{fmtIdentUnsolo(err_name.toSlice(ip))});
     }
 
     fn renderValue(
@@ -1551,7 +1559,7 @@ pub const DeclGen = struct {
                             .payload => {
                                 try writer.writeByte('{');
                                 if (field_ty.hasRuntimeBits(zcu)) {
-                                    try writer.print(" .{ } = ", .{fmtIdent(field_name.toSlice(ip))});
+                                    try writer.print(" .{ } = ", .{fmtIdentSolo(field_name.toSlice(ip))});
                                     try dg.renderValue(
                                         writer,
                                         Value.fromInterned(un.val),
@@ -1888,7 +1896,7 @@ pub const DeclGen = struct {
         kind: CType.Kind,
         name: union(enum) {
             nav: InternPool.Nav.Index,
-            fmt_ctype_pool_string: std.fmt.Formatter(formatCTypePoolString),
+            fmt_ctype_pool_string: std.fmt.Formatter(CTypePoolStringFormatData, formatCTypePoolString),
             @"export": struct {
                 main_name: InternPool.NullTerminatedString,
                 extern_name: InternPool.NullTerminatedString,
@@ -1933,7 +1941,7 @@ pub const DeclGen = struct {
         switch (name) {
             .nav => |nav| try dg.renderNavName(w, nav),
             .fmt_ctype_pool_string => |fmt| try w.print("{ }", .{fmt}),
-            .@"export" => |@"export"| try w.print("{ }", .{fmtIdent(@"export".extern_name.toSlice(ip))}),
+            .@"export" => |@"export"| try w.print("{ }", .{fmtIdentSolo(@"export".extern_name.toSlice(ip))}),
         }
 
         try renderTypeSuffix(
@@ -1961,13 +1969,13 @@ pub const DeclGen = struct {
                         const is_export = @"export".extern_name != @"export".main_name;
                         if (is_mangled and is_export) {
                             try w.print(" zig_mangled_export({ }, {s}, {s})", .{
-                                fmtIdent(extern_name),
+                                fmtIdentSolo(extern_name),
                                 fmtStringLiteral(extern_name, null),
                                 fmtStringLiteral(@"export".main_name.toSlice(ip), null),
                             });
                         } else if (is_mangled) {
                             try w.print(" zig_mangled({ }, {s})", .{
-                                fmtIdent(extern_name), fmtStringLiteral(extern_name, null),
+                                fmtIdentSolo(extern_name), fmtStringLiteral(extern_name, null),
                             });
                         } else if (is_export) {
                             try w.print(" zig_export({s}, {s})", .{
@@ -2198,7 +2206,7 @@ pub const DeclGen = struct {
             .new_local, .local => |i| try w.print("t{d}", .{i}),
             .constant => |uav| try renderUavName(w, uav),
             .nav => |nav| try dg.renderNavName(w, nav),
-            .identifier => |ident| try w.print("{ }", .{fmtIdent(ident)}),
+            .identifier => |ident| try w.print("{ }", .{fmtIdentSolo(ident)}),
             else => unreachable,
         }
     }
@@ -2215,13 +2223,13 @@ pub const DeclGen = struct {
                 try dg.renderNavName(w, nav);
             },
             .undef => |ty| try dg.renderUndefValue(w, ty, .Other),
-            .identifier => |ident| try w.print("{ }", .{fmtIdent(ident)}),
+            .identifier => |ident| try w.print("{ }", .{fmtIdentSolo(ident)}),
             .payload_identifier => |ident| try w.print("{ }.{ }", .{
-                fmtIdent("payload"),
-                fmtIdent(ident),
+                fmtIdentSolo("payload"),
+                fmtIdentSolo(ident),
             }),
-            .ctype_pool_string => |string| try w.print("{ }", .{
-                fmtCTypePoolString(string, &dg.ctype_pool),
+            .ctype_pool_string => |string| try w.print("{f}", .{
+                fmtCTypePoolString(string, &dg.ctype_pool, true),
             }),
         }
     }
@@ -2245,10 +2253,10 @@ pub const DeclGen = struct {
             },
             .nav_ref => |nav| try dg.renderNavName(w, nav),
             .undef => unreachable,
-            .identifier => |ident| try w.print("(*{ })", .{fmtIdent(ident)}),
+            .identifier => |ident| try w.print("(*{ })", .{fmtIdentSolo(ident)}),
             .payload_identifier => |ident| try w.print("(*{ }.{ })", .{
-                fmtIdent("payload"),
-                fmtIdent(ident),
+                fmtIdentSolo("payload"),
+                fmtIdentSolo(ident),
             }),
         }
     }
@@ -2334,14 +2342,14 @@ pub const DeclGen = struct {
         const nav = ip.getNav(nav_index);
         if (nav.getExtern(ip)) |@"extern"| {
             try writer.print("{ }", .{
-                fmtIdent(ip.getNav(@"extern".owner_nav).name.toSlice(ip)),
+                fmtIdentSolo(ip.getNav(@"extern".owner_nav).name.toSlice(ip)),
             });
         } else {
             // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
             // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
             const fqn_slice = ip.getNav(nav_index).fqn.toSlice(ip);
             try writer.print("{}__{d}", .{
-                fmtIdent(fqn_slice[0..@min(fqn_slice.len, 100)]),
+                fmtIdentUnsolo(fqn_slice[0..@min(fqn_slice.len, 100)]),
                 @intFromEnum(nav_index),
             });
         }
@@ -2452,7 +2460,7 @@ fn renderFwdDeclTypeName(
     switch (fwd_decl.name) {
         .anon => try w.print("anon__lazy_{d}", .{@intFromEnum(ctype.index)}),
         .index => |index| try w.print("{}__{d}", .{
-            fmtIdent(Type.fromInterned(index).containerTypeName(ip).toSlice(&zcu.intern_pool)),
+            fmtIdentUnsolo(Type.fromInterned(index).containerTypeName(ip).toSlice(&zcu.intern_pool)),
             @intFromEnum(index),
         }),
     }
@@ -2666,7 +2674,7 @@ fn renderFields(
             .suffix,
             .{},
         );
-        try writer.print("{}{ }", .{ trailing, fmtCTypePoolString(field_info.name, ctype_pool) });
+        try writer.print("{}{f}", .{ trailing, fmtCTypePoolString(field_info.name, ctype_pool, true) });
         try renderTypeSuffix(.flush, ctype_pool, zcu, writer, field_info.ctype, .suffix, .{});
         try writer.writeAll(";\n");
     }
@@ -2841,7 +2849,7 @@ pub fn genErrDecls(o: *Object) !void {
         const name = name_nts.toSlice(ip);
         if (val > 1) try writer.writeAll(", ");
         try writer.print("{{" ++ name_prefix ++ "{}, {}}}", .{
-            fmtIdent(name),
+            fmtIdentUnsolo(name),
             try o.dg.fmtIntLiteral(try pt.intValue(.usize, name.len), .StaticInitializer),
         });
     }
@@ -2891,7 +2899,7 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
                 try w.writeAll(";\n   return (");
                 try o.dg.renderType(w, name_slice_ty);
                 try w.print("){{{}, {}}};\n", .{
-                    fmtIdent("name"),
+                    fmtIdentUnsolo("name"),
                     try o.dg.fmtIntLiteral(try pt.intValue(.usize, tag_name_len), .Other),
                 });
 
@@ -3204,7 +3212,7 @@ pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const 
         .uav => |uav| try DeclGen.renderUavName(fwd, Value.fromInterned(uav)),
     }
     try fwd.writeByte(' ');
-    try fwd.print("{ }", .{fmtIdent(main_name.toSlice(ip))});
+    try fwd.print("{ }", .{fmtIdentSolo(main_name.toSlice(ip))});
     try fwd.writeByte('\n');
 
     const exported_val = exported.getValue(zcu);
@@ -3250,13 +3258,13 @@ pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const 
         );
         if (is_mangled and is_export) {
             try fwd.print(" zig_mangled_export({ }, {s}, {s})", .{
-                fmtIdent(extern_name),
+                fmtIdentSolo(extern_name),
                 fmtStringLiteral(extern_name, null),
                 fmtStringLiteral(main_name.toSlice(ip), null),
             });
         } else if (is_mangled) {
             try fwd.print(" zig_mangled({ }, {s})", .{
-                fmtIdent(extern_name), fmtStringLiteral(extern_name, null),
+                fmtIdentSolo(extern_name), fmtStringLiteral(extern_name, null),
             });
         } else if (is_export) {
             try fwd.print(" zig_export({s}, {s})", .{
@@ -4538,7 +4546,7 @@ fn airCmpLtErrorsLen(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(" = ");
     try f.writeCValue(writer, operand, .Other);
-    try writer.print(" < sizeof({ }) / sizeof(*{0 });\n", .{fmtIdent("zig_errorName")});
+    try writer.print(" < sizeof({ }) / sizeof(*{0 });\n", .{fmtIdentSolo("zig_errorName")});
     return local;
 }
 
@@ -8202,10 +8210,9 @@ fn stringLiteral(
 const FormatStringContext = struct { str: []const u8, sentinel: ?u8 };
 fn formatStringLiteral(
     data: FormatStringContext,
-    comptime fmt: []const u8,
-    _: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
+    writer: *std.io.Writer,
+    comptime fmt: []const u8, // TODO move this state to FormatStringContext
+) std.io.Writer.Error!void {
     if (fmt.len != 1 or fmt[0] != 's') @compileError("Invalid fmt: " ++ fmt);
 
     var literal = stringLiteral(writer, data.str.len + @intFromBool(data.sentinel != null));
@@ -8215,7 +8222,7 @@ fn formatStringLiteral(
     try literal.end();
 }
 
-fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Formatter(formatStringLiteral) {
+fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Formatter(FormatStringContext, formatStringLiteral) {
     return .{ .data = .{ .str = str, .sentinel = sentinel } };
 }
 
@@ -8234,10 +8241,9 @@ const FormatIntLiteralContext = struct {
 };
 fn formatIntLiteral(
     data: FormatIntLiteralContext,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
+    writer: *std.io.Writer,
+    comptime fmt: []const u8, // TODO move this state to FormatIntLiteralContext
+) std.io.Writer.Error!void {
     const pt = data.dg.pt;
     const zcu = pt.zcu;
     const target = &data.dg.mod.resolved_target.result;
@@ -8406,7 +8412,7 @@ fn formatIntLiteral(
                 .kind = data.kind,
                 .ctype = c_limb_ctype,
                 .val = try pt.intValue_big(.comptime_int, c_limb_mut.toConst()),
-            }, fmt, options, writer);
+            }, fmt, writer);
         }
     }
     try data.ctype.renderLiteralSuffix(writer, ctype_pool);

@@ -606,36 +606,29 @@ pub const GotSection = struct {
         }
     }
 
-    const FormatCtx = struct {
+    const Format = struct {
         got: GotSection,
         elf_file: *Elf,
+
+        pub fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const got = f.got;
+            const elf_file = f.elf_file;
+            try writer.writeAll("GOT\n");
+            for (got.entries.items) |entry| {
+                const symbol = elf_file.symbol(entry.ref).?;
+                try writer.print("  {d}@0x{x} => {}@0x{x} ({s})\n", .{
+                    entry.cell_index,
+                    entry.address(elf_file),
+                    entry.ref,
+                    symbol.address(.{}, elf_file),
+                    symbol.name(elf_file),
+                });
+            }
+        }
     };
 
-    pub fn fmt(got: GotSection, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(got: GotSection, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{ .got = got, .elf_file = elf_file } };
-    }
-
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        const got = ctx.got;
-        const elf_file = ctx.elf_file;
-        try writer.writeAll("GOT\n");
-        for (got.entries.items) |entry| {
-            const symbol = elf_file.symbol(entry.ref).?;
-            try writer.print("  {d}@0x{x} => {}@0x{x} ({s})\n", .{
-                entry.cell_index,
-                entry.address(elf_file),
-                entry.ref,
-                symbol.address(.{}, elf_file),
-                symbol.name(elf_file),
-            });
-        }
     }
 };
 
@@ -749,36 +742,29 @@ pub const PltSection = struct {
         }
     }
 
-    const FormatCtx = struct {
+    const Format = struct {
         plt: PltSection,
         elf_file: *Elf,
+
+        pub fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const plt = f.plt;
+            const elf_file = f.elf_file;
+            try writer.writeAll("PLT\n");
+            for (plt.symbols.items, 0..) |ref, i| {
+                const symbol = elf_file.symbol(ref).?;
+                try writer.print("  {d}@0x{x} => {}@0x{x} ({s})\n", .{
+                    i,
+                    symbol.pltAddress(elf_file),
+                    ref,
+                    symbol.address(.{}, elf_file),
+                    symbol.name(elf_file),
+                });
+            }
+        }
     };
 
-    pub fn fmt(plt: PltSection, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(plt: PltSection, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{ .plt = plt, .elf_file = elf_file } };
-    }
-
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        const plt = ctx.plt;
-        const elf_file = ctx.elf_file;
-        try writer.writeAll("PLT\n");
-        for (plt.symbols.items, 0..) |ref, i| {
-            const symbol = elf_file.symbol(ref).?;
-            try writer.print("  {d}@0x{x} => {}@0x{x} ({s})\n", .{
-                i,
-                symbol.pltAddress(elf_file),
-                ref,
-                symbol.address(.{}, elf_file),
-                symbol.name(elf_file),
-            });
-        }
     }
 
     const x86_64 = struct {

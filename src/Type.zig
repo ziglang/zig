@@ -121,15 +121,14 @@ pub fn eql(a: Type, b: Type, zcu: *const Zcu) bool {
     return a.toIntern() == b.toIntern();
 }
 
-pub fn format(ty: Type, comptime unused_fmt_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+pub fn format(ty: Type, writer: *std.io.Writer, comptime unused_fmt_string: []const u8) !void {
     _ = ty;
     _ = unused_fmt_string;
-    _ = options;
     _ = writer;
     @compileError("do not format types directly; use either ty.fmtDebug() or ty.fmt()");
 }
 
-pub const Formatter = std.fmt.Formatter(format2);
+pub const Formatter = std.fmt.Formatter(Format, Format.default);
 
 pub fn fmt(ty: Type, pt: Zcu.PerThread) Formatter {
     return .{ .data = .{
@@ -138,42 +137,28 @@ pub fn fmt(ty: Type, pt: Zcu.PerThread) Formatter {
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     ty: Type,
     pt: Zcu.PerThread,
+
+    fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        return print(f.ty, writer, f.pt);
+    }
 };
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_format_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    comptime assert(unused_format_string.len == 0);
-    _ = options;
-    return print(ctx.ty, writer, ctx.pt);
-}
-
-pub fn fmtDebug(ty: Type) std.fmt.Formatter(dump) {
+pub fn fmtDebug(ty: Type) std.fmt.Formatter(Type, dump) {
     return .{ .data = ty };
 }
 
 /// This is a debug function. In order to print types in a meaningful way
 /// we also need access to the module.
-pub fn dump(
-    start_type: Type,
-    comptime unused_format_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    _ = options;
-    comptime assert(unused_format_string.len == 0);
+pub fn dump(start_type: Type, writer: *std.io.Writer) std.io.Writer.Error!void {
     return writer.print("{any}", .{start_type.ip_index});
 }
 
 /// Prints a name suitable for `@typeName`.
 /// TODO: take an `opt_sema` to pass to `fmtValue` when printing sentinels.
-pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error!void {
+pub fn print(ty: Type, writer: *std.io.Writer, pt: Zcu.PerThread) std.io.Writer.Error!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {

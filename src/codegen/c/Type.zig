@@ -938,19 +938,13 @@ pub const Pool = struct {
         index: String.Index,
 
         const FormatData = struct { string: String, pool: *const Pool };
-        fn format(
-            data: FormatData,
-            comptime fmt_str: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
-            if (fmt_str.len > 0) @compileError("invalid format string '" ++ fmt_str ++ "'");
+        fn format(data: FormatData, writer: *std.io.Writer) std.io.Writer.Error!void {
             if (data.string.toSlice(data.pool)) |slice|
                 try writer.writeAll(slice)
             else
                 try writer.print("f{d}", .{@intFromEnum(data.string.index)});
         }
-        pub fn fmt(str: String, pool: *const Pool) std.fmt.Formatter(format) {
+        pub fn fmt(str: String, pool: *const Pool) std.fmt.Formatter(FormatData, format) {
             return .{ .data = .{ .string = str, .pool = pool } };
         }
 

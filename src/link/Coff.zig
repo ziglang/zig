@@ -3061,40 +3061,25 @@ const ImportTable = struct {
         return base_vaddr + index * @sizeOf(u64);
     }
 
-    const FormatContext = struct {
+    const Format = struct {
         itab: ImportTable,
         ctx: Context,
+
+        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const lib_name = f.ctx.coff.temp_strtab.getAssumeExists(f.ctx.name_off);
+            const base_vaddr = getBaseAddress(f.ctx);
+            try writer.print("IAT({s}.dll) @{x}:", .{ lib_name, base_vaddr });
+            for (f.itab.entries.items, 0..) |entry, i| {
+                try writer.print("\n  {d}@{?x} => {s}", .{
+                    i,
+                    f.itab.getImportAddress(entry, f.ctx),
+                    f.ctx.coff.getSymbolName(entry),
+                });
+            }
+        }
     };
 
-    fn format(itab: ImportTable, comptime unused_format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = itab;
-        _ = unused_format_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format ImportTable directly; use itab.fmtDebug()");
-    }
-
-    fn format2(
-        fmt_ctx: FormatContext,
-        comptime unused_format_string: []const u8,
-        options: fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        _ = options;
-        comptime assert(unused_format_string.len == 0);
-        const lib_name = fmt_ctx.ctx.coff.temp_strtab.getAssumeExists(fmt_ctx.ctx.name_off);
-        const base_vaddr = getBaseAddress(fmt_ctx.ctx);
-        try writer.print("IAT({s}.dll) @{x}:", .{ lib_name, base_vaddr });
-        for (fmt_ctx.itab.entries.items, 0..) |entry, i| {
-            try writer.print("\n  {d}@{?x} => {s}", .{
-                i,
-                fmt_ctx.itab.getImportAddress(entry, fmt_ctx.ctx),
-                fmt_ctx.ctx.coff.getSymbolName(entry),
-            });
-        }
-    }
-
-    fn fmtDebug(itab: ImportTable, ctx: Context) fmt.Formatter(format2) {
+    fn fmtDebug(itab: ImportTable, ctx: Context) fmt.Formatter(Format, Format.default) {
         return .{ .data = .{ .itab = itab, .ctx = ctx } };
     }
 
