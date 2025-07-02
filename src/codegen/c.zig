@@ -1563,7 +1563,7 @@ pub const DeclGen = struct {
                             .payload => {
                                 try writer.writeByte('{');
                                 if (field_ty.hasRuntimeBits(zcu)) {
-                                    try writer.print(" .{ } = ", .{fmtIdentSolo(field_name.toSlice(ip))});
+                                    try writer.print(" .{f} = ", .{fmtIdentSolo(field_name.toSlice(ip))});
                                     try dg.renderValue(
                                         writer,
                                         Value.fromInterned(un.val),
@@ -1667,7 +1667,7 @@ pub const DeclGen = struct {
                         try writer.writeAll("{(");
                         const ptr_ty = ty.slicePtrFieldType(zcu);
                         try dg.renderType(writer, ptr_ty);
-                        return writer.print("){f}, {0x}}}", .{
+                        return writer.print("){f}, {0fx}}}", .{
                             try dg.fmtIntLiteralHex(.undef_usize, .Other),
                         });
                     },
@@ -1972,17 +1972,17 @@ pub const DeclGen = struct {
                         const is_mangled = isMangledIdent(extern_name, true);
                         const is_export = @"export".extern_name != @"export".main_name;
                         if (is_mangled and is_export) {
-                            try w.print(" zig_mangled_export({ }, {s}, {s})", .{
+                            try w.print(" zig_mangled_export({f}, {f}, {f})", .{
                                 fmtIdentSolo(extern_name),
                                 fmtStringLiteral(extern_name, null),
                                 fmtStringLiteral(@"export".main_name.toSlice(ip), null),
                             });
                         } else if (is_mangled) {
-                            try w.print(" zig_mangled({ }, {s})", .{
+                            try w.print(" zig_mangled({f}, {f})", .{
                                 fmtIdentSolo(extern_name), fmtStringLiteral(extern_name, null),
                             });
                         } else if (is_export) {
-                            try w.print(" zig_export({s}, {s})", .{
+                            try w.print(" zig_export({f}, {f})", .{
                                 fmtStringLiteral(@"export".main_name.toSlice(ip), null),
                                 fmtStringLiteral(extern_name, null),
                             });
@@ -2210,7 +2210,7 @@ pub const DeclGen = struct {
             .new_local, .local => |i| try w.print("t{d}", .{i}),
             .constant => |uav| try renderUavName(w, uav),
             .nav => |nav| try dg.renderNavName(w, nav),
-            .identifier => |ident| try w.print("{ }", .{fmtIdentSolo(ident)}),
+            .identifier => |ident| try w.print("{f}", .{fmtIdentSolo(ident)}),
             else => unreachable,
         }
     }
@@ -2227,8 +2227,8 @@ pub const DeclGen = struct {
                 try dg.renderNavName(w, nav);
             },
             .undef => |ty| try dg.renderUndefValue(w, ty, .Other),
-            .identifier => |ident| try w.print("{ }", .{fmtIdentSolo(ident)}),
-            .payload_identifier => |ident| try w.print("{ }.{ }", .{
+            .identifier => |ident| try w.print("{f}", .{fmtIdentSolo(ident)}),
+            .payload_identifier => |ident| try w.print("{f}.{f}", .{
                 fmtIdentSolo("payload"),
                 fmtIdentSolo(ident),
             }),
@@ -2257,8 +2257,8 @@ pub const DeclGen = struct {
             },
             .nav_ref => |nav| try dg.renderNavName(w, nav),
             .undef => unreachable,
-            .identifier => |ident| try w.print("(*{ })", .{fmtIdentSolo(ident)}),
-            .payload_identifier => |ident| try w.print("(*{ }.{ })", .{
+            .identifier => |ident| try w.print("(*{f})", .{fmtIdentSolo(ident)}),
+            .payload_identifier => |ident| try w.print("(*{f}.{f})", .{
                 fmtIdentSolo("payload"),
                 fmtIdentSolo(ident),
             }),
@@ -2345,7 +2345,7 @@ pub const DeclGen = struct {
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
         if (nav.getExtern(ip)) |@"extern"| {
-            try writer.print("{ }", .{
+            try writer.print("{f}", .{
                 fmtIdentSolo(ip.getNav(@"extern".owner_nav).name.toSlice(ip)),
             });
         } else {
@@ -2790,7 +2790,7 @@ pub fn genTypeDecl(
 
 pub fn genGlobalAsm(zcu: *Zcu, writer: anytype) !void {
     for (zcu.global_assembly.values()) |asm_source| {
-        try writer.print("__asm({s});\n", .{fmtStringLiteral(asm_source, null)});
+        try writer.print("__asm({f});\n", .{fmtStringLiteral(asm_source, null)});
     }
 }
 
@@ -3063,7 +3063,7 @@ fn genFunc(f: *Function) !void {
     try fwd.writeAll(";\n");
 
     if (nav.status.fully_resolved.@"linksection".toSlice(ip)) |s|
-        try o.writer().print("zig_linksection_fn({s}) ", .{fmtStringLiteral(s, null)});
+        try o.writer().print("zig_linksection_fn({f}) ", .{fmtStringLiteral(s, null)});
     try o.dg.renderFunctionSignature(
         o.writer(),
         nav_val,
@@ -3176,7 +3176,7 @@ pub fn genDecl(o: *Object) !void {
             const w = o.writer();
             if (variable.is_threadlocal and !o.dg.mod.single_threaded) try w.writeAll("zig_threadlocal ");
             if (nav.status.fully_resolved.@"linksection".toSlice(&zcu.intern_pool)) |s|
-                try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
+                try w.print("zig_linksection({f}) ", .{fmtStringLiteral(s, null)});
             try o.dg.renderTypeAndName(
                 w,
                 nav_ty,
@@ -3217,7 +3217,7 @@ pub fn genDeclValue(
 
     const w = o.writer();
     if (@"linksection".toSlice(&zcu.intern_pool)) |s|
-        try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
+        try w.print("zig_linksection({f}) ", .{fmtStringLiteral(s, null)});
     try o.dg.renderTypeAndName(w, ty, decl_c_value, Const, alignment, .complete);
     try w.writeAll(" = ");
     try o.dg.renderValue(w, val, .StaticInitializer);
@@ -3236,7 +3236,7 @@ pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const 
         .uav => |uav| try DeclGen.renderUavName(fwd, Value.fromInterned(uav)),
     }
     try fwd.writeByte(' ');
-    try fwd.print("{ }", .{fmtIdentSolo(main_name.toSlice(ip))});
+    try fwd.print("{f}", .{fmtIdentSolo(main_name.toSlice(ip))});
     try fwd.writeByte('\n');
 
     const exported_val = exported.getValue(zcu);
@@ -3266,7 +3266,7 @@ pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const 
         const @"export" = export_index.ptr(zcu);
         try fwd.writeAll("zig_extern ");
         if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage ");
-        if (@"export".opts.section.toSlice(ip)) |s| try fwd.print("zig_linksection({s}) ", .{
+        if (@"export".opts.section.toSlice(ip)) |s| try fwd.print("zig_linksection({f}) ", .{
             fmtStringLiteral(s, null),
         });
         const extern_name = @"export".opts.name.toSlice(ip);
@@ -3281,17 +3281,17 @@ pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const 
             .complete,
         );
         if (is_mangled and is_export) {
-            try fwd.print(" zig_mangled_export({ }, {s}, {s})", .{
+            try fwd.print(" zig_mangled_export({f}, {f}, {f})", .{
                 fmtIdentSolo(extern_name),
                 fmtStringLiteral(extern_name, null),
                 fmtStringLiteral(main_name.toSlice(ip), null),
             });
         } else if (is_mangled) {
-            try fwd.print(" zig_mangled({ }, {s})", .{
+            try fwd.print(" zig_mangled({f}, {f})", .{
                 fmtIdentSolo(extern_name), fmtStringLiteral(extern_name, null),
             });
         } else if (is_export) {
-            try fwd.print(" zig_export({s}, {s})", .{
+            try fwd.print(" zig_export({f}, {f})", .{
                 fmtStringLiteral(main_name.toSlice(ip), null),
                 fmtStringLiteral(extern_name, null),
             });
@@ -4570,7 +4570,7 @@ fn airCmpLtErrorsLen(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(writer, local, .Other);
     try writer.writeAll(" = ");
     try f.writeCValue(writer, operand, .Other);
-    try writer.print(" < sizeof({ }) / sizeof(*{0 });\n", .{fmtIdentSolo("zig_errorName")});
+    try writer.print(" < sizeof({f}) / sizeof(*{0f});\n", .{fmtIdentSolo("zig_errorName")});
     return local;
 }
 
@@ -5644,7 +5644,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
             try writer.writeAll("__asm");
             if (is_volatile) try writer.writeAll(" volatile");
-            try writer.print("({s}", .{fmtStringLiteral(fixed_asm_source[0..dst_i], null)});
+            try writer.print("({f}", .{fmtStringLiteral(fixed_asm_source[0..dst_i], null)});
         }
 
         extra_i = constraints_extra_begin;
@@ -5662,7 +5662,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             try writer.writeByte(' ');
             if (!mem.eql(u8, name, "_")) try writer.print("[{s}]", .{name});
             const is_reg = constraint[1] == '{';
-            try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "=r" else constraint, null)});
+            try writer.print("{f}(", .{fmtStringLiteral(if (is_reg) "=r" else constraint, null)});
             if (is_reg) {
                 try f.writeCValue(writer, .{ .local = locals_index }, .Other);
                 locals_index += 1;
@@ -5688,7 +5688,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
 
             const is_reg = constraint[0] == '{';
             const input_val = try f.resolveInst(input);
-            try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "r" else constraint, null)});
+            try writer.print("{f}(", .{fmtStringLiteral(if (is_reg) "r" else constraint, null)});
             try f.writeCValue(writer, if (asmInputNeedsLocal(f, constraint, input_val)) local: {
                 const input_local_idx = locals_index;
                 locals_index += 1;
@@ -5706,7 +5706,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             if (clobber.len == 0) continue;
 
             if (clobber_i > 0) try writer.writeByte(',');
-            try writer.print(" {s}", .{fmtStringLiteral(clobber, null)});
+            try writer.print(" {f}", .{fmtStringLiteral(clobber, null)});
         }
         try writer.writeAll(");\n");
 
@@ -8160,7 +8160,7 @@ fn StringLiteral(comptime WriterType: type) type {
         cur_len: u64 = 0,
         counting_writer: std.io.CountingWriter(WriterType),
 
-        pub const Error = WriterType.Error;
+        pub const Error = if (WriterType == *std.io.Writer) error{WriteFailed} else WriterType.Error;
 
         const Self = @This();
 

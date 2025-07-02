@@ -243,7 +243,7 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
             },
         }
 
-        relocs_log.debug("  {s}: [{x} => {d}({s})] + {x}", .{
+        relocs_log.debug("  {f}: [{x} => {d}({s})] + {x}", .{
             relocation.fmtRelocType(rel.r_type(), cpu_arch),
             r_offset,
             r_sym,
@@ -652,7 +652,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
         // Address of the dynamic thread pointer.
         const DTP = elf_file.dtpAddress();
 
-        relocs_log.debug("  {s}: {x}: [{x} => {x}] GOT({x}) ({s})", .{
+        relocs_log.debug("  {f}: {x}: [{x} => {x}] GOT({x}) ({s})", .{
             relocation.fmtRelocType(rel.r_type(), cpu_arch),
             r_offset,
             P,

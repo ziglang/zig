@@ -2588,7 +2588,7 @@ fn logSymtab(coff: *Coff) void {
             .DEBUG => unreachable, // TODO
             else => @intFromEnum(sym.section_number),
         };
-        log.debug("    %{d}: {?s} @{x} in {s}({d}), {s}", .{
+        log.debug("    %{d}: {s} @{x} in {s}({d}), {s}", .{
             sym_id,
             coff.getSymbolName(.{ .sym_index = @as(u32, @intCast(sym_id)), .file = null }),
             sym.value,

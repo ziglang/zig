@@ -696,7 +696,7 @@ pub const PltSection = struct {
             const r_sym: u64 = extra.dynamic;
             const r_type = relocation.encode(.jump_slot, cpu_arch);
 
-            relocs_log.debug("  {s}: [{x} => {d}({s})] + 0", .{
+            relocs_log.debug("  {f}: [{x} => {d}({s})] + 0", .{
                 relocation.fmtRelocType(r_type, cpu_arch),
                 r_offset,
                 r_sym,

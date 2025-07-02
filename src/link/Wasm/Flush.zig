@@ -534,7 +534,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         wasm.memories.limits.max = @intCast(max_memory / page_size);
         wasm.memories.limits.flags.has_max = true;
         if (shared_memory) wasm.memories.limits.flags.is_shared = true;
-        log.debug("maximum memory pages: {?d}", .{wasm.memories.limits.max});
+        log.debug("maximum memory pages: {d}", .{wasm.memories.limits.max});
     }
     f.memory_layout_finished = true;
 

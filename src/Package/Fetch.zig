@@ -1079,13 +1079,13 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
             });
             const notes_start = try eb.reserveNotes(notes_len);
             eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
-                .msg = try eb.printString("try .url = \"{;+/}#{}\",", .{ uri, want_oid }),
+                .msg = try eb.printString("try .url = \"{f;+/}#{f}\",", .{ uri, want_oid }),
             }));
             return error.FetchFailed;
         }
 
         var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
-        _ = std.fmt.bufPrint(&want_oid_buf, "{}", .{want_oid}) catch unreachable;
+        _ = std.fmt.bufPrint(&want_oid_buf, "{f}", .{want_oid}) catch unreachable;
         var fetch_stream = session.fetch(&.{&want_oid_buf}, server_header_buffer) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to create fetch stream: {s}",

@@ -653,7 +653,7 @@ fn resolveRelocInner(
     const divExact = struct {
         fn divExact(atom: Atom, r: Relocation, num: u12, den: u12, ctx: *MachO) !u12 {
             return math.divExact(u12, num, den) catch {
-                try ctx.reportParseError2(atom.getFile(ctx).getIndex(), "{s}: unexpected remainder when resolving {s} at offset 0x{x}", .{
+                try ctx.reportParseError2(atom.getFile(ctx).getIndex(), "{s}: unexpected remainder when resolving {f} at offset 0x{x}", .{
                     atom.getName(ctx),
                     r.fmtPretty(ctx.getTarget().cpu.arch),
                     r.offset,

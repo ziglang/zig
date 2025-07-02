@@ -1981,21 +1981,15 @@ pub fn Hashed(comptime Hasher: type) type {
                 .hasher = hasher,
                 .writer = .{
                     .buffer = buffer,
-                    .vtable = &.{@This().drain},
+                    .vtable = &.{ .drain = @This().drain },
                 },
             };
         }
 
         fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
             const this: *@This() = @alignCast(@fieldParentPtr("writer", w));
-            if (data.len == 0) {
-                const buf = w.buffered();
-                try this.out.writeAll(buf);
-                this.hasher.update(buf);
-                w.end = 0;
-                return buf.len;
-            }
-            const aux_n = try this.out.writeSplatAux(w.buffered(), data, splat);
+            const aux = w.buffered();
+            const aux_n = try this.out.writeSplatHeader(aux, data, splat);
             if (aux_n < w.end) {
                 this.hasher.update(w.buffer[0..aux_n]);
                 const remaining = w.buffer[aux_n..w.end];
@@ -2003,29 +1997,20 @@ pub fn Hashed(comptime Hasher: type) type {
                 w.end = remaining.len;
                 return 0;
             }
-            this.hasher.update(w.buffered());
+            this.hasher.update(aux);
             const n = aux_n - w.end;
             w.end = 0;
             var remaining: usize = n;
-            const short_data = data[0 .. data.len - @intFromBool(splat == 0)];
-            for (short_data) |slice| {
-                if (remaining < slice.len) {
+            for (data[0 .. data.len - 1]) |slice| {
+                if (remaining <= slice.len) {
                     this.hasher.update(slice[0..remaining]);
                     return n;
-                } else {
-                    remaining -= slice.len;
-                    this.hasher.update(slice);
                 }
+                remaining -= slice.len;
+                this.hasher.update(slice);
             }
-            const remaining_splat = switch (splat) {
-                0, 1 => {
-                    assert(remaining == 0);
-                    return n;
-                },
-                else => splat - 1,
-            };
             const pattern = data[data.len - 1];
-            assert(remaining == remaining_splat * pattern.len);
+            assert(remaining == splat * pattern.len);
             switch (pattern.len) {
                 0 => {
                     assert(remaining == 0);

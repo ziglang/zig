@@ -317,7 +317,7 @@ pub fn updateFileOnDisk(file: *File, comp: *Compilation) !void {
     if (root_dir.statFile(sub_path)) |stat| {
         if (stat.size != file.source.?.len) {
             std.log.warn(
-                "the cached file '{f}{s}' had the wrong size. Expected {d}, found {d}. " ++
+                "the cached file '{f}' had the wrong size. Expected {d}, found {d}. " ++
                     "Overwriting with correct file contents now",
                 .{ file.path.fmt(comp), file.source.?.len, stat.size },
             );

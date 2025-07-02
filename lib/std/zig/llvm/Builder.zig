@@ -1262,7 +1262,7 @@ pub const Attribute = union(Kind) {
                     try w.writeByte(')');
                 },
                 .alignstack => |alignment| {
-                    try w.print(" {s}", .{attribute});
+                    try w.print(" {f}", .{attribute});
                     const alignment_bytes = alignment.toByteUnits() orelse return;
                     switch (data.mode) {
                         .pound => try w.print("({d})", .{alignment_bytes}),
