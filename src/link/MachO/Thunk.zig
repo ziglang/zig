@@ -20,16 +20,16 @@ pub fn getTargetAddress(thunk: Thunk, ref: MachO.Ref, macho_file: *MachO) u64 {
     return thunk.getAddress(macho_file) + thunk.symbols.getIndex(ref).? * trampoline_size;
 }
 
-pub fn write(thunk: Thunk, macho_file: *MachO, writer: anytype) !void {
+pub fn write(thunk: Thunk, macho_file: *MachO, bw: *Writer) !void {
     for (thunk.symbols.keys(), 0..) |ref, i| {
         const sym = ref.getSymbol(macho_file).?;
         const saddr = thunk.getAddress(macho_file) + i * trampoline_size;
         const taddr = sym.getAddress(.{}, macho_file);
         const pages = try aarch64.calcNumberOfPages(@intCast(saddr), @intCast(taddr));
-        try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
+        try bw.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
         const off: u12 = @truncate(taddr);
-        try writer.writeInt(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32(), .little);
-        try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
+        try bw.writeInt(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32(), .little);
+        try bw.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
     }
 }
 
@@ -61,47 +61,27 @@ pub fn writeSymtab(thunk: Thunk, macho_file: *MachO, ctx: anytype) void {
     }
 }
 
-pub fn format(
-    thunk: Thunk,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = thunk;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format Thunk directly");
-}
-
-pub fn fmt(thunk: Thunk, macho_file: *MachO) std.fmt.Formatter(format2) {
+pub fn fmt(thunk: Thunk, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
     return .{ .data = .{
         .thunk = thunk,
         .macho_file = macho_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     thunk: Thunk,
     macho_file: *MachO,
-};
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
-    const thunk = ctx.thunk;
-    const macho_file = ctx.macho_file;
-    try writer.print("@{x} : size({x})\n", .{ thunk.value, thunk.size() });
-    for (thunk.symbols.keys()) |ref| {
-        const sym = ref.getSymbol(macho_file).?;
-        try writer.print("  {} : {s} : @{x}\n", .{ ref, sym.getName(macho_file), sym.value });
+    fn default(f: Format, w: *Writer) Writer.Error!void {
+        const thunk = f.thunk;
+        const macho_file = f.macho_file;
+        try w.print("@{x} : size({x})\n", .{ thunk.value, thunk.size() });
+        for (thunk.symbols.keys()) |ref| {
+            const sym = ref.getSymbol(macho_file).?;
+            try w.print("  {f} : {s} : @{x}\n", .{ ref, sym.getName(macho_file), sym.value });
+        }
     }
-}
+};
 
 const trampoline_size = 3 * @sizeOf(u32);
 
@@ -115,6 +95,7 @@ const math = std.math;
 const mem = std.mem;
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
+const Writer = std.io.Writer;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");
