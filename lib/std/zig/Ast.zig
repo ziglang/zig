@@ -3341,7 +3341,7 @@ pub const Node = struct {
         /// The `main_token` might be a ** token, which is shared with a
         /// parent/child pointer type and may require special handling.
         ptr_type_sentinel,
-        /// The `data` field is a `.opt_node_and_node`:
+        /// The `data` field is a `.extra_and_node`:
         ///   1. a `ExtraIndex` to `PtrType`.
         ///   2. a `Node.Index` to the element type expression.
         ///
@@ -3350,7 +3350,7 @@ pub const Node = struct {
         /// The `main_token` might be a ** token, which is shared with a
         /// parent/child pointer type and may require special handling.
         ptr_type,
-        /// The `data` field is a `.opt_node_and_node`:
+        /// The `data` field is a `.extra_and_node`:
         ///   1. a `ExtraIndex` to `PtrTypeBitRange`.
         ///   2. a `Node.Index` to the element type expression.
         ///
