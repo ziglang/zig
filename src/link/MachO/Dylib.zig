@@ -158,6 +158,46 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
     }
 }
 
+const TrieIterator = struct {
+    data: []const u8,
+    pos: usize = 0,
+
+    fn getStream(it: *TrieIterator) std.io.FixedBufferStream([]const u8) {
+        return std.io.fixedBufferStream(it.data[it.pos..]);
+    }
+
+    fn readUleb128(it: *TrieIterator) !u64 {
+        var stream = it.getStream();
+        var creader = std.io.countingReader(stream.reader());
+        const reader = creader.reader();
+        const value = try std.leb.readUleb128(u64, reader);
+        it.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
+        return value;
+    }
+
+    fn readString(it: *TrieIterator) ![:0]const u8 {
+        var stream = it.getStream();
+        const reader = stream.reader();
+
+        var count: usize = 0;
+        while (true) : (count += 1) {
+            const byte = try reader.readByte();
+            if (byte == 0) break;
+        }
+
+        const str = @as([*:0]const u8, @ptrCast(it.data.ptr + it.pos))[0..count :0];
+        it.pos += count + 1;
+        return str;
+    }
+
+    fn readByte(it: *TrieIterator) !u8 {
+        var stream = it.getStream();
+        const value = try stream.reader().readByte();
+        it.pos += 1;
+        return value;
+    }
+};
+
 pub fn addExport(self: *Dylib, allocator: Allocator, name: []const u8, flags: Export.Flags) !void {
     try self.exports.append(allocator, .{
         .name = try self.addString(allocator, name),
@@ -167,16 +207,16 @@ pub fn addExport(self: *Dylib, allocator: Allocator, name: []const u8, flags: Ex
 
 fn parseTrieNode(
     self: *Dylib,
-    br: *std.io.Reader,
+    it: *TrieIterator,
     allocator: Allocator,
     arena: Allocator,
     prefix: []const u8,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const size = try br.takeLeb128(u64);
+    const size = try it.readUleb128();
     if (size > 0) {
-        const flags = try br.takeLeb128(u8);
+        const flags = try it.readUleb128();
         const kind = flags & macho.EXPORT_SYMBOL_FLAGS_KIND_MASK;
         const out_flags = Export.Flags{
             .abs = kind == macho.EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE,
@@ -184,28 +224,29 @@ fn parseTrieNode(
             .weak = flags & macho.EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION != 0,
         };
         if (flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT != 0) {
-            _ = try br.takeLeb128(u64); // dylib ordinal
-            const name = try br.takeSentinel(0);
+            _ = try it.readUleb128(); // dylib ordinal
+            const name = try it.readString();
             try self.addExport(allocator, if (name.len > 0) name else prefix, out_flags);
         } else if (flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER != 0) {
-            _ = try br.takeLeb128(u64); // stub offset
-            _ = try br.takeLeb128(u64); // resolver offset
+            _ = try it.readUleb128(); // stub offset
+            _ = try it.readUleb128(); // resolver offset
             try self.addExport(allocator, prefix, out_flags);
         } else {
-            _ = try br.takeLeb128(u64); // VM offset
+            _ = try it.readUleb128(); // VM offset
             try self.addExport(allocator, prefix, out_flags);
         }
     }
 
-    const nedges = try br.takeByte();
+    const nedges = try it.readByte();
+
     for (0..nedges) |_| {
-        const label = try br.takeSentinel(0);
-        const off = try br.takeLeb128(usize);
+        const label = try it.readString();
+        const off = try it.readUleb128();
         const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
-        const seek = br.seek;
-        br.seek = off;
-        try self.parseTrieNode(br, allocator, arena, prefix_label);
-        br.seek = seek;
+        const curr = it.pos;
+        it.pos = math.cast(usize, off) orelse return error.Overflow;
+        try self.parseTrieNode(it, allocator, arena, prefix_label);
+        it.pos = curr;
     }
 }
 
@@ -216,8 +257,8 @@ fn parseTrie(self: *Dylib, data: []const u8, macho_file: *MachO) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
-    var r: std.io.Reader = .fixed(data);
-    try self.parseTrieNode(&r, gpa, arena.allocator(), "");
+    var it: TrieIterator = .{ .data = data };
+    try self.parseTrieNode(&it, gpa, arena.allocator(), "");
 }
 
 fn parseTbd(self: *Dylib, macho_file: *MachO) !void {

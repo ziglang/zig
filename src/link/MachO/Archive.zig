@@ -71,29 +71,53 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
             .mtime = hdr.date() catch 0,
         };
 
-        log.debug("extracting object '{f}' from archive '{f}'", .{ object.path, path });
+        log.debug("extracting object '{}' from archive '{}'", .{ object.path, path });
 
         try self.objects.append(gpa, object);
     }
 }
 
 pub fn writeHeader(
-    bw: *Writer,
     object_name: []const u8,
     object_size: usize,
     format: Format,
-) Writer.Error!void {
-    var hdr: ar_hdr = undefined;
-    @memset(mem.asBytes(&hdr), ' ');
-    inline for (@typeInfo(ar_hdr).@"struct".fields) |field| @field(hdr, field.name)[0] = '0';
+    writer: anytype,
+) !void {
+    var hdr: ar_hdr = .{
+        .ar_name = undefined,
+        .ar_date = undefined,
+        .ar_uid = undefined,
+        .ar_gid = undefined,
+        .ar_mode = undefined,
+        .ar_size = undefined,
+        .ar_fmag = undefined,
+    };
+    @memset(mem.asBytes(&hdr), 0x20);
+    inline for (@typeInfo(ar_hdr).@"struct".fields) |field| {
+        var stream = std.io.fixedBufferStream(&@field(hdr, field.name));
+        stream.writer().print("0", .{}) catch unreachable;
+    }
     @memcpy(&hdr.ar_fmag, ARFMAG);
+
     const object_name_len = mem.alignForward(usize, object_name.len + 1, ptrWidth(format));
-    _ = std.fmt.bufPrint(&hdr.ar_name, "#1/{d}", .{object_name_len}) catch unreachable;
     const total_object_size = object_size + object_name_len;
-    _ = std.fmt.bufPrint(&hdr.ar_size, "{d}", .{total_object_size}) catch unreachable;
-    try bw.writeStruct(hdr);
-    try bw.writeAll(object_name);
-    try bw.splatByteAll(0, object_name_len - object_name.len);
+
+    {
+        var stream = std.io.fixedBufferStream(&hdr.ar_name);
+        stream.writer().print("#1/{d}", .{object_name_len}) catch unreachable;
+    }
+    {
+        var stream = std.io.fixedBufferStream(&hdr.ar_size);
+        stream.writer().print("{d}", .{total_object_size}) catch unreachable;
+    }
+
+    try writer.writeAll(mem.asBytes(&hdr));
+    try writer.print("{s}\x00", .{object_name});
+
+    const padding = object_name_len - object_name.len - 1;
+    if (padding > 0) {
+        try writer.writeByteNTimes(0, padding);
+    }
 }
 
 // Archive files start with the ARMAG identifying string.  Then follows a
@@ -177,12 +201,12 @@ pub const ArSymtab = struct {
         return ptr_width + ar.entries.items.len * 2 * ptr_width + ptr_width + mem.alignForward(usize, ar.strtab.buffer.items.len, ptr_width);
     }
 
-    pub fn write(ar: ArSymtab, bw: *Writer, format: Format, macho_file: *MachO) Writer.Error!void {
+    pub fn write(ar: ArSymtab, format: Format, macho_file: *MachO, writer: anytype) !void {
         const ptr_width = ptrWidth(format);
         // Header
-        try writeHeader(bw, SYMDEF, ar.size(format), format);
+        try writeHeader(SYMDEF, ar.size(format), format, writer);
         // Symtab size
-        try writeInt(bw, format, ar.entries.items.len * 2 * ptr_width);
+        try writeInt(format, ar.entries.items.len * 2 * ptr_width, writer);
         // Symtab entries
         for (ar.entries.items) |entry| {
             const file_off = switch (macho_file.getFile(entry.file).?) {
@@ -191,16 +215,19 @@ pub const ArSymtab = struct {
                 else => unreachable,
             };
             // Name offset
-            try writeInt(bw, format, entry.off);
+            try writeInt(format, entry.off, writer);
             // File offset
-            try writeInt(bw, format, file_off);
+            try writeInt(format, file_off, writer);
         }
         // Strtab size
         const strtab_size = mem.alignForward(usize, ar.strtab.buffer.items.len, ptr_width);
-        try writeInt(bw, format, strtab_size);
+        const padding = strtab_size - ar.strtab.buffer.items.len;
+        try writeInt(format, strtab_size, writer);
         // Strtab
-        try bw.writeAll(ar.strtab.buffer.items);
-        try bw.splatByteAll(0, strtab_size - ar.strtab.buffer.items.len);
+        try writer.writeAll(ar.strtab.buffer.items);
+        if (padding > 0) {
+            try writer.writeByteNTimes(0, padding);
+        }
     }
 
     const PrintFormat = struct {
@@ -248,10 +275,10 @@ pub fn ptrWidth(format: Format) usize {
     };
 }
 
-pub fn writeInt(bw: *Writer, format: Format, value: u64) Writer.Error!void {
+pub fn writeInt(format: Format, value: u64, writer: anytype) !void {
     switch (format) {
-        .p32 => try bw.writeInt(u32, std.math.cast(u32, value) orelse return error.Overflow, .little),
-        .p64 => try bw.writeInt(u64, value, .little),
+        .p32 => try writer.writeInt(u32, std.math.cast(u32, value) orelse return error.Overflow, .little),
+        .p64 => try writer.writeInt(u64, value, .little),
     }
 }
 

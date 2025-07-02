@@ -81,7 +81,7 @@ pub const InfoReader = struct {
             .dwarf64 => 12,
         } + cuh_length;
         while (p.pos < end_pos) {
-            const di_code = try p.readLeb128(u64);
+            const di_code = try p.readUleb128(u64);
             if (di_code == 0) return error.UnexpectedEndOfFile;
             if (di_code == code) return;
 
@@ -174,14 +174,14 @@ pub const InfoReader = struct {
             dw.FORM.block1 => try p.readByte(),
             dw.FORM.block2 => try p.readInt(u16),
             dw.FORM.block4 => try p.readInt(u32),
-            dw.FORM.block => try p.readLeb128(u64),
+            dw.FORM.block => try p.readUleb128(u64),
             else => unreachable,
         };
         return p.readNBytes(len);
     }
 
     pub fn readExprLoc(p: *InfoReader) ![]const u8 {
-        const len: u64 = try p.readLeb128(u64);
+        const len: u64 = try p.readUleb128(u64);
         return p.readNBytes(len);
     }
 
@@ -191,8 +191,8 @@ pub const InfoReader = struct {
             dw.FORM.data2, dw.FORM.ref2 => try p.readInt(u16),
             dw.FORM.data4, dw.FORM.ref4 => try p.readInt(u32),
             dw.FORM.data8, dw.FORM.ref8, dw.FORM.ref_sig8 => try p.readInt(u64),
-            dw.FORM.udata, dw.FORM.ref_udata => try p.readLeb128(u64),
-            dw.FORM.sdata => @bitCast(try p.readLeb128(i64)),
+            dw.FORM.udata, dw.FORM.ref_udata => try p.readUleb128(u64),
+            dw.FORM.sdata => @bitCast(try p.readIleb128(i64)),
             else => return error.UnhandledConstantForm,
         };
     }
@@ -203,7 +203,7 @@ pub const InfoReader = struct {
             dw.FORM.strx2, dw.FORM.addrx2 => try p.readInt(u16),
             dw.FORM.strx3, dw.FORM.addrx3 => error.UnhandledForm,
             dw.FORM.strx4, dw.FORM.addrx4 => try p.readInt(u32),
-            dw.FORM.strx, dw.FORM.addrx => try p.readLeb128(u64),
+            dw.FORM.strx, dw.FORM.addrx => try p.readUleb128(u64),
             else => return error.UnhandledIndexForm,
         };
     }
@@ -272,10 +272,20 @@ pub const InfoReader = struct {
         };
     }
 
-    pub fn readLeb128(p: *InfoReader, comptime Type: type) !Type {
-        var r: std.io.Reader = .fixed(p.bytes()[p.pos..]);
-        defer p.pos += r.seek;
-        return r.takeLeb128(Type);
+    pub fn readUleb128(p: *InfoReader, comptime Type: type) !Type {
+        var stream = std.io.fixedBufferStream(p.bytes()[p.pos..]);
+        var creader = std.io.countingReader(stream.reader());
+        const value: Type = try leb.readUleb128(Type, creader.reader());
+        p.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
+        return value;
+    }
+
+    pub fn readIleb128(p: *InfoReader, comptime Type: type) !Type {
+        var stream = std.io.fixedBufferStream(p.bytes()[p.pos..]);
+        var creader = std.io.countingReader(stream.reader());
+        const value: Type = try leb.readIleb128(Type, creader.reader());
+        p.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
+        return value;
     }
 
     pub fn seekTo(p: *InfoReader, off: u64) !void {
@@ -297,10 +307,10 @@ pub const AbbrevReader = struct {
 
     pub fn readDecl(p: *AbbrevReader) !?AbbrevDecl {
         const pos = p.pos;
-        const code = try p.readLeb128(Code);
+        const code = try p.readUleb128(Code);
         if (code == 0) return null;
 
-        const tag = try p.readLeb128(Tag);
+        const tag = try p.readUleb128(Tag);
         const has_children = (try p.readByte()) > 0;
         return .{
             .code = code,
@@ -313,8 +323,8 @@ pub const AbbrevReader = struct {
 
     pub fn readAttr(p: *AbbrevReader) !?AbbrevAttr {
         const pos = p.pos;
-        const at = try p.readLeb128(At);
-        const form = try p.readLeb128(Form);
+        const at = try p.readUleb128(At);
+        const form = try p.readUleb128(Form);
         return if (at == 0 and form == 0) null else .{
             .at = at,
             .form = form,
@@ -329,10 +339,12 @@ pub const AbbrevReader = struct {
         return p.bytes()[p.pos];
     }
 
-    pub fn readLeb128(p: *AbbrevReader, comptime Type: type) !Type {
-        var r: std.io.Reader = .fixed(p.bytes()[p.pos..]);
-        defer p.pos += r.seek;
-        return r.takeLeb128(Type);
+    pub fn readUleb128(p: *AbbrevReader, comptime Type: type) !Type {
+        var stream = std.io.fixedBufferStream(p.bytes()[p.pos..]);
+        var creader = std.io.countingReader(stream.reader());
+        const value: Type = try leb.readUleb128(Type, creader.reader());
+        p.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
+        return value;
     }
 
     pub fn seekTo(p: *AbbrevReader, off: u64) !void {

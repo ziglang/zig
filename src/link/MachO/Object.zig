@@ -1069,7 +1069,7 @@ fn initEhFrameRecords(self: *Object, allocator: Allocator, sect_id: u8, file: Fi
         }
     }
 
-    var it: eh_frame.Iterator = .{ .br = .fixed(self.eh_frame_data.items) };
+    var it = eh_frame.Iterator{ .data = self.eh_frame_data.items };
     while (try it.next()) |rec| {
         switch (rec.tag) {
             .cie => try self.cies.append(allocator, .{
@@ -1698,11 +1698,11 @@ pub fn updateArSize(self: *Object, macho_file: *MachO) !void {
     };
 }
 
-pub fn writeAr(self: Object, bw: *Writer, ar_format: Archive.Format, macho_file: *MachO) !void {
+pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writer: anytype) !void {
     // Header
     const size = try macho_file.cast(usize, self.output_ar_state.size);
     const basename = std.fs.path.basename(self.path.sub_path);
-    try Archive.writeHeader(bw, basename, size, ar_format);
+    try Archive.writeHeader(basename, size, ar_format, writer);
     // Data
     const file = macho_file.getFileHandle(self.file_handle);
     // TODO try using copyRangeAll
@@ -1711,7 +1711,7 @@ pub fn writeAr(self: Object, bw: *Writer, ar_format: Archive.Format, macho_file:
     defer gpa.free(data);
     const amt = try file.preadAll(data, self.offset);
     if (amt != size) return error.InputOutput;
-    try bw.writeAll(data);
+    try writer.writeAll(data);
 }
 
 pub fn calcSymtabSize(self: *Object, macho_file: *MachO) void {
@@ -1865,7 +1865,7 @@ pub fn writeAtomsRelocatable(self: *Object, macho_file: *MachO) !void {
         }
         gpa.free(sections_data);
     }
-    @memset(sections_data, &.{});
+    @memset(sections_data, &[0]u8{});
     const file = macho_file.getFileHandle(self.file_handle);
 
     for (headers, 0..) |header, n_sect| {

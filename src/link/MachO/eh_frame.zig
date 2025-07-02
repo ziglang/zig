@@ -12,33 +12,36 @@ pub const Cie = struct {
         const tracy = trace(@src());
         defer tracy.end();
 
-        var r: std.io.Reader = .fixed(cie.getData(macho_file));
+        const data = cie.getData(macho_file);
+        const aug = std.mem.sliceTo(@as([*:0]const u8, @ptrCast(data.ptr + 9)), 0);
 
-        try r.discard(9);
-        const aug = try r.takeSentinel(0);
         if (aug[0] != 'z') return; // TODO should we error out?
 
-        _ = try r.takeLeb128(u64); // code alignment factor
-        _ = try r.takeLeb128(u64); // data alignment factor
-        _ = try r.takeLeb128(u64); // return address register
-        _ = try r.takeLeb128(u64); // augmentation data length
+        var stream = std.io.fixedBufferStream(data[9 + aug.len + 1 ..]);
+        var creader = std.io.countingReader(stream.reader());
+        const reader = creader.reader();
+
+        _ = try leb.readUleb128(u64, reader); // code alignment factor
+        _ = try leb.readUleb128(u64, reader); // data alignment factor
+        _ = try leb.readUleb128(u64, reader); // return address register
+        _ = try leb.readUleb128(u64, reader); // augmentation data length
 
         for (aug[1..]) |ch| switch (ch) {
             'R' => {
-                const enc = try r.takeByte();
+                const enc = try reader.readByte();
                 if (enc != DW_EH_PE.pcrel | DW_EH_PE.absptr) {
                     @panic("unexpected pointer encoding"); // TODO error
                 }
             },
             'P' => {
-                const enc = try r.takeByte();
+                const enc = try reader.readByte();
                 if (enc != DW_EH_PE.pcrel | DW_EH_PE.indirect | DW_EH_PE.sdata4) {
                     @panic("unexpected personality pointer encoding"); // TODO error
                 }
-                _ = try r.takeInt(u32, .little); // personality pointer
+                _ = try reader.readInt(u32, .little); // personality pointer
             },
             'L' => {
-                const enc = try r.takeByte();
+                const enc = try reader.readByte();
                 switch (enc & DW_EH_PE.type_mask) {
                     DW_EH_PE.sdata4 => cie.lsda_size = .p32,
                     DW_EH_PE.absptr => cie.lsda_size = .p64,
@@ -125,16 +128,12 @@ pub const Fde = struct {
         const tracy = trace(@src());
         defer tracy.end();
 
+        const data = fde.getData(macho_file);
         const object = fde.getObject(macho_file);
         const sect = object.sections.items(.header)[object.eh_frame_sect_index.?];
 
-        var br: std.io.Reader = .fixed(fde.getData(macho_file));
-
-        try br.discard(4);
-        const cie_ptr = try br.takeInt(u32, .little);
-        const pc_begin = try br.takeInt(i64, .little);
-
         // Parse target atom index
+        const pc_begin = std.mem.readInt(i64, data[8..][0..8], .little);
         const taddr: u64 = @intCast(@as(i64, @intCast(sect.addr + fde.offset + 8)) + pc_begin);
         fde.atom = object.findAtom(taddr) orelse {
             try macho_file.reportParseError2(object.index, "{s},{s}: 0x{x}: invalid function reference in FDE", .{
@@ -146,6 +145,7 @@ pub const Fde = struct {
         fde.atom_offset = @intCast(taddr - atom.getInputAddress(macho_file));
 
         // Associate with a CIE
+        const cie_ptr = std.mem.readInt(u32, data[4..8], .little);
         const cie_offset = fde.offset + 4 - cie_ptr;
         const cie_index = for (object.cies.items, 0..) |cie, cie_index| {
             if (cie.offset == cie_offset) break @as(Cie.Index, @intCast(cie_index));
@@ -163,12 +163,14 @@ pub const Fde = struct {
 
         // Parse LSDA atom index if any
         if (cie.lsda_size) |lsda_size| {
-            try br.discard(8);
-            _ = try br.takeLeb128(u64); // augmentation length
-            fde.lsda_ptr_offset = @intCast(br.seek);
+            var stream = std.io.fixedBufferStream(data[24..]);
+            var creader = std.io.countingReader(stream.reader());
+            const reader = creader.reader();
+            _ = try leb.readUleb128(u64, reader); // augmentation length
+            fde.lsda_ptr_offset = @intCast(creader.bytes_read + 24);
             const lsda_ptr = switch (lsda_size) {
-                .p32 => try br.takeInt(i32, .little),
-                .p64 => try br.takeInt(i64, .little),
+                .p32 => try reader.readInt(i32, .little),
+                .p64 => try reader.readInt(i64, .little),
             };
             const lsda_addr: u64 = @intCast(@as(i64, @intCast(sect.addr + fde.offset + fde.lsda_ptr_offset)) + lsda_ptr);
             fde.lsda = object.findAtom(lsda_addr) orelse {
@@ -209,35 +211,56 @@ pub const Fde = struct {
         return fde.getObject(macho_file).getAtom(fde.lsda);
     }
 
-    pub fn fmt(fde: Fde, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
+    pub fn format(
+        fde: Fde,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fde;
+        _ = unused_fmt_string;
+        _ = options;
+        _ = writer;
+        @compileError("do not format FDEs directly");
+    }
+
+    pub fn fmt(fde: Fde, macho_file: *MachO) std.fmt.Formatter(format2) {
         return .{ .data = .{
             .fde = fde,
             .macho_file = macho_file,
         } };
     }
 
-    const Format = struct {
+    const FormatContext = struct {
         fde: Fde,
         macho_file: *MachO,
-
-        fn default(f: Format, w: *Writer) Writer.Error!void {
-            const fde = f.fde;
-            const macho_file = f.macho_file;
-            try w.print("@{x} : size({x}) : cie({d}) : {s}", .{
-                fde.offset,
-                fde.getSize(),
-                fde.cie,
-                fde.getAtom(macho_file).getName(macho_file),
-            });
-            if (!fde.alive) try w.writeAll(" : [*]");
-        }
     };
+
+    fn format2(
+        ctx: FormatContext,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = unused_fmt_string;
+        _ = options;
+        const fde = ctx.fde;
+        const macho_file = ctx.macho_file;
+        try writer.print("@{x} : size({x}) : cie({d}) : {s}", .{
+            fde.offset,
+            fde.getSize(),
+            fde.cie,
+            fde.getAtom(macho_file).getName(macho_file),
+        });
+        if (!fde.alive) try writer.writeAll(" : [*]");
+    }
 
     pub const Index = u32;
 };
 
 pub const Iterator = struct {
-    reader: *std.io.Reader,
+    data: []const u8,
+    pos: u32 = 0,
 
     pub const Record = struct {
         tag: enum { fde, cie },
@@ -246,19 +269,21 @@ pub const Iterator = struct {
     };
 
     pub fn next(it: *Iterator) !?Record {
-        const r = it.reader;
-        if (r.seek >= r.storageBuffer().len) return null;
+        if (it.pos >= it.data.len) return null;
 
-        const size = try r.takeInt(u32, .little);
+        var stream = std.io.fixedBufferStream(it.data[it.pos..]);
+        const reader = stream.reader();
+
+        const size = try reader.readInt(u32, .little);
         if (size == 0xFFFFFFFF) @panic("DWARF CFI is 32bit on macOS");
 
-        const id = try r.takeInt(u32, .little);
-        const record: Record = .{
+        const id = try reader.readInt(u32, .little);
+        const record = Record{
             .tag = if (id == 0) .cie else .fde,
-            .offset = @intCast(r.seek),
+            .offset = it.pos,
             .size = size,
         };
-        try r.discard(size);
+        it.pos += size + 4;
 
         return record;
     }

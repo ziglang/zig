@@ -269,14 +269,18 @@ fn finalizeDwarfSegment(self: *DebugSymbols, macho_file: *MachO) void {
 
 fn writeLoadCommands(self: *DebugSymbols, macho_file: *MachO) !struct { usize, usize } {
     const gpa = self.allocator;
-    var bw: Writer = .fixed(try gpa.alloc(u8, load_commands.calcLoadCommandsSizeDsym(macho_file, self)));
-    defer gpa.free(bw.buffer);
+    const needed_size = load_commands.calcLoadCommandsSizeDsym(macho_file, self);
+    const buffer = try gpa.alloc(u8, needed_size);
+    defer gpa.free(buffer);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    const writer = stream.writer();
 
     var ncmds: usize = 0;
 
     // UUID comes first presumably to speed up lookup by the consumer like lldb.
     @memcpy(&self.uuid_cmd.uuid, &macho_file.uuid_cmd.uuid);
-    try bw.writeStruct(self.uuid_cmd);
+    try writer.writeStruct(self.uuid_cmd);
     ncmds += 1;
 
     // Segment and section load commands
@@ -289,11 +293,11 @@ fn writeLoadCommands(self: *DebugSymbols, macho_file: *MachO) !struct { usize, u
             var out_seg = seg;
             out_seg.fileoff = 0;
             out_seg.filesize = 0;
-            try bw.writeStruct(out_seg);
+            try writer.writeStruct(out_seg);
             for (slice.items(.header)[sect_id..][0..seg.nsects]) |header| {
                 var out_header = header;
                 out_header.offset = 0;
-                try bw.writeStruct(out_header);
+                try writer.writeStruct(out_header);
             }
             sect_id += seg.nsects;
         }
@@ -302,22 +306,23 @@ fn writeLoadCommands(self: *DebugSymbols, macho_file: *MachO) !struct { usize, u
         // Next, commit DSYM's __LINKEDIT and __DWARF segments headers.
         sect_id = 0;
         for (self.segments.items) |seg| {
-            try bw.writeStruct(seg);
+            try writer.writeStruct(seg);
             for (self.sections.items[sect_id..][0..seg.nsects]) |header| {
-                try bw.writeStruct(header);
+                try writer.writeStruct(header);
             }
             sect_id += seg.nsects;
         }
         ncmds += self.segments.items.len;
     }
 
-    try bw.writeStruct(self.symtab_cmd);
+    try writer.writeStruct(self.symtab_cmd);
     ncmds += 1;
 
-    assert(bw.end == bw.buffer.len);
-    try self.file.?.pwriteAll(bw.buffer, @sizeOf(macho.mach_header_64));
+    assert(stream.pos == needed_size);
 
-    return .{ ncmds, bw.end };
+    try self.file.?.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
+
+    return .{ ncmds, buffer.len };
 }
 
 fn writeHeader(self: *DebugSymbols, macho_file: *MachO, ncmds: usize, sizeofcmds: usize) !void {

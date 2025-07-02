@@ -317,12 +317,12 @@ pub fn updateArSize(self: *ZigObject) void {
     self.output_ar_state.size = self.data.items.len;
 }
 
-pub fn writeAr(self: ZigObject, bw: *Writer, ar_format: Archive.Format) Writer.Error!void {
+pub fn writeAr(self: ZigObject, ar_format: Archive.Format, writer: anytype) !void {
     // Header
     const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
-    try Archive.writeHeader(bw, self.basename, size, ar_format);
+    try Archive.writeHeader(self.basename, size, ar_format, writer);
     // Data
-    try bw.writeAll(self.data.items);
+    try writer.writeAll(self.data.items);
 }
 
 pub fn claimUnresolved(self: *ZigObject, macho_file: *MachO) void {
@@ -884,6 +884,7 @@ pub fn updateNav(
                 defer debug_wip_nav.deinit();
                 dwarf.finishWipNav(pt, nav_index, &debug_wip_nav) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
+                    error.Overflow => return error.Overflow,
                     else => |e| return macho_file.base.cgFail(nav_index, "failed to finish dwarf nav: {s}", .{@errorName(e)}),
                 };
             }
@@ -920,6 +921,7 @@ pub fn updateNav(
 
         if (debug_wip_nav) |*wip_nav| self.dwarf.?.finishWipNav(pt, nav_index, wip_nav) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
+            error.Overflow => return error.Overflow,
             else => |e| return macho_file.base.cgFail(nav_index, "failed to finish dwarf nav: {s}", .{@errorName(e)}),
         };
     } else if (self.dwarf) |*dwarf| try dwarf.updateComptimeNav(pt, nav_index);

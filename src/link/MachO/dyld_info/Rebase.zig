@@ -3,7 +3,7 @@ buffer: std.ArrayListUnmanaged(u8) = .empty,
 
 pub const Entry = struct {
     offset: u64,
-    segment_id: u4,
+    segment_id: u8,
 
     pub fn lessThan(ctx: void, entry: Entry, other: Entry) bool {
         _ = ctx;
@@ -110,35 +110,33 @@ pub fn updateSize(rebase: *Rebase, macho_file: *MachO) !void {
 fn finalize(rebase: *Rebase, gpa: Allocator) !void {
     if (rebase.entries.items.len == 0) return;
 
-    var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &rebase.buffer);
-    const bw = &aw.writer;
-    defer rebase.buffer = aw.toArrayList();
+    const writer = rebase.buffer.writer(gpa);
 
     log.debug("rebase opcodes", .{});
 
     std.mem.sort(Entry, rebase.entries.items, {}, Entry.lessThan);
 
-    try setTypePointer(bw);
+    try setTypePointer(writer);
 
     var start: usize = 0;
     var seg_id: ?u8 = null;
     for (rebase.entries.items, 0..) |entry, i| {
         if (seg_id != null and seg_id.? == entry.segment_id) continue;
-        try finalizeSegment(rebase.entries.items[start..i], bw);
+        try finalizeSegment(rebase.entries.items[start..i], writer);
         seg_id = entry.segment_id;
         start = i;
     }
 
-    try finalizeSegment(rebase.entries.items[start..], bw);
-    try done(bw);
+    try finalizeSegment(rebase.entries.items[start..], writer);
+    try done(writer);
 }
 
-fn finalizeSegment(entries: []const Entry, bw: *Writer) Writer.Error!void {
+fn finalizeSegment(entries: []const Entry, writer: anytype) !void {
     if (entries.len == 0) return;
 
     const segment_id = entries[0].segment_id;
     var offset = entries[0].offset;
-    try setSegmentOffset(segment_id, offset, bw);
+    try setSegmentOffset(segment_id, offset, writer);
 
     var count: usize = 0;
     var skip: u64 = 0;
@@ -157,7 +155,7 @@ fn finalizeSegment(entries: []const Entry, bw: *Writer) Writer.Error!void {
             .start => {
                 if (offset < current_offset) {
                     const delta = current_offset - offset;
-                    try addAddr(delta, bw);
+                    try addAddr(delta, writer);
                     offset += delta;
                 }
                 state = .times;
@@ -177,7 +175,7 @@ fn finalizeSegment(entries: []const Entry, bw: *Writer) Writer.Error!void {
                     offset += skip;
                     i -= 1;
                 } else {
-                    try rebaseTimes(count, bw);
+                    try rebaseTimes(count, writer);
                     state = .start;
                     i -= 1;
                 }
@@ -186,9 +184,9 @@ fn finalizeSegment(entries: []const Entry, bw: *Writer) Writer.Error!void {
                 if (current_offset < offset) {
                     count -= 1;
                     if (count == 1) {
-                        try rebaseAddAddr(skip, bw);
+                        try rebaseAddAddr(skip, writer);
                     } else {
-                        try rebaseTimesSkip(count, skip, bw);
+                        try rebaseTimesSkip(count, skip, writer);
                     }
                     state = .start;
                     offset = offset - (@sizeOf(u64) + skip);
@@ -201,7 +199,7 @@ fn finalizeSegment(entries: []const Entry, bw: *Writer) Writer.Error!void {
                     count += 1;
                     offset += @sizeOf(u64) + skip;
                 } else {
-                    try rebaseTimesSkip(count, skip, bw);
+                    try rebaseTimesSkip(count, skip, writer);
                     state = .start;
                     i -= 1;
                 }
@@ -212,66 +210,68 @@ fn finalizeSegment(entries: []const Entry, bw: *Writer) Writer.Error!void {
     switch (state) {
         .start => unreachable,
         .times => {
-            try rebaseTimes(count, bw);
+            try rebaseTimes(count, writer);
         },
         .times_skip => {
-            try rebaseTimesSkip(count, skip, bw);
+            try rebaseTimesSkip(count, skip, writer);
         },
     }
 }
 
-fn setTypePointer(bw: *Writer) Writer.Error!void {
+fn setTypePointer(writer: anytype) !void {
     log.debug(">>> set type: {d}", .{macho.REBASE_TYPE_POINTER});
-    try bw.writeByte(macho.REBASE_OPCODE_SET_TYPE_IMM | @as(u4, @intCast(macho.REBASE_TYPE_POINTER)));
+    try writer.writeByte(macho.REBASE_OPCODE_SET_TYPE_IMM | @as(u4, @truncate(macho.REBASE_TYPE_POINTER)));
 }
 
-fn setSegmentOffset(segment_id: u4, offset: u64, bw: *Writer) Writer.Error!void {
+fn setSegmentOffset(segment_id: u8, offset: u64, writer: anytype) !void {
     log.debug(">>> set segment: {d} and offset: {x}", .{ segment_id, offset });
-    try bw.writeByte(macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @as(u4, @truncate(segment_id)));
-    try bw.writeLeb128(offset);
+    try writer.writeByte(macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @as(u4, @truncate(segment_id)));
+    try std.leb.writeUleb128(writer, offset);
 }
 
-fn rebaseAddAddr(addr: u64, bw: *Writer) Writer.Error!void {
+fn rebaseAddAddr(addr: u64, writer: anytype) !void {
     log.debug(">>> rebase with add: {x}", .{addr});
-    try bw.writeByte(macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB);
-    try bw.writeLeb128(addr);
+    try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB);
+    try std.leb.writeUleb128(writer, addr);
 }
 
-fn rebaseTimes(count: usize, bw: *Writer) Writer.Error!void {
+fn rebaseTimes(count: usize, writer: anytype) !void {
     log.debug(">>> rebase with count: {d}", .{count});
     if (count <= 0xf) {
-        try bw.writeByte(macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES | @as(u4, @truncate(count)));
+        try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES | @as(u4, @truncate(count)));
     } else {
-        try bw.writeByte(macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES);
-        try bw.writeLeb128(count);
+        try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES);
+        try std.leb.writeUleb128(writer, count);
     }
 }
 
-fn rebaseTimesSkip(count: usize, skip: u64, bw: *Writer) Writer.Error!void {
+fn rebaseTimesSkip(count: usize, skip: u64, writer: anytype) !void {
     log.debug(">>> rebase with count: {d} and skip: {x}", .{ count, skip });
-    try bw.writeByte(macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB);
-    try bw.writeLeb128(count);
-    try bw.writeLeb128(skip);
+    try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB);
+    try std.leb.writeUleb128(writer, count);
+    try std.leb.writeUleb128(writer, skip);
 }
 
-fn addAddr(addr: u64, bw: *Writer) Writer.Error!void {
+fn addAddr(addr: u64, writer: anytype) !void {
     log.debug(">>> add: {x}", .{addr});
-    if (std.math.divExact(u64, addr, @sizeOf(u64))) |scaled| {
-        if (std.math.cast(u4, scaled)) |imm_scaled| return bw.writeByte(
-            macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED | imm_scaled,
-        );
-    } else |_| {}
-    try bw.writeByte(macho.REBASE_OPCODE_ADD_ADDR_ULEB);
-    try bw.writeLeb128(addr);
+    if (std.mem.isAlignedGeneric(u64, addr, @sizeOf(u64))) {
+        const imm = @divExact(addr, @sizeOf(u64));
+        if (imm <= 0xf) {
+            try writer.writeByte(macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED | @as(u4, @truncate(imm)));
+            return;
+        }
+    }
+    try writer.writeByte(macho.REBASE_OPCODE_ADD_ADDR_ULEB);
+    try std.leb.writeUleb128(writer, addr);
 }
 
-fn done(bw: *Writer) Writer.Error!void {
+fn done(writer: anytype) !void {
     log.debug(">>> done", .{});
-    try bw.writeByte(macho.REBASE_OPCODE_DONE);
+    try writer.writeByte(macho.REBASE_OPCODE_DONE);
 }
 
-pub fn write(rebase: Rebase, bw: *Writer) Writer.Error!void {
-    try bw.writeAll(rebase.buffer.items);
+pub fn write(rebase: Rebase, writer: anytype) !void {
+    try writer.writeAll(rebase.buffer.items);
 }
 
 test "rebase - no entries" {
