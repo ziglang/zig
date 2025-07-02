@@ -254,7 +254,7 @@ test "Value.jsonStringify" {
         \\ true,
         \\ 42,
         \\ 43,
-        \\ 4.2e1,
+        \\ 42,
         \\ "weeee",
         \\ [
         \\  1,
@@ -266,7 +266,7 @@ test "Value.jsonStringify" {
         \\ }
         \\]
     ;
-    try testing.expectEqualSlices(u8, expected, fbs.getWritten());
+    try testing.expectEqualStrings(expected, fbs.getWritten());
 }
 
 test "parseFromValue(std.json.Value,...)" {
