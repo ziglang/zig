@@ -71,6 +71,7 @@ struct ZigLLVMEmitOptions {
     bool sancov;
     ZigLLVMThinOrFullLTOPhase lto;
     bool allow_fast_isel;
+    bool allow_machine_outliner;
     const char *asm_filename;
     const char *bin_filename;
     const char *llvm_ir_filename;
