@@ -580,8 +580,9 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
 
     relocs_log.debug("{x}: {s}", .{ self.value, name });
 
+    var bw: Writer = .fixed(buffer);
+
     var has_error = false;
-    var stream = std.io.fixedBufferStream(buffer);
     var i: usize = 0;
     while (i < relocs.len) : (i += 1) {
         const rel = relocs[i];
@@ -592,30 +593,28 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
             if (rel.getTargetSymbol(self, macho_file).getFile(macho_file) == null) continue;
         }
 
-        try stream.seekTo(rel_offset);
-        self.resolveRelocInner(rel, subtractor, buffer, macho_file, stream.writer()) catch |err| {
-            switch (err) {
-                error.RelaxFail => {
-                    const target = switch (rel.tag) {
-                        .@"extern" => rel.getTargetSymbol(self, macho_file).getName(macho_file),
-                        .local => rel.getTargetAtom(self, macho_file).getName(macho_file),
-                    };
-                    try macho_file.reportParseError2(
-                        file.getIndex(),
-                        "{s}: 0x{x}: 0x{x}: failed to relax relocation: type {}, target {s}",
-                        .{
-                            name,
-                            self.getAddress(macho_file),
-                            rel.offset,
-                            rel.fmtPretty(macho_file.getTarget().cpu.arch),
-                            target,
-                        },
-                    );
-                    has_error = true;
-                },
-                error.RelaxFailUnexpectedInstruction => has_error = true,
-                else => |e| return e,
-            }
+        bw.end = std.math.cast(usize, rel_offset) orelse return error.Overflow;
+        self.resolveRelocInner(rel, subtractor, buffer, macho_file, &bw) catch |err| switch (err) {
+            error.RelaxFail => {
+                const target = switch (rel.tag) {
+                    .@"extern" => rel.getTargetSymbol(self, macho_file).getName(macho_file),
+                    .local => rel.getTargetAtom(self, macho_file).getName(macho_file),
+                };
+                try macho_file.reportParseError2(
+                    file.getIndex(),
+                    "{s}: 0x{x}: 0x{x}: failed to relax relocation: type {f}, target {s}",
+                    .{
+                        name,
+                        self.getAddress(macho_file),
+                        rel.offset,
+                        rel.fmtPretty(macho_file.getTarget().cpu.arch),
+                        target,
+                    },
+                );
+                has_error = true;
+            },
+            error.RelaxFailUnexpectedInstruction => has_error = true,
+            else => |e| return e,
         };
     }
 
@@ -638,8 +637,8 @@ fn resolveRelocInner(
     subtractor: ?Relocation,
     code: []u8,
     macho_file: *MachO,
-    writer: anytype,
-) ResolveError!void {
+    bw: *Writer,
+) Writer.Error!void {
     const t = &macho_file.base.comp.root_mod.resolved_target.result;
     const cpu_arch = t.cpu.arch;
     const rel_offset = math.cast(usize, rel.offset - self.off) orelse return error.Overflow;
@@ -653,7 +652,7 @@ fn resolveRelocInner(
     const divExact = struct {
         fn divExact(atom: Atom, r: Relocation, num: u12, den: u12, ctx: *MachO) !u12 {
             return math.divExact(u12, num, den) catch {
-                try ctx.reportParseError2(atom.getFile(ctx).getIndex(), "{s}: unexpected remainder when resolving {s} at offset 0x{x}", .{
+                try ctx.reportParseError2(atom.getFile(ctx).getIndex(), "{s}: unexpected remainder when resolving {f} at offset 0x{x}", .{
                     atom.getName(ctx),
                     r.fmtPretty(ctx.getTarget().cpu.arch),
                     r.offset,
@@ -664,14 +663,14 @@ fn resolveRelocInner(
     }.divExact;
 
     switch (rel.tag) {
-        .local => relocs_log.debug("  {x}<+{d}>: {}: [=> {x}] atom({d})", .{
+        .local => relocs_log.debug("  {x}<+{d}>: {f}: [=> {x}] atom({d})", .{
             P,
             rel_offset,
             rel.fmtPretty(cpu_arch),
             S + A - SUB,
             rel.getTargetAtom(self, macho_file).atom_index,
         }),
-        .@"extern" => relocs_log.debug("  {x}<+{d}>: {}: [=> {x}] G({x}) ({s})", .{
+        .@"extern" => relocs_log.debug("  {x}<+{d}>: {f}: [=> {x}] G({x}) ({s})", .{
             P,
             rel_offset,
             rel.fmtPretty(cpu_arch),
@@ -690,14 +689,14 @@ fn resolveRelocInner(
                 if (rel.tag == .@"extern") {
                     const sym = rel.getTargetSymbol(self, macho_file);
                     if (sym.isTlvInit(macho_file)) {
-                        try writer.writeInt(u64, @intCast(S - TLS), .little);
+                        try bw.writeInt(u64, @intCast(S - TLS), .little);
                         return;
                     }
                     if (sym.flags.import) return;
                 }
-                try writer.writeInt(u64, @bitCast(S + A - SUB), .little);
+                try bw.writeInt(u64, @bitCast(S + A - SUB), .little);
             } else if (rel.meta.length == 2) {
-                try writer.writeInt(u32, @bitCast(@as(i32, @truncate(S + A - SUB))), .little);
+                try bw.writeInt(u32, @bitCast(@as(i32, @truncate(S + A - SUB))), .little);
             } else unreachable;
         },
 
@@ -705,7 +704,7 @@ fn resolveRelocInner(
             assert(rel.tag == .@"extern");
             assert(rel.meta.length == 2);
             assert(rel.meta.pcrel);
-            try writer.writeInt(i32, @intCast(G + A - P), .little);
+            try bw.writeInt(i32, @intCast(G + A - P), .little);
         },
 
         .branch => {
@@ -714,7 +713,7 @@ fn resolveRelocInner(
             assert(rel.tag == .@"extern");
 
             switch (cpu_arch) {
-                .x86_64 => try writer.writeInt(i32, @intCast(S + A - P), .little),
+                .x86_64 => try bw.writeInt(i32, @intCast(S + A - P), .little),
                 .aarch64 => {
                     const disp: i28 = math.cast(i28, S + A - P) orelse blk: {
                         const thunk = self.getThunk(macho_file);
@@ -732,10 +731,10 @@ fn resolveRelocInner(
             assert(rel.meta.length == 2);
             assert(rel.meta.pcrel);
             if (rel.getTargetSymbol(self, macho_file).getSectionFlags().has_got) {
-                try writer.writeInt(i32, @intCast(G + A - P), .little);
+                try bw.writeInt(i32, @intCast(G + A - P), .little);
             } else {
                 try x86_64.relaxGotLoad(self, code[rel_offset - 3 ..], rel, macho_file);
-                try writer.writeInt(i32, @intCast(S + A - P), .little);
+                try bw.writeInt(i32, @intCast(S + A - P), .little);
             }
         },
 
@@ -746,17 +745,17 @@ fn resolveRelocInner(
             const sym = rel.getTargetSymbol(self, macho_file);
             if (sym.getSectionFlags().tlv_ptr) {
                 const S_: i64 = @intCast(sym.getTlvPtrAddress(macho_file));
-                try writer.writeInt(i32, @intCast(S_ + A - P), .little);
+                try bw.writeInt(i32, @intCast(S_ + A - P), .little);
             } else {
                 try x86_64.relaxTlv(code[rel_offset - 3 ..], t);
-                try writer.writeInt(i32, @intCast(S + A - P), .little);
+                try bw.writeInt(i32, @intCast(S + A - P), .little);
             }
         },
 
         .signed, .signed1, .signed2, .signed4 => {
             assert(rel.meta.length == 2);
             assert(rel.meta.pcrel);
-            try writer.writeInt(i32, @intCast(S + A - P), .little);
+            try bw.writeInt(i32, @intCast(S + A - P), .little);
         },
 
         .page,
@@ -808,7 +807,7 @@ fn resolveRelocInner(
                     2 => try divExact(self, rel, @truncate(target), 4, macho_file),
                     3 => try divExact(self, rel, @truncate(target), 8, macho_file),
                 };
-                try writer.writeInt(u32, inst.toU32(), .little);
+                try bw.writeInt(u32, inst.toU32(), .little);
             }
         },
 
@@ -886,7 +885,7 @@ fn resolveRelocInner(
                     .sf = @as(u1, @truncate(reg_info.size)),
                 },
             };
-            try writer.writeInt(u32, inst.toU32(), .little);
+            try bw.writeInt(u32, inst.toU32(), .little);
         },
     }
 }
@@ -900,19 +899,19 @@ const x86_64 = struct {
         switch (old_inst.encoding.mnemonic) {
             .mov => {
                 const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops, t) catch return error.RelaxFail;
-                relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+                relocs_log.debug("    relaxing {f} => {f}", .{ old_inst.encoding, inst.encoding });
                 encode(&.{inst}, code) catch return error.RelaxFail;
             },
             else => |x| {
                 var err = try diags.addErrorWithNotes(2);
-                try err.addMsg("{s}: 0x{x}: 0x{x}: failed to relax relocation of type {}", .{
+                try err.addMsg("{s}: 0x{x}: 0x{x}: failed to relax relocation of type {f}", .{
                     self.getName(macho_file),
                     self.getAddress(macho_file),
                     rel.offset,
                     rel.fmtPretty(.x86_64),
                 });
                 err.addNote("expected .mov instruction but found .{s}", .{@tagName(x)});
-                err.addNote("while parsing {}", .{self.getFile(macho_file).fmtPath()});
+                err.addNote("while parsing {f}", .{self.getFile(macho_file).fmtPath()});
                 return error.RelaxFailUnexpectedInstruction;
             },
         }
@@ -924,7 +923,7 @@ const x86_64 = struct {
         switch (old_inst.encoding.mnemonic) {
             .mov => {
                 const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops, t) catch return error.RelaxFail;
-                relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+                relocs_log.debug("    relaxing {f} => {f}", .{ old_inst.encoding, inst.encoding });
                 encode(&.{inst}, code) catch return error.RelaxFail;
             },
             else => return error.RelaxFail,
@@ -938,11 +937,8 @@ const x86_64 = struct {
     }
 
     fn encode(insts: []const Instruction, code: []u8) !void {
-        var stream = std.io.fixedBufferStream(code);
-        const writer = stream.writer();
-        for (insts) |inst| {
-            try inst.encode(writer, .{});
-        }
+        var bw: Writer = .fixed(code);
+        for (insts) |inst| try inst.encode(&bw, .{});
     }
 
     const bits = @import("../../arch/x86_64/bits.zig");
@@ -1003,7 +999,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
         }
 
         switch (rel.tag) {
-            .local => relocs_log.debug("  {}: [{x} => {d}({s},{s})] + {x}", .{
+            .local => relocs_log.debug("  {f}: [{x} => {d}({s},{s})] + {x}", .{
                 rel.fmtPretty(cpu_arch),
                 r_address,
                 r_symbolnum,
@@ -1011,7 +1007,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
                 macho_file.sections.items(.header)[r_symbolnum - 1].sectName(),
                 addend,
             }),
-            .@"extern" => relocs_log.debug("  {}: [{x} => {d}({s})] + {x}", .{
+            .@"extern" => relocs_log.debug("  {f}: [{x} => {d}({s})] + {x}", .{
                 rel.fmtPretty(cpu_arch),
                 r_address,
                 r_symbolnum,
@@ -1117,60 +1113,40 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
     assert(i == buffer.len);
 }
 
-pub fn format(
-    atom: Atom,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = atom;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format Atom directly");
-}
-
-pub fn fmt(atom: Atom, macho_file: *MachO) std.fmt.Formatter(format2) {
+pub fn fmt(atom: Atom, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
     return .{ .data = .{
         .atom = atom,
         .macho_file = macho_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     atom: Atom,
     macho_file: *MachO,
-};
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
-    const atom = ctx.atom;
-    const macho_file = ctx.macho_file;
-    const file = atom.getFile(macho_file);
-    try writer.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : nreloc({d}) : thunk({d})", .{
-        atom.atom_index,                atom.getName(macho_file),        atom.getAddress(macho_file),
-        atom.out_n_sect,                atom.alignment,                  atom.size,
-        atom.getRelocs(macho_file).len, atom.getExtra(macho_file).thunk,
-    });
-    if (!atom.isAlive()) try writer.writeAll(" : [*]");
-    if (atom.getUnwindRecords(macho_file).len > 0) {
-        try writer.writeAll(" : unwind{ ");
-        const extra = atom.getExtra(macho_file);
-        for (atom.getUnwindRecords(macho_file), extra.unwind_index..) |index, i| {
-            const rec = file.object.getUnwindRecord(index);
-            try writer.print("{d}", .{index});
-            if (!rec.alive) try writer.writeAll("([*])");
-            if (i < extra.unwind_index + extra.unwind_count - 1) try writer.writeAll(", ");
+    fn print(f: Format, w: *Writer) Writer.Error!void {
+        const atom = f.atom;
+        const macho_file = f.macho_file;
+        const file = atom.getFile(macho_file);
+        try w.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : nreloc({d}) : thunk({d})", .{
+            atom.atom_index,                atom.getName(macho_file),        atom.getAddress(macho_file),
+            atom.out_n_sect,                atom.alignment,                  atom.size,
+            atom.getRelocs(macho_file).len, atom.getExtra(macho_file).thunk,
+        });
+        if (!atom.isAlive()) try w.writeAll(" : [*]");
+        if (atom.getUnwindRecords(macho_file).len > 0) {
+            try w.writeAll(" : unwind{ ");
+            const extra = atom.getExtra(macho_file);
+            for (atom.getUnwindRecords(macho_file), extra.unwind_index..) |index, i| {
+                const rec = file.object.getUnwindRecord(index);
+                try w.print("{d}", .{index});
+                if (!rec.alive) try w.writeAll("([*])");
+                if (i < extra.unwind_index + extra.unwind_count - 1) try w.writeAll(", ");
+            }
+            try w.writeAll(" }");
         }
-        try writer.writeAll(" }");
     }
-}
+};
 
 pub const Index = u32;
 
@@ -1205,19 +1181,20 @@ pub const Extra = struct {
 
 pub const Alignment = @import("../../InternPool.zig").Alignment;
 
-const aarch64 = @import("../aarch64.zig");
+const std = @import("std");
 const assert = std.debug.assert;
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const log = std.log.scoped(.link);
 const relocs_log = std.log.scoped(.link_relocs);
-const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
-
+const Writer = std.io.Writer;
 const Allocator = mem.Allocator;
-const Atom = @This();
 const AtomicBool = std.atomic.Value(bool);
+
+const aarch64 = @import("../aarch64.zig");
+const trace = @import("../../tracy.zig").trace;
+const Atom = @This();
 const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");

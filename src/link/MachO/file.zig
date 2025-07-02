@@ -14,12 +14,12 @@ pub const File = union(enum) {
         return .{ .data = file };
     }
 
-    fn formatPath(file: File, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn formatPath(file: File, w: *Writer) Writer.Error!void {
         switch (file) {
-            .zig_object => |zo| try writer.writeAll(zo.basename),
-            .internal => try writer.writeAll("internal"),
-            .object => |x| try writer.print("{}", .{x.fmtPath()}),
-            .dylib => |dl| try writer.print("{}", .{@as(Path, dl.path)}),
+            .zig_object => |zo| try w.writeAll(zo.basename),
+            .internal => try w.writeAll("internal"),
+            .object => |x| try w.print("{f}", .{x.fmtPath()}),
+            .dylib => |dl| try w.print("{f}", .{@as(Path, dl.path)}),
         }
     }
 
@@ -321,11 +321,11 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn writeAr(file: File, ar_format: Archive.Format, macho_file: *MachO, writer: anytype) !void {
+    pub fn writeAr(file: File, bw: *Writer, ar_format: Archive.Format, macho_file: *MachO) Writer.Error!void {
         return switch (file) {
             .dylib, .internal => unreachable,
-            .zig_object => |x| x.writeAr(ar_format, writer),
-            .object => |x| x.writeAr(ar_format, macho_file, writer),
+            .zig_object => |x| x.writeAr(bw, ar_format),
+            .object => |x| x.writeAr(bw, ar_format, macho_file),
         };
     }
 
@@ -364,6 +364,7 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
+const Writer = std.io.Writer;
 
 const trace = @import("../../tracy.zig").trace;
 const Archive = @import("Archive.zig");
