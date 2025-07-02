@@ -379,12 +379,18 @@ pub fn main() !void {
 
     validateSystemLibraryOptions(builder);
 
-    {
-        var fw = std.fs.File.stdout().writer();
-        var bw = fw.interface().buffered(&stdio_buffer);
-        defer bw.flush() catch {};
-        if (help_menu) return usage(builder, &bw);
-        if (steps_menu) return steps(builder, &bw);
+    if (help_menu) {
+        var w = initStdoutWriter();
+        printUsage(builder, w) catch return stdout_writer_allocation.err.?;
+        w.flush() catch return stdout_writer_allocation.err.?;
+        return;
+    }
+
+    if (steps_menu) {
+        var w = initStdoutWriter();
+        printSteps(builder, w) catch return stdout_writer_allocation.err.?;
+        w.flush() catch return stdout_writer_allocation.err.?;
+        return;
     }
 
     var run: Run = .{
@@ -697,21 +703,21 @@ fn runStepNames(
     const ttyconf = run.ttyconf;
 
     if (run.summary != .none) {
-        const bw = std.debug.lockStderrWriter(&stdio_buffer);
+        const w = std.debug.lockStderrWriter(&stdio_buffer_allocation);
         defer std.debug.unlockStderrWriter();
 
         const total_count = success_count + failure_count + pending_count + skipped_count;
-        ttyconf.setColor(bw, .cyan) catch {};
-        bw.writeAll("Build Summary:") catch {};
-        ttyconf.setColor(bw, .reset) catch {};
-        bw.print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
-        if (skipped_count > 0) bw.print("; {d} skipped", .{skipped_count}) catch {};
-        if (failure_count > 0) bw.print("; {d} failed", .{failure_count}) catch {};
+        ttyconf.setColor(w, .cyan) catch {};
+        w.writeAll("Build Summary:") catch {};
+        ttyconf.setColor(w, .reset) catch {};
+        w.print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
+        if (skipped_count > 0) w.print("; {d} skipped", .{skipped_count}) catch {};
+        if (failure_count > 0) w.print("; {d} failed", .{failure_count}) catch {};
 
-        if (test_count > 0) bw.print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
-        if (test_skip_count > 0) bw.print("; {d} skipped", .{test_skip_count}) catch {};
-        if (test_fail_count > 0) bw.print("; {d} failed", .{test_fail_count}) catch {};
-        if (test_leak_count > 0) bw.print("; {d} leaked", .{test_leak_count}) catch {};
+        if (test_count > 0) w.print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
+        if (test_skip_count > 0) w.print("; {d} skipped", .{test_skip_count}) catch {};
+        if (test_fail_count > 0) w.print("; {d} failed", .{test_fail_count}) catch {};
+        if (test_leak_count > 0) w.print("; {d} leaked", .{test_leak_count}) catch {};
 
         // Print a fancy tree with build results.
         var step_stack_copy = try step_stack.clone(gpa);
@@ -720,7 +726,7 @@ fn runStepNames(
         var print_node: PrintNode = .{ .parent = null };
         if (step_names.len == 0) {
             print_node.last = true;
-            printTreeStep(b, b.default_step, run, bw, ttyconf, &print_node, &step_stack_copy) catch {};
+            printTreeStep(b, b.default_step, run, w, ttyconf, &print_node, &step_stack_copy) catch {};
         } else {
             const last_index = if (run.summary == .all) b.top_level_steps.count() else blk: {
                 var i: usize = step_names.len;
@@ -739,10 +745,10 @@ fn runStepNames(
             for (step_names, 0..) |step_name, i| {
                 const tls = b.top_level_steps.get(step_name).?;
                 print_node.last = i + 1 == last_index;
-                printTreeStep(b, &tls.step, run, bw, ttyconf, &print_node, &step_stack_copy) catch {};
+                printTreeStep(b, &tls.step, run, w, ttyconf, &print_node, &step_stack_copy) catch {};
             }
         }
-        bw.writeByte('\n') catch {};
+        w.writeByte('\n') catch {};
     }
 
     if (failure_count == 0) {
@@ -1128,7 +1134,7 @@ fn workerMakeOneStep(
     const show_stderr = s.result_stderr.len > 0;
 
     if (show_error_msgs or show_compile_errors or show_stderr) {
-        const bw = std.debug.lockStderrWriter(&stdio_buffer);
+        const bw = std.debug.lockStderrWriter(&stdio_buffer_allocation);
         defer std.debug.unlockStderrWriter();
 
         const gpa = b.allocator;
@@ -1242,29 +1248,27 @@ pub fn printErrorMessages(
     }
 }
 
-fn steps(builder: *std.Build, bw: *Writer) !void {
+fn printSteps(builder: *std.Build, w: *Writer) !void {
     const allocator = builder.allocator;
     for (builder.top_level_steps.values()) |top_level_step| {
         const name = if (&top_level_step.step == builder.default_step)
             try fmt.allocPrint(allocator, "{s} (default)", .{top_level_step.step.name})
         else
             top_level_step.step.name;
-        try bw.print("  {s:<28} {s}\n", .{ name, top_level_step.description });
+        try w.print("  {s:<28} {s}\n", .{ name, top_level_step.description });
     }
 }
 
-var stdio_buffer: [256]u8 = undefined;
-
-fn usage(b: *std.Build, bw: *Writer) !void {
-    try bw.print(
+fn printUsage(b: *std.Build, w: *Writer) !void {
+    try w.print(
         \\Usage: {s} build [steps] [options]
         \\
         \\Steps:
         \\
     , .{b.graph.zig_exe});
-    try steps(b, bw);
+    try printSteps(b, w);
 
-    try bw.writeAll(
+    try w.writeAll(
         \\
         \\General Options:
         \\  -p, --prefix [path]          Where to install files (default: zig-out)
@@ -1320,25 +1324,25 @@ fn usage(b: *std.Build, bw: *Writer) !void {
 
     const arena = b.allocator;
     if (b.available_options_list.items.len == 0) {
-        try bw.print("  (none)\n", .{});
+        try w.print("  (none)\n", .{});
     } else {
         for (b.available_options_list.items) |option| {
             const name = try fmt.allocPrint(arena, "  -D{s}=[{s}]", .{
                 option.name,
                 @tagName(option.type_id),
             });
-            try bw.print("{s:<30} {s}\n", .{ name, option.description });
+            try w.print("{s:<30} {s}\n", .{ name, option.description });
             if (option.enum_options) |enum_options| {
                 const padding = " " ** 33;
-                try bw.writeAll(padding ++ "Supported Values:\n");
+                try w.writeAll(padding ++ "Supported Values:\n");
                 for (enum_options) |enum_option| {
-                    try bw.print(padding ++ "  {s}\n", .{enum_option});
+                    try w.print(padding ++ "  {s}\n", .{enum_option});
                 }
             }
         }
     }
 
-    try bw.writeAll(
+    try w.writeAll(
         \\
         \\System Integration Options:
         \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
@@ -1353,7 +1357,7 @@ fn usage(b: *std.Build, bw: *Writer) !void {
         \\
     );
     if (b.graph.system_library_options.entries.len == 0) {
-        try bw.writeAll("  (none)                                        -\n");
+        try w.writeAll("  (none)                                        -\n");
     } else {
         for (b.graph.system_library_options.keys(), b.graph.system_library_options.values()) |k, v| {
             const status = switch (v) {
@@ -1361,11 +1365,11 @@ fn usage(b: *std.Build, bw: *Writer) !void {
                 .declared_disabled => "no",
                 .user_enabled, .user_disabled => unreachable, // already emitted error
             };
-            try bw.print("    {s:<43} {s}\n", .{ k, status });
+            try w.print("    {s:<43} {s}\n", .{ k, status });
         }
     }
 
-    try bw.writeAll(
+    try w.writeAll(
         \\
         \\Advanced Options:
         \\  -freference-trace[=num]      How many lines of reference trace should be shown per compile error
@@ -1544,4 +1548,12 @@ fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
             },
         };
     }
+}
+
+var stdio_buffer_allocation: [256]u8 = undefined;
+var stdout_writer_allocation: std.fs.File.Writer = undefined;
+
+fn initStdoutWriter() *Writer {
+    stdout_writer_allocation = std.fs.File.stdout().writerStreaming(&stdio_buffer_allocation);
+    return &stdout_writer_allocation.interface;
 }

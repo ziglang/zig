@@ -1744,8 +1744,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     if (compile.error_limit) |err_limit| try zig_args.appendSlice(&.{
-        "--error-limit",
-        b.fmt("{}", .{err_limit}),
+        "--error-limit", b.fmt("{d}", .{err_limit}),
     });
 
     try addFlag(&zig_args, "incremental", b.graph.incremental);
@@ -1975,7 +1974,7 @@ fn checkCompileErrors(compile: *Compile) !void {
             .ttyconf = .no_color,
             .include_reference_trace = false,
             .include_source_line = false,
-        }, &aw.interface);
+        }, &aw.writer);
         break :ae try aw.toOwnedSlice();
     };
 
