@@ -1725,10 +1725,6 @@ pub const Writer = struct {
                         iovecs[len] = .{ .base = splat_buffer.ptr, .len = remaining_splat };
                         len += 1;
                     }
-                    return std.posix.writev(handle, iovecs[0..len]) catch |err| {
-                        w.err = err;
-                        return error.WriteFailed;
-                    };
                 },
                 else => for (0..splat - 1) |_| {
                     if (iovecs.len - len == 0) break;

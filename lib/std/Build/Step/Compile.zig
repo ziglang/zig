@@ -409,7 +409,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .linkage = options.linkage,
         .kind = options.kind,
         .name = name,
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = step_name,
             .owner = owner,
@@ -1017,20 +1017,16 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
     const maybe_path: ?*GeneratedFile = @field(compile, tag_name);
 
     const generated_file = maybe_path orelse {
-        std.debug.lockStdErr();
-        const stderr: fs.File = .stderr();
-
-        std.Build.dumpBadGetPathHelp(&compile.step, stderr, compile.step.owner, asking_step) catch {};
-
+        const w = std.debug.lockStderrWriter(&.{});
+        std.Build.dumpBadGetPathHelp(&compile.step, w, .detect(.stderr()), compile.step.owner, asking_step) catch {};
+        std.debug.unlockStderrWriter();
         @panic("missing emit option for " ++ tag_name);
     };
 
     const path = generated_file.path orelse {
-        std.debug.lockStdErr();
-        const stderr: fs.File = .stderr();
-
-        std.Build.dumpBadGetPathHelp(&compile.step, stderr, compile.step.owner, asking_step) catch {};
-
+        const w = std.debug.lockStderrWriter(&.{});
+        std.Build.dumpBadGetPathHelp(&compile.step, w, .detect(.stderr()), compile.step.owner, asking_step) catch {};
+        std.debug.unlockStderrWriter();
         @panic(tag_name ++ " is null. Is there a missing step dependency?");
     };
 
@@ -1768,12 +1764,12 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             for (arg, 0..) |c, arg_idx| {
                 if (c == '\\' or c == '"') {
                     // Slow path for arguments that need to be escaped. We'll need to allocate and copy
-                    var escaped = try ArrayList(u8).initCapacity(arena, arg.len + 1);
-                    const writer = escaped.writer();
-                    try writer.writeAll(arg[0..arg_idx]);
+                    var escaped: std.ArrayListUnmanaged(u8) = .empty;
+                    try escaped.ensureTotalCapacityPrecise(arena, arg.len + 1);
+                    try escaped.appendSlice(arena, arg[0..arg_idx]);
                     for (arg[arg_idx..]) |to_escape| {
-                        if (to_escape == '\\' or to_escape == '"') try writer.writeByte('\\');
-                        try writer.writeByte(to_escape);
+                        if (to_escape == '\\' or to_escape == '"') try escaped.append(arena, '\\');
+                        try escaped.append(arena, to_escape);
                     }
                     escaped_args.appendAssumeCapacity(escaped.items);
                     continue :arg_blk;
@@ -1963,20 +1959,23 @@ fn addFlag(args: *ArrayList([]const u8), comptime name: []const u8, opt: ?bool) 
 fn checkCompileErrors(compile: *Compile) !void {
     // Clear this field so that it does not get printed by the build runner.
     const actual_eb = compile.step.result_error_bundle;
-    compile.step.result_error_bundle = std.zig.ErrorBundle.empty;
+    compile.step.result_error_bundle = .empty;
 
     const arena = compile.step.owner.allocator;
 
-    var actual_errors_list = std.ArrayList(u8).init(arena);
-    try actual_eb.renderToWriter(.{
-        .ttyconf = .no_color,
-        .include_reference_trace = false,
-        .include_source_line = false,
-    }, actual_errors_list.writer());
-    const actual_errors = try actual_errors_list.toOwnedSlice();
+    const actual_errors = ae: {
+        var aw: std.io.Writer.Allocating = .init(arena);
+        defer aw.deinit();
+        try actual_eb.renderToWriter(.{
+            .ttyconf = .no_color,
+            .include_reference_trace = false,
+            .include_source_line = false,
+        }, &aw.writer);
+        break :ae try aw.toOwnedSlice();
+    };
 
     // Render the expected lines into a string that we can compare verbatim.
-    var expected_generated = std.ArrayList(u8).init(arena);
+    var expected_generated: std.ArrayListUnmanaged(u8) = .empty;
     const expect_errors = compile.expect_errors.?;
 
     var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');
@@ -2035,17 +2034,17 @@ fn checkCompileErrors(compile: *Compile) !void {
         .exact => |expect_lines| {
             for (expect_lines) |expect_line| {
                 const actual_line = actual_line_it.next() orelse {
-                    try expected_generated.appendSlice(expect_line);
-                    try expected_generated.append('\n');
+                    try expected_generated.appendSlice(arena, expect_line);
+                    try expected_generated.append(arena, '\n');
                     continue;
                 };
                 if (matchCompileError(actual_line, expect_line)) {
-                    try expected_generated.appendSlice(actual_line);
-                    try expected_generated.append('\n');
+                    try expected_generated.appendSlice(arena, actual_line);
+                    try expected_generated.append(arena, '\n');
                     continue;
                 }
-                try expected_generated.appendSlice(expect_line);
-                try expected_generated.append('\n');
+                try expected_generated.appendSlice(arena, expect_line);
+                try expected_generated.append(arena, '\n');
             }
 
             if (mem.eql(u8, expected_generated.items, actual_errors)) return;
