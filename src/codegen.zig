@@ -34,7 +34,7 @@ fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
         .stage2_arm => .arm_backend,
         .stage2_c => .c_backend,
         .stage2_llvm => .llvm_backend,
-        .stage2_powerpc => .powerpc_backend,
+        .stage2_powerpc => unreachable,
         .stage2_riscv64 => .riscv64_backend,
         .stage2_sparc64 => .sparc64_backend,
         .stage2_spirv => .spirv_backend,
@@ -52,7 +52,7 @@ fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
         .stage2_arm => @import("arch/arm/CodeGen.zig"),
         .stage2_c => @import("codegen/c.zig"),
         .stage2_llvm => @import("codegen/llvm.zig"),
-        .stage2_powerpc => @import("arch/powerpc/CodeGen.zig"),
+        .stage2_powerpc => unreachable,
         .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
         .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
         .stage2_spirv => @import("codegen/spirv.zig"),
@@ -77,7 +77,6 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
         .stage2_riscv64,
         .stage2_sparc64,
         .stage2_spirv,
-        .stage2_powerpc,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
             return importBackend(backend).legalizeFeatures(target);
@@ -91,7 +90,6 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
 pub const AnyMir = union {
     aarch64: @import("arch/aarch64/Mir.zig"),
     arm: @import("arch/arm/Mir.zig"),
-    powerpc: noreturn, //@import("arch/powerpc/Mir.zig"),
     riscv64: @import("arch/riscv64/Mir.zig"),
     sparc64: @import("arch/sparc64/Mir.zig"),
     x86_64: @import("arch/x86_64/Mir.zig"),
@@ -102,7 +100,6 @@ pub const AnyMir = union {
         return switch (backend) {
             .stage2_aarch64 => "aarch64",
             .stage2_arm => "arm",
-            .stage2_powerpc => "powerpc",
             .stage2_riscv64 => "riscv64",
             .stage2_sparc64 => "sparc64",
             .stage2_x86_64 => "x86_64",
@@ -119,7 +116,6 @@ pub const AnyMir = union {
             else => unreachable,
             inline .stage2_aarch64,
             .stage2_arm,
-            .stage2_powerpc,
             .stage2_riscv64,
             .stage2_sparc64,
             .stage2_x86_64,
@@ -150,7 +146,6 @@ pub fn generateFunction(
         else => unreachable,
         inline .stage2_aarch64,
         .stage2_arm,
-        .stage2_powerpc,
         .stage2_riscv64,
         .stage2_sparc64,
         .stage2_x86_64,
@@ -188,7 +183,6 @@ pub fn emitFunction(
         else => unreachable,
         inline .stage2_aarch64,
         .stage2_arm,
-        .stage2_powerpc,
         .stage2_riscv64,
         .stage2_sparc64,
         .stage2_x86_64,
@@ -215,10 +209,7 @@ pub fn generateLazyFunction(
         zcu.getTarget();
     switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
-        inline .stage2_powerpc,
-        .stage2_riscv64,
-        .stage2_x86_64,
-        => |backend| {
+        inline .stage2_riscv64, .stage2_x86_64 => |backend| {
             dev.check(devFeatureForBackend(backend));
             return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
         },
