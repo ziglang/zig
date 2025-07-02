@@ -1014,19 +1014,28 @@ pub const Feature = enum {
 };
 
 fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Operand) usize {
-    var inst = Instruction{
+    var inst: Instruction = .{
         .prefix = prefix,
         .encoding = encoding,
         .ops = @splat(.none),
     };
     @memcpy(inst.ops[0..ops.len], ops);
 
-    var cwriter = std.io.countingWriter(std.io.null_writer);
-    inst.encode(cwriter.writer(), .{
+    // By using a buffer with maximum length of encoded instruction, we can use
+    // the `end` field of the Writer for the count.
+    var buf: [16]u8 = undefined;
+    var trash = std.io.Writer.discarding(&buf);
+    inst.encode(&trash, .{
         .allow_frame_locs = true,
         .allow_symbols = true,
-    }) catch unreachable; // Not allowed to fail here unless OOM.
-    return @as(usize, @intCast(cwriter.bytes_written));
+    }) catch {
+        // Since the function signature for encode() does not mention under what
+        // conditions it can fail, I have changed `unreachable` to `@panic` here.
+        // This is a TODO item since it indicates this function
+        // (`estimateInstructionLength`) has the wrong function signature.
+        @panic("unexpected failure to encode");
+    };
+    return @intCast(trash.end);
 }
 
 const mnemonic_to_encodings_map = init: {

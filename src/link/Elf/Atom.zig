@@ -1390,7 +1390,8 @@ const x86_64 = struct {
                     // TODO: hack to force imm32s in the assembler
                     .{ .imm = .s(-129) },
                 }, t) catch return false;
-                inst.encode(std.io.null_writer, .{}) catch return false;
+                var trash = std.io.Writer.discarding(&.{});
+                inst.encode(&trash, .{}) catch return false;
                 return true;
             },
             else => return false,
@@ -1485,11 +1486,8 @@ const x86_64 = struct {
     }
 
     fn encode(insts: []const Instruction, code: []u8) !void {
-        var stream = std.io.fixedBufferStream(code);
-        const writer = stream.writer();
-        for (insts) |inst| {
-            try inst.encode(writer, .{});
-        }
+        var stream: std.io.Writer = .fixed(code);
+        for (insts) |inst| try inst.encode(&stream, .{});
     }
 
     const bits = @import("../../arch/x86_64/bits.zig");

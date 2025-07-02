@@ -938,10 +938,8 @@ const x86_64 = struct {
     }
 
     fn encode(insts: []const Instruction, code: []u8) !void {
-        var stream: std.io.Writer = .fixed(code);
-        for (insts) |inst| {
-            try inst.encode(&stream, .{});
-        }
+        var stream: Writer = .fixed(code);
+        for (insts) |inst| try inst.encode(&stream, .{});
     }
 
     const bits = @import("../../arch/x86_64/bits.zig");
