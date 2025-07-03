@@ -9100,6 +9100,75 @@ pub const perf_event_header = extern struct {
     size: u16 = 0,
 };
 
+pub const perf_event_mmap_page = extern struct {
+    /// Version number of this struct
+    version: u32,
+    /// Lowest version this is compatible with
+    compt_version: u32,
+    /// Seqlock for synchronization
+    lock: u32,
+    /// Hardware counter identifier
+    index: u32,
+    /// Add to hardware counter value
+    offset: i64,
+    /// Time the event was active
+    time_enabled: u64,
+    /// Time the event was running
+    time_running: u64,
+    capabilities: packed struct {
+        /// if kernel version < 3.12
+        /// this rapresetns both user_rdpmc and user_time (user_rdpmc | user_time)
+        /// otherwise deprecated.
+        bit0: bool,
+        /// Set if bit0 is deprecated
+        bit0_is_deprecated: bool,
+        /// Hardware support for userspace read of performance counters
+        user_rdpmc: bool,
+        /// Hardware support for a constant non stop timestamp counter (Eg. TSC on x86)
+        user_time: bool,
+        /// The time_zero field is used
+        user_time_zero: bool,
+        /// The time_{cycle,mask} fields are used
+        user_time_short: bool,
+        ____res: u58,
+    },
+    /// If capabilities.user_rdpc
+    /// this field reports the bit-width of the value read with rdpmc() or equivalent
+    pcm_width: u16,
+    /// If capabilities.user_time the following fields can be used to compute the time
+    /// delta since time_enabled (in ns) using RDTSC or similar
+    time_shift: u16,
+    time_mult: u32,
+    time_offset: u64,
+    /// If capabilities.user_time_zero the hardware clock can be calculated from
+    /// sample timestamps
+    time_zero: u64,
+    /// Header size
+    size: u32,
+    __reserved_1: u32,
+    /// The fllowing fields are used to compute the timestamp when the hardware clock
+    /// is less than 64bit wide
+    time_cycles: u64,
+    time_mask: u64,
+    __reserved: [116 * 8]u8,
+    /// Head in the data section
+    data_head: u64,
+    /// Userspace written tail
+    data_tail: u64,
+    /// Where the buffer starts
+    data_offset: u64,
+    /// Data buffer size
+    data_size: u64,
+    // if aux is used, head in the data section
+    aux_head: u64,
+    // if aux is used, userspace written tail
+    aux_tail: u64,
+    // if aux is used, where the buffer starts
+    aux_offset: u64,
+    // if aux is used, data buffer size
+    aux_size: u64,
+};
+
 pub const PERF = struct {
     pub const TYPE = enum(u32) {
         HARDWARE,
