@@ -9116,8 +9116,8 @@ pub const perf_event_mmap_page = extern struct {
     /// Time the event was running
     time_running: u64,
     capabilities: packed struct {
-        /// if kernel version < 3.12
-        /// this rapresetns both user_rdpmc and user_time (user_rdpmc | user_time)
+        /// If kernel version < 3.12
+        /// this rapresents both user_rdpmc and user_time (user_rdpmc | user_time)
         /// otherwise deprecated.
         bit0: bool,
         /// Set if bit0 is deprecated
@@ -9132,7 +9132,7 @@ pub const perf_event_mmap_page = extern struct {
         user_time_short: bool,
         ____res: u58,
     },
-    /// If capabilities.user_rdpc
+    /// If capabilities.user_rdpmc
     /// this field reports the bit-width of the value read with rdpmc() or equivalent
     pcm_width: u16,
     /// If capabilities.user_time the following fields can be used to compute the time
@@ -9146,7 +9146,7 @@ pub const perf_event_mmap_page = extern struct {
     /// Header size
     size: u32,
     __reserved_1: u32,
-    /// The fllowing fields are used to compute the timestamp when the hardware clock
+    /// The following fields are used to compute the timestamp when the hardware clock
     /// is less than 64bit wide
     time_cycles: u64,
     time_mask: u64,
