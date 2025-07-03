@@ -202,7 +202,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     };
 
     if (build_options.enable_logging) {
-        state_log.debug("ar_symtab\n{}\n", .{ar_symtab.fmt(macho_file)});
+        state_log.debug("ar_symtab\n{f}\n", .{ar_symtab.fmt(macho_file)});
     }
 
     var buffer = std.ArrayList(u8).init(gpa);

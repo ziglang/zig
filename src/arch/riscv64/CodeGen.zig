@@ -499,14 +499,14 @@ const InstTracking = struct {
             else => target.long,
         } else target.long;
         inst_tracking.short = target.short;
-        tracking_log.debug("%{d} => {} (materialize)", .{ inst, inst_tracking.* });
+        tracking_log.debug("%{d} => {f} (materialize)", .{ inst, inst_tracking.* });
     }
 
     fn resurrect(inst_tracking: *InstTracking, inst: Air.Inst.Index, scope_generation: u32) void {
         switch (inst_tracking.short) {
             .dead => |die_generation| if (die_generation >= scope_generation) {
                 inst_tracking.reuseFrame();
-                tracking_log.debug("%{d} => {} (resurrect)", .{ inst, inst_tracking.* });
+                tracking_log.debug("%{d} => {f} (resurrect)", .{ inst, inst_tracking.* });
             },
             else => {},
         }
@@ -516,7 +516,7 @@ const InstTracking = struct {
         if (inst_tracking.short == .dead) return;
         try function.freeValue(inst_tracking.short);
         inst_tracking.short = .{ .dead = function.scope_generation };
-        tracking_log.debug("%{d} => {} (death)", .{ inst, inst_tracking.* });
+        tracking_log.debug("%{d} => {f} (death)", .{ inst, inst_tracking.* });
     }
 
     fn reuse(
@@ -527,15 +527,15 @@ const InstTracking = struct {
     ) void {
         inst_tracking.short = .{ .dead = function.scope_generation };
         if (new_inst) |inst|
-            tracking_log.debug("%{d} => {} (reuse %{d})", .{ inst, inst_tracking.*, old_inst })
+            tracking_log.debug("%{d} => {f} (reuse %{d})", .{ inst, inst_tracking.*, old_inst })
         else
-            tracking_log.debug("tmp => {} (reuse %{d})", .{ inst_tracking.*, old_inst });
+            tracking_log.debug("tmp => {f} (reuse %{d})", .{ inst_tracking.*, old_inst });
     }
 
     fn liveOut(inst_tracking: *InstTracking, function: *Func, inst: Air.Inst.Index) void {
         for (inst_tracking.getRegs()) |reg| {
             if (function.register_manager.isRegFree(reg)) {
-                tracking_log.debug("%{d} => {} (live-out)", .{ inst, inst_tracking.* });
+                tracking_log.debug("%{d} => {f} (live-out)", .{ inst, inst_tracking.* });
                 continue;
             }
 
@@ -562,7 +562,7 @@ const InstTracking = struct {
             // Perform side-effects of freeValue manually.
             function.register_manager.freeReg(reg);
 
-            tracking_log.debug("%{d} => {} (live-out %{d})", .{ inst, inst_tracking.*, tracked_inst });
+            tracking_log.debug("%{d} => {f} (live-out %{d})", .{ inst, inst_tracking.*, tracked_inst });
         }
     }
 
@@ -572,7 +572,7 @@ const InstTracking = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (!std.meta.eql(inst_tracking.long, inst_tracking.short)) try writer.print("|{}| ", .{inst_tracking.long});
+        if (!std.meta.eql(inst_tracking.long, inst_tracking.short)) try writer.print("|{f}| ", .{inst_tracking.long});
         try writer.print("{}", .{inst_tracking.short});
     }
 };
@@ -802,7 +802,7 @@ pub fn generate(
         function.mir_instructions.deinit(gpa);
     }
 
-    wip_mir_log.debug("{}:", .{fmtNav(func.owner_nav, ip)});
+    wip_mir_log.debug("{f}:", .{fmtNav(func.owner_nav, ip)});
 
     try function.frame_allocs.resize(gpa, FrameIndex.named_count);
     function.frame_allocs.set(
@@ -973,7 +973,7 @@ fn formatWipMir(data: FormatWipMirData, writer: *std.io.Writer) std.io.Writer.Er
         else => |e| return e,
     }).insts) |lowered_inst| {
         if (!first) try writer.writeAll("\ndebug(wip_mir): ");
-        try writer.print("  | {}", .{lowered_inst});
+        try writer.print("  | {f}", .{lowered_inst});
         first = false;
     }
 }
@@ -1156,7 +1156,7 @@ fn gen(func: *Func) !void {
                     func.ret_mcv.long.address().offset(-func.ret_mcv.short.indirect.off),
                 );
                 func.ret_mcv.long = .{ .load_frame = .{ .index = frame_index } };
-                tracking_log.debug("spill {} to {}", .{ func.ret_mcv.long, frame_index });
+                tracking_log.debug("spill {f} to {f}", .{ func.ret_mcv.long, frame_index });
             },
             else => unreachable,
         }
@@ -1656,14 +1656,14 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
 
         if (std.debug.runtime_safety) {
             if (func.air_bookkeeping < old_air_bookkeeping + 1) {
-                std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[@intFromEnum(inst)] });
+                std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{f}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[@intFromEnum(inst)] });
             }
 
             { // check consistency of tracked registers
                 var it = func.register_manager.free_registers.iterator(.{ .kind = .unset });
                 while (it.next()) |index| {
                     const tracked_inst = func.register_manager.registers[index];
-                    tracking_log.debug("tracked inst: {}", .{tracked_inst});
+                    tracking_log.debug("tracked inst: {f}", .{tracked_inst});
                     const tracking = func.getResolvedInstValue(tracked_inst);
                     for (tracking.getRegs()) |reg| {
                         if (RegisterManager.indexOfRegIntoTracked(reg).? == index) break;
@@ -1697,7 +1697,7 @@ fn freeValue(func: *Func, value: MCValue) !void {
 
 fn feed(func: *Func, bt: *Air.Liveness.BigTomb, operand: Air.Inst.Ref) !void {
     if (bt.feed()) if (operand.toIndex()) |inst| {
-        log.debug("feed inst: %{}", .{inst});
+        log.debug("feed inst: %{f}", .{inst});
         try func.processDeath(inst);
     };
 }
@@ -1726,7 +1726,7 @@ fn finishAirResult(func: *Func, inst: Air.Inst.Index, result: MCValue) void {
             else => {},
         }
 
-        tracking_log.debug("%{d} => {} (birth)", .{ inst, result });
+        tracking_log.debug("%{d} => {f} (birth)", .{ inst, result });
         func.inst_tracking.putAssumeCapacityNoClobber(inst, InstTracking.init(result));
         // In some cases, an operand may be reused as the result.
         // If that operand died and was a register, it was freed by
@@ -1827,7 +1827,7 @@ fn computeFrameLayout(func: *Func) !FrameLayout {
         total_alloc_size + 64 + args_frame_size + spill_frame_size + call_frame_size,
         @intCast(frame_align[@intFromEnum(FrameIndex.base_ptr)].toByteUnits().?),
     );
-    log.debug("frame size: {}", .{acc_frame_size});
+    log.debug("frame size: {f}", .{acc_frame_size});
 
     // store the ra at total_size - 8, so it's the very first thing in the stack
     // relative to the fp
@@ -1888,7 +1888,7 @@ fn splitType(func: *Func, ty: Type) ![2]Type {
                 },
                 else => unreachable,
             },
-            else => return func.fail("TODO: splitType class {}", .{class}),
+            else => return func.fail("TODO: splitType class {f}", .{class}),
         };
     } else if (parts[0].abiSize(zcu) + parts[1].abiSize(zcu) == ty.abiSize(zcu)) return parts;
     return func.fail("TODO implement splitType for {f}", .{ty.fmt(func.pt)});
@@ -1992,7 +1992,7 @@ fn allocFrameIndex(func: *Func, alloc: FrameAlloc) !FrameIndex {
     }
     const frame_index: FrameIndex = @enumFromInt(func.frame_allocs.len);
     try func.frame_allocs.append(func.gpa, alloc);
-    log.debug("allocated frame {}", .{frame_index});
+    log.debug("allocated frame {f}", .{frame_index});
     return frame_index;
 }
 

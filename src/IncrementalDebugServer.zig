@@ -234,7 +234,7 @@ fn handleCommand(zcu: *Zcu, output: *std.ArrayListUnmanaged(u8), cmd_str: []cons
         for (unit_info.deps.items, 0..) |dependee, i| {
             try w.print("[{d}] ", .{i});
             switch (dependee) {
-                .src_hash, .namespace, .namespace_name, .zon_file, .embed_file => try w.print("{}", .{zcu.fmtDependee(dependee)}),
+                .src_hash, .namespace, .namespace_name, .zon_file, .embed_file => try w.print("{f}", .{zcu.fmtDependee(dependee)}),
                 .nav_val, .nav_ty => |nav| try w.print("{s} {d}", .{ @tagName(dependee), @intFromEnum(nav) }),
                 .interned => |ip_index| switch (ip.indexToKey(ip_index)) {
                     .struct_type, .union_type, .enum_type => try w.print("type {d}", .{@intFromEnum(ip_index)}),
