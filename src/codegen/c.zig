@@ -732,7 +732,7 @@ pub const Object = struct {
             indent_char => o.code.shrinkRetainingCapacity(written.len - indent_width),
             '\n' => try o.code.writer.splatByteAll(indent_char, o.indent_counter),
             else => {
-                std.debug.print("\"{f}\"\n", .{std.zig.fmtEscapes(written[written.len -| 100..])});
+                std.debug.print("\"{f}\"\n", .{std.zig.fmtString(written[written.len -| 100..])});
                 unreachable;
             },
         }
@@ -3038,20 +3038,20 @@ pub fn generate(
                 .pass = .{ .nav = func.owner_nav },
                 .is_naked_fn = Type.fromInterned(func.ty).fnCallingConvention(zcu) == .naked,
                 .expected_block = null,
-                .fwd_decl = undefined,
+                .fwd_decl = .init(gpa),
                 .ctype_pool = .empty,
                 .scratch = .empty,
                 .uavs = .empty,
             },
-            .code_header = undefined,
-            .code = undefined,
+            .code_header = .init(gpa),
+            .code = .init(gpa),
             .indent_counter = 0,
         },
         .lazy_fns = .empty,
     };
     defer {
-        function.object.code_header.init(gpa);
-        function.object.code.init(gpa);
+        function.object.code_header.deinit();
+        function.object.code.deinit();
         function.object.dg.fwd_decl.deinit();
         function.object.dg.ctype_pool.deinit(gpa);
         function.object.dg.scratch.deinit(gpa);
@@ -3059,18 +3059,17 @@ pub fn generate(
         function.deinit();
     }
     try function.object.dg.ctype_pool.init(gpa);
-    function.object.dg.fwd_decl.init(gpa);
-    function.object.code_header.init(gpa);
-    function.object.code.init(gpa);
 
     genFunc(&function) catch |err| switch (err) {
         error.AnalysisFail => return zcu.codegenFailMsg(func.owner_nav, function.object.dg.error_msg.?),
-        error.OutOfMemory => |e| return e,
+        error.OutOfMemory => return error.OutOfMemory,
+        error.WriteFailed => return error.OutOfMemory,
     };
 
     var mir: Mir = .{
         .uavs = .empty,
         .code = &.{},
+        .code_header = &.{},
         .fwd_decl = &.{},
         .ctype_pool = .empty,
         .lazy_fns = .empty,
@@ -4016,7 +4015,7 @@ fn airLoad(f: *Function, inst: Air.Inst.Index) !CValue {
         try w.writeByte('(');
         try f.writeCValueDeref(w, operand);
         try v.elem(f, w);
-        try w.print(", {f})", .{try f.fmtIntLiteral(bit_offset_val)});
+        try w.print(", {f})", .{try f.fmtIntLiteralDec(bit_offset_val)});
         if (cant_cast) try w.writeByte(')');
         try f.object.dg.renderBuiltinInfo(w, field_ty, .bits);
         try w.writeByte(')');
@@ -4077,7 +4076,7 @@ fn airRet(f: *Function, inst: Air.Inst.Index, is_ptr: bool) !void {
             try f.writeCValueDeref(w, ret_val)
         else
             try f.writeCValue(w, ret_val, .Other);
-        try w.write(";\n");
+        try w.writeAll(";\n");
         if (is_array) {
             try freeLocal(f, inst, ret_val.new_local, null);
         }
