@@ -2517,7 +2517,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     return step;
 }
 
-fn wouldUseLlvm(use_llvm: ?bool, query: std.Target.Query, optimize_mode: OptimizeMode) bool {
+pub fn wouldUseLlvm(use_llvm: ?bool, query: std.Target.Query, optimize_mode: OptimizeMode) bool {
     if (use_llvm) |x| return x;
     if (query.ofmt == .c) return false;
     switch (optimize_mode) {
@@ -2629,9 +2629,8 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
 pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
-    test_filters: []const []const u8,
-    test_target_filters: []const []const u8,
     target: std.Build.ResolvedTarget,
+    case_test_options: @import("src/Cases.zig").CaseTestOptions,
     translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
 ) !void {
@@ -2646,13 +2645,19 @@ pub fn addCases(
     cases.addFromDir(dir, b);
     try @import("cases.zig").addCases(&cases, build_options, b);
 
-    cases.lowerToTranslateCSteps(b, parent_step, test_filters, test_target_filters, target, translate_c_options);
+    cases.lowerToTranslateCSteps(
+        b,
+        parent_step,
+        case_test_options.test_filters,
+        case_test_options.test_target_filters,
+        target,
+        translate_c_options,
+    );
 
     cases.lowerToBuildSteps(
         b,
         parent_step,
-        test_filters,
-        test_target_filters,
+        case_test_options,
     );
 }
 
