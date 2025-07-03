@@ -957,18 +957,14 @@ pub const Inst = struct {
             return index.unwrap().target;
         }
 
-        pub fn format(
-            index: Index,
-            comptime _: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
-            try writer.writeByte('%');
+        pub fn format(index: Index, w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
+            comptime assert(fmt.len == 0);
+            try w.writeByte('%');
             switch (index.unwrap()) {
                 .ref => {},
-                .target => try writer.writeByte('t'),
+                .target => try w.writeByte('t'),
             }
-            try writer.print("{d}", .{@as(u31, @truncate(@intFromEnum(index)))});
+            try w.print("{d}", .{@as(u31, @truncate(@intFromEnum(index)))});
         }
     };
 

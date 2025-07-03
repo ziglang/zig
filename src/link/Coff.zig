@@ -2625,7 +2625,7 @@ fn logImportTables(coff: *const Coff) void {
     log.debug("import tables:", .{});
     for (coff.import_tables.keys(), 0..) |off, i| {
         const itable = coff.import_tables.values()[i];
-        log.debug("{}", .{itable.fmtDebug(.{
+        log.debug("{f}", .{itable.fmtDebug(.{
             .coff = coff,
             .index = i,
             .name_off = off,
