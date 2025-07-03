@@ -9093,11 +9093,11 @@ pub const perf_event_attr = extern struct {
 
 pub const perf_event_header = extern struct {
     /// Event type: sample/mmap/fork/etc.
-    type: u32 = 0,
+    type: u32,
     /// Additional informations on the event: kernel/user/hypervisor/etc.
-    miscs: u16 = 0,
+    miscs: u16,
     /// Size of the following record
-    size: u16 = 0,
+    size: u16,
 };
 
 pub const perf_event_mmap_page = extern struct {
