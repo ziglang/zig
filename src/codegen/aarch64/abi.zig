@@ -1,8 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const bits = @import("bits.zig");
+const bits = @import("../../arch/aarch64/bits.zig");
 const Register = bits.Register;
-const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../Type.zig");
 const Zcu = @import("../../Zcu.zig");
 
@@ -149,17 +148,3 @@ pub const c_abi_int_param_regs = [_]Register{ .x0, .x1, .x2, .x3, .x4, .x5, .x6,
 pub const c_abi_int_return_regs = [_]Register{ .x0, .x1, .x2, .x3, .x4, .x5, .x6, .x7 };
 
 const allocatable_registers = callee_preserved_regs;
-pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, &allocatable_registers);
-
-// Register classes
-const RegisterBitSet = RegisterManager.RegisterBitSet;
-pub const RegisterClass = struct {
-    pub const gp: RegisterBitSet = blk: {
-        var set = RegisterBitSet.initEmpty();
-        for (callee_preserved_regs) |reg| {
-            const index = RegisterManager.indexOfRegIntoTracked(reg).?;
-            set.set(index);
-        }
-        break :blk set;
-    };
-};
