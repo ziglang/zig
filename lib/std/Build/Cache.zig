@@ -962,6 +962,7 @@ pub const Manifest = struct {
         gop.key_ptr.* = .{
             .prefixed_path = prefixed_path,
             .max_file_size = max_file_size,
+            .handle = null,
             .stat = undefined,
             .bin_digest = undefined,
             .contents = null,
