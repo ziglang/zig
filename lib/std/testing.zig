@@ -360,9 +360,6 @@ test expectApproxEqRel {
 /// The colorized output is optional and controlled by the return of `std.io.tty.detectConfig()`.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
-    if (expected.ptr == actual.ptr and expected.len == actual.len) {
-        return;
-    }
     const diff_index: usize = diff_index: {
         const shortest = @min(expected.len, actual.len);
         var index: usize = 0;
@@ -371,12 +368,21 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
         }
         break :diff_index if (expected.len == actual.len) return else shortest;
     };
+    if (!backend_can_print) return error.TestExpectedEqual;
+    const stderr_w = std.debug.lockStderrWriter(&.{});
+    defer std.debug.unlockStderrWriter();
+    failEqualSlices(T, expected, actual, diff_index, stderr_w) catch {};
+    return error.TestExpectedEqual;
+}
 
-    if (!backend_can_print) {
-        return error.TestExpectedEqual;
-    }
-
-    print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
+fn failEqualSlices(
+    comptime T: type,
+    expected: []const T,
+    actual: []const T,
+    diff_index: usize,
+    w: *std.io.Writer,
+) !void {
+    try w.print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
 
     // TODO: Should this be configurable by the caller?
     const max_lines: usize = 16;
@@ -394,8 +400,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const stderr: std.fs.File = .stderr();
-    const ttyconf = std.io.tty.detectConfig(stderr);
+    const ttyconf = std.io.tty.detectConfig(.stderr());
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
         .actual = actual_window,
@@ -411,47 +416,47 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     // that is usually useful.
     const index_fmt = if (T == u8) "0x{X}" else "{}";
 
-    print("\n============ expected this output: =============  len: {} (0x{X})\n\n", .{ expected.len, expected.len });
+    try w.print("\n============ expected this output: =============  len: {} (0x{X})\n\n", .{ expected.len, expected.len });
     if (window_start > 0) {
         if (T == u8) {
-            print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
+            try w.print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
         } else {
-            print("... truncated ...\n", .{});
+            try w.print("... truncated ...\n", .{});
         }
     }
-    differ.write(stderr.deprecatedWriter()) catch {};
+    differ.write(w) catch {};
     if (expected_truncated) {
         const end_offset = window_start + expected_window.len;
         const num_missing_items = expected.len - (window_start + expected_window.len);
         if (T == u8) {
-            print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
+            try w.print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
         } else {
-            print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
+            try w.print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
         }
     }
 
     // now reverse expected/actual and print again
     differ.expected = actual_window;
     differ.actual = expected_window;
-    print("\n============= instead found this: ==============  len: {} (0x{X})\n\n", .{ actual.len, actual.len });
+    try w.print("\n============= instead found this: ==============  len: {} (0x{X})\n\n", .{ actual.len, actual.len });
     if (window_start > 0) {
         if (T == u8) {
-            print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
+            try w.print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
         } else {
-            print("... truncated ...\n", .{});
+            try w.print("... truncated ...\n", .{});
         }
     }
-    differ.write(stderr.deprecatedWriter()) catch {};
+    differ.write(w) catch {};
     if (actual_truncated) {
         const end_offset = window_start + actual_window.len;
         const num_missing_items = actual.len - (window_start + actual_window.len);
         if (T == u8) {
-            print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
+            try w.print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
         } else {
-            print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
+            try w.print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
         }
     }
-    print("\n================================================\n\n", .{});
+    try w.print("\n================================================\n\n", .{});
 
     return error.TestExpectedEqual;
 }
@@ -465,7 +470,7 @@ fn SliceDiffer(comptime T: type) type {
 
         const Self = @This();
 
-        pub fn write(self: Self, writer: anytype) !void {
+        pub fn write(self: Self, writer: *std.io.Writer) !void {
             for (self.expected, 0..) |value, i| {
                 const full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
@@ -486,7 +491,7 @@ const BytesDiffer = struct {
     actual: []const u8,
     ttyconf: std.io.tty.Config,
 
-    pub fn write(self: BytesDiffer, writer: anytype) !void {
+    pub fn write(self: BytesDiffer, writer: *std.io.Writer) !void {
         var expected_iterator = std.mem.window(u8, self.expected, 16, 16);
         var row: usize = 0;
         while (expected_iterator.next()) |chunk| {
@@ -503,7 +508,7 @@ const BytesDiffer = struct {
             if (chunk.len < 16) {
                 var missing_columns = (16 - chunk.len) * 3;
                 if (chunk.len < 8) missing_columns += 1;
-                try writer.writeByteNTimes(' ', missing_columns);
+                try writer.splatByteAll(' ', missing_columns);
             }
             for (chunk, 0..) |byte, col| {
                 const diff = diffs.isSet(col);
@@ -532,7 +537,7 @@ const BytesDiffer = struct {
         }
     }
 
-    fn writeDiff(self: BytesDiffer, writer: anytype, comptime fmt: []const u8, args: anytype, diff: bool) !void {
+    fn writeDiff(self: BytesDiffer, writer: *std.io.Writer, comptime fmt: []const u8, args: anytype, diff: bool) !void {
         if (diff) try self.ttyconf.setColor(writer, .red);
         try writer.print(fmt, args);
         if (diff) try self.ttyconf.setColor(writer, .reset);
