@@ -4274,6 +4274,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
         const rc = windows.ws2_32.connect(sock, sock_addr, @intCast(len));
         if (rc == 0) return;
         switch (windows.ws2_32.WSAGetLastError()) {
+            .WSAEISCONN => return,
             .WSAEADDRINUSE => return error.AddressInUse,
             .WSAEADDRNOTAVAIL => return error.AddressNotAvailable,
             .WSAECONNREFUSED => return error.ConnectionRefused,
@@ -4284,9 +4285,9 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             => return error.NetworkUnreachable,
             .WSAEFAULT => unreachable,
             .WSAEINVAL => unreachable,
-            .WSAEISCONN => unreachable,
             .WSAENOTSOCK => unreachable,
             .WSAEWOULDBLOCK => return error.WouldBlock,
+            .WSAEALREADY => return error.ConnectionPending,
             .WSAEACCES => unreachable,
             .WSAENOBUFS => return error.SystemResources,
             .WSAEAFNOSUPPORT => return error.AddressFamilyNotSupported,
@@ -4298,6 +4299,7 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
     while (true) {
         switch (errno(system.connect(sock, sock_addr, len))) {
             .SUCCESS => return,
+            .ISCONN => return,
             .ACCES => return error.AccessDenied,
             .PERM => return error.PermissionDenied,
             .ADDRINUSE => return error.AddressInUse,
@@ -4310,7 +4312,6 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .CONNRESET => return error.ConnectionResetByPeer,
             .FAULT => unreachable, // The socket structure address is outside the user's address space.
             .INTR => continue,
-            .ISCONN => unreachable, // The socket is already connected.
             .HOSTUNREACH => return error.NetworkUnreachable,
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTSOCK => unreachable, // The file descriptor sockfd does not refer to a socket.
