@@ -342,7 +342,7 @@ pub const Inst = struct {
         /// Uses the `break` union field.
         break_inline,
         /// Branch from within a switch case to the case specified by the operand.
-        /// Uses the `break` union field. `block_inst` refers to a `switch_block` or `switch_block_ref`.
+        /// Uses the `break` union field. `block_inst` refers to a `switch_block`.
         switch_continue,
         /// Checks that comptime control flow does not happen inside a runtime block.
         /// Uses the `un_node` union field.
@@ -695,12 +695,18 @@ pub const Inst = struct {
         /// function call syntax, i.e. `.foo()`.
         /// Uses the `pl_node` union field. Payload is `Field`.
         decl_literal_no_coerce,
+        /// Produces the value that will be switched on. For example, for
+        /// integers, it returns the integer with no modifications. For tagged unions, it
+        /// returns the active enum tag.
+        /// Uses the `un_node` union field.
+        switch_cond,
+        /// Same as `switch_cond`, except the input operand is a pointer to
+        /// what will be switched on.
+        /// Uses the `un_node` union field.
+        switch_cond_ref,
         /// A switch expression. Uses the `pl_node` union field.
         /// AST node is the switch, payload is `SwitchBlock`.
         switch_block,
-        /// A switch expression. Uses the `pl_node` union field.
-        /// AST node is the switch, payload is `SwitchBlock`. Operand is a pointer.
-        switch_block_ref,
         /// A switch on an error union `a catch |err| switch (err) {...}`.
         /// Uses the `pl_node` union field. AST node is the `catch`, payload is `SwitchBlockErrUnion`.
         switch_block_err_union,
@@ -1206,8 +1212,9 @@ pub const Inst = struct {
                 .typeof_log2_int_type,
                 .resolve_inferred_alloc,
                 .set_eval_branch_quota,
+                .switch_cond,
+                .switch_cond_ref,
                 .switch_block,
-                .switch_block_ref,
                 .switch_block_err_union,
                 .validate_deref,
                 .validate_destructure,
@@ -1494,8 +1501,9 @@ pub const Inst = struct {
                 .slice_sentinel_ty,
                 .import,
                 .typeof_log2_int_type,
+                .switch_cond,
+                .switch_cond_ref,
                 .switch_block,
-                .switch_block_ref,
                 .switch_block_err_union,
                 .union_init,
                 .field_type_ref,
@@ -1748,8 +1756,9 @@ pub const Inst = struct {
                 .enum_literal = .str_tok,
                 .decl_literal = .pl_node,
                 .decl_literal_no_coerce = .pl_node,
+                .switch_cond = .un_node,
+                .switch_cond_ref = .un_node,
                 .switch_block = .pl_node,
-                .switch_block_ref = .pl_node,
                 .switch_block_err_union = .pl_node,
                 .validate_deref = .un_node,
                 .validate_destructure = .pl_node,
@@ -3277,10 +3286,13 @@ pub const Inst = struct {
     /// captured payload. Whether this is captured by reference or by value
     /// depends on whether the `byref` bit is set for the corresponding body.
     pub const SwitchBlock = struct {
-        /// The operand passed to the `switch` expression. If this is a
-        /// `switch_block`, this is the operand value; if `switch_block_ref` it
-        /// is a pointer to the operand. `switch_block_ref` is always used if
-        /// any prong has a byref capture.
+        /// This is always a `switch_cond` or `switch_cond_ref` instruction.
+        /// If it is a `switch_cond_ref` instruction, bits.is_ref is always true.
+        /// If it is a `switch_cond` instruction, bits.is_ref is always false.
+        /// Both `switch_cond` and `switch_cond_ref` return a value, not a pointer,
+        /// that is useful for the case items, but cannot be used for capture values.
+        /// For the capture values, Sema is expected to find the operand of this operand
+        /// and use that.
         operand: Ref,
         bits: Bits,
 
@@ -4338,6 +4350,8 @@ fn findTrackableInner(
         .make_ptr_const,
         .@"resume",
         .@"await",
+        .switch_cond,
+        .switch_cond_ref,
         .save_err_ret_index,
         .restore_err_ret_index_unconditional,
         .restore_err_ret_index_fn_entry,
@@ -4676,7 +4690,7 @@ fn findTrackableInner(
             const body = zir.bodySlice(extra.end, extra.data.body_len);
             try zir.findTrackableBody(gpa, contents, defers, body);
         },
-        .switch_block, .switch_block_ref => return zir.findTrackableSwitch(gpa, contents, defers, inst, .normal),
+        .switch_block => return zir.findTrackableSwitch(gpa, contents, defers, inst, .normal),
         .switch_block_err_union => return zir.findTrackableSwitch(gpa, contents, defers, inst, .err_union),
 
         .suspend_block => @panic("TODO iterate suspend block"),
