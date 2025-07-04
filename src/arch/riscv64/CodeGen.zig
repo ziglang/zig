@@ -566,13 +566,9 @@ const InstTracking = struct {
         }
     }
 
-    pub fn format(
-        inst_tracking: InstTracking,
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        if (!std.meta.eql(inst_tracking.long, inst_tracking.short)) try writer.print("|{f}| ", .{inst_tracking.long});
+    pub fn format(inst_tracking: InstTracking, writer: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
+        comptime assert(f.len == 0);
+        if (!std.meta.eql(inst_tracking.long, inst_tracking.short)) try writer.print("|{}| ", .{inst_tracking.long});
         try writer.print("{}", .{inst_tracking.short});
     }
 };
@@ -973,7 +969,7 @@ fn formatWipMir(data: FormatWipMirData, writer: *std.io.Writer) std.io.Writer.Er
         else => |e| return e,
     }).insts) |lowered_inst| {
         if (!first) try writer.writeAll("\ndebug(wip_mir): ");
-        try writer.print("  | {f}", .{lowered_inst});
+        try writer.print("  | {}", .{lowered_inst});
         first = false;
     }
 }
@@ -1156,7 +1152,7 @@ fn gen(func: *Func) !void {
                     func.ret_mcv.long.address().offset(-func.ret_mcv.short.indirect.off),
                 );
                 func.ret_mcv.long = .{ .load_frame = .{ .index = frame_index } };
-                tracking_log.debug("spill {f} to {f}", .{ func.ret_mcv.long, frame_index });
+                tracking_log.debug("spill {} to {f}", .{ func.ret_mcv.long, frame_index });
             },
             else => unreachable,
         }
@@ -1656,7 +1652,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
 
         if (std.debug.runtime_safety) {
             if (func.air_bookkeeping < old_air_bookkeeping + 1) {
-                std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{f}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[@intFromEnum(inst)] });
+                std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[@intFromEnum(inst)] });
             }
 
             { // check consistency of tracked registers
@@ -1668,7 +1664,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
                     for (tracking.getRegs()) |reg| {
                         if (RegisterManager.indexOfRegIntoTracked(reg).? == index) break;
                     } else return std.debug.panic(
-                        \\%{} takes up these regs: {any}, however this regs {any}, don't use it
+                        \\%{f} takes up these regs: {any}, however this regs {any}, don't use it
                     , .{ tracked_inst, tracking.getRegs(), RegisterManager.regAtTrackedIndex(@intCast(index)) });
                 }
             }
@@ -1726,7 +1722,7 @@ fn finishAirResult(func: *Func, inst: Air.Inst.Index, result: MCValue) void {
             else => {},
         }
 
-        tracking_log.debug("%{d} => {f} (birth)", .{ inst, result });
+        tracking_log.debug("%{d} => {} (birth)", .{ inst, result });
         func.inst_tracking.putAssumeCapacityNoClobber(inst, InstTracking.init(result));
         // In some cases, an operand may be reused as the result.
         // If that operand died and was a register, it was freed by
@@ -1827,7 +1823,7 @@ fn computeFrameLayout(func: *Func) !FrameLayout {
         total_alloc_size + 64 + args_frame_size + spill_frame_size + call_frame_size,
         @intCast(frame_align[@intFromEnum(FrameIndex.base_ptr)].toByteUnits().?),
     );
-    log.debug("frame size: {f}", .{acc_frame_size});
+    log.debug("frame size: {d}", .{acc_frame_size});
 
     // store the ra at total_size - 8, so it's the very first thing in the stack
     // relative to the fp
@@ -1888,7 +1884,7 @@ fn splitType(func: *Func, ty: Type) ![2]Type {
                 },
                 else => unreachable,
             },
-            else => return func.fail("TODO: splitType class {f}", .{class}),
+            else => return func.fail("TODO: splitType class {}", .{class}),
         };
     } else if (parts[0].abiSize(zcu) + parts[1].abiSize(zcu) == ty.abiSize(zcu)) return parts;
     return func.fail("TODO implement splitType for {f}", .{ty.fmt(func.pt)});

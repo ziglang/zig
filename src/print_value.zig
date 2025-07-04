@@ -76,14 +76,15 @@ pub fn print(
         .@"extern" => |e| try writer.print("(extern '{f}')", .{e.name.fmt(ip)}),
         .func => |func| try writer.print("(function '{f}')", .{ip.getNav(func.owner_nav).name.fmt(ip)}),
         .int => |int| switch (int.storage) {
-            inline .u64, .i64, .big_int => |x| try writer.print("{}", .{x}),
+            inline .u64, .i64 => |x| try writer.print("{d}", .{x}),
+            .big_int => |x| try writer.print("{fd}", .{x}),
             .lazy_align => |ty| if (opt_sema != null) {
                 const a = try Type.fromInterned(ty).abiAlignmentSema(pt);
-                try writer.print("{}", .{a.toByteUnits() orelse 0});
+                try writer.print("{d}", .{a.toByteUnits() orelse 0});
             } else try writer.print("@alignOf({f})", .{Type.fromInterned(ty).fmt(pt)}),
             .lazy_size => |ty| if (opt_sema != null) {
                 const s = try Type.fromInterned(ty).abiSizeSema(pt);
-                try writer.print("{}", .{s});
+                try writer.print("{d}", .{s});
             } else try writer.print("@sizeOf({f})", .{Type.fromInterned(ty).fmt(pt)}),
         },
         .err => |err| try writer.print("error.{f}", .{

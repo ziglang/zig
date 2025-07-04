@@ -83,7 +83,7 @@ pub fn parse(
             .alive = false,
         };
 
-        log.debug("extracting object '{}' from archive '{}'", .{
+        log.debug("extracting object '{f}' from archive '{f}'", .{
             @as(Path, object.path), @as(Path, path),
         });
 
@@ -201,19 +201,6 @@ pub const ArSymtab = struct {
         }
     }
 
-    pub fn format(
-        ar: ArSymtab,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = ar;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format ar symtab directly; use fmt instead");
-    }
-
     const Format = struct {
         ar: ArSymtab,
         elf_file: *Elf,
@@ -224,7 +211,7 @@ pub const ArSymtab = struct {
             for (ar.symtab.items, 0..) |entry, i| {
                 const name = ar.strtab.getAssumeExists(entry.off);
                 const file = elf_file.file(entry.file_index).?;
-                try writer.print("  {d}: {s} in file({d})({})\n", .{ i, name, entry.file_index, file.fmtPath() });
+                try writer.print("  {d}: {s} in file({d})({f})\n", .{ i, name, entry.file_index, file.fmtPath() });
             }
         }
     };
@@ -273,14 +260,8 @@ pub const ArStrtab = struct {
         try writer.writeAll(ar.buffer.items);
     }
 
-    pub fn format(
-        ar: ArStrtab,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    pub fn format(ar: ArStrtab, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
+        comptime assert(fmt.len == 0);
         try writer.print("{f}", .{std.ascii.hexEscape(ar.buffer.items, .lower)});
     }
 };

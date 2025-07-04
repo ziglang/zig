@@ -142,8 +142,8 @@ fn handleCommand(zcu: *Zcu, output: *std.ArrayListUnmanaged(u8), cmd_str: []cons
         const create_gen = zcu.incremental_debug_state.navs.get(nav_index) orelse return w.writeAll("unknown nav index");
         const nav = ip.getNav(nav_index);
         try w.print(
-            \\name: '{}'
-            \\fqn: '{}'
+            \\name: '{f}'
+            \\fqn: '{f}'
             \\status: {s}
             \\created on generation: {d}
             \\
@@ -260,7 +260,7 @@ fn handleCommand(zcu: *Zcu, output: *std.ArrayListUnmanaged(u8), cmd_str: []cons
         const ip_index: InternPool.Index = @enumFromInt(parseIndex(arg_str) orelse return w.writeAll("malformed ip index"));
         const create_gen = zcu.incremental_debug_state.types.get(ip_index) orelse return w.writeAll("unknown type");
         try w.print(
-            \\name: '{}'
+            \\name: '{f}'
             \\created on generation: {d}
             \\
         , .{
@@ -365,7 +365,7 @@ fn printType(ty: Type, zcu: *const Zcu, w: anytype) !void {
         .union_type,
         .enum_type,
         .opaque_type,
-        => try w.print("{}[{d}]", .{ ty.containerTypeName(ip).fmt(ip), @intFromEnum(ty.toIntern()) }),
+        => try w.print("{f}[{d}]", .{ ty.containerTypeName(ip).fmt(ip), @intFromEnum(ty.toIntern()) }),
 
         else => unreachable,
     }

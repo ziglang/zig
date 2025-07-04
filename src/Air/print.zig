@@ -518,7 +518,7 @@ const Writer = struct {
             if (mask_idx > 0) try s.writeAll(", ");
             switch (mask_elem.unwrap()) {
                 .elem => |idx| try s.print("elem {d}", .{idx}),
-                .value => |val| try s.print("val {}", .{Value.fromInterned(val).fmtValue(w.pt)}),
+                .value => |val| try s.print("val {f}", .{Value.fromInterned(val).fmtValue(w.pt)}),
             }
         }
         try s.writeByte(']');
@@ -590,7 +590,7 @@ const Writer = struct {
         const ip = &w.pt.zcu.intern_pool;
         const ty_nav = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
         try w.writeType(s, .fromInterned(ty_nav.ty));
-        try s.print(", '{}'", .{ip.getNav(ty_nav.nav).fqn.fmt(ip)});
+        try s.print(", '{f}'", .{ip.getNav(ty_nav.nav).fqn.fmt(ip)});
     }
 
     fn writeAtomicLoad(w: *Writer, s: *std.io.Writer, inst: Air.Inst.Index) Error!void {

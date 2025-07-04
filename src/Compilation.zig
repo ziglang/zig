@@ -730,10 +730,10 @@ pub const Directories = struct {
         };
 
         if (std.mem.eql(u8, zig_lib.path orelse "", global_cache.path orelse "")) {
-            fatal("zig lib directory '{}' cannot be equal to global cache directory '{}'", .{ zig_lib, global_cache });
+            fatal("zig lib directory '{f}' cannot be equal to global cache directory '{f}'", .{ zig_lib, global_cache });
         }
         if (std.mem.eql(u8, zig_lib.path orelse "", local_cache.path orelse "")) {
-            fatal("zig lib directory '{}' cannot be equal to local cache directory '{}'", .{ zig_lib, local_cache });
+            fatal("zig lib directory '{f}' cannot be equal to local cache directory '{f}'", .{ zig_lib, local_cache });
         }
 
         return .{
@@ -2709,7 +2709,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                         const prefix = man.cache.prefixes()[pp.prefix];
                         return comp.setMiscFailure(
                             .check_whole_cache,
-                            "failed to check cache: '{}{s}' {s} {s}",
+                            "failed to check cache: '{f}{s}' {s} {s}",
                             .{ prefix, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err) },
                         );
                     },
@@ -2926,7 +2926,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             renameTmpIntoCache(comp.dirs.local_cache, tmp_dir_sub_path, o_sub_path) catch |err| {
                 return comp.setMiscFailure(
                     .rename_results,
-                    "failed to rename compilation results ('{}{s}') into local cache ('{}{s}'): {s}",
+                    "failed to rename compilation results ('{f}{s}') into local cache ('{f}{s}'): {s}",
                     .{
                         comp.dirs.local_cache, tmp_dir_sub_path,
                         comp.dirs.local_cache, o_sub_path,
@@ -2993,7 +2993,7 @@ pub fn appendFileSystemInput(comp: *Compilation, path: Compilation.Path) Allocat
             break @intCast(i);
         }
     } else std.debug.panic(
-        "missing prefix directory '{s}' ('{}') for '{s}'",
+        "missing prefix directory '{s}' ('{f}') for '{s}'",
         .{ @tagName(path.root), want_prefix_dir, path.sub_path },
     );
 
@@ -3332,7 +3332,7 @@ fn emitFromCObject(
         emit_path.root_dir.handle,
         emit_path.sub_path,
         .{},
-    ) catch |err| log.err("unable to copy '{}' to '{}': {s}", .{
+    ) catch |err| log.err("unable to copy '{f}' to '{f}': {s}", .{
         src_path,
         emit_path,
         @errorName(err),
@@ -3680,7 +3680,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                     .illegal_zig_import => try bundle.addString("this compiler implementation does not allow importing files from this directory"),
                 },
                 .src_loc = try bundle.addSourceLocation(.{
-                    .src_path = try bundle.printString("{}", .{file.path.fmt(comp)}),
+                    .src_path = try bundle.printString("{f}", .{file.path.fmt(comp)}),
                     .span_start = start,
                     .span_main = start,
                     .span_end = @intCast(end),
@@ -3727,7 +3727,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 assert(!is_retryable);
                 // AstGen/ZoirGen succeeded with errors. Note that this may include AST errors.
                 _ = try file.getTree(zcu); // Tree must be loaded.
-                const path = try std.fmt.allocPrint(gpa, "{}", .{file.path.fmt(comp)});
+                const path = try std.fmt.allocPrint(gpa, "{f}", .{file.path.fmt(comp)});
                 defer gpa.free(path);
                 if (file.zir != null) {
                     try bundle.addZirErrorMessages(file.zir.?, file.tree.?, file.source.?, path);
@@ -3782,9 +3782,8 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 if (!refs.contains(anal_unit)) continue;
             }
 
-            std.log.scoped(.zcu).debug("analysis error '{s}' reported from unit '{}'", .{
-                error_msg.msg,
-                zcu.fmtAnalUnit(anal_unit),
+            std.log.scoped(.zcu).debug("analysis error '{s}' reported from unit '{f}'", .{
+                error_msg.msg, zcu.fmtAnalUnit(anal_unit),
             });
 
             try addModuleErrorMsg(zcu, &bundle, error_msg.*, added_any_analysis_error);
@@ -3944,9 +3943,9 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             // This is a compiler bug.
             const stderr = std.fs.File.stderr().deprecatedWriter();
             try stderr.writeAll("referenced transitive analysis errors, but none actually emitted\n");
-            try stderr.print("{} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
+            try stderr.print("{f} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
             while (ref) |r| {
-                try stderr.print("referenced by: {}{s}\n", .{
+                try stderr.print("referenced by: {f}{s}\n", .{
                     zcu.fmtAnalUnit(r.referencer),
                     if (zcu.transitive_failed_analysis.contains(r.referencer)) " [transitive failure]" else "",
                 });
@@ -4045,7 +4044,7 @@ pub fn addModuleErrorMsg(
     const err_src_loc = module_err_msg.src_loc.upgrade(zcu);
     const err_source = err_src_loc.file_scope.getSource(zcu) catch |err| {
         try eb.addRootErrorMessage(.{
-            .msg = try eb.printString("unable to load '{}': {s}", .{
+            .msg = try eb.printString("unable to load '{f}': {s}", .{
                 err_src_loc.file_scope.path.fmt(zcu.comp), @errorName(err),
             }),
         });
@@ -4108,7 +4107,7 @@ pub fn addModuleErrorMsg(
     }
 
     const src_loc = try eb.addSourceLocation(.{
-        .src_path = try eb.printString("{}", .{err_src_loc.file_scope.path.fmt(zcu.comp)}),
+        .src_path = try eb.printString("{f}", .{err_src_loc.file_scope.path.fmt(zcu.comp)}),
         .span_start = err_span.start,
         .span_main = err_span.main,
         .span_end = err_span.end,
@@ -4140,7 +4139,7 @@ pub fn addModuleErrorMsg(
         const gop = try notes.getOrPutContext(gpa, .{
             .msg = try eb.addString(module_note.msg),
             .src_loc = try eb.addSourceLocation(.{
-                .src_path = try eb.printString("{}", .{note_src_loc.file_scope.path.fmt(zcu.comp)}),
+                .src_path = try eb.printString("{f}", .{note_src_loc.file_scope.path.fmt(zcu.comp)}),
                 .span_start = span.start,
                 .span_main = span.main,
                 .span_end = span.end,
@@ -4185,7 +4184,7 @@ fn addReferenceTraceFrame(
     try ref_traces.append(gpa, .{
         .decl_name = try eb.printString("{s}{s}", .{ name, if (inlined) " [inlined]" else "" }),
         .src_loc = try eb.addSourceLocation(.{
-            .src_path = try eb.printString("{}", .{src.file_scope.path.fmt(zcu.comp)}),
+            .src_path = try eb.printString("{f}", .{src.file_scope.path.fmt(zcu.comp)}),
             .span_start = span.start,
             .span_main = span.main,
             .span_end = span.end,
@@ -4846,7 +4845,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     var out_dir = docs_path.root_dir.handle.makeOpenPath(docs_path.sub_path, .{}) catch |err| {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
-            "unable to create output directory '{}': {s}",
+            "unable to create output directory '{f}': {s}",
             .{ docs_path, @errorName(err) },
         );
     };
@@ -4866,7 +4865,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     var tar_file = out_dir.createFile("sources.tar", .{}) catch |err| {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
-            "unable to create '{}/sources.tar': {s}",
+            "unable to create '{f}/sources.tar': {s}",
             .{ docs_path, @errorName(err) },
         );
     };
@@ -4895,7 +4894,7 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
         const root_dir, const sub_path = root.openInfo(comp.dirs);
         break :d root_dir.openDir(sub_path, .{ .iterate = true });
     } catch |err| {
-        return comp.lockAndSetMiscFailure(.docs_copy, "unable to open directory '{}': {s}", .{
+        return comp.lockAndSetMiscFailure(.docs_copy, "unable to open directory '{f}': {s}", .{
             root.fmt(comp), @errorName(err),
         });
     };
@@ -4917,13 +4916,13 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
             else => continue,
         }
         var file = mod_dir.openFile(entry.path, .{}) catch |err| {
-            return comp.lockAndSetMiscFailure(.docs_copy, "unable to open '{}{s}': {s}", .{
+            return comp.lockAndSetMiscFailure(.docs_copy, "unable to open '{f}{s}': {s}", .{
                 root.fmt(comp), entry.path, @errorName(err),
             });
         };
         defer file.close();
         archiver.writeFile(entry.path, file) catch |err| {
-            return comp.lockAndSetMiscFailure(.docs_copy, "unable to archive '{}{s}': {s}", .{
+            return comp.lockAndSetMiscFailure(.docs_copy, "unable to archive '{f}{s}': {s}", .{
                 root.fmt(comp), entry.path, @errorName(err),
             });
         };
@@ -5053,7 +5052,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
     var out_dir = docs_path.root_dir.handle.makeOpenPath(docs_path.sub_path, .{}) catch |err| {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
-            "unable to create output directory '{}': {s}",
+            "unable to create output directory '{f}': {s}",
             .{ docs_path, @errorName(err) },
         );
     };
@@ -5065,10 +5064,8 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         "main.wasm",
         .{},
     ) catch |err| {
-        return comp.lockAndSetMiscFailure(.docs_copy, "unable to copy '{}' to '{}': {s}", .{
-            crt_file.full_object_path,
-            docs_path,
-            @errorName(err),
+        return comp.lockAndSetMiscFailure(.docs_copy, "unable to copy '{f}' to '{f}': {s}", .{
+            crt_file.full_object_path, docs_path, @errorName(err),
         });
     };
 }
@@ -5141,7 +5138,7 @@ fn workerUpdateBuiltinFile(comp: *Compilation, file: *Zcu.File) void {
         defer comp.mutex.unlock();
         comp.setMiscFailure(
             .write_builtin_zig,
-            "unable to write '{}': {s}",
+            "unable to write '{f}': {s}",
             .{ file.path.fmt(comp), @errorName(err) },
         );
     };
@@ -6044,7 +6041,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             // 24 is RT_MANIFEST
             const resource_type = 24;
 
-            const input = try std.fmt.allocPrint(arena, "{} {} \"{f}\"", .{
+            const input = try std.fmt.allocPrint(arena, "{d} {d} \"{f}\"", .{
                 resource_id, resource_type, fmtRcEscape(src_path),
             });
 

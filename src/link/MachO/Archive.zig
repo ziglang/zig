@@ -71,7 +71,7 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
             .mtime = hdr.date() catch 0,
         };
 
-        log.debug("extracting object '{}' from archive '{}'", .{ object.path, path });
+        log.debug("extracting object '{f}' from archive '{f}'", .{ object.path, path });
 
         try self.objects.append(gpa, object);
     }

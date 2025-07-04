@@ -108,7 +108,7 @@ pub fn write(list: AtomList, buffer: *std.ArrayList(u8), undefs: anytype, elf_fi
         const off = math.cast(usize, atom_ptr.value - list.value) orelse return error.Overflow;
         const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 
-        log.debug("  atom({}) at 0x{x}", .{ ref, list.offset(elf_file) + off });
+        log.debug("  atom({f}) at 0x{x}", .{ ref, list.offset(elf_file) + off });
 
         const object = atom_ptr.file(elf_file).?.object;
         const code = try object.codeDecompressAlloc(elf_file, ref.index);
@@ -144,7 +144,7 @@ pub fn writeRelocatable(list: AtomList, buffer: *std.ArrayList(u8), elf_file: *E
         const off = math.cast(usize, atom_ptr.value - list.value) orelse return error.Overflow;
         const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 
-        log.debug("  atom({}) at 0x{x}", .{ ref, list.offset(elf_file) + off });
+        log.debug("  atom({f}) at 0x{x}", .{ ref, list.offset(elf_file) + off });
 
         const object = atom_ptr.file(elf_file).?.object;
         const code = try object.codeDecompressAlloc(elf_file, ref.index);
@@ -172,22 +172,24 @@ const Format = struct {
     elf_file: *Elf,
 
     fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
-        const list, const elf_file = f;
+        const list = f.atom_list;
         try writer.print("list : @{x} : shdr({d}) : align({x}) : size({x})", .{
-            list.address(elf_file),                list.output_section_index,
-            list.alignment.toByteUnits() orelse 0, list.size,
+            list.address(f.elf_file),
+            list.output_section_index,
+            list.alignment.toByteUnits() orelse 0,
+            list.size,
         });
         try writer.writeAll(" : atoms{ ");
         for (list.atoms.keys(), 0..) |ref, i| {
-            try writer.print("{}", .{ref});
+            try writer.print("{f}", .{ref});
             if (i < list.atoms.keys().len - 1) try writer.writeAll(", ");
         }
         try writer.writeAll(" }");
     }
 };
 
-pub fn fmt(list: AtomList, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
-    return .{ .data = .{ list, elf_file } };
+pub fn fmt(atom_list: AtomList, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    return .{ .data = .{ .atom_list = atom_list, .elf_file = elf_file } };
 }
 
 const assert = std.debug.assert;

@@ -2199,7 +2199,7 @@ const Format = struct {
     self: *ZigObject,
     elf_file: *Elf,
 
-    fn symtab(f: Format, writer: *std.io.Writer.Error) std.io.Writer.Error!void {
+    fn symtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
         const self = f.self;
         const elf_file = f.elf_file;
         try writer.writeAll("  locals\n");
@@ -2214,7 +2214,7 @@ const Format = struct {
         }
     }
 
-    fn atoms(f: Format, writer: *std.io.Writer.Error) std.io.Writer.Error!void {
+    fn atoms(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
         try writer.writeAll("  atoms\n");
         for (f.self.atoms_indexes.items) |atom_index| {
             const atom_ptr = f.self.atom(atom_index) orelse continue;

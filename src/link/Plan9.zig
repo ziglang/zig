@@ -445,7 +445,7 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         .func => return,
         .variable => |variable| Value.fromInterned(variable.init),
         .@"extern" => {
-            log.debug("found extern decl: {}", .{nav.name.fmt(ip)});
+            log.debug("found extern decl: {f}", .{nav.name.fmt(ip)});
             return;
         },
         else => nav_val,
@@ -675,7 +675,7 @@ pub fn flush(
                 const off = self.getAddr(text_i, .t);
                 text_i += out.code.len;
                 atom.offset = off;
-                log.debug("write text nav 0x{x} ({}), lines {d} to {d}.;__GOT+0x{x} vaddr: 0x{x}", .{ nav_index, nav.name.fmt(&pt.zcu.intern_pool), out.start_line + 1, out.end_line, atom.got_index.? * 8, off });
+                log.debug("write text nav 0x{x} ({f}), lines {d} to {d}.;__GOT+0x{x} vaddr: 0x{x}", .{ nav_index, nav.name.fmt(&pt.zcu.intern_pool), out.start_line + 1, out.end_line, atom.got_index.? * 8, off });
                 if (!self.sixtyfour_bit) {
                     mem.writeInt(u32, got_table[atom.got_index.? * 4 ..][0..4], @intCast(off), target.cpu.arch.endian());
                 } else {
@@ -974,11 +974,11 @@ pub fn seeNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) 
             self.etext_edata_end_atom_indices[2] = atom_idx;
         }
         try self.updateFinish(pt, nav_index);
-        log.debug("seeNav(extern) for {} (got_addr=0x{x})", .{
+        log.debug("seeNav(extern) for {f} (got_addr=0x{x})", .{
             nav.name.fmt(ip),
             self.getAtom(atom_idx).getOffsetTableAddress(self),
         });
-    } else log.debug("seeNav for {}", .{nav.name.fmt(ip)});
+    } else log.debug("seeNav for {f}", .{nav.name.fmt(ip)});
     return atom_idx;
 }
 
@@ -1043,7 +1043,7 @@ fn updateLazySymbolAtom(
     defer code_buffer.deinit(gpa);
 
     // create the symbol for the name
-    const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
+    const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{f}", .{
         @tagName(sym.kind),
         Type.fromInterned(sym.ty).fmt(pt),
     });
@@ -1314,7 +1314,7 @@ pub fn getNavVAddr(
 ) !u64 {
     const ip = &pt.zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    log.debug("getDeclVAddr for {}", .{nav.name.fmt(ip)});
+    log.debug("getDeclVAddr for {f}", .{nav.name.fmt(ip)});
     if (nav.getExtern(ip) != null) {
         if (nav.name.eqlSlice("etext", ip)) {
             try self.addReloc(reloc_info.parent.atom_index, .{

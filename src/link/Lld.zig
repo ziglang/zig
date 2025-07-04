@@ -437,7 +437,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
             try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb_basename}));
         }
         if (comp.version) |version| {
-            try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
+            try argv.append(try allocPrint(arena, "-VERSION:{f}.{f}", .{ version.major, version.minor }));
         }
 
         if (target_util.llvmMachineAbi(target)) |mabi| {
@@ -507,7 +507,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
 
         if (comp.emit_implib) |raw_emit_path| {
             const path = try comp.resolveEmitPathFlush(arena, .temp, raw_emit_path);
-            try argv.append(try allocPrint(arena, "-IMPLIB:{}", .{path}));
+            try argv.append(try allocPrint(arena, "-IMPLIB:{f}", .{path}));
         }
 
         if (comp.config.link_libc) {
@@ -533,7 +533,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
             },
             .object, .archive => |obj| {
                 if (obj.must_link) {
-                    argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{}", .{@as(Cache.Path, obj.path)}));
+                    argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{f}", .{@as(Cache.Path, obj.path)}));
                 } else {
                     argv.appendAssumeCapacity(try obj.path.toString(arena));
                 }
@@ -1216,7 +1216,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
                             if (target.os.versionRange().gnuLibCVersion().?.order(rem_in) != .lt) continue;
                         }
 
-                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                        const lib_path = try std.fmt.allocPrint(arena, "{f}{c}lib{s}.so.{d}", .{
                             comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                         });
                         try argv.append(lib_path);
@@ -1229,14 +1229,14 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
                     }));
                 } else if (target.isFreeBSDLibC()) {
                     for (freebsd.libs) |lib| {
-                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                        const lib_path = try std.fmt.allocPrint(arena, "{f}{c}lib{s}.so.{d}", .{
                             comp.freebsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                         });
                         try argv.append(lib_path);
                     }
                 } else if (target.isNetBSDLibC()) {
                     for (netbsd.libs) |lib| {
-                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                        const lib_path = try std.fmt.allocPrint(arena, "{f}{c}lib{s}.so.{d}", .{
                             comp.netbsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                         });
                         try argv.append(lib_path);

@@ -1155,8 +1155,11 @@ pub const Attribute = union(Kind) {
         const FormatData = struct {
             attribute_index: Index,
             builder: *const Builder,
-            mode: Mode,
-            const Mode = enum { default, quote, pound };
+            flags: Flags = .{},
+            const Flags = struct {
+                pound: bool = false,
+                quote: bool = false,
+            };
         };
         fn format(data: FormatData, w: *Writer) Writer.Error!void {
             const attribute = data.attribute_index.toAttribute(data.builder);
@@ -1262,11 +1265,12 @@ pub const Attribute = union(Kind) {
                     try w.writeByte(')');
                 },
                 .alignstack => |alignment| {
-                    try w.print(" {f}", .{attribute});
+                    try w.print(" {s}", .{attribute});
                     const alignment_bytes = alignment.toByteUnits() orelse return;
-                    switch (data.mode) {
-                        .pound => try w.print("({d})", .{alignment_bytes}),
-                        else => try w.print("={d}", .{alignment_bytes}),
+                    if (data.flags.pound) {
+                        try w.print("={d}", .{alignment_bytes});
+                    } else {
+                        try w.print("({d})", .{alignment_bytes});
                     }
                 },
                 .allockind => |allockind| {
@@ -1313,7 +1317,7 @@ pub const Attribute = union(Kind) {
                     vscale_range.min.toByteUnits().?,
                     vscale_range.max.toByteUnits() orelse 0,
                 }),
-                .string => |string_attr| if (data.mode == .quote) {
+                .string => |string_attr| if (data.flags.quote) {
                     try w.print(" {f}", .{string_attr.kind.fmtQ(data.builder)});
                     if (string_attr.value != .empty)
                         try w.print("={f}", .{string_attr.value.fmtQ(data.builder)});
@@ -1595,16 +1599,18 @@ pub const Attributes = enum(u32) {
     const FormatData = struct {
         attributes: Attributes,
         builder: *const Builder,
+        flags: Flags = .{},
+        const Flags = Attribute.Index.FormatData.Flags;
     };
     fn format(data: FormatData, w: *Writer) Writer.Error!void {
         for (data.attributes.slice(data.builder)) |attribute_index| try Attribute.Index.format(.{
             .attribute_index = attribute_index,
             .builder = data.builder,
-            .mode = .default,
+            .flags = data.flags,
         }, w);
     }
-    pub fn fmt(self: Attributes, builder: *const Builder) std.fmt.Formatter(FormatData, format) {
-        return .{ .data = .{ .attributes = self, .builder = builder } };
+    pub fn fmt(self: Attributes, builder: *const Builder, flags: FormatData.Flags) std.fmt.Formatter(FormatData, format) {
+        return .{ .data = .{ .attributes = self, .builder = builder, .flags = flags } };
     }
 };
 
@@ -1808,7 +1814,8 @@ pub const Preemption = enum {
     dso_local,
     implicit_dso_local,
 
-    pub fn format(self: Preemption, w: *Writer, comptime _: []const u8) Writer.Error!void {
+    pub fn format(self: Preemption, w: *Writer, comptime f: []const u8) Writer.Error!void {
+        comptime assert(f.len == 0);
         if (self == .dso_local) try w.print(" {s}", .{@tagName(self)});
     }
 };
@@ -1826,8 +1833,8 @@ pub const Visibility = enum(u2) {
         };
     }
 
-    pub fn format(self: Visibility, comptime format_string: []const u8, writer: *Writer) Writer.Error!void {
-        comptime assert(format_string.len == 0);
+    pub fn format(self: Visibility, writer: *Writer, comptime f: []const u8) Writer.Error!void {
+        comptime assert(f.len == 0);
         if (self != .default) try writer.print(" {s}", .{@tagName(self)});
     }
 };
@@ -1837,7 +1844,8 @@ pub const DllStorageClass = enum(u2) {
     dllimport = 1,
     dllexport = 2,
 
-    pub fn format(self: DllStorageClass, w: *Writer, comptime _: []const u8) Writer.Error!void {
+    pub fn format(self: DllStorageClass, w: *Writer, comptime f: []const u8) Writer.Error!void {
+        comptime assert(f.len == 0);
         if (self != .default) try w.print(" {s}", .{@tagName(self)});
     }
 };
@@ -1863,7 +1871,8 @@ pub const UnnamedAddr = enum(u2) {
     unnamed_addr = 1,
     local_unnamed_addr = 2,
 
-    pub fn format(self: UnnamedAddr, w: *Writer, comptime _: []const u8) Writer.Error!void {
+    pub fn format(self: UnnamedAddr, w: *Writer, comptime f: []const u8) Writer.Error!void {
+        comptime assert(f.len == 0);
         if (self != .default) try w.print(" {s}", .{@tagName(self)});
     }
 };
@@ -1966,7 +1975,8 @@ pub const ExternallyInitialized = enum {
     default,
     externally_initialized,
 
-    pub fn format(self: ExternallyInitialized, w: *Writer, comptime _: []const u8) Writer.Error!void {
+    pub fn format(self: ExternallyInitialized, w: *Writer, comptime f: []const u8) Writer.Error!void {
+        comptime assert(f.len == 0);
         if (self != .default) try w.print(" {s}", .{@tagName(self)});
     }
 };
@@ -2064,7 +2074,8 @@ pub const CallConv = enum(u10) {
 
     pub const default = CallConv.ccc;
 
-    pub fn format(self: CallConv, w: *Writer, comptime _: []const u8) Writer.Error!void {
+    pub fn format(self: CallConv, w: *Writer, comptime f: []const u8) Writer.Error!void {
+        comptime assert(f.len == 0);
         switch (self) {
             default => {},
             .fastcc,
@@ -7958,7 +7969,8 @@ pub const Metadata = enum(u32) {
         AllCallsDescribed: bool = false,
         Unused: u2 = 0,
 
-        pub fn format(self: DIFlags, w: *Writer, comptime _: []const u8) Writer.Error!void {
+        pub fn format(self: DIFlags, w: *Writer, comptime f: []const u8) Writer.Error!void {
+            comptime assert(f.len == 0);
             var need_pipe = false;
             inline for (@typeInfo(DIFlags).@"struct".fields) |field| {
                 switch (@typeInfo(field.type)) {
@@ -8015,7 +8027,8 @@ pub const Metadata = enum(u32) {
             ObjCDirect: bool = false,
             Unused: u20 = 0,
 
-            pub fn format(self: DISPFlags, w: *Writer, comptime _: []const u8) Writer.Error!void {
+            pub fn format(self: DISPFlags, w: *Writer, comptime f: []const u8) Writer.Error!void {
+                comptime assert(f.len == 0);
                 var need_pipe = false;
                 inline for (@typeInfo(DISPFlags).@"struct".fields) |field| {
                     switch (@typeInfo(field.type)) {
@@ -9469,8 +9482,9 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                 \\
             , .{
                 variable.global.fmt(self),
-                Linkage.fmtOptional(if (global.linkage == .external and
-                    variable.init != .no_init) null else global.linkage),
+                Linkage.fmtOptional(
+                    if (global.linkage == .external and variable.init != .no_init) null else global.linkage,
+                ),
                 global.preemption,
                 global.visibility,
                 global.dll_storage_class,
@@ -9525,7 +9539,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
         if (function_attributes != .none) try w.print(
             \\; Function Attrs:{f}
             \\
-        , .{function_attributes.fmt(self)});
+        , .{function_attributes.fmt(self, .{})});
         try w.print(
             \\{s}{f}{f}{f}{f}{f}{f} {f} {f}(
         , .{
@@ -9535,7 +9549,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
             global.visibility,
             global.dll_storage_class,
             function.call_conv,
-            function.attributes.ret(self).fmt(self),
+            function.attributes.ret(self).fmt(self, .{}),
             global.type.functionReturn(self).fmt(self, .percent),
             function.global.fmt(self),
         });
@@ -9545,7 +9559,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                 \\{f}{f}
             , .{
                 global.type.functionParameters(self)[arg].fmt(self, .percent),
-                function.attributes.param(arg, self).fmt(self),
+                function.attributes.param(arg, self).fmt(self, .{}),
             });
             if (function.instructions.len > 0)
                 try w.print(" {f}", .{function.arg(@intCast(arg)).fmt(function_index, self, .{})})
@@ -9790,7 +9804,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                         try w.print("{s}{f}{f}{f} {f} {f}(", .{
                             @tagName(tag),
                             extra.data.info.call_conv,
-                            extra.data.attributes.ret(self).fmt(self),
+                            extra.data.attributes.ret(self).fmt(self, .{}),
                             extra.data.callee.typeOf(function_index, self).pointerAddrSpace(self),
                             switch (extra.data.ty.functionKind(self)) {
                                 .normal => ret_ty,
@@ -9804,7 +9818,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                             defer metadata_formatter.need_comma = undefined;
                             try w.print("{f}{f}{f}", .{
                                 arg.typeOf(function_index, self).fmt(self, .percent),
-                                extra.data.attributes.param(arg_index, self).fmt(self),
+                                extra.data.attributes.param(arg_index, self).fmt(self, .{}),
                                 try metadata_formatter.fmtLocal(" ", arg, function_index),
                             });
                         }
@@ -10074,9 +10088,9 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
         if (need_newline) try w.writeByte('\n') else need_newline = true;
         for (0.., attribute_groups.keys()) |attribute_group_index, attribute_group|
             try w.print(
-                \\attributes #{d} = {{{f#"} }}
+                \\attributes #{d} = {{{f} }}
                 \\
-            , .{ attribute_group_index, attribute_group.fmt(self) });
+            , .{ attribute_group_index, attribute_group.fmt(self, .{ .pound = true, .quote = true }) });
     }
 
     if (self.metadata_named.count() > 0) {

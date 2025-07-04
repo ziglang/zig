@@ -149,7 +149,7 @@ pub fn RegisterManager(
         /// Only the owner of the `RegisterLock` can unlock the
         /// register later.
         pub fn lockRegIndex(self: *Self, tracked_index: TrackedIndex) ?RegisterLock {
-            log.debug("locking {f}", .{regAtTrackedIndex(tracked_index)});
+            log.debug("locking {}", .{regAtTrackedIndex(tracked_index)});
             if (self.isRegIndexLocked(tracked_index)) {
                 log.debug("  register already locked", .{});
                 return null;
@@ -164,7 +164,7 @@ pub fn RegisterManager(
         /// Like `lockReg` but asserts the register was unused always
         /// returning a valid lock.
         pub fn lockRegIndexAssumeUnused(self: *Self, tracked_index: TrackedIndex) RegisterLock {
-            log.debug("locking asserting free {f}", .{regAtTrackedIndex(tracked_index)});
+            log.debug("locking asserting free {}", .{regAtTrackedIndex(tracked_index)});
             assert(!self.isRegIndexLocked(tracked_index));
             self.locked_registers.set(tracked_index);
             return RegisterLock{ .tracked_index = tracked_index };
@@ -202,7 +202,7 @@ pub fn RegisterManager(
         /// Requires `RegisterLock` to unlock a register.
         /// Call `lockReg` to obtain the lock first.
         pub fn unlockReg(self: *Self, lock: RegisterLock) void {
-            log.debug("unlocking {f}", .{regAtTrackedIndex(lock.tracked_index)});
+            log.debug("unlocking {}", .{regAtTrackedIndex(lock.tracked_index)});
             self.locked_registers.unset(lock.tracked_index);
         }
 
@@ -238,7 +238,7 @@ pub fn RegisterManager(
             if (i < count) return null;
 
             for (regs, insts) |reg, inst| {
-                log.debug("tryAllocReg {f} for inst {f}", .{ reg, inst });
+                log.debug("tryAllocReg {} for inst {f}", .{ reg, inst });
                 self.markRegAllocated(reg);
 
                 if (inst) |tracked_inst| {
@@ -317,7 +317,7 @@ pub fn RegisterManager(
             tracked_index: TrackedIndex,
             inst: ?Air.Inst.Index,
         ) AllocationError!void {
-            log.debug("getReg {f} for inst {f}", .{ regAtTrackedIndex(tracked_index), inst });
+            log.debug("getReg {} for inst {f}", .{ regAtTrackedIndex(tracked_index), inst });
             if (!self.isRegIndexFree(tracked_index)) {
                 // Move the instruction that was previously there to a
                 // stack allocation.
@@ -330,7 +330,7 @@ pub fn RegisterManager(
             self.getRegIndexAssumeFree(tracked_index, inst);
         }
         pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocationError!void {
-            log.debug("getting reg: {f}", .{reg});
+            log.debug("getting reg: {}", .{reg});
             return self.getRegIndex(indexOfRegIntoTracked(reg) orelse return, inst);
         }
         pub fn getKnownReg(
@@ -349,7 +349,7 @@ pub fn RegisterManager(
             tracked_index: TrackedIndex,
             inst: ?Air.Inst.Index,
         ) void {
-            log.debug("getRegAssumeFree {f} for inst {f}", .{ regAtTrackedIndex(tracked_index), inst });
+            log.debug("getRegAssumeFree {} for inst {f}", .{ regAtTrackedIndex(tracked_index), inst });
             self.markRegIndexAllocated(tracked_index);
 
             assert(self.isRegIndexFree(tracked_index));
@@ -364,7 +364,7 @@ pub fn RegisterManager(
 
         /// Marks the specified register as free
         pub fn freeRegIndex(self: *Self, tracked_index: TrackedIndex) void {
-            log.debug("freeing register {f}", .{regAtTrackedIndex(tracked_index)});
+            log.debug("freeing register {}", .{regAtTrackedIndex(tracked_index)});
             self.registers[tracked_index] = undefined;
             self.markRegIndexFree(tracked_index);
         }

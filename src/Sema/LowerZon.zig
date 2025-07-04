@@ -513,7 +513,7 @@ fn lowerInt(
             switch (big_int.setFloat(val, .trunc)) {
                 .inexact => return self.fail(
                     node,
-                    "fractional component prevents float value '{}' from coercion to type '{f}'",
+                    "fractional component prevents float value '{d}' from coercion to type '{f}'",
                     .{ val, res_ty.fmt(self.sema.pt) },
                 ),
                 .exact => {},
@@ -524,7 +524,7 @@ fn lowerInt(
             if (!big_int.toConst().fitsInTwosComp(int_info.signedness, int_info.bits)) {
                 return self.fail(
                     node,
-                    "type '{f}' cannot represent integer value '{}'",
+                    "type '{f}' cannot represent integer value '{d}'",
                     .{ res_ty.fmt(self.sema.pt), val },
                 );
             }

@@ -11458,13 +11458,7 @@ fn failWithStrLitError(
     offset: u32,
 ) InnerError {
     const raw_string = bytes[offset..];
-    return failOff(
-        astgen,
-        token,
-        @intCast(offset + err.offset()),
-        "{}",
-        .{err.fmt(raw_string)},
-    );
+    return failOff(astgen, token, @intCast(offset + err.offset()), "{f}", .{err.fmt(raw_string)});
 }
 
 fn failNode(

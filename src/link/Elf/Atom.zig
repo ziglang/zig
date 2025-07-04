@@ -142,7 +142,7 @@ pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
 }
 
 pub fn free(self: *Atom, elf_file: *Elf) void {
-    log.debug("freeAtom atom({}) ({s})", .{ self.ref(), self.name(elf_file) });
+    log.debug("freeAtom atom({f}) ({s})", .{ self.ref(), self.name(elf_file) });
 
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
@@ -316,7 +316,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
             };
             // Violation of One Definition Rule for COMDATs.
             // TODO convert into an error
-            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
+            log.debug("{f}: {s}: {s} refers to a discarded COMDAT section", .{
                 file_ptr.fmtPath(),
                 self.name(elf_file),
                 sym_name,
@@ -519,11 +519,11 @@ fn dataType(symbol: *const Symbol, elf_file: *Elf) u2 {
 fn reportUnhandledRelocError(self: Atom, rel: elf.Elf64_Rela, elf_file: *Elf) RelocError!void {
     const diags = &elf_file.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(1);
-    try err.addMsg("fatal linker error: unhandled relocation type {} at offset 0x{x}", .{
+    try err.addMsg("fatal linker error: unhandled relocation type {f} at offset 0x{x}", .{
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,
     });
-    err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    err.addNote("in {f}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
     return error.RelocFailure;
 }
 
@@ -539,7 +539,7 @@ fn reportTextRelocError(
         rel.r_offset,
         symbol.name(elf_file),
     });
-    err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    err.addNote("in {f}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
     return error.RelocFailure;
 }
 
@@ -555,7 +555,7 @@ fn reportPicError(
         rel.r_offset,
         symbol.name(elf_file),
     });
-    err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    err.addNote("in {f}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
     err.addNote("recompile with -fPIC", .{});
     return error.RelocFailure;
 }
@@ -572,7 +572,7 @@ fn reportNoPicError(
         rel.r_offset,
         symbol.name(elf_file),
     });
-    err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    err.addNote("in {f}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
     err.addNote("recompile with -fno-PIC", .{});
     return error.RelocFailure;
 }
@@ -823,7 +823,7 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
             };
             // Violation of One Definition Rule for COMDATs.
             // TODO convert into an error
-            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
+            log.debug("{f}: {s}: {s} refers to a discarded COMDAT section", .{
                 file_ptr.fmtPath(),
                 self.name(elf_file),
                 sym_name,
@@ -855,7 +855,7 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
 
         const args = ResolveArgs{ P, A, S, GOT, 0, 0, DTP };
 
-        relocs_log.debug("  {}: {x}: [{x} => {x}] ({s})", .{
+        relocs_log.debug("  {f}: {x}: [{x} => {x}] ({s})", .{
             relocation.fmtRelocType(rel.r_type(), cpu_arch),
             rel.r_offset,
             P,
@@ -918,7 +918,7 @@ const Format = struct {
     fn default(f: Format, w: *std.io.Writer) std.io.Writer.Error!void {
         const atom = f.atom;
         const elf_file = f.elf_file;
-        try w.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x}) : prev({}) : next({})", .{
+        try w.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x}) : prev({f}) : next({f})", .{
             atom.atom_index,           atom.name(elf_file),                   atom.address(elf_file),
             atom.output_section_index, atom.alignment.toByteUnits() orelse 0, atom.size,
             atom.prev_atom_ref,        atom.next_atom_ref,
@@ -1169,7 +1169,7 @@ const x86_64 = struct {
                     x86_64.relaxGotPcTlsDesc(code[r_offset - 3 ..], t) catch {
                         var err = try diags.addErrorWithNotes(1);
                         try err.addMsg("could not relax {s}", .{@tagName(r_type)});
-                        err.addNote("in {}:{s} at offset 0x{x}", .{
+                        err.addNote("in {f}:{s} at offset 0x{x}", .{
                             atom.file(elf_file).?.fmtPath(),
                             atom.name(elf_file),
                             rel.r_offset,
@@ -1265,7 +1265,7 @@ const x86_64 = struct {
             }, t),
             else => return error.RelaxFailure,
         };
-        relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+        relocs_log.debug("    relaxing {f} => {f}", .{ old_inst.encoding, inst.encoding });
         const nop: Instruction = try .new(.none, .nop, &.{}, t);
         try encode(&.{ nop, inst }, code);
     }
@@ -1276,7 +1276,7 @@ const x86_64 = struct {
         switch (old_inst.encoding.mnemonic) {
             .mov => {
                 const inst: Instruction = try .new(old_inst.prefix, .lea, &old_inst.ops, t);
-                relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+                relocs_log.debug("    relaxing {f} => {f}", .{ old_inst.encoding, inst.encoding });
                 try encode(&.{inst}, code);
             },
             else => return error.RelaxFailure,
@@ -1310,11 +1310,11 @@ const x86_64 = struct {
 
             else => {
                 var err = try diags.addErrorWithNotes(1);
-                try err.addMsg("TODO: rewrite {} when followed by {}", .{
+                try err.addMsg("TODO: rewrite {f} when followed by {f}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
-                err.addNote("in {}:{s} at offset 0x{x}", .{
+                err.addNote("in {f}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
                     rels[0].r_offset,
@@ -1366,11 +1366,11 @@ const x86_64 = struct {
 
             else => {
                 var err = try diags.addErrorWithNotes(1);
-                try err.addMsg("TODO: rewrite {} when followed by {}", .{
+                try err.addMsg("TODO: rewrite {f} when followed by {f}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
-                err.addNote("in {}:{s} at offset 0x{x}", .{
+                err.addNote("in {f}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
                     rels[0].r_offset,
@@ -1408,7 +1408,7 @@ const x86_64 = struct {
                     // TODO: hack to force imm32s in the assembler
                     .{ .imm = .s(-129) },
                 }, t) catch unreachable;
-                relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+                relocs_log.debug("    relaxing {f} => {f}", .{ old_inst.encoding, inst.encoding });
                 encode(&.{inst}, code) catch unreachable;
             },
             else => unreachable,
@@ -1425,7 +1425,7 @@ const x86_64 = struct {
                     // TODO: hack to force imm32s in the assembler
                     .{ .imm = .s(-129) },
                 }, target);
-                relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+                relocs_log.debug("    relaxing {f} => {f}", .{ old_inst.encoding, inst.encoding });
                 try encode(&.{inst}, code);
             },
             else => return error.RelaxFailure,
@@ -1457,7 +1457,7 @@ const x86_64 = struct {
                 std.mem.writeInt(i32, insts[12..][0..4], value, .little);
                 try stream.seekBy(-4);
                 try writer.writeAll(&insts);
-                relocs_log.debug("    relaxing {} and {}", .{
+                relocs_log.debug("    relaxing {f} and {f}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
@@ -1465,11 +1465,11 @@ const x86_64 = struct {
 
             else => {
                 var err = try diags.addErrorWithNotes(1);
-                try err.addMsg("fatal linker error: rewrite {} when followed by {}", .{
+                try err.addMsg("fatal linker error: rewrite {f} when followed by {f}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
-                err.addNote("in {}:{s} at offset 0x{x}", .{
+                err.addNote("in {f}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
                     rels[0].r_offset,
@@ -1653,7 +1653,7 @@ const aarch64 = struct {
                 // TODO: relax
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("TODO: relax ADR_GOT_PAGE", .{});
-                err.addNote("in {}:{s} at offset 0x{x}", .{
+                err.addNote("in {f}:{s} at offset 0x{x}", .{
                     atom.file(elf_file).?.fmtPath(),
                     atom.name(elf_file),
                     r_offset,
@@ -1943,7 +1943,7 @@ const riscv = struct {
                     // TODO: implement searching forward
                     var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("TODO: find HI20 paired reloc scanning forward", .{});
-                    err.addNote("in {}:{s} at offset 0x{x}", .{
+                    err.addNote("in {f}:{s} at offset 0x{x}", .{
                         atom.file(elf_file).?.fmtPath(),
                         atom.name(elf_file),
                         rel.r_offset,
