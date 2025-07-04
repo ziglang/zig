@@ -1800,12 +1800,12 @@ pub const Writer = struct {
             w.pos += n;
             return n;
         }
-        const copy_file_range_fn = switch (native_os) {
+        const copy_file_range = switch (native_os) {
             .freebsd => std.os.freebsd.copy_file_range,
-            .linux => if (std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) std.os.linux.wrapped.copy_file_range else null,
-            else => null,
+            .linux => if (std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) std.os.linux.wrapped.copy_file_range else void,
+            else => void,
         };
-        if (copy_file_range_fn) |copy_file_range| cfr: {
+        if (copy_file_range != void) cfr: {
             if (w.copy_file_range_err != null) break :cfr;
             const buffered = limit.slice(file_reader.interface.buffer);
             if (io_w.end != 0 or buffered.len != 0) return drain(io_w, &.{buffered}, 1);

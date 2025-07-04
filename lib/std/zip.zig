@@ -124,7 +124,7 @@ pub fn findEndRecord(seekable_stream: anytype, stream_len: u64) !EndRecord {
 
             try seekable_stream.seekTo(stream_len - @as(u64, new_loaded_len));
             const read_buf: []u8 = buf[buf.len - new_loaded_len ..][0..read_len];
-            const len = try seekable_stream.context.reader().readAll(read_buf);
+            const len = try (if (@TypeOf(seekable_stream.context) == std.fs.File) seekable_stream.context.deprecatedReader() else seekable_stream.context.reader()).readAll(read_buf);
             if (len != read_len)
                 return error.ZipTruncated;
             loaded_len = new_loaded_len;
@@ -295,7 +295,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
             if (locator_end_offset > stream_len)
                 return error.ZipTruncated;
             try stream.seekTo(stream_len - locator_end_offset);
-            const locator = try stream.context.reader().readStructEndian(EndLocator64, .little);
+            const locator = try (if (@TypeOf(stream.context) == std.fs.File) stream.context.deprecatedReader() else stream.context.reader()).readStructEndian(EndLocator64, .little);
             if (!std.mem.eql(u8, &locator.signature, &end_locator64_sig))
                 return error.ZipBadLocatorSig;
             if (locator.zip64_disk_count != 0)
@@ -305,7 +305,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
 
             try stream.seekTo(locator.record_file_offset);
 
-            const record64 = try stream.context.reader().readStructEndian(EndRecord64, .little);
+            const record64 = try (if (@TypeOf(stream.context) == std.fs.File) stream.context.deprecatedReader() else stream.context.reader()).readStructEndian(EndRecord64, .little);
 
             if (!std.mem.eql(u8, &record64.signature, &end_record64_sig))
                 return error.ZipBadEndRecord64Sig;
@@ -357,7 +357,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
 
             const header_zip_offset = self.cd_zip_offset + self.cd_record_offset;
             try self.stream.seekTo(header_zip_offset);
-            const header = try self.stream.context.reader().readStructEndian(CentralDirectoryFileHeader, .little);
+            const header = try (if (@TypeOf(self.stream.context) == std.fs.File) self.stream.context.deprecatedReader() else self.stream.context.reader()).readStructEndian(CentralDirectoryFileHeader, .little);
             if (!std.mem.eql(u8, &header.signature, &central_file_header_sig))
                 return error.ZipBadCdOffset;
 
@@ -386,7 +386,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
 
                 {
                     try self.stream.seekTo(header_zip_offset + @sizeOf(CentralDirectoryFileHeader) + header.filename_len);
-                    const len = try self.stream.context.reader().readAll(extra);
+                    const len = try (if (@TypeOf(self.stream.context) == std.fs.File) self.stream.context.deprecatedReader() else self.stream.context.reader()).readAll(extra);
                     if (len != extra.len)
                         return error.ZipTruncated;
                 }
@@ -449,7 +449,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
                 try stream.seekTo(self.header_zip_offset + @sizeOf(CentralDirectoryFileHeader));
 
                 {
-                    const len = try stream.context.reader().readAll(filename);
+                    const len = try (if (@TypeOf(stream.context) == std.fs.File) stream.context.deprecatedReader() else stream.context.reader()).readAll(filename);
                     if (len != filename.len)
                         return error.ZipBadFileOffset;
                 }
@@ -457,7 +457,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
                 const local_data_header_offset: u64 = local_data_header_offset: {
                     const local_header = blk: {
                         try stream.seekTo(self.file_offset);
-                        break :blk try stream.context.reader().readStructEndian(LocalFileHeader, .little);
+                        break :blk try (if (@TypeOf(stream.context) == std.fs.File) stream.context.deprecatedReader() else stream.context.reader()).readStructEndian(LocalFileHeader, .little);
                     };
                     if (!std.mem.eql(u8, &local_header.signature, &local_file_header_sig))
                         return error.ZipBadFileOffset;
@@ -483,7 +483,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
 
                         {
                             try stream.seekTo(self.file_offset + @sizeOf(LocalFileHeader) + local_header.filename_len);
-                            const len = try stream.context.reader().readAll(extra);
+                            const len = try (if (@TypeOf(stream.context) == std.fs.File) stream.context.deprecatedReader() else stream.context.reader()).readAll(extra);
                             if (len != extra.len)
                                 return error.ZipTruncated;
                         }
@@ -552,7 +552,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
                     @as(u64, @sizeOf(LocalFileHeader)) +
                     local_data_header_offset;
                 try stream.seekTo(local_data_file_offset);
-                var limited_reader = std.io.limitedReader(stream.context.reader(), self.compressed_size);
+                var limited_reader = std.io.limitedReader((if (@TypeOf(stream.context) == std.fs.File) stream.context.deprecatedReader() else stream.context.reader()), self.compressed_size);
                 const crc = try decompress(
                     self.compression_method,
                     self.uncompressed_size,
