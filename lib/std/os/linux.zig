@@ -9045,8 +9045,26 @@ pub const perf_event_attr = extern struct {
         write_backward: bool = false,
         /// include namespaces data
         namespaces: bool = false,
+        /// include ksymbol events
+        ksymbol: bool = false,
+        /// include BPF events
+        bpf_event: bool = false,
+        /// generate AUX records instead of events
+        aux_output: bool = false,
+        /// include cgroup events
+        cgroup: bool = false,
+        /// include text poke events
+        text_poke: bool = false,
+        /// use build ID in mmap2 events
+        build_id: bool = false,
+        /// children only inherit if cloned with CLONE_THREAD
+        inherit_thread: bool = false,
+        /// event is removed from task on exec
+        remove_on_exec: bool = false,
+        /// send synchronous SIGTRAP on event
+        sigtrap: bool = false,
 
-        __reserved_1: u35 = 0,
+        __reserved_1: u26 = 0,
     } = .{},
     /// wakeup every n events, or
     /// bytes before wakeup
@@ -9089,6 +9107,24 @@ pub const perf_event_attr = extern struct {
     sample_max_stack: u16 = 0,
     /// Align to u64
     __reserved_2: u16 = 0,
+
+    aux_sample_size: u32 = 0,
+    aux_action: packed struct {
+        /// start AUX area tracing paused
+        start_paused: bool = false,
+        /// on overflow, pause AUX area tracing
+        pause: bool = false,
+        /// on overflow, resume AUX area tracing
+        @"resume": bool = false,
+
+        __reserved_3: u29 = 0,
+    } = .{},
+
+    /// User provided data if sigtrap == true
+    sig_data: u64 = 0,
+
+    /// Extension of config2
+    config3: u64 = 0,
 };
 
 pub const perf_event_header = extern struct {
