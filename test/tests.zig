@@ -1480,16 +1480,8 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .aarch64,
                 .os_tag = .windows,
-                .abi = .none,
+                .abi = .msvc,
             },
-        },
-        .{
-            .target = .{
-                .cpu_arch = .aarch64,
-                .os_tag = .windows,
-                .abi = .gnu,
-            },
-            .link_libc = true,
         },
         .{
             .target = .{
@@ -1499,27 +1491,18 @@ const test_targets = blk: {
             },
             .link_libc = true,
         },
-
         .{
             .target = .{
-                .cpu_arch = .x86,
-                .os_tag = .windows,
-                .abi = .none,
-            },
-        },
-        .{
-            .target = .{
-                .cpu_arch = .x86,
+                .cpu_arch = .aarch64,
                 .os_tag = .windows,
                 .abi = .gnu,
             },
-            .link_libc = true,
         },
         .{
             .target = .{
-                .cpu_arch = .x86,
+                .cpu_arch = .aarch64,
                 .os_tag = .windows,
-                .abi = .msvc,
+                .abi = .gnu,
             },
             .link_libc = true,
         },
@@ -1528,8 +1511,16 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .thumb,
                 .os_tag = .windows,
-                .abi = .none,
+                .abi = .msvc,
             },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .thumb,
+                .os_tag = .windows,
+                .abi = .msvc,
+            },
+            .link_libc = true,
         },
         // https://github.com/ziglang/zig/issues/24016
         // .{
@@ -1538,13 +1529,43 @@ const test_targets = blk: {
         //         .os_tag = .windows,
         //         .abi = .gnu,
         //     },
+        // },
+        // .{
+        //     .target = .{
+        //         .cpu_arch = .thumb,
+        //         .os_tag = .windows,
+        //         .abi = .gnu,
+        //     },
         //     .link_libc = true,
         // },
+
         .{
             .target = .{
-                .cpu_arch = .thumb,
+                .cpu_arch = .x86,
                 .os_tag = .windows,
                 .abi = .msvc,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86,
+                .os_tag = .windows,
+                .abi = .msvc,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86,
+                .os_tag = .windows,
+                .abi = .gnu,
             },
             .link_libc = true,
         },
@@ -1553,7 +1574,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .windows,
-                .abi = .none,
+                .abi = .msvc,
             },
             .use_llvm = false,
             .use_lld = false,
@@ -1562,23 +1583,14 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .windows,
-                .abi = .gnu,
-            },
-            .use_llvm = false,
-            .use_lld = false,
-        },
-        .{
-            .target = .{
-                .cpu_arch = .x86_64,
-                .os_tag = .windows,
-                .abi = .none,
+                .abi = .msvc,
             },
         },
         .{
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .windows,
-                .abi = .gnu,
+                .abi = .msvc,
             },
             .link_libc = true,
         },
@@ -1586,7 +1598,23 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .windows,
-                .abi = .msvc,
+                .abi = .gnu,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .windows,
+                .abi = .gnu,
             },
             .link_libc = true,
         },
