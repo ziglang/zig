@@ -953,8 +953,6 @@ const src_files = [_][]const u8{
     "musl/src/math/i386/exp_ld.s",
     "musl/src/math/i386/expl.s",
     "musl/src/math/i386/expm1l.s",
-    "musl/src/math/i386/floorf.s",
-    "musl/src/math/i386/floorl.s",
     "musl/src/math/i386/floor.s",
     "musl/src/math/i386/fmod.c",
     "musl/src/math/i386/fmodf.c",
