@@ -1247,8 +1247,9 @@ fn analyzeBodyInner(
             .slice_length                 => try sema.zirSliceLength(block, inst),
             .slice_sentinel_ty            => try sema.zirSliceSentinelTy(block, inst),
             .str                          => try sema.zirStr(inst),
-            .switch_block                 => try sema.zirSwitchBlock(block, inst, false),
-            .switch_block_ref             => try sema.zirSwitchBlock(block, inst, true),
+            .switch_cond                  => try sema.zirSwitchCond(block, inst, false),
+            .switch_cond_ref              => try sema.zirSwitchCond(block, inst, true),
+            .switch_block                 => try sema.zirSwitchBlock(block, inst),
             .switch_block_err_union       => try sema.zirSwitchBlockErrUnion(block, inst),
             .type_info                    => try sema.zirTypeInfo(block, inst),
             .size_of                      => try sema.zirSizeOf(block, inst),
@@ -6775,22 +6776,21 @@ fn zirSwitchContinue(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) Com
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].@"break";
+    const datas = sema.code.instructions.items(.data);
+    const inst_data = datas[@intFromEnum(inst)].@"break";
     const extra = sema.code.extraData(Zir.Inst.Break, inst_data.payload_index).data;
     const operand_src = start_block.nodeOffset(extra.operand_src_node.unwrap().?);
     const uncoerced_operand = try sema.resolveInst(inst_data.operand);
     const switch_inst = extra.block_inst;
 
-    switch (sema.code.instructions.items(.tag)[@intFromEnum(switch_inst)]) {
-        .switch_block, .switch_block_ref => {},
-        else => unreachable, // assertion failure
-    }
+    assert(sema.code.instructions.items(.tag)[@intFromEnum(switch_inst)] == .switch_block);
 
-    const switch_payload_index = sema.code.instructions.items(.data)[@intFromEnum(switch_inst)].pl_node.payload_index;
-    const switch_operand_ref = sema.code.extraData(Zir.Inst.SwitchBlock, switch_payload_index).data.operand;
-    const switch_operand_ty = sema.typeOf(try sema.resolveInst(switch_operand_ref));
+    const switch_payload_index = datas[@intFromEnum(switch_inst)].pl_node.payload_index;
+    const switch_cond_index = sema.code.extraData(Zir.Inst.SwitchBlock, switch_payload_index).data.operand.toIndex().?;
+    const switch_cond = sema.resolveInst(datas[@intFromEnum(switch_cond_index)].un_node.operand) catch unreachable;
+    const switch_cond_ty = sema.typeOf(switch_cond);
 
-    const operand = try sema.coerce(start_block, switch_operand_ty, uncoerced_operand, operand_src);
+    const operand = try sema.coerce(start_block, switch_cond_ty, uncoerced_operand, operand_src);
 
     try sema.validateRuntimeValue(start_block, operand_src, operand);
 
@@ -11366,6 +11366,23 @@ const SwitchProngAnalysis = struct {
     }
 };
 
+fn zirSwitchCond(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    is_ref: bool,
+) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
+    const src = block.nodeOffset(inst_data.src_node);
+    const operand_src = block.src(.{ .node_offset_switch_operand = inst_data.src_node });
+    const maybe_ptr = try sema.resolveInst(inst_data.operand);
+    const operand = if (is_ref)
+        try sema.analyzeLoad(block, src, maybe_ptr, operand_src)
+    else
+        maybe_ptr;
+    return sema.switchCond(block, src, operand);
+}
+
 fn switchCond(
     sema: *Sema,
     block: *Block,
@@ -11751,7 +11768,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     return sema.resolveAnalyzedBlock(block, main_src, &child_block, merges, false);
 }
 
-fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_ref: bool) CompileError!Air.Inst.Ref {
+fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -11764,23 +11781,31 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
     const operand_src = block.src(.{ .node_offset_switch_operand = src_node_offset });
     const special_prong_src = block.src(.{ .node_offset_switch_special_prong = src_node_offset });
     const extra = sema.code.extraData(Zir.Inst.SwitchBlock, inst_data.payload_index);
+    const cond = try sema.resolveInst(extra.data.operand);
+    const cond_index = extra.data.operand.toIndex().?;
 
-    const operand: SwitchProngAnalysis.Operand, const raw_operand_ty: Type = op: {
-        const maybe_ptr = try sema.resolveInst(extra.data.operand);
+    const operand: SwitchProngAnalysis.Operand, const raw_operand_ty: Type, const operand_is_ref = op: {
+        const tags = sema.code.instructions.items(.tag);
+        const datas = sema.code.instructions.items(.data);
+        const maybe_ptr =
+            sema.resolveInst(datas[@intFromEnum(cond_index)].un_node.operand) catch unreachable;
+        const operand_is_ref = switch (tags[@intFromEnum(cond_index)]) {
+            .switch_cond_ref => true,
+            .switch_cond => false,
+            else => unreachable,
+        };
         const val, const ref = if (operand_is_ref)
             .{ try sema.analyzeLoad(block, src, maybe_ptr, operand_src), maybe_ptr }
         else
             .{ maybe_ptr, undefined };
 
-        const init_cond = try sema.switchCond(block, operand_src, val);
-
-        const operand_ty = sema.typeOf(val);
+        const raw_operand_ty = sema.typeOf(val);
 
         if (extra.data.bits.has_continue and !block.isComptime()) {
             // Even if the operand is comptime-known, this `switch` is runtime.
-            if (try operand_ty.comptimeOnlySema(pt)) {
+            if (try raw_operand_ty.comptimeOnlySema(pt)) {
                 return sema.failWithOwnedErrorMsg(block, msg: {
-                    const msg = try sema.errMsg(operand_src, "operand of switch loop has comptime-only type '{}'", .{operand_ty.fmt(pt)});
+                    const msg = try sema.errMsg(operand_src, "operand of switch loop has comptime-only type '{}'", .{raw_operand_ty.fmt(pt)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(operand_src, msg, "switch loops are evaluated at runtime outside of comptime scopes", .{});
                     break :msg msg;
@@ -11797,9 +11822,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 .{ .loop = .{
                     .operand_alloc = operand_alloc,
                     .operand_is_ref = operand_is_ref,
-                    .init_cond = init_cond,
+                    .init_cond = cond,
                 } },
-                operand_ty,
+                raw_operand_ty,
+                operand_is_ref,
             };
         }
 
@@ -11810,9 +11836,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             .{ .simple = .{
                 .by_val = val,
                 .by_ref = ref,
-                .cond = init_cond,
+                .cond = cond,
             } },
-            operand_ty,
+            raw_operand_ty,
+            operand_is_ref,
         };
     };
 
@@ -11824,7 +11851,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
     };
 
     // AstGen guarantees that the instruction immediately preceding
-    // switch_block(_ref) is a dbg_stmt
+    // switch_block is a dbg_stmt
     const cond_dbg_node_index: Zir.Inst.Index = @enumFromInt(@intFromEnum(inst) - 1);
 
     var header_extra_index: usize = extra.end;
