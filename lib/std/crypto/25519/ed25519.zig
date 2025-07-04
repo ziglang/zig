@@ -327,9 +327,9 @@ pub const Ed25519 = struct {
         }
 
         /// Create a Signer, that can be used for incremental signing.
-        /// Note that the signature is not deterministic.
-        /// The noise parameter, if set, should be something unique for each message,
-        /// such as a random nonce, or a counter.
+        /// The noise can be null in order to create deterministic signatures.
+        /// If deterministic signatures are not required, the noise should be randomly generated instead.
+        /// This helps defend against fault attacks.
         pub fn signer(key_pair: KeyPair, noise: ?[noise_length]u8) (IdentityElementError || KeyMismatchError || NonCanonicalError || WeakPublicKeyError)!Signer {
             if (!mem.eql(u8, &key_pair.secret_key.publicKeyBytes(), &key_pair.public_key.toBytes())) {
                 return error.KeyMismatch;
@@ -337,9 +337,6 @@ pub const Ed25519 = struct {
             const scalar_and_prefix = key_pair.secret_key.scalarAndPrefix();
             var h = Sha512.init(.{});
             h.update(&scalar_and_prefix.prefix);
-            var noise2: [noise_length]u8 = undefined;
-            crypto.random.bytes(&noise2);
-            h.update(&noise2);
             if (noise) |*z| {
                 h.update(z);
             }
@@ -682,7 +679,9 @@ test "with blind keys" {
 test "signatures with streaming" {
     const kp = Ed25519.KeyPair.generate();
 
-    var signer = try kp.signer(null);
+    var noise: [Ed25519.noise_length]u8 = undefined;
+    crypto.random.bytes(&noise);
+    var signer = try kp.signer(noise);
     signer.update("mes");
     signer.update("sage");
     const sig = signer.finalize();
