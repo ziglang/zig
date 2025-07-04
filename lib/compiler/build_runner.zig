@@ -719,6 +719,8 @@ fn runStepNames(
         if (test_fail_count > 0) w.print("; {d} failed", .{test_fail_count}) catch {};
         if (test_leak_count > 0) w.print("; {d} leaked", .{test_leak_count}) catch {};
 
+        w.writeAll("\n") catch {};
+
         // Print a fancy tree with build results.
         var step_stack_copy = try step_stack.clone(gpa);
         defer step_stack_copy.deinit(gpa);
