@@ -6,7 +6,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const native_endian = builtin.cpu.arch.endian();
 
 pub const ReadError = std.mem.Allocator.Error || error{ InvalidHeader, InvalidImageType, ImpossibleDataSize, UnexpectedEOF, ReadError };
 
@@ -237,21 +236,21 @@ pub const ImageFormat = enum(u2) {
     png,
     riff,
 
-    const riff_header = std.mem.readInt(u32, "RIFF", native_endian);
-    const png_signature = std.mem.readInt(u64, "\x89PNG\r\n\x1a\n", native_endian);
-    const ihdr_code = std.mem.readInt(u32, "IHDR", native_endian);
-    const acon_form_type = std.mem.readInt(u32, "ACON", native_endian);
+    const riff_header = std.mem.readInt(u32, "RIFF", .native);
+    const png_signature = std.mem.readInt(u64, "\x89PNG\r\n\x1a\n", .native);
+    const ihdr_code = std.mem.readInt(u32, "IHDR", .native);
+    const acon_form_type = std.mem.readInt(u32, "ACON", .native);
 
     pub fn detect(header_bytes: *const [16]u8) ImageFormat {
-        if (std.mem.readInt(u32, header_bytes[0..4], native_endian) == riff_header) return .riff;
-        if (std.mem.readInt(u64, header_bytes[0..8], native_endian) == png_signature) return .png;
+        if (std.mem.readInt(u32, header_bytes[0..4], .native) == riff_header) return .riff;
+        if (std.mem.readInt(u64, header_bytes[0..8], .native) == png_signature) return .png;
         return .dib;
     }
 
     pub fn validate(format: ImageFormat, header_bytes: *const [16]u8) bool {
         return switch (format) {
-            .png => std.mem.readInt(u32, header_bytes[12..16], native_endian) == ihdr_code,
-            .riff => std.mem.readInt(u32, header_bytes[8..12], native_endian) == acon_form_type,
+            .png => std.mem.readInt(u32, header_bytes[12..16], .native) == ihdr_code,
+            .riff => std.mem.readInt(u32, header_bytes[8..12], .native) == acon_form_type,
             .dib => true,
         };
     }
