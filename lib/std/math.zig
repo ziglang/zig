@@ -603,7 +603,7 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
             if (abs_shift_amt >= @typeInfo(C).int.bits) return @splat(0);
             break :blk @as(@Vector(len, Log2Int(C)), @splat(@as(Log2Int(C), @intCast(abs_shift_amt))));
         } else {
-            if (abs_shift_amt >= @typeInfo(T).int.bits) return 0;
+            if (T != comptime_int and abs_shift_amt >= @typeInfo(T).int.bits) return 0;
             break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
         }
     };
@@ -643,7 +643,7 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
             if (abs_shift_amt >= @typeInfo(C).int.bits) return @splat(0);
             break :blk @as(@Vector(len, Log2Int(C)), @splat(@as(Log2Int(C), @intCast(abs_shift_amt))));
         } else {
-            if (abs_shift_amt >= @typeInfo(T).int.bits) return 0;
+            if (T != comptime_int and abs_shift_amt >= @typeInfo(T).int.bits) return if (a < 0) -1 else 0;
             break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
         }
     };
@@ -659,6 +659,8 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
 
 test shr {
     try testing.expect(shr(u8, 0b11111111, @as(usize, 3)) == 0b00011111);
+    try testing.expect(shr(i8, -1, @as(usize, 3)) == -1);
+    try testing.expect(shr(i8, -1, @as(usize, 9)) == -1);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 9)) == 0);
     try testing.expect(shr(u8, 0b11111111, @as(isize, -2)) == 0b11111100);
