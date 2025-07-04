@@ -82,7 +82,7 @@ const Format = struct {
         try writer.print("@{x} : size({x})\n", .{ thunk.value, thunk.size(elf_file) });
         for (thunk.symbols.keys()) |ref| {
             const sym = elf_file.symbol(ref).?;
-            try writer.print("  {} : {s} : @{x}\n", .{ ref, sym.name(elf_file), sym.value });
+            try writer.print("  {f} : {s} : @{x}\n", .{ ref, sym.name(elf_file), sym.value });
         }
     }
 };

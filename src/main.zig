@@ -5296,7 +5296,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         const s = fs.path.sep_str;
                         const tmp_sub_path = "tmp" ++ s ++ results_tmp_file_nonce;
                         const stdout = dirs.local_cache.handle.readFileAlloc(arena, tmp_sub_path, 50 * 1024 * 1024) catch |err| {
-                            fatal("unable to read results of configure phase from '{}{s}': {s}", .{
+                            fatal("unable to read results of configure phase from '{f}{s}': {s}", .{
                                 dirs.local_cache, tmp_sub_path, @errorName(err),
                             });
                         };

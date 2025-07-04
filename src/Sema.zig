@@ -1144,7 +1144,7 @@ fn analyzeBodyInner(
 
         // The hashmap lookup in here is a little expensive, and LLVM fails to optimize it away.
         if (build_options.enable_logging) {
-            std.log.scoped(.sema_zir).debug("sema ZIR {} %{d}", .{ path: {
+            std.log.scoped(.sema_zir).debug("sema ZIR {f} %{d}", .{ path: {
                 const file_index = block.src_base_inst.resolveFile(&zcu.intern_pool);
                 const file = zcu.fileByIndex(file_index);
                 break :path file.path.fmt(zcu.comp);
@@ -2763,7 +2763,7 @@ fn zirTupleDecl(
                 const coerced_field_init = try sema.coerce(block, field_type, uncoerced_field_init, init_src);
                 const field_init_val = try sema.resolveConstDefinedValue(block, init_src, coerced_field_init, .{ .simple = .tuple_field_default_value });
                 if (field_init_val.canMutateComptimeVarState(zcu)) {
-                    const field_name = try zcu.intern_pool.getOrPutStringFmt(gpa, pt.tid, "{}", .{field_index}, .no_embedded_nulls);
+                    const field_name = try zcu.intern_pool.getOrPutStringFmt(gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
                     return sema.failWithContainsReferenceToComptimeVar(block, init_src, field_name, "field default value", field_init_val);
                 }
                 break :init field_init_val.toIntern();
@@ -5574,9 +5574,8 @@ fn zirValidateDestructure(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
 
     if (operand_ty.arrayLen(zcu) != extra.expect_len) {
         return sema.failWithOwnedErrorMsg(block, msg: {
-            const msg = try sema.errMsg(src, "expected {} elements for destructure, found {}", .{
-                extra.expect_len,
-                operand_ty.arrayLen(zcu),
+            const msg = try sema.errMsg(src, "expected {d} elements for destructure, found {d}", .{
+                extra.expect_len, operand_ty.arrayLen(zcu),
             });
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(destructure_src, msg, "result destructured here", .{});
@@ -14078,7 +14077,7 @@ fn zirShl(
             });
         }
     } else if (scalar_rhs_ty.isSignedInt(zcu)) {
-        return sema.fail(block, rhs_src, "shift by signed type '{}'", .{rhs_ty.fmt(pt)});
+        return sema.fail(block, rhs_src, "shift by signed type '{f}'", .{rhs_ty.fmt(pt)});
     }
 
     const runtime_src = if (maybe_lhs_val) |lhs_val| rs: {
@@ -14383,7 +14382,7 @@ fn zirBitNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const scalar_tag = scalar_ty.zigTypeTag(zcu);
 
     if (scalar_tag != .int and scalar_tag != .bool)
-        return sema.fail(block, operand_src, "bitwise not operation on type '{}'", .{operand_ty.fmt(pt)});
+        return sema.fail(block, operand_src, "bitwise not operation on type '{f}'", .{operand_ty.fmt(pt)});
 
     return analyzeBitNot(sema, block, operand, src);
 }
@@ -16999,7 +16998,7 @@ fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
                 const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu).?;
                 const tree = file.getTree(zcu) catch |err| {
                     // In this case we emit a warning + a less precise source location.
-                    log.warn("unable to load {}: {s}", .{
+                    log.warn("unable to load {f}: {s}", .{
                         file.path.fmt(zcu.comp), @errorName(err),
                     });
                     break :name null;
@@ -17027,7 +17026,7 @@ fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
                 const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu).?;
                 const tree = file.getTree(zcu) catch |err| {
                     // In this case we emit a warning + a less precise source location.
-                    log.warn("unable to load {}: {s}", .{
+                    log.warn("unable to load {f}: {s}", .{
                         file.path.fmt(zcu.comp), @errorName(err),
                     });
                     break :name null;
@@ -18268,7 +18267,7 @@ fn zirBoolNot(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const uncasted_ty = sema.typeOf(uncasted_operand);
     if (uncasted_ty.isVector(zcu)) {
         if (uncasted_ty.scalarType(zcu).zigTypeTag(zcu) != .bool) {
-            return sema.fail(block, operand_src, "boolean not operation on type '{}'", .{
+            return sema.fail(block, operand_src, "boolean not operation on type '{f}'", .{
                 uncasted_ty.fmt(pt),
             });
         }
@@ -19299,13 +19298,13 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 
     if (host_size != 0) {
         if (bit_offset >= host_size * 8) {
-            return sema.fail(block, bitoffset_src, "packed type '{f}' at bit offset {} starts {} bits after the end of a {} byte host integer", .{
+            return sema.fail(block, bitoffset_src, "packed type '{f}' at bit offset {d} starts {d} bits after the end of a {d} byte host integer", .{
                 elem_ty.fmt(pt), bit_offset, bit_offset - host_size * 8, host_size,
             });
         }
         const elem_bit_size = try elem_ty.bitSizeSema(pt);
         if (elem_bit_size > host_size * 8 - bit_offset) {
-            return sema.fail(block, bitoffset_src, "packed type '{f}' at bit offset {} ends {} bits after the end of a {} byte host integer", .{
+            return sema.fail(block, bitoffset_src, "packed type '{f}' at bit offset {d} ends {d} bits after the end of a {d} byte host integer", .{
                 elem_ty.fmt(pt), bit_offset, elem_bit_size - (host_size * 8 - bit_offset), host_size,
             });
         }
@@ -20466,7 +20465,7 @@ fn zirIntFromBool(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
     const operand_scalar_ty = operand_ty.scalarType(zcu);
     if (operand_scalar_ty.toIntern() != .bool_type) {
-        return sema.fail(block, src, "expected 'bool', found '{}'", .{operand_scalar_ty.zigTypeTag(zcu)});
+        return sema.fail(block, src, "expected 'bool', found '{s}'", .{operand_scalar_ty.zigTypeTag(zcu)});
     }
     const len = if (is_vector) operand_ty.vectorLen(zcu) else undefined;
     const dest_ty: Type = if (is_vector) try pt.vectorType(.{ .child = .u1_type, .len = len }) else .u1;
@@ -20749,7 +20748,7 @@ fn zirReify(
                 64 => .f64,
                 80 => .f80,
                 128 => .f128,
-                else => return sema.fail(block, src, "{}-bit float unsupported", .{float.bits}),
+                else => return sema.fail(block, src, "{d}-bit float unsupported", .{float.bits}),
             };
             return Air.internedToRef(ty.toIntern());
         },
@@ -21640,7 +21639,7 @@ fn reifyTuple(
             return sema.fail(
                 block,
                 src,
-                "tuple field name '{}' does not match field index {}",
+                "tuple field name '{d}' does not match field index {d}",
                 .{ field_name_index, field_idx },
             );
         }
@@ -22658,7 +22657,7 @@ fn ptrCastFull(
 
         if (src_info.packed_offset.host_size != dest_info.packed_offset.host_size) {
             return sema.failWithOwnedErrorMsg(block, msg: {
-                const msg = try sema.errMsg(src, "pointer host size '{}' cannot coerce into pointer host size '{}'", .{
+                const msg = try sema.errMsg(src, "pointer host size '{d}' cannot coerce into pointer host size '{d}'", .{
                     src_info.packed_offset.host_size,
                     dest_info.packed_offset.host_size,
                 });
@@ -22670,7 +22669,7 @@ fn ptrCastFull(
 
         if (src_info.packed_offset.bit_offset != dest_info.packed_offset.bit_offset) {
             return sema.failWithOwnedErrorMsg(block, msg: {
-                const msg = try sema.errMsg(src, "pointer bit offset '{}' cannot coerce into pointer bit offset '{}'", .{
+                const msg = try sema.errMsg(src, "pointer bit offset '{d}' cannot coerce into pointer bit offset '{d}'", .{
                     src_info.packed_offset.bit_offset,
                     dest_info.packed_offset.bit_offset,
                 });
@@ -23240,7 +23239,7 @@ fn zirByteSwap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         return sema.fail(
             block,
             operand_src,
-            "@byteSwap requires the number of bits to be evenly divisible by 8, but {f} has {} bits",
+            "@byteSwap requires the number of bits to be evenly divisible by 8, but {f} has {d} bits",
             .{ scalar_ty.fmt(pt), bits },
         );
     }
@@ -23577,7 +23576,7 @@ fn checkNumericType(
         .comptime_float, .float, .comptime_int, .int => {},
         .vector => switch (ty.childType(zcu).zigTypeTag(zcu)) {
             .comptime_float, .float, .comptime_int, .int => {},
-            else => |t| return sema.fail(block, ty_src, "expected number, found '{}'", .{t}),
+            else => |t| return sema.fail(block, ty_src, "expected number, found '{s}'", .{t}),
         },
         else => return sema.fail(block, ty_src, "expected number, found '{f}'", .{ty.fmt(pt)}),
     }
@@ -24254,7 +24253,7 @@ fn analyzeShuffle(
             if (idx >= b_len) return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(mask_src, "mask element at index '{d}' selects out-of-bounds index", .{mask_idx});
                 errdefer msg.destroy(sema.gpa);
-                try sema.errNote(b_src, msg, "index '{d}' exceeds bounds of '{}' given here", .{ idx, b_ty.fmt(pt) });
+                try sema.errNote(b_src, msg, "index '{d}' exceeds bounds of '{f}' given here", .{ idx, b_ty.fmt(pt) });
                 break :msg msg;
             });
         }
@@ -25039,7 +25038,7 @@ fn analyzeMinMax(
                 try sema.checkNumericType(block, operand_src, operand_ty);
                 if (operand_ty.zigTypeTag(zcu) != .vector) {
                     return sema.failWithOwnedErrorMsg(block, msg: {
-                        const msg = try sema.errMsg(operand_src, "expected vector, found '{}'", .{operand_ty.fmt(pt)});
+                        const msg = try sema.errMsg(operand_src, "expected vector, found '{f}'", .{operand_ty.fmt(pt)});
                         errdefer msg.destroy(zcu.gpa);
                         try sema.errNote(operand_srcs[0], msg, "vector operand here", .{});
                         break :msg msg;
@@ -25047,7 +25046,7 @@ fn analyzeMinMax(
                 }
                 if (operand_ty.vectorLen(zcu) != vec_len) {
                     return sema.failWithOwnedErrorMsg(block, msg: {
-                        const msg = try sema.errMsg(operand_src, "expected vector of length '{d}', found '{}'", .{ vec_len, operand_ty.fmt(pt) });
+                        const msg = try sema.errMsg(operand_src, "expected vector of length '{d}', found '{f}'", .{ vec_len, operand_ty.fmt(pt) });
                         errdefer msg.destroy(zcu.gpa);
                         try sema.errNote(operand_srcs[0], msg, "vector of length '{d}' here", .{vec_len});
                         break :msg msg;
@@ -25060,7 +25059,7 @@ fn analyzeMinMax(
                 const operand_ty = sema.typeOf(operand);
                 if (operand_ty.zigTypeTag(zcu) == .vector) {
                     return sema.failWithOwnedErrorMsg(block, msg: {
-                        const msg = try sema.errMsg(operand_srcs[0], "expected vector, found '{}'", .{first_operand_ty.fmt(pt)});
+                        const msg = try sema.errMsg(operand_srcs[0], "expected vector, found '{f}'", .{first_operand_ty.fmt(pt)});
                         errdefer msg.destroy(zcu.gpa);
                         try sema.errNote(operand_src, msg, "vector operand here", .{});
                         break :msg msg;
@@ -29163,7 +29162,7 @@ fn coerceExtra(
                 //    return sema.fail(
                 //        block,
                 //        inst_src,
-                //        "type '{f}' cannot represent integer value '{}'",
+                //        "type '{f}' cannot represent integer value '{f}'",
                 //        .{ dest_ty.fmt(pt), val },
                 //    );
                 //}
@@ -29370,7 +29369,7 @@ fn coerceExtra(
             try sema.errNote(param_src, msg, "parameter type declared here", .{});
         }
 
-        // TODO maybe add "cannot store an error in type '{}'" note
+        // TODO maybe add "cannot store an error in type '{f}'" note
 
         break :msg msg;
     };
@@ -29718,12 +29717,12 @@ const InMemoryCoercionResult = union(enum) {
             },
             .ptr_bit_range => |bit_range| {
                 if (bit_range.actual_host != bit_range.wanted_host) {
-                    try sema.errNote(src, msg, "pointer host size '{}' cannot cast into pointer host size '{}'", .{
+                    try sema.errNote(src, msg, "pointer host size '{d}' cannot cast into pointer host size '{d}'", .{
                         bit_range.actual_host, bit_range.wanted_host,
                     });
                 }
                 if (bit_range.actual_offset != bit_range.wanted_offset) {
-                    try sema.errNote(src, msg, "pointer bit offset '{}' cannot cast into pointer bit offset '{}'", .{
+                    try sema.errNote(src, msg, "pointer bit offset '{d}' cannot cast into pointer bit offset '{d}'", .{
                         bit_range.actual_offset, bit_range.wanted_offset,
                     });
                 }
@@ -34840,7 +34839,7 @@ fn checkBackingIntType(sema: *Sema, block: *Block, src: LazySrcLoc, backing_int_
         return sema.fail(
             block,
             src,
-            "backing integer type '{f}' has bit size {} but the struct fields have a total bit size of {}",
+            "backing integer type '{f}' has bit size {d} but the struct fields have a total bit size of {d}",
             .{ backing_int_ty.fmt(pt), backing_int_ty.bitSize(zcu), fields_bit_sum },
         );
     }
@@ -35183,11 +35182,7 @@ pub fn resolveUnionFieldTypes(sema: *Sema, ty: Type, union_type: InternPool.Load
     switch (union_type.flagsUnordered(ip).status) {
         .none => {},
         .field_types_wip => {
-            const msg = try sema.errMsg(
-                ty.srcLoc(zcu),
-                "union '{f}' depends on itself",
-                .{ty.fmt(pt)},
-            );
+            const msg = try sema.errMsg(ty.srcLoc(zcu), "union '{f}' depends on itself", .{ty.fmt(pt)});
             return sema.failWithOwnedErrorMsg(null, msg);
         },
         .have_field_types,
@@ -37194,7 +37189,7 @@ fn notePathToComptimeAllocPtr(sema: *Sema, msg: *Zcu.ErrorMsg, src: LazySrcLoc, 
     if (intermediate_value_count == 0) {
         try first_path.print(arena, "{fi}", .{start_value_name.fmt(ip)});
     } else {
-        try first_path.print(arena, "v{}", .{intermediate_value_count - 1});
+        try first_path.print(arena, "v{d}", .{intermediate_value_count - 1});
     }
 
     const comptime_ptr = try sema.notePathToComptimeAllocPtrInner(val, &first_path);

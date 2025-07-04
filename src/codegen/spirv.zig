@@ -817,7 +817,7 @@ const NavGen = struct {
         const result_ty_id = try self.resolveType(ty, repr);
         const ip = &zcu.intern_pool;
 
-        log.debug("lowering constant: ty = {}, val = {}, key = {s}", .{ ty.fmt(pt), val.fmtValue(pt), @tagName(ip.indexToKey(val.toIntern())) });
+        log.debug("lowering constant: ty = {f}, val = {f}, key = {s}", .{ ty.fmt(pt), val.fmtValue(pt), @tagName(ip.indexToKey(val.toIntern())) });
         if (val.isUndefDeep(zcu)) {
             return self.spv.constUndef(result_ty_id);
         }
@@ -1147,7 +1147,7 @@ const NavGen = struct {
                     return result_ptr_id;
                 }
 
-                return self.fail("cannot perform pointer cast: '{}' to '{}'", .{
+                return self.fail("cannot perform pointer cast: '{f}' to '{f}'", .{
                     parent_ptr_ty.fmt(pt),
                     oac.new_ptr_ty.fmt(pt),
                 });
@@ -1464,7 +1464,7 @@ const NavGen = struct {
         const pt = self.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
-        log.debug("resolveType: ty = {}", .{ty.fmt(pt)});
+        log.debug("resolveType: ty = {f}", .{ty.fmt(pt)});
         const target = self.spv.target;
 
         const section = &self.spv.sections.types_globals_constants;
@@ -3070,7 +3070,7 @@ const NavGen = struct {
                     try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
                     try self.spv.addFunction(spv_decl_index, self.func);
 
-                    try self.spv.debugNameFmt(initializer_id, "initializer of {}", .{nav.fqn.fmt(ip)});
+                    try self.spv.debugNameFmt(initializer_id, "initializer of {f}", .{nav.fqn.fmt(ip)});
 
                     try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
                         .id_result_type = ptr_ty_id,

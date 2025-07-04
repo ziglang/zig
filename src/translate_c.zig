@@ -3327,7 +3327,7 @@ fn transConstantExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: 
             return maybeSuppressResult(c, used, as_node);
         },
         else => |kind| {
-            return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "unsupported constant expression kind '{}'", .{kind});
+            return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "unsupported constant expression kind '{f}'", .{kind});
         },
     }
 }
@@ -5832,7 +5832,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                         num += c - 'A' + 10;
                     },
                     else => {
-                        i += std.fmt.printInt(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+                        i += std.fmt.printInt(bytes[i..], num, 16, .lower, .{ .fill = '0', .width = 2 });
                         num = 0;
                         if (c == '\\')
                             state = .escape
@@ -5858,7 +5858,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                     };
                     num += c - '0';
                 } else {
-                    i += std.fmt.printInt(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+                    i += std.fmt.printInt(bytes[i..], num, 16, .lower, .{ .fill = '0', .width = 2 });
                     num = 0;
                     count = 0;
                     if (c == '\\')
@@ -5872,7 +5872,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
         }
     }
     if (state == .hex or state == .octal)
-        i += std.fmt.printInt(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+        i += std.fmt.printInt(bytes[i..], num, 16, .lower, .{ .fill = '0', .width = 2 });
     return bytes[0..i];
 }
 

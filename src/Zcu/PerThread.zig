@@ -53,7 +53,7 @@ fn deinitFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const file = zcu.fileByIndex(file_index);
-    log.debug("deinit File {}", .{file.path.fmt(zcu.comp)});
+    log.debug("deinit File {f}", .{file.path.fmt(zcu.comp)});
     file.path.deinit(gpa);
     file.unload(gpa);
     if (file.prev_zir) |prev_zir| {
@@ -117,7 +117,7 @@ pub fn updateFile(
     var lock: std.fs.File.Lock = switch (file.status) {
         .never_loaded, .retryable_failure => lock: {
             // First, load the cached ZIR code, if any.
-            log.debug("AstGen checking cache: {} (local={}, digest={s})", .{
+            log.debug("AstGen checking cache: {f} (local={}, digest={s})", .{
                 file.path.fmt(comp), want_local_cache, &hex_digest,
             });
 
@@ -130,11 +130,11 @@ pub fn updateFile(
                 stat.inode == file.stat.inode;
 
             if (unchanged_metadata) {
-                log.debug("unmodified metadata of file: {}", .{file.path.fmt(comp)});
+                log.debug("unmodified metadata of file: {f}", .{file.path.fmt(comp)});
                 return;
             }
 
-            log.debug("metadata changed: {}", .{file.path.fmt(comp)});
+            log.debug("metadata changed: {f}", .{file.path.fmt(comp)});
 
             break :lock .exclusive;
         },
@@ -221,12 +221,12 @@ pub fn updateFile(
         };
         switch (result) {
             .success => {
-                log.debug("AstGen cached success: {}", .{file.path.fmt(comp)});
+                log.debug("AstGen cached success: {f}", .{file.path.fmt(comp)});
                 break false;
             },
             .invalid => {},
-            .truncated => log.warn("unexpected EOF reading cached ZIR for {}", .{file.path.fmt(comp)}),
-            .stale => log.debug("AstGen cache stale: {}", .{file.path.fmt(comp)}),
+            .truncated => log.warn("unexpected EOF reading cached ZIR for {f}", .{file.path.fmt(comp)}),
+            .stale => log.debug("AstGen cache stale: {f}", .{file.path.fmt(comp)}),
         }
 
         // If we already have the exclusive lock then it is our job to update.
@@ -283,7 +283,7 @@ pub fn updateFile(
             },
         }
 
-        log.debug("AstGen fresh success: {}", .{file.path.fmt(comp)});
+        log.debug("AstGen fresh success: {f}", .{file.path.fmt(comp)});
     }
 
     file.stat = .{
@@ -2303,7 +2303,7 @@ pub fn updateBuiltinModule(pt: Zcu.PerThread, opts: Builtin) Allocator.Error!voi
 
     Builtin.updateFileOnDisk(file, comp) catch |err| comp.setMiscFailure(
         .write_builtin_zig,
-        "unable to write '{}': {s}",
+        "unable to write '{f}': {s}",
         .{ file.path.fmt(comp), @errorName(err) },
     );
 }

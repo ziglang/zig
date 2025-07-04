@@ -616,7 +616,7 @@ pub const GotSection = struct {
             try writer.writeAll("GOT\n");
             for (got.entries.items) |entry| {
                 const symbol = elf_file.symbol(entry.ref).?;
-                try writer.print("  {d}@0x{x} => {}@0x{x} ({s})\n", .{
+                try writer.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
                     entry.cell_index,
                     entry.address(elf_file),
                     entry.ref,
@@ -752,7 +752,7 @@ pub const PltSection = struct {
             try writer.writeAll("PLT\n");
             for (plt.symbols.items, 0..) |ref, i| {
                 const symbol = elf_file.symbol(ref).?;
-                try writer.print("  {d}@0x{x} => {}@0x{x} ({s})\n", .{
+                try writer.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
                     i,
                     symbol.pltAddress(elf_file),
                     ref,

@@ -388,7 +388,7 @@ fn formatCTypePoolString(data: CTypePoolStringFormatData, w: *std.io.Writer) std
     if (data.ctype_pool_string.toSlice(data.ctype_pool)) |slice|
         try formatIdentOptions(slice, w, data.solo)
     else
-        try w.print("{}", .{data.ctype_pool_string.fmt(data.ctype_pool)});
+        try w.print("{f}", .{data.ctype_pool_string.fmt(data.ctype_pool)});
 }
 pub fn fmtCTypePoolString(
     ctype_pool_string: CType.Pool.String,
@@ -2471,15 +2471,7 @@ const RenderCTypeTrailing = enum {
     no_space,
     maybe_space,
 
-    pub fn format(
-        self: @This(),
-        comptime fmt: []const u8,
-        _: std.fmt.FormatOptions,
-        w: *Writer,
-    ) @TypeOf(w).Error!void {
-        if (fmt.len != 0)
-            @compileError("invalid format string '" ++ fmt ++ "' for type '" ++
-                @typeName(@This()) ++ "'");
+    pub fn format(self: @This(), w: *Writer, comptime fmt: []const u8) Writer.Error!void {
         comptime assert(fmt.len == 0);
         switch (self) {
             .no_space => {},

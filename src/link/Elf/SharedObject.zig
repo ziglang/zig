@@ -519,21 +519,21 @@ pub fn fmtSymtab(self: SharedObject, elf_file: *Elf) std.fmt.Formatter(Format, F
 const Format = struct {
     shared: SharedObject,
     elf_file: *Elf,
-};
 
-fn formatSymtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
-    const shared = f.shared;
-    const elf_file = f.elf_file;
-    try writer.writeAll("  globals\n");
-    for (shared.symbols.items, 0..) |sym, i| {
-        const ref = shared.resolveSymbol(@intCast(i), elf_file);
-        if (elf_file.symbol(ref)) |ref_sym| {
-            try writer.print("    {}\n", .{ref_sym.fmt(elf_file)});
-        } else {
-            try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+    fn symtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const shared = f.shared;
+        const elf_file = f.elf_file;
+        try writer.writeAll("  globals\n");
+        for (shared.symbols.items, 0..) |sym, i| {
+            const ref = shared.resolveSymbol(@intCast(i), elf_file);
+            if (elf_file.symbol(ref)) |ref_sym| {
+                try writer.print("    {f}\n", .{ref_sym.fmt(elf_file)});
+            } else {
+                try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+            }
         }
     }
-}
+};
 
 const SharedObject = @This();
 

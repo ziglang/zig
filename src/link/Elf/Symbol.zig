@@ -338,7 +338,7 @@ const Format = struct {
     fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
         const symbol = f.symbol;
         const elf_file = f.elf_file;
-        try writer.print("%{d} : {s} : @{x}", .{
+        try writer.print("%{d} : {f} : @{x}", .{
             symbol.esym_index,
             symbol.fmtName(elf_file),
             symbol.address(.{ .plt = false, .trampoline = false }, elf_file),

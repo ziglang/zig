@@ -141,7 +141,7 @@ pub const Cie = struct {
         cie: Cie,
         elf_file: *Elf,
 
-        fn format2(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
             const cie = f.cie;
             const elf_file = f.elf_file;
             const base_addr = cie.address(elf_file);
@@ -567,11 +567,11 @@ const riscv = struct {
 fn reportInvalidReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela) !void {
     const diags = &elf_file.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(1);
-    try err.addMsg("invalid relocation type {} at offset 0x{x}", .{
+    try err.addMsg("invalid relocation type {f} at offset 0x{x}", .{
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,
     });
-    err.addNote("in {}:.eh_frame", .{elf_file.file(rec.file_index).?.fmtPath()});
+    err.addNote("in {f}:.eh_frame", .{elf_file.file(rec.file_index).?.fmtPath()});
     return error.RelocFailure;
 }
 

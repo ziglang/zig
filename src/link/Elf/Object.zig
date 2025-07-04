@@ -281,7 +281,7 @@ fn initAtoms(
             elf.SHT_GROUP => {
                 if (shdr.sh_info >= self.symtab.items.len) {
                     // TODO convert into an error
-                    log.debug("{}: invalid symbol index in sh_info", .{self.fmtPath()});
+                    log.debug("{f}: invalid symbol index in sh_info", .{self.fmtPath()});
                     continue;
                 }
                 const group_info_sym = self.symtab.items[shdr.sh_info];
@@ -793,7 +793,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
                 if (!isNull(data[end .. end + sh_entsize])) {
                     var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("string not null terminated", .{});
-                    err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                    err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                     return error.LinkFailure;
                 }
                 end += sh_entsize;
@@ -808,7 +808,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
             if (shdr.sh_size % sh_entsize != 0) {
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("size not a multiple of sh_entsize", .{});
-                err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
             }
 
@@ -886,7 +886,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
             var err = try diags.addErrorWithNotes(2);
             try err.addMsg("invalid symbol value: {x}", .{esym.st_value});
             err.addNote("for symbol {s}", .{sym.name(elf_file)});
-            err.addNote("in {}", .{self.fmtPath()});
+            err.addNote("in {f}", .{self.fmtPath()});
             return error.LinkFailure;
         };
 
@@ -911,7 +911,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
             const res = imsec.findSubsection(@intCast(@as(i64, @intCast(esym.st_value)) + rel.r_addend)) orelse {
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("invalid relocation at offset 0x{x}", .{rel.r_offset});
-                err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
             };
 
@@ -1536,9 +1536,9 @@ pub fn fmtPath(self: Object) std.fmt.Formatter(Object, formatPath) {
 
 fn formatPath(object: Object, writer: *std.io.Writer) std.io.Writer.Error!void {
     if (object.archive) |ar| {
-        try writer.print("{}({})", .{ ar.path, object.path });
+        try writer.print("{f}({f})", .{ ar.path, object.path });
     } else {
-        try writer.print("{}", .{object.path});
+        try writer.print("{f}", .{object.path});
     }
 }
 

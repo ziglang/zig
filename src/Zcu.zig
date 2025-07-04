@@ -1112,7 +1112,7 @@ pub const File = struct {
         eb: *std.zig.ErrorBundle.Wip,
     ) !std.zig.ErrorBundle.SourceLocationIndex {
         return eb.addSourceLocation(.{
-            .src_path = try eb.printString("{}", .{file.path.fmt(zcu.comp)}),
+            .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = 0,
             .span_main = 0,
             .span_end = 0,
@@ -1133,7 +1133,7 @@ pub const File = struct {
         const end = start + tree.tokenSlice(tok).len;
         const loc = std.zig.findLineColumn(source.bytes, start);
         return eb.addSourceLocation(.{
-            .src_path = try eb.printString("{}", .{file.path.fmt(zcu.comp)}),
+            .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = start,
             .span_main = start,
             .span_end = @intCast(end),
@@ -4238,17 +4238,17 @@ fn formatAnalUnit(data: FormatAnalUnit, writer: *std.io.Writer) std.io.Writer.Er
             const cu = ip.getComptimeUnit(cu_id);
             if (cu.zir_index.resolveFull(ip)) |resolved| {
                 const file_path = zcu.fileByIndex(resolved.file).path;
-                return writer.print("comptime(inst=('{}', %{}) [{}])", .{ file_path.fmt(zcu.comp), @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
+                return writer.print("comptime(inst=('{f}', %{}) [{}])", .{ file_path.fmt(zcu.comp), @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
             } else {
                 return writer.print("comptime(inst=<lost> [{}])", .{@intFromEnum(cu_id)});
             }
         },
-        .nav_val => |nav| return writer.print("nav_val('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
-        .nav_ty => |nav| return writer.print("nav_ty('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
-        .type => |ty| return writer.print("ty('{}' [{}])", .{ Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @intFromEnum(ty) }),
+        .nav_val => |nav| return writer.print("nav_val('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
+        .nav_ty => |nav| return writer.print("nav_ty('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
+        .type => |ty| return writer.print("ty('{f}' [{}])", .{ Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @intFromEnum(ty) }),
         .func => |func| {
             const nav = zcu.funcInfo(func).owner_nav;
-            return writer.print("func('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(func) });
+            return writer.print("func('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(func) });
         },
         .memoized_state => return writer.writeAll("memoized_state"),
     }
@@ -4265,42 +4265,42 @@ fn formatDependee(data: FormatDependee, writer: *std.io.Writer) std.io.Writer.Er
                 return writer.writeAll("inst(<lost>)");
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return writer.print("inst('{}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
+            return writer.print("inst('{f}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
         },
         .nav_val => |nav| {
             const fqn = ip.getNav(nav).fqn;
-            return writer.print("nav_val('{}')", .{fqn.fmt(ip)});
+            return writer.print("nav_val('{f}')", .{fqn.fmt(ip)});
         },
         .nav_ty => |nav| {
             const fqn = ip.getNav(nav).fqn;
-            return writer.print("nav_ty('{}')", .{fqn.fmt(ip)});
+            return writer.print("nav_ty('{f}')", .{fqn.fmt(ip)});
         },
         .interned => |ip_index| switch (ip.indexToKey(ip_index)) {
-            .struct_type, .union_type, .enum_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
-            .func => |f| return writer.print("ies('{}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
+            .struct_type, .union_type, .enum_type => return writer.print("type('{f}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
+            .func => |f| return writer.print("ies('{f}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
             else => unreachable,
         },
         .zon_file => |file| {
             const file_path = zcu.fileByIndex(file).path;
-            return writer.print("zon_file('{}')", .{file_path.fmt(zcu.comp)});
+            return writer.print("zon_file('{f}')", .{file_path.fmt(zcu.comp)});
         },
         .embed_file => |ef_idx| {
             const ef = ef_idx.get(zcu);
-            return writer.print("embed_file('{}')", .{ef.path.fmt(zcu.comp)});
+            return writer.print("embed_file('{f}')", .{ef.path.fmt(zcu.comp)});
         },
         .namespace => |ti| {
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("namespace(<lost>)");
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return writer.print("namespace('{}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
+            return writer.print("namespace('{f}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
         },
         .namespace_name => |k| {
             const info = k.namespace.resolveFull(ip) orelse {
-                return writer.print("namespace(<lost>, '{}')", .{k.name.fmt(ip)});
+                return writer.print("namespace(<lost>, '{f}')", .{k.name.fmt(ip)});
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return writer.print("namespace('{}', %{d}, '{}')", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst), k.name.fmt(ip) });
+            return writer.print("namespace('{f}', %{d}, '{f}')", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst), k.name.fmt(ip) });
         },
         .memoized_state => return writer.writeAll("memoized_state"),
     }

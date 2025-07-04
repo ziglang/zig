@@ -1323,7 +1323,7 @@ fn analyzeOperands(
                     const mask = @as(Bpi, 1) << @as(OperandInt, @intCast(i));
 
                     if ((try data.live_set.fetchPut(gpa, operand, {})) == null) {
-                        log.debug("[{}] %{f}: added %{d} to live set (operand dies here)", .{ pass, @intFromEnum(inst), operand });
+                        log.debug("[{}] %{d}: added %{d} to live set (operand dies here)", .{ pass, @intFromEnum(inst), operand });
                         tomb_bits |= mask;
                     }
                 }
@@ -2036,7 +2036,8 @@ fn fmtInstSet(set: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void)) FmtIns
 const FmtInstSet = struct {
     set: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void),
 
-    pub fn format(val: FmtInstSet, comptime _: []const u8, _: std.fmt.FormatOptions, w: anytype) !void {
+    pub fn format(val: FmtInstSet, w: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
+        comptime assert(f.len == 0);
         if (val.set.count() == 0) {
             try w.writeAll("[no instructions]");
             return;
@@ -2056,7 +2057,8 @@ fn fmtInstList(list: []const Air.Inst.Index) FmtInstList {
 const FmtInstList = struct {
     list: []const Air.Inst.Index,
 
-    pub fn format(val: FmtInstList, comptime _: []const u8, _: std.fmt.FormatOptions, w: anytype) !void {
+    pub fn format(val: FmtInstList, w: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
+        comptime assert(f.len == 0);
         if (val.list.len == 0) {
             try w.writeAll("[no instructions]");
             return;

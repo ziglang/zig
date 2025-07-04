@@ -324,7 +324,8 @@ pub fn addExtra(
 
 pub fn render(comp: *Compilation, config: std.io.tty.Config) void {
     if (comp.diagnostics.list.items.len == 0) return;
-    var m = defaultMsgWriter(config);
+    var buffer: [1000]u8 = undefined;
+    var m = defaultMsgWriter(config, &buffer);
     defer m.deinit();
     renderMessages(comp, &m);
 }
@@ -525,12 +526,12 @@ fn tagKind(d: *Diagnostics, tag: Tag, langopts: LangOpts) Kind {
 }
 
 const MsgWriter = struct {
-    w: *std.fs.File.Writer,
+    writer: *std.io.Writer,
     config: std.io.tty.Config,
 
     fn init(config: std.io.tty.Config, buffer: []u8) MsgWriter {
         return .{
-            .w = std.debug.lockStderrWriter(buffer),
+            .writer = std.debug.lockStderrWriter(buffer),
             .config = config,
         };
     }
@@ -541,15 +542,15 @@ const MsgWriter = struct {
     }
 
     pub fn print(m: *MsgWriter, comptime fmt: []const u8, args: anytype) void {
-        m.w.interface.print(fmt, args) catch {};
+        m.writer.print(fmt, args) catch {};
     }
 
     fn write(m: *MsgWriter, msg: []const u8) void {
-        m.w.interface.writeAll(msg) catch {};
+        m.writer.writeAll(msg) catch {};
     }
 
     fn setColor(m: *MsgWriter, color: std.io.tty.Color) void {
-        m.config.setColor(m.w.interface, color) catch {};
+        m.config.setColor(m.writer, color) catch {};
     }
 
     fn location(m: *MsgWriter, path: []const u8, line: u32, col: u32) void {

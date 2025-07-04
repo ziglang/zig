@@ -702,7 +702,7 @@ pub fn allocateChunk(self: *Elf, args: struct {
         shdr.sh_addr + res.value,
         shdr.sh_offset + res.value,
     });
-    log.debug("  placement {}, {s}", .{
+    log.debug("  placement {f}, {s}", .{
         res.placement,
         if (self.atom(res.placement)) |atom_ptr| atom_ptr.name(self) else "",
     });
@@ -869,7 +869,7 @@ fn flushInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     // Dump the state for easy debugging.
     // State can be dumped via `--debug-log link_state`.
     if (build_options.enable_logging) {
-        state_log.debug("{}", .{self.dumpState()});
+        state_log.debug("{f}", .{self.dumpState()});
     }
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
@@ -3813,12 +3813,12 @@ fn reportDuplicates(self: *Elf, dupes: anytype) error{ HasDuplicates, OutOfMemor
 
         var err = try diags.addErrorWithNotes(nnotes + 1);
         try err.addMsg("duplicate symbol definition: {s}", .{sym.name(self)});
-        err.addNote("defined by {}", .{sym.file(self).?.fmtPath()});
+        err.addNote("defined by {f}", .{sym.file(self).?.fmtPath()});
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
             const file_ptr = self.file(notes.items[inote]).?;
-            err.addNote("defined by {}", .{file_ptr.fmtPath()});
+            err.addNote("defined by {f}", .{file_ptr.fmtPath()});
         }
 
         if (notes.items.len > max_notes) {
@@ -3847,7 +3847,7 @@ pub fn addFileError(
     const diags = &self.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(1);
     try err.addMsg(format, args);
-    err.addNote("while parsing {}", .{self.file(file_index).?.fmtPath()});
+    err.addNote("while parsing {f}", .{self.file(file_index).?.fmtPath()});
 }
 
 pub fn failFile(
@@ -3874,7 +3874,7 @@ fn fmtShdr(self: *Elf, shdr: elf.Elf64_Shdr) std.fmt.Formatter(FormatShdr, forma
 
 fn formatShdr(ctx: FormatShdr, writer: *std.io.Writer) std.io.Writer.Error!void {
     const shdr = ctx.shdr;
-    try writer.print("{s} : @{x} ({x}) : align({x}) : size({x}) : entsize({x}) : flags({})", .{
+    try writer.print("{s} : @{x} ({x}) : align({x}) : size({x}) : entsize({x}) : flags({f})", .{
         ctx.elf_file.getShString(shdr.sh_name), shdr.sh_offset,
         shdr.sh_addr,                           shdr.sh_addralign,
         shdr.sh_size,                           shdr.sh_entsize,
@@ -3979,7 +3979,7 @@ fn fmtDumpState(self: *Elf, writer: *std.io.Writer) std.io.Writer.Error!void {
 
     if (self.zigObjectPtr()) |zig_object| {
         try writer.print("zig_object({d}) : {s}\n", .{ zig_object.index, zig_object.basename });
-        try writer.print("{}{}", .{
+        try writer.print("{f}{f}", .{
             zig_object.fmtAtoms(self),
             zig_object.fmtSymtab(self),
         });
@@ -3988,10 +3988,10 @@ fn fmtDumpState(self: *Elf, writer: *std.io.Writer) std.io.Writer.Error!void {
 
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
-        try writer.print("object({d}) : {}", .{ index, object.fmtPath() });
+        try writer.print("object({d}) : {f}", .{ index, object.fmtPath() });
         if (!object.alive) try writer.writeAll(" : [*]");
         try writer.writeByte('\n');
-        try writer.print("{}{}{}{}{}\n", .{
+        try writer.print("{f}{f}{f}{f}{f}\n", .{
             object.fmtAtoms(self),
             object.fmtCies(self),
             object.fmtFdes(self),
@@ -4002,18 +4002,18 @@ fn fmtDumpState(self: *Elf, writer: *std.io.Writer) std.io.Writer.Error!void {
 
     for (shared_objects) |index| {
         const shared_object = self.file(index).?.shared_object;
-        try writer.print("shared_object({d}) : {} : needed({})", .{
+        try writer.print("shared_object({d}) : {f} : needed({})", .{
             index, shared_object.path, shared_object.needed,
         });
         if (!shared_object.alive) try writer.writeAll(" : [*]");
         try writer.writeByte('\n');
-        try writer.print("{}\n", .{shared_object.fmtSymtab(self)});
+        try writer.print("{f}\n", .{shared_object.fmtSymtab(self)});
     }
 
     if (self.linker_defined_index) |index| {
         const linker_defined = self.file(index).?.linker_defined;
         try writer.print("linker_defined({d}) : (linker defined)\n", .{index});
-        try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
+        try writer.print("{f}\n", .{linker_defined.fmtSymtab(self)});
     }
 
     const slice = self.sections.slice();
@@ -4036,7 +4036,7 @@ fn fmtDumpState(self: *Elf, writer: *std.io.Writer) std.io.Writer.Error!void {
 
     try writer.writeAll("Output groups\n");
     for (self.group_sections.items) |cg| {
-        try writer.print("  shdr({d}) : GROUP({})\n", .{ cg.shndx, cg.cg_ref });
+        try writer.print("  shdr({d}) : GROUP({f})\n", .{ cg.shndx, cg.cg_ref });
     }
 
     try writer.writeAll("\nOutput merge sections\n");
@@ -4046,7 +4046,7 @@ fn fmtDumpState(self: *Elf, writer: *std.io.Writer) std.io.Writer.Error!void {
 
     try writer.writeAll("\nOutput shdrs\n");
     for (slice.items(.shdr), slice.items(.phndx), 0..) |shdr, phndx, shndx| {
-        try writer.print("  shdr({d}) : phdr({?d}) : {}\n", .{
+        try writer.print("  shdr({d}) : phdr({d}) : {f}\n", .{
             shndx,
             phndx,
             self.fmtShdr(shdr),
@@ -4054,7 +4054,7 @@ fn fmtDumpState(self: *Elf, writer: *std.io.Writer) std.io.Writer.Error!void {
     }
     try writer.writeAll("\nOutput phdrs\n");
     for (self.phdrs.items, 0..) |phdr, phndx| {
-        try writer.print("  phdr({d}) : {}\n", .{ phndx, self.fmtPhdr(phdr) });
+        try writer.print("  phdr({d}) : {f}\n", .{ phndx, self.fmtPhdr(phdr) });
     }
 }
 
@@ -4192,15 +4192,9 @@ pub const Ref = struct {
         return ref.index == other.index and ref.file == other.file;
     }
 
-    pub fn format(
-        ref: Ref,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        try writer.print("ref({},{})", .{ ref.index, ref.file });
+    pub fn format(ref: Ref, writer: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
+        comptime assert(f.len == 0);
+        try writer.print("ref({d},{d})", .{ ref.index, ref.file });
     }
 };
 
@@ -4395,7 +4389,7 @@ fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
         for (atom_list.atoms.keys()[start..i]) |ref| {
             const atom_ptr = elf_file.atom(ref).?;
             const file_ptr = atom_ptr.file(elf_file).?;
-            log.debug("atom({}) {s}", .{ ref, atom_ptr.name(elf_file) });
+            log.debug("atom({f}) {s}", .{ ref, atom_ptr.name(elf_file) });
             for (atom_ptr.relocs(elf_file)) |rel| {
                 const is_reachable = switch (cpu_arch) {
                     .aarch64 => r: {

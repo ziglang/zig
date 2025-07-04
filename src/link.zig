@@ -323,7 +323,7 @@ pub const Diags = struct {
         const main_msg = try m;
         errdefer gpa.free(main_msg);
         try diags.msgs.ensureUnusedCapacity(gpa, 1);
-        const note = try std.fmt.allocPrint(gpa, "while parsing {}", .{path});
+        const note = try std.fmt.allocPrint(gpa, "while parsing {f}", .{path});
         errdefer gpa.free(note);
         const notes = try gpa.create([1]Msg);
         errdefer gpa.destroy(notes);
@@ -1351,7 +1351,7 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
                                     .search_strategy = .paths_first,
                                 }) catch |archive_err| switch (archive_err) {
                                     error.LinkFailure => return, // error reported via diags
-                                    else => |e| diags.addParseError(dso_path, "failed to parse archive {}: {s}", .{ archive_path, @errorName(e) }),
+                                    else => |e| diags.addParseError(dso_path, "failed to parse archive {f}: {s}", .{ archive_path, @errorName(e) }),
                                 };
                             },
                             error.LinkFailure => return, // error reported via diags
@@ -1874,7 +1874,7 @@ pub fn resolveInputs(
                 )) |lib_result| {
                     switch (lib_result) {
                         .ok => {},
-                        .no_match => fatal("{}: file not found", .{pq.path}),
+                        .no_match => fatal("{f}: file not found", .{pq.path}),
                     }
                 }
                 continue;
@@ -1928,10 +1928,10 @@ fn resolveLibInput(
             .root_dir = lib_directory,
             .sub_path = try std.fmt.allocPrint(arena, "lib{s}.tbd", .{lib_name}),
         };
-        try checked_paths.writer(gpa).print("\n  {}", .{test_path});
+        try checked_paths.writer(gpa).print("\n  {f}", .{test_path});
         var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => break :tbd,
-            else => |e| fatal("unable to search for tbd library '{}': {s}", .{ test_path, @errorName(e) }),
+            else => |e| fatal("unable to search for tbd library '{f}': {s}", .{ test_path, @errorName(e) }),
         };
         errdefer file.close();
         return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
@@ -1947,7 +1947,7 @@ fn resolveLibInput(
                 },
             }),
         };
-        try checked_paths.writer(gpa).print("\n  {}", .{test_path});
+        try checked_paths.writer(gpa).print("\n  {f}", .{test_path});
         switch (try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, .{
             .path = test_path,
             .query = name_query.query,
@@ -1964,10 +1964,10 @@ fn resolveLibInput(
             .root_dir = lib_directory,
             .sub_path = try std.fmt.allocPrint(arena, "lib{s}.so", .{lib_name}),
         };
-        try checked_paths.writer(gpa).print("\n  {}", .{test_path});
+        try checked_paths.writer(gpa).print("\n  {f}", .{test_path});
         var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => break :so,
-            else => |e| fatal("unable to search for so library '{}': {s}", .{
+            else => |e| fatal("unable to search for so library '{f}': {s}", .{
                 test_path, @errorName(e),
             }),
         };
@@ -1982,10 +1982,10 @@ fn resolveLibInput(
             .root_dir = lib_directory,
             .sub_path = try std.fmt.allocPrint(arena, "lib{s}.a", .{lib_name}),
         };
-        try checked_paths.writer(gpa).print("\n  {}", .{test_path});
+        try checked_paths.writer(gpa).print("\n  {f}", .{test_path});
         var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => break :mingw,
-            else => |e| fatal("unable to search for static library '{}': {s}", .{ test_path, @errorName(e) }),
+            else => |e| fatal("unable to search for static library '{f}': {s}", .{ test_path, @errorName(e) }),
         };
         errdefer file.close();
         return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
@@ -2037,7 +2037,7 @@ fn resolvePathInput(
         .shared_library => return try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, pq, .dynamic, color),
         .object => {
             var file = pq.path.root_dir.handle.openFile(pq.path.sub_path, .{}) catch |err|
-                fatal("failed to open object {}: {s}", .{ pq.path, @errorName(err) });
+                fatal("failed to open object {f}: {s}", .{ pq.path, @errorName(err) });
             errdefer file.close();
             try resolved_inputs.append(gpa, .{ .object = .{
                 .path = pq.path,
@@ -2049,7 +2049,7 @@ fn resolvePathInput(
         },
         .res => {
             var file = pq.path.root_dir.handle.openFile(pq.path.sub_path, .{}) catch |err|
-                fatal("failed to open windows resource {}: {s}", .{ pq.path, @errorName(err) });
+                fatal("failed to open windows resource {f}: {s}", .{ pq.path, @errorName(err) });
             errdefer file.close();
             try resolved_inputs.append(gpa, .{ .res = .{
                 .path = pq.path,
@@ -2057,7 +2057,7 @@ fn resolvePathInput(
             } });
             return null;
         },
-        else => fatal("{}: unrecognized file extension", .{pq.path}),
+        else => fatal("{f}: unrecognized file extension", .{pq.path}),
     }
 }
 
@@ -2192,19 +2192,19 @@ pub fn openDso(path: Path, needed: bool, weak: bool, reexport: bool) !Input.Dso 
 
 pub fn openObjectInput(diags: *Diags, path: Path) error{LinkFailure}!Input {
     return .{ .object = openObject(path, false, false) catch |err| {
-        return diags.failParse(path, "failed to open {}: {s}", .{ path, @errorName(err) });
+        return diags.failParse(path, "failed to open {f}: {s}", .{ path, @errorName(err) });
     } };
 }
 
 pub fn openArchiveInput(diags: *Diags, path: Path, must_link: bool, hidden: bool) error{LinkFailure}!Input {
     return .{ .archive = openObject(path, must_link, hidden) catch |err| {
-        return diags.failParse(path, "failed to open {}: {s}", .{ path, @errorName(err) });
+        return diags.failParse(path, "failed to open {f}: {s}", .{ path, @errorName(err) });
     } };
 }
 
 pub fn openDsoInput(diags: *Diags, path: Path, needed: bool, weak: bool, reexport: bool) error{LinkFailure}!Input {
     return .{ .dso = openDso(path, needed, weak, reexport) catch |err| {
-        return diags.failParse(path, "failed to open {}: {s}", .{ path, @errorName(err) });
+        return diags.failParse(path, "failed to open {f}: {s}", .{ path, @errorName(err) });
     } };
 }
 

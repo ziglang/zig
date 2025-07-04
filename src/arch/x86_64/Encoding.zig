@@ -158,15 +158,8 @@ pub fn modRmExt(encoding: Encoding) u3 {
     };
 }
 
-pub fn format(
-    encoding: Encoding,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = fmt;
-
+pub fn format(encoding: Encoding, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
+    comptime assert(fmt.len == 0);
     var opc = encoding.opcode();
     if (encoding.data.mode.isVex()) {
         try writer.writeAll("VEX.");

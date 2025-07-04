@@ -1212,8 +1212,8 @@ const Writer = struct {
 
                 const name = self.code.nullTerminatedString(output.data.name);
                 const constraint = self.code.nullTerminatedString(output.data.constraint);
-                try stream.print("output({fp}, \"{f}\", ", .{
-                    std.zig.fmtId(name), std.zig.fmtString(constraint),
+                try stream.print("output({f}, \"{f}\", ", .{
+                    std.zig.fmtIdP(name), std.zig.fmtString(constraint),
                 });
                 try self.writeFlag(stream, "->", is_type);
                 try self.writeInstRef(stream, output.data.operand);
@@ -1231,8 +1231,8 @@ const Writer = struct {
 
                 const name = self.code.nullTerminatedString(input.data.name);
                 const constraint = self.code.nullTerminatedString(input.data.constraint);
-                try stream.print("input({fp}, \"{f}\", ", .{
-                    std.zig.fmtId(name), std.zig.fmtString(constraint),
+                try stream.print("input({f}, \"{f}\", ", .{
+                    std.zig.fmtIdP(name), std.zig.fmtString(constraint),
                 });
                 try self.writeInstRef(stream, input.data.operand);
                 try stream.writeAll(")");
@@ -1247,7 +1247,7 @@ const Writer = struct {
                 const str_index = self.code.extra[extra_i];
                 extra_i += 1;
                 const clobber = self.code.nullTerminatedString(@enumFromInt(str_index));
-                try stream.print("{fp}", .{std.zig.fmtId(clobber)});
+                try stream.print("{f}", .{std.zig.fmtIdP(clobber)});
                 if (i + 1 < clobbers_len) {
                     try stream.writeAll(", ");
                 }
@@ -1511,7 +1511,7 @@ const Writer = struct {
                 try self.writeFlag(stream, "comptime ", field.is_comptime);
                 if (field.name != .empty) {
                     const field_name = self.code.nullTerminatedString(field.name);
-                    try stream.print("{fp}: ", .{std.zig.fmtId(field_name)});
+                    try stream.print("{f}: ", .{std.zig.fmtIdP(field_name)});
                 } else {
                     try stream.print("@\"{d}\": ", .{i});
                 }
@@ -1674,7 +1674,7 @@ const Writer = struct {
             extra_index += 1;
 
             try stream.splatByteAll(' ', self.indent);
-            try stream.print("{fp}", .{std.zig.fmtId(field_name)});
+            try stream.print("{f}", .{std.zig.fmtIdP(field_name)});
 
             if (has_type) {
                 const field_type = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
@@ -1808,7 +1808,7 @@ const Writer = struct {
                 extra_index += 1;
 
                 try stream.splatByteAll(' ', self.indent);
-                try stream.print("{fp}", .{std.zig.fmtId(field_name)});
+                try stream.print("{f}", .{std.zig.fmtIdP(field_name)});
 
                 if (has_tag_value) {
                     const tag_value_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
@@ -1913,7 +1913,7 @@ const Writer = struct {
             const name_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index]);
             const name = self.code.nullTerminatedString(name_index);
             try stream.splatByteAll(' ', self.indent);
-            try stream.print("{fp},\n", .{std.zig.fmtId(name)});
+            try stream.print("{f},\n", .{std.zig.fmtIdP(name)});
         }
 
         self.indent -= 2;

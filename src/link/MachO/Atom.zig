@@ -602,7 +602,7 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
                     };
                     try macho_file.reportParseError2(
                         file.getIndex(),
-                        "{s}: 0x{x}: 0x{x}: failed to relax relocation: type {}, target {s}",
+                        "{s}: 0x{x}: 0x{x}: failed to relax relocation: type {f}, target {s}",
                         .{
                             name,
                             self.getAddress(macho_file),

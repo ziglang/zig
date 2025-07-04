@@ -881,6 +881,10 @@ pub fn printValue(
             return;
         },
         .@"union" => |info| {
+            if (fmt.len == 1 and fmt[0] == 's') {
+                try w.writeAll(@tagName(value));
+                return;
+            }
             if (!is_any) {
                 if (fmt.len != 0) invalidFmtError(fmt, value);
                 return printValue(w, ANY, options, value, max_depth);

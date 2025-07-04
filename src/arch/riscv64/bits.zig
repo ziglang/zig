@@ -256,19 +256,14 @@ pub const FrameIndex = enum(u32) {
         return @intFromEnum(fi) < named_count;
     }
 
-    pub fn format(
-        fi: FrameIndex,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
+    pub fn format(fi: FrameIndex, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
         try writer.writeAll("FrameIndex");
         if (fi.isNamed()) {
             try writer.writeByte('.');
             try writer.writeAll(@tagName(fi));
         } else {
             try writer.writeByte('(');
-            try std.fmt.formatType(@intFromEnum(fi), fmt, options, writer, 0);
+            try writer.printInt(fmt, .{}, @intFromEnum(fi));
             try writer.writeByte(')');
         }
     }
