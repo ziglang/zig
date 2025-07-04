@@ -3327,7 +3327,7 @@ fn transConstantExpr(c: *Context, scope: *Scope, expr: *const clang.Expr, used: 
             return maybeSuppressResult(c, used, as_node);
         },
         else => |kind| {
-            return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "unsupported constant expression kind '{f}'", .{kind});
+            return fail(c, error.UnsupportedTranslation, expr.getBeginLoc(), "unsupported constant expression kind '{}'", .{kind});
         },
     }
 }
@@ -5884,9 +5884,9 @@ fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
     if (std.unicode.utf8ValidateSlice(zigified)) return zigified;
 
     const formatter = std.ascii.hexEscape(zigified, .lower);
-    const encoded_size = @as(usize, @intCast(std.fmt.count("{fs}", .{formatter})));
+    const encoded_size: usize = @intCast(std.fmt.count("{f}", .{formatter}));
     const output = try ctx.arena.alloc(u8, encoded_size);
-    return std.fmt.bufPrint(output, "{fs}", .{formatter}) catch |err| switch (err) {
+    return std.fmt.bufPrint(output, "{f}", .{formatter}) catch |err| switch (err) {
         error.NoSpaceLeft => unreachable,
         else => |e| return e,
     };

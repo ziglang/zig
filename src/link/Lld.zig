@@ -294,7 +294,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
         break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
     } else null;
 
-    log.debug("zcu_obj_path={?}", .{zcu_obj_path});
+    log.debug("zcu_obj_path={?f}", .{zcu_obj_path});
 
     const compiler_rt_path: ?Cache.Path = if (comp.compiler_rt_strat == .obj)
         comp.compiler_rt_obj.?.full_object_path

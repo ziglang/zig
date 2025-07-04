@@ -1802,10 +1802,10 @@ pub const Writer = struct {
         }
         const copy_file_range = switch (native_os) {
             .freebsd => std.os.freebsd.copy_file_range,
-            .linux => if (std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) std.os.linux.wrapped.copy_file_range else void,
-            else => void,
+            .linux => if (std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) std.os.linux.wrapped.copy_file_range else {},
+            else => {},
         };
-        if (copy_file_range != void) cfr: {
+        if (@TypeOf(copy_file_range) != void) cfr: {
             if (w.copy_file_range_err != null) break :cfr;
             const buffered = limit.slice(file_reader.interface.buffer);
             if (io_w.end != 0 or buffered.len != 0) return drain(io_w, &.{buffered}, 1);
@@ -1814,7 +1814,7 @@ pub const Writer = struct {
             const off_in_ptr: ?*i64 = switch (file_reader.mode) {
                 .positional_reading, .streaming_reading => return error.Unimplemented,
                 .positional => p: {
-                    off_in = file_reader.pos;
+                    off_in = @intCast(file_reader.pos);
                     break :p &off_in;
                 },
                 .streaming => null,
@@ -1823,7 +1823,7 @@ pub const Writer = struct {
             const off_out_ptr: ?*i64 = switch (w.mode) {
                 .positional_reading, .streaming_reading => return error.Unimplemented,
                 .positional => p: {
-                    off_out = w.pos;
+                    off_out = @intCast(w.pos);
                     break :p &off_out;
                 },
                 .streaming => null,
