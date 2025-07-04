@@ -141,7 +141,7 @@ pub fn lineDelta(source: []const u8, start: usize, end: usize) isize {
 
 pub const BinNameOptions = struct {
     root_name: []const u8,
-    target: std.Target,
+    target: *const std.Target,
     output_mode: std.builtin.OutputMode,
     link_mode: ?std.builtin.LinkMode = null,
     version: ?std.SemanticVersion = null,
@@ -232,9 +232,14 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
                 t.libPrefix(), root_name,
             }),
         },
-        .nvptx => return std.fmt.allocPrint(allocator, "{s}.ptx", .{root_name}),
     }
 }
+
+pub const SanitizeC = enum {
+    off,
+    trap,
+    full,
+};
 
 pub const BuildId = union(enum) {
     none,
@@ -312,6 +317,8 @@ pub const BuildId = union(enum) {
         try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
     }
 };
+
+pub const LtoMode = enum { none, full, thin };
 
 /// Renders a `std.Target.Cpu` value into a textual representation that can be parsed
 /// via the `-mcpu` flag passed to the Zig compiler.
@@ -541,7 +548,7 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: ?
         gpa,
         max_src_size,
         size_hint,
-        @alignOf(u8),
+        .of(u8),
         0,
     ) catch |err| switch (err) {
         error.ConnectionResetByPeer => unreachable,
@@ -874,6 +881,35 @@ pub const SimpleComptimeReason = enum(u32) {
             .panic_handler                => "panic handler must be comptime-known",
             // zig fmt: on
         };
+    }
+};
+
+/// Every kind of artifact which the compiler can emit.
+pub const EmitArtifact = enum {
+    bin,
+    @"asm",
+    implib,
+    llvm_ir,
+    llvm_bc,
+    docs,
+    pdb,
+    h,
+
+    /// If using `Server` to communicate with the compiler, it will place requested artifacts in
+    /// paths under the output directory, where those paths are named according to this function.
+    /// Returned string is allocated with `gpa` and owned by the caller.
+    pub fn cacheName(ea: EmitArtifact, gpa: Allocator, opts: BinNameOptions) Allocator.Error![]const u8 {
+        const suffix: []const u8 = switch (ea) {
+            .bin => return binNameAlloc(gpa, opts),
+            .@"asm" => ".s",
+            .implib => ".lib",
+            .llvm_ir => ".ll",
+            .llvm_bc => ".bc",
+            .docs => "-docs",
+            .pdb => ".pdb",
+            .h => ".h",
+        };
+        return std.fmt.allocPrint(gpa, "{s}{s}", .{ opts.root_name, suffix });
     }
 };
 

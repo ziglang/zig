@@ -212,8 +212,8 @@ pub fn DebugAllocator(comptime config: Config) type {
             DummyMutex{};
 
         const DummyMutex = struct {
-            inline fn lock(_: *DummyMutex) void {}
-            inline fn unlock(_: *DummyMutex) void {}
+            inline fn lock(_: DummyMutex) void {}
+            inline fn unlock(_: DummyMutex) void {}
         };
 
         const stack_n = config.stack_trace_frames;
@@ -281,6 +281,7 @@ pub fn DebugAllocator(comptime config: Config) type {
             allocated_count: SlotIndex,
             freed_count: SlotIndex,
             prev: ?*BucketHeader,
+            next: ?*BucketHeader,
             canary: usize = config.canary,
 
             fn fromPage(page_addr: usize, slot_count: usize) *BucketHeader {
@@ -782,7 +783,11 @@ pub fn DebugAllocator(comptime config: Config) type {
                 .allocated_count = 1,
                 .freed_count = 0,
                 .prev = self.buckets[size_class_index],
+                .next = null,
             };
+            if (self.buckets[size_class_index]) |old_head| {
+                old_head.next = bucket;
+            }
             self.buckets[size_class_index] = bucket;
 
             if (!config.backing_allocator_zeroes) {
@@ -935,9 +940,18 @@ pub fn DebugAllocator(comptime config: Config) type {
             }
             bucket.freed_count += 1;
             if (bucket.freed_count == bucket.allocated_count) {
-                if (self.buckets[size_class_index] == bucket) {
-                    self.buckets[size_class_index] = null;
+                if (bucket.prev) |prev| {
+                    prev.next = bucket.next;
                 }
+
+                if (bucket.next) |next| {
+                    assert(self.buckets[size_class_index] != bucket);
+                    next.prev = bucket.prev;
+                } else {
+                    assert(self.buckets[size_class_index] == bucket);
+                    self.buckets[size_class_index] = bucket.prev;
+                }
+
                 if (!config.never_unmap) {
                     const page: [*]align(page_size) u8 = @ptrFromInt(page_addr);
                     self.backing_allocator.rawFree(page[0..page_size], page_align, @returnAddress());
@@ -1106,7 +1120,7 @@ test "realloc" {
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
-    var slice = try allocator.alignedAlloc(u8, @alignOf(u32), 1);
+    var slice = try allocator.alignedAlloc(u8, .of(u32), 1);
     defer allocator.free(slice);
     slice[0] = 0x12;
 
@@ -1220,7 +1234,7 @@ test "shrink large object to large object with larger alignment" {
     const debug_allocator = fba.allocator();
 
     const alloc_size = default_page_size * 2 + 50;
-    var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+    var slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     defer allocator.free(slice);
 
     const big_alignment: usize = default_page_size * 2;
@@ -1230,7 +1244,7 @@ test "shrink large object to large object with larger alignment" {
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
     while (mem.isAligned(@intFromPtr(slice.ptr), big_alignment)) {
         try stuff_to_free.append(slice);
-        slice = try allocator.alignedAlloc(u8, 16, alloc_size);
+        slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     }
     while (stuff_to_free.pop()) |item| {
         allocator.free(item);
@@ -1294,7 +1308,7 @@ test "realloc large object to larger alignment" {
     var fba = std.heap.FixedBufferAllocator.init(&debug_buffer);
     const debug_allocator = fba.allocator();
 
-    var slice = try allocator.alignedAlloc(u8, 16, default_page_size * 2 + 50);
+    var slice = try allocator.alignedAlloc(u8, .@"16", default_page_size * 2 + 50);
     defer allocator.free(slice);
 
     const big_alignment: usize = default_page_size * 2;
@@ -1302,7 +1316,7 @@ test "realloc large object to larger alignment" {
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
     while (mem.isAligned(@intFromPtr(slice.ptr), big_alignment)) {
         try stuff_to_free.append(slice);
-        slice = try allocator.alignedAlloc(u8, 16, default_page_size * 2 + 50);
+        slice = try allocator.alignedAlloc(u8, .@"16", default_page_size * 2 + 50);
     }
     while (stuff_to_free.pop()) |item| {
         allocator.free(item);
@@ -1388,7 +1402,7 @@ test "large allocations count requested size not backing size" {
     var gpa: DebugAllocator(.{ .enable_memory_limit = true }) = .{};
     const allocator = gpa.allocator();
 
-    var buf = try allocator.alignedAlloc(u8, 1, default_page_size + 1);
+    var buf = try allocator.alignedAlloc(u8, .@"1", default_page_size + 1);
     try std.testing.expectEqual(default_page_size + 1, gpa.total_requested_bytes);
     buf = try allocator.realloc(buf, 1);
     try std.testing.expectEqual(1, gpa.total_requested_bytes);

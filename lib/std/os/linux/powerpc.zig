@@ -22,7 +22,7 @@ pub fn syscall0(number: SYS) usize {
         \\ 1:
         : [ret] "={r3}" (-> usize),
         : [number] "{r0}" (@intFromEnum(number)),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -35,7 +35,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={r3}" (-> usize),
         : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -49,7 +49,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
           [arg2] "{r4}" (arg2),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -64,7 +64,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{r3}" (arg1),
           [arg2] "{r4}" (arg2),
           [arg3] "{r5}" (arg3),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -80,7 +80,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{r4}" (arg2),
           [arg3] "{r5}" (arg3),
           [arg4] "{r6}" (arg4),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -97,7 +97,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{r5}" (arg3),
           [arg4] "{r6}" (arg4),
           [arg5] "{r7}" (arg5),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -123,7 +123,7 @@ pub fn syscall6(
           [arg4] "{r6}" (arg4),
           [arg5] "{r7}" (arg5),
           [arg6] "{r8}" (arg6),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -341,14 +341,12 @@ pub const ucontext_t = extern struct {
     stack: stack_t,
     pad: [7]i32,
     regs: *mcontext_t,
-    sigmask: sigset_t,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
     pad2: [3]i32,
     mcontext: mcontext_t,
 };
 
 pub const Elf_Symndx = u32;
-
-pub const MMAP2_UNIT = 4096;
 
 /// TODO
 pub const getcontext = {};

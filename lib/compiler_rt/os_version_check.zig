@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 const builtin = @import("builtin");
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .internal else .weak;
+const common = @import("common.zig");
 const panic = @import("common.zig").panic;
 
 const have_availability_version_check = builtin.os.tag.isDarwin() and
@@ -9,7 +9,7 @@ const have_availability_version_check = builtin.os.tag.isDarwin() and
 
 comptime {
     if (have_availability_version_check) {
-        @export(&__isPlatformVersionAtLeast, .{ .name = "__isPlatformVersionAtLeast", .linkage = linkage });
+        @export(&__isPlatformVersionAtLeast, .{ .name = "__isPlatformVersionAtLeast", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

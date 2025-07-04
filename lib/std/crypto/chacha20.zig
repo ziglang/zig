@@ -499,15 +499,12 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
 fn ChaChaImpl(comptime rounds_nb: usize) type {
     switch (builtin.cpu.arch) {
         .x86_64 => {
-            const has_avx2 = std.Target.x86.featureSetHas(builtin.cpu.features, .avx2);
-            const has_avx512f = std.Target.x86.featureSetHas(builtin.cpu.features, .avx512f);
-            if (builtin.zig_backend != .stage2_x86_64 and has_avx512f) return ChaChaVecImpl(rounds_nb, 4);
-            if (has_avx2) return ChaChaVecImpl(rounds_nb, 2);
+            if (builtin.zig_backend != .stage2_x86_64 and builtin.cpu.has(.x86, .avx512f)) return ChaChaVecImpl(rounds_nb, 4);
+            if (builtin.cpu.has(.x86, .avx2)) return ChaChaVecImpl(rounds_nb, 2);
             return ChaChaVecImpl(rounds_nb, 1);
         },
         .aarch64 => {
-            const has_neon = std.Target.aarch64.featureSetHas(builtin.cpu.features, .neon);
-            if (has_neon) return ChaChaVecImpl(rounds_nb, 4);
+            if (builtin.zig_backend != .stage2_aarch64 and builtin.cpu.has(.aarch64, .neon)) return ChaChaVecImpl(rounds_nb, 4);
             return ChaChaNonVecImpl(rounds_nb);
         },
         else => return ChaChaNonVecImpl(rounds_nb),

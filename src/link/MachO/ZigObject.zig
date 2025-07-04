@@ -550,7 +550,7 @@ pub fn getInputSection(self: ZigObject, atom: Atom, macho_file: *MachO) macho.se
     return sect;
 }
 
-pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) link.File.FlushError!void {
+pub fn flush(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) link.File.FlushError!void {
     const diags = &macho_file.base.comp.link_diags;
 
     // Handle any lazy symbols that were emitted by incremental compilation.
@@ -589,7 +589,7 @@ pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) 
     if (self.dwarf) |*dwarf| {
         const pt: Zcu.PerThread = .activate(macho_file.base.comp.zcu.?, tid);
         defer pt.deactivate();
-        dwarf.flushModule(pt) catch |err| switch (err) {
+        dwarf.flush(pt) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => |e| return diags.fail("failed to flush dwarf module: {s}", .{@errorName(e)}),
         };
@@ -599,7 +599,7 @@ pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) 
         self.debug_strtab_dirty = false;
     }
 
-    // The point of flushModule() is to commit changes, so in theory, nothing should
+    // The point of flush() is to commit changes, so in theory, nothing should
     // be dirty after this. However, it is possible for some things to remain
     // dirty because they fail to be written in the event of compile errors,
     // such as debug_line_header_dirty and debug_info_header_dirty.
@@ -704,7 +704,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: Atom.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const val = Value.fromInterned(uav);
@@ -716,7 +716,7 @@ pub fn lowerUav(
         const sym = self.symbols.items[metadata.symbol_index];
         const existing_alignment = sym.getAtom(macho_file).?.alignment;
         if (uav_alignment.order(existing_alignment).compare(.lte))
-            return .{ .mcv = .{ .load_symbol = sym.nlist_idx } };
+            return .{ .sym_index = metadata.symbol_index };
     }
 
     var name_buf: [32]u8 = undefined;
@@ -740,14 +740,11 @@ pub fn lowerUav(
             .{@errorName(e)},
         ) },
     };
-    const sym_index = switch (res) {
-        .ok => |sym_index| sym_index,
-        .fail => |em| return .{ .fail = em },
-    };
-    try self.uavs.put(gpa, uav, .{ .symbol_index = sym_index });
-    return .{ .mcv = .{
-        .load_symbol = self.symbols.items[sym_index].nlist_idx,
-    } };
+    switch (res) {
+        .sym_index => |sym_index| try self.uavs.put(gpa, uav, .{ .symbol_index = sym_index }),
+        .fail => {},
+    }
+    return res;
 }
 
 fn freeNavMetadata(self: *ZigObject, macho_file: *MachO, sym_index: Symbol.Index) void {
@@ -777,8 +774,7 @@ pub fn updateFunc(
     macho_file: *MachO,
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Liveness,
+    mir: *const codegen.AnyMir,
 ) link.File.UpdateNavError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -796,13 +792,12 @@ pub fn updateFunc(
     var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, sym_index) else null;
     defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
-    try codegen.generateFunction(
+    try codegen.emitFunction(
         &macho_file.base,
         pt,
         zcu.navSrcLoc(func.owner_nav),
         func_index,
-        air,
-        liveness,
+        mir,
         &code_buffer,
         if (debug_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
     );
@@ -883,11 +878,7 @@ pub fn updateNav(
             const name = @"extern".name.toSlice(ip);
             const lib_name = @"extern".lib_name.toSlice(ip);
             const sym_index = try self.getGlobalSymbol(macho_file, name, lib_name);
-            if (!ip.isFunctionType(@"extern".ty)) {
-                const sym = &self.symbols.items[sym_index];
-                sym.flags.is_extern_ptr = true;
-                if (@"extern".is_threadlocal) sym.flags.tlv = true;
-            }
+            if (@"extern".is_threadlocal and macho_file.base.comp.config.any_non_single_threaded) self.symbols.items[sym_index].flags.tlv = true;
             if (self.dwarf) |*dwarf| dwarf: {
                 var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index) orelse break :dwarf;
                 defer debug_wip_nav.deinit();
@@ -954,7 +945,7 @@ fn updateNavCode(
 
     log.debug("updateNavCode {} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
 
-    const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
+    const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const required_alignment = switch (pt.navAlignment(nav_index)) {
         .none => target_util.defaultFunctionAlignment(target),
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
@@ -1160,7 +1151,6 @@ fn getNavOutputSection(
 ) error{OutOfMemory}!u8 {
     _ = self;
     const ip = &zcu.intern_pool;
-    const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
     const nav_val = zcu.navValue(nav_index);
     if (ip.isFunctionType(nav_val.typeOf(zcu).toIntern())) return macho_file.zig_text_sect_index.?;
     const is_const, const is_threadlocal, const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
@@ -1168,7 +1158,7 @@ fn getNavOutputSection(
         .@"extern" => |@"extern"| .{ @"extern".is_const, @"extern".is_threadlocal, .none },
         else => .{ true, false, nav_val.toIntern() },
     };
-    if (any_non_single_threaded and is_threadlocal) {
+    if (is_threadlocal and macho_file.base.comp.config.any_non_single_threaded) {
         for (code) |byte| {
             if (byte != 0) break;
         } else return macho_file.getSectionByName("__DATA", "__thread_bss") orelse try macho_file.addSection(
@@ -1184,7 +1174,7 @@ fn getNavOutputSection(
     }
     if (is_const) return macho_file.zig_const_sect_index.?;
     if (nav_init != .none and Value.fromInterned(nav_init).isUndefDeep(zcu))
-        return switch (zcu.navFileScope(nav_index).mod.optimize_mode) {
+        return switch (zcu.navFileScope(nav_index).mod.?.optimize_mode) {
             .Debug, .ReleaseSafe => macho_file.zig_data_sect_index.?,
             .ReleaseFast, .ReleaseSmall => macho_file.zig_bss_sect_index.?,
         };
@@ -1193,11 +1183,6 @@ fn getNavOutputSection(
     } else return macho_file.zig_bss_sect_index.?;
     return macho_file.zig_data_sect_index.?;
 }
-
-const LowerConstResult = union(enum) {
-    ok: Symbol.Index,
-    fail: *Zcu.ErrorMsg,
-};
 
 fn lowerConst(
     self: *ZigObject,
@@ -1208,7 +1193,7 @@ fn lowerConst(
     required_alignment: Atom.Alignment,
     output_section_index: u8,
     src_loc: Zcu.LazySrcLoc,
-) !LowerConstResult {
+) !codegen.SymbolResult {
     const gpa = macho_file.base.comp.gpa;
 
     var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
@@ -1248,7 +1233,7 @@ fn lowerConst(
     const file_offset = sect.offset + atom.value;
     try macho_file.pwriteAll(code, file_offset);
 
-    return .{ .ok = sym_index };
+    return .{ .sym_index = sym_index };
 }
 
 pub fn updateExports(
@@ -1272,7 +1257,7 @@ pub fn updateExports(
             const first_exp = export_indices[0].ptr(zcu);
             const res = try self.lowerUav(macho_file, pt, uav, .none, first_exp.src);
             switch (res) {
-                .mcv => {},
+                .sym_index => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Zcu.processExportsInner
                     // handle the error?
@@ -1537,7 +1522,7 @@ pub fn getOrCreateMetadataForLazySymbol(
     }
     state_ptr.* = .pending_flush;
     const symbol_index = symbol_index_ptr.*;
-    // anyerror needs to be deferred until flushModule
+    // anyerror needs to be deferred until flush
     if (lazy_sym.ty != .anyerror_type) try self.updateLazySymbol(macho_file, pt, lazy_sym, symbol_index);
     return symbol_index;
 }
@@ -1813,14 +1798,12 @@ const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
 
-const Air = @import("../../Air.zig");
 const Allocator = std.mem.Allocator;
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Dwarf = @import("../Dwarf.zig");
 const File = @import("file.zig").File;
 const InternPool = @import("../../InternPool.zig");
-const Liveness = @import("../../Liveness.zig");
 const MachO = @import("../MachO.zig");
 const Nlist = Object.Nlist;
 const Zcu = @import("../../Zcu.zig");

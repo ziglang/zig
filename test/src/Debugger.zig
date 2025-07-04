@@ -9,7 +9,6 @@ pub const Options = struct {
     lldb: ?[]const u8,
     optimize_modes: []const std.builtin.OptimizeMode,
     skip_single_threaded: bool,
-    skip_non_native: bool,
     skip_libc: bool,
 };
 
@@ -22,7 +21,7 @@ pub const Target = struct {
     test_name_suffix: []const u8,
 };
 
-pub fn addTestsForTarget(db: *Debugger, target: Target) void {
+pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
     db.addLldbTest(
         "basic",
         target,
@@ -2377,7 +2376,7 @@ const File = struct { import: ?[]const u8 = null, path: []const u8, source: []co
 fn addGdbTest(
     db: *Debugger,
     name: []const u8,
-    target: Target,
+    target: *const Target,
     files: []const File,
     commands: []const u8,
     expected_output: []const []const u8,
@@ -2403,7 +2402,7 @@ fn addGdbTest(
 fn addLldbTest(
     db: *Debugger,
     name: []const u8,
-    target: Target,
+    target: *const Target,
     files: []const File,
     commands: []const u8,
     expected_output: []const []const u8,
@@ -2434,7 +2433,7 @@ const success = 99;
 fn addTest(
     db: *Debugger,
     name: []const u8,
-    target: Target,
+    target: *const Target,
     files: []const File,
     db_argv1: []const []const u8,
     db_commands: []const u8,
@@ -2442,11 +2441,13 @@ fn addTest(
     db_argv2: []const []const u8,
     expected_output: []const []const u8,
 ) void {
-    for (db.options.test_filters) |test_filter| {
-        if (std.mem.indexOf(u8, name, test_filter)) |_| return;
+    if (db.options.test_filters.len > 0) {
+        for (db.options.test_filters) |test_filter| {
+            if (std.mem.indexOf(u8, name, test_filter) != null) break;
+        } else return;
     }
     if (db.options.test_target_filters.len > 0) {
-        const triple_txt = target.resolved.result.zigTriple(db.b.allocator) catch @panic("OOM");
+        const triple_txt = target.resolved.query.zigTriple(db.b.allocator) catch @panic("OOM");
         for (db.options.test_target_filters) |filter| {
             if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
         } else return;

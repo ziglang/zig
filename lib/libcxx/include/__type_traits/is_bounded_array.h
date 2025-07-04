@@ -10,8 +10,8 @@
 #define _LIBCPP___TYPE_TRAITS_IS_BOUNDED_ARRAY_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__type_traits/integral_constant.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -20,19 +20,25 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class>
-struct _LIBCPP_TEMPLATE_VIS __libcpp_is_bounded_array : false_type {};
+inline const bool __is_bounded_array_v = false;
 template <class _Tp, size_t _Np>
-struct _LIBCPP_TEMPLATE_VIS __libcpp_is_bounded_array<_Tp[_Np]> : true_type {};
+inline const bool __is_bounded_array_v<_Tp[_Np]> = true;
 
 #if _LIBCPP_STD_VER >= 20
 
 template <class>
-struct _LIBCPP_TEMPLATE_VIS is_bounded_array : false_type {};
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_bounded_array : false_type {};
+
+_LIBCPP_DIAGNOSTIC_PUSH
+#  if __has_warning("-Winvalid-specialization")
+_LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Winvalid-specialization")
+#  endif
 template <class _Tp, size_t _Np>
 struct _LIBCPP_TEMPLATE_VIS is_bounded_array<_Tp[_Np]> : true_type {};
+_LIBCPP_DIAGNOSTIC_POP
 
 template <class _Tp>
-inline constexpr bool is_bounded_array_v = is_bounded_array<_Tp>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_bounded_array_v = is_bounded_array<_Tp>::value;
 
 #endif
 

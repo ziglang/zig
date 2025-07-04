@@ -90,6 +90,7 @@ set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM
 set(ZIG_STATIC_ZLIB ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zlib")
 set(ZIG_STATIC_ZSTD ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zstd")
 set(ZIG_STATIC_CURSES OFF CACHE BOOL "Enable static linking against curses")
+set(ZIG_STATIC_LIBXML2 OFF CACHE BOOL "Enable static linking against libxml2")
 
 if (ZIG_SHARED_LLVM AND ZIG_STATIC_LLVM)
     message(SEND_ERROR "-DZIG_SHARED_LLVM and -DZIG_STATIC_LLVM cannot both be enabled simultaneously")
@@ -132,9 +133,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 19)
-find_package(clang 19)
-find_package(lld 19)
+find_package(llvm 20)
+find_package(clang 20)
+find_package(lld 20)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -158,6 +159,16 @@ if(ZIG_STATIC_ZSTD)
     list(APPEND LLVM_LIBRARIES "${ZSTD}")
 endif()
 
+if (MSVC)
+    if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+        if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+            # avoid linking to the debug versions of ucrt by default
+            # as they are not redistributable.
+            set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+        endif()
+    endif()
+endif ()
+
 if(ZIG_STATIC_CURSES)
     list(REMOVE_ITEM LLVM_LIBRARIES "-lcurses")
     find_library(CURSES NAMES libcurses.a libncurses.a NAMES_PER_DIR
@@ -165,6 +176,12 @@ if(ZIG_STATIC_CURSES)
         /usr/local/opt/ncurses/lib
         /opt/homebrew/opt/ncurses/lib)
     list(APPEND LLVM_LIBRARIES "${CURSES}")
+endif()
+
+if(ZIG_STATIC_LIBXML2)
+    list(REMOVE_ITEM LLVM_LIBRARIES "-lxml2")
+    find_library(LIBXML2 NAMES libxml2.a NAMES_PER_DIR)
+    list(APPEND LLVM_LIBRARIES "${LIBXML2}")
 endif()
 
 find_package(Threads)
@@ -198,6 +215,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/addo.zig
     lib/compiler_rt/addsf3.zig
     lib/compiler_rt/addtf3.zig
+    lib/compiler_rt/addvsi3.zig
     lib/compiler_rt/addxf3.zig
     lib/compiler_rt/arm.zig
     lib/compiler_rt/atomics.zig
@@ -316,6 +334,7 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/mulo.zig
     lib/compiler_rt/mulsf3.zig
     lib/compiler_rt/multf3.zig
+    lib/compiler_rt/mulvsi3.zig
     lib/compiler_rt/mulxf3.zig
     lib/compiler_rt/negXi2.zig
     lib/compiler_rt/negdf2.zig
@@ -339,6 +358,8 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/subo.zig
     lib/compiler_rt/subsf3.zig
     lib/compiler_rt/subtf3.zig
+    lib/compiler_rt/subvdi3.zig
+    lib/compiler_rt/subvsi3.zig
     lib/compiler_rt/subxf3.zig
     lib/compiler_rt/tan.zig
     lib/compiler_rt/trig.zig
@@ -444,7 +465,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/json.zig
     lib/std/json/stringify.zig
     lib/std/leb128.zig
-    lib/std/linked_list.zig
     lib/std/log.zig
     lib/std/macho.zig
     lib/std/math.zig
@@ -506,13 +526,16 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/llvm/bitcode_writer.zig
     lib/std/zig/llvm/ir.zig
     src/Air.zig
+    src/Air/Legalize.zig
+    src/Air/Liveness.zig
+    src/Air/Liveness/Verify.zig
+    src/Air/print.zig
+    src/Air/types_resolved.zig
     src/Builtin.zig
     src/Compilation.zig
     src/Compilation/Config.zig
     src/DarwinPosixSpawn.zig
     src/InternPool.zig
-    src/Liveness.zig
-    src/Liveness/Verify.zig
     src/Package.zig
     src/Package/Fetch.zig
     src/Package/Fetch/git.zig
@@ -522,49 +545,10 @@ set(ZIG_STAGE2_SOURCES
     src/Sema.zig
     src/Sema/bitcast.zig
     src/Sema/comptime_ptr_access.zig
-    src/ThreadSafeQueue.zig
     src/Type.zig
     src/Value.zig
     src/Zcu.zig
     src/Zcu/PerThread.zig
-    src/arch/aarch64/CodeGen.zig
-    src/arch/aarch64/Emit.zig
-    src/arch/aarch64/Mir.zig
-    src/arch/aarch64/abi.zig
-    src/arch/aarch64/bits.zig
-    src/arch/arm/CodeGen.zig
-    src/arch/arm/Emit.zig
-    src/arch/arm/Mir.zig
-    src/arch/arm/abi.zig
-    src/arch/arm/bits.zig
-    src/arch/riscv64/abi.zig
-    src/arch/riscv64/bits.zig
-    src/arch/riscv64/CodeGen.zig
-    src/arch/riscv64/Emit.zig
-    src/arch/riscv64/encoding.zig
-    src/arch/riscv64/Lower.zig
-    src/arch/riscv64/Mir.zig
-    src/arch/riscv64/mnem.zig
-    src/arch/sparc64/CodeGen.zig
-    src/arch/sparc64/Emit.zig
-    src/arch/sparc64/Mir.zig
-    src/arch/sparc64/abi.zig
-    src/arch/sparc64/bits.zig
-    src/arch/wasm/CodeGen.zig
-    src/arch/wasm/Emit.zig
-    src/arch/wasm/Mir.zig
-    src/arch/wasm/abi.zig
-    src/arch/x86/bits.zig
-    src/arch/x86_64/CodeGen.zig
-    src/arch/x86_64/Disassembler.zig
-    src/arch/x86_64/Emit.zig
-    src/arch/x86_64/Encoding.zig
-    src/arch/x86_64/Lower.zig
-    src/arch/x86_64/Mir.zig
-    src/arch/x86_64/abi.zig
-    src/arch/x86_64/bits.zig
-    src/arch/x86_64/encoder.zig
-    src/arch/x86_64/encodings.zon
     src/clang.zig
     src/clang_options.zig
     src/clang_options_data.zig
@@ -580,11 +564,13 @@ set(ZIG_STAGE2_SOURCES
     src/codegen/spirv/spec.zig
     src/crash_report.zig
     src/dev.zig
-    src/glibc.zig
+    src/libs/freebsd.zig
+    src/libs/glibc.zig
+    src/libs/netbsd.zig
     src/introspect.zig
-    src/libcxx.zig
-    src/libtsan.zig
-    src/libunwind.zig
+    src/libs/libcxx.zig
+    src/libs/libtsan.zig
+    src/libs/libunwind.zig
     src/link.zig
     src/link/C.zig
     src/link/Coff.zig
@@ -606,7 +592,9 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
+    src/link/Goff.zig
     src/link/LdScript.zig
+    src/link/Lld.zig
     src/link/MachO.zig
     src/link/MachO/Archive.zig
     src/link/MachO/Atom.zig
@@ -633,9 +621,9 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/synthetic.zig
     src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
-    src/link/NvPtx.zig
     src/link/Plan9.zig
     src/link/Plan9/aout.zig
+    src/link/Queue.zig
     src/link/SpirV.zig
     src/link/SpirV/BinaryModule.zig
     src/link/SpirV/deduplicate.zig
@@ -646,6 +634,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Wasm/Archive.zig
     src/link/Wasm/Flush.zig
     src/link/Wasm/Object.zig
+    src/link/Xcoff.zig
     src/link/aarch64.zig
     src/link/riscv.zig
     src/link/table_section.zig
@@ -656,10 +645,9 @@ set(ZIG_STAGE2_SOURCES
     src/link/tapi/yaml.zig
     src/link/tapi/yaml/test.zig
     src/main.zig
-    src/mingw.zig
-    src/musl.zig
+    src/libs/mingw.zig
+    src/libs/musl.zig
     src/mutable_value.zig
-    src/print_air.zig
     src/print_env.zig
     src/print_targets.zig
     src/print_value.zig
@@ -668,7 +656,7 @@ set(ZIG_STAGE2_SOURCES
     src/target.zig
     src/tracy.zig
     src/translate_c.zig
-    src/wasi_libc.zig
+    src/libs/wasi_libc.zig
 )
 
 if(MSVC)
@@ -677,6 +665,12 @@ if(MSVC)
         set(ZIG_DIA_GUIDS_LIB "${MSVC_DIA_SDK_DIR}/lib/amd64/diaguids.lib")
         string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_DIA_GUIDS_LIB_ESCAPED "${ZIG_DIA_GUIDS_LIB}")
     endif()
+
+    # The /RTC[c][s][u] flag enables extra runtime checks. ("/RTC1" == "/RTCsu")
+    # The "c" (PossibleDataLoss) and "u" (UninitializeVariable) flags trap on valid C code so we disable
+    # them.  The "s" flag seems like it might be OK.
+    string(REPLACE "/RTC1" "/RTCs" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
+    string(REPLACE "/RTC1" "/RTCs" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 endif()
 
 configure_file (
@@ -698,6 +692,13 @@ add_library(zigcpp STATIC ${ZIG_CPP_SOURCES})
 # and with "exe_cflags" in build.zig
 target_compile_features(zigcpp PRIVATE cxx_std_17)
 set_target_properties(zigcpp PROPERTIES POSITION_INDEPENDENT_CODE ${ZIG_PIE})
+
+if(LLVM_LINK_MODE STREQUAL "static")
+  target_compile_definitions(zigcpp PRIVATE
+    LLVM_BUILD_STATIC
+    CLANG_BUILD_STATIC
+  )
+endif()
 
 if(NOT MSVC)
   if(MINGW)
@@ -774,13 +775,12 @@ elseif(ZIG_HOST_TARGET_ARCH STREQUAL "amd64")
   set(ZIG_HOST_TARGET_ARCH "x86_64")
 elseif(ZIG_HOST_TARGET_ARCH STREQUAL "arm64")
   set(ZIG_HOST_TARGET_ARCH "aarch64")
-elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7l")
+elseif(ZIG_HOST_TARGET_ARCH MATCHES "^arm(el)?$" OR ZIG_HOST_TARGET_ARCH MATCHES "^armv[7-8]l$")
   set(ZIG_HOST_TARGET_ARCH "arm")
-elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armv7b")
+elseif(ZIG_HOST_TARGET_ARCH STREQUAL "armeb" OR ZIG_HOST_TARGET_ARCH MATCHES "^armv[7-8]b$")
   set(ZIG_HOST_TARGET_ARCH "armeb")
 endif()
-string(REGEX REPLACE "^((arm|thumb)(hf?)?)el$" "\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
-if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(hf?)?(eb)?$")
+if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(eb)?$")
   check_symbol_exists(__thumb__ "" ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
   if(ZIG_HOST_TARGET_DEFAULTS_TO_THUMB)
     string(REGEX REPLACE "^arm" "thumb" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
@@ -809,7 +809,7 @@ if(MSVC)
 else()
   set(ZIG_WASM2C_COMPILE_FLAGS "-std=c99 -O2")
   set(ZIG1_COMPILE_FLAGS "-std=c99 -Os")
-  set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-stack-protector")
+  set(ZIG2_COMPILE_FLAGS "-std=c99 -O0 -fno-sanitize=undefined -fno-stack-protector")
   if(APPLE)
     set(ZIG2_LINK_FLAGS "-Wl,-stack_size,0x10000000")
   elseif(MINGW)
@@ -938,12 +938,24 @@ if(ZIG_EXTRA_BUILD_ARGS)
   list(APPEND ZIG_BUILD_ARGS ${ZIG_EXTRA_BUILD_ARGS})
 endif()
 
+set(ZIG_RELEASE_SAFE OFF CACHE BOOL "Build Zig as ReleaseSafe (with debug assertions on)")
+
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   list(APPEND ZIG_BUILD_ARGS -Doptimize=Debug)
-elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
-  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast)
 else()
-  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast -Dstrip)
+  if("${CMAKE_BUILD_TYPE}" STREQUAL "MinSizeRel")
+    list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseSmall)
+  else()
+    # Release and RelWithDebInfo
+    if(ZIG_RELEASE_SAFE)
+      list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseSafe)
+    else()
+      list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast)
+    endif()
+    if(NOT "${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
+      list(APPEND ZIG_BUILD_ARGS -Dstrip)
+    endif()
+  endif()
 endif()
 
 if(ZIG_STATIC AND NOT MSVC)
@@ -964,10 +976,6 @@ endif()
 
 if(NOT "${ZIG_TARGET_DYNAMIC_LINKER}" STREQUAL "")
   list(APPEND ZIG_BUILD_ARGS "-Ddynamic-linker=${ZIG_TARGET_DYNAMIC_LINKER}")
-endif()
-
-if(MINGW AND "${ZIG_HOST_TARGET_ARCH}" STREQUAL "x86")
-  list(APPEND ZIG_BUILD_ARGS --maxrss 7000000000)
 endif()
 
 

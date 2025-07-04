@@ -11,11 +11,12 @@
 
 #include <__algorithm/copy_move_common.h>
 #include <__algorithm/for_each_segment.h>
-#include <__algorithm/iterator_operations.h>
 #include <__algorithm/min.h>
 #include <__config>
+#include <__iterator/iterator_traits.h>
 #include <__iterator/segmented_iterator.h>
 #include <__type_traits/common_type.h>
+#include <__type_traits/enable_if.h>
 #include <__utility/move.h>
 #include <__utility/pair.h>
 
@@ -28,10 +29,9 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class, class _InIter, class _Sent, class _OutIter>
+template <class _InIter, class _Sent, class _OutIter>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_InIter, _OutIter> __copy(_InIter, _Sent, _OutIter);
 
-template <class _AlgPolicy>
 struct __copy_impl {
   template <class _InIter, class _Sent, class _OutIter>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<_InIter, _OutIter>
@@ -47,7 +47,7 @@ struct __copy_impl {
 
   template <class _InIter, class _OutIter>
   struct _CopySegment {
-    using _Traits = __segmented_iterator_traits<_InIter>;
+    using _Traits _LIBCPP_NODEBUG = __segmented_iterator_traits<_InIter>;
 
     _OutIter& __result_;
 
@@ -56,7 +56,7 @@ struct __copy_impl {
 
     _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void
     operator()(typename _Traits::__local_iterator __lfirst, typename _Traits::__local_iterator __llast) {
-      __result_ = std::__copy<_AlgPolicy>(__lfirst, __llast, std::move(__result_)).second;
+      __result_ = std::__copy(__lfirst, __llast, std::move(__result_)).second;
     }
   };
 
@@ -85,7 +85,7 @@ struct __copy_impl {
     while (true) {
       auto __local_last = _Traits::__end(__segment_iterator);
       auto __size       = std::min<_DiffT>(__local_last - __local_first, __last - __first);
-      auto __iters      = std::__copy<_AlgPolicy>(__first, __first + __size, __local_first);
+      auto __iters      = std::__copy(__first, __first + __size, __local_first);
       __first           = std::move(__iters.first);
 
       if (__first == __last)
@@ -103,17 +103,16 @@ struct __copy_impl {
   }
 };
 
-template <class _AlgPolicy, class _InIter, class _Sent, class _OutIter>
+template <class _InIter, class _Sent, class _OutIter>
 pair<_InIter, _OutIter> inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
 __copy(_InIter __first, _Sent __last, _OutIter __result) {
-  return std::__copy_move_unwrap_iters<__copy_impl<_AlgPolicy> >(
-      std::move(__first), std::move(__last), std::move(__result));
+  return std::__copy_move_unwrap_iters<__copy_impl>(std::move(__first), std::move(__last), std::move(__result));
 }
 
 template <class _InputIterator, class _OutputIterator>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator
 copy(_InputIterator __first, _InputIterator __last, _OutputIterator __result) {
-  return std::__copy<_ClassicAlgPolicy>(__first, __last, __result).second;
+  return std::__copy(__first, __last, __result).second;
 }
 
 _LIBCPP_END_NAMESPACE_STD

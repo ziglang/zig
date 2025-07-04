@@ -59,6 +59,7 @@ pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 args: ?[]const []const u8 = null,
 debug_log_scopes: []const []const u8 = &.{},
 debug_compile_errors: bool = false,
+debug_incremental: bool = false,
 debug_pkg_config: bool = false,
 /// Number of stack frames captured when a `StackTrace` is recorded for debug purposes,
 /// in particular at `Step` creation.
@@ -79,7 +80,8 @@ enable_wine: bool = false,
 /// this will be the directory $glibc-build-dir/install/glibcs
 /// Given the example of the aarch64 target, this is the directory
 /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
-glibc_runtimes_dir: ?[]const u8 = null,
+/// Also works for dynamic musl.
+libc_runtimes_dir: ?[]const u8 = null,
 
 dep_prefix: []const u8 = "",
 
@@ -93,6 +95,8 @@ pkg_hash: []const u8,
 available_deps: AvailableDeps,
 
 release_mode: ReleaseMode,
+
+build_id: ?std.zig.BuildId = null,
 
 pub const ReleaseMode = enum {
     off,
@@ -382,13 +386,14 @@ fn createChildOnly(
         .cache_root = parent.cache_root,
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
+        .debug_incremental = parent.debug_incremental,
         .debug_pkg_config = parent.debug_pkg_config,
         .enable_darling = parent.enable_darling,
         .enable_qemu = parent.enable_qemu,
         .enable_rosetta = parent.enable_rosetta,
         .enable_wasmtime = parent.enable_wasmtime,
         .enable_wine = parent.enable_wine,
-        .glibc_runtimes_dir = parent.glibc_runtimes_dir,
+        .libc_runtimes_dir = parent.libc_runtimes_dir,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = .init(allocator),
         .named_writefiles = .init(allocator),
@@ -1017,6 +1022,10 @@ pub const TestOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    /// Emits an object file instead of a test binary.
+    /// The object must be linked separately.
+    /// Usually used in conjunction with a custom `test_runner`.
+    emit_object: bool = false,
 
     /// Prefer populating this field (using e.g. `createModule`) instead of populating
     /// the following fields (`root_source_file` etc). In a future release, those fields
@@ -1065,7 +1074,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
     }
     return .create(b, .{
         .name = options.name,
-        .kind = .@"test",
+        .kind = if (options.emit_object) .test_obj else .@"test",
         .root_module = options.root_module orelse b.createModule(.{
             .root_source_file = options.root_source_file orelse @panic("`root_module` and `root_source_file` cannot both be null"),
             .target = options.target orelse b.graph.host,
@@ -1155,7 +1164,14 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
     // It doesn't have to be native. We catch that if you actually try to run it.
     // Consider that this is declarative; the run step may not be run unless a user
     // option is supplied.
-    const run_step = Step.Run.create(b, b.fmt("run {s}", .{exe.name}));
+
+    // Avoid the common case of the step name looking like "run test test".
+    const step_name = if (exe.kind.isTest() and mem.eql(u8, exe.name, "test"))
+        b.fmt("run {s}", .{@tagName(exe.kind)})
+    else
+        b.fmt("run {s} {s}", .{ @tagName(exe.kind), exe.name });
+
+    const run_step = Step.Run.create(b, step_name);
     run_step.producer = exe;
     if (exe.kind == .@"test") {
         if (exe.exec_cmd_args) |exec_cmd_args| {
@@ -2436,15 +2452,26 @@ pub const GeneratedFile = struct {
     /// The step that generates the file
     step: *Step,
 
-    /// The path to the generated file. Must be either absolute or relative to the build root.
+    /// The path to the generated file. Must be either absolute or relative to the build runner cwd.
     /// This value must be set in the `fn make()` of the `step` and must not be `null` afterwards.
     path: ?[]const u8 = null,
 
+    /// Deprecated, see `getPath2`.
     pub fn getPath(gen: GeneratedFile) []const u8 {
-        return gen.step.owner.pathFromRoot(gen.path orelse std.debug.panic(
+        return gen.step.owner.pathFromCwd(gen.path orelse std.debug.panic(
             "getPath() was called on a GeneratedFile that wasn't built yet. Is there a missing Step dependency on step '{s}'?",
             .{gen.step.name},
         ));
+    }
+
+    pub fn getPath2(gen: GeneratedFile, src_builder: *Build, asking_step: ?*Step) []const u8 {
+        return gen.path orelse {
+            std.debug.lockStdErr();
+            const stderr = std.io.getStdErr();
+            dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
+            std.debug.unlockStdErr();
+            @panic("misconfigured build script");
+        };
     }
 };
 
@@ -2694,6 +2721,18 @@ pub const LazyPath = union(enum) {
                 .sub_path = dep.sub_path,
             },
         }
+    }
+
+    pub fn basename(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
+        return fs.path.basename(switch (lazy_path) {
+            .src_path => |sp| sp.sub_path,
+            .cwd_relative => |sub_path| sub_path,
+            .generated => |gen| if (gen.sub_path.len > 0)
+                gen.sub_path
+            else
+                gen.file.getPath2(src_builder, asking_step),
+            .dependency => |dep| dep.sub_path,
+        });
     }
 
     /// Copies the internal strings.

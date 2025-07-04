@@ -26,7 +26,7 @@ pub const FindError = error{
 pub fn parse(
     allocator: Allocator,
     libc_file: []const u8,
-    target: std.Target,
+    target: *const std.Target,
 ) !LibCInstallation {
     var self: LibCInstallation = .{};
 
@@ -157,7 +157,7 @@ pub fn render(self: LibCInstallation, out: anytype) !void {
 
 pub const FindNativeOptions = struct {
     allocator: Allocator,
-    target: std.Target,
+    target: *const std.Target,
 
     /// If enabled, will print human-friendly errors to stderr.
     verbose: bool = false,
@@ -317,7 +317,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
     while (path_i < search_paths.items.len) : (path_i += 1) {
         // search in reverse order
         const search_path_untrimmed = search_paths.items[search_paths.items.len - path_i - 1];
-        const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
+        const search_path = std.mem.trimStart(u8, search_path_untrimmed, " ");
         var search_dir = fs.cwd().openDir(search_path, .{}) catch |err| switch (err) {
             error.FileNotFound,
             error.NotDir,
@@ -700,7 +700,7 @@ pub const CrtBasenames = struct {
     crtn: ?[]const u8 = null,
 
     pub const GetArgs = struct {
-        target: std.Target,
+        target: *const std.Target,
         link_libc: bool,
         output_mode: std.builtin.OutputMode,
         link_mode: std.builtin.LinkMode,
@@ -965,7 +965,7 @@ pub fn resolveCrtPaths(
     lci: LibCInstallation,
     arena: Allocator,
     crt_basenames: CrtBasenames,
-    target: std.Target,
+    target: *const std.Target,
 ) error{ OutOfMemory, LibCInstallationMissingCrtDir }!CrtPaths {
     const crt_dir_path: Path = .{
         .root_dir = std.Build.Cache.Directory.cwd(),

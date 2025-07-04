@@ -14,12 +14,16 @@ const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 // The self-hosted compiler is not fully capable of handling all of this start.zig file.
 // Until then, we have simplified logic here for self-hosted. TODO remove this once
 // self-hosted is capable enough to handle all of the real start.zig logic.
-pub const simplified_logic =
-    builtin.zig_backend == .stage2_x86 or
-    builtin.zig_backend == .stage2_aarch64 or
-    builtin.zig_backend == .stage2_arm or
-    builtin.zig_backend == .stage2_sparc64 or
-    builtin.zig_backend == .stage2_spirv64;
+pub const simplified_logic = switch (builtin.zig_backend) {
+    .stage2_aarch64,
+    .stage2_arm,
+    .stage2_powerpc,
+    .stage2_sparc64,
+    .stage2_spirv,
+    .stage2_x86,
+    => true,
+    else => false,
+};
 
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
@@ -159,7 +163,7 @@ fn exit2(code: usize) noreturn {
         // exits(0)
         .plan9 => std.os.plan9.exits(null),
         .windows => {
-            std.os.windows.ntdll.RtlExitUserProcess(@as(u32, @truncate(code)));
+            std.os.windows.ntdll.RtlExitUserProcess(@truncate(code));
         },
         else => @compileError("TODO"),
     }
@@ -250,7 +254,7 @@ fn _start() callconv(.naked) noreturn {
             .csky => ".cfi_undefined lr",
             .hexagon => ".cfi_undefined r31",
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
-            .m68k => ".cfi_undefined pc",
+            .m68k => ".cfi_undefined %%pc",
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
             .riscv32, .riscv64 => if (builtin.zig_backend == .stage2_riscv64)
@@ -325,7 +329,7 @@ fn _start() callconv(.naked) noreturn {
             ,
             .csky =>
             // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
-            // position-independent code to work. We depend on this in `std.os.linux.pie` to locate
+            // position-independent code to work. We depend on this in `std.pie` to locate
             // `_DYNAMIC` as well.
             // r8 = FP
             \\ grs t0, 1f
@@ -343,7 +347,7 @@ fn _start() callconv(.naked) noreturn {
             \\ r30 = #0
             \\ r31 = #0
             \\ r0 = r29
-            \\ r29 = and(r29, #-16)
+            \\ r29 = and(r29, #-8)
             \\ memw(r29 + #-8) = r29
             \\ r29 = add(r29, #-8)
             \\ call %[posixCallMainAndExit]
@@ -366,7 +370,11 @@ fn _start() callconv(.naked) noreturn {
             // Note that the - 8 is needed because pc in the jsr instruction points into the middle
             // of the jsr instruction. (The lea is 6 bytes, the jsr is 4 bytes.)
             \\ suba.l %%fp, %%fp
-            \\ move.l %%sp, -(%%sp)
+            \\ move.l %%sp, %%a0
+            \\ move.l %%a0, %%d0
+            \\ and.l #-4, %%d0
+            \\ move.l %%d0, %%sp
+            \\ move.l %%a0, -(%%sp)
             \\ lea %[posixCallMainAndExit] - . - 8, %%a0
             \\ jsr (%%pc, %%a0)
             ,
@@ -477,6 +485,9 @@ fn _start() callconv(.naked) noreturn {
 }
 
 fn WinStartup() callconv(.withStackAlign(.c, 1)) noreturn {
+    // Switch from the x87 fpu state set by windows to the state expected by the gnu abi.
+    if (builtin.abi == .gnu) asm volatile ("fninit");
+
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
@@ -487,6 +498,9 @@ fn WinStartup() callconv(.withStackAlign(.c, 1)) noreturn {
 }
 
 fn wWinMainCRTStartup() callconv(.withStackAlign(.c, 1)) noreturn {
+    // Switch from the x87 fpu state set by windows to the state expected by the gnu abi.
+    if (builtin.abi == .gnu) asm volatile ("fninit");
+
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
@@ -503,40 +517,40 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     // Code coverage instrumentation might try to use thread local variables.
     @disableInstrumentation();
     const argc = argc_argv_ptr[0];
-    const argv = @as([*][*:0]u8, @ptrCast(argc_argv_ptr + 1));
+    const argv: [*][*:0]u8 = @ptrCast(argc_argv_ptr + 1);
 
     const envp_optional: [*:null]?[*:0]u8 = @ptrCast(@alignCast(argv + argc + 1));
     var envp_count: usize = 0;
     while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
     const envp = @as([*][*:0]u8, @ptrCast(envp_optional))[0..envp_count];
 
-    if (native_os == .linux) {
-        // Find the beginning of the auxiliary vector
-        const auxv: [*]elf.Auxv = @ptrCast(@alignCast(envp.ptr + envp_count + 1));
+    // Find the beginning of the auxiliary vector
+    const auxv: [*]elf.Auxv = @ptrCast(@alignCast(envp.ptr + envp_count + 1));
 
-        var at_hwcap: usize = 0;
-        const phdrs = init: {
-            var i: usize = 0;
-            var at_phdr: usize = 0;
-            var at_phnum: usize = 0;
-            while (auxv[i].a_type != elf.AT_NULL) : (i += 1) {
-                switch (auxv[i].a_type) {
-                    elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
-                    elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
-                    elf.AT_HWCAP => at_hwcap = auxv[i].a_un.a_val,
-                    else => continue,
-                }
+    var at_hwcap: usize = 0;
+    const phdrs = init: {
+        var i: usize = 0;
+        var at_phdr: usize = 0;
+        var at_phnum: usize = 0;
+        while (auxv[i].a_type != elf.AT_NULL) : (i += 1) {
+            switch (auxv[i].a_type) {
+                elf.AT_PHNUM => at_phnum = auxv[i].a_un.a_val,
+                elf.AT_PHDR => at_phdr = auxv[i].a_un.a_val,
+                elf.AT_HWCAP => at_hwcap = auxv[i].a_un.a_val,
+                else => continue,
             }
-            break :init @as([*]elf.Phdr, @ptrFromInt(at_phdr))[0..at_phnum];
-        };
-
-        // Apply the initial relocations as early as possible in the startup process. We cannot
-        // make calls yet on some architectures (e.g. MIPS) *because* they haven't been applied yet,
-        // so this must be fully inlined.
-        if (builtin.position_independent_executable) {
-            @call(.always_inline, std.os.linux.pie.relocate, .{phdrs});
         }
+        break :init @as([*]elf.Phdr, @ptrFromInt(at_phdr))[0..at_phnum];
+    };
 
+    // Apply the initial relocations as early as possible in the startup process. We cannot
+    // make calls yet on some architectures (e.g. MIPS) *because* they haven't been applied yet,
+    // so this must be fully inlined.
+    if (builtin.position_independent_executable) {
+        @call(.always_inline, std.pie.relocate, .{phdrs});
+    }
+
+    if (native_os == .linux) {
         // This must be done after PIE relocations have been applied or we may crash
         // while trying to access the global variable (happens on MIPS at least).
         std.os.linux.elf_aux_maybe = auxv;
@@ -563,20 +577,20 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
         // Here we look for the stack size in our program headers and use setrlimit
         // to ask for more stack space.
         expandStackSize(phdrs);
+    }
 
-        const opt_init_array_start = @extern([*]*const fn () callconv(.c) void, .{
-            .name = "__init_array_start",
-            .linkage = .weak,
-        });
-        const opt_init_array_end = @extern([*]*const fn () callconv(.c) void, .{
-            .name = "__init_array_end",
-            .linkage = .weak,
-        });
-        if (opt_init_array_start) |init_array_start| {
-            const init_array_end = opt_init_array_end.?;
-            const slice = init_array_start[0 .. init_array_end - init_array_start];
-            for (slice) |func| func();
-        }
+    const opt_init_array_start = @extern([*]const *const fn () callconv(.c) void, .{
+        .name = "__init_array_start",
+        .linkage = .weak,
+    });
+    const opt_init_array_end = @extern([*]const *const fn () callconv(.c) void, .{
+        .name = "__init_array_end",
+        .linkage = .weak,
+    });
+    if (opt_init_array_start) |init_array_start| {
+        const init_array_end = opt_init_array_end.?;
+        const slice = init_array_start[0 .. init_array_end - init_array_start];
+        for (slice) |func| func();
     }
 
     std.posix.exit(callMainWithArgs(argc, argv, envp));
@@ -643,7 +657,7 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
 }
 
 fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.c) c_int {
-    std.os.argv = @as([*][*:0]u8, @ptrCast(c_argv))[0..@as(usize, @intCast(c_argc))];
+    std.os.argv = @as([*][*:0]u8, @ptrCast(c_argv))[0..@intCast(c_argc)];
     return callMain();
 }
 
@@ -665,9 +679,14 @@ pub inline fn callMain() u8 {
             if (@typeInfo(ReturnType) != .error_union) @compileError(bad_main_ret);
 
             const result = root.main() catch |err| {
-                if (builtin.zig_backend == .stage2_riscv64) {
-                    std.debug.print("error: failed with error\n", .{});
-                    return 1;
+                switch (builtin.zig_backend) {
+                    .stage2_powerpc,
+                    .stage2_riscv64,
+                    => {
+                        std.debug.print("error: failed with error\n", .{});
+                        return 1;
+                    },
+                    else => {},
                 }
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
@@ -688,7 +707,7 @@ pub inline fn callMain() u8 {
 pub fn call_wWinMain() std.os.windows.INT {
     const peb = std.os.windows.peb();
     const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).@"fn".params[0].type.?;
-    const hInstance = @as(MAIN_HINSTANCE, @ptrCast(peb.ImageBaseAddress));
+    const hInstance: MAIN_HINSTANCE = @ptrCast(peb.ImageBaseAddress);
     const lpCmdLine: [*:0]u16 = @ptrCast(peb.ProcessParameters.CommandLine.Buffer);
 
     // There are various types used for the 'show window' variable through the Win32 APIs:
@@ -745,7 +764,7 @@ fn maybeIgnoreSigpipe() void {
             // Set handler to a noop function instead of `SIG.IGN` to prevent
             // leaking signal disposition to a child process.
             .handler = .{ .handler = noopSigHandler },
-            .mask = posix.empty_sigset,
+            .mask = posix.sigemptyset(),
             .flags = 0,
         };
         posix.sigaction(posix.SIG.PIPE, &act, null);

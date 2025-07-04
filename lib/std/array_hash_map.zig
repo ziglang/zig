@@ -889,19 +889,10 @@ pub fn ArrayHashMapUnmanaged(
             self.pointer_stability.lock();
             defer self.pointer_stability.unlock();
 
-            if (new_capacity <= linear_scan_max) {
-                try self.entries.ensureTotalCapacity(gpa, new_capacity);
-                return;
-            }
-
-            if (self.index_header) |header| {
-                if (new_capacity <= header.capacity()) {
-                    try self.entries.ensureTotalCapacity(gpa, new_capacity);
-                    return;
-                }
-            }
-
             try self.entries.ensureTotalCapacity(gpa, new_capacity);
+            if (new_capacity <= linear_scan_max) return;
+            if (self.index_header) |header| if (new_capacity <= header.capacity()) return;
+
             const new_bit_index = try IndexHeader.findBitIndex(new_capacity);
             const new_header = try IndexHeader.alloc(gpa, new_bit_index);
 
@@ -2116,7 +2107,7 @@ const IndexHeader = struct {
 
     fn findBitIndex(desired_capacity: usize) Allocator.Error!u8 {
         if (desired_capacity > max_capacity) return error.OutOfMemory;
-        var new_bit_index = @as(u8, @intCast(std.math.log2_int_ceil(usize, desired_capacity)));
+        var new_bit_index: u8 = @intCast(std.math.log2_int_ceil(usize, desired_capacity));
         if (desired_capacity > index_capacities[new_bit_index]) new_bit_index += 1;
         if (new_bit_index < min_bit_index) new_bit_index = min_bit_index;
         assert(desired_capacity <= index_capacities[new_bit_index]);
@@ -2129,7 +2120,7 @@ const IndexHeader = struct {
         const len = @as(usize, 1) << @as(math.Log2Int(usize), @intCast(new_bit_index));
         const index_size = hash_map.capacityIndexSize(new_bit_index);
         const nbytes = @sizeOf(IndexHeader) + index_size * len;
-        const bytes = try gpa.alignedAlloc(u8, @alignOf(IndexHeader), nbytes);
+        const bytes = try gpa.alignedAlloc(u8, .of(IndexHeader), nbytes);
         @memset(bytes[@sizeOf(IndexHeader)..], 0xff);
         const result: *IndexHeader = @alignCast(@ptrCast(bytes.ptr));
         result.* = .{

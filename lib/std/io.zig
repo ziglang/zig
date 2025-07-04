@@ -5,7 +5,6 @@ const c = std.c;
 const is_windows = builtin.os.tag == .windows;
 const windows = std.os.windows;
 const posix = std.posix;
-
 const math = std.math;
 const assert = std.debug.assert;
 const fs = std.fs;
@@ -13,6 +12,7 @@ const mem = std.mem;
 const meta = std.meta;
 const File = std.fs.File;
 const Allocator = std.mem.Allocator;
+const Alignment = std.mem.Alignment;
 
 fn getStdOutHandle() posix.fd_t {
     if (is_windows) {
@@ -104,7 +104,7 @@ pub fn GenericReader(
 
         pub inline fn readAllArrayListAligned(
             self: Self,
-            comptime alignment: ?u29,
+            comptime alignment: ?Alignment,
             array_list: *std.ArrayListAligned(u8, alignment),
             max_append_size: usize,
         ) (error{StreamTooLong} || Allocator.Error || Error)!void {
@@ -803,7 +803,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
     var struct_fields: [enum_fields.len]std.builtin.Type.StructField = undefined;
     for (&struct_fields, enum_fields) |*struct_field, enum_field| {
         struct_field.* = .{
-            .name = enum_field.name ++ "",
+            .name = enum_field.name,
             .type = fs.File,
             .default_value_ptr = null,
             .is_comptime = false,

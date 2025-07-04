@@ -8,7 +8,7 @@ test "saturating add" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -53,11 +53,10 @@ test "saturating add" {
 
 test "saturating add 128bit" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -83,7 +82,7 @@ test "saturating subtraction" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -127,11 +126,10 @@ test "saturating subtraction" {
 
 test "saturating subtraction 128bit" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -163,7 +161,7 @@ test "saturating multiplication <= 32 bits" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -230,9 +228,9 @@ test "saturating multiplication <= 32 bits" {
     try testSatMul(i32, 10, -12, -120);
 }
 
-// TODO: remove this test, integrate into general test
-test "saturating mul i64, i128, wasm only" {
-    if (builtin.zig_backend != .stage2_wasm) return error.SkipZigTest;
+test "saturating mul i64, i128" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try testSatMul(i64, 0, maxInt(i64), 0);
     try testSatMul(i64, 0, minInt(i64), 0);
@@ -259,11 +257,10 @@ test "saturating mul i64, i128, wasm only" {
 
 test "saturating multiplication" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -298,29 +295,33 @@ test "saturating multiplication" {
 }
 
 test "saturating shift-left" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
-            try testSatShl(i8, 1, 2, 4);
-            try testSatShl(i8, 127, 1, 127);
-            try testSatShl(i8, -128, 1, -128);
+            try testSatShl(i8, 1, u8, 2, 4);
+            try testSatShl(i8, 127, u8, 1, 127);
+            try testSatShl(i8, -128, u8, 1, -128);
             // TODO: remove this check once #9668 is completed
             if (!builtin.cpu.arch.isWasm()) {
                 // skip testing ints > 64 bits on wasm due to miscompilation / wasmtime ci error
-                try testSatShl(i128, maxInt(i128), 64, maxInt(i128));
-                try testSatShl(u128, maxInt(u128), 64, maxInt(u128));
+                try testSatShl(i128, maxInt(i128), u128, 64, maxInt(i128));
+                try testSatShl(u128, maxInt(u128), u128, 64, maxInt(u128));
             }
-            try testSatShl(u8, 1, 2, 4);
-            try testSatShl(u8, 255, 1, 255);
+            try testSatShl(u8, 1, u8, 2, 4);
+            try testSatShl(u8, 255, u8, 1, 255);
+            try testSatShl(i8, -3, u4, 8, minInt(i8));
+            try testSatShl(i8, 0, u4, 8, 0);
+            try testSatShl(i8, 3, u4, 8, maxInt(i8));
+            try testSatShl(u8, 0, u4, 8, 0);
+            try testSatShl(u8, 3, u4, 8, maxInt(u8));
         }
 
-        fn testSatShl(comptime T: type, lhs: T, rhs: T, expected: T) !void {
+        fn testSatShl(comptime Lhs: type, lhs: Lhs, comptime Rhs: type, rhs: Rhs, expected: Lhs) !void {
             try expect((lhs <<| rhs) == expected);
 
             var x = lhs;
@@ -332,18 +333,34 @@ test "saturating shift-left" {
     try S.doTheTest();
     try comptime S.doTheTest();
 
-    try comptime S.testSatShl(comptime_int, 0, 0, 0);
-    try comptime S.testSatShl(comptime_int, 1, 2, 4);
-    try comptime S.testSatShl(comptime_int, 13, 150, 18554220005177478453757717602843436772975706112);
-    try comptime S.testSatShl(comptime_int, -582769, 180, -893090893854873184096635538665358532628308979495815656505344);
+    try comptime S.testSatShl(comptime_int, 0, comptime_int, 0, 0);
+    try comptime S.testSatShl(comptime_int, 1, comptime_int, 2, 4);
+    try comptime S.testSatShl(comptime_int, 13, comptime_int, 150, 18554220005177478453757717602843436772975706112);
+    try comptime S.testSatShl(comptime_int, -582769, comptime_int, 180, -893090893854873184096635538665358532628308979495815656505344);
+}
+
+test "saturating shift-left large rhs" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    {
+        var lhs: u8 = undefined;
+        lhs = 1;
+        const ct_rhs: u1024 = 1 << 1023;
+        var rt_rhs: u1024 = undefined;
+        rt_rhs = ct_rhs;
+        try expect(lhs <<| ct_rhs == maxInt(u8));
+        try expect(lhs <<| rt_rhs == maxInt(u8));
+    }
 }
 
 test "saturating shl uses the LHS type" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const lhs_const: u8 = 1;

@@ -12,7 +12,6 @@ const trace = @import("../tracy.zig").trace;
 const File = link.File;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
-const Liveness = @import("../Liveness.zig");
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const AnalUnit = InternPool.AnalUnit;
@@ -185,7 +184,7 @@ pub const Atom = struct {
 
     // asserts that self.got_index != null
     pub fn getOffsetTableAddress(self: Atom, plan9: *Plan9) u64 {
-        const target = plan9.base.comp.root_mod.resolved_target.result;
+        const target = &plan9.base.comp.root_mod.resolved_target.result;
         const ptr_bytes = @divExact(target.ptrBitWidth(), 8);
         const got_addr = plan9.bases.data;
         const got_index = self.got_index.?;
@@ -279,7 +278,7 @@ pub fn createEmpty(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*Plan9 {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const gpa = comp.gpa;
     const optimize_mode = comp.root_mod.optimize_mode;
     const output_mode = comp.config.output_mode;
@@ -302,7 +301,6 @@ pub fn createEmpty(
             .stack_size = options.stack_size orelse 16777216,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
         .sixtyfour_bit = sixtyfour_bit,
@@ -315,8 +313,9 @@ pub fn createEmpty(
 }
 
 fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void {
-    const gpa = self.base.comp.gpa;
-    const zcu = self.base.comp.zcu.?;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+    const zcu = comp.zcu.?;
     const file_scope = zcu.navFileScopeIndex(nav_index);
     const fn_map_res = try self.fn_nav_table.getOrPut(gpa, file_scope);
     if (fn_map_res.found_existing) {
@@ -345,14 +344,11 @@ fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void 
         try a.writer().writeInt(u16, 1, .big);
 
         // getting the full file path
-        // TODO don't call getcwd here, that is inappropriate
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
-        const full_path = try std.fs.path.join(arena, &.{
-            file.mod.root.root_dir.path orelse try std.posix.getcwd(&buf),
-            file.mod.root.sub_path,
-            file.sub_file_path,
-        });
-        try self.addPathComponents(full_path, &a);
+        {
+            const full_path = try file.path.toAbsolute(comp.dirs, gpa);
+            defer gpa.free(full_path);
+            try self.addPathComponents(full_path, &a);
+        }
 
         // null terminate
         try a.append(0);
@@ -390,8 +386,7 @@ pub fn updateFunc(
     self: *Plan9,
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Liveness,
+    mir: *const codegen.AnyMir,
 ) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .plan9) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
@@ -399,7 +394,7 @@ pub fn updateFunc(
 
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
-    const target = self.base.comp.root_mod.resolved_target.result;
+    const target = &self.base.comp.root_mod.resolved_target.result;
     const func = zcu.funcInfo(func_index);
 
     const atom_idx = try self.seeNav(pt, func.owner_nav);
@@ -416,13 +411,12 @@ pub fn updateFunc(
     };
     defer dbg_info_output.dbg_line.deinit();
 
-    try codegen.generateFunction(
+    try codegen.emitFunction(
         &self.base,
         pt,
         zcu.navSrcLoc(func.owner_nav),
         func_index,
-        air,
-        liveness,
+        mir,
         &code_buffer,
         .{ .plan9 = &dbg_info_output },
     );
@@ -437,9 +431,7 @@ pub fn updateFunc(
         .start_line = dbg_info_output.start_line.?,
         .end_line = dbg_info_output.end_line,
     };
-    // The awkward error handling here is due to putFn calling `std.posix.getcwd` which it should not do.
-    self.putFn(func.owner_nav, out) catch |err|
-        return zcu.codegenFail(func.owner_nav, "failed to put fn: {s}", .{@errorName(err)});
+    try self.putFn(func.owner_nav, out);
     return self.updateFinish(pt, func.owner_nav);
 }
 
@@ -499,7 +491,7 @@ fn updateFinish(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     // write the symbol
     // we already have the got index
     const sym: aout.Sym = .{
-        .value = undefined, // the value of stuff gets filled in in flushModule
+        .value = undefined, // the value of stuff gets filled in in flush
         .type = atom.type,
         .name = try gpa.dupe(u8, nav.name.toSlice(ip)),
     };
@@ -530,25 +522,6 @@ fn allocateGotIndex(self: *Plan9) usize {
         self.got_len += 1;
         return self.got_len - 1;
     }
-}
-
-pub fn flush(
-    self: *Plan9,
-    arena: Allocator,
-    tid: Zcu.PerThread.Id,
-    prog_node: std.Progress.Node,
-) link.File.FlushError!void {
-    const comp = self.base.comp;
-    const diags = &comp.link_diags;
-    const use_lld = build_options.have_llvm and comp.config.use_lld;
-    assert(!use_lld);
-
-    switch (link.File.effectiveOutputMode(use_lld, comp.config.output_mode)) {
-        .Exe => {},
-        .Obj => return diags.fail("writing plan9 object files unimplemented", .{}),
-        .Lib => return diags.fail("writing plan9 lib files unimplemented", .{}),
-    }
-    return self.flushModule(arena, tid, prog_node);
 }
 
 pub fn changeLine(l: *std.ArrayList(u8), delta_line: i32) !void {
@@ -591,7 +564,7 @@ fn atomCount(self: *Plan9) usize {
     return data_nav_count + fn_nav_count + lazy_atom_count + extern_atom_count + uav_atom_count;
 }
 
-pub fn flushModule(
+pub fn flush(
     self: *Plan9,
     arena: Allocator,
     /// TODO: stop using this
@@ -610,12 +583,18 @@ pub fn flushModule(
     const comp = self.base.comp;
     const diags = &comp.link_diags;
     const gpa = comp.gpa;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
+
+    switch (comp.config.output_mode) {
+        .Exe => {},
+        .Obj => return diags.fail("writing plan9 object files unimplemented", .{}),
+        .Lib => return diags.fail("writing plan9 lib files unimplemented", .{}),
+    }
 
     const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
-    log.debug("flushModule", .{});
+    log.debug("flush", .{});
 
     defer assert(self.hdr.entry != 0x0);
 
@@ -1044,7 +1023,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *Plan9, pt: Zcu.PerThread, lazy_sym: F
     const atom = atom_ptr.*;
     _ = try self.getAtomPtr(atom).getOrCreateSymbolTableEntry(self);
     _ = self.getAtomPtr(atom).getOrCreateOffsetTableEntry(self);
-    // anyerror needs to be deferred until flushModule
+    // anyerror needs to be deferred until flush
     if (lazy_sym.ty != .anyerror_type) try self.updateLazySymbolAtom(pt, lazy_sym, atom);
     return atom;
 }
@@ -1174,7 +1153,7 @@ pub fn open(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*Plan9 {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
 
@@ -1187,11 +1166,7 @@ pub fn open(
 
     const file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .read = true,
-        .mode = link.File.determineMode(
-            use_lld,
-            comp.config.output_mode,
-            comp.config.link_mode,
-        ),
+        .mode = link.File.determineMode(comp.config.output_mode, comp.config.link_mode),
     });
     errdefer file.close();
     self.base.file = file;
@@ -1383,7 +1358,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     _ = explicit_alignment;
     // example:
     // const ty = mod.intern_pool.typeOf(decl_val).toType();
@@ -1395,7 +1370,7 @@ pub fn lowerUav(
     // ...
     const gpa = self.base.comp.gpa;
     const gop = try self.uavs.getOrPut(gpa, uav);
-    if (gop.found_existing) return .{ .mcv = .{ .load_direct = gop.value_ptr.* } };
+    if (gop.found_existing) return .{ .sym_index = gop.value_ptr.* };
     const val = Value.fromInterned(uav);
     const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(uav)});
 
@@ -1420,7 +1395,7 @@ pub fn lowerUav(
         .value = undefined,
         .name = name,
     };
-    return .{ .mcv = .{ .load_direct = index } };
+    return .{ .sym_index = index };
 }
 
 pub fn getUavVAddr(self: *Plan9, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {

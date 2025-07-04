@@ -28,7 +28,7 @@ pub const GetExternalExecutorOptions = struct {
 /// Return whether or not the given host is capable of running executables of
 /// the other target.
 pub fn getExternalExecutor(
-    host: std.Target,
+    host: *const std.Target,
     candidate: *const std.Target,
     options: GetExternalExecutorOptions,
 ) Executor {
@@ -109,7 +109,7 @@ pub fn getExternalExecutor(
             .riscv64 => Executor{ .qemu = "qemu-riscv64" },
             .s390x => Executor{ .qemu = "qemu-s390x" },
             .sparc => Executor{
-                .qemu = if (std.Target.sparc.featureSetHas(candidate.cpu.features, .v9))
+                .qemu = if (candidate.cpu.has(.sparc, .v9))
                     "qemu-sparc32plus"
                 else
                     "qemu-sparc",
@@ -125,40 +125,33 @@ pub fn getExternalExecutor(
         };
     }
 
+    if (options.allow_wasmtime and candidate.cpu.arch.isWasm()) {
+        return Executor{ .wasmtime = "wasmtime" };
+    }
+
     switch (candidate.os.tag) {
         .windows => {
             if (options.allow_wine) {
-                // x86_64 wine does not support emulating aarch64-windows and
-                // vice versa.
-                if (candidate.cpu.arch != builtin.cpu.arch and
-                    !(candidate.cpu.arch == .thumb and builtin.cpu.arch == .aarch64) and
-                    !(candidate.cpu.arch == .x86 and builtin.cpu.arch == .x86_64))
-                {
-                    return bad_result;
-                }
-                switch (candidate.ptrBitWidth()) {
-                    32 => return Executor{ .wine = "wine" },
-                    64 => return Executor{ .wine = "wine64" },
-                    else => return bad_result,
-                }
+                const wine_supported = switch (candidate.cpu.arch) {
+                    .thumb => switch (host.cpu.arch) {
+                        .arm, .thumb, .aarch64 => true,
+                        else => false,
+                    },
+                    .aarch64 => host.cpu.arch == .aarch64,
+                    .x86 => host.cpu.arch.isX86(),
+                    .x86_64 => host.cpu.arch == .x86_64,
+                    else => false,
+                };
+                return if (wine_supported) Executor{ .wine = "wine" } else bad_result;
             }
             return bad_result;
         },
-        .wasi => {
-            if (options.allow_wasmtime) {
-                switch (candidate.ptrBitWidth()) {
-                    32 => return Executor{ .wasmtime = "wasmtime" },
-                    else => return bad_result,
-                }
-            }
-            return bad_result;
-        },
-        .macos => {
+        .driverkit, .macos => {
             if (options.allow_darling) {
                 // This check can be loosened once darling adds a QEMU-based emulation
                 // layer for non-host architectures:
                 // https://github.com/darlinghq/darling/issues/863
-                if (candidate.cpu.arch != builtin.cpu.arch) {
+                if (candidate.cpu.arch != host.cpu.arch) {
                     return bad_result;
                 }
                 return Executor{ .darling = "darling" };
@@ -417,6 +410,11 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         // https://github.com/llvm/llvm-project/issues/105978
         if (result.cpu.arch.isArm() and result.abi.float() == .soft) {
             result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
+        }
+
+        // https://github.com/llvm/llvm-project/issues/135283
+        if (result.cpu.arch.isMIPS() and result.abi.float() == .soft) {
+            result.cpu.features.addFeature(@intFromEnum(Target.mips.Feature.soft_float));
         }
     }
 
@@ -845,6 +843,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.NoDevice,
         => return error.GLibCNotFound,
 
+        error.ProcessNotFound,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
         error.SystemResources,
@@ -888,6 +887,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
 
         error.FileTooBig => return error.Unexpected,
 
+        error.ProcessNotFound,
         error.ProcessFdQuotaExceeded,
         error.SystemFdQuotaExceeded,
         error.SystemResources,
@@ -1182,13 +1182,13 @@ fn detectAbiAndDynamicLinker(
                 // We detected shebang, now parse entire line.
 
                 // Trim leading "#!", spaces and tabs.
-                const trimmed_line = mem.trimLeft(u8, content[2..], &.{ ' ', '\t' });
+                const trimmed_line = mem.trimStart(u8, content[2..], &.{ ' ', '\t' });
 
                 // This line can have:
                 // * Interpreter path only,
                 // * Interpreter path and arguments, all separated by space, tab or NUL character.
                 // And optionally newline at the end.
-                const path_maybe_args = mem.trimRight(u8, trimmed_line, "\n");
+                const path_maybe_args = mem.trimEnd(u8, trimmed_line, "\n");
 
                 // Separate path and args.
                 const path_end = mem.indexOfAny(u8, path_maybe_args, &.{ ' ', '\t', 0 }) orelse path_maybe_args.len;

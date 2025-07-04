@@ -175,7 +175,7 @@ typedef struct IDirect3DQuery9 *LPDIRECT3DQUERY9, *PDIRECT3DQUERY9;
  */
 #undef INTERFACE
 #define INTERFACE IDirect3D9
-DECLARE_INTERFACE_(IDirect3D9,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3D9,IUnknown,"81bdcbca-64d4-426d-ae8d-ad0147f4275c")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -249,7 +249,7 @@ __CRT_UUID_DECL(IDirect3D9,                   0x81BDCBCA, 0x64D4, 0x426D, 0xAE, 
  * IDirect3DVolume9 interface
  */
 #define INTERFACE IDirect3DVolume9
-DECLARE_INTERFACE_(IDirect3DVolume9,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DVolume9,IUnknown,"24f416e6-1f67-4aa7-b88e-d33f6f3128a1")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -305,7 +305,7 @@ __CRT_UUID_DECL(IDirect3DVolume9,             0x24f416e6, 0x1f67, 0x4aa7, 0xb8, 
  * IDirect3DSwapChain9 interface
  */
 #define INTERFACE IDirect3DSwapChain9
-DECLARE_INTERFACE_(IDirect3DSwapChain9,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DSwapChain9,IUnknown,"794950f2-adfc-458a-905e-10a10b0b503b")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void **ppvObject) PURE;
@@ -359,7 +359,7 @@ __CRT_UUID_DECL(IDirect3DSwapChain9,          0x794950f2, 0xadfc, 0x458a, 0x90, 
  * IDirect3DResource9 interface
  */
 #define INTERFACE IDirect3DResource9
-DECLARE_INTERFACE_(IDirect3DResource9,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DResource9,IUnknown,"05eec05d-8f7d-4362-b999-d1baf357c704")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -415,7 +415,7 @@ __CRT_UUID_DECL(IDirect3DResource9,           0x5eec05d, 0x8f7d, 0x4362, 0xb9, 0
  * IDirect3DSurface9 interface
  */
 #define INTERFACE IDirect3DSurface9
-DECLARE_INTERFACE_(IDirect3DSurface9,IDirect3DResource9)
+DECLARE_INTERFACE_IID_(IDirect3DSurface9,IDirect3DResource9,"0cfbaf3a-9ff6-429a-99b3-a2796af8b89b")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -492,7 +492,7 @@ __CRT_UUID_DECL(IDirect3DSurface9,            0xcfbaf3a, 0x9ff6, 0x429a, 0x99, 0
  * IDirect3DVertexBuffer9 interface
  */
 #define INTERFACE IDirect3DVertexBuffer9
-DECLARE_INTERFACE_(IDirect3DVertexBuffer9,IDirect3DResource9)
+DECLARE_INTERFACE_IID_(IDirect3DVertexBuffer9,IDirect3DResource9,"b64bb1b5-fd70-4df6-bf91-19d0a12455e3")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -560,7 +560,7 @@ __CRT_UUID_DECL(IDirect3DVertexBuffer9,       0xb64bb1b5, 0xfd70, 0x4df6, 0xbf, 
  * IDirect3DIndexBuffer9 interface
  */
 #define INTERFACE IDirect3DIndexBuffer9
-DECLARE_INTERFACE_(IDirect3DIndexBuffer9,IDirect3DResource9)
+DECLARE_INTERFACE_IID_(IDirect3DIndexBuffer9,IDirect3DResource9,"7c9dd65e-d3f7-4529-acee-785830acde35")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -628,7 +628,7 @@ __CRT_UUID_DECL(IDirect3DIndexBuffer9,        0x7c9dd65e, 0xd3f7, 0x4529, 0xac, 
  * IDirect3DBaseTexture9 interface
  */
 #define INTERFACE IDirect3DBaseTexture9
-DECLARE_INTERFACE_(IDirect3DBaseTexture9,IDirect3DResource9)
+DECLARE_INTERFACE_IID_(IDirect3DBaseTexture9,IDirect3DResource9,"580ca87e-1d3c-4d54-991d-b7d3e3c298ce")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -705,7 +705,7 @@ __CRT_UUID_DECL(IDirect3DBaseTexture9,        0x580ca87e, 0x1d3c, 0x4d54, 0x99, 
  * IDirect3DCubeTexture9 interface
  */
 #define INTERFACE IDirect3DCubeTexture9
-DECLARE_INTERFACE_(IDirect3DCubeTexture9,IDirect3DBaseTexture9)
+DECLARE_INTERFACE_IID_(IDirect3DCubeTexture9,IDirect3DBaseTexture9,"fff32f81-d953-473a-9223-93d652aba93f")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -801,7 +801,7 @@ __CRT_UUID_DECL(IDirect3DCubeTexture9,        0xfff32f81, 0xd953, 0x473a, 0x92, 
  * IDirect3DTexture9 interface
  */
 #define INTERFACE IDirect3DTexture9
-DECLARE_INTERFACE_(IDirect3DTexture9,IDirect3DBaseTexture9)
+DECLARE_INTERFACE_IID_(IDirect3DTexture9,IDirect3DBaseTexture9,"85c31227-3de5-4f00-9b3a-f11ac38c18b5")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -896,7 +896,7 @@ __CRT_UUID_DECL(IDirect3DTexture9,            0x85c31227, 0x3de5, 0x4f00, 0x9b, 
  * IDirect3DVolumeTexture9 interface
  */
 #define INTERFACE IDirect3DVolumeTexture9
-DECLARE_INTERFACE_(IDirect3DVolumeTexture9,IDirect3DBaseTexture9)
+DECLARE_INTERFACE_IID_(IDirect3DVolumeTexture9,IDirect3DBaseTexture9,"2518526c-e789-4111-a7b9-47ef328d13e6")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -991,7 +991,7 @@ __CRT_UUID_DECL(IDirect3DVolumeTexture9,      0x2518526c, 0xe789, 0x4111, 0xa7, 
  * IDirect3DVertexDeclaration9 interface
  */
 #define INTERFACE IDirect3DVertexDeclaration9
-DECLARE_INTERFACE_(IDirect3DVertexDeclaration9,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DVertexDeclaration9,IUnknown,"dd13c59c-36fa-4098-a8fb-c7ed39dc8546")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -1029,7 +1029,7 @@ __CRT_UUID_DECL(IDirect3DVertexDeclaration9,  0xdd13c59c, 0x36fa, 0x4098, 0xa8, 
  * IDirect3DVertexShader9 interface
  */
 #define INTERFACE IDirect3DVertexShader9
-DECLARE_INTERFACE_(IDirect3DVertexShader9,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DVertexShader9,IUnknown,"efc5557e-6265-4613-8a94-43857889eb36")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -1067,7 +1067,7 @@ __CRT_UUID_DECL(IDirect3DVertexShader9,       0xefc5557e, 0x6265, 0x4613, 0x8a, 
  * IDirect3DPixelShader9 interface
  */
 #define INTERFACE IDirect3DPixelShader9
-DECLARE_INTERFACE_(IDirect3DPixelShader9,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DPixelShader9,IUnknown,"6d3bdbdc-5b02-4415-b852-ce5e8bccb289")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -1105,7 +1105,7 @@ __CRT_UUID_DECL(IDirect3DPixelShader9,        0x6d3bdbdc, 0x5b02, 0x4415, 0xb8, 
  * IDirect3DStateBlock9 interface
  */
 #define INTERFACE IDirect3DStateBlock9
-DECLARE_INTERFACE_(IDirect3DStateBlock9,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DStateBlock9,IUnknown,"b07c4fe5-310d-4ba8-a23c-4f0f206f218b")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -1146,7 +1146,7 @@ __CRT_UUID_DECL(IDirect3DStateBlock9,         0xb07c4fe5, 0x310d, 0x4ba8, 0xa2, 
  * IDirect3DQuery9 interface
  */
 #define INTERFACE IDirect3DQuery9
-DECLARE_INTERFACE_(IDirect3DQuery9,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DQuery9,IUnknown,"d9771460-a695-4f26-bbd3-27b840b541cc")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -1193,7 +1193,7 @@ __CRT_UUID_DECL(IDirect3DQuery9,              0xd9771460, 0xa695, 0x4f26, 0xbb, 
  * IDirect3DDevice9 interface
  */
 #define INTERFACE IDirect3DDevice9
-DECLARE_INTERFACE_(IDirect3DDevice9,IUnknown)
+DECLARE_INTERFACE_IID_(IDirect3DDevice9,IUnknown,"d0223b96-bf7a-43fd-92bd-a43b0d82b9eb")
 {
     /*** IUnknown methods ***/
     STDMETHOD_(HRESULT,QueryInterface)(THIS_ REFIID riid, void** ppvObject) PURE;
@@ -1589,7 +1589,7 @@ __CRT_UUID_DECL(IDirect3D9Ex, 0x02177241, 0x69fc, 0x400c, 0x8f, 0xf1, 0x93, 0xa4
 DEFINE_GUID(IID_IDirect3D9Ex, 0x02177241, 0x69fc, 0x400c, 0x8f, 0xf1, 0x93, 0xa4, 0x4d, 0xf6, 0x86, 0x1d);
 
 #define INTERFACE IDirect3D9Ex
-DECLARE_INTERFACE_(IDirect3D9Ex, IDirect3D9)
+DECLARE_INTERFACE_IID_(IDirect3D9Ex,IDirect3D9,"02177241-69fc-400c-8ff1-93a44df6861d")
 {
     /* IUnknown */
     STDMETHOD_(HRESULT, QueryInterface)(THIS_ REFIID iid, void **out) PURE;
@@ -1688,7 +1688,7 @@ __CRT_UUID_DECL(IDirect3DSwapChain9Ex, 0x91886caf, 0x1c3d, 0x4d2e, 0xa0, 0xab, 0
 DEFINE_GUID(IID_IDirect3DSwapChain9Ex, 0x91886caf, 0x1c3d, 0x4d2e, 0xa0, 0xab, 0x3e, 0x4c, 0x7d, 0x8d, 0x33, 0x3);
 
 #define INTERFACE IDirect3DSwapChain9Ex
-DECLARE_INTERFACE_(IDirect3DSwapChain9Ex, IDirect3DSwapChain9)
+DECLARE_INTERFACE_IID_(IDirect3DSwapChain9Ex,IDirect3DSwapChain9,"91886caf-1c3d-4d2e-a0ab-3e4c7d8d3303")
 {
     /* IUnknown */
     STDMETHOD_(HRESULT, QueryInterface)(THIS_ REFIID iid, void **out) PURE;
@@ -1753,7 +1753,7 @@ __CRT_UUID_DECL(IDirect3DDevice9Ex, 0xb18b10ce, 0x2649, 0x405a, 0x87, 0xf, 0x95,
 DEFINE_GUID(IID_IDirect3DDevice9Ex, 0xb18b10ce, 0x2649, 0x405a, 0x87, 0xf, 0x95, 0xf7, 0x77, 0xd4, 0x31, 0x3a);
 
 #define INTERFACE IDirect3DDevice9Ex
-DECLARE_INTERFACE_(IDirect3DDevice9Ex, IDirect3DDevice9)
+DECLARE_INTERFACE_IID_(IDirect3DDevice9Ex,IDirect3DDevice9,"b18b10ce-2649-405a-870f-95f777d4313a")
 {
     /* IUnknown */
     STDMETHOD_(HRESULT, QueryInterface)(THIS_ REFIID iid, void **out) PURE;

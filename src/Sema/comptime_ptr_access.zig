@@ -65,6 +65,15 @@ pub fn storeComptimePtr(
     const zcu = pt.zcu;
     const ptr_info = ptr.typeOf(zcu).ptrInfo(zcu);
     assert(store_val.typeOf(zcu).toIntern() == ptr_info.child);
+
+    {
+        const store_ty: Type = .fromInterned(ptr_info.child);
+        if (!try store_ty.comptimeOnlySema(pt) and !try store_ty.hasRuntimeBitsIgnoreComptimeSema(pt)) {
+            // zero-bit store; nothing to do
+            return .success;
+        }
+    }
+
     // TODO: host size for vectors is terrible
     const host_bits = switch (ptr_info.flags.vector_index) {
         .none => ptr_info.packed_offset.host_size * 8,
@@ -219,7 +228,7 @@ fn loadComptimePtrInner(
 
     const base_val: MutableValue = switch (ptr.base_addr) {
         .nav => |nav| val: {
-            try sema.ensureNavResolved(src, nav, .fully);
+            try sema.ensureNavResolved(block, src, nav, .fully);
             const val = ip.getNav(nav).status.fully_resolved.val;
             switch (ip.indexToKey(val)) {
                 .variable => return .runtime_load,

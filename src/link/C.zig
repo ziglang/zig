@@ -17,8 +17,7 @@ const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
-const Air = @import("../Air.zig");
-const Liveness = @import("../Liveness.zig");
+const AnyMir = @import("../codegen.zig").AnyMir;
 
 pub const zig_h = "#include \"zig.h\"\n";
 
@@ -117,7 +116,7 @@ pub fn createEmpty(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*C {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     assert(target.ofmt == .c);
     const optimize_mode = comp.root_mod.optimize_mode;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
@@ -146,7 +145,6 @@ pub fn createEmpty(
             .stack_size = options.stack_size orelse 16777216,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = file,
-            .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
     };
@@ -168,6 +166,9 @@ pub fn deinit(self: *C) void {
     self.uavs.deinit(gpa);
     self.aligned_uavs.deinit(gpa);
 
+    self.exported_navs.deinit(gpa);
+    self.exported_uavs.deinit(gpa);
+
     self.string_bytes.deinit(gpa);
     self.fwd_decl_buf.deinit(gpa);
     self.code_buf.deinit(gpa);
@@ -179,73 +180,23 @@ pub fn updateFunc(
     self: *C,
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Liveness,
+    mir: *AnyMir,
 ) link.File.UpdateNavError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
+
     const gop = try self.navs.getOrPut(gpa, func.owner_nav);
-    if (!gop.found_existing) gop.value_ptr.* = .{};
-    const ctype_pool = &gop.value_ptr.ctype_pool;
-    const lazy_fns = &gop.value_ptr.lazy_fns;
-    const fwd_decl = &self.fwd_decl_buf;
-    const code = &self.code_buf;
-    try ctype_pool.init(gpa);
-    ctype_pool.clearRetainingCapacity();
-    lazy_fns.clearRetainingCapacity();
-    fwd_decl.clearRetainingCapacity();
-    code.clearRetainingCapacity();
-
-    var function: codegen.Function = .{
-        .value_map = codegen.CValueMap.init(gpa),
-        .air = air,
-        .liveness = liveness,
-        .func_index = func_index,
-        .object = .{
-            .dg = .{
-                .gpa = gpa,
-                .pt = pt,
-                .mod = zcu.navFileScope(func.owner_nav).mod,
-                .error_msg = null,
-                .pass = .{ .nav = func.owner_nav },
-                .is_naked_fn = Type.fromInterned(func.ty).fnCallingConvention(zcu) == .naked,
-                .expected_block = null,
-                .fwd_decl = fwd_decl.toManaged(gpa),
-                .ctype_pool = ctype_pool.*,
-                .scratch = .{},
-                .uav_deps = self.uavs,
-                .aligned_uavs = self.aligned_uavs,
-            },
-            .code = code.toManaged(gpa),
-            .indent_writer = undefined, // set later so we can get a pointer to object.code
-        },
-        .lazy_fns = lazy_fns.*,
+    if (gop.found_existing) gop.value_ptr.deinit(gpa);
+    gop.value_ptr.* = .{
+        .code = .empty,
+        .fwd_decl = .empty,
+        .ctype_pool = mir.c.ctype_pool.move(),
+        .lazy_fns = mir.c.lazy_fns.move(),
     };
-    function.object.indent_writer = .{ .underlying_writer = function.object.code.writer() };
-    defer {
-        self.uavs = function.object.dg.uav_deps;
-        self.aligned_uavs = function.object.dg.aligned_uavs;
-        fwd_decl.* = function.object.dg.fwd_decl.moveToUnmanaged();
-        ctype_pool.* = function.object.dg.ctype_pool.move();
-        ctype_pool.freeUnusedCapacity(gpa);
-        function.object.dg.scratch.deinit(gpa);
-        lazy_fns.* = function.lazy_fns.move();
-        lazy_fns.shrinkAndFree(gpa, lazy_fns.count());
-        code.* = function.object.code.moveToUnmanaged();
-        function.deinit();
-    }
-
-    try zcu.failed_codegen.ensureUnusedCapacity(gpa, 1);
-    codegen.genFunc(&function) catch |err| switch (err) {
-        error.AnalysisFail => {
-            zcu.failed_codegen.putAssumeCapacityNoClobber(func.owner_nav, function.object.dg.error_msg.?);
-            return;
-        },
-        else => |e| return e,
-    };
-    gop.value_ptr.fwd_decl = try self.addString(function.object.dg.fwd_decl.items);
-    gop.value_ptr.code = try self.addString(function.object.code.items);
+    gop.value_ptr.code = try self.addString(mir.c.code);
+    gop.value_ptr.fwd_decl = try self.addString(mir.c.fwd_decl);
+    try self.addUavsFromCodegen(&mir.c.uavs);
 }
 
 fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) !void {
@@ -269,16 +220,14 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) !void {
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctype_pool = codegen.CType.Pool.empty,
             .scratch = .{},
-            .uav_deps = self.uavs,
-            .aligned_uavs = self.aligned_uavs,
+            .uavs = .empty,
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
-        self.uavs = object.dg.uav_deps;
-        self.aligned_uavs = object.dg.aligned_uavs;
+        object.dg.uavs.deinit(gpa);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         object.dg.ctype_pool.deinit(object.dg.gpa);
         object.dg.scratch.deinit(gpa);
@@ -297,8 +246,10 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) !void {
         else => |e| return e,
     };
 
+    try self.addUavsFromCodegen(&object.dg.uavs);
+
     object.dg.ctype_pool.freeUnusedCapacity(gpa);
-    object.dg.uav_deps.values()[i] = .{
+    self.uavs.values()[i] = .{
         .code = try self.addString(object.code.items),
         .fwd_decl = try self.addString(object.dg.fwd_decl.items),
         .ctype_pool = object.dg.ctype_pool.move(),
@@ -337,7 +288,7 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) l
         .dg = .{
             .gpa = gpa,
             .pt = pt,
-            .mod = zcu.navFileScope(nav_index).mod,
+            .mod = zcu.navFileScope(nav_index).mod.?,
             .error_msg = null,
             .pass = .{ .nav = nav_index },
             .is_naked_fn = false,
@@ -345,16 +296,14 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) l
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctype_pool = ctype_pool.*,
             .scratch = .{},
-            .uav_deps = self.uavs,
-            .aligned_uavs = self.aligned_uavs,
+            .uavs = .empty,
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
-        self.uavs = object.dg.uav_deps;
-        self.aligned_uavs = object.dg.aligned_uavs;
+        object.dg.uavs.deinit(gpa);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         ctype_pool.* = object.dg.ctype_pool.move();
         ctype_pool.freeUnusedCapacity(gpa);
@@ -362,16 +311,16 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) l
         code.* = object.code.moveToUnmanaged();
     }
 
-    try zcu.failed_codegen.ensureUnusedCapacity(gpa, 1);
     codegen.genDecl(&object) catch |err| switch (err) {
-        error.AnalysisFail => {
-            zcu.failed_codegen.putAssumeCapacityNoClobber(nav_index, object.dg.error_msg.?);
-            return;
+        error.AnalysisFail => switch (zcu.codegenFailMsg(nav_index, object.dg.error_msg.?)) {
+            error.CodegenFail => return,
+            error.OutOfMemory => |e| return e,
         },
         else => |e| return e,
     };
     gop.value_ptr.code = try self.addString(object.code.items);
     gop.value_ptr.fwd_decl = try self.addString(object.dg.fwd_decl.items);
+    try self.addUavsFromCodegen(&object.dg.uavs);
 }
 
 pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
@@ -382,11 +331,7 @@ pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedIn
     _ = ti_id;
 }
 
-pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    return self.flushModule(arena, tid, prog_node);
-}
-
-fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
+fn abiDefines(self: *C, target: *const std.Target) !std.ArrayList(u8) {
     const gpa = self.base.comp.gpa;
     var defines = std.ArrayList(u8).init(gpa);
     errdefer defines.deinit();
@@ -396,12 +341,12 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
         else => {},
     }
     try writer.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{
-        Type.maxIntAlignment(target),
+        target.cMaxIntAlignment(),
     });
     return defines;
 }
 
-pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     _ = arena; // Has the same lifetime as the call to Compilation.update.
 
     const tracy = trace(@src());
@@ -490,7 +435,7 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
 
         for (self.navs.keys(), self.navs.values()) |nav, *av_block| try self.flushAvBlock(
             pt,
-            zcu.navFileScope(nav).mod,
+            zcu.navFileScope(nav).mod.?,
             &f,
             av_block,
             self.exported_navs.getPtr(nav),
@@ -677,16 +622,14 @@ fn flushErrDecls(self: *C, pt: Zcu.PerThread, ctype_pool: *codegen.CType.Pool) F
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctype_pool = ctype_pool.*,
             .scratch = .{},
-            .uav_deps = self.uavs,
-            .aligned_uavs = self.aligned_uavs,
+            .uavs = .empty,
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
     };
     object.indent_writer = .{ .underlying_writer = object.code.writer() };
     defer {
-        self.uavs = object.dg.uav_deps;
-        self.aligned_uavs = object.dg.aligned_uavs;
+        object.dg.uavs.deinit(gpa);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         ctype_pool.* = object.dg.ctype_pool.move();
         ctype_pool.freeUnusedCapacity(gpa);
@@ -698,6 +641,8 @@ fn flushErrDecls(self: *C, pt: Zcu.PerThread, ctype_pool: *codegen.CType.Pool) F
         error.AnalysisFail => unreachable,
         else => |e| return e,
     };
+
+    try self.addUavsFromCodegen(&object.dg.uavs);
 }
 
 fn flushLazyFn(
@@ -725,8 +670,7 @@ fn flushLazyFn(
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctype_pool = ctype_pool.*,
             .scratch = .{},
-            .uav_deps = .{},
-            .aligned_uavs = .{},
+            .uavs = .empty,
         },
         .code = code.toManaged(gpa),
         .indent_writer = undefined, // set later so we can get a pointer to object.code
@@ -735,8 +679,7 @@ fn flushLazyFn(
     defer {
         // If this assert trips just handle the anon_decl_deps the same as
         // `updateFunc()` does.
-        assert(object.dg.uav_deps.count() == 0);
-        assert(object.dg.aligned_uavs.count() == 0);
+        assert(object.dg.uavs.count() == 0);
         fwd_decl.* = object.dg.fwd_decl.moveToUnmanaged();
         ctype_pool.* = object.dg.ctype_pool.move();
         ctype_pool.freeUnusedCapacity(gpa);
@@ -846,7 +789,7 @@ pub fn updateExports(
     const gpa = zcu.gpa;
     const mod, const pass: codegen.DeclGen.Pass, const decl_block, const exported_block = switch (exported) {
         .nav => |nav| .{
-            zcu.navFileScope(nav).mod,
+            zcu.navFileScope(nav).mod.?,
             .{ .nav = nav },
             self.navs.getPtr(nav).?,
             (try self.exported_navs.getOrPut(gpa, nav)).value_ptr,
@@ -872,12 +815,10 @@ pub fn updateExports(
         .fwd_decl = fwd_decl.toManaged(gpa),
         .ctype_pool = decl_block.ctype_pool,
         .scratch = .{},
-        .uav_deps = .{},
-        .aligned_uavs = .{},
+        .uavs = .empty,
     };
     defer {
-        assert(dg.uav_deps.count() == 0);
-        assert(dg.aligned_uavs.count() == 0);
+        assert(dg.uavs.count() == 0);
         fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
         ctype_pool.* = dg.ctype_pool.move();
         ctype_pool.freeUnusedCapacity(gpa);
@@ -895,5 +836,23 @@ pub fn deleteExport(
     switch (exported) {
         .nav => |nav| _ = self.exported_navs.swapRemove(nav),
         .uav => |uav| _ = self.exported_uavs.swapRemove(uav),
+    }
+}
+
+fn addUavsFromCodegen(c: *C, uavs: *const std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment)) Allocator.Error!void {
+    const gpa = c.base.comp.gpa;
+    try c.uavs.ensureUnusedCapacity(gpa, uavs.count());
+    try c.aligned_uavs.ensureUnusedCapacity(gpa, uavs.count());
+    for (uavs.keys(), uavs.values()) |uav_val, uav_align| {
+        {
+            const gop = c.uavs.getOrPutAssumeCapacity(uav_val);
+            if (!gop.found_existing) gop.value_ptr.* = .{};
+        }
+        if (uav_align != .none) {
+            const gop = c.aligned_uavs.getOrPutAssumeCapacity(uav_val);
+            gop.value_ptr.* = if (gop.found_existing) max: {
+                break :max gop.value_ptr.*.maxStrict(uav_align);
+            } else uav_align;
+        }
     }
 }

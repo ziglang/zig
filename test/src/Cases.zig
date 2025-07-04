@@ -62,6 +62,7 @@ pub const Case = struct {
         Header: []const u8,
     },
 
+    emit_asm: bool = false,
     emit_bin: bool = true,
     emit_h: bool = false,
     is_test: bool = false,
@@ -173,6 +174,23 @@ pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target_query: std.Target.
 }
 
 pub fn addObjLlvm(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
+    const can_emit_asm = switch (target.result.cpu.arch) {
+        .csky,
+        .xtensa,
+        => false,
+        else => true,
+    };
+    const can_emit_bin = switch (target.result.cpu.arch) {
+        .arc,
+        .csky,
+        .nvptx,
+        .nvptx64,
+        .xcore,
+        .xtensa,
+        => false,
+        else => true,
+    };
+
     ctx.cases.append(.{
         .name = name,
         .target = target,
@@ -181,6 +199,8 @@ pub fn addObjLlvm(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarge
         .output_mode = .Obj,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
         .backend = .llvm,
+        .emit_bin = can_emit_bin,
+        .emit_asm = can_emit_asm,
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
@@ -358,7 +378,7 @@ fn addFromDirInner(
         current_file.* = filename;
 
         const max_file_size = 10 * 1024 * 1024;
-        const src = try iterable_dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, 1, 0);
+        const src = try iterable_dir.readFileAllocOptions(ctx.arena, filename, max_file_size, null, .@"1", 0);
 
         // Parse the manifest
         var manifest = try TestManifest.parse(ctx.arena, src);
@@ -371,6 +391,7 @@ fn addFromDirInner(
         const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
         const pic = try manifest.getConfigForKeyAssertSingle("pic", ?bool);
         const pie = try manifest.getConfigForKeyAssertSingle("pie", ?bool);
+        const emit_asm = try manifest.getConfigForKeyAssertSingle("emit_asm", bool);
         const emit_bin = try manifest.getConfigForKeyAssertSingle("emit_bin", bool);
         const imports = try manifest.getConfigForKeyAlloc(ctx.arena, "imports", []const u8);
 
@@ -379,7 +400,7 @@ fn addFromDirInner(
                 for (targets) |target_query| {
                     const output = try manifest.trailingLinesSplit(ctx.arena);
                     try ctx.translate.append(.{
-                        .name = std.fs.path.stem(filename),
+                        .name = try caseNameFromPath(ctx.arena, filename),
                         .c_frontend = c_frontend,
                         .target = b.resolveTargetQuery(target_query),
                         .link_libc = link_libc,
@@ -395,7 +416,7 @@ fn addFromDirInner(
                 for (targets) |target_query| {
                     const output = try manifest.trailingSplit(ctx.arena);
                     try ctx.translate.append(.{
-                        .name = std.fs.path.stem(filename),
+                        .name = try caseNameFromPath(ctx.arena, filename),
                         .c_frontend = c_frontend,
                         .target = b.resolveTargetQuery(target_query),
                         .link_libc = link_libc,
@@ -412,7 +433,7 @@ fn addFromDirInner(
         // Cross-product to get all possible test combinations
         for (targets) |target_query| {
             const resolved_target = b.resolveTargetQuery(target_query);
-            const target = resolved_target.result;
+            const target = &resolved_target.result;
             for (backends) |backend| {
                 if (backend == .stage2 and
                     target.cpu.arch != .wasm32 and target.cpu.arch != .x86_64 and target.cpu.arch != .spirv64)
@@ -433,11 +454,12 @@ fn addFromDirInner(
 
                 const next = ctx.cases.items.len;
                 try ctx.cases.append(.{
-                    .name = std.fs.path.stem(filename),
+                    .name = try caseNameFromPath(ctx.arena, filename),
                     .import_path = std.fs.path.dirname(filename),
                     .backend = backend,
                     .files = .init(ctx.arena),
                     .case = null,
+                    .emit_asm = emit_asm,
                     .emit_bin = emit_bin,
                     .is_test = is_test,
                     .output_mode = output_mode,
@@ -572,29 +594,56 @@ pub fn lowerToTranslateCSteps(
     };
 }
 
+pub const CaseTestOptions = struct {
+    test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
+    skip_non_native: bool,
+    skip_freebsd: bool,
+    skip_netbsd: bool,
+    skip_windows: bool,
+    skip_macos: bool,
+    skip_linux: bool,
+    skip_llvm: bool,
+    skip_libc: bool,
+};
+
 pub fn lowerToBuildSteps(
     self: *Cases,
     b: *std.Build,
     parent_step: *std.Build.Step,
-    test_filters: []const []const u8,
-    test_target_filters: []const []const u8,
+    options: CaseTestOptions,
 ) void {
     const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
         std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
     const cases_dir_path = b.build_root.join(b.allocator, &.{ "test", "cases" }) catch @panic("OOM");
 
     for (self.cases.items) |case| {
-        for (test_filters) |test_filter| {
+        for (options.test_filters) |test_filter| {
             if (std.mem.indexOf(u8, case.name, test_filter)) |_| break;
-        } else if (test_filters.len > 0) continue;
+        } else if (options.test_filters.len > 0) continue;
 
-        const triple_txt = case.target.result.zigTriple(b.allocator) catch @panic("OOM");
+        if (options.skip_non_native and !case.target.query.isNative())
+            continue;
 
-        if (test_target_filters.len > 0) {
-            for (test_target_filters) |filter| {
+        if (options.skip_freebsd and case.target.query.os_tag == .freebsd) continue;
+        if (options.skip_netbsd and case.target.query.os_tag == .netbsd) continue;
+        if (options.skip_windows and case.target.query.os_tag == .windows) continue;
+        if (options.skip_macos and case.target.query.os_tag == .macos) continue;
+        if (options.skip_linux and case.target.query.os_tag == .linux) continue;
+
+        const would_use_llvm = @import("../tests.zig").wouldUseLlvm(case.backend == .llvm, case.target.query, case.optimize_mode);
+        if (options.skip_llvm and would_use_llvm) continue;
+
+        const triple_txt = case.target.query.zigTriple(b.allocator) catch @panic("OOM");
+
+        if (options.test_target_filters.len > 0) {
+            for (options.test_target_filters) |filter| {
                 if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
             } else continue;
         }
+
+        if (options.skip_libc and case.link_libc)
+            continue;
 
         const writefiles = b.addWriteFiles();
         var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
@@ -663,7 +712,10 @@ pub fn lowerToBuildSteps(
 
         switch (case.case.?) {
             .Compile => {
-                // Force the binary to be emitted if requested.
+                // Force the assembly/binary to be emitted if requested.
+                if (case.emit_asm) {
+                    _ = artifact.getEmittedAsm();
+                }
                 if (case.emit_bin) {
                     _ = artifact.getEmittedBin();
                 }
@@ -683,7 +735,7 @@ pub fn lowerToBuildSteps(
             },
             .Execution => |expected_stdout| no_exec: {
                 const run = if (case.target.result.ofmt == .c) run_step: {
-                    if (getExternalExecutor(host, &case.target.result, .{ .link_libc = true }) != .native) {
+                    if (getExternalExecutor(&host, &case.target.result, .{ .link_libc = true }) != .native) {
                         // We wouldn't be able to run the compiled C code.
                         break :no_exec;
                     }
@@ -761,6 +813,8 @@ const TestManifestConfigDefaults = struct {
                 .run_translated_c => "Obj",
                 .cli => @panic("TODO test harness for CLI tests"),
             };
+        } else if (std.mem.eql(u8, key, "emit_asm")) {
+            return "false";
         } else if (std.mem.eql(u8, key, "emit_bin")) {
             return "true";
         } else if (std.mem.eql(u8, key, "is_test")) {
@@ -802,6 +856,7 @@ const TestManifest = struct {
     trailing_bytes: []const u8 = "",
 
     const valid_keys = std.StaticStringMap(void).initComptime(.{
+        .{ "emit_asm", {} },
         .{ "emit_bin", {} },
         .{ "is_test", {} },
         .{ "output_mode", {} },
@@ -828,7 +883,7 @@ const TestManifest = struct {
 
         fn next(self: *TrailingIterator) ?[]const u8 {
             const next_inner = self.inner.next() orelse return null;
-            return if (next_inner.len == 2) "" else std.mem.trimRight(u8, next_inner[3..], " \t");
+            return if (next_inner.len == 2) "" else std.mem.trimEnd(u8, next_inner[3..], " \t");
         }
     };
 
@@ -1109,4 +1164,18 @@ fn knownFileExtension(filename: []const u8) bool {
     if (n3) |x| _ = std.fmt.parseInt(u32, x, 10) catch return false;
     if (it.next() != null) return false;
     return false;
+}
+
+/// `path` is a path relative to the root case directory.
+///   e.g. `compile_errors/undeclared_identifier.zig`
+/// The case name is computed by removing the extension and substituting path separators for dots.
+///   e.g. `compile_errors.undeclared_identifier`
+/// Including the directory components makes `-Dtest-filter` more useful, because you can filter
+/// based on subdirectory; e.g. `-Dtest-filter=compile_errors` to run the compile error tets.
+fn caseNameFromPath(arena: Allocator, path: []const u8) Allocator.Error![]const u8 {
+    const ext_len = std.fs.path.extension(path).len;
+    const path_sans_ext = path[0 .. path.len - ext_len];
+    const result = try arena.dupe(u8, path_sans_ext);
+    std.mem.replaceScalar(u8, result, std.fs.path.sep, '.');
+    return result;
 }

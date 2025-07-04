@@ -1,15 +1,17 @@
 //! Corresponds to something that Zig source code can `@import`.
 
-/// Only files inside this directory can be imported.
-root: Cache.Path,
-/// Relative to `root`. May contain path separators.
+/// The root directory of the module. Only files inside this directory can be imported.
+root: Compilation.Path,
+/// Path to the root source file of this module. Relative to `root`. May contain path separators.
 root_src_path: []const u8,
 /// Name used in compile errors. Looks like "root.foo.bar".
 fully_qualified_name: []const u8,
-/// The dependency table of this module. Shared dependencies such as 'std',
-/// 'builtin', and 'root' are not specified in every dependency table, but
-/// instead only in the table of `main_mod`. `Module.importFile` is
-/// responsible for detecting these names and using the correct package.
+/// The dependency table of this module. The shared dependencies 'std' and
+/// 'root' are not specified in every module dependency table, but are stored
+/// separately in `Zcu`. 'builtin' is also not stored here, although it is
+/// not necessarily the same between all modules. Handling of `@import` in
+/// the rest of the compiler must detect these special names and use the
+/// correct module instead of consulting `deps`.
 deps: Deps = .{},
 
 resolved_target: ResolvedTarget,
@@ -24,7 +26,7 @@ omit_frame_pointer: bool,
 stack_check: bool,
 stack_protector: u32,
 red_zone: bool,
-sanitize_c: bool,
+sanitize_c: std.zig.SanitizeC,
 sanitize_thread: bool,
 fuzz: bool,
 unwind_tables: std.builtin.UnwindTables,
@@ -33,15 +35,7 @@ cc_argv: []const []const u8,
 structured_cfg: bool,
 no_builtin: bool,
 
-/// If the module is an `@import("builtin")` module, this is the `File` that
-/// is preallocated for it. Otherwise this field is null.
-builtin_file: ?*File,
-
 pub const Deps = std.StringArrayHashMapUnmanaged(*Module);
-
-pub fn isBuiltin(m: Module) bool {
-    return m.builtin_file != null;
-}
 
 pub const Tree = struct {
     /// Each `Package` exposes a `Module` with build.zig as its root source file.
@@ -49,9 +43,6 @@ pub const Tree = struct {
 };
 
 pub const CreateOptions = struct {
-    /// Where to store builtin.zig. The global cache directory is used because
-    /// it is a pure function based on CLI flags.
-    global_cache_directory: Cache.Directory,
     paths: Paths,
     fully_qualified_name: []const u8,
 
@@ -61,15 +52,8 @@ pub const CreateOptions = struct {
     /// If this is null then `resolved_target` must be non-null.
     parent: ?*Package.Module,
 
-    builtin_mod: ?*Package.Module,
-
-    /// Allocated into the given `arena`. Should be shared across all module creations in a Compilation.
-    /// Ignored if `builtin_mod` is passed or if `!have_zcu`.
-    /// Otherwise, may be `null` only if this Compilation consists of a single module.
-    builtin_modules: ?*std.StringHashMapUnmanaged(*Module),
-
     pub const Paths = struct {
-        root: Cache.Path,
+        root: Compilation.Path,
         /// Relative to `root`. May contain path separators.
         root_src_path: []const u8,
     };
@@ -92,7 +76,7 @@ pub const CreateOptions = struct {
         stack_protector: ?u32 = null,
         red_zone: ?bool = null,
         unwind_tables: ?std.builtin.UnwindTables = null,
-        sanitize_c: ?bool = null,
+        sanitize_c: ?std.zig.SanitizeC = null,
         sanitize_thread: ?bool = null,
         fuzz: ?bool = null,
         structured_cfg: ?bool = null,
@@ -104,6 +88,7 @@ pub const ResolvedTarget = struct {
     result: std.Target,
     is_native_os: bool,
     is_native_abi: bool,
+    is_explicit_dynamic_linker: bool,
     llvm_cpu_features: ?[*:0]const u8 = null,
 };
 
@@ -113,10 +98,11 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     if (options.inherited.fuzz == true) assert(options.global.any_fuzz);
     if (options.inherited.single_threaded == false) assert(options.global.any_non_single_threaded);
     if (options.inherited.unwind_tables) |uwt| if (uwt != .none) assert(options.global.any_unwind_tables);
+    if (options.inherited.sanitize_c) |sc| if (sc != .off) assert(options.global.any_sanitize_c != .off);
     if (options.inherited.error_tracing == true) assert(options.global.any_error_tracing);
 
     const resolved_target = options.inherited.resolved_target orelse options.parent.?.resolved_target;
-    const target = resolved_target.result;
+    const target = &resolved_target.result;
 
     const optimize_mode = options.inherited.optimize_mode orelse
         if (options.parent) |p| p.optimize_mode else options.global.root_optimize_mode;
@@ -127,8 +113,10 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         break :b options.global.root_strip;
     };
 
+    const zig_backend = target_util.zigBackend(target, options.global.use_llvm);
+
     const valgrind = b: {
-        if (!target_util.hasValgrindSupport(target)) {
+        if (!target_util.hasValgrindSupport(target, zig_backend)) {
             if (options.inherited.valgrind == true)
                 return error.ValgrindUnsupportedOnTarget;
             break :b false;
@@ -138,8 +126,6 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         if (strip) break :b false;
         break :b optimize_mode == .Debug;
     };
-
-    const zig_backend = target_util.zigBackend(target, options.global.use_llvm);
 
     const single_threaded = b: {
         if (target_util.alwaysSingleThreaded(target)) {
@@ -234,10 +220,14 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         break :b false;
     };
 
-    const code_model = b: {
+    const code_model: std.builtin.CodeModel = b: {
         if (options.inherited.code_model) |x| break :b x;
         if (options.parent) |p| break :b p.code_model;
-        break :b .default;
+        break :b switch (target.cpu.arch) {
+            // Temporary workaround until LLVM 21: https://github.com/llvm/llvm-project/pull/132173
+            .loongarch64 => .medium,
+            else => .default,
+        };
     };
 
     const is_safe_mode = switch (optimize_mode) {
@@ -245,10 +235,18 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         .ReleaseFast, .ReleaseSmall => false,
     };
 
-    const sanitize_c = b: {
+    const sanitize_c: std.zig.SanitizeC = b: {
         if (options.inherited.sanitize_c) |x| break :b x;
         if (options.parent) |p| break :b p.sanitize_c;
-        break :b is_safe_mode;
+        break :b switch (optimize_mode) {
+            .Debug => .full,
+            // It's recommended to use the minimal runtime in production
+            // environments due to the security implications of the full runtime.
+            // The minimal runtime doesn't provide much benefit over simply
+            // trapping, however, so we do that instead.
+            .ReleaseSafe => .trap,
+            .ReleaseFast, .ReleaseSmall => .off,
+        };
     };
 
     const stack_check = b: {
@@ -331,6 +329,10 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         // Append disabled features after enabled ones, so that their effects aren't overwritten.
         for (target.cpu.arch.allFeaturesList()) |feature| {
             if (feature.llvm_name) |llvm_name| {
+                // Ignore these until we figure out how to handle the concept of omitting features.
+                // See https://github.com/ziglang/zig/issues/23539
+                if (target_util.isDynamicAMDGCNFeature(target, feature)) continue;
+
                 const is_enabled = target.cpu.features.isEnabled(feature.index);
 
                 if (is_enabled) {
@@ -361,9 +363,10 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         .root_src_path = options.paths.root_src_path,
         .fully_qualified_name = options.fully_qualified_name,
         .resolved_target = .{
-            .result = target,
+            .result = target.*,
             .is_native_os = resolved_target.is_native_os,
             .is_native_abi = resolved_target.is_native_abi,
+            .is_explicit_dynamic_linker = resolved_target.is_explicit_dynamic_linker,
             .llvm_cpu_features = llvm_cpu_features,
         },
         .optimize_mode = optimize_mode,
@@ -384,126 +387,13 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         .cc_argv = options.cc_argv,
         .structured_cfg = structured_cfg,
         .no_builtin = no_builtin,
-        .builtin_file = null,
     };
-
-    const opt_builtin_mod = options.builtin_mod orelse b: {
-        if (!options.global.have_zcu) break :b null;
-
-        const generated_builtin_source = try Builtin.generate(.{
-            .target = target,
-            .zig_backend = zig_backend,
-            .output_mode = options.global.output_mode,
-            .link_mode = options.global.link_mode,
-            .unwind_tables = unwind_tables,
-            .is_test = options.global.is_test,
-            .single_threaded = single_threaded,
-            .link_libc = options.global.link_libc,
-            .link_libcpp = options.global.link_libcpp,
-            .optimize_mode = optimize_mode,
-            .error_tracing = error_tracing,
-            .valgrind = valgrind,
-            .sanitize_thread = sanitize_thread,
-            .fuzz = fuzz,
-            .pic = pic,
-            .pie = options.global.pie,
-            .strip = strip,
-            .code_model = code_model,
-            .omit_frame_pointer = omit_frame_pointer,
-            .wasi_exec_model = options.global.wasi_exec_model,
-        }, arena);
-
-        const new = if (options.builtin_modules) |builtins| new: {
-            const gop = try builtins.getOrPut(arena, generated_builtin_source);
-            if (gop.found_existing) break :b gop.value_ptr.*;
-            errdefer builtins.removeByPtr(gop.key_ptr);
-            const new = try arena.create(Module);
-            gop.value_ptr.* = new;
-            break :new new;
-        } else try arena.create(Module);
-        errdefer if (options.builtin_modules) |builtins| assert(builtins.remove(generated_builtin_source));
-
-        const new_file = try arena.create(File);
-
-        const hex_digest = digest: {
-            var hasher: Cache.Hasher = Cache.hasher_init;
-            hasher.update(generated_builtin_source);
-
-            var bin_digest: Cache.BinDigest = undefined;
-            hasher.final(&bin_digest);
-
-            var hex_digest: Cache.HexDigest = undefined;
-            _ = std.fmt.bufPrint(
-                &hex_digest,
-                "{s}",
-                .{std.fmt.fmtSliceHexLower(&bin_digest)},
-            ) catch unreachable;
-
-            break :digest hex_digest;
-        };
-
-        const builtin_sub_path = try arena.dupe(u8, "b" ++ std.fs.path.sep_str ++ hex_digest);
-
-        new.* = .{
-            .root = .{
-                .root_dir = options.global_cache_directory,
-                .sub_path = builtin_sub_path,
-            },
-            .root_src_path = "builtin.zig",
-            .fully_qualified_name = if (options.parent == null)
-                "builtin"
-            else
-                try std.fmt.allocPrint(arena, "{s}.builtin", .{options.fully_qualified_name}),
-            .resolved_target = .{
-                .result = target,
-                .is_native_os = resolved_target.is_native_os,
-                .is_native_abi = resolved_target.is_native_abi,
-                .llvm_cpu_features = llvm_cpu_features,
-            },
-            .optimize_mode = optimize_mode,
-            .single_threaded = single_threaded,
-            .error_tracing = error_tracing,
-            .valgrind = valgrind,
-            .pic = pic,
-            .strip = strip,
-            .omit_frame_pointer = omit_frame_pointer,
-            .stack_check = stack_check,
-            .stack_protector = stack_protector,
-            .code_model = code_model,
-            .red_zone = red_zone,
-            .sanitize_c = sanitize_c,
-            .sanitize_thread = sanitize_thread,
-            .fuzz = fuzz,
-            .unwind_tables = unwind_tables,
-            .cc_argv = &.{},
-            .structured_cfg = structured_cfg,
-            .no_builtin = no_builtin,
-            .builtin_file = new_file,
-        };
-        new_file.* = .{
-            .sub_file_path = "builtin.zig",
-            .stat = undefined,
-            .source = generated_builtin_source,
-            .tree = null,
-            .zir = null,
-            .zoir = null,
-            .status = .never_loaded,
-            .mod = new,
-        };
-        break :b new;
-    };
-
-    if (opt_builtin_mod) |builtin_mod| {
-        try mod.deps.ensureUnusedCapacity(arena, 1);
-        mod.deps.putAssumeCapacityNoClobber("builtin", builtin_mod);
-    }
-
     return mod;
 }
 
 /// All fields correspond to `CreateOptions`.
 pub const LimitedOptions = struct {
-    root: Cache.Path,
+    root: Compilation.Path,
     root_src_path: []const u8,
     fully_qualified_name: []const u8,
 };
@@ -536,18 +426,74 @@ pub fn createLimited(gpa: Allocator, options: LimitedOptions) Allocator.Error!*P
         .cc_argv = undefined,
         .structured_cfg = undefined,
         .no_builtin = undefined,
-        .builtin_file = null,
     };
     return mod;
 }
 
-/// Asserts that the module has a builtin module, which is not true for non-zig
-/// modules such as ones only used for `@embedFile`, or the root module when
-/// there is no Zig Compilation Unit.
-pub fn getBuiltinDependency(m: Module) *Module {
-    const result = m.deps.values()[0];
-    assert(result.isBuiltin());
-    return result;
+/// Does not ensure that the module's root directory exists on-disk; see `Builtin.updateFileOnDisk` for that task.
+pub fn createBuiltin(arena: Allocator, opts: Builtin, dirs: Compilation.Directories) Allocator.Error!*Module {
+    const sub_path = "b" ++ std.fs.path.sep_str ++ Cache.binToHex(opts.hash());
+    const new = try arena.create(Module);
+    new.* = .{
+        .root = try .fromRoot(arena, dirs, .global_cache, sub_path),
+        .root_src_path = "builtin.zig",
+        .fully_qualified_name = "builtin",
+        .resolved_target = .{
+            .result = opts.target,
+            // These values are not in `opts`, but do not matter because `builtin.zig` contains no runtime code.
+            .is_native_os = false,
+            .is_native_abi = false,
+            .is_explicit_dynamic_linker = false,
+            .llvm_cpu_features = null,
+        },
+        .optimize_mode = opts.optimize_mode,
+        .single_threaded = opts.single_threaded,
+        .error_tracing = opts.error_tracing,
+        .valgrind = opts.valgrind,
+        .pic = opts.pic,
+        .strip = opts.strip,
+        .omit_frame_pointer = opts.omit_frame_pointer,
+        .code_model = opts.code_model,
+        .sanitize_thread = opts.sanitize_thread,
+        .fuzz = opts.fuzz,
+        .unwind_tables = opts.unwind_tables,
+        .cc_argv = &.{},
+        // These values are not in `opts`, but do not matter because `builtin.zig` contains no runtime code.
+        .stack_check = false,
+        .stack_protector = 0,
+        .red_zone = false,
+        .sanitize_c = .off,
+        .structured_cfg = false,
+        .no_builtin = false,
+    };
+    return new;
+}
+
+/// Returns the `Builtin` which forms the contents of `@import("builtin")` for this module.
+pub fn getBuiltinOptions(m: Module, global: Compilation.Config) Builtin {
+    assert(global.have_zcu);
+    return .{
+        .target = m.resolved_target.result,
+        .zig_backend = target_util.zigBackend(&m.resolved_target.result, global.use_llvm),
+        .output_mode = global.output_mode,
+        .link_mode = global.link_mode,
+        .unwind_tables = m.unwind_tables,
+        .is_test = global.is_test,
+        .single_threaded = m.single_threaded,
+        .link_libc = global.link_libc,
+        .link_libcpp = global.link_libcpp,
+        .optimize_mode = m.optimize_mode,
+        .error_tracing = m.error_tracing,
+        .valgrind = m.valgrind,
+        .sanitize_thread = m.sanitize_thread,
+        .fuzz = m.fuzz,
+        .pic = m.pic,
+        .pie = global.pie,
+        .strip = m.strip,
+        .code_model = m.code_model,
+        .omit_frame_pointer = m.omit_frame_pointer,
+        .wasi_exec_model = global.wasi_exec_model,
+    };
 }
 
 const Module = @This();

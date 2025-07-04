@@ -211,7 +211,7 @@ fn testDuplicateDefinitions(b: *Build, opts: Options) *Step {
     expectLinkErrors(exe, test_step, .{ .exact = &.{
         "error: duplicate symbol definition: _strong",
         "note: defined by /?/a.o",
-        "note: defined by /?/main.o",
+        "note: defined by /?/main_zcu.o",
     } });
 
     return test_step;
@@ -864,7 +864,7 @@ fn testLayout(b: *Build, opts: Options) *Step {
 fn testLinkDirectlyCppTbd(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "link-directly-cpp-tbd", opts);
 
-    const sdk = std.zig.system.darwin.getSdk(b.allocator, opts.target.result) orelse
+    const sdk = std.zig.system.darwin.getSdk(b.allocator, &opts.target.result) orelse
         @panic("macOS SDK is required to run the test");
 
     const exe = addExecutable(b, opts, .{
@@ -2648,7 +2648,7 @@ fn testUnresolvedError(b: *Build, opts: Options) *Step {
         expectLinkErrors(exe, test_step, .{ .exact = &.{
             "error: undefined symbol: _foo",
             "note: referenced by /?/a.o:_bar",
-            "note: referenced by /?/main.o:_main.main",
+            "note: referenced by /?/main_zcu.o:_main.main",
         } });
     } else {
         expectLinkErrors(exe, test_step, .{ .exact = &.{

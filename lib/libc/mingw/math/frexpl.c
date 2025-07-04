@@ -5,7 +5,7 @@
  */
 long double frexpl(long double value, int* exp);
 
-#if defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
 
 double frexp(double value, int* exp);
 

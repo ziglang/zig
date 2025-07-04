@@ -25,7 +25,10 @@
 #define __TYPES_H_
 
 #include <sys/_types.h>
+#include <_bounds.h>
 #include <machine/_types.h> /* __uint32_t */
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #if __GNUC__ > 2 || __GNUC__ == 2 && __GNUC_MINOR__ >= 7
 #define __strfmonlike(fmtarg, firstvararg) \

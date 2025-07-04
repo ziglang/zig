@@ -24,6 +24,7 @@
 #define _EXECINFO_H_ 1
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <Availability.h>
 #include <os/base.h>
 #include <os/availability.h>
@@ -31,16 +32,18 @@
 #include <stdint.h>
 #include <uuid/uuid.h>
 
+_LIBC_SINGLE_BY_DEFAULT()
+
 __BEGIN_DECLS
 
-int backtrace(void**,int) __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_2_0);
+int backtrace(void **_LIBC_COUNT(__size), int __size) __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_2_0);
 
 API_AVAILABLE(macosx(10.14), ios(12.0), tvos(12.0), watchos(5.0))
 OS_EXPORT
-int backtrace_from_fp(void *startfp, void **array, int size);
+int backtrace_from_fp(void *startfp, void **_LIBC_COUNT(size) array, int size);
 
-char** backtrace_symbols(void* const*,int) __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_2_0);
-void backtrace_symbols_fd(void* const*,int,int) __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_2_0);
+char *_LIBC_CSTR *_LIBC_COUNT_OR_NULL(__size) backtrace_symbols(void* const* _LIBC_COUNT(__size), int __size) __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_2_0);
+void backtrace_symbols_fd(void* const* _LIBC_COUNT(__size),int __size,int) __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_2_0);
 
 struct image_offset {
 	/*
@@ -56,7 +59,7 @@ struct image_offset {
 
 API_AVAILABLE(macosx(10.14), ios(12.0), tvos(12.0), watchos(5.0))
 OS_EXPORT
-void backtrace_image_offsets(void* const* array,
+void backtrace_image_offsets(void* const* _LIBC_COUNT(size) array,
 		struct image_offset *image_offsets, int size);
 
 /*!
@@ -91,7 +94,7 @@ void backtrace_image_offsets(void* const* array,
  * The number of pointers actually written.
  */
 API_AVAILABLE(macosx(12.0), ios(15.0), tvos(15.0), watchos(8.0))
-size_t backtrace_async(void** array, size_t length, uint32_t *task_id);
+size_t backtrace_async(void** _LIBC_COUNT(length) array, size_t length, uint32_t *task_id);
 
 __END_DECLS
 

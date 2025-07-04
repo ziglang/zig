@@ -1633,7 +1633,7 @@ pub fn unwindFrameDwarf(
                 &cie,
                 &fde,
             ) catch |err| switch (err) {
-                error.InvalidDebugInfo => {
+                error.MissingDebugInfo => {
                     // `.eh_frame_hdr` appears to be incomplete, so go ahead and populate `cie_map`
                     // and `fde_list`, and fall back to the binary search logic below.
                     try di.scanCieFdeInfo(allocator, base_address);
@@ -1795,10 +1795,10 @@ fn spRegNum(reg_context: Dwarf.abi.RegisterContext) u8 {
 const ip_reg_num = Dwarf.abi.ipRegNum(native_arch).?;
 
 /// Tells whether unwinding for the host is implemented.
-pub const supports_unwinding = supportsUnwinding(builtin.target);
+pub const supports_unwinding = supportsUnwinding(&builtin.target);
 
 comptime {
-    if (supports_unwinding) assert(Dwarf.abi.supportsUnwinding(builtin.target));
+    if (supports_unwinding) assert(Dwarf.abi.supportsUnwinding(&builtin.target));
 }
 
 /// Tells whether unwinding for this target is *implemented* here in the Zig
@@ -1806,7 +1806,7 @@ comptime {
 ///
 /// See also `Dwarf.abi.supportsUnwinding` which tells whether Dwarf supports
 /// unwinding on that target *in theory*.
-pub fn supportsUnwinding(target: std.Target) bool {
+pub fn supportsUnwinding(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .x86 => switch (target.os.tag) {
             .linux, .netbsd, .solaris, .illumos => true,

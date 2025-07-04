@@ -32,7 +32,13 @@ pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{
 pub var log_level = std.log.Level.warn;
 
 // Disable printing in tests for simple backends.
-pub const backend_can_print = !(builtin.zig_backend == .stage2_spirv64 or builtin.zig_backend == .stage2_riscv64);
+pub const backend_can_print = switch (builtin.zig_backend) {
+    .stage2_powerpc,
+    .stage2_riscv64,
+    .stage2_spirv,
+    => false,
+    else => true,
+};
 
 fn print(comptime fmt: []const u8, args: anytype) void {
     if (@inComptime()) {
@@ -147,7 +153,18 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
 
         .@"union" => |union_info| {
             if (union_info.tag_type == null) {
-                @compileError("Unable to compare untagged union values for type " ++ @typeName(@TypeOf(actual)));
+                const first_size = @bitSizeOf(union_info.fields[0].type);
+                inline for (union_info.fields) |field| {
+                    if (@bitSizeOf(field.type) != first_size) {
+                        @compileError("Unable to compare untagged unions with varying field sizes for type " ++ @typeName(@TypeOf(actual)));
+                    }
+                }
+
+                const BackingInt = std.meta.Int(.unsigned, @bitSizeOf(T));
+                return expectEqual(
+                    @as(BackingInt, @bitCast(expected)),
+                    @as(BackingInt, @bitCast(actual)),
+                );
             }
 
             const Tag = std.meta.Tag(@TypeOf(expected));

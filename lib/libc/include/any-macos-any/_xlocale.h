@@ -25,6 +25,7 @@
 #define _XLOCALE_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 
 #ifndef _USE_EXTENDED_LOCALES_
 #define _USE_EXTENDED_LOCALES_
@@ -33,34 +34,13 @@
 #include <_locale.h>
 #include <__xlocale.h>
 
-#define LC_ALL_MASK			(  LC_COLLATE_MASK \
-					 | LC_CTYPE_MASK \
-					 | LC_MESSAGES_MASK \
-					 | LC_MONETARY_MASK \
-					 | LC_NUMERIC_MASK \
-					 | LC_TIME_MASK )
-#define LC_COLLATE_MASK			(1 << 0)
-#define LC_CTYPE_MASK			(1 << 1)
-#define LC_MESSAGES_MASK		(1 << 2)
-#define LC_MONETARY_MASK		(1 << 3)
-#define LC_NUMERIC_MASK			(1 << 4)
-#define LC_TIME_MASK			(1 << 5)
-
-#define _LC_NUM_MASK			6
-#define _LC_LAST_MASK			(1 << (_LC_NUM_MASK - 1))
-
-#define LC_GLOBAL_LOCALE		((locale_t)-1)
-#define LC_C_LOCALE				((locale_t)NULL)
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
 extern const locale_t _c_locale;
 
-locale_t	duplocale(locale_t);
-int		freelocale(locale_t);
 struct lconv *	localeconv_l(locale_t);
-locale_t	newlocale(int, __const char *, locale_t);
 __const char *	querylocale(int, locale_t);
-locale_t	uselocale(locale_t);
 __END_DECLS
 
 #endif /* _XLOCALE_H_ */

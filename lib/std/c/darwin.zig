@@ -10,7 +10,6 @@ const mode_t = std.c.mode_t;
 const off_t = std.c.off_t;
 const pid_t = std.c.pid_t;
 const pthread_attr_t = std.c.pthread_attr_t;
-const sigset_t = std.c.sigset_t;
 const timespec = std.c.timespec;
 const sf_hdtr = std.c.sf_hdtr;
 
@@ -840,9 +839,11 @@ pub extern "c" fn sendfile(
     flags: u32,
 ) c_int;
 
-pub fn sigaddset(set: *sigset_t, signo: u5) void {
-    set.* |= @as(u32, 1) << (signo - 1);
-}
+// https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/_types.h#L74
+pub const sigset_t = u32;
+
+// https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/signal.h#L76
+pub const NSIG = 32;
 
 pub const qos_class_t = enum(c_uint) {
     /// highest priority QOS class for critical tasks
@@ -1165,6 +1166,8 @@ pub const CPUFAMILY = enum(u32) {
     ARM_PALMA = 0x72015832,
     ARM_DONAN = 0x6f5129ac,
     ARM_BRAVA = 0x17d5b93a,
+    ARM_TAHITI = 0x75d4acb9,
+    ARM_TUPAI = 0x204526d0,
     _,
 };
 
@@ -1549,4 +1552,43 @@ pub const TCP = struct {
     pub const FASTOPEN = 0x105;
     /// State of the TCP connection
     pub const CONNECTION_INFO = 0x106;
+};
+
+pub const MSG = struct {
+    /// process out-of-band data
+    pub const OOB = 0x1;
+    /// peek at incoming message
+    pub const PEEK = 0x2;
+    /// send without using routing tables
+    pub const DONTROUTE = 0x4;
+    /// data completes record
+    pub const EOR = 0x8;
+    /// data discarded before delivery
+    pub const TRUNC = 0x10;
+    /// control data lost before delivery
+    pub const CTRUNC = 0x20;
+    /// wait for full request or error
+    pub const WAITALL = 0x40;
+    /// this message should be nonblocking
+    pub const DONTWAIT = 0x80;
+    /// data completes connection
+    pub const EOF = 0x100;
+    /// wait up to full request, may return partial
+    pub const WAITSTREAM = 0x200;
+    /// Start of 'hold' seq; dump so_temp, deprecated
+    pub const FLUSH = 0x400;
+    /// Hold frag in so_temp, deprecated
+    pub const HOLD = 0x800;
+    /// Send the packet in so_temp, deprecated
+    pub const SEND = 0x1000;
+    /// Data ready to be read
+    pub const HAVEMORE = 0x2000;
+    /// Data remains in current pkt
+    pub const RCVMORE = 0x4000;
+    /// Fail receive if socket address cannot be allocated
+    pub const NEEDSA = 0x10000;
+    /// do not generate SIGPIPE on EOF
+    pub const NOSIGNAL = 0x80000;
+    /// Inherit upcall in sock_accept
+    pub const USEUPCALL = 0x80000000;
 };

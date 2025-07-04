@@ -244,11 +244,13 @@
 #define DISPATCH_SIZED_BY(X)
 #endif
 
-#define DISPATCH_OSX_SUPPORTS_AT_LEAST(macos, ios, tvos, watchos) \
+#define DISPATCH_OSX_SUPPORTS_AT_LEAST(macos, ios, tvos, watchos, bridgeos, visionos) \
 	 (	(defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED >= macos) \
 	||	(defined(__IPHONE_OS_VERSION_MIN_REQUIRED) && __IPHONE_OS_VERSION_MIN_REQUIRED >= ios) \
 	||	(defined(__TV_OS_VERSION_MIN_REQUIRED) && __TV_OS_VERSION_MIN_REQUIRED >= tvos) \
 	||	(defined(__WATCH_OS_VERSION_MIN_REQUIRED) && __WATCH_OS_VERSION_MIN_REQUIRED >= watchos) \
+	||	(defined(__BRIDGE_OS_VERSION_MIN_REQUIRED) && __BRIDGE_OS_VERSION_MIN_REQUIRED >= bridgeos) \
+	||	(defined(__VISION_OS_VERSION_MIN_REQUIRED) && __VISION_OS_VERSION_MIN_REQUIRED >= visionos) \
 	)
 
 #if !__has_feature(nullability)

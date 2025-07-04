@@ -135,6 +135,22 @@ pub fn MultiArrayList(comptime T: type) type {
                 self.* = undefined;
             }
 
+            /// Returns a `Slice` representing a range of elements in `s`, analagous to `arr[off..len]`.
+            /// It is illegal to call `deinit` or `toMultiArrayList` on the returned `Slice`.
+            /// Asserts that `off + len <= s.len`.
+            pub fn subslice(s: Slice, off: usize, len: usize) Slice {
+                assert(off + len <= s.len);
+                var ptrs: [fields.len][*]u8 = undefined;
+                inline for (s.ptrs, &ptrs, fields) |in, *out, field| {
+                    out.* = in + (off * @sizeOf(field.type));
+                }
+                return .{
+                    .ptrs = ptrs,
+                    .len = len,
+                    .capacity = len,
+                };
+            }
+
             /// This function is used in the debugger pretty formatters in tools/ to fetch the
             /// child field order and entry type to facilitate fancy debug printing for this type.
             fn dbHelper(self: *Slice, child: *Elem, field: *Field, entry: *Entry) void {
@@ -350,11 +366,7 @@ pub fn MultiArrayList(comptime T: type) type {
             assert(new_len <= self.capacity);
             assert(new_len <= self.len);
 
-            const other_bytes = gpa.alignedAlloc(
-                u8,
-                @alignOf(Elem),
-                capacityInBytes(new_len),
-            ) catch {
+            const other_bytes = gpa.alignedAlloc(u8, .of(Elem), capacityInBytes(new_len)) catch {
                 const self_slice = self.slice();
                 inline for (fields, 0..) |field_info, i| {
                     if (@sizeOf(field_info.type) != 0) {
@@ -440,11 +452,7 @@ pub fn MultiArrayList(comptime T: type) type {
         /// `new_capacity` must be greater or equal to `len`.
         pub fn setCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
             assert(new_capacity >= self.len);
-            const new_bytes = try gpa.alignedAlloc(
-                u8,
-                @alignOf(Elem),
-                capacityInBytes(new_capacity),
-            );
+            const new_bytes = try gpa.alignedAlloc(u8, .of(Elem), capacityInBytes(new_capacity));
             if (self.len == 0) {
                 gpa.free(self.allocatedBytes());
                 self.bytes = new_bytes.ptr;

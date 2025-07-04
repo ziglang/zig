@@ -56,7 +56,7 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
     const dest_dir: ?InstallDir = switch (options.dest_dir) {
         .disabled => null,
         .default => switch (artifact.kind) {
-            .obj => @panic("object files have no standard installation procedure"),
+            .obj, .test_obj => @panic("object files have no standard installation procedure"),
             .exe, .@"test" => .bin,
             .lib => if (artifact.isDll()) .bin else .lib,
         },
@@ -119,18 +119,12 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     _ = options;
     const install_artifact: *InstallArtifact = @fieldParentPtr("step", step);
     const b = step.owner;
-    const cwd = fs.cwd();
 
     var all_cached = true;
 
     if (install_artifact.dest_dir) |dest_dir| {
         const full_dest_path = b.getInstallPath(dest_dir, install_artifact.dest_sub_path);
-        const src_path = install_artifact.emitted_bin.?.getPath3(b, step);
-        const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_dest_path, .{}) catch |err| {
-            return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                src_path.sub_path, full_dest_path, @errorName(err),
-            });
-        };
+        const p = try step.installFile(install_artifact.emitted_bin.?, full_dest_path);
         all_cached = all_cached and p == .fresh;
 
         if (install_artifact.dylib_symlinks) |dls| {
@@ -141,48 +135,28 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
 
     if (install_artifact.implib_dir) |implib_dir| {
-        const src_path = install_artifact.emitted_implib.?.getPath3(b, step);
-        const full_implib_path = b.getInstallPath(implib_dir, fs.path.basename(src_path.sub_path));
-        const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_implib_path, .{}) catch |err| {
-            return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                src_path.sub_path, full_implib_path, @errorName(err),
-            });
-        };
+        const full_implib_path = b.getInstallPath(implib_dir, install_artifact.emitted_implib.?.basename(b, step));
+        const p = try step.installFile(install_artifact.emitted_implib.?, full_implib_path);
         all_cached = all_cached and p == .fresh;
     }
 
     if (install_artifact.pdb_dir) |pdb_dir| {
-        const src_path = install_artifact.emitted_pdb.?.getPath3(b, step);
-        const full_pdb_path = b.getInstallPath(pdb_dir, fs.path.basename(src_path.sub_path));
-        const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_pdb_path, .{}) catch |err| {
-            return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                src_path.sub_path, full_pdb_path, @errorName(err),
-            });
-        };
+        const full_pdb_path = b.getInstallPath(pdb_dir, install_artifact.emitted_pdb.?.basename(b, step));
+        const p = try step.installFile(install_artifact.emitted_pdb.?, full_pdb_path);
         all_cached = all_cached and p == .fresh;
     }
 
     if (install_artifact.h_dir) |h_dir| {
         if (install_artifact.emitted_h) |emitted_h| {
-            const src_path = emitted_h.getPath3(b, step);
-            const full_h_path = b.getInstallPath(h_dir, fs.path.basename(src_path.sub_path));
-            const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_h_path, .{}) catch |err| {
-                return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                    src_path.sub_path, full_h_path, @errorName(err),
-                });
-            };
+            const full_h_path = b.getInstallPath(h_dir, emitted_h.basename(b, step));
+            const p = try step.installFile(emitted_h, full_h_path);
             all_cached = all_cached and p == .fresh;
         }
 
         for (install_artifact.artifact.installed_headers.items) |installation| switch (installation) {
             .file => |file| {
-                const src_path = file.source.getPath3(b, step);
                 const full_h_path = b.getInstallPath(h_dir, file.dest_rel_path);
-                const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_h_path, .{}) catch |err| {
-                    return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                        src_path.sub_path, full_h_path, @errorName(err),
-                    });
-                };
+                const p = try step.installFile(file.source, full_h_path);
                 all_cached = all_cached and p == .fresh;
             },
             .directory => |dir| {
@@ -209,16 +183,15 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                         }
                     }
 
-                    const src_entry_path = src_dir_path.join(b.allocator, entry.path) catch @panic("OOM");
                     const full_dest_path = b.pathJoin(&.{ full_h_prefix, entry.path });
                     switch (entry.kind) {
-                        .directory => try cwd.makePath(full_dest_path),
+                        .directory => {
+                            try Step.handleVerbose(b, null, &.{ "install", "-d", full_dest_path });
+                            const p = try step.installDir(full_dest_path);
+                            all_cached = all_cached and p == .existed;
+                        },
                         .file => {
-                            const p = fs.Dir.updateFile(src_entry_path.root_dir.handle, src_entry_path.sub_path, cwd, full_dest_path, .{}) catch |err| {
-                                return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                                    src_entry_path.sub_path, full_dest_path, @errorName(err),
-                                });
-                            };
+                            const p = try step.installFile(try dir.source.join(b.allocator, entry.path), full_dest_path);
                             all_cached = all_cached and p == .fresh;
                         },
                         else => continue,

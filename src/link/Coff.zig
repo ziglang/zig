@@ -1,26 +1,14 @@
-//! The main driver of the COFF linker.
-//! Currently uses our own implementation for the incremental linker, and falls back to
-//! LLD for traditional linking (linking relocatable object files).
-//! LLD is also the default linker for LLVM.
-
-/// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
-llvm_object: ?LlvmObject.Ptr = null,
+//! The main driver of the self-hosted COFF linker.
 
 base: link.File,
 image_base: u64,
-subsystem: ?std.Target.SubSystem,
-tsaware: bool,
-nxcompat: bool,
-dynamicbase: bool,
 /// TODO this and minor_subsystem_version should be combined into one property and left as
 /// default or populated together. They should not be separate fields.
 major_subsystem_version: u16,
 minor_subsystem_version: u16,
-lib_directories: []const Directory,
 entry: link.File.OpenOptions.Entry,
 entry_addr: ?u32,
 module_definition_file: ?[]const u8,
-pdb_out_path: ?[]const u8,
 repro: bool,
 
 ptr_width: PtrWidth,
@@ -220,13 +208,12 @@ pub fn createEmpty(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*Coff {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     assert(target.ofmt == .coff);
     const optimize_mode = comp.root_mod.optimize_mode;
     const output_mode = comp.config.output_mode;
     const link_mode = comp.config.link_mode;
     const use_llvm = comp.config.use_llvm;
-    const use_lld = build_options.have_llvm and comp.config.use_lld;
 
     const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
         0...32 => .p32,
@@ -237,29 +224,21 @@ pub fn createEmpty(
         else => 0x1000,
     };
 
-    // If using LLD to link, this code should produce an object file so that it
-    // can be passed to LLD.
-    // If using LLVM to generate the object file for the zig compilation unit,
-    // we need a place to put the object file so that it can be subsequently
-    // handled.
-    const zcu_object_sub_path = if (!use_lld and !use_llvm)
-        null
-    else
-        try allocPrint(arena, "{s}.obj", .{emit.sub_path});
-
     const coff = try arena.create(Coff);
     coff.* = .{
         .base = .{
             .tag = .coff,
             .comp = comp,
             .emit = emit,
-            .zcu_object_sub_path = zcu_object_sub_path,
+            .zcu_object_basename = if (use_llvm)
+                try std.fmt.allocPrint(arena, "{s}_zcu.obj", .{fs.path.stem(emit.sub_path)})
+            else
+                null,
             .stack_size = options.stack_size orelse 16777216,
             .gc_sections = options.gc_sections orelse (optimize_mode != .Debug),
             .print_gc_sections = options.print_gc_sections,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
         .ptr_width = ptr_width,
@@ -284,45 +263,23 @@ pub fn createEmpty(
             .Obj => 0,
         },
 
-        // Subsystem depends on the set of public symbol names from linked objects.
-        // See LinkerDriver::inferSubsystem from the LLD project for the flow chart.
-        .subsystem = options.subsystem,
-
         .entry = options.entry,
 
-        .tsaware = options.tsaware,
-        .nxcompat = options.nxcompat,
-        .dynamicbase = options.dynamicbase,
         .major_subsystem_version = options.major_subsystem_version orelse 6,
         .minor_subsystem_version = options.minor_subsystem_version orelse 0,
-        .lib_directories = options.lib_directories,
         .entry_addr = math.cast(u32, options.entry_addr orelse 0) orelse
             return error.EntryAddressTooBig,
         .module_definition_file = options.module_definition_file,
-        .pdb_out_path = options.pdb_out_path,
         .repro = options.repro,
     };
-    if (use_llvm and comp.config.have_zcu) {
-        coff.llvm_object = try LlvmObject.create(arena, comp);
-    }
     errdefer coff.base.destroy();
 
-    if (use_lld and (use_llvm or !comp.config.have_zcu)) {
-        // LLVM emits the object file (if any); LLD links it into the final product.
-        return coff;
-    }
-
-    // What path should this COFF linker code output to?
-    // If using LLD to link, this code should produce an object file so that it
-    // can be passed to LLD.
-    const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
-    coff.base.file = try emit.root_dir.handle.createFile(sub_path, .{
+    coff.base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .truncate = true,
         .read = true,
-        .mode = link.File.determineMode(use_lld, output_mode, link_mode),
+        .mode = link.File.determineMode(output_mode, link_mode),
     });
 
-    assert(coff.llvm_object == null);
     const gpa = comp.gpa;
 
     try coff.strtab.buffer.ensureUnusedCapacity(gpa, @sizeOf(u32));
@@ -427,8 +384,6 @@ pub fn open(
 
 pub fn deinit(coff: *Coff) void {
     const gpa = coff.base.comp.gpa;
-
-    if (coff.llvm_object) |llvm_object| llvm_object.deinit();
 
     for (coff.sections.items(.free_list)) |*free_list| {
         free_list.deinit(gpa);
@@ -797,7 +752,7 @@ fn shrinkAtom(coff: *Coff, atom_index: Atom.Index, new_block_size: u32) void {
     // capacity, insert a free list node for it.
 }
 
-fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8) !void {
+fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8, resolve_relocs: bool) !void {
     const atom = coff.getAtom(atom_index);
     const sym = atom.getSymbol(coff);
     const section = coff.sections.get(@intFromEnum(sym.section_number) - 1);
@@ -819,11 +774,13 @@ fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8) !void {
     var relocs = std.ArrayList(*Relocation).init(gpa);
     defer relocs.deinit();
 
-    if (coff.relocs.getPtr(atom_index)) |rels| {
-        try relocs.ensureTotalCapacityPrecise(rels.items.len);
-        for (rels.items) |*reloc| {
-            if (reloc.isResolvable(coff) and reloc.dirty) {
-                relocs.appendAssumeCapacity(reloc);
+    if (resolve_relocs) {
+        if (coff.relocs.getPtr(atom_index)) |rels| {
+            try relocs.ensureTotalCapacityPrecise(rels.items.len);
+            for (rels.items) |*reloc| {
+                if (reloc.isResolvable(coff) and reloc.dirty) {
+                    relocs.appendAssumeCapacity(reloc);
+                }
             }
         }
     }
@@ -857,12 +814,15 @@ fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8) !void {
         }
     }
 
-    coff.resolveRelocs(atom_index, relocs.items, code, coff.image_base);
+    if (resolve_relocs) {
+        coff.resolveRelocs(atom_index, relocs.items, code, coff.image_base);
+    }
     try coff.pwriteAll(code, file_offset);
-
-    // Now we can mark the relocs as resolved.
-    while (relocs.pop()) |reloc| {
-        reloc.dirty = false;
+    if (resolve_relocs) {
+        // Now we can mark the relocs as resolved.
+        while (relocs.pop()) |reloc| {
+            reloc.dirty = false;
+        }
     }
 }
 
@@ -959,6 +919,7 @@ fn writeOffsetTableEntry(coff: *Coff, index: usize) !void {
 }
 
 fn markRelocsDirtyByTarget(coff: *Coff, target: SymbolWithLoc) void {
+    if (!coff.base.comp.incremental) return;
     // TODO: reverse-lookup might come in handy here
     for (coff.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
@@ -969,6 +930,7 @@ fn markRelocsDirtyByTarget(coff: *Coff, target: SymbolWithLoc) void {
 }
 
 fn markRelocsDirtyByAddress(coff: *Coff, addr: u32) void {
+    if (!coff.base.comp.incremental) return;
     const got_moved = blk: {
         const sect_id = coff.got_section_index orelse break :blk false;
         break :blk coff.sections.items(.header)[sect_id].virtual_address >= addr;
@@ -1097,14 +1059,10 @@ pub fn updateFunc(
     coff: *Coff,
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Liveness,
+    mir: *const codegen.AnyMir,
 ) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
-    }
-    if (coff.llvm_object) |llvm_object| {
-        return llvm_object.updateFunc(pt, func_index, air, liveness);
     }
     const tracy = trace(@src());
     defer tracy.end();
@@ -1122,29 +1080,15 @@ pub fn updateFunc(
     var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
     defer code_buffer.deinit(gpa);
 
-    codegen.generateFunction(
+    try codegen.emitFunction(
         &coff.base,
         pt,
         zcu.navSrcLoc(nav_index),
         func_index,
-        air,
-        liveness,
+        mir,
         &code_buffer,
         .none,
-    ) catch |err| switch (err) {
-        error.CodegenFail => return error.CodegenFail,
-        error.OutOfMemory => return error.OutOfMemory,
-        error.Overflow, error.RelocationNotByteAligned => |e| {
-            try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
-                gpa,
-                zcu.navSrcLoc(nav_index),
-                "unable to codegen: {s}",
-                .{@errorName(e)},
-            ));
-            try zcu.retryable_failures.append(zcu.gpa, AnalUnit.wrap(.{ .func = func_index }));
-            return error.CodegenFail;
-        },
-    };
+    );
 
     try coff.updateNavCode(pt, nav_index, code_buffer.items, .FUNCTION);
 
@@ -1192,7 +1136,7 @@ fn lowerConst(
     log.debug("allocated atom for {s} at 0x{x}", .{ name, atom.getSymbol(coff).value });
     log.debug("  (required alignment 0x{x})", .{required_alignment});
 
-    try coff.writeAtom(atom_index, code);
+    try coff.writeAtom(atom_index, code, coff.base.comp.incremental);
 
     return .{ .ok = atom_index };
 }
@@ -1205,7 +1149,6 @@ pub fn updateNav(
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (coff.llvm_object) |llvm_object| return llvm_object.updateNav(pt, nav_index);
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1276,8 +1219,7 @@ fn updateLazySymbolAtom(
     });
     defer gpa.free(name);
 
-    const atom = coff.getAtomPtr(atom_index);
-    const local_sym_index = atom.getSymbolIndex().?;
+    const local_sym_index = coff.getAtomPtr(atom_index).getSymbolIndex().?;
 
     const src = Type.fromInterned(sym.ty).srcLocOrNull(zcu) orelse Zcu.LazySrcLoc.unneeded;
     try codegen.generateLazySymbol(
@@ -1292,12 +1234,13 @@ fn updateLazySymbolAtom(
     );
     const code = code_buffer.items;
 
-    const code_len: u32 = @intCast(code.len);
+    const atom = coff.getAtomPtr(atom_index);
     const symbol = atom.getSymbolPtr(coff);
     try coff.setSymbolName(symbol, name);
     symbol.section_number = @enumFromInt(section_index + 1);
     symbol.type = .{ .complex_type = .NULL, .base_type = .NULL };
 
+    const code_len: u32 = @intCast(code.len);
     const vaddr = try coff.allocateAtom(atom_index, code_len, @intCast(required_alignment.toByteUnits() orelse 0));
     errdefer coff.freeAtom(atom_index);
 
@@ -1308,7 +1251,7 @@ fn updateLazySymbolAtom(
     symbol.value = vaddr;
 
     try coff.addGotEntry(.{ .sym_index = local_sym_index });
-    try coff.writeAtom(atom_index, code);
+    try coff.writeAtom(atom_index, code, coff.base.comp.incremental);
 }
 
 pub fn getOrCreateAtomForLazySymbol(
@@ -1330,7 +1273,7 @@ pub fn getOrCreateAtomForLazySymbol(
     }
     state_ptr.* = .pending_flush;
     const atom = atom_ptr.*;
-    // anyerror needs to be deferred until flushModule
+    // anyerror needs to be deferred until flush
     if (lazy_sym.ty != .anyerror_type) try coff.updateLazySymbolAtom(pt, lazy_sym, atom, switch (lazy_sym.kind) {
         .code => coff.text_section_index.?,
         .const_data => coff.rdata_section_index.?,
@@ -1392,7 +1335,7 @@ fn updateNavCode(
 
     log.debug("updateNavCode {} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
 
-    const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
+    const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const required_alignment = switch (pt.navAlignment(nav_index)) {
         .none => target_util.defaultFunctionAlignment(target),
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
@@ -1456,15 +1399,13 @@ fn updateNavCode(
         };
     }
 
-    coff.writeAtom(atom_index, code) catch |err| switch (err) {
+    coff.writeAtom(atom_index, code, coff.base.comp.incremental) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |e| return coff.base.cgFail(nav_index, "failed to write atom: {s}", .{@errorName(e)}),
     };
 }
 
 pub fn freeNav(coff: *Coff, nav_index: InternPool.NavIndex) void {
-    if (coff.llvm_object) |llvm_object| return llvm_object.freeNav(nav_index);
-
     const gpa = coff.base.comp.gpa;
 
     if (coff.decls.fetchOrderedRemove(nav_index)) |const_kv| {
@@ -1485,50 +1426,7 @@ pub fn updateExports(
     }
 
     const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    const comp = coff.base.comp;
-    const target = comp.root_mod.resolved_target.result;
-
-    if (comp.config.use_llvm) {
-        // Even in the case of LLVM, we need to notice certain exported symbols in order to
-        // detect the default subsystem.
-        for (export_indices) |export_idx| {
-            const exp = export_idx.ptr(zcu);
-            const exported_nav_index = switch (exp.exported) {
-                .nav => |nav| nav,
-                .uav => continue,
-            };
-            const exported_nav = ip.getNav(exported_nav_index);
-            const exported_ty = exported_nav.typeOf(ip);
-            if (!ip.isFunctionType(exported_ty)) continue;
-            const c_cc = target.cCallingConvention().?;
-            const winapi_cc: std.builtin.CallingConvention = switch (target.cpu.arch) {
-                .x86 => .{ .x86_stdcall = .{} },
-                else => c_cc,
-            };
-            const exported_cc = Type.fromInterned(exported_ty).fnCallingConvention(zcu);
-            const CcTag = std.builtin.CallingConvention.Tag;
-            if (@as(CcTag, exported_cc) == @as(CcTag, c_cc) and exp.opts.name.eqlSlice("main", ip) and comp.config.link_libc) {
-                zcu.stage1_flags.have_c_main = true;
-            } else if (@as(CcTag, exported_cc) == @as(CcTag, winapi_cc) and target.os.tag == .windows) {
-                if (exp.opts.name.eqlSlice("WinMain", ip)) {
-                    zcu.stage1_flags.have_winmain = true;
-                } else if (exp.opts.name.eqlSlice("wWinMain", ip)) {
-                    zcu.stage1_flags.have_wwinmain = true;
-                } else if (exp.opts.name.eqlSlice("WinMainCRTStartup", ip)) {
-                    zcu.stage1_flags.have_winmain_crt_startup = true;
-                } else if (exp.opts.name.eqlSlice("wWinMainCRTStartup", ip)) {
-                    zcu.stage1_flags.have_wwinmain_crt_startup = true;
-                } else if (exp.opts.name.eqlSlice("DllMainCRTStartup", ip)) {
-                    zcu.stage1_flags.have_dllmain_crt_startup = true;
-                }
-            }
-        }
-    }
-
-    if (coff.llvm_object) |llvm_object| return llvm_object.updateExports(pt, exported, export_indices);
-
-    const gpa = comp.gpa;
+    const gpa = zcu.gpa;
 
     const metadata = switch (exported) {
         .nav => |nav| blk: {
@@ -1539,7 +1437,7 @@ pub fn updateExports(
             const first_exp = export_indices[0].ptr(zcu);
             const res = try coff.lowerUav(pt, uav, .none, first_exp.src);
             switch (res) {
-                .mcv => {},
+                .sym_index => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Module.processExportsInner
                     // handle the error?
@@ -1621,7 +1519,6 @@ pub fn deleteExport(
     exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
-    if (coff.llvm_object) |_| return;
     const metadata = switch (exported) {
         .nav => |nav| coff.navs.getPtr(nav),
         .uav => |uav| coff.uavs.getPtr(uav),
@@ -1680,567 +1577,7 @@ fn resolveGlobalSymbol(coff: *Coff, current: SymbolWithLoc) !void {
     gop.value_ptr.* = current;
 }
 
-pub fn flush(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    const comp = coff.base.comp;
-    const use_lld = build_options.have_llvm and comp.config.use_lld;
-    const diags = &comp.link_diags;
-    if (use_lld) {
-        return coff.linkWithLLD(arena, tid, prog_node) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.LinkFailure => return error.LinkFailure,
-            else => |e| return diags.fail("failed to link with LLD: {s}", .{@errorName(e)}),
-        };
-    }
-    switch (comp.config.output_mode) {
-        .Exe, .Obj => return coff.flushModule(arena, tid, prog_node),
-        .Lib => return diags.fail("writing lib files not yet implemented for COFF", .{}),
-    }
-}
-
-fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
-    dev.check(.lld_linker);
-
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const comp = coff.base.comp;
-    const gpa = comp.gpa;
-
-    const directory = coff.base.emit.root_dir; // Just an alias to make it shorter to type.
-    const full_out_path = try directory.join(arena, &[_][]const u8{coff.base.emit.sub_path});
-
-    // If there is no Zig code to compile, then we should skip flushing the output file because it
-    // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.zcu != null) blk: {
-        try coff.flushModule(arena, tid, prog_node);
-
-        if (fs.path.dirname(full_out_path)) |dirname| {
-            break :blk try fs.path.join(arena, &.{ dirname, coff.base.zcu_object_sub_path.? });
-        } else {
-            break :blk coff.base.zcu_object_sub_path.?;
-        }
-    } else null;
-
-    const sub_prog_node = prog_node.start("LLD Link", 0);
-    defer sub_prog_node.end();
-
-    const is_lib = comp.config.output_mode == .Lib;
-    const is_dyn_lib = comp.config.link_mode == .dynamic and is_lib;
-    const is_exe_or_dyn_lib = is_dyn_lib or comp.config.output_mode == .Exe;
-    const link_in_crt = comp.config.link_libc and is_exe_or_dyn_lib;
-    const target = comp.root_mod.resolved_target.result;
-    const optimize_mode = comp.root_mod.optimize_mode;
-    const entry_name: ?[]const u8 = switch (coff.entry) {
-        // This logic isn't quite right for disabled or enabled. No point in fixing it
-        // when the goal is to eliminate dependency on LLD anyway.
-        // https://github.com/ziglang/zig/issues/17751
-        .disabled, .default, .enabled => null,
-        .named => |name| name,
-    };
-
-    // See link/Elf.zig for comments on how this mechanism works.
-    const id_symlink_basename = "lld.id";
-
-    var man: Cache.Manifest = undefined;
-    defer if (!coff.base.disable_lld_caching) man.deinit();
-
-    var digest: [Cache.hex_digest_len]u8 = undefined;
-
-    if (!coff.base.disable_lld_caching) {
-        man = comp.cache_parent.obtain();
-        coff.base.releaseLock();
-
-        comptime assert(Compilation.link_hash_implementation_version == 14);
-
-        try link.hashInputs(&man, comp.link_inputs);
-        for (comp.c_object_table.keys()) |key| {
-            _ = try man.addFilePath(key.status.success.object_path, null);
-        }
-        for (comp.win32_resource_table.keys()) |key| {
-            _ = try man.addFile(key.status.success.res_path, null);
-        }
-        try man.addOptionalFile(module_obj_path);
-        man.hash.addOptionalBytes(entry_name);
-        man.hash.add(coff.base.stack_size);
-        man.hash.add(coff.image_base);
-        {
-            // TODO remove this, libraries must instead be resolved by the frontend.
-            for (coff.lib_directories) |lib_directory| man.hash.addOptionalBytes(lib_directory.path);
-        }
-        man.hash.add(comp.skip_linker_dependencies);
-        if (comp.config.link_libc) {
-            man.hash.add(comp.libc_installation != null);
-            if (comp.libc_installation) |libc_installation| {
-                man.hash.addBytes(libc_installation.crt_dir.?);
-                if (target.abi == .msvc or target.abi == .itanium) {
-                    man.hash.addBytes(libc_installation.msvc_lib_dir.?);
-                    man.hash.addBytes(libc_installation.kernel32_lib_dir.?);
-                }
-            }
-        }
-        man.hash.addListOfBytes(comp.windows_libs.keys());
-        man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
-        man.hash.addOptional(coff.subsystem);
-        man.hash.add(comp.config.is_test);
-        man.hash.add(coff.tsaware);
-        man.hash.add(coff.nxcompat);
-        man.hash.add(coff.dynamicbase);
-        man.hash.add(coff.base.allow_shlib_undefined);
-        // strip does not need to go into the linker hash because it is part of the hash namespace
-        man.hash.add(coff.major_subsystem_version);
-        man.hash.add(coff.minor_subsystem_version);
-        man.hash.add(coff.repro);
-        man.hash.addOptional(comp.version);
-        try man.addOptionalFile(coff.module_definition_file);
-
-        // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
-        _ = try man.hit();
-        digest = man.final();
-        var prev_digest_buf: [digest.len]u8 = undefined;
-        const prev_digest: []u8 = Cache.readSmallFile(
-            directory.handle,
-            id_symlink_basename,
-            &prev_digest_buf,
-        ) catch |err| blk: {
-            log.debug("COFF LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
-            // Handle this as a cache miss.
-            break :blk prev_digest_buf[0..0];
-        };
-        if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("COFF LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
-            // Hot diggity dog! The output binary is already there.
-            coff.base.lock = man.toOwnedLock();
-            return;
-        }
-        log.debug("COFF LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
-
-        // We are about to change the output file to be different, so we invalidate the build hash now.
-        directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return e,
-        };
-    }
-
-    if (comp.config.output_mode == .Obj) {
-        // LLD's COFF driver does not support the equivalent of `-r` so we do a simple file copy
-        // here. TODO: think carefully about how we can avoid this redundant operation when doing
-        // build-obj. See also the corresponding TODO in linkAsArchive.
-        const the_object_path = blk: {
-            if (link.firstObjectInput(comp.link_inputs)) |obj| break :blk obj.path;
-
-            if (comp.c_object_table.count() != 0)
-                break :blk comp.c_object_table.keys()[0].status.success.object_path;
-
-            if (module_obj_path) |p|
-                break :blk Path.initCwd(p);
-
-            // TODO I think this is unreachable. Audit this situation when solving the above TODO
-            // regarding eliding redundant object -> object transformations.
-            return error.NoObjectsToLink;
-        };
-        try std.fs.Dir.copyFile(
-            the_object_path.root_dir.handle,
-            the_object_path.sub_path,
-            directory.handle,
-            coff.base.emit.sub_path,
-            .{},
-        );
-    } else {
-        // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(gpa);
-        defer argv.deinit();
-        // We will invoke ourselves as a child process to gain access to LLD.
-        // This is necessary because LLD does not behave properly as a library -
-        // it calls exit() and does not reset all global data between invocations.
-        const linker_command = "lld-link";
-        try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, linker_command });
-
-        if (target.isMinGW()) {
-            try argv.append("-lldmingw");
-        }
-
-        try argv.append("-ERRORLIMIT:0");
-        try argv.append("-NOLOGO");
-        if (comp.config.debug_format != .strip) {
-            try argv.append("-DEBUG");
-
-            const out_ext = std.fs.path.extension(full_out_path);
-            const out_pdb = coff.pdb_out_path orelse try allocPrint(arena, "{s}.pdb", .{
-                full_out_path[0 .. full_out_path.len - out_ext.len],
-            });
-            const out_pdb_basename = std.fs.path.basename(out_pdb);
-
-            try argv.append(try allocPrint(arena, "-PDB:{s}", .{out_pdb}));
-            try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb_basename}));
-        }
-        if (comp.version) |version| {
-            try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
-        }
-
-        if (target_util.llvmMachineAbi(target)) |mabi| {
-            try argv.append(try allocPrint(arena, "-MLLVM:-target-abi={s}", .{mabi}));
-        }
-
-        try argv.append(try allocPrint(arena, "-MLLVM:-float-abi={s}", .{if (target.abi.float() == .hard) "hard" else "soft"}));
-
-        if (comp.config.lto != .none) {
-            switch (optimize_mode) {
-                .Debug => {},
-                .ReleaseSmall => try argv.append("-OPT:lldlto=2"),
-                .ReleaseFast, .ReleaseSafe => try argv.append("-OPT:lldlto=3"),
-            }
-        }
-        if (comp.config.output_mode == .Exe) {
-            try argv.append(try allocPrint(arena, "-STACK:{d}", .{coff.base.stack_size}));
-        }
-        try argv.append(try allocPrint(arena, "-BASE:{d}", .{coff.image_base}));
-
-        if (target.cpu.arch == .x86) {
-            try argv.append("-MACHINE:X86");
-        } else if (target.cpu.arch == .x86_64) {
-            try argv.append("-MACHINE:X64");
-        } else if (target.cpu.arch == .thumb) {
-            try argv.append("-MACHINE:ARM");
-        } else if (target.cpu.arch == .aarch64) {
-            try argv.append("-MACHINE:ARM64");
-        }
-
-        for (comp.force_undefined_symbols.keys()) |symbol| {
-            try argv.append(try allocPrint(arena, "-INCLUDE:{s}", .{symbol}));
-        }
-
-        if (is_dyn_lib) {
-            try argv.append("-DLL");
-        }
-
-        if (entry_name) |name| {
-            try argv.append(try allocPrint(arena, "-ENTRY:{s}", .{name}));
-        }
-
-        if (coff.repro) {
-            try argv.append("-BREPRO");
-        }
-
-        if (coff.tsaware) {
-            try argv.append("-tsaware");
-        }
-        if (coff.nxcompat) {
-            try argv.append("-nxcompat");
-        }
-        if (!coff.dynamicbase) {
-            try argv.append("-dynamicbase:NO");
-        }
-        if (coff.base.allow_shlib_undefined) {
-            try argv.append("-FORCE:UNRESOLVED");
-        }
-
-        try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
-
-        if (comp.implib_emit) |emit| {
-            const implib_out_path = try emit.root_dir.join(arena, &[_][]const u8{emit.sub_path});
-            try argv.append(try allocPrint(arena, "-IMPLIB:{s}", .{implib_out_path}));
-        }
-
-        if (comp.config.link_libc) {
-            if (comp.libc_installation) |libc_installation| {
-                try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.crt_dir.?}));
-
-                if (target.abi == .msvc or target.abi == .itanium) {
-                    try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.msvc_lib_dir.?}));
-                    try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{libc_installation.kernel32_lib_dir.?}));
-                }
-            }
-        }
-
-        for (coff.lib_directories) |lib_directory| {
-            try argv.append(try allocPrint(arena, "-LIBPATH:{s}", .{lib_directory.path orelse "."}));
-        }
-
-        try argv.ensureUnusedCapacity(comp.link_inputs.len);
-        for (comp.link_inputs) |link_input| switch (link_input) {
-            .dso_exact => unreachable, // not applicable to PE/COFF
-            inline .dso, .res => |x| {
-                argv.appendAssumeCapacity(try x.path.toString(arena));
-            },
-            .object, .archive => |obj| {
-                if (obj.must_link) {
-                    argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{}", .{@as(Path, obj.path)}));
-                } else {
-                    argv.appendAssumeCapacity(try obj.path.toString(arena));
-                }
-            },
-        };
-
-        for (comp.c_object_table.keys()) |key| {
-            try argv.append(try key.status.success.object_path.toString(arena));
-        }
-
-        for (comp.win32_resource_table.keys()) |key| {
-            try argv.append(key.status.success.res_path);
-        }
-
-        if (module_obj_path) |p| {
-            try argv.append(p);
-        }
-
-        if (coff.module_definition_file) |def| {
-            try argv.append(try allocPrint(arena, "-DEF:{s}", .{def}));
-        }
-
-        const resolved_subsystem: ?std.Target.SubSystem = blk: {
-            if (coff.subsystem) |explicit| break :blk explicit;
-            switch (target.os.tag) {
-                .windows => {
-                    if (comp.zcu) |module| {
-                        if (module.stage1_flags.have_dllmain_crt_startup or is_dyn_lib)
-                            break :blk null;
-                        if (module.stage1_flags.have_c_main or comp.config.is_test or
-                            module.stage1_flags.have_winmain_crt_startup or
-                            module.stage1_flags.have_wwinmain_crt_startup)
-                        {
-                            break :blk .Console;
-                        }
-                        if (module.stage1_flags.have_winmain or module.stage1_flags.have_wwinmain)
-                            break :blk .Windows;
-                    }
-                },
-                .uefi => break :blk .EfiApplication,
-                else => {},
-            }
-            break :blk null;
-        };
-
-        const Mode = enum { uefi, win32 };
-        const mode: Mode = mode: {
-            if (resolved_subsystem) |subsystem| {
-                const subsystem_suffix = try allocPrint(arena, ",{d}.{d}", .{
-                    coff.major_subsystem_version, coff.minor_subsystem_version,
-                });
-
-                switch (subsystem) {
-                    .Console => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:console{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .win32;
-                    },
-                    .EfiApplication => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_application{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .uefi;
-                    },
-                    .EfiBootServiceDriver => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_boot_service_driver{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .uefi;
-                    },
-                    .EfiRom => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_rom{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .uefi;
-                    },
-                    .EfiRuntimeDriver => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_runtime_driver{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .uefi;
-                    },
-                    .Native => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:native{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .win32;
-                    },
-                    .Posix => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:posix{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .win32;
-                    },
-                    .Windows => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:windows{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .win32;
-                    },
-                }
-            } else if (target.os.tag == .uefi) {
-                break :mode .uefi;
-            } else {
-                break :mode .win32;
-            }
-        };
-
-        switch (mode) {
-            .uefi => try argv.appendSlice(&[_][]const u8{
-                "-BASE:0",
-                "-ENTRY:EfiMain",
-                "-OPT:REF",
-                "-SAFESEH:NO",
-                "-MERGE:.rdata=.data",
-                "-NODEFAULTLIB",
-                "-SECTION:.xdata,D",
-            }),
-            .win32 => {
-                if (link_in_crt) {
-                    if (target.abi.isGnu()) {
-                        if (target.cpu.arch == .x86) {
-                            try argv.append("-ALTERNATENAME:__image_base__=___ImageBase");
-                        } else {
-                            try argv.append("-ALTERNATENAME:__image_base__=__ImageBase");
-                        }
-
-                        if (is_dyn_lib) {
-                            try argv.append(try comp.crtFileAsString(arena, "dllcrt2.obj"));
-                            if (target.cpu.arch == .x86) {
-                                try argv.append("-ALTERNATENAME:__DllMainCRTStartup@12=_DllMainCRTStartup@12");
-                            } else {
-                                try argv.append("-ALTERNATENAME:_DllMainCRTStartup=DllMainCRTStartup");
-                            }
-                        } else {
-                            try argv.append(try comp.crtFileAsString(arena, "crt2.obj"));
-                        }
-
-                        try argv.append(try comp.crtFileAsString(arena, "libmingw32.lib"));
-                    } else {
-                        const lib_str = switch (comp.config.link_mode) {
-                            .dynamic => "",
-                            .static => "lib",
-                        };
-                        const d_str = switch (optimize_mode) {
-                            .Debug => "d",
-                            else => "",
-                        };
-                        switch (comp.config.link_mode) {
-                            .static => try argv.append(try allocPrint(arena, "libcmt{s}.lib", .{d_str})),
-                            .dynamic => try argv.append(try allocPrint(arena, "msvcrt{s}.lib", .{d_str})),
-                        }
-
-                        try argv.append(try allocPrint(arena, "{s}vcruntime{s}.lib", .{ lib_str, d_str }));
-                        try argv.append(try allocPrint(arena, "{s}ucrt{s}.lib", .{ lib_str, d_str }));
-
-                        //Visual C++ 2015 Conformance Changes
-                        //https://msdn.microsoft.com/en-us/library/bb531344.aspx
-                        try argv.append("legacy_stdio_definitions.lib");
-
-                        // msvcrt depends on kernel32 and ntdll
-                        try argv.append("kernel32.lib");
-                        try argv.append("ntdll.lib");
-                    }
-                } else {
-                    try argv.append("-NODEFAULTLIB");
-                    if (!is_lib and entry_name == null) {
-                        if (comp.zcu) |module| {
-                            if (module.stage1_flags.have_winmain_crt_startup) {
-                                try argv.append("-ENTRY:WinMainCRTStartup");
-                            } else {
-                                try argv.append("-ENTRY:wWinMainCRTStartup");
-                            }
-                        } else {
-                            try argv.append("-ENTRY:wWinMainCRTStartup");
-                        }
-                    }
-                }
-            },
-        }
-
-        // libc++ dep
-        if (comp.config.link_libcpp) {
-            try argv.append(try comp.libcxxabi_static_lib.?.full_object_path.toString(arena));
-            try argv.append(try comp.libcxx_static_lib.?.full_object_path.toString(arena));
-        }
-
-        // libunwind dep
-        if (comp.config.link_libunwind) {
-            try argv.append(try comp.libunwind_static_lib.?.full_object_path.toString(arena));
-        }
-
-        if (comp.config.any_fuzz) {
-            try argv.append(try comp.fuzzer_lib.?.full_object_path.toString(arena));
-        }
-
-        const ubsan_rt_path: ?Path = blk: {
-            if (comp.ubsan_rt_lib) |x| break :blk x.full_object_path;
-            if (comp.ubsan_rt_obj) |x| break :blk x.full_object_path;
-            break :blk null;
-        };
-        if (ubsan_rt_path) |path| {
-            try argv.append(try path.toString(arena));
-        }
-
-        if (is_exe_or_dyn_lib and !comp.skip_linker_dependencies) {
-            if (!comp.config.link_libc) {
-                if (comp.libc_static_lib) |lib| {
-                    try argv.append(try lib.full_object_path.toString(arena));
-                }
-            }
-            // MSVC compiler_rt is missing some stuff, so we build it unconditionally but
-            // and rely on weak linkage to allow MSVC compiler_rt functions to override ours.
-            if (comp.compiler_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
-            if (comp.compiler_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
-        }
-
-        try argv.ensureUnusedCapacity(comp.windows_libs.count());
-        for (comp.windows_libs.keys()) |key| {
-            const lib_basename = try allocPrint(arena, "{s}.lib", .{key});
-            if (comp.crt_files.get(lib_basename)) |crt_file| {
-                argv.appendAssumeCapacity(try crt_file.full_object_path.toString(arena));
-                continue;
-            }
-            if (try findLib(arena, lib_basename, coff.lib_directories)) |full_path| {
-                argv.appendAssumeCapacity(full_path);
-                continue;
-            }
-            if (target.abi.isGnu()) {
-                const fallback_name = try allocPrint(arena, "lib{s}.dll.a", .{key});
-                if (try findLib(arena, fallback_name, coff.lib_directories)) |full_path| {
-                    argv.appendAssumeCapacity(full_path);
-                    continue;
-                }
-            }
-            if (target.abi == .msvc or target.abi == .itanium) {
-                argv.appendAssumeCapacity(lib_basename);
-                continue;
-            }
-
-            log.err("DLL import library for -l{s} not found", .{key});
-            return error.DllImportLibraryNotFound;
-        }
-
-        try link.spawnLld(comp, arena, argv.items);
-    }
-
-    if (!coff.base.disable_lld_caching) {
-        // Update the file with the digest. If it fails we can continue; it only
-        // means that the next invocation will have an unnecessary cache miss.
-        Cache.writeSmallFile(directory.handle, id_symlink_basename, &digest) catch |err| {
-            log.warn("failed to save linking hash digest file: {s}", .{@errorName(err)});
-        };
-        // Again failure here only means an unnecessary cache miss.
-        man.writeManifest() catch |err| {
-            log.warn("failed to write cache manifest when linking: {s}", .{@errorName(err)});
-        };
-        // We hang on to this lock so that the output file path can be used without
-        // other processes clobbering it.
-        coff.base.lock = man.toOwnedLock();
-    }
-}
-
-fn findLib(arena: Allocator, name: []const u8, lib_directories: []const Directory) !?[]const u8 {
-    for (lib_directories) |lib_directory| {
-        lib_directory.handle.access(name, .{}) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => |e| return e,
-        };
-        return try lib_directory.join(arena, &.{name});
-    }
-    return null;
-}
-
-pub fn flushModule(
+pub fn flush(
     coff: *Coff,
     arena: Allocator,
     tid: Zcu.PerThread.Id,
@@ -2252,22 +1589,22 @@ pub fn flushModule(
     const comp = coff.base.comp;
     const diags = &comp.link_diags;
 
-    if (coff.llvm_object) |llvm_object| {
-        try coff.base.emitLlvmObject(arena, llvm_object, prog_node);
-        return;
+    switch (coff.base.comp.config.output_mode) {
+        .Exe, .Obj => {},
+        .Lib => return diags.fail("writing lib files not yet implemented for COFF", .{}),
     }
 
     const sub_prog_node = prog_node.start("COFF Flush", 0);
     defer sub_prog_node.end();
 
-    return flushModuleInner(coff, arena, tid) catch |err| switch (err) {
+    return flushInner(coff, arena, tid) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.LinkFailure => return error.LinkFailure,
         else => |e| return diags.fail("COFF flush failed: {s}", .{@errorName(e)}),
     };
 }
 
-fn flushModuleInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void {
+fn flushInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     _ = arena;
 
     const comp = coff.base.comp;
@@ -2347,7 +1684,7 @@ fn flushModuleInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void 
         const amt = try coff.base.file.?.preadAll(code.items, file_offset);
         if (amt != code.items.len) return error.InputOutput;
 
-        try coff.writeAtom(atom_index, code.items);
+        try coff.writeAtom(atom_index, code.items, true);
     }
 
     // Update GOT if it got moved in memory.
@@ -2385,6 +1722,21 @@ fn flushModuleInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void 
     }
 
     assert(!coff.imports_count_dirty);
+
+    // hack for stage2_x86_64 + coff
+    if (comp.compiler_rt_dyn_lib) |crt_file| {
+        const compiler_rt_sub_path = try std.fs.path.join(gpa, &.{
+            std.fs.path.dirname(coff.base.emit.sub_path) orelse "",
+            std.fs.path.basename(crt_file.full_object_path.sub_path),
+        });
+        defer gpa.free(compiler_rt_sub_path);
+        try crt_file.full_object_path.root_dir.handle.copyFile(
+            crt_file.full_object_path.sub_path,
+            coff.base.emit.root_dir.handle,
+            compiler_rt_sub_path,
+            .{},
+        );
+    }
 }
 
 pub fn getNavVAddr(
@@ -2393,7 +1745,6 @@ pub fn getNavVAddr(
     nav_index: InternPool.Nav.Index,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    assert(coff.llvm_object == null);
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
@@ -2426,7 +1777,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const val = Value.fromInterned(uav);
@@ -2438,7 +1789,7 @@ pub fn lowerUav(
         const atom = coff.getAtom(metadata.atom);
         const existing_addr = atom.getSymbol(coff).value;
         if (uav_alignment.check(existing_addr))
-            return .{ .mcv = .{ .load_direct = atom.getSymbolIndex().? } };
+            return .{ .sym_index = atom.getSymbolIndex().? };
     }
 
     var name_buf: [32]u8 = undefined;
@@ -2469,9 +1820,7 @@ pub fn lowerUav(
         .atom = atom_index,
         .section = coff.rdata_section_index.?,
     });
-    return .{ .mcv = .{
-        .load_direct = coff.getAtom(atom_index).getSymbolIndex().?,
-    } };
+    return .{ .sym_index = coff.getAtom(atom_index).getSymbolIndex().? };
 }
 
 pub fn getUavVAddr(
@@ -2479,8 +1828,6 @@ pub fn getUavVAddr(
     uav: InternPool.Index,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    assert(coff.llvm_object == null);
-
     const this_atom_index = coff.uavs.get(uav).?.atom;
     const sym_index = coff.getAtom(this_atom_index).getSymbolIndex().?;
     const atom_index = coff.getAtomIndexForSymbol(.{
@@ -2826,7 +2173,7 @@ fn writeDataDirectoriesHeaders(coff: *Coff) !void {
 }
 
 fn writeHeader(coff: *Coff) !void {
-    const target = coff.base.comp.root_mod.resolved_target.result;
+    const target = &coff.base.comp.root_mod.resolved_target.result;
     const gpa = coff.base.comp.gpa;
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
@@ -3136,11 +2483,6 @@ const GetOrPutGlobalPtrResult = struct {
     found_existing: bool,
     value_ptr: *SymbolWithLoc,
 };
-
-/// Used only for disambiguating local from global at relocation level.
-/// TODO this must go away.
-pub const global_symbol_bit: u32 = 0x80000000;
-pub const global_symbol_mask: u32 = 0x7fffffff;
 
 /// Return pointer to the global entry for `name` if one exists.
 /// Puts a new global entry for `name` if one doesn't exist, and
@@ -3473,7 +2815,7 @@ pub const Relocation = struct {
             .ptr_width = coff.ptr_width,
         };
 
-        const target = coff.base.comp.root_mod.resolved_target.result;
+        const target = &coff.base.comp.root_mod.resolved_target.result;
         switch (target.cpu.arch) {
             .aarch64 => reloc.resolveAarch64(ctx),
             .x86, .x86_64 => reloc.resolveX86(ctx),
@@ -3792,10 +3134,7 @@ const link = @import("../link.zig");
 const target_util = @import("../target.zig");
 const trace = @import("../tracy.zig").trace;
 
-const Air = @import("../Air.zig");
 const Compilation = @import("../Compilation.zig");
-const Liveness = @import("../Liveness.zig");
-const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
 const TableSection = @import("table_section.zig").TableSection;

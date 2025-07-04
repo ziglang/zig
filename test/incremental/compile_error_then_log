@@ -12,6 +12,7 @@ comptime {
     @compileLog("this is a log");
 }
 #expect_error=main.zig:3:5: error: this is an error
+#expect_compile_log=@as(*const [13:0]u8, "this is a log")
 
 #update=remove the compile error
 #file=main.zig
@@ -23,3 +24,4 @@ comptime {
     @compileLog("this is a log");
 }
 #expect_error=main.zig:6:5: error: found compile log statement
+#expect_compile_log=@as(*const [13:0]u8, "this is a log")

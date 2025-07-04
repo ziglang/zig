@@ -15,7 +15,9 @@ var fba_buffer: [8192]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
 
 const crippled = switch (builtin.zig_backend) {
-    .stage2_riscv64 => true,
+    .stage2_powerpc,
+    .stage2_riscv64,
+    => true,
     else => false,
 };
 
@@ -290,6 +292,7 @@ pub fn mainSimple() anyerror!void {
     };
     // is the backend capable of using std.fmt.format to print a summary at the end?
     const print_summary = switch (builtin.zig_backend) {
+        .stage2_riscv64 => true,
         else => false,
     };
 
@@ -307,7 +310,7 @@ pub fn mainSimple() anyerror!void {
                 stderr.writeAll("... ") catch {};
                 stderr.writeAll("PASS\n") catch {};
             }
-        } else |err| if (enable_print) {
+        } else |err| {
             if (enable_print) {
                 stderr.writeAll(test_fn.name) catch {};
                 stderr.writeAll("... ") catch {};

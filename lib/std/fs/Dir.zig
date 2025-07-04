@@ -13,6 +13,7 @@ pub const Entry = struct {
 
 const IteratorError = error{
     AccessDenied,
+    PermissionDenied,
     SystemResources,
     /// WASI-only. The path of an entry could not be encoded as valid UTF-8.
     /// WASI is unable to handle paths that cannot be encoded as well-formed UTF-8.
@@ -24,7 +25,7 @@ pub const Iterator = switch (native_os) {
     .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => struct {
         dir: Dir,
         seek: i64,
-        buf: [1024]u8, // TODO align(@alignOf(posix.system.dirent)),
+        buf: [1024]u8 align(@alignOf(posix.system.dirent)),
         index: usize,
         end_index: usize,
         first_iter: bool,
@@ -287,7 +288,7 @@ pub const Iterator = switch (native_os) {
                     name,
                     false,
                     &stat_info,
-                    0,
+                    @sizeOf(posix.Stat),
                 )))) {
                     .SUCCESS => {},
                     .INVAL => unreachable,
@@ -328,8 +329,6 @@ pub const Iterator = switch (native_os) {
     },
     .linux => struct {
         dir: Dir,
-        // The if guard is solely there to prevent compile errors from missing `linux.dirent64`
-        // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
         buf: [1024]u8 align(@alignOf(linux.dirent64)),
         index: usize,
         end_index: usize,
@@ -490,7 +489,7 @@ pub const Iterator = switch (native_os) {
     },
     .wasi => struct {
         dir: Dir,
-        buf: [1024]u8, // TODO align(@alignOf(posix.wasi.dirent_t)),
+        buf: [1024]u8 align(@alignOf(std.os.wasi.dirent_t)),
         cookie: u64,
         index: usize,
         end_index: usize,
@@ -784,6 +783,7 @@ pub const OpenError = error{
     DeviceBusy,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
 } || posix.UnexpectedError;
 
 pub fn close(self: *Dir) void {
@@ -1146,6 +1146,7 @@ pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
 /// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
+/// Fails on an empty path with `error.BadPathName` as that is not a path that can be created.
 ///
 /// Paths containing `..` components are handled differently depending on the platform:
 /// - On Windows, `..` are resolved before the path is passed to NtCreateFile, meaning
@@ -1155,10 +1156,19 @@ pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
 ///   meaning a `sub_path` like "first/../second" will create both a `./first`
 ///   and a `./second` directory.
 pub fn makePath(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!void {
+    _ = try self.makePathStatus(sub_path);
+}
+
+pub const MakePathStatus = enum { existed, created };
+/// Same as `makePath` except returns whether the path already existed or was successfully created.
+pub fn makePathStatus(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!MakePathStatus {
     var it = try fs.path.componentIterator(sub_path);
-    var component = it.last() orelse return;
+    var status: MakePathStatus = .existed;
+    var component = it.last() orelse return error.BadPathName;
     while (true) {
-        self.makeDir(component.path) catch |err| switch (err) {
+        if (self.makeDir(component.path)) |_| {
+            status = .created;
+        } else |err| switch (err) {
             error.PathAlreadyExists => {
                 // stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
@@ -1177,8 +1187,8 @@ pub fn makePath(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!vo
                 continue;
             },
             else => |e| return e,
-        };
-        component = it.next() orelse return;
+        }
+        component = it.next() orelse return status;
     }
 }
 
@@ -1348,13 +1358,11 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathErr
 
     var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
     const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, &wide_buf);
-    var big_out_buf: [fs.max_path_bytes]u8 = undefined;
-    const end_index = std.unicode.wtf16LeToWtf8(&big_out_buf, wide_slice);
-    if (end_index > out_buffer.len)
+    const len = std.unicode.calcWtf8Len(wide_slice);
+    if (len > out_buffer.len)
         return error.NameTooLong;
-    const result = out_buffer[0..end_index];
-    @memcpy(result, big_out_buf[0..end_index]);
-    return result;
+    const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
+    return out_buffer[0..end_index];
 }
 
 pub const RealPathAllocError = RealPathError || Allocator.Error;
@@ -1696,6 +1704,7 @@ pub const DeleteDirError = error{
     BadPathName,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
     Unexpected,
 };
 
@@ -1960,7 +1969,7 @@ pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
 /// On WASI, `file_path` should be encoded as valid UTF-8.
 /// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readFileAlloc(self: Dir, allocator: mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
-    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, @alignOf(u8), null);
+    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, .of(u8), null);
 }
 
 /// On success, caller owns returned buffer.
@@ -1977,9 +1986,9 @@ pub fn readFileAllocOptions(
     file_path: []const u8,
     max_bytes: usize,
     size_hint: ?usize,
-    comptime alignment: u29,
+    comptime alignment: std.mem.Alignment,
     comptime optional_sentinel: ?u8,
-) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
+) !(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
     var file = try self.openFile(file_path, .{});
     defer file.close();
 
@@ -2005,6 +2014,7 @@ pub const DeleteTreeError = error{
     FileSystem,
     FileBusy,
     DeviceBusy,
+    ProcessNotFound,
 
     /// One of the path components was not a directory.
     /// This error is unreachable if `sub_path` does not contain a path separator.
@@ -2079,6 +2089,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
+                            error.ProcessNotFound,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
                             error.NoDevice,
@@ -2175,6 +2186,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             error.AccessDenied,
                             error.PermissionDenied,
                             error.SymLinkLoop,
+                            error.ProcessNotFound,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
@@ -2282,6 +2294,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             error.AccessDenied,
                             error.PermissionDenied,
                             error.SymLinkLoop,
+                            error.ProcessNotFound,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
@@ -2383,6 +2396,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     error.PermissionDenied,
                     error.SymLinkLoop,
                     error.ProcessFdQuotaExceeded,
+                    error.ProcessNotFound,
                     error.NameTooLong,
                     error.SystemFdQuotaExceeded,
                     error.NoDevice,

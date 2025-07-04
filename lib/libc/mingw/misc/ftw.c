@@ -15,11 +15,9 @@
 #include <dirent.h>
 #include <ftw.h>
 
-#ifdef IMPL_FTW64
-#define stat stat64
-#define nftw nftw64
-#define ftw ftw64
-#endif
+int __cdecl stat32(const char *_Filename, struct _stat32 *_Stat);
+int __cdecl stat32i64(const char *_Filename, struct _stat32i64 *_Stat);
+int __cdecl stat64i32(const char *_Filename, struct _stat64i32 *_Stat);
 
 typedef struct dir_data_t {
   DIR *h;
@@ -36,14 +34,14 @@ typedef struct ctx_t {
   dir_data_t **dirs;
   char *buf;
   struct FTW ftw;
-  int (*fcb) (const char *, const struct stat *, int , struct FTW *);
+  int (*fcb) (const char *, const STRUCT_STAT *, int , struct FTW *);
   size_t cur_dir, msz_dir, buf_sz;
   int flags;
   dev_t dev;
 } ctx_t;
 
 static int add_object (ctx_t *);
-static int do_dir (ctx_t *, struct stat *, dir_data_t *);
+static int do_dir (ctx_t *, STRUCT_STAT *, dir_data_t *);
 static int do_entity (ctx_t *, dir_data_t *, const char *, size_t);
 static int do_it (const char *, int, void *, int, int);
 
@@ -225,7 +223,7 @@ open_directory (ctx_t *ctx, dir_data_t *dirp)
 static int
 do_entity (ctx_t *ctx, dir_data_t *dir, const char *name, size_t namlen)
 {
-  struct stat st;
+  STRUCT_STAT st;
   char *h;
   size_t cnt_sz;
   int ret = 0, flag = 0;
@@ -249,7 +247,7 @@ do_entity (ctx_t *ctx, dir_data_t *dir, const char *name, size_t namlen)
 
   name = ctx->buf;
 
-  if (stat (name, &st) < 0)
+  if (FUNC_STAT (name, &st) < 0)
     {
       if (errno != EACCES && errno != ENOENT)
 	ret = -1;
@@ -257,7 +255,7 @@ do_entity (ctx_t *ctx, dir_data_t *dir, const char *name, size_t namlen)
 	flag = FTW_NS;
 
       if (!(ctx->flags & FTW_PHYS))
-	stat (name, &st);
+	FUNC_STAT (name, &st);
     }
   else
     flag = (S_ISDIR (st.st_mode) ? FTW_D : FTW_F);
@@ -281,7 +279,7 @@ do_entity (ctx_t *ctx, dir_data_t *dir, const char *name, size_t namlen)
 
 
 static int
-do_dir (ctx_t *ctx, struct stat *st, __UNUSED_PARAM(dir_data_t *old_dir))
+do_dir (ctx_t *ctx, STRUCT_STAT *st, __UNUSED_PARAM(dir_data_t *old_dir))
 {
   dir_data_t dir;
   struct dirent *d;
@@ -378,7 +376,7 @@ static int
 do_it (const char *dir, __UNUSED_PARAM(int is_nftw), void *fcb, int descriptors, int flags)
 {
   struct ctx_t ctx;
-  struct stat st;
+  STRUCT_STAT st;
   int ret = 0;
   int sv_e;
   char *cp;
@@ -417,12 +415,12 @@ do_it (const char *dir, __UNUSED_PARAM(int is_nftw), void *fcb, int descriptors,
   ctx.ftw.level = 0;
   ctx.ftw.base = cp - ctx.buf;
   ctx.flags = flags;
-  ctx.fcb = (int (*) (const char *, const struct stat *, int , struct FTW *)) fcb;
+  ctx.fcb = (int (*) (const char *, const STRUCT_STAT *, int , struct FTW *)) fcb;
   ctx.objs = NULL;
 
   if (!ret)
     {
-      if (stat (ctx.buf, &st) < 0)
+      if (FUNC_STAT (ctx.buf, &st) < 0)
 	ret = -1;
       else if (S_ISDIR (st.st_mode))
 	{
@@ -451,13 +449,17 @@ do_it (const char *dir, __UNUSED_PARAM(int is_nftw), void *fcb, int descriptors,
 }
 
 int
-ftw (const char *path, int (*fcb) (const char *, const struct stat *, int), int descriptors)
+FUNC_FTW (const char *path, int (*fcb) (const char *, const STRUCT_STAT *, int), int descriptors);
+int
+FUNC_FTW (const char *path, int (*fcb) (const char *, const STRUCT_STAT *, int), int descriptors)
 {
   return do_it (path, 0, fcb, descriptors, 0);
 }
 
 int
-nftw (const char *path, int (*fcb) (const char *, const struct stat *, int , struct FTW *), int descriptors, int flags)
+FUNC_NFTW (const char *path, int (*fcb) (const char *, const STRUCT_STAT *, int , struct FTW *), int descriptors, int flags);
+int
+FUNC_NFTW (const char *path, int (*fcb) (const char *, const STRUCT_STAT *, int , struct FTW *), int descriptors, int flags)
 {
   return do_it (path, 1, fcb, descriptors, flags);
 }

@@ -202,6 +202,7 @@ pub fn init(options: StepOptions) Step {
         .state = .precheck_unstarted,
         .max_rss = options.max_rss,
         .debug_stack_trace = blk: {
+            if (!std.debug.sys_can_stack_trace) break :blk &.{};
             const addresses = arena.alloc(usize, options.owner.debug_stack_frames_count) catch @panic("OOM");
             @memset(addresses, 0);
             const first_ret_addr = options.first_ret_addr orelse @returnAddress();
@@ -246,7 +247,6 @@ pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!voi
             s.result_peak_rss, s.max_rss,
         }) catch @panic("OOM");
         s.result_error_msgs.append(arena, msg) catch @panic("OOM");
-        return error.MakeFailed;
     }
 }
 
@@ -476,6 +476,29 @@ pub fn evalZigProcess(
     }
 
     return result;
+}
+
+/// Wrapper around `std.fs.Dir.updateFile` that handles verbose and error output.
+pub fn installFile(s: *Step, src_lazy_path: Build.LazyPath, dest_path: []const u8) !std.fs.Dir.PrevStatus {
+    const b = s.owner;
+    const src_path = src_lazy_path.getPath3(b, s);
+    try handleVerbose(b, null, &.{ "install", "-C", b.fmt("{}", .{src_path}), dest_path });
+    return src_path.root_dir.handle.updateFile(src_path.sub_path, std.fs.cwd(), dest_path, .{}) catch |err| {
+        return s.fail("unable to update file from '{}' to '{s}': {s}", .{
+            src_path, dest_path, @errorName(err),
+        });
+    };
+}
+
+/// Wrapper around `std.fs.Dir.makePathStatus` that handles verbose and error output.
+pub fn installDir(s: *Step, dest_path: []const u8) !std.fs.Dir.MakePathStatus {
+    const b = s.owner;
+    try handleVerbose(b, null, &.{ "install", "-d", dest_path });
+    return std.fs.cwd().makePathStatus(dest_path) catch |err| {
+        return s.fail("unable to create dir '{s}': {s}", .{
+            dest_path, @errorName(err),
+        });
+    };
 }
 
 fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
@@ -714,8 +737,44 @@ pub fn allocPrintCmd2(
     opt_env: ?*const std.process.EnvMap,
     argv: []const []const u8,
 ) Allocator.Error![]u8 {
+    const shell = struct {
+        fn escape(writer: anytype, string: []const u8, is_argv0: bool) !void {
+            for (string) |c| {
+                if (switch (c) {
+                    else => true,
+                    '%', '+'...':', '@'...'Z', '_', 'a'...'z' => false,
+                    '=' => is_argv0,
+                }) break;
+            } else return writer.writeAll(string);
+
+            try writer.writeByte('"');
+            for (string) |c| {
+                if (switch (c) {
+                    std.ascii.control_code.nul => break,
+                    '!', '"', '$', '\\', '`' => true,
+                    else => !std.ascii.isPrint(c),
+                }) try writer.writeByte('\\');
+                switch (c) {
+                    std.ascii.control_code.nul => unreachable,
+                    std.ascii.control_code.bel => try writer.writeByte('a'),
+                    std.ascii.control_code.bs => try writer.writeByte('b'),
+                    std.ascii.control_code.ht => try writer.writeByte('t'),
+                    std.ascii.control_code.lf => try writer.writeByte('n'),
+                    std.ascii.control_code.vt => try writer.writeByte('v'),
+                    std.ascii.control_code.ff => try writer.writeByte('f'),
+                    std.ascii.control_code.cr => try writer.writeByte('r'),
+                    std.ascii.control_code.esc => try writer.writeByte('E'),
+                    ' '...'~' => try writer.writeByte(c),
+                    else => try writer.print("{o:0>3}", .{c}),
+                }
+            }
+            try writer.writeByte('"');
+        }
+    };
+
     var buf: std.ArrayListUnmanaged(u8) = .empty;
-    if (opt_cwd) |cwd| try buf.writer(arena).print("cd {s} && ", .{cwd});
+    const writer = buf.writer(arena);
+    if (opt_cwd) |cwd| try writer.print("cd {s} && ", .{cwd});
     if (opt_env) |env| {
         const process_env_map = std.process.getEnvMap(arena) catch std.process.EnvMap.init(arena);
         var it = env.iterator();
@@ -725,11 +784,15 @@ pub fn allocPrintCmd2(
             if (process_env_map.get(key)) |process_value| {
                 if (std.mem.eql(u8, value, process_value)) continue;
             }
-            try buf.writer(arena).print("{s}={s} ", .{ key, value });
+            try writer.print("{s}=", .{key});
+            try shell.escape(writer, value, false);
+            try writer.writeByte(' ');
         }
     }
-    for (argv) |arg| {
-        try buf.writer(arena).print("{s} ", .{arg});
+    try shell.escape(writer, argv[0], true);
+    for (argv[1..]) |arg| {
+        try writer.writeByte(' ');
+        try shell.escape(writer, arg, false);
     }
     return buf.toOwnedSlice(arena);
 }
@@ -758,7 +821,7 @@ fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: Build.Cac
     switch (err) {
         error.CacheCheckFailed => switch (man.diagnostic) {
             .none => unreachable,
-            .manifest_create, .manifest_read, .manifest_lock => |e| return s.fail("failed to check cache: {s} {s}", .{
+            .manifest_create, .manifest_read, .manifest_lock, .manifest_seek => |e| return s.fail("failed to check cache: {s} {s}", .{
                 @tagName(man.diagnostic), @errorName(e),
             }),
             .file_open, .file_stat, .file_read, .file_hash => |op| {

@@ -1601,10 +1601,6 @@ pub const MSF = switch (native_os) {
     },
     else => void,
 };
-pub const MMAP2_UNIT = switch (native_os) {
-    .linux => linux.MMAP2_UNIT,
-    else => void,
-};
 pub const NAME_MAX = switch (native_os) {
     .linux => linux.NAME_MAX,
     .emscripten => emscripten.NAME_MAX,
@@ -1844,15 +1840,36 @@ pub const REG = switch (native_os) {
         pub const RSP = 20;
     },
     .netbsd => switch (builtin.cpu.arch) {
-        .aarch64 => struct {
+        .aarch64, .aarch64_be => struct {
             pub const FP = 29;
             pub const SP = 31;
             pub const PC = 32;
         },
-        .arm => struct {
+        .arm, .armeb => struct {
             pub const FP = 11;
             pub const SP = 13;
             pub const PC = 15;
+        },
+        .x86 => struct {
+            pub const GS = 0;
+            pub const FS = 1;
+            pub const ES = 2;
+            pub const DS = 3;
+            pub const EDI = 4;
+            pub const ESI = 5;
+            pub const EBP = 6;
+            pub const ESP = 7;
+            pub const EBX = 8;
+            pub const EDX = 9;
+            pub const ECX = 10;
+            pub const EAX = 11;
+            pub const TRAPNO = 12;
+            pub const ERR = 13;
+            pub const EIP = 14;
+            pub const CS = 15;
+            pub const EFL = 16;
+            pub const UESP = 17;
+            pub const SS = 18;
         },
         .x86_64 => struct {
             pub const RDI = 0;
@@ -3119,6 +3136,21 @@ pub const SYS = switch (native_os) {
     .linux => linux.SYS,
     else => void,
 };
+
+/// A common format for the Sigaction struct across a variety of Linux flavors.
+const common_linux_Sigaction = extern struct {
+    pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
+
+    handler: extern union {
+        handler: ?handler_fn,
+        sigaction: ?sigaction_fn,
+    },
+    mask: sigset_t,
+    flags: c_uint,
+    restorer: ?*const fn () callconv(.c) void = null, // C library will fill this in
+};
+
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = switch (native_os) {
     .linux => switch (native_arch) {
@@ -3127,7 +3159,7 @@ pub const Sigaction = switch (native_os) {
         .mips64,
         .mips64el,
         => if (builtin.target.abi.isMusl())
-            linux.Sigaction
+            common_linux_Sigaction
         else if (builtin.target.ptrBitWidth() == 64) extern struct {
             pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
             pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
@@ -3164,8 +3196,8 @@ pub const Sigaction = switch (native_os) {
             flags: c_uint,
             restorer: ?*const fn () callconv(.c) void = null,
             mask: sigset_t,
-        } else linux.Sigaction,
-        else => linux.Sigaction,
+        } else common_linux_Sigaction,
+        else => common_linux_Sigaction,
     },
     .emscripten => emscripten.Sigaction,
     .netbsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
@@ -4522,27 +4554,18 @@ pub const siginfo_t = switch (native_os) {
     else => void,
 };
 pub const sigset_t = switch (native_os) {
-    .linux => linux.sigset_t,
+    .linux => [1024 / @bitSizeOf(c_ulong)]c_ulong, // glibc and musl present a 1024-bit sigset_t, while kernel's is 128-bit or less.
     .emscripten => emscripten.sigset_t,
     // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L19
-    .openbsd, .macos, .ios, .tvos, .watchos, .visionos, .serenity => u32,
+    .openbsd, .serenity => u32,
+    .macos, .ios, .tvos, .watchos, .visionos => darwin.sigset_t,
     .dragonfly, .netbsd, .solaris, .illumos, .freebsd => extern struct {
         __bits: [SIG.WORDS]u32,
     },
     .haiku => u64,
     else => u0,
 };
-pub const empty_sigset: sigset_t = switch (native_os) {
-    .linux => linux.empty_sigset,
-    .emscripten => emscripten.empty_sigset,
-    .dragonfly, .netbsd, .solaris, .illumos, .freebsd => .{ .__bits = [_]u32{0} ** SIG.WORDS },
-    else => 0,
-};
-pub const filled_sigset = switch (native_os) {
-    .linux => linux.filled_sigset,
-    .haiku => ~@as(sigset_t, 0),
-    else => 0,
-};
+
 pub const sigval = switch (native_os) {
     .linux => linux.sigval,
     // https://github.com/SerenityOS/serenity/blob/ec492a1a0819e6239ea44156825c4ee7234ca3db/Kernel/API/POSIX/signal.h#L22-L25
@@ -5575,6 +5598,7 @@ pub const MSG = switch (native_os) {
     .linux => linux.MSG,
     .emscripten => emscripten.MSG,
     .windows => ws2_32.MSG,
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => darwin.MSG,
     .haiku => struct {
         pub const OOB = 0x0001;
         pub const PEEK = 0x0002;
@@ -5680,6 +5704,9 @@ pub const SOCK = switch (native_os) {
         pub const RAW = 3;
         pub const SEQPACKET = 5;
         pub const MISC = 255;
+
+        pub const NONBLOCK = 0x40000;
+        pub const CLOEXEC = 0x80000;
     },
     .openbsd => struct {
         pub const STREAM = 1;
@@ -6669,7 +6696,7 @@ pub const timezone = switch (native_os) {
 };
 
 pub const ucontext_t = switch (native_os) {
-    .linux => linux.ucontext_t,
+    .linux => linux.ucontext_t, // std.os.linux.ucontext_t is currently glibc-compatible, but it should probably not be.
     .emscripten => emscripten.ucontext_t,
     .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         onstack: c_int,
@@ -6804,10 +6831,15 @@ pub const mcontext_t = switch (native_os) {
         fpregs: solaris.fpregset_t,
     },
     .netbsd => switch (builtin.cpu.arch) {
-        .aarch64 => extern struct {
+        .aarch64, .aarch64_be => extern struct {
             gregs: [35]u64,
             fregs: [528]u8 align(16),
             spare: [8]u64,
+        },
+        .x86 => extern struct {
+            gregs: [19]u32,
+            fpregs: [161]u32,
+            mc_tlsbase: u32,
         },
         .x86_64 => extern struct {
             gregs: [26]u64,
@@ -7004,8 +7036,8 @@ pub const RTLD = switch (native_os) {
 
 pub const dirent = switch (native_os) {
     .linux, .emscripten => extern struct {
-        ino: c_uint,
-        off: c_uint,
+        ino: ino_t,
+        off: off_t,
         reclen: c_ushort,
         type: u8,
         name: [256]u8,
@@ -7977,8 +8009,9 @@ pub const pthread_rwlock_t = switch (native_os) {
     .netbsd => extern struct {
         magic: c_uint = 0x99990009,
         interlock: switch (builtin.cpu.arch) {
-            .aarch64, .sparc, .x86_64, .x86 => u8,
-            .arm, .powerpc => c_int,
+            .aarch64, .aarch64_be, .m68k, .sparc, .sparc64, .x86, .x86_64 => u8,
+            .arm, .armeb, .powerpc => c_int,
+            .mips, .mipsel, .mips64, .mips64el => c_uint,
             else => unreachable,
         } = 0,
         rblocked_first: ?*u8 = null,
@@ -9600,6 +9633,7 @@ pub const NSIG = switch (native_os) {
     .windows => 23,
     .haiku => 65,
     .netbsd, .freebsd => 32,
+    .macos => darwin.NSIG,
     .solaris, .illumos => 75,
     // https://github.com/SerenityOS/serenity/blob/046c23f567a17758d762a33bdf04bacbfd088f9f/Kernel/API/POSIX/signal_numbers.h#L42
     .openbsd, .serenity => 33,
@@ -9898,7 +9932,9 @@ pub const EVFILT = switch (native_os) {
         pub const PROC = -5;
         pub const SIGNAL = -6;
         pub const TIMER = -7;
+        pub const DEVICE = -8;
         pub const EXCEPT = -9;
+        pub const USER = -10;
     },
     else => void,
 };
@@ -10126,6 +10162,14 @@ pub const NOTE = switch (native_os) {
         pub const CHILD = 0x00000004;
         // data/hint flags for EVFILT.DEVICE
         pub const CHANGE = 0x00000001;
+        // data/hint flags for EVFILT_USER
+        pub const FFNOP = 0x00000000;
+        pub const FFAND = 0x40000000;
+        pub const FFOR = 0x80000000;
+        pub const FFCOPY = 0xc0000000;
+        pub const FFCTRLMASK = 0xc0000000;
+        pub const FFLAGSMASK = 0x00ffffff;
+        pub const TRIGGER = 0x01000000;
     },
     else => void,
 };
@@ -10344,10 +10388,33 @@ pub const sigaction = switch (native_os) {
     else => private.sigaction,
 };
 
+/// Zig's version of SIGRTMIN.  Actually a function.
+pub fn sigrtmin() u8 {
+    return switch (native_os) {
+        .freebsd => 65,
+        .netbsd => 33,
+        else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmin()))),
+    };
+}
+
+/// Zig's version of SIGRTMAX.  Actually a function.
+pub fn sigrtmax() u8 {
+    return switch (native_os) {
+        .freebsd => 126,
+        .netbsd => 63,
+        else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmax()))),
+    };
+}
+
 pub const sigfillset = switch (native_os) {
     .netbsd => private.__sigfillset14,
     else => private.sigfillset,
 };
+
+pub const sigaddset = private.sigaddset;
+pub const sigemptyset = private.sigemptyset;
+pub const sigdelset = private.sigdelset;
+pub const sigismember = private.sigismember;
 
 pub const sigprocmask = switch (native_os) {
     .netbsd => private.__sigprocmask14,
@@ -10761,8 +10828,8 @@ pub const LC = enum(c_int) {
 
 pub extern "c" fn setlocale(category: LC, locale: ?[*:0]const u8) ?[*:0]const u8;
 
-pub const getcontext = if (builtin.target.abi.isAndroid() or builtin.target.os.tag == .openbsd)
-{} // android bionic and openbsd libc does not implement getcontext
+pub const getcontext = if (builtin.target.abi.isAndroid() or builtin.target.os.tag == .openbsd or builtin.target.os.tag == .haiku)
+{} // libc does not implement getcontext
     else if (native_os == .linux and builtin.target.abi.isMusl())
         linux.getcontext
     else
@@ -10777,6 +10844,9 @@ else
         a: c_longlong,
         b: c_longdouble,
     };
+
+pub const intmax_t = i64;
+pub const uintmax_t = u64;
 
 pub extern "c" fn pthread_getthreadid_np() c_int;
 pub extern "c" fn pthread_set_name_np(thread: pthread_t, name: [*:0]const u8) void;
@@ -11029,7 +11099,6 @@ pub const pthread_attr_set_qos_class_np = darwin.pthread_attr_set_qos_class_np;
 pub const pthread_get_qos_class_np = darwin.pthread_get_qos_class_np;
 pub const pthread_set_qos_class_self_np = darwin.pthread_set_qos_class_self_np;
 pub const ptrace = darwin.ptrace;
-pub const sigaddset = darwin.sigaddset;
 pub const task_for_pid = darwin.task_for_pid;
 pub const task_get_exception_ports = darwin.task_get_exception_ports;
 pub const task_info = darwin.task_info;
@@ -11152,7 +11221,11 @@ const private = struct {
     extern "c" fn sched_yield() c_int;
     extern "c" fn sendfile(out_fd: fd_t, in_fd: fd_t, offset: ?*off_t, count: usize) isize;
     extern "c" fn sigaction(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
-    extern "c" fn sigfillset(set: ?*sigset_t) void;
+    extern "c" fn sigdelset(set: ?*sigset_t, signo: c_int) c_int;
+    extern "c" fn sigaddset(set: ?*sigset_t, signo: c_int) c_int;
+    extern "c" fn sigfillset(set: ?*sigset_t) c_int;
+    extern "c" fn sigemptyset(set: ?*sigset_t) c_int;
+    extern "c" fn sigismember(set: ?*const sigset_t, signo: c_int) c_int;
     extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
     extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
@@ -11195,12 +11268,15 @@ const private = struct {
     extern "c" fn __msync13(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn __nanosleep50(rqtp: *const timespec, rmtp: ?*timespec) c_int;
     extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
-    extern "c" fn __sigfillset14(set: ?*sigset_t) void;
+    extern "c" fn __sigfillset14(set: ?*sigset_t) c_int;
     extern "c" fn __sigprocmask14(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn __socket30(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
     extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;
     extern "c" fn __getdents30(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
     extern "c" fn __sigaltstack14(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
+
+    extern "c" fn __libc_current_sigrtmin() c_int;
+    extern "c" fn __libc_current_sigrtmax() c_int;
 
     // Don't forget to add another clown when an OS picks yet another unique
     // symbol name for errno location!

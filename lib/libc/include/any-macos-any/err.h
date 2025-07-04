@@ -66,8 +66,11 @@
  * __darwin_va_list from <machine/_type.h> and use it.
  */
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <_types.h>
 #include <Availability.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
 void	err(int, const char *, ...) __cold __dead2 __printflike(2, 3);

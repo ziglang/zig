@@ -86,15 +86,12 @@ fn dumpStatusReport() !void {
 
     const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu) orelse {
         const file = zcu.fileByIndex(block.src_base_inst.resolveFile(&zcu.intern_pool));
-        try stderr.writeAll("Analyzing lost instruction in file '");
-        try writeFilePath(file, stderr);
-        try stderr.writeAll("'. This should not happen!\n\n");
+        try stderr.print("Analyzing lost instruction in file '{}'. This should not happen!\n\n", .{file.path.fmt(zcu.comp)});
         return;
     };
 
     try stderr.writeAll("Analyzing ");
-    try writeFilePath(file, stderr);
-    try stderr.writeAll("\n");
+    try stderr.print("Analyzing '{}'\n", .{file.path.fmt(zcu.comp)});
 
     print_zir.renderInstructionContext(
         allocator,
@@ -108,23 +105,24 @@ fn dumpStatusReport() !void {
         error.OutOfMemory => try stderr.writeAll("  <out of memory dumping zir>\n"),
         else => |e| return e,
     };
-    try stderr.writeAll("    For full context, use the command\n      zig ast-check -t ");
-    try writeFilePath(file, stderr);
-    try stderr.writeAll("\n\n");
+    try stderr.print(
+        \\    For full context, use the command
+        \\      zig ast-check -t {}
+        \\
+        \\
+    , .{file.path.fmt(zcu.comp)});
 
     var parent = anal.parent;
     while (parent) |curr| {
         fba.reset();
-        try stderr.writeAll("  in ");
-        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu) orelse {
-            const cur_block_file = zcu.fileByIndex(curr.block.src_base_inst.resolveFile(&zcu.intern_pool));
-            try writeFilePath(cur_block_file, stderr);
-            try stderr.writeAll("\n    > [lost instruction; this should not happen]\n");
+        const cur_block_file = zcu.fileByIndex(curr.block.src_base_inst.resolveFile(&zcu.intern_pool));
+        try stderr.print("  in {}\n", .{cur_block_file.path.fmt(zcu.comp)});
+        _, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu) orelse {
+            try stderr.writeAll("    > [lost instruction; this should not happen]\n");
             parent = curr.parent;
             continue;
         };
-        try writeFilePath(cur_block_file, stderr);
-        try stderr.writeAll("\n    > ");
+        try stderr.writeAll("    > ");
         print_zir.renderSingleInstruction(
             allocator,
             curr.body[curr.body_index],
@@ -146,18 +144,6 @@ fn dumpStatusReport() !void {
 
 var crash_heap: [16 * 4096]u8 = undefined;
 
-fn writeFilePath(file: *Zcu.File, writer: anytype) !void {
-    if (file.mod.root.root_dir.path) |path| {
-        try writer.writeAll(path);
-        try writer.writeAll(std.fs.path.sep_str);
-    }
-    if (file.mod.root.sub_path.len > 0) {
-        try writer.writeAll(file.mod.root.sub_path);
-        try writer.writeAll(std.fs.path.sep_str);
-    }
-    try writer.writeAll(file.sub_file_path);
-}
-
 pub fn compilerPanic(msg: []const u8, maybe_ret_addr: ?usize) noreturn {
     @branchHint(.cold);
     PanicSwitch.preDispatch();
@@ -175,12 +161,11 @@ pub fn attachSegfaultHandler() void {
         _ = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
-    var act: posix.Sigaction = .{
+    const act: posix.Sigaction = .{
         .handler = .{ .sigaction = handleSegfaultPosix },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = (posix.SA.SIGINFO | posix.SA.RESTART | posix.SA.RESETHAND),
     };
-
     debug.updateSegfaultHandler(&act);
 }
 

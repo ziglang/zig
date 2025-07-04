@@ -8,6 +8,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    if (target.result.cpu.arch.isRISCV() and target.result.os.tag == .linux) {
+        // https://github.com/ziglang/zig/issues/24310
+        return;
+    }
+
     // Unwinding with a frame pointer
     //
     // getcontext version: zig std
@@ -52,6 +57,8 @@ pub fn build(b: *std.Build) void {
                 .unwind_tables = .@"async",
                 .omit_frame_pointer = true,
             }),
+            // self-hosted lacks omit_frame_pointer support
+            .use_llvm = true,
         });
 
         const run_cmd = b.addRunArtifact(exe);
@@ -97,6 +104,8 @@ pub fn build(b: *std.Build) void {
                 .unwind_tables = if (target.result.os.tag.isDarwin()) .@"async" else null,
                 .omit_frame_pointer = true,
             }),
+            // zig objcopy doesn't support incremental binaries
+            .use_llvm = true,
         });
 
         exe.linkLibrary(c_shared_lib);
@@ -137,6 +146,8 @@ pub fn build(b: *std.Build) void {
                 .unwind_tables = null,
                 .omit_frame_pointer = false,
             }),
+            // self-hosted lacks omit_frame_pointer support
+            .use_llvm = true,
         });
 
         // This "freestanding" binary is runnable because it invokes the

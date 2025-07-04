@@ -307,7 +307,7 @@ __mingw_sformat (_IFP *s, const char *format, va_list argp)
   char seen_dot, seen_exp, is_neg, not_in;
   char *tmp_wbuf_ptr, buf[MB_LEN_MAX];
   const char *lc_decimal_point, *lc_thousands_sep;
-  mbstate_t state, cstate;
+  mbstate_t state = {0}, cstate;
   union {
     unsigned long long ull;
     unsigned long ul;
@@ -322,8 +322,6 @@ __mingw_sformat (_IFP *s, const char *format, va_list argp)
       errno = EINVAL;
       return EOF;
     }
-
-  memset (&state, 0, sizeof (state));
 
   lc_decimal_point = localeconv()->decimal_point;
   lc_thousands_sep = localeconv()->thousands_sep;
@@ -682,7 +680,7 @@ __mingw_sformat (_IFP *s, const char *format, va_list argp)
 	  if ((c = in_ch (s, &read_in)) == EOF)
 	    return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
-	  memset (&cstate, 0, sizeof (cstate));
+	  cstate = (mbstate_t){0};
 
 	  do
 	    {
@@ -854,7 +852,7 @@ __mingw_sformat (_IFP *s, const char *format, va_list argp)
 	  if ((c = in_ch (s, &read_in)) == EOF)
 	    return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
-	  memset (&cstate, 0, sizeof (cstate));
+	  cstate = (mbstate_t){0};
 
 	  do
 	    {
@@ -1459,7 +1457,7 @@ __mingw_sformat (_IFP *s, const char *format, va_list argp)
 	      if ((c = in_ch (s, &read_in)) == EOF)
 		return cleanup_return ((!rval ? EOF : rval), &gcollect, pstr, &wbuf);
 
-	      memset (&cstate, 0, sizeof (cstate));
+              cstate = (mbstate_t){0};
 
 	      do
 		{

@@ -602,6 +602,10 @@ pub const ReadFileError = error{
     OperationAborted,
     /// Unable to read file due to lock.
     LockViolation,
+    /// Known to be possible when:
+    /// - Unable to read from disconnected virtual com port (Windows)
+    AccessDenied,
+    NotOpenForReading,
     Unexpected,
 };
 
@@ -634,6 +638,8 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
                 .HANDLE_EOF => return 0,
                 .NETNAME_DELETED => return error.ConnectionResetByPeer,
                 .LOCK_VIOLATION => return error.LockViolation,
+                .ACCESS_DENIED => return error.AccessDenied,
+                .INVALID_HANDLE => return error.NotOpenForReading,
                 else => |err| return unexpectedError(err),
             }
         }
@@ -651,6 +657,9 @@ pub const WriteFileError = error{
     LockViolation,
     /// The specified network name is no longer available.
     ConnectionResetByPeer,
+    /// Known to be possible when:
+    /// - Unable to write to disconnected virtual com port (Windows)
+    AccessDenied,
     Unexpected,
 };
 
@@ -687,6 +696,8 @@ pub fn WriteFile(
             .INVALID_HANDLE => return error.NotOpenForWriting,
             .LOCK_VIOLATION => return error.LockViolation,
             .NETNAME_DELETED => return error.ConnectionResetByPeer,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .WORKING_SET_QUOTA => return error.SystemResources,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1143,7 +1154,10 @@ pub fn GetStdHandle(handle_id: DWORD) GetStdHandleError!HANDLE {
     return handle;
 }
 
-pub const SetFilePointerError = error{Unexpected};
+pub const SetFilePointerError = error{
+    Unseekable,
+    Unexpected,
+};
 
 /// The SetFilePointerEx function with the `dwMoveMethod` parameter set to `FILE_BEGIN`.
 pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!void {
@@ -1153,6 +1167,8 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
     const ipos = @as(LARGE_INTEGER, @bitCast(offset));
     if (kernel32.SetFilePointerEx(handle, ipos, null, FILE_BEGIN) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1164,6 +1180,8 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
 pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_CURRENT) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1175,6 +1193,8 @@ pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError
 pub fn SetFilePointerEx_END(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_END) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1187,6 +1207,8 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     var result: LARGE_INTEGER = undefined;
     if (kernel32.SetFilePointerEx(handle, 0, &result, FILE_CURRENT) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1883,38 +1905,13 @@ pub fn SetFileCompletionNotificationModes(handle: HANDLE, flags: UCHAR) !void {
     }
 }
 
-pub const GetEnvironmentStringsError = error{OutOfMemory};
-
-pub fn GetEnvironmentStringsW() GetEnvironmentStringsError![*:0]u16 {
-    return kernel32.GetEnvironmentStringsW() orelse return error.OutOfMemory;
-}
-
-pub fn FreeEnvironmentStringsW(penv: [*:0]u16) void {
-    assert(kernel32.FreeEnvironmentStringsW(penv) != 0);
-}
-
-pub const GetEnvironmentVariableError = error{
-    EnvironmentVariableNotFound,
-    Unexpected,
-};
-
-pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) GetEnvironmentVariableError!DWORD {
-    const rc = kernel32.GetEnvironmentVariableW(lpName, lpBuffer, nSize);
-    if (rc == 0) {
-        switch (GetLastError()) {
-            .ENVVAR_NOT_FOUND => return error.EnvironmentVariableNotFound,
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return rc;
-}
-
 pub const CreateProcessError = error{
     FileNotFound,
     AccessDenied,
     InvalidName,
     NameTooLong,
     InvalidExe,
+    SystemResources,
     Unexpected,
 };
 
@@ -1980,6 +1977,7 @@ pub fn CreateProcessW(
         switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
+            .DIRECTORY => return error.FileNotFound,
             .ACCESS_DENIED => return error.AccessDenied,
             .INVALID_PARAMETER => unreachable,
             .INVALID_NAME => return error.InvalidName,
@@ -2008,6 +2006,7 @@ pub fn CreateProcessW(
             // when calling CreateProcessW on a plain text file with a .exe extension
             .EXE_MACHINE_TYPE_MISMATCH,
             => return error.InvalidExe,
+            .COMMITMENT_LIMIT => return error.SystemResources,
             else => |err| return unexpectedError(err),
         }
     }
@@ -4890,6 +4889,10 @@ pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
     DllPath: UNICODE_STRING,
     ImagePathName: UNICODE_STRING,
     CommandLine: UNICODE_STRING,
+    /// Points to a NUL-terminated sequence of NUL-terminated
+    /// WTF-16 LE encoded `name=value` sequences.
+    /// Example using string literal syntax:
+    /// `"NAME=value\x00foo=bar\x00\x00"`
     Environment: [*:0]WCHAR,
     dwX: ULONG,
     dwY: ULONG,
@@ -5315,6 +5318,9 @@ pub const PF = enum(DWORD) {
 
     /// This ARM processor implements the ARM v8.3 JavaScript conversion (JSCVT) instructions.
     ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE = 44,
+
+    /// This Arm processor implements the Arm v8.3 LRCPC instructions (for example, LDAPR). Note that certain Arm v8.2 CPUs may optionally support the LRCPC instructions.
+    ARM_V83_LRCPC_INSTRUCTIONS_AVAILABLE,
 };
 
 pub const MAX_WOW64_SHARED_ENTRIES = 16;

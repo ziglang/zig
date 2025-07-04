@@ -198,10 +198,10 @@ fn serveWasm(
     const wasm_base_path = try buildWasmBinary(ws, arena, optimize_mode);
     const bin_name = try std.zig.binNameAlloc(arena, .{
         .root_name = fuzzer_bin_name,
-        .target = std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
+        .target = &(std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
             .arch_os_abi = fuzzer_arch_os_abi,
             .cpu_features = fuzzer_cpu_features,
-        }) catch unreachable) catch unreachable,
+        }) catch unreachable) catch unreachable),
         .output_mode = .Exe,
     });
     // std.http.Server does not have a sendfile API yet.
