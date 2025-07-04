@@ -1680,7 +1680,7 @@ pub const DeclGen = struct {
                         try w.writeAll("{(");
                         const ptr_ty = ty.slicePtrFieldType(zcu);
                         try dg.renderType(w, ptr_ty);
-                        return w.print("){f}, {0fx}}}", .{
+                        return w.print("){f}, {0f}}}", .{
                             try dg.fmtIntLiteralHex(.undef_usize, .Other),
                         });
                     },

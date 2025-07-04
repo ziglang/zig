@@ -102,7 +102,7 @@ pub fn print(
         .enum_tag => |enum_tag| {
             const enum_type = ip.loadEnumType(val.typeOf(zcu).toIntern());
             if (enum_type.tagValueIndex(ip, val.toIntern())) |tag_index| {
-                return writer.print(".{fi}", .{enum_type.names.get(ip)[tag_index].fmt(ip)});
+                return writer.print(".{f}", .{enum_type.names.get(ip)[tag_index].fmt(ip)});
             }
             if (level == 0) {
                 return writer.writeAll("@enumFromInt(...)");
@@ -207,7 +207,7 @@ fn printAggregate(
             for (0..max_len) |i| {
                 if (i != 0) try writer.writeAll(", ");
                 const field_name = ty.structFieldName(@intCast(i), zcu).unwrap().?;
-                try writer.print(".{fi} = ", .{field_name.fmt(ip)});
+                try writer.print(".{f} = ", .{field_name.fmt(ip)});
                 try print(try val.fieldValue(pt, i), writer, level - 1, pt, opt_sema);
             }
             try writer.writeAll(" }");
@@ -392,14 +392,14 @@ pub fn printPtrDerivation(
             const agg_ty = (try field.parent.ptrType(pt)).childType(zcu);
             switch (agg_ty.zigTypeTag(zcu)) {
                 .@"struct" => if (agg_ty.structFieldName(field.field_idx, zcu).unwrap()) |field_name| {
-                    try writer.print(".{fi}", .{field_name.fmt(ip)});
+                    try writer.print(".{f}", .{field_name.fmt(ip)});
                 } else {
                     try writer.print("[{d}]", .{field.field_idx});
                 },
                 .@"union" => {
                     const tag_ty = agg_ty.unionTagTypeHypothetical(zcu);
                     const field_name = tag_ty.enumFieldName(field.field_idx, zcu);
-                    try writer.print(".{fi}", .{field_name.fmt(ip)});
+                    try writer.print(".{f}", .{field_name.fmt(ip)});
                 },
                 .pointer => switch (field.field_idx) {
                     Value.slice_ptr_index => try writer.writeAll(".ptr"),

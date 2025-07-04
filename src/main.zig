@@ -3336,8 +3336,8 @@ fn buildOutputType(
         var hasher = file_writer.interface.hashed(Cache.Hasher.init("0123456789abcdef"), &buffer);
         var stdin_reader = fs.File.stdin().readerStreaming(&.{});
         _ = hasher.writer.sendFileAll(&stdin_reader, .unlimited) catch |err| switch (err) {
-            error.WriteFailed => fatal("failed to write {s}: {s}", .{ dump_path, file_writer.err.? }),
-            else => fatal("failed to pipe stdin to {s}: {s}", .{ dump_path, err }),
+            error.WriteFailed => fatal("failed to write {s}: {t}", .{ dump_path, file_writer.err.? }),
+            else => fatal("failed to pipe stdin to {s}: {t}", .{ dump_path, err }),
         };
         try hasher.writer.flush();
 

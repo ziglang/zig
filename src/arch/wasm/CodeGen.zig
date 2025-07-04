@@ -2046,7 +2046,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
         try cg.genInst(inst);
 
         if (std.debug.runtime_safety and cg.air_bookkeeping < old_bookkeeping_value + 1) {
-            std.debug.panic("Missing call to `finishAir` in AIR instruction %{d} ('{s}')", .{
+            std.debug.panic("Missing call to `finishAir` in AIR instruction %{d} ('{t}')", .{
                 inst,
                 cg.air.instructions.items(.tag)[@intFromEnum(inst)],
             });
@@ -3326,7 +3326,7 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
             },
             else => unreachable,
         },
-        else => return cg.fail("Wasm TODO: emitUndefined for type: {s}\n", .{ty.zigTypeTag(zcu)}),
+        else => return cg.fail("Wasm TODO: emitUndefined for type: {t}\n", .{ty.zigTypeTag(zcu)}),
     }
 }
 

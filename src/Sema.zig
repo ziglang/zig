@@ -20465,7 +20465,7 @@ fn zirIntFromBool(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
     const operand_scalar_ty = operand_ty.scalarType(zcu);
     if (operand_scalar_ty.toIntern() != .bool_type) {
-        return sema.fail(block, src, "expected 'bool', found '{s}'", .{operand_scalar_ty.zigTypeTag(zcu)});
+        return sema.fail(block, src, "expected 'bool', found '{t}'", .{operand_scalar_ty.zigTypeTag(zcu)});
     }
     const len = if (is_vector) operand_ty.vectorLen(zcu) else undefined;
     const dest_ty: Type = if (is_vector) try pt.vectorType(.{ .child = .u1_type, .len = len }) else .u1;
@@ -23576,7 +23576,7 @@ fn checkNumericType(
         .comptime_float, .float, .comptime_int, .int => {},
         .vector => switch (ty.childType(zcu).zigTypeTag(zcu)) {
             .comptime_float, .float, .comptime_int, .int => {},
-            else => |t| return sema.fail(block, ty_src, "expected number, found '{s}'", .{t}),
+            else => |t| return sema.fail(block, ty_src, "expected number, found '{t}'", .{t}),
         },
         else => return sema.fail(block, ty_src, "expected number, found '{f}'", .{ty.fmt(pt)}),
     }
@@ -37176,7 +37176,14 @@ fn explainWhyValueContainsReferenceToComptimeVar(sema: *Sema, msg: *Zcu.ErrorMsg
     }
 }
 
-fn notePathToComptimeAllocPtr(sema: *Sema, msg: *Zcu.ErrorMsg, src: LazySrcLoc, val: Value, intermediate_value_count: u32, start_value_name: InternPool.NullTerminatedString) Allocator.Error!union(enum) {
+fn notePathToComptimeAllocPtr(
+    sema: *Sema,
+    msg: *Zcu.ErrorMsg,
+    src: LazySrcLoc,
+    val: Value,
+    intermediate_value_count: u32,
+    start_value_name: InternPool.NullTerminatedString,
+) Allocator.Error!union(enum) {
     done,
     new_val: Value,
 } {
@@ -37187,7 +37194,7 @@ fn notePathToComptimeAllocPtr(sema: *Sema, msg: *Zcu.ErrorMsg, src: LazySrcLoc, 
 
     var first_path: std.ArrayListUnmanaged(u8) = .empty;
     if (intermediate_value_count == 0) {
-        try first_path.print(arena, "{fi}", .{start_value_name.fmt(ip)});
+        try first_path.print(arena, "{f}", .{start_value_name.fmt(ip)});
     } else {
         try first_path.print(arena, "v{d}", .{intermediate_value_count - 1});
     }
@@ -37283,7 +37290,7 @@ fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayList
             const backing_enum = union_ty.unionTagTypeHypothetical(zcu);
             const field_idx = backing_enum.enumTagFieldIndex(.fromInterned(un.tag), zcu).?;
             const field_name = backing_enum.enumFieldName(field_idx, zcu);
-            try path.print(arena, ".{fi}", .{field_name.fmt(ip)});
+            try path.print(arena, ".{f}", .{field_name.fmt(ip)});
             return sema.notePathToComptimeAllocPtrInner(.fromInterned(un.val), path);
         },
         .aggregate => |agg| {
@@ -37308,7 +37315,7 @@ fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayList
                     try path.print(arena, "[{d}]", .{elem_idx});
                 } else {
                     const name = agg_ty.structFieldName(elem_idx, zcu).unwrap().?;
-                    try path.print(arena, ".{fi}", .{name.fmt(ip)});
+                    try path.print(arena, ".{f}", .{name.fmt(ip)});
                 },
                 else => unreachable,
             }
