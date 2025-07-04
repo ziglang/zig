@@ -437,7 +437,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
             try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb_basename}));
         }
         if (comp.version) |version| {
-            try argv.append(try allocPrint(arena, "-VERSION:{f}.{f}", .{ version.major, version.minor }));
+            try argv.append(try allocPrint(arena, "-VERSION:{d}.{d}", .{ version.major, version.minor }));
         }
 
         if (target_util.llvmMachineAbi(target)) |mabi| {

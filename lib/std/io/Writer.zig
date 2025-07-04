@@ -851,12 +851,12 @@ pub fn printValue(
             }
         },
         .error_set => {
-            if (fmt.len == 1 and fmt[0] == 's') return w.writeAll(@errorName(value));
+            if (fmt.len == 1 and fmt[0] == 't') return w.writeAll(@errorName(value));
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
             try printErrorSet(w, value);
         },
         .@"enum" => {
-            if (fmt.len == 1 and fmt[0] == 's') {
+            if (fmt.len == 1 and fmt[0] == 't') {
                 try w.writeAll(@tagName(value));
                 return;
             }
@@ -881,7 +881,7 @@ pub fn printValue(
             return;
         },
         .@"union" => |info| {
-            if (fmt.len == 1 and fmt[0] == 's') {
+            if (fmt.len == 1 and fmt[0] == 't') {
                 try w.writeAll(@tagName(value));
                 return;
             }

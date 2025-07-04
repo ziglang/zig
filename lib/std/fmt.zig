@@ -67,6 +67,9 @@ pub const Options = struct {
 /// - `s`:
 ///   - for pointer-to-many and C pointers of u8, print as a C-string using zero-termination
 ///   - for slices of u8, print the entire slice as a string without zero-termination
+/// - `t`:
+///   - for enums and tagged unions: prints the tag name
+///   - for error sets: prints the error name
 /// - `b64`: output string as standard base64
 /// - `e`: output floating point value in scientific notation
 /// - `d`: output numeric value in decimal notation

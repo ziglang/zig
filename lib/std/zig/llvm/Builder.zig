@@ -1265,7 +1265,7 @@ pub const Attribute = union(Kind) {
                     try w.writeByte(')');
                 },
                 .alignstack => |alignment| {
-                    try w.print(" {s}", .{attribute});
+                    try w.print(" {t}", .{attribute});
                     const alignment_bytes = alignment.toByteUnits() orelse return;
                     if (data.flags.pound) {
                         try w.print("={d}", .{alignment_bytes});
@@ -1274,7 +1274,7 @@ pub const Attribute = union(Kind) {
                     }
                 },
                 .allockind => |allockind| {
-                    try w.print(" {s}(\"", .{@tagName(attribute)});
+                    try w.print(" {t}(\"", .{attribute});
                     var any = false;
                     inline for (@typeInfo(AllocKind).@"struct".fields) |field| {
                         if (comptime std.mem.eql(u8, field.name, "_")) continue;
@@ -1289,13 +1289,13 @@ pub const Attribute = union(Kind) {
                     try w.writeAll("\")");
                 },
                 .allocsize => |allocsize| {
-                    try w.print(" {s}({d}", .{ @tagName(attribute), allocsize.elem_size });
+                    try w.print(" {t}({d}", .{ attribute, allocsize.elem_size });
                     if (allocsize.num_elems != AllocSize.none)
                         try w.print(",{d}", .{allocsize.num_elems});
                     try w.writeByte(')');
                 },
                 .memory => |memory| {
-                    try w.print(" {s}(", .{@tagName(attribute)});
+                    try w.print(" {t}(", .{attribute});
                     var any = memory.other != .none or
                         (memory.argmem == .none and memory.inaccessiblemem == .none);
                     if (any) try w.writeAll(@tagName(memory.other));
@@ -8445,7 +8445,7 @@ pub const Metadata = enum(u32) {
             }
             fmt_str = fmt_str ++ "(";
             inline for (fields[2..], names) |*field, name| {
-                fmt_str = fmt_str ++ "{[" ++ name ++ "]fS}";
+                fmt_str = fmt_str ++ "{[" ++ name ++ "]f}";
                 field.* = .{
                     .name = name,
                     .type = std.fmt.Formatter(FormatData, format),
