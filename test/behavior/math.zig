@@ -1110,6 +1110,7 @@ fn testSubWithOverflow(comptime T: type, a: T, b: T, sub: T, bit: u1) !void {
 test "@subWithOverflow" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO #24333
 
     try testSubWithOverflow(u8, 42, 0, 42, 0);
     try testSubWithOverflow(i8, 42, 0, 42, 0);
