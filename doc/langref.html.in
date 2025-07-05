@@ -2304,6 +2304,12 @@ or
       {#code|test_packed_struct_equality.zig#}
 
       <p>
+      Switching on packed structs works according to the same principle,
+	  comparing the backing integer.
+      </p>
+      {#code|test_switch_packed_struct.zig#}
+
+      <p>
       Field access and assignment can be understood as shorthand for bitshifts
       on the backing integer. These operations are not {#link|atomic|Atomics#},
       so beware using field access syntax when combined with memory-mapped

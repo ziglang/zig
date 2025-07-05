@@ -2273,13 +2273,12 @@ pub fn isAbiInt(ty: Type, zcu: *const Zcu) bool {
     };
 }
 
-/// Asserts the type is an integer, enum, error set, or vector of one of them.
-pub fn intInfo(starting_ty: Type, zcu: *const Zcu) InternPool.Key.IntType {
+/// Asserts the type is an integer, enum, error set, packed struct or vector of one of them.
+pub fn intInfo(ty: Type, zcu: *const Zcu) InternPool.Key.IntType {
     const ip = &zcu.intern_pool;
     const target = zcu.getTarget();
-    var ty = starting_ty;
 
-    while (true) switch (ty.toIntern()) {
+    sw: switch (ty.toIntern()) {
         .anyerror_type, .adhoc_inferred_error_set_type => {
             return .{ .signedness = .unsigned, .bits = zcu.errorSetBits() };
         },
@@ -2294,11 +2293,11 @@ pub fn intInfo(starting_ty: Type, zcu: *const Zcu) InternPool.Key.IntType {
         .c_ulong_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.ulong) },
         .c_longlong_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.longlong) },
         .c_ulonglong_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.ulonglong) },
-        else => switch (ip.indexToKey(ty.toIntern())) {
+        else => |pl| switch (ip.indexToKey(pl)) {
             .int_type => |int_type| return int_type,
-            .struct_type => ty = Type.fromInterned(ip.loadStructType(ty.toIntern()).backingIntTypeUnordered(ip)),
-            .enum_type => ty = Type.fromInterned(ip.loadEnumType(ty.toIntern()).tag_ty),
-            .vector_type => |vector_type| ty = Type.fromInterned(vector_type.child),
+            .struct_type => continue :sw ip.loadStructType(ty.toIntern()).backingIntTypeUnordered(ip),
+            .enum_type => continue :sw ip.loadEnumType(ty.toIntern()).tag_ty,
+            .vector_type => |vector_type| continue :sw vector_type.child,
 
             .error_set_type, .inferred_error_set_type => {
                 return .{ .signedness = .unsigned, .bits = zcu.errorSetBits() };
@@ -2340,7 +2339,7 @@ pub fn intInfo(starting_ty: Type, zcu: *const Zcu) InternPool.Key.IntType {
             .memoized_call,
             => unreachable,
         },
-    };
+    }
 }
 
 pub fn isNamedInt(ty: Type) bool {

@@ -11391,6 +11391,7 @@ fn switchCond(
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     const operand_ty = sema.typeOf(operand);
     switch (operand_ty.zigTypeTag(zcu)) {
         .type,
@@ -11431,10 +11432,30 @@ fn switchCond(
             return sema.unionToTag(block, enum_ty, operand, src);
         },
 
+        .@"struct" => {
+            try operand_ty.resolveLayout(pt);
+            const struct_ty = ip.loadStructType(operand_ty.toIntern());
+            if (struct_ty.layout != .@"packed") {
+                const msg = msg: {
+                    const msg = try sema.errMsg(
+                        src,
+                        "switch on struct requires 'packed' layout; type '{}' has '{s}' layout",
+                        .{ operand_ty.fmt(pt), @tagName(struct_ty.layout) },
+                    );
+                    errdefer msg.destroy(sema.gpa);
+                    if (operand_ty.srcLocOrNull(zcu)) |struct_src| {
+                        try sema.errNote(struct_src, msg, "consider 'packed struct' here", .{});
+                    }
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
+            return operand;
+        },
+
         .error_union,
         .noreturn,
         .array,
-        .@"struct",
         .undefined,
         .null,
         .optional,
@@ -11901,7 +11922,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     // Duplicate checking variables later also used for `inline else`.
     var seen_enum_fields: []?LazySrcLoc = &.{};
     var seen_errors = SwitchErrorSet.init(gpa);
-    var range_set = RangeSet.init(gpa, zcu);
+    var range_set = RangeSet.init(gpa);
     var true_count: u8 = 0;
     var false_count: u8 = 0;
 
@@ -12065,7 +12086,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             .{ .body = special.body, .end = special.end, .src = special_prong_src },
             special_prong == .@"else",
         ),
-        .int, .comptime_int => {
+        .int, .comptime_int, .@"struct" => {
             var extra_index: usize = special.end;
             {
                 var scalar_i: u32 = 0;
@@ -12115,28 +12136,32 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                         ));
                     }
 
-                    try case_vals.ensureUnusedCapacity(gpa, 2 * ranges_len);
-                    var range_i: u32 = 0;
-                    while (range_i < ranges_len) : (range_i += 1) {
-                        const item_first: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
-                        extra_index += 1;
-                        const item_last: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
-                        extra_index += 1;
+                    if (cond_ty.zigTypeTag(zcu) == .@"struct") {
+                        try sema.validateSwitchNoRange(block, ranges_len, cond_ty, src_node_offset);
+                    } else {
+                        try case_vals.ensureUnusedCapacity(gpa, 2 * ranges_len);
+                        var range_i: u32 = 0;
+                        while (range_i < ranges_len) : (range_i += 1) {
+                            const item_first: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
+                            extra_index += 1;
+                            const item_last: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
+                            extra_index += 1;
 
-                        const vals = try sema.validateSwitchRange(
-                            block,
-                            &range_set,
-                            item_first,
-                            item_last,
-                            cond_ty,
-                            block.src(.{ .switch_case_item = .{
-                                .switch_node_offset = src_node_offset,
-                                .case_idx = .{ .kind = .multi, .index = @intCast(multi_i) },
-                                .item_idx = .{ .kind = .range, .index = @intCast(range_i) },
-                            } }),
-                        );
-                        case_vals.appendAssumeCapacity(vals[0]);
-                        case_vals.appendAssumeCapacity(vals[1]);
+                            const vals = try sema.validateSwitchRange(
+                                block,
+                                &range_set,
+                                item_first,
+                                item_last,
+                                cond_ty,
+                                block.src(.{ .switch_case_item = .{
+                                    .switch_node_offset = src_node_offset,
+                                    .case_idx = .{ .kind = .multi, .index = @intCast(multi_i) },
+                                    .item_idx = .{ .kind = .range, .index = @intCast(range_i) },
+                                } }),
+                            );
+                            case_vals.appendAssumeCapacity(vals[0]);
+                            case_vals.appendAssumeCapacity(vals[1]);
+                        }
                     }
 
                     extra_index += info.body_len;
@@ -12144,10 +12169,15 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             }
 
             check_range: {
-                if (cond_ty.zigTypeTag(zcu) == .int) {
-                    const min_int = try cond_ty.minInt(pt, cond_ty);
-                    const max_int = try cond_ty.maxInt(pt, cond_ty);
-                    if (try range_set.spans(min_int.toIntern(), max_int.toIntern())) {
+                if (cond_ty.zigTypeTag(zcu) != .comptime_int) {
+                    // Necessary because `[min|max]Int` expects a pure integer as its `dest_ty`.
+                    const int_ty: Type = if (cond_ty.zigTypeTag(zcu) == .int) cond_ty else ty: {
+                        const ps_ty = zcu.typeToPackedStruct(cond_ty).?;
+                        break :ty .fromInterned(ps_ty.backingIntTypeUnordered(&zcu.intern_pool));
+                    };
+                    const min_int = try cond_ty.minInt(pt, int_ty);
+                    const max_int = try cond_ty.maxInt(pt, int_ty);
+                    if (try range_set.spans(min_int.toIntern(), max_int.toIntern(), sema)) {
                         if (special_prong == .@"else") {
                             return sema.fail(
                                 block,
@@ -12316,7 +12346,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .error_union,
         .noreturn,
         .array,
-        .@"struct",
         .undefined,
         .null,
         .optional,
@@ -13676,7 +13705,7 @@ fn validateSwitchRange(
     if (try Value.fromInterned(first.val).compareAll(.gt, Value.fromInterned(last.val), operand_ty, sema.pt)) {
         return sema.fail(block, item_src, "range start value is greater than the end value", .{});
     }
-    const maybe_prev_src = try range_set.add(first.val, last.val, item_src);
+    const maybe_prev_src = try range_set.add(first.val, last.val, item_src, sema);
     try sema.validateSwitchDupe(block, maybe_prev_src, item_src);
     return .{ first.ref, last.ref };
 }
@@ -13690,7 +13719,7 @@ fn validateSwitchItemInt(
     item_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
     const item = try sema.resolveSwitchItemVal(block, item_ref, operand_ty, item_src);
-    const maybe_prev_src = try range_set.add(item.val, item.val, item_src);
+    const maybe_prev_src = try range_set.add(item.val, item.val, item_src, sema);
     try sema.validateSwitchDupe(block, maybe_prev_src, item_src);
     return item.ref;
 }
@@ -13708,7 +13737,7 @@ fn validateSwitchItemEnum(
     const item = try sema.resolveSwitchItemVal(block, item_ref, operand_ty, item_src);
     const int = ip.indexToKey(item.val).enum_tag.int;
     const field_index = ip.loadEnumType(ip.typeOf(item.val)).tagValueIndex(ip, int) orelse {
-        const maybe_prev_src = try range_set.add(int, int, item_src);
+        const maybe_prev_src = try range_set.add(int, int, item_src, sema);
         try sema.validateSwitchDupe(block, maybe_prev_src, item_src);
         return item.ref;
     };

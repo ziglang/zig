@@ -216,3 +216,24 @@ test "switch loop with pointer capture" {
     try S.doTheTest();
     try comptime S.doTheTest();
 }
+
+test "switch loop with packed structs" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const P = packed struct { a: u7, b: u20 };
+
+        fn doTheTest() !void {
+            const p: P = .{ .a = 5, .b = 0 };
+            const result = s: switch (p) {
+                .{ .a = 5, .b = 10 } => |x| x,
+                else => |x| continue :s .{ .a = x.a, .b = x.b + 1 },
+            };
+            try expect(result == P{ .a = 5, .b = 10 });
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}

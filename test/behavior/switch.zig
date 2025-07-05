@@ -1083,3 +1083,72 @@ test "decl literals as switch cases" {
     };
     try expect(ok);
 }
+
+test "switch on packed struct" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+
+    const P = packed struct { a: u1, b: u1 };
+    const p: P = .{ .a = 0, .b = 0 };
+    switch (p) {
+        .{ .a = 0, .b = 0 } => {},
+        else => return error.TestFailed,
+    }
+
+    switch (p) {
+        .{ .a = 0, .b = 0 } => {},
+        .{ .a = 0, .b = 1 },
+        .{ .a = 1, .b = 0 },
+        .{ .a = 1, .b = 1 },
+        => return error.TestFailed,
+    }
+
+    switch (p) {
+        inline else => |val| if (val != P{ .a = 0, .b = 0 }) return error.TestFailed,
+    }
+}
+
+test "switch on complex packed struct" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+
+    const P = packed struct {
+        iu: u17,
+        is: i31,
+        b: bool,
+        e: enum(u5) { a = 5, b = 3, c = 12 },
+        un: packed union {
+            a: i5,
+            b: u9,
+            c: packed struct { a: i5, b: u4 },
+        },
+        p: packed struct(u9) { a: u3, b: u6 },
+    };
+    const p: P = .{
+        .iu = 129,
+        .is = -162784612,
+        .b = true,
+        .e = .a,
+        .un = .{ .c = .{ .a = -3, .b = 9 } },
+        .p = .{ .a = 2, .b = 17 },
+    };
+    const ok = switch (p) {
+        .{
+            .iu = 72,
+            .is = 124,
+            .b = false,
+            .e = .c,
+            .un = .{ .b = 13 },
+            .p = .{ .a = 0, .b = 12 },
+        } => false,
+        .{
+            .iu = 129,
+            .is = -162784612,
+            .b = true,
+            .e = .a,
+            .un = .{ .c = .{ .a = -3, .b = 9 } },
+            .p = .{ .a = 2, .b = 17 },
+        } => true,
+        else => false,
+    };
+    try expect(ok);
+}
