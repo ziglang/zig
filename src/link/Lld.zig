@@ -424,7 +424,10 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
 
         try argv.append("-ERRORLIMIT:0");
         try argv.append("-NOLOGO");
-        if (comp.config.debug_format != .strip) {
+        if (comp.config.debug_format == .dwarf) {
+            try argv.append("-DEBUG:DWARF");
+        }
+        if (comp.config.debug_format == .code_view) {
             try argv.append("-DEBUG");
 
             const out_ext = std.fs.path.extension(full_out_path);
@@ -663,17 +666,17 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
                         }
 
                         if (is_dyn_lib) {
-                            try argv.append(try comp.crtFileAsString(arena, "dllcrt2.obj"));
+                            try argv.append(try comp.crtFileAsString(arena, "dllcrt2.o"));
                             if (target.cpu.arch == .x86) {
                                 try argv.append("-ALTERNATENAME:__DllMainCRTStartup@12=_DllMainCRTStartup@12");
                             } else {
                                 try argv.append("-ALTERNATENAME:_DllMainCRTStartup=DllMainCRTStartup");
                             }
                         } else {
-                            try argv.append(try comp.crtFileAsString(arena, "crt2.obj"));
+                            try argv.append(try comp.crtFileAsString(arena, "crt2.o"));
                         }
 
-                        try argv.append(try comp.crtFileAsString(arena, "libmingw32.lib"));
+                        try argv.append(try comp.crtFileAsString(arena, "libmingw32.a"));
                     } else {
                         try argv.append(switch (comp.config.link_mode) {
                             .static => "libcmt.lib",
