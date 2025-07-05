@@ -34,9 +34,7 @@ pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
 
-    pub fn format(self: StackTrace, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-        if (fmt.len != 0) unreachable;
-
+    pub fn format(self: StackTrace, writer: *std.io.Writer) std.io.Writer.Error!void {
         // TODO: re-evaluate whether to use format() methods at all.
         // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
         // where it tries to call detectTTYConfig here.

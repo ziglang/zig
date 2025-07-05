@@ -15,10 +15,9 @@ const Value = @This();
 
 ip_index: InternPool.Index,
 
-pub fn format(val: Value, writer: *std.io.Writer, comptime fmt: []const u8) !void {
+pub fn format(val: Value, writer: *std.io.Writer) !void {
     _ = val;
     _ = writer;
-    _ = fmt;
     @compileError("do not use format values directly; use either fmtDebug or fmtValue");
 }
 

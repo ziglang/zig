@@ -1,6 +1,10 @@
 //! Uniform Resource Identifier (URI) parsing roughly adhering to <https://tools.ietf.org/html/rfc3986>.
 //! Does not do perfect grammar and character class checking, but should be robust against URIs in the wild.
 
+const std = @import("std.zig");
+const testing = std.testing;
+const Uri = @This();
+
 scheme: []const u8,
 user: ?Component = null,
 password: ?Component = null,
@@ -34,21 +38,14 @@ pub const Component = union(enum) {
         return switch (component) {
             .raw => |raw| raw,
             .percent_encoded => |percent_encoded| if (std.mem.indexOfScalar(u8, percent_encoded, '%')) |_|
-                try std.fmt.allocPrint(arena, "{fraw}", .{component})
+                try std.fmt.allocPrint(arena, "{f}", .{std.fmt.alt(component, .formatRaw)})
             else
                 percent_encoded,
         };
     }
 
-    pub fn format(component: Component, w: *std.io.Writer, comptime fmt_str: []const u8) std.io.Writer.Error!void {
-        if (fmt_str.len == 0) {
-            try w.print("std.Uri.Component{{ .{s} = \"{f}\" }}", .{
-                @tagName(component),
-                std.zig.fmtString(switch (component) {
-                    .raw, .percent_encoded => |string| string,
-                }),
-            });
-        } else if (comptime std.mem.eql(u8, fmt_str, "raw")) switch (component) {
+    pub fn formatRaw(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+        switch (component) {
             .raw => |raw| try w.writeAll(raw),
             .percent_encoded => |percent_encoded| {
                 var start: usize = 0;
@@ -67,28 +64,56 @@ pub const Component = union(enum) {
                 }
                 try w.writeAll(percent_encoded[start..]);
             },
-        } else if (comptime std.mem.eql(u8, fmt_str, "%")) switch (component) {
+        }
+    }
+
+    pub fn formatEscaped(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+        switch (component) {
             .raw => |raw| try percentEncode(w, raw, isUnreserved),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
-        } else if (comptime std.mem.eql(u8, fmt_str, "user")) switch (component) {
+        }
+    }
+
+    pub fn formatUser(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+        switch (component) {
             .raw => |raw| try percentEncode(w, raw, isUserChar),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
-        } else if (comptime std.mem.eql(u8, fmt_str, "password")) switch (component) {
+        }
+    }
+
+    pub fn formatPassword(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+        switch (component) {
             .raw => |raw| try percentEncode(w, raw, isPasswordChar),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
-        } else if (comptime std.mem.eql(u8, fmt_str, "host")) switch (component) {
+        }
+    }
+
+    pub fn formatHost(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+        switch (component) {
             .raw => |raw| try percentEncode(w, raw, isHostChar),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
-        } else if (comptime std.mem.eql(u8, fmt_str, "path")) switch (component) {
+        }
+    }
+
+    pub fn formatPath(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+        switch (component) {
             .raw => |raw| try percentEncode(w, raw, isPathChar),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
-        } else if (comptime std.mem.eql(u8, fmt_str, "query")) switch (component) {
+        }
+    }
+
+    pub fn formatQuery(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+        switch (component) {
             .raw => |raw| try percentEncode(w, raw, isQueryChar),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
-        } else if (comptime std.mem.eql(u8, fmt_str, "fragment")) switch (component) {
+        }
+    }
+
+    pub fn formatFragment(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+        switch (component) {
             .raw => |raw| try percentEncode(w, raw, isFragmentChar),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
-        } else @compileError("invalid format string '" ++ fmt_str ++ "'");
+        }
     }
 
     pub fn percentEncode(w: *std.io.Writer, raw: []const u8, comptime isValidChar: fn (u8) bool) std.io.Writer.Error!void {
@@ -215,82 +240,77 @@ pub fn parseAfterScheme(scheme: []const u8, text: []const u8) ParseError!Uri {
     return uri;
 }
 
-pub const WriteToStreamOptions = struct {
-    /// When true, include the scheme part of the URI.
-    scheme: bool = false,
-
-    /// When true, include the user and password part of the URI. Ignored if `authority` is false.
-    authentication: bool = false,
-
-    /// When true, include the authority part of the URI.
-    authority: bool = false,
-
-    /// When true, include the path part of the URI.
-    path: bool = false,
-
-    /// When true, include the query part of the URI. Ignored when `path` is false.
-    query: bool = false,
-
-    /// When true, include the fragment part of the URI. Ignored when `path` is false.
-    fragment: bool = false,
-
-    /// When true, include the port part of the URI. Ignored when `port` is null.
-    port: bool = true,
-};
-
-pub fn writeToStream(uri: Uri, writer: *std.io.Writer, options: WriteToStreamOptions) std.io.Writer.Error!void {
-    if (options.scheme) {
+pub fn writeToStream(uri: *const Uri, writer: *std.io.Writer, flags: Format.Flags) std.io.Writer.Error!void {
+    if (flags.scheme) {
         try writer.print("{s}:", .{uri.scheme});
-        if (options.authority and uri.host != null) {
+        if (flags.authority and uri.host != null) {
             try writer.writeAll("//");
         }
     }
-    if (options.authority) {
-        if (options.authentication and uri.host != null) {
+    if (flags.authority) {
+        if (flags.authentication and uri.host != null) {
             if (uri.user) |user| {
-                try writer.print("{fuser}", .{user});
+                try user.formatUser(writer);
                 if (uri.password) |password| {
-                    try writer.print(":{fpassword}", .{password});
+                    try writer.writeByte(':');
+                    try password.formatPassword(writer);
                 }
                 try writer.writeByte('@');
             }
         }
         if (uri.host) |host| {
-            try writer.print("{fhost}", .{host});
-            if (options.port) {
+            try host.formatHost(writer);
+            if (flags.port) {
                 if (uri.port) |port| try writer.print(":{d}", .{port});
             }
         }
     }
-    if (options.path) {
-        try writer.print("{fpath}", .{
-            if (uri.path.isEmpty()) Uri.Component{ .percent_encoded = "/" } else uri.path,
-        });
-        if (options.query) {
-            if (uri.query) |query| try writer.print("?{fquery}", .{query});
+    if (flags.path) {
+        const uri_path: Component = if (uri.path.isEmpty()) .{ .percent_encoded = "/" } else uri.path;
+        try uri_path.formatPath(writer);
+        if (flags.query) {
+            if (uri.query) |query| {
+                try writer.writeByte('?');
+                try query.formatQuery(writer);
+            }
         }
-        if (options.fragment) {
-            if (uri.fragment) |fragment| try writer.print("#{ffragment}", .{fragment});
+        if (flags.fragment) {
+            if (uri.fragment) |fragment| {
+                try writer.writeByte('#');
+                try fragment.formatFragment(writer);
+            }
         }
     }
 }
 
-pub fn format(uri: Uri, writer: *std.io.Writer, comptime fmt_str: []const u8) std.io.Writer.Error!void {
-    const scheme = comptime std.mem.indexOfScalar(u8, fmt_str, ';') != null or fmt_str.len == 0;
-    const authentication = comptime std.mem.indexOfScalar(u8, fmt_str, '@') != null or fmt_str.len == 0;
-    const authority = comptime std.mem.indexOfScalar(u8, fmt_str, '+') != null or fmt_str.len == 0;
-    const path = comptime std.mem.indexOfScalar(u8, fmt_str, '/') != null or fmt_str.len == 0;
-    const query = comptime std.mem.indexOfScalar(u8, fmt_str, '?') != null or fmt_str.len == 0;
-    const fragment = comptime std.mem.indexOfScalar(u8, fmt_str, '#') != null or fmt_str.len == 0;
+pub const Format = struct {
+    uri: *const Uri,
+    flags: Flags = .{},
 
-    return writeToStream(uri, writer, .{
-        .scheme = scheme,
-        .authentication = authentication,
-        .authority = authority,
-        .path = path,
-        .query = query,
-        .fragment = fragment,
-    });
+    pub const Flags = struct {
+        /// When true, include the scheme part of the URI.
+        scheme: bool = false,
+        /// When true, include the user and password part of the URI. Ignored if `authority` is false.
+        authentication: bool = false,
+        /// When true, include the authority part of the URI.
+        authority: bool = false,
+        /// When true, include the path part of the URI.
+        path: bool = false,
+        /// When true, include the query part of the URI. Ignored when `path` is false.
+        query: bool = false,
+        /// When true, include the fragment part of the URI. Ignored when `path` is false.
+        fragment: bool = false,
+        /// When true, include the port part of the URI. Ignored when `port` is null.
+        port: bool = true,
+    };
+
+    pub fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        return writeToStream(f.uri, writer, f.flags);
+    }
+};
+
+pub fn fmt(uri: *const Uri, flags: Format.Flags) std.fmt.Formatter(Format, Format.default) {
+    return .{ .data = .{ .uri = uri, .flags = flags } };
 }
 
 /// Parses the URI or returns an error.
@@ -427,14 +447,13 @@ test remove_dot_segments {
 
 /// 5.2.3. Merge Paths
 fn merge_paths(base: Component, new: []u8, aux_buf: *[]u8) error{NoSpaceLeft}!Component {
-    var aux = std.io.fixedBufferStream(aux_buf.*);
+    var aux: std.io.Writer = .fixed(aux_buf.*);
     if (!base.isEmpty()) {
-        try aux.writer().print("{fpath}", .{base});
-        aux.pos = std.mem.lastIndexOfScalar(u8, aux.getWritten(), '/') orelse
-            return remove_dot_segments(new);
+        base.formatPath(&aux) catch return error.NoSpaceLeft;
+        aux.end = std.mem.lastIndexOfScalar(u8, aux.buffered(), '/') orelse return remove_dot_segments(new);
     }
-    try aux.writer().print("/{s}", .{new});
-    const merged_path = remove_dot_segments(aux.getWritten());
+    aux.print("/{s}", .{new}) catch return error.NoSpaceLeft;
+    const merged_path = remove_dot_segments(aux.buffered());
     aux_buf.* = aux_buf.*[merged_path.percent_encoded.len..];
     return merged_path;
 }
@@ -794,8 +813,11 @@ test "Special test" {
 test "URI percent encoding" {
     try std.testing.expectFmt(
         "%5C%C3%B6%2F%20%C3%A4%C3%B6%C3%9F%20~~.adas-https%3A%2F%2Fcanvas%3A123%2F%23ads%26%26sad",
-        "{f%}",
-        .{Component{ .raw = "\\ö/ äöß ~~.adas-https://canvas:123/#ads&&sad" }},
+        "{f}",
+        .{std.fmt.alt(
+            @as(Component, .{ .raw = "\\ö/ äöß ~~.adas-https://canvas:123/#ads&&sad" }),
+            .formatEscaped,
+        )},
     );
 }
 
@@ -804,7 +826,10 @@ test "URI percent decoding" {
         const expected = "\\ö/ äöß ~~.adas-https://canvas:123/#ads&&sad";
         var input = "%5C%C3%B6%2F%20%C3%A4%C3%B6%C3%9F%20~~.adas-https%3A%2F%2Fcanvas%3A123%2F%23ads%26%26sad".*;
 
-        try std.testing.expectFmt(expected, "{fraw}", .{Component{ .percent_encoded = &input }});
+        try std.testing.expectFmt(expected, "{f}", .{std.fmt.alt(
+            @as(Component, .{ .percent_encoded = &input }),
+            .formatRaw,
+        )});
 
         var output: [expected.len]u8 = undefined;
         try std.testing.expectEqualStrings(percentDecodeBackwards(&output, &input), expected);
@@ -816,7 +841,10 @@ test "URI percent decoding" {
         const expected = "/abc%";
         var input = expected.*;
 
-        try std.testing.expectFmt(expected, "{fraw}", .{Component{ .percent_encoded = &input }});
+        try std.testing.expectFmt(expected, "{f}", .{std.fmt.alt(
+            @as(Component, .{ .percent_encoded = &input }),
+            .formatRaw,
+        )});
 
         var output: [expected.len]u8 = undefined;
         try std.testing.expectEqualStrings(percentDecodeBackwards(&output, &input), expected);
@@ -830,7 +858,9 @@ test "URI query encoding" {
     const parsed = try Uri.parse(address);
 
     // format the URI to percent encode it
-    try std.testing.expectFmt("/?response-content-type=application%2Foctet-stream", "{f/?}", .{parsed});
+    try std.testing.expectFmt("/?response-content-type=application%2Foctet-stream", "{f}", .{
+        parsed.fmt(.{ .path = true, .query = true }),
+    });
 }
 
 test "format" {
@@ -844,7 +874,9 @@ test "format" {
         .query = null,
         .fragment = null,
     };
-    try std.testing.expectFmt("file:/foo/bar/baz", "{f;/?#}", .{uri});
+    try std.testing.expectFmt("file:/foo/bar/baz", "{f}", .{
+        uri.fmt(.{ .scheme = true, .path = true, .query = true, .fragment = true }),
+    });
 }
 
 test "URI malformed input" {
@@ -852,7 +884,3 @@ test "URI malformed input" {
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://]@["));
     try std.testing.expectError(error.InvalidFormat, std.Uri.parse("http://lo]s\x85hc@[/8\x10?0Q"));
 }
-
-const std = @import("std.zig");
-const testing = std.testing;
-const Uri = @This();

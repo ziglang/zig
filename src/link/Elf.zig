@@ -4192,8 +4192,7 @@ pub const Ref = struct {
         return ref.index == other.index and ref.file == other.file;
     }
 
-    pub fn format(ref: Ref, writer: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
-        comptime assert(f.len == 0);
+    pub fn format(ref: Ref, writer: *std.io.Writer) std.io.Writer.Error!void {
         try writer.print("ref({d},{d})", .{ ref.index, ref.file });
     }
 };

@@ -57,9 +57,9 @@ pub const Node = struct {
         }
     }
 
-    pub fn format(self: *const Node, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
+    pub fn format(self: *const Node, writer: *std.io.Writer) std.io.Writer.Error!void {
         switch (self.tag) {
-            inline else => |tag| return @as(*tag.Type(), @fieldParentPtr("base", self)).format(writer, fmt),
+            inline else => |tag| return @as(*tag.Type(), @fieldParentPtr("base", self)).format(writer),
         }
     }
 
@@ -81,8 +81,7 @@ pub const Node = struct {
             }
         }
 
-        pub fn format(self: *const Doc, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-            comptime assert(fmt.len == 0);
+        pub fn format(self: *const Doc, writer: *std.io.Writer) std.io.Writer.Error!void {
             if (self.directive) |id| {
                 try std.fmt.format(writer, "{{ ", .{});
                 const directive = self.base.tree.getRaw(id, id);
@@ -122,8 +121,7 @@ pub const Node = struct {
             self.values.deinit(allocator);
         }
 
-        pub fn format(self: *const Map, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-            comptime assert(fmt.len == 0);
+        pub fn format(self: *const Map, writer: *std.io.Writer) std.io.Writer.Error!void {
             try std.fmt.format(writer, "{{ ", .{});
             for (self.values.items) |entry| {
                 const key = self.base.tree.getRaw(entry.key, entry.key);
@@ -155,8 +153,7 @@ pub const Node = struct {
             self.values.deinit(allocator);
         }
 
-        pub fn format(self: *const List, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-            comptime assert(fmt.len == 0);
+        pub fn format(self: *const List, writer: *std.io.Writer) std.io.Writer.Error!void {
             try std.fmt.format(writer, "[ ", .{});
             for (self.values.items) |node| {
                 try std.fmt.format(writer, "{}, ", .{node});
@@ -180,8 +177,7 @@ pub const Node = struct {
             self.string_value.deinit(allocator);
         }
 
-        pub fn format(self: *const Value, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-            comptime assert(fmt.len == 0);
+        pub fn format(self: *const Value, writer: *std.io.Writer) std.io.Writer.Error!void {
             const raw = self.base.tree.getRaw(self.base.start, self.base.end);
             return std.fmt.format(writer, "{s}", .{raw});
         }

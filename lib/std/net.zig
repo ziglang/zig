@@ -161,11 +161,10 @@ pub const Address = extern union {
         }
     }
 
-    pub fn format(self: Address, w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-        comptime assert(fmt.len == 0);
+    pub fn format(self: Address, w: *std.io.Writer) std.io.Writer.Error!void {
         switch (self.any.family) {
-            posix.AF.INET => try self.in.format(w, fmt),
-            posix.AF.INET6 => try self.in6.format(w, fmt),
+            posix.AF.INET => try self.in.format(w),
+            posix.AF.INET6 => try self.in6.format(w),
             posix.AF.UNIX => {
                 if (!has_unix_sockets) unreachable;
                 try w.writeAll(std.mem.sliceTo(&self.un.path, 0));
@@ -341,8 +340,7 @@ pub const Ip4Address = extern struct {
         self.sa.port = mem.nativeToBig(u16, port);
     }
 
-    pub fn format(self: Ip4Address, w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-        comptime assert(fmt.len == 0);
+    pub fn format(self: Ip4Address, w: *std.io.Writer) std.io.Writer.Error!void {
         const bytes: *const [4]u8 = @ptrCast(&self.sa.addr);
         try w.print("{d}.{d}.{d}.{d}:{d}", .{ bytes[0], bytes[1], bytes[2], bytes[3], self.getPort() });
     }
@@ -633,8 +631,7 @@ pub const Ip6Address = extern struct {
         self.sa.port = mem.nativeToBig(u16, port);
     }
 
-    pub fn format(self: Ip6Address, w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-        comptime assert(fmt.len == 0);
+    pub fn format(self: Ip6Address, w: *std.io.Writer) std.io.Writer.Error!void {
         const port = mem.bigToNative(u16, self.sa.port);
         if (mem.eql(u8, self.sa.addr[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
             try w.print("[::ffff:{d}.{d}.{d}.{d}]:{d}", .{

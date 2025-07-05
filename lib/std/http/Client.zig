@@ -832,7 +832,7 @@ pub const Request = struct {
     }
 
     fn sendAdapted(req: *Request, connection: *Connection, w: *std.io.Writer) !void {
-        try req.method.format(w, "");
+        try req.method.format(w);
         try w.writeByte(' ');
 
         if (req.method == .CONNECT) {
@@ -1290,26 +1290,32 @@ pub const basic_authorization = struct {
     }
 
     pub fn valueLengthFromUri(uri: Uri) usize {
-        var stream = std.io.countingWriter(std.io.null_writer);
-        try stream.writer().print("{fuser}", .{uri.user orelse Uri.Component.empty});
-        const user_len = stream.bytes_written;
-        stream.bytes_written = 0;
-        try stream.writer().print("{fpassword}", .{uri.password orelse Uri.Component.empty});
-        const password_len = stream.bytes_written;
+        const user: Uri.Component = uri.user orelse .empty;
+        const password: Uri.Component = uri.password orelse .empty;
+
+        var w: std.io.Writer = .discarding(&.{});
+        user.formatUser(&w) catch unreachable; // discarding
+        const user_len = w.count;
+
+        w.count = 0;
+        password.formatPassword(&w) catch unreachable; // discarding
+        const password_len = w.count;
+
         return valueLength(@intCast(user_len), @intCast(password_len));
     }
 
     pub fn value(uri: Uri, out: []u8) []u8 {
+        const user: Uri.Component = uri.user orelse .empty;
+        const password: Uri.Component = uri.password orelse .empty;
+
         var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buf);
-        stream.writer().print("{fuser}", .{uri.user orelse Uri.Component.empty}) catch
-            unreachable;
-        assert(stream.pos <= max_user_len);
-        stream.writer().print(":{fpassword}", .{uri.password orelse Uri.Component.empty}) catch
-            unreachable;
+        var w: std.io.Writer = .fixed(&buf);
+        user.formatUser(&w) catch unreachable; // fixed
+        assert(w.count <= max_user_len);
+        password.formatPassword(&w) catch unreachable; // fixed
 
         @memcpy(out[0..prefix.len], prefix);
-        const base64 = std.base64.standard.Encoder.encode(out[prefix.len..], stream.getWritten());
+        const base64 = std.base64.standard.Encoder.encode(out[prefix.len..], w.buffered());
         return out[0 .. prefix.len + base64.len];
     }
 };

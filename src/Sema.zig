@@ -9448,8 +9448,7 @@ fn callConvSupportsVarArgs(cc: std.builtin.CallingConvention.Tag) bool {
 fn checkCallConvSupportsVarArgs(sema: *Sema, block: *Block, src: LazySrcLoc, cc: std.builtin.CallingConvention.Tag) CompileError!void {
     const CallingConventionsSupportingVarArgsList = struct {
         arch: std.Target.Cpu.Arch,
-        pub fn format(ctx: @This(), w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-            comptime assert(fmt.len == 0);
+        pub fn format(ctx: @This(), w: *std.io.Writer) std.io.Writer.Error!void {
             var first = true;
             for (calling_conventions_supporting_var_args) |cc_inner| {
                 for (std.Target.Cpu.Arch.fromCallingConvention(cc_inner)) |supported_arch| {
@@ -9894,8 +9893,7 @@ fn finishFunc(
         .bad_arch => |allowed_archs| {
             const ArchListFormatter = struct {
                 archs: []const std.Target.Cpu.Arch,
-                pub fn format(formatter: @This(), w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-                    comptime assert(fmt.len == 0);
+                pub fn format(formatter: @This(), w: *std.io.Writer) std.io.Writer.Error!void {
                     for (formatter.archs, 0..) |arch, i| {
                         if (i != 0)
                             try w.writeAll(", ");

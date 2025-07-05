@@ -226,8 +226,7 @@ pub const Diagnostics = struct {
         return .{ .diag = self };
     }
 
-    pub fn format(self: *const @This(), w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-        comptime assert(fmt.len == 0);
+    pub fn format(self: *const @This(), w: *std.io.Writer) std.io.Writer.Error!void {
         var errors = self.iterateErrors();
         while (errors.next()) |err| {
             const loc = err.getLocation(self);

@@ -2317,44 +2317,38 @@ pub const Const = struct {
         return .{ normalized_res.reconstruct(if (self.positive) .positive else .negative), exactness };
     }
 
-    /// To allow `std.fmt.format` to work with this type.
     /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn format(self: Const, w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-        comptime var base = 10;
-        comptime var case: std.fmt.Case = .lower;
-
-        if (fmt.len == 0 or comptime mem.eql(u8, fmt, "d")) {
-            base = 10;
-            case = .lower;
-        } else if (comptime mem.eql(u8, fmt, "b")) {
-            base = 2;
-            case = .lower;
-        } else if (comptime mem.eql(u8, fmt, "x")) {
-            base = 16;
-            case = .lower;
-        } else if (comptime mem.eql(u8, fmt, "X")) {
-            base = 16;
-            case = .upper;
-        } else {
-            std.fmt.invalidFmtError(fmt, self);
-        }
-
+    pub fn print(self: Const, w: *std.io.Writer, base: u8, case: std.fmt.Case) std.io.Writer.Error!void {
         const available_len = 64;
         if (self.limbs.len > available_len)
             return w.writeAll("(BigInt)");
 
-        var limbs: [calcToStringLimbsBufferLen(available_len, base)]Limb = undefined;
+        var limbs: [calcToStringLimbsBufferLen(available_len, 10)]Limb = undefined;
 
         const biggest: Const = .{
             .limbs = &([1]Limb{comptime math.maxInt(Limb)} ** available_len),
             .positive = false,
         };
-        var buf: [biggest.sizeInBaseUpperBound(base)]u8 = undefined;
+        var buf: [biggest.sizeInBaseUpperBound(2)]u8 = undefined;
         const len = self.toString(&buf, base, case, &limbs);
         return w.writeAll(buf[0..len]);
+    }
+
+    const Format = struct {
+        int: Const,
+        base: u8,
+        case: std.fmt.Case,
+
+        pub fn default(f: Format, w: *std.io.Writer) std.io.Writer.Error!void {
+            return print(f.int, w, f.base, f.case);
+        }
+    };
+
+    pub fn fmt(self: Const, base: u8, case: std.fmt.Case) std.fmt.Formatter(Format, Format.default) {
+        return .{ .data = .{ .int = self, .base = base, .case = case } };
     }
 
     /// Converts self to a string in the requested base.
@@ -2924,12 +2918,16 @@ pub const Managed = struct {
     }
 
     /// To allow `std.fmt.format` to work with `Managed`.
+    pub fn format(self: Managed, w: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
+        return self.toConst().format(w, f);
+    }
+
     /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn format(self: Managed, w: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
-        return self.toConst().format(w, f);
+    pub fn fmt(self: Managed, base: u8, case: std.fmt.Case) std.fmt.Formatter(Const.Format, Const.Format.default) {
+        return .{ .data = .{ .int = self.toConst(), .base = base, .case = case } };
     }
 
     /// Returns math.Order.lt, math.Order.eq, math.Order.gt if |a| < |b|, |a| ==

@@ -1796,8 +1796,7 @@ pub const Linkage = enum(u4) {
     extern_weak = 7,
     external = 0,
 
-    pub fn format(self: Linkage, w: *Writer, comptime f: []const u8) Writer.Error!void {
-        comptime assert(f.len == 0);
+    pub fn format(self: Linkage, w: *Writer) Writer.Error!void {
         if (self != .external) try w.print(" {s}", .{@tagName(self)});
     }
 
@@ -1814,8 +1813,7 @@ pub const Preemption = enum {
     dso_local,
     implicit_dso_local,
 
-    pub fn format(self: Preemption, w: *Writer, comptime f: []const u8) Writer.Error!void {
-        comptime assert(f.len == 0);
+    pub fn format(self: Preemption, w: *Writer) Writer.Error!void {
         if (self == .dso_local) try w.print(" {s}", .{@tagName(self)});
     }
 };
@@ -1833,8 +1831,7 @@ pub const Visibility = enum(u2) {
         };
     }
 
-    pub fn format(self: Visibility, writer: *Writer, comptime f: []const u8) Writer.Error!void {
-        comptime assert(f.len == 0);
+    pub fn format(self: Visibility, writer: *Writer) Writer.Error!void {
         if (self != .default) try writer.print(" {s}", .{@tagName(self)});
     }
 };
@@ -1844,8 +1841,7 @@ pub const DllStorageClass = enum(u2) {
     dllimport = 1,
     dllexport = 2,
 
-    pub fn format(self: DllStorageClass, w: *Writer, comptime f: []const u8) Writer.Error!void {
-        comptime assert(f.len == 0);
+    pub fn format(self: DllStorageClass, w: *Writer) Writer.Error!void {
         if (self != .default) try w.print(" {s}", .{@tagName(self)});
     }
 };
@@ -1871,8 +1867,7 @@ pub const UnnamedAddr = enum(u2) {
     unnamed_addr = 1,
     local_unnamed_addr = 2,
 
-    pub fn format(self: UnnamedAddr, w: *Writer, comptime f: []const u8) Writer.Error!void {
-        comptime assert(f.len == 0);
+    pub fn format(self: UnnamedAddr, w: *Writer) Writer.Error!void {
         if (self != .default) try w.print(" {s}", .{@tagName(self)});
     }
 };
@@ -1975,8 +1970,7 @@ pub const ExternallyInitialized = enum {
     default,
     externally_initialized,
 
-    pub fn format(self: ExternallyInitialized, w: *Writer, comptime f: []const u8) Writer.Error!void {
-        comptime assert(f.len == 0);
+    pub fn format(self: ExternallyInitialized, w: *Writer) Writer.Error!void {
         if (self != .default) try w.print(" {s}", .{@tagName(self)});
     }
 };
@@ -2074,8 +2068,7 @@ pub const CallConv = enum(u10) {
 
     pub const default = CallConv.ccc;
 
-    pub fn format(self: CallConv, w: *Writer, comptime f: []const u8) Writer.Error!void {
-        comptime assert(f.len == 0);
+    pub fn format(self: CallConv, w: *Writer) Writer.Error!void {
         switch (self) {
             default => {},
             .fastcc,
@@ -7969,8 +7962,7 @@ pub const Metadata = enum(u32) {
         AllCallsDescribed: bool = false,
         Unused: u2 = 0,
 
-        pub fn format(self: DIFlags, w: *Writer, comptime f: []const u8) Writer.Error!void {
-            comptime assert(f.len == 0);
+        pub fn format(self: DIFlags, w: *Writer) Writer.Error!void {
             var need_pipe = false;
             inline for (@typeInfo(DIFlags).@"struct".fields) |field| {
                 switch (@typeInfo(field.type)) {
@@ -8027,8 +8019,7 @@ pub const Metadata = enum(u32) {
             ObjCDirect: bool = false,
             Unused: u20 = 0,
 
-            pub fn format(self: DISPFlags, w: *Writer, comptime f: []const u8) Writer.Error!void {
-                comptime assert(f.len == 0);
+            pub fn format(self: DISPFlags, w: *Writer) Writer.Error!void {
                 var need_pipe = false;
                 inline for (@typeInfo(DISPFlags).@"struct".fields) |field| {
                     switch (@typeInfo(field.type)) {

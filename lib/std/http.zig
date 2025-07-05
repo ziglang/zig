@@ -42,8 +42,7 @@ pub const Method = enum(u64) {
         return x;
     }
 
-    pub fn format(self: Method, w: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
-        comptime assert(f.len == 0);
+    pub fn format(self: Method, w: *std.io.Writer) std.io.Writer.Error!void {
         const bytes: []const u8 = @ptrCast(&@intFromEnum(self));
         const str = std.mem.sliceTo(bytes, 0);
         try w.writeAll(str);

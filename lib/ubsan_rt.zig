@@ -119,9 +119,7 @@ const Value = extern struct {
         }
     }
 
-    pub fn format(value: Value, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-        comptime assert(fmt.len == 0);
-
+    pub fn format(value: Value, writer: *std.io.Writer) std.io.Writer.Error!void {
         // Work around x86_64 backend limitation.
         if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) {
             try writer.writeAll("(unknown)");

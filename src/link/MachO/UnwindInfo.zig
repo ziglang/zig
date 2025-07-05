@@ -455,8 +455,7 @@ pub const Encoding = extern struct {
         return enc.enc == other.enc;
     }
 
-    pub fn format(enc: Encoding, w: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        comptime assert(unused_fmt_string.len == 0);
+    pub fn format(enc: Encoding, w: *Writer) Writer.Error!void {
         try w.print("0x{x:0>8}", .{enc.enc});
     }
 };

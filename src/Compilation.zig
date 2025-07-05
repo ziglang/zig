@@ -399,8 +399,7 @@ pub const Path = struct {
     const Formatter = struct {
         p: Path,
         comp: *Compilation,
-        pub fn format(f: Formatter, w: *std.io.Writer, comptime unused_fmt: []const u8) std.io.Writer.Error!void {
-            comptime assert(unused_fmt.len == 0);
+        pub fn format(f: Formatter, w: *std.io.Writer) std.io.Writer.Error!void {
             const root_path: []const u8 = switch (f.p.root) {
                 .zig_lib => f.comp.dirs.zig_lib.path orelse ".",
                 .global_cache => f.comp.dirs.global_cache.path orelse ".",

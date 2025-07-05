@@ -957,8 +957,7 @@ pub const Inst = struct {
             return index.unwrap().target;
         }
 
-        pub fn format(index: Index, w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-            comptime assert(fmt.len == 0);
+        pub fn format(index: Index, w: *std.io.Writer) std.io.Writer.Error!void {
             try w.writeByte('%');
             switch (index.unwrap()) {
                 .ref => {},

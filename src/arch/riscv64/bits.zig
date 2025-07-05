@@ -249,24 +249,6 @@ pub const FrameIndex = enum(u32) {
     spill_frame,
     /// Other indices are used for local variable stack slots
     _,
-
-    pub const named_count = @typeInfo(FrameIndex).@"enum".fields.len;
-
-    pub fn isNamed(fi: FrameIndex) bool {
-        return @intFromEnum(fi) < named_count;
-    }
-
-    pub fn format(fi: FrameIndex, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-        try writer.writeAll("FrameIndex");
-        if (fi.isNamed()) {
-            try writer.writeByte('.');
-            try writer.writeAll(@tagName(fi));
-        } else {
-            try writer.writeByte('(');
-            try writer.printInt(fmt, .{}, @intFromEnum(fi));
-            try writer.writeByte(')');
-        }
-    }
 };
 
 /// A linker symbol not yet allocated in VM.

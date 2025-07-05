@@ -260,8 +260,7 @@ pub const ArStrtab = struct {
         try writer.writeAll(ar.buffer.items);
     }
 
-    pub fn format(ar: ArStrtab, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-        comptime assert(fmt.len == 0);
+    pub fn format(ar: ArStrtab, writer: *std.io.Writer) std.io.Writer.Error!void {
         try writer.print("{f}", .{std.ascii.hexEscape(ar.buffer.items, .lower)});
     }
 };

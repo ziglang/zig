@@ -164,8 +164,7 @@ pub const Language = packed struct(u16) {
         return @bitCast(self);
     }
 
-    pub fn format(language: Language, w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-        comptime assert(fmt.len == 0);
+    pub fn format(language: Language, w: *std.io.Writer) std.io.Writer.Error!void {
         const language_id = language.asInt();
         const language_name = language_name: {
             if (std.enums.fromInt(lang.LanguageId, language_id)) |lang_enum_val| {
@@ -440,8 +439,7 @@ pub const NameOrOrdinal = union(enum) {
         }
     }
 
-    pub fn format(self: NameOrOrdinal, w: *std.io.Writer, comptime fmt: []const u8) !void {
-        comptime assert(fmt.len == 0);
+    pub fn format(self: NameOrOrdinal, w: *std.io.Writer) !void {
         switch (self) {
             .name => |name| {
                 try w.print("{s}", .{std.unicode.fmtUtf16Le(name)});

@@ -121,9 +121,8 @@ pub fn eql(a: Type, b: Type, zcu: *const Zcu) bool {
     return a.toIntern() == b.toIntern();
 }
 
-pub fn format(ty: Type, writer: *std.io.Writer, comptime unused_fmt_string: []const u8) !void {
+pub fn format(ty: Type, writer: *std.io.Writer) !void {
     _ = ty;
-    _ = unused_fmt_string;
     _ = writer;
     @compileError("do not format types directly; use either ty.fmtDebug() or ty.fmt()");
 }

@@ -147,25 +147,35 @@ pub fn toStringZ(p: Path, allocator: Allocator) Allocator.Error![:0]u8 {
     return std.fmt.allocPrintSentinel(allocator, "{f}", .{p}, 0);
 }
 
-pub fn format(self: Path, writer: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
-    if (f.len == 1) {
-        // Quote-escape the string.
-        const zigEscape = switch (f[0]) {
-            'q' => std.zig.stringEscape,
-            '\'' => std.zig.charEscape,
-            else => @compileError("unsupported format string: " ++ f),
-        };
-        if (self.root_dir.path) |p| {
-            try zigEscape(p, writer);
-            if (self.sub_path.len > 0) try zigEscape(fs.path.sep_str, writer);
-        }
-        if (self.sub_path.len > 0) {
-            try zigEscape(self.sub_path, writer);
-        }
-        return;
+pub fn fmtEscapeString(path: Path) std.fmt.Formatter(Path, formatEscapeString) {
+    return .{ .data = path };
+}
+
+pub fn formatEscapeString(path: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
+    if (path.root_dir.path) |p| {
+        try std.zig.stringEscape(p, writer);
+        if (path.sub_path.len > 0) try std.zig.stringEscape(fs.path.sep_str, writer);
     }
-    if (f.len > 0)
-        std.fmt.invalidFmtError(f, self);
+    if (path.sub_path.len > 0) {
+        try std.zig.stringEscape(path.sub_path, writer);
+    }
+}
+
+pub fn fmtEscapeChar(path: Path) std.fmt.Formatter(Path, formatEscapeChar) {
+    return .{ .data = path };
+}
+
+pub fn formatEscapeChar(path: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
+    if (path.root_dir.path) |p| {
+        try std.zig.charEscape(p, writer);
+        if (path.sub_path.len > 0) try std.zig.charEscape(fs.path.sep_str, writer);
+    }
+    if (path.sub_path.len > 0) {
+        try std.zig.charEscape(path.sub_path, writer);
+    }
+}
+
+pub fn format(self: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
     if (std.fs.path.isAbsolute(self.sub_path)) {
         try writer.writeAll(self.sub_path);
         return;

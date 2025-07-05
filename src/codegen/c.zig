@@ -2471,8 +2471,7 @@ const RenderCTypeTrailing = enum {
     no_space,
     maybe_space,
 
-    pub fn format(self: @This(), w: *Writer, comptime fmt: []const u8) Writer.Error!void {
-        comptime assert(fmt.len == 0);
+    pub fn format(self: @This(), w: *Writer) Writer.Error!void {
         switch (self) {
             .no_space => {},
             .maybe_space => try w.writeByte(' '),

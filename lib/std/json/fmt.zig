@@ -15,8 +15,7 @@ pub fn Formatter(comptime T: type) type {
         value: T,
         options: StringifyOptions,
 
-        pub fn format(self: @This(), writer: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
-            comptime assert(f.len == 0);
+        pub fn format(self: @This(), writer: *std.io.Writer) std.io.Writer.Error!void {
             try stringify(self.value, self.options, writer);
         }
     };

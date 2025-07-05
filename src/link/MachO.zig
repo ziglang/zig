@@ -4472,8 +4472,7 @@ pub const Ref = struct {
         };
     }
 
-    pub fn format(ref: Ref, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        comptime assert(unused_fmt_string.len == 0);
+    pub fn format(ref: Ref, bw: *Writer) Writer.Error!void {
         try bw.print("%{d} in file({d})", .{ ref.index, ref.file });
     }
 };

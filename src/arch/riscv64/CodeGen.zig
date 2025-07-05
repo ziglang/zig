@@ -566,8 +566,7 @@ const InstTracking = struct {
         }
     }
 
-    pub fn format(inst_tracking: InstTracking, writer: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
-        comptime assert(f.len == 0);
+    pub fn format(inst_tracking: InstTracking, writer: *std.io.Writer) std.io.Writer.Error!void {
         if (!std.meta.eql(inst_tracking.long, inst_tracking.short)) try writer.print("|{}| ", .{inst_tracking.long});
         try writer.print("{}", .{inst_tracking.short});
     }

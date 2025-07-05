@@ -804,8 +804,11 @@ pub fn printValue(
 ) Error!void {
     const T = @TypeOf(value);
 
-    if (comptime std.mem.eql(u8, fmt, "*")) return w.printAddress(value);
-    if (fmt.len > 0 and fmt[0] == 'f') return value.format(w, fmt[1..]);
+    if (fmt.len == 1) switch (fmt[0]) {
+        '*' => return w.printAddress(value),
+        'f' => return value.format(w),
+        else => {},
+    };
 
     const is_any = comptime std.mem.eql(u8, fmt, ANY);
     if (!is_any and std.meta.hasMethod(T, "format") and fmt.len == 0) {
@@ -1568,12 +1571,8 @@ test "printValue max_depth" {
         x: f32,
         y: f32,
 
-        pub fn format(self: SelfType, w: *Writer, comptime fmt: []const u8) Error!void {
-            if (fmt.len == 0) {
-                return w.print("({d:.3},{d:.3})", .{ self.x, self.y });
-            } else {
-                @compileError("unknown format string: '" ++ fmt ++ "'");
-            }
+        pub fn format(self: SelfType, w: *Writer) Error!void {
+            return w.print("({d:.3},{d:.3})", .{ self.x, self.y });
         }
     };
     const E = enum {

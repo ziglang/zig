@@ -56,8 +56,7 @@ pub fn closeAndFree(self: *Directory, gpa: Allocator) void {
     self.* = undefined;
 }
 
-pub fn format(self: Directory, writer: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
-    comptime assert(f.len == 0);
+pub fn format(self: Directory, writer: *std.io.Writer) std.io.Writer.Error!void {
     if (self.path) |p| {
         try writer.writeAll(p);
         try writer.writeAll(fs.path.sep_str);

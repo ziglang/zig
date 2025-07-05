@@ -24,6 +24,8 @@ pub const Alignment = enum {
     right,
 };
 
+pub const Case = enum { lower, upper };
+
 const default_alignment = .right;
 const default_fill_char = ' ';
 
@@ -84,13 +86,7 @@ pub const Options = struct {
 /// - `!`: output error union value as either the unwrapped value, or the formatted error value; may be followed by a format specifier for the underlying value.
 /// - `*`: output the address of the value instead of the value itself.
 /// - `any`: output a value of any type using its default format.
-///
-/// If a formatted user type contains a function of the type
-/// ```
-/// pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.Options, writer: anytype) !void
-/// ```
-/// with `?` being the type formatted, this function will be called instead of the default implementation.
-/// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
+/// - `f`: delegates to a method on the type named "format" with the signature `fn (*Writer, args: anytype) Writer.Error!void`.
 ///
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 ///
@@ -406,8 +402,6 @@ pub const ArgState = struct {
     }
 };
 
-pub const Case = enum { lower, upper };
-
 /// Asserts the rendered integer value fits in `buffer`.
 /// Returns the end index within `buffer`.
 pub fn printInt(buffer: []u8, value: anytype, base: u8, case: Case, options: Options) usize {
@@ -425,25 +419,48 @@ pub fn digits2(value: u8) [2]u8 {
     }
 }
 
+/// Deprecated in favor of `Alt`.
+pub const Formatter = Alt;
+
+/// Creates a type suitable for instantiating and passing to a "{f}" placeholder.
+pub fn Alt(
+    comptime Data: type,
+    comptime formatFn: fn (data: Data, writer: *Writer) Writer.Error!void,
+) type {
+    return struct {
+        data: Data,
+        pub inline fn format(self: @This(), writer: *Writer) Writer.Error!void {
+            try formatFn(self.data, writer);
+        }
+    };
+}
+
+/// Helper for calling alternate format methods besides one named "format".
+pub fn alt(
+    context: anytype,
+    comptime func_name: @TypeOf(.enum_literal),
+) Formatter(@TypeOf(context), @field(@TypeOf(context), @tagName(func_name))) {
+    return .{ .data = context };
+}
+
+test alt {
+    const Example = struct {
+        number: u8,
+
+        pub fn other(ex: @This(), w: *Writer) Writer.Error!void {
+            try w.writeByte(ex.number);
+        }
+    };
+    const ex: Example = .{ .number = 'a' };
+    try expectFmt("a", "{f}", .{alt(ex, .other)});
+}
+
 pub const ParseIntError = error{
     /// The result cannot fit in the type specified.
     Overflow,
     /// The input was empty or contained an invalid character.
     InvalidCharacter,
 };
-
-pub fn Formatter(
-    comptime Data: type,
-    comptime formatFn: fn (data: Data, writer: *Writer) Writer.Error!void,
-) type {
-    return struct {
-        data: Data,
-        pub fn format(self: @This(), writer: *Writer, comptime fmt: []const u8) Writer.Error!void {
-            comptime assert(fmt.len == 0);
-            try formatFn(self.data, writer);
-        }
-    };
-}
 
 /// Parses the string `buf` as signed or unsigned representation in the
 /// specified base of an integral value of type `T`.
@@ -1005,7 +1022,7 @@ test "slice" {
         const S2 = struct {
             x: u8,
 
-            pub fn format(s: @This(), writer: *Writer, comptime _: []const u8) Writer.Error!void {
+            pub fn format(s: @This(), writer: *Writer) Writer.Error!void {
                 try writer.print("S2({})", .{s.x});
             }
         };
@@ -1249,35 +1266,6 @@ test "float.libc.sanity" {
     try expectFmt("f64: 18014400656965630.00000", "f64: {d:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1518338049))))});
 }
 
-test "custom" {
-    const Vec2 = struct {
-        const SelfType = @This();
-        x: f32,
-        y: f32,
-
-        pub fn format(self: SelfType, writer: *Writer, comptime fmt: []const u8) Writer.Error!void {
-            if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "p")) {
-                return std.fmt.format(writer, "({d:.3},{d:.3})", .{ self.x, self.y });
-            } else if (comptime std.mem.eql(u8, fmt, "d")) {
-                return std.fmt.format(writer, "{d:.3}x{d:.3}", .{ self.x, self.y });
-            } else {
-                @compileError("unknown format character: '" ++ fmt ++ "'");
-            }
-        }
-    };
-
-    var value: Vec2 = .{
-        .x = 10.2,
-        .y = 2.22,
-    };
-    try expectFmt("point: (10.200,2.220)\n", "point: {f}\n", .{&value});
-    try expectFmt("dim: 10.200x2.220\n", "dim: {fd}\n", .{&value});
-
-    // same thing but not passing a pointer
-    try expectFmt("point: (10.200,2.220)\n", "point: {f}\n", .{value});
-    try expectFmt("dim: 10.200x2.220\n", "dim: {fd}\n", .{value});
-}
-
 test "union" {
     const TU = union(enum) {
         float: f32,
@@ -1516,7 +1504,7 @@ test "recursive format function" {
         Leaf: i32,
         Branch: struct { left: *const R, right: *const R },
 
-        pub fn format(self: R, writer: *Writer, comptime _: []const u8) Writer.Error!void {
+        pub fn format(self: R, writer: *Writer) Writer.Error!void {
             return switch (self) {
                 .Leaf => |n| std.fmt.format(writer, "Leaf({})", .{n}),
                 .Branch => |b| std.fmt.format(writer, "Branch({f}, {f})", .{ b.left, b.right }),
