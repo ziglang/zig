@@ -1065,3 +1065,21 @@ test "switch on a signed value smaller than the smallest prong value" {
         else => {},
     }
 }
+
+test "decl literals as switch cases" {
+    const E = enum(u8) {
+        bar = 3,
+        _,
+
+        const foo: @This() = @enumFromInt(0xa);
+    };
+
+    var e: E = .foo;
+    _ = &e;
+    const ok = switch (e) {
+        .bar => false,
+        .foo => true,
+        else => false,
+    };
+    try expect(ok);
+}
