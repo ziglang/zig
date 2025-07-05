@@ -11388,6 +11388,7 @@ fn switchCond(
     const pt = sema.pt;
     const zcu = pt.zcu;
     const operand_ty = sema.typeOf(operand);
+    std.debug.print("switchCond:{}\n", .{operand_ty.fmt(pt)});
     switch (operand_ty.zigTypeTag(zcu)) {
         .type,
         .void,
@@ -11427,10 +11428,30 @@ fn switchCond(
             return sema.unionToTag(block, enum_ty, operand, src);
         },
 
+        .@"struct" => {
+            try operand_ty.resolveLayout(pt);
+            const layout = operand_ty.containerLayout(zcu);
+            if (layout != .@"packed") {
+                const msg = msg: {
+                    const msg = try sema.errMsg(
+                        src,
+                        "switch on struct requires 'packed' layout; type '{}' has '{s}' layout",
+                        .{ operand_ty.fmt(pt), @tagName(layout) },
+                    );
+                    errdefer msg.destroy(sema.gpa);
+                    if (operand_ty.srcLocOrNull(zcu)) |struct_src| {
+                        try sema.errNote(struct_src, msg, "consider 'packed struct' here", .{});
+                    }
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
+            return operand;
+        },
+
         .error_union,
         .noreturn,
         .array,
-        .@"struct",
         .undefined,
         .null,
         .optional,
@@ -11788,6 +11809,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         const init_cond = try sema.switchCond(block, operand_src, val);
 
         const operand_ty = sema.typeOf(val);
+        std.debug.print("zirSwitchBlock:{}\n", .{operand_ty.fmt(pt)});
 
         if (extra.data.bits.has_continue and !block.isComptime()) {
             // Even if the operand is comptime-known, this `switch` is runtime.
@@ -12231,7 +12253,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 },
             }
         },
-        .enum_literal, .void, .@"fn", .pointer, .type => {
+        .enum_literal, .void, .@"fn", .pointer, .type, .@"struct" => {
             if (special_prong != .@"else") {
                 return sema.fail(
                     block,
@@ -12302,7 +12324,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         .error_union,
         .noreturn,
         .array,
-        .@"struct",
         .undefined,
         .null,
         .optional,
@@ -12655,8 +12676,7 @@ fn analyzeSwitchRuntimeBlock(
 
         const items = case_vals.items[case_val_idx..][0..items_len];
         case_val_idx += items_len;
-        // TODO: @ptrCast slice once Sema supports it
-        const ranges: []const [2]Air.Inst.Ref = @as([*]const [2]Air.Inst.Ref, @ptrCast(case_vals.items[case_val_idx..]))[0..ranges_len];
+        const ranges: []const [2]Air.Inst.Ref = @ptrCast(case_vals.items[case_val_idx..][0..(ranges_len * 2)]);
         case_val_idx += ranges_len * 2;
 
         const body = sema.code.bodySlice(extra_index, info.body_len);
@@ -13465,6 +13485,8 @@ fn resolveSwitchItemVal(
         break :blk Air.internedToRef(val.toIntern());
     } else item;
 
+    std.debug.print("resolveSwitchItemVal:{}\n", .{val.typeOf(sema.pt.zcu).fmt(sema.pt)});
+
     return .{ .ref = new_item, .val = val.toIntern() };
 }
 
@@ -13712,8 +13734,9 @@ fn validateSwitchItemError(
     operand_ty: Type,
     item_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
+    const ip = &sema.pt.zcu.intern_pool;
     const item = try sema.resolveSwitchItemVal(block, item_ref, operand_ty, item_src);
-    const error_name = sema.pt.zcu.intern_pool.indexToKey(item.val).err.name;
+    const error_name = ip.indexToKey(item.val).err.name;
     const maybe_prev_src = if (try seen_errors.fetchPut(error_name, item_src)) |prev|
         prev.value
     else
