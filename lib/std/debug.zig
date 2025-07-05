@@ -207,10 +207,32 @@ pub fn unlockStdErr() void {
 /// Print to stderr, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging." Use `std.log` functions for proper logging.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
-    lockStdErr();
-    defer unlockStdErr();
-    const stderr = io.getStdErr().writer();
-    nosuspend stderr.print(fmt, args) catch return;
+    if (builtin.zig_backend == .stage2_spirv) {
+        const ret = asm volatile (
+            \\      %set = OpExtInstImport "OpenCL.std"
+            \\       %u8 = OpTypeInt 8 0
+            \\      %u32 = OpTypeInt 32 0
+            \\      %u64 = OpTypeInt 64 0
+            \\    %u64_4 = OpConstant %u64 4
+            \\%_arr_u8_4 = OpTypeArray %u8 %u64_4
+            \\%_ptr_UniformConstant__arr_u8_4 = OpTypePointer UniformConstant %_arr_u8_4
+            \\   %char_H = OpConstant %u8 72
+            \\   %char_i = OpConstant %u8 105
+            \\  %char__n = OpConstant %u8 10
+            \\   %char_0 = OpConstant %u8 0
+            \\%const_str = OpConstantComposite %_arr_u8_4 %char_H %char_i %char__n %char_0
+            \\      %fmt = OpVariable %_ptr_UniformConstant__arr_u8_4 UniformConstant %const_str
+            \\
+            \\      %ret = OpExtInst %u32 %set 184 %fmt
+            : [ret] "" (-> u32),
+        );
+        _ = ret;
+    } else {
+        lockStdErr();
+        defer unlockStdErr();
+        const stderr = io.getStdErr().writer();
+        nosuspend stderr.print(fmt, args) catch return;
+    }
 }
 
 pub fn getStderrMutex() *std.Thread.Mutex {
