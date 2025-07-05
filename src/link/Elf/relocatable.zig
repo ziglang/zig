@@ -31,7 +31,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
         try elf_file.allocateNonAllocSections();
 
         if (build_options.enable_logging) {
-            state_log.debug("{}", .{elf_file.dumpState()});
+            state_log.debug("{f}", .{elf_file.dumpState()});
         }
 
         try elf_file.writeMergeSections();
@@ -96,8 +96,8 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
     };
 
     if (build_options.enable_logging) {
-        state_log.debug("ar_symtab\n{}\n", .{ar_symtab.fmt(elf_file)});
-        state_log.debug("ar_strtab\n{}\n", .{ar_strtab});
+        state_log.debug("ar_symtab\n{f}\n", .{ar_symtab.fmt(elf_file)});
+        state_log.debug("ar_strtab\n{f}\n", .{ar_strtab});
     }
 
     var buffer = std.ArrayList(u8).init(gpa);
@@ -170,7 +170,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation) !void {
     try elf_file.allocateNonAllocSections();
 
     if (build_options.enable_logging) {
-        state_log.debug("{}", .{elf_file.dumpState()});
+        state_log.debug("{f}", .{elf_file.dumpState()});
     }
 
     try writeAtoms(elf_file);

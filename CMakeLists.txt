@@ -436,7 +436,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/elf.zig
     lib/std/fifo.zig
     lib/std/fmt.zig
-    lib/std/fmt/format_float.zig
     lib/std/fmt/parse_float.zig
     lib/std/fs.zig
     lib/std/fs/AtomicFile.zig

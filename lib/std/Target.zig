@@ -301,29 +301,24 @@ pub const Os = struct {
 
         /// This function is defined to serialize a Zig source code representation of this
         /// type, that, when parsed, will deserialize into the same data.
-        pub fn format(
-            ver: WindowsVersion,
-            comptime fmt_str: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
+        pub fn format(ver: WindowsVersion, w: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
             const maybe_name = std.enums.tagName(WindowsVersion, ver);
-            if (comptime std.mem.eql(u8, fmt_str, "s")) {
+            if (comptime std.mem.eql(u8, f, "s")) {
                 if (maybe_name) |name|
-                    try writer.print(".{s}", .{name})
+                    try w.print(".{s}", .{name})
                 else
-                    try writer.print(".{d}", .{@intFromEnum(ver)});
-            } else if (comptime std.mem.eql(u8, fmt_str, "c")) {
+                    try w.print(".{d}", .{@intFromEnum(ver)});
+            } else if (comptime std.mem.eql(u8, f, "c")) {
                 if (maybe_name) |name|
-                    try writer.print(".{s}", .{name})
+                    try w.print(".{s}", .{name})
                 else
-                    try writer.print("@enumFromInt(0x{X:0>8})", .{@intFromEnum(ver)});
-            } else if (fmt_str.len == 0) {
+                    try w.print("@enumFromInt(0x{X:0>8})", .{@intFromEnum(ver)});
+            } else if (f.len == 0) {
                 if (maybe_name) |name|
-                    try writer.print("WindowsVersion.{s}", .{name})
+                    try w.print("WindowsVersion.{s}", .{name})
                 else
-                    try writer.print("WindowsVersion(0x{X:0>8})", .{@intFromEnum(ver)});
-            } else std.fmt.invalidFmtError(fmt_str, ver);
+                    try w.print("WindowsVersion(0x{X:0>8})", .{@intFromEnum(ver)});
+            } else std.fmt.invalidFmtError(f, ver);
         }
     };
 

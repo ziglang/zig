@@ -68,7 +68,7 @@ pub fn main() !void {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.io.getStdOut().writer();
+                    const stdout = std.fs.File.stdout().deprecatedWriter();
                     try stdout.writeAll(usage);
                     return std.process.cleanExit();
                 } else if (mem.eql(u8, arg, "--")) {

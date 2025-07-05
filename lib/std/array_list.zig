@@ -338,11 +338,14 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?mem.Alignment) ty
             @memcpy(self.items[old_len..][0..items.len], items);
         }
 
-        pub const Writer = if (T != u8)
-            @compileError("The Writer interface is only defined for ArrayList(u8) " ++
-                "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
-        else
-            std.io.Writer(*Self, Allocator.Error, appendWrite);
+        pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
+            const gpa = self.allocator;
+            var unmanaged = self.moveToUnmanaged();
+            defer self.* = unmanaged.toManaged(gpa);
+            try unmanaged.print(gpa, fmt, args);
+        }
+
+        pub const Writer = if (T != u8) void else std.io.GenericWriter(*Self, Allocator.Error, appendWrite);
 
         /// Initializes a Writer which will append to the list.
         pub fn writer(self: *Self) Writer {
@@ -350,14 +353,14 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?mem.Alignment) ty
         }
 
         /// Same as `append` except it returns the number of bytes written, which is always the same
-        /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
+        /// as `m.len`. The purpose of this function existing is to match `std.io.GenericWriter` API.
         /// Invalidates element pointers if additional memory is needed.
         fn appendWrite(self: *Self, m: []const u8) Allocator.Error!usize {
             try self.appendSlice(m);
             return m.len;
         }
 
-        pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWriteFixed);
+        pub const FixedWriter = std.io.GenericWriter(*Self, Allocator.Error, appendWriteFixed);
 
         /// Initializes a Writer which will append to the list but will return
         /// `error.OutOfMemory` rather than increasing capacity.
@@ -365,7 +368,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?mem.Alignment) ty
             return .{ .context = self };
         }
 
-        /// The purpose of this function existing is to match `std.io.Writer` API.
+        /// The purpose of this function existing is to match `std.io.GenericWriter` API.
         fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
             const available_capacity = self.capacity - self.items.len;
             if (m.len > available_capacity)
@@ -933,40 +936,56 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?mem.Alig
             @memcpy(self.items[old_len..][0..items.len], items);
         }
 
+        pub fn print(self: *Self, gpa: Allocator, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
+            comptime assert(T == u8);
+            try self.ensureUnusedCapacity(gpa, fmt.len);
+            var aw: std.io.Writer.Allocating = .fromArrayList(gpa, self);
+            defer self.* = aw.toArrayList();
+            return aw.writer.print(fmt, args) catch |err| switch (err) {
+                error.WriteFailed => return error.OutOfMemory,
+            };
+        }
+
+        pub fn printAssumeCapacity(self: *Self, comptime fmt: []const u8, args: anytype) void {
+            comptime assert(T == u8);
+            var w: std.io.Writer = .fixed(self.unusedCapacitySlice());
+            w.print(fmt, args) catch unreachable;
+            self.items.len += w.end;
+        }
+
+        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
         pub const WriterContext = struct {
             self: *Self,
             allocator: Allocator,
         };
 
+        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
         pub const Writer = if (T != u8)
             @compileError("The Writer interface is only defined for ArrayList(u8) " ++
                 "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
         else
-            std.io.Writer(WriterContext, Allocator.Error, appendWrite);
+            std.io.GenericWriter(WriterContext, Allocator.Error, appendWrite);
 
-        /// Initializes a Writer which will append to the list.
+        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
         pub fn writer(self: *Self, gpa: Allocator) Writer {
             return .{ .context = .{ .self = self, .allocator = gpa } };
         }
 
-        /// Same as `append` except it returns the number of bytes written,
-        /// which is always the same as `m.len`. The purpose of this function
-        /// existing is to match `std.io.Writer` API.
-        /// Invalidates element pointers if additional memory is needed.
+        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
         fn appendWrite(context: WriterContext, m: []const u8) Allocator.Error!usize {
             try context.self.appendSlice(context.allocator, m);
             return m.len;
         }
 
-        pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWriteFixed);
+        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
+        pub const FixedWriter = std.io.GenericWriter(*Self, Allocator.Error, appendWriteFixed);
 
-        /// Initializes a Writer which will append to the list but will return
-        /// `error.OutOfMemory` rather than increasing capacity.
+        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
         pub fn fixedWriter(self: *Self) FixedWriter {
             return .{ .context = self };
         }
 
-        /// The purpose of this function existing is to match `std.io.Writer` API.
+        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
         fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
             const available_capacity = self.capacity - self.items.len;
             if (m.len > available_capacity)

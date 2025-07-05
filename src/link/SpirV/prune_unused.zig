@@ -128,7 +128,7 @@ const ModuleInfo = struct {
             switch (inst.opcode) {
                 .OpFunction => {
                     if (maybe_current_function) |current_function| {
-                        log.err("OpFunction {} does not have an OpFunctionEnd", .{current_function});
+                        log.err("OpFunction {f} does not have an OpFunctionEnd", .{current_function});
                         return error.InvalidPhysicalFormat;
                     }
 
@@ -145,7 +145,7 @@ const ModuleInfo = struct {
                     };
                     const entry = try functions.getOrPut(current_function);
                     if (entry.found_existing) {
-                        log.err("Function {} has duplicate definition", .{current_function});
+                        log.err("Function {f} has duplicate definition", .{current_function});
                         return error.DuplicateId;
                     }
 
@@ -163,7 +163,7 @@ const ModuleInfo = struct {
         }
 
         if (maybe_current_function) |current_function| {
-            log.err("OpFunction {} does not have an OpFunctionEnd", .{current_function});
+            log.err("OpFunction {f} does not have an OpFunctionEnd", .{current_function});
             return error.InvalidPhysicalFormat;
         }
 
@@ -184,7 +184,7 @@ const AliveMarker = struct {
 
     fn markAlive(self: *AliveMarker, result_id: ResultId) BinaryModule.ParseError!void {
         const index = self.info.result_id_to_code_offset.getIndex(result_id) orelse {
-            log.err("undefined result-id {}", .{result_id});
+            log.err("undefined result-id {f}", .{result_id});
             return error.InvalidId;
         };
 

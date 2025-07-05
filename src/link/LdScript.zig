@@ -41,8 +41,8 @@ pub fn parse(
         try line_col.append(gpa, .{ .line = line, .column = column });
         switch (tok.id) {
             .invalid => {
-                return diags.failParse(path, "invalid token in LD script: '{s}' ({d}:{d})", .{
-                    std.fmt.fmtSliceEscapeLower(tok.get(data)), line, column,
+                return diags.failParse(path, "invalid token in LD script: '{f}' ({d}:{d})", .{
+                    std.ascii.hexEscape(tok.get(data), .lower), line, column,
                 });
             },
             .new_line => {

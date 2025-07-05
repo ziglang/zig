@@ -1,13 +1,8 @@
-pub fn renderToFile(zoir: Zoir, arena: Allocator, f: std.fs.File) (std.fs.File.WriteError || Allocator.Error)!void {
-    var bw = std.io.bufferedWriter(f.writer());
-    try renderToWriter(zoir, arena, bw.writer());
-    try bw.flush();
-}
+pub const Error = error{ WriteFailed, OutOfMemory };
 
-pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: anytype) (@TypeOf(w).Error || Allocator.Error)!void {
+pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: *Writer) Error!void {
     assert(!zoir.hasCompileErrors());
 
-    const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
     const bytes_per_node = comptime n: {
         var n: usize = 0;
         for (@typeInfo(Zoir.Node.Repr).@"struct".fields) |f| {
@@ -23,42 +18,42 @@ pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: anytype) (@TypeOf(w).Erro
 
     // zig fmt: off
     try w.print(
-        \\# Nodes:              {} ({})
-        \\# Extra Data Items:   {} ({})
-        \\# BigInt Limbs:       {} ({})
-        \\# String Table Bytes: {}
-        \\# Total ZON Bytes:    {}
+        \\# Nodes:              {} ({Bi})
+        \\# Extra Data Items:   {} ({Bi})
+        \\# BigInt Limbs:       {} ({Bi})
+        \\# String Table Bytes: {Bi}
+        \\# Total ZON Bytes:    {Bi}
         \\
     , .{
-        zoir.nodes.len, fmtIntSizeBin(node_bytes),
-        zoir.extra.len, fmtIntSizeBin(extra_bytes),
-        zoir.limbs.len, fmtIntSizeBin(limb_bytes),
-        fmtIntSizeBin(string_bytes),
-        fmtIntSizeBin(node_bytes + extra_bytes + limb_bytes + string_bytes),
+        zoir.nodes.len, node_bytes,
+        zoir.extra.len, extra_bytes,
+        zoir.limbs.len, limb_bytes,
+        string_bytes,
+        node_bytes + extra_bytes + limb_bytes + string_bytes,
     });
     // zig fmt: on
     var pz: PrintZon = .{
-        .w = w.any(),
+        .w = w,
         .arena = arena,
         .zoir = zoir,
         .indent = 0,
     };
 
-    return @errorCast(pz.renderRoot());
+    return pz.renderRoot();
 }
 
 const PrintZon = struct {
-    w: std.io.AnyWriter,
+    w: *Writer,
     arena: Allocator,
     zoir: Zoir,
     indent: u32,
 
-    fn renderRoot(pz: *PrintZon) anyerror!void {
+    fn renderRoot(pz: *PrintZon) Error!void {
         try pz.renderNode(.root);
         try pz.w.writeByte('\n');
     }
 
-    fn renderNode(pz: *PrintZon, node: Zoir.Node.Index) anyerror!void {
+    fn renderNode(pz: *PrintZon, node: Zoir.Node.Index) Error!void {
         const zoir = pz.zoir;
         try pz.w.print("%{d} = ", .{@intFromEnum(node)});
         switch (node.get(zoir)) {
@@ -77,8 +72,8 @@ const PrintZon = struct {
             },
             .float_literal => |x| try pz.w.print("float({d})", .{x}),
             .char_literal => |x| try pz.w.print("char({d})", .{x}),
-            .enum_literal => |x| try pz.w.print("enum_literal({p})", .{std.zig.fmtId(x.get(zoir))}),
-            .string_literal => |x| try pz.w.print("str(\"{}\")", .{std.zig.fmtEscapes(x)}),
+            .enum_literal => |x| try pz.w.print("enum_literal({f})", .{std.zig.fmtIdP(x.get(zoir))}),
+            .string_literal => |x| try pz.w.print("str(\"{f}\")", .{std.zig.fmtString(x)}),
             .empty_literal => try pz.w.writeAll("empty_literal(.{})"),
             .array_literal => |vals| {
                 try pz.w.writeAll("array_literal({");
@@ -97,7 +92,7 @@ const PrintZon = struct {
                 pz.indent += 1;
                 for (s.names, 0..s.vals.len) |name, idx| {
                     try pz.newline();
-                    try pz.w.print("[{p}] ", .{std.zig.fmtId(name.get(zoir))});
+                    try pz.w.print("[{f}] ", .{std.zig.fmtIdP(name.get(zoir))});
                     try pz.renderNode(s.vals.at(@intCast(idx)));
                     try pz.w.writeByte(',');
                 }
@@ -110,9 +105,7 @@ const PrintZon = struct {
 
     fn newline(pz: *PrintZon) !void {
         try pz.w.writeByte('\n');
-        for (0..pz.indent) |_| {
-            try pz.w.writeByteNTimes(' ', 2);
-        }
+        try pz.w.splatByteAll(' ', 2 * pz.indent);
     }
 };
 
@@ -120,3 +113,4 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Zoir = std.zig.Zoir;
+const Writer = std.io.Writer;

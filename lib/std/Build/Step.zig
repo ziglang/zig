@@ -286,9 +286,7 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 }
 
 /// For debugging purposes, prints identifying information about this Step.
-pub fn dump(step: *Step, file: std.fs.File) void {
-    const w = file.writer();
-    const tty_config = std.io.tty.detectConfig(file);
+pub fn dump(step: *Step, w: *std.io.Writer, tty_config: std.io.tty.Config) void {
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
             @errorName(err),
@@ -482,9 +480,9 @@ pub fn evalZigProcess(
 pub fn installFile(s: *Step, src_lazy_path: Build.LazyPath, dest_path: []const u8) !std.fs.Dir.PrevStatus {
     const b = s.owner;
     const src_path = src_lazy_path.getPath3(b, s);
-    try handleVerbose(b, null, &.{ "install", "-C", b.fmt("{}", .{src_path}), dest_path });
+    try handleVerbose(b, null, &.{ "install", "-C", b.fmt("{f}", .{src_path}), dest_path });
     return src_path.root_dir.handle.updateFile(src_path.sub_path, std.fs.cwd(), dest_path, .{}) catch |err| {
-        return s.fail("unable to update file from '{}' to '{s}': {s}", .{
+        return s.fail("unable to update file from '{f}' to '{s}': {s}", .{
             src_path, dest_path, @errorName(err),
         });
     };
@@ -821,7 +819,7 @@ fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: Build.Cac
     switch (err) {
         error.CacheCheckFailed => switch (man.diagnostic) {
             .none => unreachable,
-            .manifest_create, .manifest_read, .manifest_lock, .manifest_seek => |e| return s.fail("failed to check cache: {s} {s}", .{
+            .manifest_create, .manifest_read, .manifest_lock => |e| return s.fail("failed to check cache: {s} {s}", .{
                 @tagName(man.diagnostic), @errorName(e),
             }),
             .file_open, .file_stat, .file_read, .file_hash => |op| {

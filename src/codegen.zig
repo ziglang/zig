@@ -237,7 +237,7 @@ pub fn generateLazySymbol(
     const target = &comp.root_mod.resolved_target.result;
     const endian = target.cpu.arch.endian();
 
-    log.debug("generateLazySymbol: kind = {s}, ty = {}", .{
+    log.debug("generateLazySymbol: kind = {s}, ty = {f}", .{
         @tagName(lazy_sym.kind),
         Type.fromInterned(lazy_sym.ty).fmt(pt),
     });
@@ -277,7 +277,7 @@ pub fn generateLazySymbol(
             code.appendAssumeCapacity(0);
         }
     } else {
-        return zcu.codegenFailType(lazy_sym.ty, "TODO implement generateLazySymbol for {s} {}", .{
+        return zcu.codegenFailType(lazy_sym.ty, "TODO implement generateLazySymbol for {s} {f}", .{
             @tagName(lazy_sym.kind), Type.fromInterned(lazy_sym.ty).fmt(pt),
         });
     }
@@ -310,7 +310,7 @@ pub fn generateSymbol(
     const target = zcu.getTarget();
     const endian = target.cpu.arch.endian();
 
-    log.debug("generateSymbol: val = {}", .{val.fmtValue(pt)});
+    log.debug("generateSymbol: val = {f}", .{val.fmtValue(pt)});
 
     if (val.isUndefDeep(zcu)) {
         const abi_size = math.cast(usize, ty.abiSize(zcu)) orelse return error.Overflow;
@@ -767,7 +767,7 @@ fn lowerUavRef(
     const uav_ty = Type.fromInterned(ip.typeOf(uav_val));
     const is_fn_body = uav_ty.zigTypeTag(zcu) == .@"fn";
 
-    log.debug("lowerUavRef: ty = {}", .{uav_ty.fmt(pt)});
+    log.debug("lowerUavRef: ty = {f}", .{uav_ty.fmt(pt)});
     try code.ensureUnusedCapacity(gpa, ptr_width_bytes);
 
     if (!is_fn_body and !uav_ty.hasRuntimeBits(zcu)) {
@@ -913,7 +913,7 @@ pub fn genNavRef(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    log.debug("genNavRef({})", .{nav.fqn.fmt(ip)});
+    log.debug("genNavRef({f})", .{nav.fqn.fmt(ip)});
 
     const lib_name, const linkage, const is_threadlocal = if (nav.getExtern(ip)) |e|
         .{ e.lib_name, e.linkage, e.is_threadlocal and zcu.comp.config.any_non_single_threaded }
@@ -1065,7 +1065,7 @@ pub fn lowerValue(pt: Zcu.PerThread, val: Value, target: *const std.Target) Allo
     const ip = &zcu.intern_pool;
     const ty = val.typeOf(zcu);
 
-    log.debug("lowerValue(@as({}, {}))", .{ ty.fmt(pt), val.fmtValue(pt) });
+    log.debug("lowerValue(@as({f}, {f}))", .{ ty.fmt(pt), val.fmtValue(pt) });
 
     if (val.isUndef(zcu)) return .undef;
 

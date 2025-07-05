@@ -92,12 +92,7 @@ pub const Inst = struct {
         },
     };
 
-    pub fn format(
-        inst: Inst,
-        comptime fmt: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    pub fn format(inst: Inst, writer: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
         assert(fmt.len == 0);
         try writer.print("Tag: {s}, Data: {s}", .{ @tagName(inst.tag), @tagName(inst.data) });
     }

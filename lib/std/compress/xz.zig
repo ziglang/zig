@@ -34,7 +34,7 @@ pub fn Decompress(comptime ReaderType: type) type {
         const Self = @This();
 
         pub const Error = ReaderType.Error || block.Decoder(ReaderType).Error;
-        pub const Reader = std.io.Reader(*Self, Error, read);
+        pub const Reader = std.io.GenericReader(*Self, Error, read);
 
         allocator: Allocator,
         block_decoder: block.Decoder(ReaderType),

@@ -22,8 +22,8 @@ pub fn main() !void {
     const bytes_per_sec_float = @as(f64, @floatFromInt(source.len * iterations)) / elapsed_s;
     const bytes_per_sec = @as(u64, @intFromFloat(@floor(bytes_per_sec_float)));
 
-    var stdout_file = std.io.getStdOut();
-    const stdout = stdout_file.writer();
+    var stdout_file: std.fs.File = .stdout();
+    const stdout = stdout_file.deprecatedWriter();
     try stdout.print("parsing speed: {:.2}/s, {:.2} used \n", .{
         fmtIntSizeBin(bytes_per_sec),
         fmtIntSizeBin(memory_used),

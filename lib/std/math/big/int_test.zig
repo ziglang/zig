@@ -3813,10 +3813,10 @@ test "(BigInt) positive" {
     try a.pow(&a, 64 * @sizeOf(Limb) * 8);
     try b.sub(&a, &c);
 
-    const a_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{a});
+    const a_fmt = try std.fmt.allocPrintSentinel(testing.allocator, "{fd}", .{a}, 0);
     defer testing.allocator.free(a_fmt);
 
-    const b_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{b});
+    const b_fmt = try std.fmt.allocPrintSentinel(testing.allocator, "{fd}", .{b}, 0);
     defer testing.allocator.free(b_fmt);
 
     try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));
@@ -3838,10 +3838,10 @@ test "(BigInt) negative" {
     a.negate();
     try b.add(&a, &c);
 
-    const a_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{a});
+    const a_fmt = try std.fmt.allocPrintSentinel(testing.allocator, "{fd}", .{a}, 0);
     defer testing.allocator.free(a_fmt);
 
-    const b_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{b});
+    const b_fmt = try std.fmt.allocPrintSentinel(testing.allocator, "{fd}", .{b}, 0);
     defer testing.allocator.free(b_fmt);
 
     try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));

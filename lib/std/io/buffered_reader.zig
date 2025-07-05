@@ -12,7 +12,7 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
         end: usize = 0,
 
         pub const Error = ReaderType.Error;
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.GenericReader(*Self, Error, read);
 
         const Self = @This();
 
@@ -61,7 +61,7 @@ test "OneByte" {
 
         const Error = error{NoError};
         const Self = @This();
-        const Reader = io.Reader(*Self, Error, read);
+        const Reader = io.GenericReader(*Self, Error, read);
 
         fn init(str: []const u8) Self {
             return Self{
@@ -105,7 +105,7 @@ test "Block" {
 
         const Error = error{NoError};
         const Self = @This();
-        const Reader = io.Reader(*Self, Error, read);
+        const Reader = io.GenericReader(*Self, Error, read);
 
         fn init(block: []const u8, reads_allowed: usize) Self {
             return Self{

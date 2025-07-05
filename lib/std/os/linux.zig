@@ -103,8 +103,6 @@ pub const dev_t = arch_bits.dev_t;
 pub const ino_t = arch_bits.ino_t;
 pub const mcontext_t = arch_bits.mcontext_t;
 pub const mode_t = arch_bits.mode_t;
-pub const msghdr = arch_bits.msghdr;
-pub const msghdr_const = arch_bits.msghdr_const;
 pub const nlink_t = arch_bits.nlink_t;
 pub const off_t = arch_bits.off_t;
 pub const time_t = arch_bits.time_t;
@@ -9402,4 +9400,152 @@ pub const cache_stat = extern struct {
 pub const SHADOW_STACK = struct {
     /// Set up a restore token in the shadow stack.
     pub const SET_TOKEN: u64 = 1 << 0;
+};
+
+pub const msghdr = extern struct {
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: usize,
+    control: ?*anyopaque,
+    controllen: usize,
+    flags: u32,
+};
+
+pub const msghdr_const = extern struct {
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]const iovec_const,
+    iovlen: usize,
+    control: ?*const anyopaque,
+    controllen: usize,
+    flags: u32,
+};
+
+/// The syscalls, but with Zig error sets, going through libc if linking libc,
+/// and with some footguns eliminated.
+pub const wrapped = struct {
+    pub const lfs64_abi = builtin.link_libc and (builtin.abi.isGnu() or builtin.abi.isAndroid());
+    const system = if (builtin.link_libc) std.c else std.os.linux;
+
+    pub const SendfileError = std.posix.UnexpectedError || error{
+        /// `out_fd` is an unconnected socket, or out_fd closed its read end.
+        BrokenPipe,
+        /// Descriptor is not valid or locked, or an mmap(2)-like operation is not available for in_fd.
+        UnsupportedOperation,
+        /// Nonblocking I/O has been selected but the write would block.
+        WouldBlock,
+        /// Unspecified error while reading from in_fd.
+        InputOutput,
+        /// Insufficient kernel memory to read from in_fd.
+        SystemResources,
+        /// `offset` is not `null` but the input file is not seekable.
+        Unseekable,
+    };
+
+    pub fn sendfile(
+        out_fd: fd_t,
+        in_fd: fd_t,
+        in_offset: ?*off_t,
+        in_len: usize,
+    ) SendfileError!usize {
+        const adjusted_len = @min(in_len, 0x7ffff000); // Prevents EOVERFLOW.
+        const sendfileSymbol = if (lfs64_abi) system.sendfile64 else system.sendfile;
+        const rc = sendfileSymbol(out_fd, in_fd, in_offset, adjusted_len);
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .BADF => return invalidApiUsage(), // Always a race condition.
+            .FAULT => return invalidApiUsage(), // Segmentation fault.
+            .OVERFLOW => return unexpectedErrno(.OVERFLOW), // We avoid passing too large of a `count`.
+            .NOTCONN => return error.BrokenPipe, // `out_fd` is an unconnected socket
+            .INVAL => return error.UnsupportedOperation,
+            .AGAIN => return error.WouldBlock,
+            .IO => return error.InputOutput,
+            .PIPE => return error.BrokenPipe,
+            .NOMEM => return error.SystemResources,
+            .NXIO => return error.Unseekable,
+            .SPIPE => return error.Unseekable,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    pub const CopyFileRangeError = std.posix.UnexpectedError || error{
+        /// One of:
+        /// * One or more file descriptors are not valid.
+        /// * fd_in is not open for reading; or fd_out is not open for writing.
+        /// * The O_APPEND flag is set for the open file description referred
+        /// to by the file descriptor fd_out.
+        BadFileFlags,
+        /// One of:
+        /// * An attempt was made to write at a position past the maximum file
+        ///   offset the kernel supports.
+        /// * An attempt was made to write a range that exceeds the allowed
+        ///   maximum file size. The maximum file size differs between
+        ///   filesystem implementations and can be different from the maximum
+        ///   allowed file offset.
+        /// * An attempt was made to write beyond the process's file size
+        ///   resource limit. This may also result in the process receiving a
+        ///   SIGXFSZ signal.
+        FileTooBig,
+        /// One of:
+        /// * either fd_in or fd_out is not a regular file
+        /// * flags argument is not zero
+        /// * fd_in and fd_out refer to the same file and the source and target ranges overlap.
+        InvalidArguments,
+        /// A low-level I/O error occurred while copying.
+        InputOutput,
+        /// Either fd_in or fd_out refers to a directory.
+        IsDir,
+        OutOfMemory,
+        /// There is not enough space on the target filesystem to complete the copy.
+        NoSpaceLeft,
+        /// (since Linux 5.19) the filesystem does not support this operation.
+        OperationNotSupported,
+        /// The requested source or destination range is too large to represent
+        /// in the specified data types.
+        Overflow,
+        /// fd_out refers to an immutable file.
+        PermissionDenied,
+        /// Either fd_in or fd_out refers to an active swap file.
+        SwapFile,
+        /// The files referred to by fd_in and fd_out are not on the same
+        /// filesystem, and the source and target filesystems are not of the
+        /// same type, or do not support cross-filesystem copy.
+        NotSameFileSystem,
+    };
+
+    pub fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64, len: usize, flags: u32) CopyFileRangeError!usize {
+        const rc = system.copy_file_range(fd_in, off_in, fd_out, off_out, len, flags);
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .BADF => return error.BadFileFlags,
+            .FBIG => return error.FileTooBig,
+            .INVAL => return error.InvalidArguments,
+            .IO => return error.InputOutput,
+            .ISDIR => return error.IsDir,
+            .NOMEM => return error.OutOfMemory,
+            .NOSPC => return error.NoSpaceLeft,
+            .OPNOTSUPP => return error.OperationNotSupported,
+            .OVERFLOW => return error.Overflow,
+            .PERM => return error.PermissionDenied,
+            .TXTBSY => return error.SwapFile,
+            .XDEV => return error.NotSameFileSystem,
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+
+    const unexpectedErrno = std.posix.unexpectedErrno;
+
+    fn invalidApiUsage() error{Unexpected} {
+        if (builtin.mode == .Debug) @panic("invalid API usage");
+        return error.Unexpected;
+    }
+
+    fn errno(rc: anytype) E {
+        if (builtin.link_libc) {
+            return if (rc == -1) @enumFromInt(std.c._errno().*) else .SUCCESS;
+        } else {
+            return errnoFromSyscall(rc);
+        }
+    }
 };

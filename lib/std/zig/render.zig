@@ -1581,7 +1581,7 @@ fn renderBuiltinCall(
             defer r.gpa.free(new_string);
 
             try renderToken(r, builtin_token + 1, .none); // (
-            try ais.writer().print("\"{}\"", .{std.zig.fmtEscapes(new_string)});
+            try ais.writer().print("\"{f}\"", .{std.zig.fmtString(new_string)});
             return renderToken(r, str_lit_token + 1, space); // )
         }
     }
@@ -2892,7 +2892,7 @@ fn renderIdentifierContents(writer: anytype, bytes: []const u8) !void {
                     .success => |codepoint| {
                         if (codepoint <= 0x7f) {
                             const buf = [1]u8{@as(u8, @intCast(codepoint))};
-                            try std.fmt.format(writer, "{}", .{std.zig.fmtEscapes(&buf)});
+                            try std.fmt.deprecatedFormat(writer, "{f}", .{std.zig.fmtString(&buf)});
                         } else {
                             try writer.writeAll(escape_sequence);
                         }
@@ -2904,7 +2904,7 @@ fn renderIdentifierContents(writer: anytype, bytes: []const u8) !void {
             },
             0x00...('\\' - 1), ('\\' + 1)...0x7f => {
                 const buf = [1]u8{byte};
-                try std.fmt.format(writer, "{}", .{std.zig.fmtEscapes(&buf)});
+                try std.fmt.deprecatedFormat(writer, "{f}", .{std.zig.fmtString(&buf)});
                 pos += 1;
             },
             0x80...0xff => {
@@ -3265,7 +3265,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
     return struct {
         const Self = @This();
         pub const WriteError = UnderlyingWriter.Error;
-        pub const Writer = std.io.Writer(*Self, WriteError, write);
+        pub const Writer = std.io.GenericWriter(*Self, WriteError, write);
 
         pub const IndentType = enum {
             normal,

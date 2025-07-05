@@ -830,8 +830,8 @@ fn debugMem(allocator: Allocator, handle: std.process.Child.Id, pvaddr: std.os.w
     const buffer = try allocator.alloc(u8, code.len);
     defer allocator.free(buffer);
     const memread = try std.os.windows.ReadProcessMemory(handle, pvaddr, buffer);
-    log.debug("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
-    log.debug("in memory: {x}", .{std.fmt.fmtSliceHexLower(memread)});
+    log.debug("to write: {x}", .{code});
+    log.debug("in memory: {x}", .{memread});
 }
 
 fn writeMemProtected(handle: std.process.Child.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
@@ -1213,7 +1213,7 @@ fn updateLazySymbolAtom(
     var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
     defer code_buffer.deinit(gpa);
 
-    const name = try allocPrint(gpa, "__lazy_{s}_{}", .{
+    const name = try allocPrint(gpa, "__lazy_{s}_{f}", .{
         @tagName(sym.kind),
         Type.fromInterned(sym.ty).fmt(pt),
     });
@@ -1333,7 +1333,7 @@ fn updateNavCode(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    log.debug("updateNavCode {} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("updateNavCode {f} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
 
     const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const required_alignment = switch (pt.navAlignment(nav_index)) {
@@ -1361,7 +1361,7 @@ fn updateNavCode(
                 error.OutOfMemory => return error.OutOfMemory,
                 else => |e| return coff.base.cgFail(nav_index, "failed to grow atom: {s}", .{@errorName(e)}),
             };
-            log.debug("growing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), sym.value, vaddr });
+            log.debug("growing {f} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), sym.value, vaddr });
             log.debug("  (required alignment 0x{x}", .{required_alignment});
 
             if (vaddr != sym.value) {
@@ -1389,7 +1389,7 @@ fn updateNavCode(
             else => |e| return coff.base.cgFail(nav_index, "failed to allocate atom: {s}", .{@errorName(e)}),
         };
         errdefer coff.freeAtom(atom_index);
-        log.debug("allocated atom for {} at 0x{x}", .{ nav.fqn.fmt(ip), vaddr });
+        log.debug("allocated atom for {f} at 0x{x}", .{ nav.fqn.fmt(ip), vaddr });
         coff.getAtomPtr(atom_index).size = code_len;
         sym.value = vaddr;
 
@@ -1454,7 +1454,7 @@ pub fn updateExports(
 
     for (export_indices) |export_idx| {
         const exp = export_idx.ptr(zcu);
-        log.debug("adding new export '{}'", .{exp.opts.name.fmt(&zcu.intern_pool)});
+        log.debug("adding new export '{f}'", .{exp.opts.name.fmt(&zcu.intern_pool)});
 
         if (exp.opts.section.toSlice(&zcu.intern_pool)) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
@@ -1530,7 +1530,7 @@ pub fn deleteExport(
     const gpa = coff.base.comp.gpa;
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index.*, .file = null };
     const sym = coff.getSymbolPtr(sym_loc);
-    log.debug("deleting export '{}'", .{name.fmt(&zcu.intern_pool)});
+    log.debug("deleting export '{f}'", .{name.fmt(&zcu.intern_pool)});
     assert(sym.storage_class == .EXTERNAL and sym.section_number != .UNDEFINED);
     sym.* = .{
         .name = [_]u8{0} ** 8,
@@ -1748,7 +1748,7 @@ pub fn getNavVAddr(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    log.debug("getNavVAddr {}({d})", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("getNavVAddr {f}({d})", .{ nav.fqn.fmt(ip), nav_index });
     const sym_index = if (nav.getExtern(ip)) |e|
         try coff.getGlobalSymbol(nav.name.toSlice(ip), e.lib_name.toSlice(ip))
     else
@@ -2588,7 +2588,7 @@ fn logSymtab(coff: *Coff) void {
             .DEBUG => unreachable, // TODO
             else => @intFromEnum(sym.section_number),
         };
-        log.debug("    %{d}: {?s} @{x} in {s}({d}), {s}", .{
+        log.debug("    %{d}: {s} @{x} in {s}({d}), {s}", .{
             sym_id,
             coff.getSymbolName(.{ .sym_index = @as(u32, @intCast(sym_id)), .file = null }),
             sym.value,
@@ -2605,7 +2605,7 @@ fn logSymtab(coff: *Coff) void {
     }
 
     log.debug("GOT entries:", .{});
-    log.debug("{}", .{coff.got_table});
+    log.debug("{f}", .{coff.got_table});
 }
 
 fn logSections(coff: *Coff) void {
@@ -2625,7 +2625,7 @@ fn logImportTables(coff: *const Coff) void {
     log.debug("import tables:", .{});
     for (coff.import_tables.keys(), 0..) |off, i| {
         const itable = coff.import_tables.values()[i];
-        log.debug("{}", .{itable.fmtDebug(.{
+        log.debug("{f}", .{itable.fmtDebug(.{
             .coff = coff,
             .index = i,
             .name_off = off,
@@ -3061,40 +3061,25 @@ const ImportTable = struct {
         return base_vaddr + index * @sizeOf(u64);
     }
 
-    const FormatContext = struct {
+    const Format = struct {
         itab: ImportTable,
         ctx: Context,
+
+        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const lib_name = f.ctx.coff.temp_strtab.getAssumeExists(f.ctx.name_off);
+            const base_vaddr = getBaseAddress(f.ctx);
+            try writer.print("IAT({s}.dll) @{x}:", .{ lib_name, base_vaddr });
+            for (f.itab.entries.items, 0..) |entry, i| {
+                try writer.print("\n  {d}@{?x} => {s}", .{
+                    i,
+                    f.itab.getImportAddress(entry, f.ctx),
+                    f.ctx.coff.getSymbolName(entry),
+                });
+            }
+        }
     };
 
-    fn format(itab: ImportTable, comptime unused_format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = itab;
-        _ = unused_format_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format ImportTable directly; use itab.fmtDebug()");
-    }
-
-    fn format2(
-        fmt_ctx: FormatContext,
-        comptime unused_format_string: []const u8,
-        options: fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        _ = options;
-        comptime assert(unused_format_string.len == 0);
-        const lib_name = fmt_ctx.ctx.coff.temp_strtab.getAssumeExists(fmt_ctx.ctx.name_off);
-        const base_vaddr = getBaseAddress(fmt_ctx.ctx);
-        try writer.print("IAT({s}.dll) @{x}:", .{ lib_name, base_vaddr });
-        for (fmt_ctx.itab.entries.items, 0..) |entry, i| {
-            try writer.print("\n  {d}@{?x} => {s}", .{
-                i,
-                fmt_ctx.itab.getImportAddress(entry, fmt_ctx.ctx),
-                fmt_ctx.ctx.coff.getSymbolName(entry),
-            });
-        }
-    }
-
-    fn fmtDebug(itab: ImportTable, ctx: Context) fmt.Formatter(format2) {
+    fn fmtDebug(itab: ImportTable, ctx: Context) fmt.Formatter(Format, Format.default) {
         return .{ .data = .{ .itab = itab, .ctx = ctx } };
     }
 
