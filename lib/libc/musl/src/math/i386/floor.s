@@ -1,20 +1,5 @@
-.global floorf
-.type floorf,@function
-floorf:
-	flds 4(%esp)
-	jmp 1f
+/* zig patch: removed `floorl` and `floorf` in favor of using zig compiler_rt's implementations */
 
-.global floorl
-.type floorl,@function
-floorl:
-	fldt 4(%esp)
-	jmp 1f
-
-.global floor
-.type floor,@function
-floor:
-	fldl 4(%esp)
-1:	mov $0x7,%al
 1:	fstcw 4(%esp)
 	mov 5(%esp),%ah
 	mov %al,5(%esp)
