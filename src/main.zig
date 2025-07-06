@@ -972,8 +972,6 @@ fn buildOutputType(
         .windows_libs = .empty,
         .link_inputs = .empty,
 
-        .wasi_emulated_libs = .{},
-
         .c_source_files = .{},
         .rc_source_files = .{},
 
@@ -3406,7 +3404,6 @@ fn buildOutputType(
         .framework_dirs = create_module.framework_dirs.items,
         .frameworks = resolved_frameworks.items,
         .windows_lib_names = create_module.windows_libs.keys(),
-        .wasi_emulated_libs = create_module.wasi_emulated_libs.items,
         .want_compiler_rt = want_compiler_rt,
         .want_ubsan_rt = want_ubsan_rt,
         .hash_style = hash_style,
@@ -3687,8 +3684,6 @@ const CreateModule = struct {
     /// output. Allocated with gpa.
     link_inputs: std.ArrayListUnmanaged(link.Input),
 
-    wasi_emulated_libs: std.ArrayListUnmanaged(wasi_libc.CrtFile),
-
     c_source_files: std.ArrayListUnmanaged(Compilation.CSourceFile),
     rc_source_files: std.ArrayListUnmanaged(Compilation.RcSourceFile),
 
@@ -3818,14 +3813,6 @@ fn createModule(
         for (create_module.cli_link_inputs.items) |cli_link_input| switch (cli_link_input) {
             .name_query => |nq| {
                 const lib_name = nq.name;
-
-                if (target.os.tag == .wasi) {
-                    if (wasi_libc.getEmulatedLibCrtFile(lib_name)) |crt_file| {
-                        try create_module.wasi_emulated_libs.append(arena, crt_file);
-                        create_module.opts.link_libc = true;
-                        continue;
-                    }
-                }
 
                 if (std.zig.target.isLibCLibName(target, lib_name)) {
                     create_module.opts.link_libc = true;
