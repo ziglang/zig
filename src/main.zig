@@ -6324,7 +6324,7 @@ fn cmdDumpLlvmInts(
         if (llvm.Target.getFromTriple(triple, &target, &error_message) != .False) @panic("bad");
         break :t target;
     };
-    const tm = llvm.TargetMachine.create(target, triple, null, null, .None, .Default, .Default, false, false, .Default, null);
+    const tm = llvm.TargetMachine.create(target, triple, null, null, .None, .Default, .Default, false, false, .Default, null, false);
     const dl = tm.createTargetDataLayout();
     const context = llvm.Context.create();
 

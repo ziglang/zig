@@ -85,6 +85,19 @@ pub fn defaultSingleThreaded(target: *const std.Target) bool {
     return false;
 }
 
+pub fn useEmulatedTls(target: *const std.Target) bool {
+    if (target.abi.isAndroid()) {
+        if (target.os.version_range.linux.android < 29) return true;
+        return false;
+    }
+    if (target.abi.isOpenHarmony()) return true;
+    return switch (target.os.tag) {
+        .openbsd => true,
+        .windows => target.abi == .cygnus,
+        else => false,
+    };
+}
+
 pub fn hasValgrindSupport(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
     // We can't currently output the necessary Valgrind client request assembly when using the C
     // backend and compiling with an MSVC-like compiler.
