@@ -230,12 +230,7 @@ const ComputeCompareExpected = struct {
         literal: u64,
     },
 
-    pub fn format(
-        value: ComputeCompareExpected,
-        bw: *Writer,
-        comptime fmt: []const u8,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, value);
+    pub fn format(value: ComputeCompareExpected, bw: *Writer) Writer.Error!void {
         try bw.print("{s} ", .{@tagName(value.op)});
         switch (value.value) {
             .variable => |name| try bw.writeAll(name),
@@ -571,7 +566,9 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         null,
         .of(u64),
         null,
-    ) catch |err| return step.fail("unable to read '{f'}': {s}", .{ src_path, @errorName(err) });
+    ) catch |err| return step.fail("unable to read '{f}': {s}", .{
+        std.fmt.alt(src_path, .formatEscapeChar), @errorName(err),
+    });
 
     var vars: std.StringHashMap(u64) = .init(gpa);
     for (check_object.checks.items) |chk| {

@@ -503,8 +503,8 @@ pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.P
     var fw = file.writer(&.{});
     var w = &fw.interface;
     w.writeVecAll(f.all_buffers.items) catch |err| switch (err) {
-        error.WriteFailed => return diags.fail("failed to write to '{f'}': {s}", .{
-            self.base.emit, @errorName(fw.err.?),
+        error.WriteFailed => return diags.fail("failed to write to '{f}': {s}", .{
+            std.fmt.alt(self.base.emit, .formatEscapeChar), @errorName(fw.err.?),
         }),
     };
 }

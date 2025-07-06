@@ -6964,7 +6964,9 @@ fn cmdFetch(
             std.log.info("resolved ref '{s}' to commit {s}", .{ target_ref, latest_commit_hex });
 
             // include the original refspec in a query parameter, could be used to check for updates
-            uri.query = .{ .percent_encoded = try std.fmt.allocPrint(arena, "ref={f%}", .{fragment}) };
+            uri.query = .{ .percent_encoded = try std.fmt.allocPrint(arena, "ref={f}", .{
+                std.fmt.alt(fragment, .formatEscaped),
+            }) };
         } else {
             std.log.info("resolved to commit {s}", .{latest_commit_hex});
         }

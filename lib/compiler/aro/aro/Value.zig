@@ -961,8 +961,7 @@ pub fn print(v: Value, ty: Type, comp: *const Compilation, w: anytype) @TypeOf(w
     switch (key) {
         .null => return w.writeAll("nullptr_t"),
         .int => |repr| switch (repr) {
-            inline .u64, .i64 => |x| return w.print("{d}", .{x}),
-            .big_int => |x| return w.print("{fd}", .{x}),
+            inline .u64, .i64, .big_int => |x| return w.print("{d}", .{x}),
         },
         .float => |repr| switch (repr) {
             .f16 => |x| return w.print("{d}", .{@round(@as(f64, @floatCast(x)) * 1000) / 1000}),

@@ -3262,7 +3262,7 @@ fn printLinemarker(
         // containing the same bytes as the input regardless of encoding.
         else => {
             try w.writeAll("\\x");
-            // TODO try w.printIntOptions(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            // TODO try w.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
             try w.print("{x:0>2}", .{byte});
         },
     };

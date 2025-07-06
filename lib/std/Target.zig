@@ -301,24 +301,13 @@ pub const Os = struct {
 
         /// This function is defined to serialize a Zig source code representation of this
         /// type, that, when parsed, will deserialize into the same data.
-        pub fn format(ver: WindowsVersion, w: *std.io.Writer, comptime f: []const u8) std.io.Writer.Error!void {
-            const maybe_name = std.enums.tagName(WindowsVersion, ver);
-            if (comptime std.mem.eql(u8, f, "s")) {
-                if (maybe_name) |name|
-                    try w.print(".{s}", .{name})
-                else
-                    try w.print(".{d}", .{@intFromEnum(ver)});
-            } else if (comptime std.mem.eql(u8, f, "c")) {
-                if (maybe_name) |name|
-                    try w.print(".{s}", .{name})
-                else
-                    try w.print("@enumFromInt(0x{X:0>8})", .{@intFromEnum(ver)});
-            } else if (f.len == 0) {
-                if (maybe_name) |name|
-                    try w.print("WindowsVersion.{s}", .{name})
-                else
-                    try w.print("WindowsVersion(0x{X:0>8})", .{@intFromEnum(ver)});
-            } else std.fmt.invalidFmtError(f, ver);
+        pub fn format(wv: WindowsVersion, w: *std.io.Writer) std.io.Writer.Error!void {
+            if (std.enums.tagName(WindowsVersion, wv)) |name| {
+                var vecs: [2][]const u8 = .{ ".", name };
+                return w.writeVecAll(&vecs);
+            } else {
+                return w.print("@enumFromInt(0x{X:0>8})", .{wv});
+            }
         }
     };
 

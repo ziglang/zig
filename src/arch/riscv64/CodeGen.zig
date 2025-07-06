@@ -1151,7 +1151,7 @@ fn gen(func: *Func) !void {
                     func.ret_mcv.long.address().offset(-func.ret_mcv.short.indirect.off),
                 );
                 func.ret_mcv.long = .{ .load_frame = .{ .index = frame_index } };
-                tracking_log.debug("spill {} to {f}", .{ func.ret_mcv.long, frame_index });
+                tracking_log.debug("spill {} to {}", .{ func.ret_mcv.long, frame_index });
             },
             else => unreachable,
         }
@@ -1987,7 +1987,7 @@ fn allocFrameIndex(func: *Func, alloc: FrameAlloc) !FrameIndex {
     }
     const frame_index: FrameIndex = @enumFromInt(func.frame_allocs.len);
     try func.frame_allocs.append(func.gpa, alloc);
-    log.debug("allocated frame {f}", .{frame_index});
+    log.debug("allocated frame {}", .{frame_index});
     return frame_index;
 }
 

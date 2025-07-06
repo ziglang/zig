@@ -492,7 +492,7 @@ fn lowerInt(
                     if (!val.fitsInTwosComp(int_info.signedness, int_info.bits)) {
                         return self.fail(
                             node,
-                            "type '{f}' cannot represent integer value '{f}'",
+                            "type '{f}' cannot represent integer value '{d}'",
                             .{ res_ty.fmt(self.sema.pt), val },
                         );
                     }

@@ -77,7 +77,7 @@ pub fn print(
         .func => |func| try writer.print("(function '{f}')", .{ip.getNav(func.owner_nav).name.fmt(ip)}),
         .int => |int| switch (int.storage) {
             inline .u64, .i64 => |x| try writer.print("{d}", .{x}),
-            .big_int => |x| try writer.print("{fd}", .{x}),
+            .big_int => |x| try writer.print("{d}", .{x}),
             .lazy_align => |ty| if (opt_sema != null) {
                 const a = try Type.fromInterned(ty).abiAlignmentSema(pt);
                 try writer.print("{d}", .{a.toByteUnits() orelse 0});

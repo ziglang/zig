@@ -227,9 +227,9 @@ pub const JobQueue = struct {
             }
 
             try buf.writer().print(
-                \\        pub const build_root = "{fq}";
+                \\        pub const build_root = "{f}";
                 \\
-            , .{fetch.package_root});
+            , .{std.fmt.alt(fetch.package_root, .formatEscapeString)});
 
             if (fetch.has_build_zig) {
                 try buf.writer().print(
@@ -1079,7 +1079,10 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
             });
             const notes_start = try eb.reserveNotes(notes_len);
             eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
-                .msg = try eb.printString("try .url = \"{f;+/}#{f}\",", .{ uri, want_oid }),
+                .msg = try eb.printString("try .url = \"{f}#{f}\",", .{
+                    uri.fmt(.{ .scheme = true, .authority = true, .path = true }),
+                    want_oid,
+                }),
             }));
             return error.FetchFailed;
         }

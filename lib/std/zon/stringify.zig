@@ -615,7 +615,7 @@ pub fn Serializer(Writer: type) type {
 
         /// Serialize an integer.
         pub fn int(self: *Self, val: anytype) Writer.Error!void {
-            //try self.writer.printIntOptions(val, 10, .lower, .{});
+            //try self.writer.printInt(val, 10, .lower, .{});
             try std.fmt.deprecatedFormat(self.writer, "{d}", .{val});
         }
 

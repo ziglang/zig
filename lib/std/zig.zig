@@ -475,7 +475,7 @@ pub fn stringEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!vo
         ' ', '!', '#'...'&', '('...'[', ']'...'~' => try w.writeByte(byte),
         else => {
             try w.writeAll("\\x");
-            try w.printIntOptions(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            try w.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
         },
     };
 }
@@ -492,7 +492,7 @@ pub fn charEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!void
         ' ', '!', '#'...'&', '('...'[', ']'...'~' => try w.writeByte(byte),
         else => {
             try w.writeAll("\\x");
-            try w.printIntOptions(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            try w.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
         },
     };
 }

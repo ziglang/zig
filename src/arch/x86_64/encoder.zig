@@ -259,7 +259,7 @@ pub const Instruction = struct {
                             switch (sib.base) {
                                 .none => any = false,
                                 .reg => |reg| try w.print("{s}", .{@tagName(reg)}),
-                                .frame => |frame_index| try w.print("{f}", .{frame_index}),
+                                .frame => |frame_index| try w.print("{}", .{frame_index}),
                                 .table => try w.print("Table", .{}),
                                 .rip_inst => |inst_index| try w.print("RipInst({d})", .{inst_index}),
                                 .nav => |nav| try w.print("Nav({d})", .{@intFromEnum(nav)}),

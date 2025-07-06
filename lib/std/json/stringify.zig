@@ -469,7 +469,6 @@ pub fn WriteStream(
         ///      * When option `emit_nonportable_numbers_as_strings` is true, if the value is outside the range `+-1<<53` (the precise integer range of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
         ///  * Zig floats -> JSON number or string.
         ///      * If the value cannot be precisely represented by an f64, it is rendered as a JSON string. Otherwise, it is rendered as JSON number.
-        ///      * TODO: Float rendering will likely change in the future, e.g. to remove the unnecessary "e+00".
         ///  * Zig `[]const u8`, `[]u8`, `*[N]u8`, `@Vector(N, u8)`, and similar -> JSON string.
         ///      * See `StringifyOptions.emit_strings_as_arrays`.
         ///      * If the content is not valid UTF-8, rendered as an array of numbers instead.

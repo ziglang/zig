@@ -461,10 +461,10 @@ pub fn renderMessage(comp: *Compilation, m: anytype, msg: Message) void {
                             try writer.writeByte(@intCast(codepoint));
                         } else if (codepoint < 0xFFFF) {
                             try writer.writeAll("\\u");
-                            try writer.printIntOptions(codepoint, 16, .upper, .{ .fill = '0', .width = 4 });
+                            try writer.printInt(codepoint, 16, .upper, .{ .fill = '0', .width = 4 });
                         } else {
                             try writer.writeAll("\\U");
-                            try writer.printIntOptions(codepoint, 16, .upper, .{ .fill = '0', .width = 8 });
+                            try writer.printInt(codepoint, 16, .upper, .{ .fill = '0', .width = 8 });
                         }
                     }
                 }

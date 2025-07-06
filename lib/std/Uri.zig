@@ -240,6 +240,10 @@ pub fn parseAfterScheme(scheme: []const u8, text: []const u8) ParseError!Uri {
     return uri;
 }
 
+pub fn format(uri: *const Uri, writer: *std.io.Writer) std.io.Writer.Error!void {
+    return writeToStream(uri, writer, .all);
+}
+
 pub fn writeToStream(uri: *const Uri, writer: *std.io.Writer, flags: Format.Flags) std.io.Writer.Error!void {
     if (flags.scheme) {
         try writer.print("{s}:", .{uri.scheme});
@@ -302,6 +306,16 @@ pub const Format = struct {
         fragment: bool = false,
         /// When true, include the port part of the URI. Ignored when `port` is null.
         port: bool = true,
+
+        pub const all: Flags = .{
+            .scheme = true,
+            .authentication = true,
+            .authority = true,
+            .path = true,
+            .query = true,
+            .fragment = true,
+            .port = true,
+        };
     };
 
     pub fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {

@@ -246,7 +246,7 @@ pub const Type = enum(u32) {
     _,
 
     pub const ptr_amdgpu_constant =
-        @field(Type, std.fmt.comptimePrint("ptr{f }", .{AddrSpace.amdgpu.constant}));
+        @field(Type, std.fmt.comptimePrint("ptr{f}", .{AddrSpace.amdgpu.constant.fmt(" ")}));
 
     pub const Tag = enum(u4) {
         simple,
@@ -779,7 +779,7 @@ pub const Type = enum(u32) {
                 }
             },
             .integer => try w.print("i{d}", .{item.data}),
-            .pointer => try w.print("ptr{f }", .{@as(AddrSpace, @enumFromInt(item.data))}),
+            .pointer => try w.print("ptr{f}", .{@as(AddrSpace, @enumFromInt(item.data)).fmt(" ")}),
             .target => {
                 var extra = data.builder.typeExtraDataTrail(Type.Target, item.data);
                 const types = extra.trail.next(extra.data.types_len, Type, data.builder);
@@ -1242,7 +1242,7 @@ pub const Attribute = union(Kind) {
                 .sret,
                 .elementtype,
                 => |ty| try w.print(" {s}({f})", .{ @tagName(attribute), ty.fmt(data.builder, .percent) }),
-                .@"align" => |alignment| try w.print("{f }", .{alignment}),
+                .@"align" => |alignment| try w.print("{f}", .{alignment.fmt(" ")}),
                 .dereferenceable,
                 .dereferenceable_or_null,
                 => |size| try w.print(" {s}({d})", .{ @tagName(attribute), size }),
@@ -1853,10 +1853,31 @@ pub const ThreadLocal = enum(u3) {
     initialexec = 3,
     localexec = 4,
 
-    pub fn format(self: ThreadLocal, w: *Writer, comptime prefix: []const u8) Writer.Error!void {
-        if (self == .default) return;
-        try w.print("{s}thread_local", .{prefix});
-        if (self != .generaldynamic) try w.print("({s})", .{@tagName(self)});
+    pub fn format(tl: ThreadLocal, w: *Writer) Writer.Error!void {
+        return Prefixed.format(.{ .thread_local = tl, .prefix = "" }, w);
+    }
+
+    pub const Prefixed = struct {
+        thread_local: ThreadLocal,
+        prefix: []const u8,
+
+        pub fn format(p: Prefixed, w: *Writer) Writer.Error!void {
+            switch (p.thread_local) {
+                .default => return,
+                .generaldynamic => {
+                    var vecs: [2][]const u8 = .{ p.prefix, "thread_local" };
+                    return w.writeVecAll(&vecs);
+                },
+                else => {
+                    var vecs: [4][]const u8 = .{ p.prefix, "thread_local(", @tagName(p.thread_local), ")" };
+                    return w.writeVecAll(&vecs);
+                },
+            }
+        }
+    };
+
+    pub fn fmt(tl: ThreadLocal, prefix: []const u8) Prefixed {
+        return .{ .thread_local = tl, .prefix = prefix };
     }
 };
 
@@ -1961,8 +1982,24 @@ pub const AddrSpace = enum(u24) {
         pub const funcref: AddrSpace = @enumFromInt(20);
     };
 
-    pub fn format(self: AddrSpace, w: *Writer, comptime prefix: []const u8) Writer.Error!void {
-        if (self != .default) try w.print("{s}addrspace({d})", .{ prefix, @intFromEnum(self) });
+    pub fn format(addr_space: AddrSpace, w: *Writer) Writer.Error!void {
+        return Prefixed.format(.{ .addr_space = addr_space, .prefix = "" }, w);
+    }
+
+    pub const Prefixed = struct {
+        addr_space: AddrSpace,
+        prefix: []const u8,
+
+        pub fn format(p: Prefixed, w: *Writer) Writer.Error!void {
+            switch (p.addr_space) {
+                .default => return,
+                else => return w.print("{s}addrspace({d})", .{ p.prefix, p.addr_space }),
+            }
+        }
+    };
+
+    pub fn fmt(addr_space: AddrSpace, prefix: []const u8) Prefixed {
+        return .{ .addr_space = addr_space, .prefix = prefix };
     }
 };
 
@@ -1994,8 +2031,18 @@ pub const Alignment = enum(u6) {
         return if (self == .default) 0 else (@intFromEnum(self) + 1);
     }
 
-    pub fn format(self: Alignment, w: *Writer, comptime prefix: []const u8) Writer.Error!void {
-        try w.print("{s}align {d}", .{ prefix, self.toByteUnits() orelse return });
+    pub const Prefixed = struct {
+        alignment: Alignment,
+        prefix: []const u8,
+
+        pub fn format(p: Prefixed, w: *Writer) Writer.Error!void {
+            const byte_units = p.alignment.toByteUnits() orelse return;
+            return w.print("{s}align ({d})", .{ p.prefix, byte_units });
+        }
+    };
+
+    pub fn fmt(alignment: Alignment, prefix: []const u8) Prefixed {
+        return .{ .alignment = alignment, .prefix = prefix };
     }
 };
 
@@ -6978,8 +7025,27 @@ pub const MemoryAccessKind = enum(u1) {
     normal,
     @"volatile",
 
-    pub fn format(self: MemoryAccessKind, w: *Writer, comptime prefix: []const u8) Writer.Error!void {
-        if (self != .normal) try w.print("{s}{s}", .{ prefix, @tagName(self) });
+    pub fn format(memory_access_kind: MemoryAccessKind, w: *Writer) Writer.Error!void {
+        return Prefixed.format(.{ .memory_access_kind = memory_access_kind, .prefix = "" }, w);
+    }
+
+    pub const Prefixed = struct {
+        memory_access_kind: MemoryAccessKind,
+        prefix: []const u8,
+
+        pub fn format(p: Prefixed, w: *Writer) Writer.Error!void {
+            switch (p.memory_access_kind) {
+                .normal => return,
+                .@"volatile" => {
+                    var vecs: [2][]const u8 = .{ p.prefix, "volatile" };
+                    return w.writeVecAll(&vecs);
+                },
+            }
+        }
+    };
+
+    pub fn fmt(memory_access_kind: MemoryAccessKind, prefix: []const u8) Prefixed {
+        return .{ .memory_access_kind = memory_access_kind, .prefix = prefix };
     }
 };
 
@@ -6987,10 +7053,27 @@ pub const SyncScope = enum(u1) {
     singlethread,
     system,
 
-    pub fn format(self: SyncScope, w: *Writer, comptime prefix: []const u8) Writer.Error!void {
-        if (self != .system) try w.print(
-            \\{s}syncscope("{s}")
-        , .{ prefix, @tagName(self) });
+    pub fn format(sync_scope: SyncScope, w: *Writer) Writer.Error!void {
+        return Prefixed.format(.{ .sync_scope = sync_scope, .prefix = "" }, w);
+    }
+
+    pub const Prefixed = struct {
+        sync_scope: SyncScope,
+        prefix: []const u8,
+
+        pub fn format(p: Prefixed, w: *Writer) Writer.Error!void {
+            switch (p.sync_scope) {
+                .system => return,
+                .singlethread => {
+                    var vecs: [2][]const u8 = .{ p.prefix, "syncscope(\"singlethread\")" };
+                    return w.writeVecAll(&vecs);
+                },
+            }
+        }
+    };
+
+    pub fn fmt(sync_scope: SyncScope, prefix: []const u8) Prefixed {
+        return .{ .sync_scope = sync_scope, .prefix = prefix };
     }
 };
 
@@ -7003,8 +7086,27 @@ pub const AtomicOrdering = enum(u3) {
     acq_rel = 5,
     seq_cst = 6,
 
-    pub fn format(self: AtomicOrdering, w: *Writer, comptime prefix: []const u8) Writer.Error!void {
-        if (self != .none) try w.print("{s}{s}", .{ prefix, @tagName(self) });
+    pub fn format(atomic_ordering: AtomicOrdering, w: *Writer) Writer.Error!void {
+        return Prefixed.format(.{ .atomic_ordering = atomic_ordering, .prefix = "" }, w);
+    }
+
+    pub const Prefixed = struct {
+        atomic_ordering: AtomicOrdering,
+        prefix: []const u8,
+
+        pub fn format(p: Prefixed, w: *Writer) Writer.Error!void {
+            switch (p.atomic_ordering) {
+                .none => return,
+                else => {
+                    var vecs: [2][]const u8 = .{ p.prefix, @tagName(p.atomic_ordering) };
+                    return w.writeVecAll(&vecs);
+                },
+            }
+        }
+    };
+
+    pub fn fmt(atomic_ordering: AtomicOrdering, prefix: []const u8) Prefixed {
+        return .{ .atomic_ordering = atomic_ordering, .prefix = prefix };
     }
 };
 
@@ -8550,7 +8652,7 @@ pub fn init(options: Options) Allocator.Error!Builder {
         inline for (.{ 0, 4 }) |addr_space_index| {
             const addr_space: AddrSpace = @enumFromInt(addr_space_index);
             assert(self.ptrTypeAssumeCapacity(addr_space) ==
-                @field(Type, std.fmt.comptimePrint("ptr{f }", .{addr_space})));
+                @field(Type, std.fmt.comptimePrint("ptr{f}", .{addr_space.fmt(" ")})));
         }
     }
 
@@ -9469,7 +9571,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
             metadata_formatter.need_comma = true;
             defer metadata_formatter.need_comma = undefined;
             try w.print(
-                \\{f} ={f}{f}{f}{f}{f }{f}{f }{f} {s} {f}{f}{f, }{f}
+                \\{f} ={f}{f}{f}{f}{f}{f}{f}{f} {s} {f}{f}{f}{f}
                 \\
             , .{
                 variable.global.fmt(self),
@@ -9479,14 +9581,14 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                 global.preemption,
                 global.visibility,
                 global.dll_storage_class,
-                variable.thread_local,
+                variable.thread_local.fmt(" "),
                 global.unnamed_addr,
-                global.addr_space,
+                global.addr_space.fmt(" "),
                 global.externally_initialized,
                 @tagName(variable.mutability),
                 global.type.fmt(self, .percent),
                 variable.init.fmt(self, .{ .space = true }),
-                variable.alignment,
+                variable.alignment.fmt(", "),
                 try metadata_formatter.fmt("!dbg ", global.dbg, null),
             });
         }
@@ -9500,7 +9602,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
             metadata_formatter.need_comma = true;
             defer metadata_formatter.need_comma = undefined;
             try w.print(
-                \\{f} ={f}{f}{f}{f}{f }{f} alias {f}, {f}{f}
+                \\{f} ={f}{f}{f}{f}{f}{f} alias {f}, {f}{f}
                 \\
             , .{
                 alias.global.fmt(self),
@@ -9508,7 +9610,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                 global.preemption,
                 global.visibility,
                 global.dll_storage_class,
-                alias.thread_local,
+                alias.thread_local.fmt(" "),
                 global.unnamed_addr,
                 global.type.fmt(self, .percent),
                 alias.aliasee.fmt(self, .{ .percent = true }),
@@ -9564,15 +9666,15 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                 try w.writeAll("...");
             },
         }
-        try w.print("){f}{f }", .{ global.unnamed_addr, global.addr_space });
+        try w.print("){f}{f}", .{ global.unnamed_addr, global.addr_space.fmt(" ") });
         if (function_attributes != .none) try w.print(" #{d}", .{
             (try attribute_groups.getOrPutValue(self.gpa, function_attributes, {})).index,
         });
         {
             metadata_formatter.need_comma = false;
             defer metadata_formatter.need_comma = undefined;
-            try w.print("{f }{f}", .{
-                function.alignment,
+            try w.print("{f}{f}", .{
+                function.alignment.fmt(" "),
                 try metadata_formatter.fmt(" !dbg ", global.dbg, null),
             });
         }
@@ -9709,7 +9811,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                     .@"alloca inalloca",
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Alloca, instruction.data);
-                        try w.print("  %{f} = {s} {f}{f}{f, }{f, }", .{
+                        try w.print("  %{f} = {s} {f}{f}{f}{f}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.type.fmt(self, .percent),
@@ -9720,24 +9822,24 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                                 .comma = true,
                                 .percent = true,
                             }),
-                            extra.info.alignment,
-                            extra.info.addr_space,
+                            extra.info.alignment.fmt(", "),
+                            extra.info.addr_space.fmt(", "),
                         });
                     },
                     .arg => unreachable,
                     .atomicrmw => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.AtomicRmw, instruction.data);
-                        try w.print("  %{f} = {s}{f } {s} {f}, {f}{f }{f }{f, }", .{
+                        try w.print("  %{f} = {t}{f} {t} {f}, {f}{f}{f}{f}", .{
                             instruction_index.name(&function).fmt(self),
-                            @tagName(tag),
-                            extra.info.access_kind,
-                            @tagName(extra.info.atomic_rmw_operation),
+                            tag,
+                            extra.info.access_kind.fmt(" "),
+                            extra.info.atomic_rmw_operation,
                             extra.ptr.fmt(function_index, self, .{ .percent = true }),
                             extra.val.fmt(function_index, self, .{ .percent = true }),
-                            extra.info.sync_scope,
-                            extra.info.success_ordering,
-                            extra.info.alignment,
+                            extra.info.sync_scope.fmt(" "),
+                            extra.info.success_ordering.fmt(" "),
+                            extra.info.alignment.fmt(", "),
                         });
                     },
                     .block => {
@@ -9792,8 +9894,8 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                             }),
                             .none => unreachable,
                         }
-                        try w.print("{s}{f}{f}{f} {f} {f}(", .{
-                            @tagName(tag),
+                        try w.print("{t}{f}{f}{f} {f} {f}(", .{
+                            tag,
                             extra.data.info.call_conv,
                             extra.data.attributes.ret(self).fmt(self, .{}),
                             extra.data.callee.typeOf(function_index, self).pointerAddrSpace(self),
@@ -9831,17 +9933,17 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                     => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.CmpXchg, instruction.data);
-                        try w.print("  %{f} = {s}{f } {f}, {f}, {f}{f }{f }{f }{f, }", .{
+                        try w.print("  %{f} = {t}{f} {f}, {f}, {f}{f}{f}{f}{f}", .{
                             instruction_index.name(&function).fmt(self),
-                            @tagName(tag),
-                            extra.info.access_kind,
+                            tag,
+                            extra.info.access_kind.fmt(" "),
                             extra.ptr.fmt(function_index, self, .{ .percent = true }),
                             extra.cmp.fmt(function_index, self, .{ .percent = true }),
                             extra.new.fmt(function_index, self, .{ .percent = true }),
-                            extra.info.sync_scope,
-                            extra.info.success_ordering,
-                            extra.info.failure_ordering,
-                            extra.info.alignment,
+                            extra.info.sync_scope.fmt(" "),
+                            extra.info.success_ordering.fmt(" "),
+                            extra.info.failure_ordering.fmt(" "),
+                            extra.info.alignment.fmt(", "),
                         });
                     },
                     .extractelement => |tag| {
@@ -9869,10 +9971,10 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                     },
                     .fence => |tag| {
                         const info: MemoryAccessInfo = @bitCast(instruction.data);
-                        try w.print("  {s}{f }{f }", .{
-                            @tagName(tag),
-                            info.sync_scope,
-                            info.success_ordering,
+                        try w.print("  {t}{f}{f}", .{
+                            tag,
+                            info.sync_scope.fmt(" "),
+                            info.success_ordering.fmt(" "),
                         });
                     },
                     .fneg,
@@ -9947,15 +10049,15 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                     .@"load atomic",
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Load, instruction.data);
-                        try w.print("  %{f} = {s}{f } {f}, {f}{f }{f }{f, }", .{
+                        try w.print("  %{f} = {t}{f} {f}, {f}{f}{f}{f}", .{
                             instruction_index.name(&function).fmt(self),
-                            @tagName(tag),
-                            extra.info.access_kind,
+                            tag,
+                            extra.info.access_kind.fmt(" "),
                             extra.type.fmt(self, .percent),
                             extra.ptr.fmt(function_index, self, .{ .percent = true }),
-                            extra.info.sync_scope,
-                            extra.info.success_ordering,
-                            extra.info.alignment,
+                            extra.info.sync_scope.fmt(" "),
+                            extra.info.success_ordering.fmt(" "),
+                            extra.info.alignment.fmt(", "),
                         });
                     },
                     .phi,
@@ -10015,14 +10117,14 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                     .@"store atomic",
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Store, instruction.data);
-                        try w.print("  {s}{f } {f}, {f}{f }{f }{f, }", .{
-                            @tagName(tag),
-                            extra.info.access_kind,
+                        try w.print("  {t}{f} {f}, {f}{f}{f}{f}", .{
+                            tag,
+                            extra.info.access_kind.fmt(" "),
                             extra.val.fmt(function_index, self, .{ .percent = true }),
                             extra.ptr.fmt(function_index, self, .{ .percent = true }),
-                            extra.info.sync_scope,
-                            extra.info.success_ordering,
-                            extra.info.alignment,
+                            extra.info.sync_scope.fmt(" "),
+                            extra.info.success_ordering.fmt(" "),
+                            extra.info.alignment.fmt(", "),
                         });
                     },
                     .@"switch" => |tag| {

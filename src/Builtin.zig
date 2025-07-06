@@ -200,8 +200,8 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         }),
         .windows => |windows| try buffer.print(
             \\ .windows = .{{
-            \\        .min = {fc},
-            \\        .max = {fc},
+            \\        .min = {f},
+            \\        .max = {f},
             \\    }}}},
             \\
         , .{ windows.min, windows.max }),

@@ -53,16 +53,20 @@ pub const Options = struct {
 ///   - when using a field name, you are required to enclose the field name (an identifier) in square
 ///     brackets, e.g. {[score]...} as opposed to the numeric index form which can be written e.g. {2...}
 /// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
-/// - *fill* is a single byte which is used to pad the formatted text
-/// - *alignment* is one of the three bytes '<', '^', or '>' to make the text left-, center-, or right-aligned, respectively
-/// - *width* is the total width of the field in bytes. This is generally only
-///   useful for ASCII text, such as numbers.
-/// - *precision* specifies how many decimals a formatted number should have
+/// - *fill* is a single byte which is used to pad formatted numbers.
+/// - *alignment* is one of the three bytes '<', '^', or '>' to make numbers
+///   left, center, or right-aligned, respectively.
+/// - *width* is the total width of the field in bytes. This only applies to number formatting.
+/// - *precision* specifies how many decimals a formatted number should have.
 ///
-/// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
-/// all parameters after the separator are omitted.
-/// Only exception is the *fill* parameter. If a non-zero *fill* character is required at the same time as *width* is specified,
-/// one has to specify *alignment* as well, as otherwise the digit following `:` is interpreted as *width*, not *fill*.
+/// Note that most of the parameters are optional and may be omitted. Also you
+/// can leave out separators like `:` and `.` when all parameters after the
+/// separator are omitted.
+///
+/// Only exception is the *fill* parameter. If a non-zero *fill* character is
+/// required at the same time as *width* is specified, one has to specify
+/// *alignment* as well, as otherwise the digit following `:` is interpreted as
+/// *width*, not *fill*.
 ///
 /// The *specifier* has several options for types:
 /// - `x` and `X`: output numeric value in hexadecimal notation, or string in hexadecimal bytes
@@ -405,9 +409,9 @@ pub const ArgState = struct {
 /// Asserts the rendered integer value fits in `buffer`.
 /// Returns the end index within `buffer`.
 pub fn printInt(buffer: []u8, value: anytype, base: u8, case: Case, options: Options) usize {
-    var bw: Writer = .fixed(buffer);
-    bw.printIntOptions(value, base, case, options) catch unreachable;
-    return bw.end;
+    var w: Writer = .fixed(buffer);
+    w.printInt(value, base, case, options) catch unreachable;
+    return w.end;
 }
 
 /// Converts values in the range [0, 100) to a base 10 string.
@@ -956,35 +960,23 @@ fn expectArrayFmt(expected: []const u8, comptime template: []const u8, comptime 
 }
 
 test "array" {
-    {
-        const value: [3]u8 = "abc".*;
-        try expectArrayFmt("array: abc\n", "array: {s}\n", value);
-        try expectArrayFmt("array: { 97, 98, 99 }\n", "array: {d}\n", value);
-        try expectArrayFmt("array: 616263\n", "array: {x}\n", value);
-        try expectArrayFmt("array: { 97, 98, 99 }\n", "array: {any}\n", value);
+    const value: [3]u8 = "abc".*;
+    try expectArrayFmt("array: abc\n", "array: {s}\n", value);
+    try expectArrayFmt("array: 616263\n", "array: {x}\n", value);
+    try expectArrayFmt("array: { 97, 98, 99 }\n", "array: {any}\n", value);
 
-        var buf: [100]u8 = undefined;
-        try expectFmt(
-            try bufPrint(buf[0..], "array: [3]u8@{x}\n", .{@intFromPtr(&value)}),
-            "array: {*}\n",
-            .{&value},
-        );
-    }
-
-    {
-        const value = [2][3]u8{ "abc".*, "def".* };
-
-        try expectArrayFmt("array: { abc, def }\n", "array: {s}\n", value);
-        try expectArrayFmt("array: { { 97, 98, 99 }, { 100, 101, 102 } }\n", "array: {d}\n", value);
-        try expectArrayFmt("array: { 616263, 646566 }\n", "array: {x}\n", value);
-    }
+    var buf: [100]u8 = undefined;
+    try expectFmt(
+        try bufPrint(buf[0..], "array: [3]u8@{x}\n", .{@intFromPtr(&value)}),
+        "array: {*}\n",
+        .{&value},
+    );
 }
 
 test "slice" {
     {
         const value: []const u8 = "abc";
         try expectFmt("slice: abc\n", "slice: {s}\n", .{value});
-        try expectFmt("slice: { 97, 98, 99 }\n", "slice: {d}\n", .{value});
         try expectFmt("slice: 616263\n", "slice: {x}\n", .{value});
         try expectFmt("slice: { 97, 98, 99 }\n", "slice: {any}\n", .{value});
     }
@@ -999,17 +991,12 @@ test "slice" {
         try expectFmt("buf: \x00hello\x00\n", "buf: {s}\n", .{null_term_slice});
     }
 
-    try expectFmt("buf:  Test\n", "buf: {s:5}\n", .{"Test"});
     try expectFmt("buf: Test\n Other text", "buf: {s}\n Other text", .{"Test"});
 
     {
         var int_slice = [_]u32{ 1, 4096, 391891, 1111111111 };
-        var runtime_zero: usize = 0;
-        _ = &runtime_zero;
-        try expectFmt("int: { 1, 4096, 391891, 1111111111 }", "int: {any}", .{int_slice[runtime_zero..]});
-        try expectFmt("int: { 1, 4096, 391891, 1111111111 }", "int: {d}", .{int_slice[runtime_zero..]});
-        try expectFmt("int: { 1, 1000, 5fad3, 423a35c7 }", "int: {x}", .{int_slice[runtime_zero..]});
-        try expectFmt("int: { 00001, 01000, 5fad3, 423a35c7 }", "int: {x:0>5}", .{int_slice[runtime_zero..]});
+        const input: []const u32 = &int_slice;
+        try expectFmt("int: { 1, 4096, 391891, 1111111111 }", "int: {any}", .{input});
     }
     {
         const S1 = struct {
@@ -1052,11 +1039,6 @@ test "cstr" {
     try expectFmt(
         "cstr: Test C\n",
         "cstr: {s}\n",
-        .{@as([*c]const u8, @ptrCast("Test C"))},
-    );
-    try expectFmt(
-        "cstr:     Test C\n",
-        "cstr: {s:10}\n",
         .{@as([*c]const u8, @ptrCast("Test C"))},
     );
 }
@@ -1428,16 +1410,12 @@ test "enum-literal" {
 
 test "padding" {
     try expectFmt("Simple", "{s}", .{"Simple"});
-    try expectFmt("      true", "{:10}", .{true});
-    try expectFmt("      true", "{:>10}", .{true});
-    try expectFmt("======true", "{:=>10}", .{true});
-    try expectFmt("true======", "{:=<10}", .{true});
-    try expectFmt("   true   ", "{:^10}", .{true});
-    try expectFmt("===true===", "{:=^10}", .{true});
-    try expectFmt("           Minimum width", "{s:18} width", .{"Minimum"});
-    try expectFmt("==================Filled", "{s:=>24}", .{"Filled"});
-    try expectFmt("        Centered        ", "{s:^24}", .{"Centered"});
-    try expectFmt("-", "{s:-^1}", .{""});
+    try expectFmt("      1234", "{:10}", .{1234});
+    try expectFmt("      1234", "{:>10}", .{1234});
+    try expectFmt("======1234", "{:=>10}", .{1234});
+    try expectFmt("1234======", "{:=<10}", .{1234});
+    try expectFmt("   1234   ", "{:^10}", .{1234});
+    try expectFmt("===1234===", "{:=^10}", .{1234});
     try expectFmt("====a", "{c:=>5}", .{'a'});
     try expectFmt("==a==", "{c:=^5}", .{'a'});
     try expectFmt("a====", "{c:=<5}", .{'a'});
@@ -1485,17 +1463,17 @@ test "named arguments" {
 
 test "runtime width specifier" {
     const width: usize = 9;
-    try expectFmt("~~hello~~", "{s:~^[1]}", .{ "hello", width });
-    try expectFmt("~~hello~~", "{s:~^[width]}", .{ .string = "hello", .width = width });
-    try expectFmt("    hello", "{s:[1]}", .{ "hello", width });
-    try expectFmt("42     hello", "{d} {s:[2]}", .{ 42, "hello", width });
+    try expectFmt("~~12345~~", "{d:~^[1]}", .{ 12345, width });
+    try expectFmt("~~12345~~", "{d:~^[width]}", .{ .string = 12345, .width = width });
+    try expectFmt("    12345", "{d:[1]}", .{ 12345, width });
+    try expectFmt("42     12345", "{d} {d:[2]}", .{ 42, 12345, width });
 }
 
 test "runtime precision specifier" {
     const number: f32 = 3.1415;
     const precision: usize = 2;
-    try expectFmt("3.14e0", "{:1.[1]}", .{ number, precision });
-    try expectFmt("3.14e0", "{:1.[precision]}", .{ .number = number, .precision = precision });
+    try expectFmt("3.14e0", "{e:1.[1]}", .{ number, precision });
+    try expectFmt("3.14e0", "{e:1.[precision]}", .{ .number = number, .precision = precision });
 }
 
 test "recursive format function" {
