@@ -143,7 +143,16 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 // Compile libwasi-emulated-process-clocks.
                 var args = std.ArrayList([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-                try addLibcBottomHalfIncludes(comp, arena, &args);
+                try args.appendSlice(&.{
+                    "-I",
+                    try comp.dirs.zig_lib.join(arena, &.{
+                        "libc",
+                        "wasi",
+                        "libc-bottom-half",
+                        "cloudlibc",
+                        "src",
+                    }),
+                });
 
                 for (emulated_process_clocks_src_files) |file_path| {
                     try libc_sources.append(.{
