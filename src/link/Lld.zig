@@ -1217,6 +1217,11 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
                         if (lib.removed_in) |rem_in| {
                             if (target.os.versionRange().gnuLibCVersion().?.order(rem_in) != .lt) continue;
                         }
+                        if (!comp.config.any_non_single_threaded and
+                            (std.mem.eql(u8, lib.name, "pthread") or
+                                std.mem.eql(u8, lib.name, "resolv") or
+                                std.mem.eql(u8, lib.name, "rt") or
+                                std.mem.eql(u8, lib.name, "util"))) continue;
 
                         const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
                             comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
