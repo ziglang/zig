@@ -1047,6 +1047,7 @@ pub const Object = struct {
             comp.data_sections,
             float_abi,
             if (target_util.llvmMachineAbi(&comp.root_mod.resolved_target.result)) |s| s.ptr else null,
+            target_util.useEmulatedTls(&comp.root_mod.resolved_target.result),
         );
         errdefer target_machine.dispose();
 
