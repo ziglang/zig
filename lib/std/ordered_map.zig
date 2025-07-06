@@ -9,8 +9,8 @@ const Color = enum {
     Black,
 };
 
-/// Generic Map implementation (Red Black Tree similar to std::map)
-pub fn Map(comptime K: type, comptime V: type) type {
+/// Generic OrderedMap implementation (Red Black Tree similar to std::map)
+pub fn OrderedMap(comptime K: type, comptime V: type) type {
     return struct {
         const Self = @This();
 
@@ -21,19 +21,6 @@ pub fn Map(comptime K: type, comptime V: type) type {
             left: ?*Node,
             right: ?*Node,
             parent: ?*Node,
-
-            fn init(allocator: Allocator, key: K, value: V) !*Node {
-                const node = try allocator.create(Node);
-                node.* = Node{
-                    .key = key,
-                    .value = value,
-                    .color = Color.Red,
-                    .left = null,
-                    .right = null,
-                    .parent = null,
-                };
-                return node;
-            }
         };
 
         pub const Entry = struct {
@@ -54,13 +41,13 @@ pub fn Map(comptime K: type, comptime V: type) type {
             }
         };
 
-        allocator: Allocator,
+        node_pool: std.heap.MemoryPool(Node),
         root: ?*Node,
         node_count: usize,
 
         pub fn init(allocator: Allocator) Self {
             return Self{
-                .allocator = allocator,
+                .node_pool = std.heap.MemoryPool(Node).init(allocator),
                 .root = null,
                 .node_count = 0,
             };
@@ -68,6 +55,7 @@ pub fn Map(comptime K: type, comptime V: type) type {
 
         pub fn deinit(self: *Self) void {
             self.clear();
+            self.node_pool.deinit();
         }
 
         pub fn clear(self: *Self) void {
@@ -85,7 +73,20 @@ pub fn Map(comptime K: type, comptime V: type) type {
             if (node.right) |right| {
                 self.destroySubtree(right);
             }
-            self.allocator.destroy(node);
+            self.node_pool.destroy(node);
+        }
+
+        fn createNode(self: *Self, key: K, value: V) !*Node {
+            const node = try self.node_pool.create();
+            node.* = Node{
+                .key = key,
+                .value = value,
+                .color = Color.Red,
+                .left = null,
+                .right = null,
+                .parent = null,
+            };
+            return node;
         }
 
         pub fn empty(self: *const Self) bool {
@@ -98,7 +99,7 @@ pub fn Map(comptime K: type, comptime V: type) type {
 
         pub fn insert(self: *Self, key: K, value: V) !void {
             if (self.root == null) {
-                self.root = try Node.init(self.allocator, key, value);
+                self.root = try self.createNode(key, value);
                 self.root.?.color = Color.Black;
                 self.node_count = 1;
                 return;
@@ -113,7 +114,7 @@ pub fn Map(comptime K: type, comptime V: type) type {
                     if (current.left) |left| {
                         current = left;
                     } else {
-                        current.left = try Node.init(self.allocator, key, value);
+                        current.left = try self.createNode(key, value);
                         current.left.?.parent = current;
                         self.insertFixup(current.left.?);
                         self.node_count += 1;
@@ -123,7 +124,7 @@ pub fn Map(comptime K: type, comptime V: type) type {
                     if (current.right) |right| {
                         current = right;
                     } else {
-                        current.right = try Node.init(self.allocator, key, value);
+                        current.right = try self.createNode(key, value);
                         current.right.?.parent = current;
                         self.insertFixup(current.right.?);
                         self.node_count += 1;
@@ -376,7 +377,7 @@ pub fn Map(comptime K: type, comptime V: type) type {
                 self.deleteFixup(x);
             }
 
-            self.allocator.destroy(z);
+            self.node_pool.destroy(z);
         }
 
         fn transplant(self: *Self, u: *Node, v: ?*Node) void {
@@ -474,7 +475,7 @@ pub fn Map(comptime K: type, comptime V: type) type {
     };
 }
 
-fn printMap(comment: []const u8, m: *const Map([]const u8, i32)) void {
+fn printMap(comment: []const u8, m: *const OrderedMap([]const u8, i32)) void {
     print("{s}", .{comment});
     var iter = m.iterator();
     while (iter.next()) |entry| {
@@ -488,7 +489,7 @@ test "Map initialization and basic properties" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map([]const u8, i32).init(allocator);
+    var map = OrderedMap([]const u8, i32).init(allocator);
     defer map.deinit();
 
     try testing.expect(map.empty());
@@ -500,7 +501,7 @@ test "Map single insertion and retrieval" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map([]const u8, i32).init(allocator);
+    var map = OrderedMap([]const u8, i32).init(allocator);
     defer map.deinit();
 
     try map.insert("hello", 42);
@@ -517,7 +518,7 @@ test "Map multiple insertions" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map([]const u8, i32).init(allocator);
+    var map = OrderedMap([]const u8, i32).init(allocator);
     defer map.deinit();
 
     try map.insert("apple", 1);
@@ -539,7 +540,7 @@ test "Map key update (overwrite existing key)" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map([]const u8, i32).init(allocator);
+    var map = OrderedMap([]const u8, i32).init(allocator);
     defer map.deinit();
 
     try map.insert("key", 10);
@@ -556,7 +557,7 @@ test "Map non-existent key retrieval" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map([]const u8, i32).init(allocator);
+    var map = OrderedMap([]const u8, i32).init(allocator);
     defer map.deinit();
 
     try map.insert("exists", 42);
@@ -571,7 +572,7 @@ test "Map erase functionality" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map([]const u8, i32).init(allocator);
+    var map = OrderedMap([]const u8, i32).init(allocator);
     defer map.deinit();
 
     try map.insert("a", 1);
@@ -597,7 +598,7 @@ test "Map clear functionality" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map([]const u8, i32).init(allocator);
+    var map = OrderedMap([]const u8, i32).init(allocator);
     defer map.deinit();
 
     try map.insert("x", 1);
@@ -621,17 +622,17 @@ test "Map getOrPut functionality" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map([]const u8, i32).init(allocator);
+    var map = OrderedMap([]const u8, i32).init(allocator);
     defer map.deinit();
 
-    const value_ptr1 = try map.getOrPut("new_key");
+    const value_ptr1 = try map.getOrPut("new_key", 0);
     try testing.expectEqual(@as(i32, 0), value_ptr1.*); // Default value
     try testing.expectEqual(@as(usize, 1), map.size());
 
     value_ptr1.* = 100;
     try testing.expectEqual(@as(i32, 100), map.get("new_key").?);
 
-    const value_ptr2 = try map.getOrPut("new_key");
+    const value_ptr2 = try map.getOrPut("new_key", 0);
     try testing.expectEqual(@as(i32, 100), value_ptr2.*);
     try testing.expectEqual(@as(usize, 1), map.size()); // Size shouldn't change
 }
@@ -641,7 +642,7 @@ test "Map iterator functionality" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map([]const u8, i32).init(allocator);
+    var map = OrderedMap([]const u8, i32).init(allocator);
     defer map.deinit();
 
     var empty_iter = map.iterator();
@@ -674,7 +675,7 @@ test "Map with integer keys" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map(i32, []const u8).init(allocator);
+    var map = OrderedMap(i32, []const u8).init(allocator);
     defer map.deinit();
 
     try map.insert(100, "hundred");
@@ -695,7 +696,7 @@ test "Map stress test - many insertions" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map(i32, i32).init(allocator);
+    var map = OrderedMap(i32, i32).init(allocator);
     defer map.deinit();
 
     const num_elements = 1000;
@@ -719,7 +720,7 @@ test "Map stress test - insertions and deletions" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map(i32, i32).init(allocator);
+    var map = OrderedMap(i32, i32).init(allocator);
     defer map.deinit();
 
     const num_elements = 500;
@@ -757,7 +758,7 @@ test "Map iterator after modifications" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map(i32, i32).init(allocator);
+    var map = OrderedMap(i32, i32).init(allocator);
     defer map.deinit();
 
     try map.insert(5, 50);
@@ -786,7 +787,7 @@ test "Map edge cases - single element operations" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map(i32, i32).init(allocator);
+    var map = OrderedMap(i32, i32).init(allocator);
     defer map.deinit();
 
     try map.insert(42, 84);
@@ -809,7 +810,7 @@ test "Map duplicate key handling" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map([]const u8, i32).init(allocator);
+    var map = OrderedMap([]const u8, i32).init(allocator);
     defer map.deinit();
 
     try map.insert("duplicate", 1);
@@ -825,7 +826,7 @@ test "Map with different value types" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var bool_map = Map([]const u8, bool).init(allocator);
+    var bool_map = OrderedMap([]const u8, bool).init(allocator);
     defer bool_map.deinit();
 
     try bool_map.insert("true_key", true);
@@ -834,14 +835,14 @@ test "Map with different value types" {
     try testing.expect(bool_map.get("true_key").?);
     try testing.expect(!bool_map.get("false_key").?);
 
-    var float_map = Map([]const u8, f64).init(allocator);
+    var float_map = OrderedMap([]const u8, f64).init(allocator);
     defer float_map.deinit();
 
     try float_map.insert("pi", 3.14159);
     try float_map.insert("e", 2.71828);
 
-    try testing.expectApproxEqRel(@as(f64, 3.14159), float_map.get("pi").?, 0.00001);
-    try testing.expectApproxEqRel(@as(f64, 2.71828), float_map.get("e").?, 0.00001);
+    try testing.expectEqual(@as(f64, 3.14159), float_map.get("pi").?);
+    try testing.expectEqual(@as(f64, 2.71828), float_map.get("e").?);
 }
 
 test "Map sequential operations" {
@@ -849,7 +850,7 @@ test "Map sequential operations" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var map = Map([]const u8, i32).init(allocator);
+    var map = OrderedMap([]const u8, i32).init(allocator);
     defer map.deinit();
 
     try map.insert("first", 1);
