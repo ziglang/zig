@@ -222,10 +222,16 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
 /// than or equal to the number of behavior tests as the respective LLVM backend.
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
     if (target.cpu.arch.isSpirV()) return true;
-    if (target.cpu.arch == .x86_64 and target.ptrBitWidth() == 64) return switch (target.ofmt) {
-        .elf, .macho => true,
-        else => false,
-    };
+    if (target.cpu.arch == .x86_64 and target.ptrBitWidth() == 64) {
+        if (target.os.tag == .netbsd) {
+            // Self-hosted linker needs work: https://github.com/ziglang/zig/issues/24341
+            return false;
+        }
+        return switch (target.ofmt) {
+            .elf, .macho => true,
+            else => false,
+        };
+    }
     return false;
 }
 
