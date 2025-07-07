@@ -1038,10 +1038,9 @@ test "packed struct with undefined initializers" {
             var p: P = undefined;
             p = P{ .a = 2, .b = 4, .c = 6 };
             // Make sure the compiler doesn't touch the unprefixed fields.
-            // Use expect since x86-linux doesn't like expectEqual
-            try expect(p.a == 2);
-            try expect(p.b == 4);
-            try expect(p.c == 6);
+            try expectEqual(@as(u3, 2), p.a);
+            try expectEqual(@as(u3, 4), p.b);
+            try expectEqual(@as(u3, 6), p.c);
         }
     };
 
