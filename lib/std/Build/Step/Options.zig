@@ -212,6 +212,7 @@ fn printTypeName(options: *Options, out: Writer, comptime T: type, indent: u8) !
         .float,
         .comptime_int,
         .comptime_float,
+        .enum_literal,
         => try out.print("{s}", .{@typeName(T)}),
         .@"enum" => try out.print("{}", .{std.zig.fmtId(@typeName(T))}),
         .@"struct" => |@"struct"| {
@@ -259,6 +260,7 @@ fn printValue(options: *Options, out: Writer, comptime T: type, value: T, indent
         .float,
         .comptime_int,
         .comptime_float,
+        .enum_literal,
         => try out.print("{}", .{value}),
         .@"enum" => |@"enum"| {
             if (@"enum".is_exhaustive) {
@@ -297,12 +299,12 @@ fn printValue(options: *Options, out: Writer, comptime T: type, value: T, indent
             }
             try out.writeAll(" }");
         },
-        else => comptime unreachable,
+        else => |tag| unsupported(@tagName(tag)),
     }
 }
 
 inline fn unsupported(comptime str: []const u8) noreturn {
-    @compileError(std.fmt.comptimePrint("'{s}' is not supported within build options", .{str}));
+    @compileError(std.fmt.comptimePrint("'{s}' not supported within build options", .{str}));
 }
 
 /// The value is the path in the cache dir.
