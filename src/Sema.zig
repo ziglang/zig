@@ -2860,7 +2860,7 @@ fn getCaptures(sema: *Sema, block: *Block, type_src: LazySrcLoc, extra_index: us
                     sema.code.nullTerminatedString(str),
                     .no_embedded_nulls,
                 );
-                const nav = try sema.lookupIdentifier(block, LazySrcLoc.unneeded, decl_name); // TODO: could we need this src loc?
+                const nav = try sema.lookupIdentifier(block, decl_name);
                 break :capture InternPool.CaptureValue.wrap(.{ .nav_val = nav });
             },
             .decl_ref => |str| capture: {
@@ -2870,7 +2870,7 @@ fn getCaptures(sema: *Sema, block: *Block, type_src: LazySrcLoc, extra_index: us
                     sema.code.nullTerminatedString(str),
                     .no_embedded_nulls,
                 );
-                const nav = try sema.lookupIdentifier(block, LazySrcLoc.unneeded, decl_name); // TODO: could we need this src loc?
+                const nav = try sema.lookupIdentifier(block, decl_name);
                 break :capture InternPool.CaptureValue.wrap(.{ .nav_ref = nav });
             },
         };
@@ -6925,7 +6925,7 @@ fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         inst_data.get(sema.code),
         .no_embedded_nulls,
     );
-    const nav_index = try sema.lookupIdentifier(block, src, decl_name);
+    const nav_index = try sema.lookupIdentifier(block, decl_name);
     return sema.analyzeNavRef(block, src, nav_index);
 }
 
@@ -6940,16 +6940,16 @@ fn zirDeclVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         inst_data.get(sema.code),
         .no_embedded_nulls,
     );
-    const nav = try sema.lookupIdentifier(block, src, decl_name);
+    const nav = try sema.lookupIdentifier(block, decl_name);
     return sema.analyzeNavVal(block, src, nav);
 }
 
-fn lookupIdentifier(sema: *Sema, block: *Block, src: LazySrcLoc, name: InternPool.NullTerminatedString) !InternPool.Nav.Index {
+fn lookupIdentifier(sema: *Sema, block: *Block, name: InternPool.NullTerminatedString) !InternPool.Nav.Index {
     const pt = sema.pt;
     const zcu = pt.zcu;
     var namespace = block.namespace;
     while (true) {
-        if (try sema.lookupInNamespace(block, src, namespace, name, false)) |lookup| {
+        if (try sema.lookupInNamespace(block, namespace, name)) |lookup| {
             assert(lookup.accessible);
             return lookup.nav;
         }
@@ -6958,15 +6958,12 @@ fn lookupIdentifier(sema: *Sema, block: *Block, src: LazySrcLoc, name: InternPoo
     unreachable; // AstGen detects use of undeclared identifiers.
 }
 
-/// This looks up a member of a specific namespace. It is affected by `usingnamespace` but
-/// only for ones in the specified namespace.
+/// This looks up a member of a specific namespace.
 fn lookupInNamespace(
     sema: *Sema,
     block: *Block,
-    src: LazySrcLoc,
     namespace_index: InternPool.NamespaceIndex,
     ident_name: InternPool.NullTerminatedString,
-    observe_usingnamespace: bool,
 ) CompileError!?struct {
     nav: InternPool.Nav.Index,
     /// If `false`, the declaration is in a different file and is not `pub`.
@@ -6975,7 +6972,6 @@ fn lookupInNamespace(
 } {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
 
     try pt.ensureNamespaceUpToDate(namespace_index);
 
@@ -6992,75 +6988,7 @@ fn lookupInNamespace(
         } });
     }
 
-    if (observe_usingnamespace and (namespace.pub_usingnamespace.items.len != 0 or namespace.priv_usingnamespace.items.len != 0)) {
-        const gpa = sema.gpa;
-        var checked_namespaces: std.AutoArrayHashMapUnmanaged(*Namespace, void) = .empty;
-        defer checked_namespaces.deinit(gpa);
-
-        // Keep track of name conflicts for error notes.
-        var candidates: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty;
-        defer candidates.deinit(gpa);
-
-        try checked_namespaces.put(gpa, namespace, {});
-        var check_i: usize = 0;
-
-        while (check_i < checked_namespaces.count()) : (check_i += 1) {
-            const check_ns = checked_namespaces.keys()[check_i];
-            const Pass = enum { @"pub", priv };
-            for ([2]Pass{ .@"pub", .priv }) |pass| {
-                if (pass == .priv and src_file != check_ns.file_scope) {
-                    continue;
-                }
-
-                const decls, const usingnamespaces = switch (pass) {
-                    .@"pub" => .{ &check_ns.pub_decls, &check_ns.pub_usingnamespace },
-                    .priv => .{ &check_ns.priv_decls, &check_ns.priv_usingnamespace },
-                };
-
-                if (decls.getKeyAdapted(ident_name, adapter)) |nav_index| {
-                    try candidates.append(gpa, nav_index);
-                }
-
-                for (usingnamespaces.items) |sub_ns_nav| {
-                    try sema.ensureNavResolved(block, src, sub_ns_nav, .fully);
-                    const sub_ns_ty: Type = .fromInterned(ip.getNav(sub_ns_nav).status.fully_resolved.val);
-                    const sub_ns = zcu.namespacePtr(sub_ns_ty.getNamespaceIndex(zcu));
-                    try checked_namespaces.put(gpa, sub_ns, {});
-                }
-            }
-        }
-
-        ignore_self: {
-            const skip_nav = switch (sema.owner.unwrap()) {
-                .@"comptime", .type, .func, .memoized_state => break :ignore_self,
-                .nav_ty, .nav_val => |nav| nav,
-            };
-            var i: usize = 0;
-            while (i < candidates.items.len) {
-                if (candidates.items[i] == skip_nav) {
-                    _ = candidates.orderedRemove(i);
-                } else {
-                    i += 1;
-                }
-            }
-        }
-
-        switch (candidates.items.len) {
-            0 => {},
-            1 => return .{
-                .nav = candidates.items[0],
-                .accessible = true,
-            },
-            else => return sema.failWithOwnedErrorMsg(block, msg: {
-                const msg = try sema.errMsg(src, "ambiguous reference", .{});
-                errdefer msg.destroy(gpa);
-                for (candidates.items) |candidate| {
-                    try sema.errNote(zcu.navSrcLoc(candidate), msg, "declared here", .{});
-                }
-                break :msg msg;
-            }),
-        }
-    } else if (namespace.pub_decls.getKeyAdapted(ident_name, adapter)) |nav_index| {
+    if (namespace.pub_decls.getKeyAdapted(ident_name, adapter)) |nav_index| {
         return .{
             .nav = nav_index,
             .accessible = true,
@@ -13946,7 +13874,6 @@ fn zirHasDecl(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const zcu = pt.zcu;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const src = block.nodeOffset(inst_data.src_node);
     const lhs_src = block.builtinCallArgSrc(inst_data.src_node, 0);
     const rhs_src = block.builtinCallArgSrc(inst_data.src_node, 1);
     const container_type = try sema.resolveType(block, lhs_src, extra.lhs);
@@ -13955,7 +13882,7 @@ fn zirHasDecl(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     try sema.checkNamespaceType(block, lhs_src, container_type);
 
     const namespace = container_type.getNamespace(zcu).unwrap() orelse return .bool_false;
-    if (try sema.lookupInNamespace(block, src, namespace, decl_name, true)) |lookup| {
+    if (try sema.lookupInNamespace(block, namespace, decl_name)) |lookup| {
         if (lookup.accessible) {
             return .bool_true;
         }
@@ -17736,7 +17663,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 } });
             };
 
-            const decls_val = try sema.typeInfoDecls(block, src, ip.loadEnumType(ty.toIntern()).namespace.toOptional());
+            const decls_val = try sema.typeInfoDecls(src, ip.loadEnumType(ty.toIntern()).namespace.toOptional());
 
             const type_enum_ty = try sema.getBuiltinType(src, .@"Type.Enum");
 
@@ -17849,7 +17776,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 } });
             };
 
-            const decls_val = try sema.typeInfoDecls(block, src, ty.getNamespaceIndex(zcu).toOptional());
+            const decls_val = try sema.typeInfoDecls(src, ty.getNamespaceIndex(zcu).toOptional());
 
             const enum_tag_ty_val = try pt.intern(.{ .opt = .{
                 .ty = (try pt.optionalType(.type_type)).toIntern(),
@@ -18044,7 +17971,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 } });
             };
 
-            const decls_val = try sema.typeInfoDecls(block, src, ty.getNamespace(zcu));
+            const decls_val = try sema.typeInfoDecls(src, ty.getNamespace(zcu));
 
             const backing_integer_val = try pt.intern(.{ .opt = .{
                 .ty = (try pt.optionalType(.type_type)).toIntern(),
@@ -18083,7 +18010,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const type_opaque_ty = try sema.getBuiltinType(src, .@"Type.Opaque");
 
             try ty.resolveFields(pt);
-            const decls_val = try sema.typeInfoDecls(block, src, ty.getNamespace(zcu));
+            const decls_val = try sema.typeInfoDecls(src, ty.getNamespace(zcu));
 
             const field_values = .{
                 // decls: []const Declaration,
@@ -18105,7 +18032,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
 fn typeInfoDecls(
     sema: *Sema,
-    block: *Block,
     src: LazySrcLoc,
     opt_namespace: InternPool.OptionalNamespaceIndex,
 ) CompileError!InternPool.Index {
@@ -18121,7 +18047,7 @@ fn typeInfoDecls(
     var seen_namespaces = std.AutoHashMap(*Namespace, void).init(gpa);
     defer seen_namespaces.deinit();
 
-    try sema.typeInfoNamespaceDecls(block, src, opt_namespace, declaration_ty, &decl_vals, &seen_namespaces);
+    try sema.typeInfoNamespaceDecls(opt_namespace, declaration_ty, &decl_vals, &seen_namespaces);
 
     const array_decl_ty = try pt.arrayType(.{
         .len = decl_vals.items.len,
@@ -18155,8 +18081,6 @@ fn typeInfoDecls(
 
 fn typeInfoNamespaceDecls(
     sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
     opt_namespace_index: InternPool.OptionalNamespaceIndex,
     declaration_ty: Type,
     decl_vals: *std.ArrayList(InternPool.Index),
@@ -18211,15 +18135,6 @@ fn typeInfoNamespaceDecls(
             .ty = declaration_ty.toIntern(),
             .storage = .{ .elems = &fields },
         } }));
-    }
-
-    for (namespace.pub_usingnamespace.items) |nav| {
-        if (zcu.analysis_in_progress.contains(.wrap(.{ .nav_val = nav }))) {
-            continue;
-        }
-        try sema.ensureNavResolved(block, src, nav, .fully);
-        const namespace_ty: Type = .fromInterned(ip.getNav(nav).status.fully_resolved.val);
-        try sema.typeInfoNamespaceDecls(block, src, namespace_ty.getNamespaceIndex(zcu).toOptional(), declaration_ty, decl_vals, seen_namespaces);
     }
 }
 
@@ -27709,7 +27624,7 @@ fn namespaceLookup(
     const pt = sema.pt;
     const zcu = pt.zcu;
     const gpa = sema.gpa;
-    if (try sema.lookupInNamespace(block, src, namespace, decl_name, true)) |lookup| {
+    if (try sema.lookupInNamespace(block, namespace, decl_name)) |lookup| {
         if (!lookup.accessible) {
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(src, "'{}' is not marked 'pub'", .{

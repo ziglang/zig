@@ -2588,7 +2588,6 @@ const Writer = struct {
         }
         switch (decl.kind) {
             .@"comptime" => try stream.writeAll("comptime"),
-            .@"usingnamespace" => try stream.writeAll("usingnamespace"),
             .unnamed_test => try stream.writeAll("test"),
             .@"test", .decltest, .@"const", .@"var" => {
                 try stream.print("{s} '{s}'", .{ @tagName(decl.kind), self.code.nullTerminatedString(decl.name) });

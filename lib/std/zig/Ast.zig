@@ -755,13 +755,6 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
             return i - end_offset;
         },
 
-        .@"usingnamespace" => {
-            const main_token: TokenIndex = tree.nodeMainToken(n);
-            const has_visib_token = tree.isTokenPrecededByTags(main_token, &.{.keyword_pub});
-            end_offset += @intFromBool(has_visib_token);
-            return main_token - end_offset;
-        },
-
         .container_field_init,
         .container_field_align,
         .container_field,
@@ -881,7 +874,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
     while (true) switch (tree.nodeTag(n)) {
         .root => return @intCast(tree.tokens.len - 1),
 
-        .@"usingnamespace",
         .bool_not,
         .negation,
         .bit_not,
@@ -3033,12 +3025,6 @@ pub const Node = struct {
         ///
         /// The `main_token` field is the first token for the source file.
         root,
-        /// `usingnamespace expr;`.
-        ///
-        /// The `data` field is a `.node` to expr.
-        ///
-        /// The `main_token` field is the `usingnamespace` token.
-        @"usingnamespace",
         /// `test {}`,
         /// `test "name" {}`,
         /// `test identifier {}`.

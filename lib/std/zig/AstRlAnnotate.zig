@@ -165,10 +165,6 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             }
             return false;
         },
-        .@"usingnamespace" => {
-            _ = try astrl.expr(tree.nodeData(node).node, block, ResultInfo.type_only);
-            return false;
-        },
         .test_decl => {
             _ = try astrl.expr(tree.nodeData(node).opt_token_and_node[1], block, ResultInfo.none);
             return false;

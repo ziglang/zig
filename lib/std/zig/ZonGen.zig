@@ -100,7 +100,6 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
 
     switch (tree.nodeTag(node)) {
         .root => unreachable,
-        .@"usingnamespace" => unreachable,
         .test_decl => unreachable,
         .container_field_init => unreachable,
         .container_field_align => unreachable,

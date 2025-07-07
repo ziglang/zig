@@ -792,10 +792,6 @@ pub const Namespace = struct {
     pub_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
     /// Members of the namespace which are *not* marked `pub`.
     priv_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
-    /// All `usingnamespace` declarations in this namespace which are marked `pub`.
-    pub_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
-    /// All `usingnamespace` declarations in this namespace which are *not* marked `pub`.
-    priv_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
     /// All `comptime` declarations in this namespace. We store these purely so that incremental
     /// compilation can re-use the existing `ComptimeUnit`s when a namespace changes.
     comptime_decls: std.ArrayListUnmanaged(InternPool.ComptimeUnit.Id) = .empty,
@@ -1303,9 +1299,6 @@ pub const SrcLoc = struct {
                     .simple_var_decl,
                     .aligned_var_decl,
                     => tree.fullVarDecl(node).?,
-                    .@"usingnamespace" => {
-                        return tree.nodeToSpan(tree.nodeData(node).node);
-                    },
                     else => unreachable,
                 };
                 if (full.ast.type_node.unwrap()) |type_node| {
@@ -3391,9 +3384,6 @@ pub fn mapOldZirToNew(
         // All comptime declarations, in order, for a best-effort match.
         var comptime_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
         defer comptime_decls.deinit(gpa);
-        // All usingnamespace declarations, in order, for a best-effort match.
-        var usingnamespace_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
-        defer usingnamespace_decls.deinit(gpa);
 
         {
             var old_decl_it = old_zir.declIterator(match_item.old_inst);
@@ -3401,7 +3391,6 @@ pub fn mapOldZirToNew(
                 const old_decl = old_zir.getDeclaration(old_decl_inst);
                 switch (old_decl.kind) {
                     .@"comptime" => try comptime_decls.append(gpa, old_decl_inst),
-                    .@"usingnamespace" => try usingnamespace_decls.append(gpa, old_decl_inst),
                     .unnamed_test => try unnamed_tests.append(gpa, old_decl_inst),
                     .@"test" => try named_tests.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
                     .decltest => try named_decltests.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
@@ -3412,7 +3401,6 @@ pub fn mapOldZirToNew(
 
         var unnamed_test_idx: u32 = 0;
         var comptime_decl_idx: u32 = 0;
-        var usingnamespace_decl_idx: u32 = 0;
 
         var new_decl_it = new_zir.declIterator(match_item.new_inst);
         while (new_decl_it.next()) |new_decl_inst| {
@@ -3422,18 +3410,12 @@ pub fn mapOldZirToNew(
             // * For named tests (`test "foo"`) and decltests (`test foo`), we also match based on name.
             // * For unnamed tests, we match based on order.
             // * For comptime blocks, we match based on order.
-            // * For usingnamespace decls, we match based on order.
             // If we cannot match this declaration, we can't match anything nested inside of it either, so we just `continue`.
             const old_decl_inst = switch (new_decl.kind) {
                 .@"comptime" => inst: {
                     if (comptime_decl_idx == comptime_decls.items.len) continue;
                     defer comptime_decl_idx += 1;
                     break :inst comptime_decls.items[comptime_decl_idx];
-                },
-                .@"usingnamespace" => inst: {
-                    if (usingnamespace_decl_idx == usingnamespace_decls.items.len) continue;
-                    defer usingnamespace_decl_idx += 1;
-                    break :inst usingnamespace_decls.items[usingnamespace_decl_idx];
                 },
                 .unnamed_test => inst: {
                     if (unnamed_test_idx == unnamed_tests.items.len) continue;
@@ -4143,7 +4125,6 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 if (!comp.config.is_test or file.mod != zcu.main_mod) continue;
 
                 const want_analysis = switch (decl.kind) {
-                    .@"usingnamespace" => unreachable,
                     .@"const", .@"var" => unreachable,
                     .@"comptime" => unreachable,
                     .unnamed_test => true,
@@ -4200,16 +4181,6 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                         try unit_queue.put(gpa, unit, referencer);
                     }
                 }
-            }
-            // Incremental compilation does not support `usingnamespace`.
-            // These are only included to keep good reference traces in non-incremental updates.
-            for (zcu.namespacePtr(ns).pub_usingnamespace.items) |nav| {
-                const unit: AnalUnit = .wrap(.{ .nav_val = nav });
-                if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
-            }
-            for (zcu.namespacePtr(ns).priv_usingnamespace.items) |nav| {
-                const unit: AnalUnit = .wrap(.{ .nav_val = nav });
-                if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
             }
             continue;
         }

@@ -86,7 +86,6 @@ zig_keywords = {
     'try',
     'union',
     'unreachable',
-    'usingnamespace',
     'var',
     'volatile',
     'while',

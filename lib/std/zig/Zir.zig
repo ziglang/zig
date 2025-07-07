@@ -2675,7 +2675,6 @@ pub const Inst = struct {
                 @"test",
                 decltest,
                 @"comptime",
-                @"usingnamespace",
                 @"const",
                 @"var",
             };
@@ -2692,7 +2691,7 @@ pub const Inst = struct {
             src_column: u32,
 
             kind: Kind,
-            /// Always `.empty` for `kind` of `unnamed_test`, `.@"comptime"`, `.@"usingnamespace"`.
+            /// Always `.empty` for `kind` of `unnamed_test`, `.@"comptime"`
             name: NullTerminatedString,
             /// Always `false` for `kind` of `unnamed_test`, `.@"test"`, `.decltest`, `.@"comptime"`.
             is_pub: bool,
@@ -2722,9 +2721,6 @@ pub const Inst = struct {
                 @"test",
                 decltest,
                 @"comptime",
-
-                @"usingnamespace",
-                pub_usingnamespace,
 
                 const_simple,
                 const_typed,
@@ -2762,8 +2758,6 @@ pub const Inst = struct {
                     return switch (id) {
                         .unnamed_test,
                         .@"comptime",
-                        .@"usingnamespace",
-                        .pub_usingnamespace,
                         => false,
                         else => true,
                     };
@@ -2788,8 +2782,6 @@ pub const Inst = struct {
                         .@"test",
                         .decltest,
                         .@"comptime",
-                        .@"usingnamespace",
-                        .pub_usingnamespace,
                         => false, // these constructs are untyped
                         .const_simple,
                         .pub_const_simple,
@@ -2821,8 +2813,6 @@ pub const Inst = struct {
                         .@"test",
                         .decltest,
                         .@"comptime",
-                        .@"usingnamespace",
-                        .pub_usingnamespace,
                         => false, // these constructs are untyped
                         .const_simple,
                         .const_typed,
@@ -2865,7 +2855,6 @@ pub const Inst = struct {
                         .@"test" => .@"test",
                         .decltest => .decltest,
                         .@"comptime" => .@"comptime",
-                        .@"usingnamespace", .pub_usingnamespace => .@"usingnamespace",
                         .const_simple,
                         .const_typed,
                         .@"const",
@@ -2899,7 +2888,6 @@ pub const Inst = struct {
 
                 pub fn isPub(id: Id) bool {
                     return switch (id) {
-                        .pub_usingnamespace,
                         .pub_const_simple,
                         .pub_const_typed,
                         .pub_const,
@@ -2935,8 +2923,7 @@ pub const Inst = struct {
 
         pub const Name = enum(u32) {
             @"comptime" = std.math.maxInt(u32),
-            @"usingnamespace" = std.math.maxInt(u32) - 1,
-            unnamed_test = std.math.maxInt(u32) - 2,
+            unnamed_test = std.math.maxInt(u32) - 1,
             /// Other values are `NullTerminatedString` values, i.e. index into
             /// `string_bytes`. If the byte referenced is 0, the decl is a named
             /// test, and the actual name begins at the following byte.
@@ -2944,13 +2931,13 @@ pub const Inst = struct {
 
             pub fn isNamedTest(name: Name, zir: Zir) bool {
                 return switch (name) {
-                    .@"comptime", .@"usingnamespace", .unnamed_test => false,
+                    .@"comptime", .unnamed_test => false,
                     _ => zir.string_bytes[@intFromEnum(name)] == 0,
                 };
             }
             pub fn toString(name: Name, zir: Zir) ?NullTerminatedString {
                 switch (name) {
-                    .@"comptime", .@"usingnamespace", .unnamed_test => return null,
+                    .@"comptime", .unnamed_test => return null,
                     _ => {},
                 }
                 const idx: u32 = @intFromEnum(name);

@@ -689,7 +689,6 @@ fn tokenizeAndPrint(arena: Allocator, out: anytype, raw_src: []const u8) !void {
             .keyword_try,
             .keyword_union,
             .keyword_unreachable,
-            .keyword_usingnamespace,
             .keyword_var,
             .keyword_volatile,
             .keyword_allowzero,

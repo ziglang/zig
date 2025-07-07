@@ -262,17 +262,6 @@ fn renderMember(
             return renderToken(r, tree.lastToken(decl) + 1, space); // semicolon
         },
 
-        .@"usingnamespace" => {
-            const main_token = tree.nodeMainToken(decl);
-            const expr = tree.nodeData(decl).node;
-            if (tree.isTokenPrecededByTags(main_token, &.{.keyword_pub})) {
-                try renderToken(r, main_token - 1, .space); // pub
-            }
-            try renderToken(r, main_token, .space); // usingnamespace
-            try renderExpression(r, expr, .none);
-            return renderToken(r, tree.lastToken(expr) + 1, space); // ;
-        },
-
         .global_var_decl,
         .local_var_decl,
         .simple_var_decl,
@@ -877,7 +866,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .local_var_decl => unreachable,
         .simple_var_decl => unreachable,
         .aligned_var_decl => unreachable,
-        .@"usingnamespace" => unreachable,
         .test_decl => unreachable,
         .asm_output => unreachable,
         .asm_input => unreachable,

@@ -236,17 +236,6 @@ test "call method with mutable reference to struct with no fields" {
     try expect(s.do());
 }
 
-test "usingnamespace within struct scope" {
-    const S = struct {
-        usingnamespace struct {
-            pub fn inner() i32 {
-                return 42;
-            }
-        };
-    };
-    try expect(@as(i32, 42) == S.inner());
-}
-
 test "struct field init with catch" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO

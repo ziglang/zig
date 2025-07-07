@@ -567,7 +567,6 @@ fn struct_decl(
         },
 
         .@"comptime",
-        .@"usingnamespace",
         => try w.expr(&namespace.base, parent_decl, ast.nodeData(member).node),
 
         .test_decl => try w.expr(&namespace.base, parent_decl, ast.nodeData(member).opt_token_and_node[1]),
@@ -639,7 +638,6 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
     const ast = w.file.get_ast();
     switch (ast.nodeTag(node)) {
         .root => unreachable, // Top-level declaration.
-        .@"usingnamespace" => unreachable, // Top-level declaration.
         .test_decl => unreachable, // Top-level declaration.
         .container_field_init => unreachable, // Top-level declaration.
         .container_field_align => unreachable, // Top-level declaration.

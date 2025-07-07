@@ -3936,14 +3936,6 @@ test "zig fmt: Block after if" {
     );
 }
 
-test "zig fmt: usingnamespace" {
-    try testCanonical(
-        \\usingnamespace @import("std");
-        \\pub usingnamespace @import("std");
-        \\
-    );
-}
-
 test "zig fmt: string identifier" {
     try testCanonical(
         \\const @"a b" = @"c d".@"e f";
@@ -5087,17 +5079,6 @@ test "zig fmt: line comment after multiline single expr if statement with multil
     );
 }
 
-test "zig fmt: respect extra newline between fn and pub usingnamespace" {
-    try testCanonical(
-        \\fn foo() void {
-        \\    bar();
-        \\}
-        \\
-        \\pub usingnamespace baz;
-        \\
-    );
-}
-
 test "zig fmt: respect extra newline between switch items" {
     try testCanonical(
         \\const a = switch (b) {
@@ -5666,34 +5647,6 @@ test "zig fmt: canonicalize symbols (primitive types)" {
     );
 }
 
-// Never unescape names spelled like keywords.
-test "zig fmt: canonicalize symbols (keywords)" {
-    try testCanonical(
-        \\const @"enum" = struct {
-        \\    @"error": @"struct" = true,
-        \\    const @"struct" = bool;
-        \\};
-        \\
-        \\fn @"usingnamespace"(@"union": @"enum") error{@"try"}!void {
-        \\    var @"struct" = @"union";
-        \\    @"struct".@"error" = false;
-        \\    if (@"struct".@"error") {
-        \\        return @"usingnamespace"(.{ .@"error" = false });
-        \\    } else {
-        \\        return error.@"try";
-        \\    }
-        \\}
-        \\
-        \\test @"usingnamespace" {
-        \\    try @"usingnamespace"(.{});
-        \\    _ = @"return": {
-        \\        break :@"return" 4;
-        \\    };
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: no space before newline before multiline string" {
     try testCanonical(
         \\const S = struct {
@@ -6152,22 +6105,6 @@ test "recovery: missing semicolon" {
         .expected_semi_after_stmt,
         .expected_semi_after_stmt,
         .expected_param_list,
-        .expected_semi_after_stmt,
-    });
-}
-
-test "recovery: invalid container members" {
-    try testError(
-        \\usingnamespace;
-        \\@foo()+
-        \\@bar()@,
-        \\while (a == 2) { test "" {}}
-        \\test "" {
-        \\    a & b
-        \\}
-    , &[_]Error{
-        .expected_expr,
-        .expected_comma_after_field,
         .expected_semi_after_stmt,
     });
 }

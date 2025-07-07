@@ -160,12 +160,6 @@ fn walkMember(w: *Walk, decl: Ast.Node.Index) Error!void {
             try walkExpression(w, decl);
         },
 
-        .@"usingnamespace" => {
-            try w.transformations.append(.{ .delete_node = decl });
-            const expr = ast.nodeData(decl).node;
-            try walkExpression(w, expr);
-        },
-
         .global_var_decl,
         .local_var_decl,
         .simple_var_decl,
@@ -520,7 +514,6 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .local_var_decl => unreachable,
         .simple_var_decl => unreachable,
         .aligned_var_decl => unreachable,
-        .@"usingnamespace" => unreachable,
         .test_decl => unreachable,
         .asm_output => unreachable,
         .asm_input => unreachable,

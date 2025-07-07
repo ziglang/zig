@@ -359,16 +359,6 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                 }
                 trailing = p.tokenTag(p.tok_i - 1) == .semicolon;
             },
-            .keyword_usingnamespace => {
-                const opt_node = try p.expectUsingNamespaceRecoverable();
-                if (opt_node) |node| {
-                    if (field_state == .seen) {
-                        field_state = .{ .end = node };
-                    }
-                    try p.scratch.append(p.gpa, node);
-                }
-                trailing = p.tokenTag(p.tok_i - 1) == .semicolon;
-            },
             .keyword_const,
             .keyword_var,
             .keyword_threadlocal,
@@ -496,7 +486,6 @@ fn findNextContainerMember(p: *Parse) void {
             .keyword_extern,
             .keyword_inline,
             .keyword_noinline,
-            .keyword_usingnamespace,
             .keyword_threadlocal,
             .keyword_const,
             .keyword_var,
@@ -601,7 +590,6 @@ fn expectTestDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
 /// Decl
 ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
-///      / KEYWORD_usingnamespace Expr SEMICOLON
 fn expectTopLevelDecl(p: *Parse) !?Node.Index {
     const extern_export_inline_token = p.nextToken();
     var is_extern: bool = false;
@@ -664,35 +652,11 @@ fn expectTopLevelDecl(p: *Parse) !?Node.Index {
     if (expect_var_or_fn) {
         return p.fail(.expected_var_decl_or_fn);
     }
-    if (p.tokenTag(p.tok_i) != .keyword_usingnamespace) {
-        return p.fail(.expected_pub_item);
-    }
-    return try p.expectUsingNamespace();
+    return p.fail(.expected_pub_item);
 }
 
 fn expectTopLevelDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
     return p.expectTopLevelDecl() catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.ParseError => {
-            p.findNextContainerMember();
-            return null;
-        },
-    };
-}
-
-fn expectUsingNamespace(p: *Parse) !Node.Index {
-    const usingnamespace_token = p.assertToken(.keyword_usingnamespace);
-    const expr = try p.expectExpr();
-    try p.expectSemicolon(.expected_semi_after_decl, false);
-    return p.addNode(.{
-        .tag = .@"usingnamespace",
-        .main_token = usingnamespace_token,
-        .data = .{ .node = expr },
-    });
-}
-
-fn expectUsingNamespaceRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
-    return p.expectUsingNamespace() catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => {
             p.findNextContainerMember();

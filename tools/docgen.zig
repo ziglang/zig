@@ -746,7 +746,6 @@ fn tokenizeAndPrintRaw(
             .keyword_try,
             .keyword_union,
             .keyword_unreachable,
-            .keyword_usingnamespace,
             .keyword_var,
             .keyword_volatile,
             .keyword_allowzero,

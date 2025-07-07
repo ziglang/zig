@@ -442,7 +442,6 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
     const tree = astgen.tree;
     switch (tree.nodeTag(node)) {
         .root => unreachable,
-        .@"usingnamespace" => unreachable,
         .test_decl => unreachable,
         .global_var_decl => unreachable,
         .local_var_decl => unreachable,
@@ -637,7 +636,6 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
     switch (tree.nodeTag(node)) {
         .root => unreachable, // Top-level declaration.
-        .@"usingnamespace" => unreachable, // Top-level declaration.
         .test_decl => unreachable, // Top-level declaration.
         .container_field_init => unreachable, // Top-level declaration.
         .container_field_align => unreachable, // Top-level declaration.
@@ -4700,69 +4698,6 @@ fn comptimeDecl(
     });
 }
 
-fn usingnamespaceDecl(
-    astgen: *AstGen,
-    gz: *GenZir,
-    scope: *Scope,
-    wip_members: *WipMembers,
-    node: Ast.Node.Index,
-) InnerError!void {
-    const tree = astgen.tree;
-
-    const old_hasher = astgen.src_hasher;
-    defer astgen.src_hasher = old_hasher;
-    astgen.src_hasher = std.zig.SrcHasher.init(.{});
-    astgen.src_hasher.update(tree.getNodeSource(node));
-    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
-
-    const type_expr = tree.nodeData(node).node;
-    const is_pub = tree.isTokenPrecededByTags(tree.nodeMainToken(node), &.{.keyword_pub});
-
-    // Up top so the ZIR instruction index marks the start range of this
-    // top-level declaration.
-    const decl_inst = try gz.makeDeclaration(node);
-    wip_members.nextDecl(decl_inst);
-    astgen.advanceSourceCursorToNode(node);
-
-    // This is just needed for the `setDeclaration` call.
-    var dummy_gz = gz.makeSubBlock(scope);
-    defer dummy_gz.unstack();
-
-    var usingnamespace_gz: GenZir = .{
-        .is_comptime = true,
-        .decl_node_index = node,
-        .decl_line = astgen.source_line,
-        .parent = scope,
-        .astgen = astgen,
-        .instructions = gz.instructions,
-        .instructions_top = gz.instructions.items.len,
-    };
-    defer usingnamespace_gz.unstack();
-
-    const decl_column = astgen.source_column;
-
-    const namespace_inst = try typeExpr(&usingnamespace_gz, &usingnamespace_gz.base, type_expr);
-    _ = try usingnamespace_gz.addBreak(.break_inline, decl_inst, namespace_inst);
-
-    var hash: std.zig.SrcHash = undefined;
-    astgen.src_hasher.final(&hash);
-    try setDeclaration(decl_inst, .{
-        .src_hash = hash,
-        .src_line = usingnamespace_gz.decl_line,
-        .src_column = decl_column,
-        .kind = .@"usingnamespace",
-        .name = .empty,
-        .is_pub = is_pub,
-        .is_threadlocal = false,
-        .linkage = .normal,
-        .type_gz = &dummy_gz,
-        .align_gz = &dummy_gz,
-        .linksection_gz = &dummy_gz,
-        .addrspace_gz = &dummy_gz,
-        .value_gz = &usingnamespace_gz,
-    });
-}
-
 fn testDecl(
     astgen: *AstGen,
     gz: *GenZir,
@@ -5928,23 +5863,6 @@ fn containerMember(
                         .empty,
                         member_node,
                         false,
-                    );
-                },
-            };
-        },
-        .@"usingnamespace" => {
-            const prev_decl_index = wip_members.decl_index;
-            astgen.usingnamespaceDecl(gz, scope, wip_members, member_node) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => {
-                    wip_members.decl_index = prev_decl_index;
-                    try addFailedDeclaration(
-                        wip_members,
-                        gz,
-                        .@"usingnamespace",
-                        .empty,
-                        member_node,
-                        tree.isTokenPrecededByTags(tree.nodeMainToken(member_node), &.{.keyword_pub}),
                     );
                 },
             };
@@ -10398,7 +10316,6 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
     while (true) {
         switch (tree.nodeTag(node)) {
             .root,
-            .@"usingnamespace",
             .test_decl,
             .switch_case,
             .switch_case_inline,
@@ -10606,7 +10523,6 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
     while (true) {
         switch (tree.nodeTag(node)) {
             .root,
-            .@"usingnamespace",
             .test_decl,
             .switch_case,
             .switch_case_inline,
@@ -10845,7 +10761,6 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
     while (true) {
         switch (tree.nodeTag(node)) {
             .root,
-            .@"usingnamespace",
             .test_decl,
             .switch_case,
             .switch_case_inline,
@@ -13518,7 +13433,7 @@ fn scanContainer(
                 break :blk .{ .decl, ident };
             },
 
-            .@"comptime", .@"usingnamespace" => {
+            .@"comptime" => {
                 decl_count += 1;
                 continue;
             },
@@ -13896,7 +13811,6 @@ const DeclarationName = union(enum) {
     decltest: Ast.TokenIndex,
     unnamed_test,
     @"comptime",
-    @"usingnamespace",
 };
 
 fn addFailedDeclaration(
@@ -13986,7 +13900,6 @@ fn setDeclaration(
         .@"test" => .@"test",
         .decltest => .decltest,
         .@"comptime" => .@"comptime",
-        .@"usingnamespace" => if (args.is_pub) .pub_usingnamespace else .@"usingnamespace",
         .@"const" => switch (args.linkage) {
             .normal => if (args.is_pub) id: {
                 if (has_special_body) break :id .pub_const;

@@ -2489,7 +2489,7 @@ fn initWipNavInner(
             const addr: Loc = .{ .addr_reloc = sym_index };
             const loc: Loc = if (decl.is_threadlocal) .{ .form_tls_address = &addr } else addr;
             switch (decl.kind) {
-                .unnamed_test, .@"test", .decltest, .@"comptime", .@"usingnamespace" => unreachable,
+                .unnamed_test, .@"test", .decltest, .@"comptime" => unreachable,
                 .@"const" => {
                     const const_ty_reloc_index = try wip_nav.refForward();
                     try wip_nav.infoExprLoc(loc);
@@ -2775,7 +2775,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
 
     const is_test = switch (decl.kind) {
         .unnamed_test, .@"test", .decltest => true,
-        .@"comptime", .@"usingnamespace", .@"const", .@"var" => false,
+        .@"comptime", .@"const", .@"var" => false,
     };
     if (is_test) {
         // This isn't actually a comptime Nav! It's a test, so it'll definitely never be referenced at comptime.

@@ -1111,7 +1111,6 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     defer block.instructions.deinit(gpa);
 
     const zir_decl = zir.getDeclaration(inst_resolved.inst);
-    assert(old_nav.is_usingnamespace == (zir_decl.kind == .@"usingnamespace"));
 
     const ty_src = block.src(.{ .node_offset_var_decl_ty = .zero });
     const init_src = block.src(.{ .node_offset_var_decl_init = .zero });
@@ -1160,7 +1159,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
             assert(nav_ty.zigTypeTag(zcu) == .@"fn");
             break :is_const true;
         },
-        .@"usingnamespace", .@"const" => true,
+        .@"const" => true,
         .@"var" => {
             try sema.validateVarType(
                 &block,
@@ -1239,26 +1238,6 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     // This resolves the type of the resolved value, not that value itself. If `nav_val` is a struct type,
     // this resolves the type `type` (which needs no resolution), not the struct itself.
     try nav_ty.resolveLayout(pt);
-
-    // TODO: this is jank. If #20663 is rejected, let's think about how to better model `usingnamespace`.
-    if (zir_decl.kind == .@"usingnamespace") {
-        if (nav_ty.toIntern() != .type_type) {
-            return sema.fail(&block, ty_src, "expected type, found {}", .{nav_ty.fmt(pt)});
-        }
-        if (nav_val.toType().getNamespace(zcu) == .none) {
-            return sema.fail(&block, ty_src, "type {} has no namespace", .{nav_val.toType().fmt(pt)});
-        }
-        ip.resolveNavValue(nav_id, .{
-            .val = nav_val.toIntern(),
-            .is_const = is_const,
-            .alignment = .none,
-            .@"linksection" = .none,
-            .@"addrspace" = .generic,
-        });
-        // TODO: usingnamespace cannot participate in incremental compilation
-        assert(zcu.analysis_in_progress.swapRemove(anal_unit));
-        return .{ .val_changed = true };
-    }
 
     const queue_linker_work, const is_owned_fn = switch (ip.indexToKey(nav_val.toIntern())) {
         .func => |f| .{ true, f.owner_nav == nav_id }, // note that this lets function aliases reach codegen
@@ -1464,7 +1443,6 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     defer _ = zcu.analysis_in_progress.swapRemove(anal_unit);
 
     const zir_decl = zir.getDeclaration(inst_resolved.inst);
-    assert(old_nav.is_usingnamespace == (zir_decl.kind == .@"usingnamespace"));
     const type_body = zir_decl.type_body.?;
 
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
@@ -1527,7 +1505,7 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
 
     const is_const = switch (zir_decl.kind) {
         .@"comptime" => unreachable,
-        .unnamed_test, .@"test", .decltest, .@"usingnamespace", .@"const" => true,
+        .unnamed_test, .@"test", .decltest, .@"const" => true,
         .@"var" => false,
     };
 
@@ -2541,7 +2519,6 @@ pub fn scanNamespace(
 
     try existing_by_inst.ensureTotalCapacity(gpa, @intCast(
         namespace.pub_decls.count() + namespace.priv_decls.count() +
-            namespace.pub_usingnamespace.items.len + namespace.priv_usingnamespace.items.len +
             namespace.comptime_decls.items.len +
             namespace.test_decls.items.len,
     ));
@@ -2551,14 +2528,6 @@ pub fn scanNamespace(
         existing_by_inst.putAssumeCapacityNoClobber(zir_index, .wrap(.{ .nav_val = nav }));
     }
     for (namespace.priv_decls.keys()) |nav| {
-        const zir_index = ip.getNav(nav).analysis.?.zir_index;
-        existing_by_inst.putAssumeCapacityNoClobber(zir_index, .wrap(.{ .nav_val = nav }));
-    }
-    for (namespace.pub_usingnamespace.items) |nav| {
-        const zir_index = ip.getNav(nav).analysis.?.zir_index;
-        existing_by_inst.putAssumeCapacityNoClobber(zir_index, .wrap(.{ .nav_val = nav }));
-    }
-    for (namespace.priv_usingnamespace.items) |nav| {
         const zir_index = ip.getNav(nav).analysis.?.zir_index;
         existing_by_inst.putAssumeCapacityNoClobber(zir_index, .wrap(.{ .nav_val = nav }));
     }
@@ -2578,8 +2547,6 @@ pub fn scanNamespace(
 
     namespace.pub_decls.clearRetainingCapacity();
     namespace.priv_decls.clearRetainingCapacity();
-    namespace.pub_usingnamespace.clearRetainingCapacity();
-    namespace.priv_usingnamespace.clearRetainingCapacity();
     namespace.comptime_decls.clearRetainingCapacity();
     namespace.test_decls.clearRetainingCapacity();
 
@@ -2607,7 +2574,6 @@ const ScanDeclIter = struct {
     /// Decl scanning is run in two passes, so that we can detect when a generated
     /// name would clash with an explicit name and use a different one.
     pass: enum { named, unnamed },
-    usingnamespace_index: usize = 0,
     unnamed_test_index: usize = 0,
 
     fn avoidNameConflict(iter: *ScanDeclIter, comptime fmt: []const u8, args: anytype) !InternPool.NullTerminatedString {
@@ -2645,12 +2611,6 @@ const ScanDeclIter = struct {
             .@"comptime" => name: {
                 if (iter.pass != .unnamed) return;
                 break :name .none;
-            },
-            .@"usingnamespace" => name: {
-                if (iter.pass != .unnamed) return;
-                const i = iter.usingnamespace_index;
-                iter.usingnamespace_index += 1;
-                break :name (try iter.avoidNameConflict("usingnamespace_{d}", .{i})).toOptional();
             },
             .unnamed_test => name: {
                 if (iter.pass != .unnamed) return;
@@ -2710,7 +2670,7 @@ const ScanDeclIter = struct {
                 const name = maybe_name.unwrap().?;
                 const fqn = try namespace.internFullyQualifiedName(ip, gpa, pt.tid, name);
                 const nav = if (existing_unit) |eu| eu.unwrap().nav_val else nav: {
-                    const nav = try ip.createDeclNav(gpa, pt.tid, name, fqn, tracked_inst, namespace_index, decl.kind == .@"usingnamespace");
+                    const nav = try ip.createDeclNav(gpa, pt.tid, name, fqn, tracked_inst, namespace_index);
                     if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newNav(zcu, nav);
                     break :nav nav;
                 };
@@ -2722,17 +2682,6 @@ const ScanDeclIter = struct {
 
                 const want_analysis = switch (decl.kind) {
                     .@"comptime" => unreachable,
-                    .@"usingnamespace" => a: {
-                        if (comp.incremental) {
-                            @panic("'usingnamespace' is not supported by incremental compilation");
-                        }
-                        if (decl.is_pub) {
-                            try namespace.pub_usingnamespace.append(gpa, nav);
-                        } else {
-                            try namespace.priv_usingnamespace.append(gpa, nav);
-                        }
-                        break :a true;
-                    },
                     .unnamed_test, .@"test", .decltest => a: {
                         const is_named = decl.kind != .unnamed_test;
                         try namespace.test_decls.append(gpa, nav);
