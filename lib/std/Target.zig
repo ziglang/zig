@@ -1691,7 +1691,7 @@ pub const Cpu = struct {
         pub fn fromCallingConvention(cc: std.builtin.CallingConvention.Tag) []const Arch {
             return switch (cc) {
                 .auto,
-                .@"async",
+                .async,
                 .naked,
                 .@"inline",
                 => unreachable,

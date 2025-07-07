@@ -1521,9 +1521,9 @@ pub const Attribute = union(Kind) {
     pub const UwTable = enum(u32) {
         none,
         sync,
-        @"async",
+        async,
 
-        pub const default = UwTable.@"async";
+        pub const default = UwTable.async;
     };
 
     pub const VScaleRange = packed struct(u32) {

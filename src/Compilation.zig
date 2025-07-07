@@ -6466,7 +6466,7 @@ pub fn addCCArgs(
                 try argv.append("-fno-asynchronous-unwind-tables");
                 try argv.append("-funwind-tables");
             },
-            .@"async" => try argv.append("-fasynchronous-unwind-tables"),
+            .async => try argv.append("-fasynchronous-unwind-tables"),
         }
 
         try argv.append("-nostdinc");

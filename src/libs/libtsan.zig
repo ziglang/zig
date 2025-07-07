@@ -48,7 +48,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
     const unwind_tables: std.builtin.UnwindTables =
-        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async";
+        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .async;
     const link_libcpp = target.os.tag.isDarwin();
 
     const config = Compilation.Config.resolve(.{

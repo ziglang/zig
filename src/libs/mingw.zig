@@ -29,7 +29,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     const target = comp.getTarget();
 
     // The old 32-bit x86 variant of SEH doesn't use tables.
-    const unwind_tables: std.builtin.UnwindTables = if (target.cpu.arch != .x86) .@"async" else .none;
+    const unwind_tables: std.builtin.UnwindTables = if (target.cpu.arch != .x86) .async else .none;
 
     switch (crt_file) {
         .crt2_o => {

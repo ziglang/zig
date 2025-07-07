@@ -3596,7 +3596,7 @@ fn updateLazyType(
                 // For better or worse, we try to match what Clang emits.
                 break :cc switch (func_type.cc) {
                     .@"inline" => .nocall,
-                    .@"async", .auto, .naked => .normal,
+                    .async, .auto, .naked => .normal,
                     .x86_64_sysv => .LLVM_X86_64SysV,
                     .x86_64_win => .LLVM_Win64,
                     .x86_64_regcall_v3_sysv => .LLVM_X86RegCall,

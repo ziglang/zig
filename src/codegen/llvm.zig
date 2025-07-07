@@ -2758,7 +2758,7 @@ pub const Object = struct {
             llvm_arg_i += 1;
         }
 
-        if (fn_info.cc == .@"async") {
+        if (fn_info.cc == .async) {
             @panic("TODO: LLVM backend lower async function");
         }
 
@@ -2910,7 +2910,7 @@ pub const Object = struct {
         try attributes.addFnAttr(.nounwind, &o.builder);
         if (owner_mod.unwind_tables != .none) {
             try attributes.addFnAttr(
-                .{ .uwtable = if (owner_mod.unwind_tables == .@"async") .@"async" else .sync },
+                .{ .uwtable = if (owner_mod.unwind_tables == .async) .async else .sync },
                 &o.builder,
             );
         }
@@ -11871,7 +11871,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
     }
     return switch (cc_tag) {
         .@"inline" => unreachable,
-        .auto, .@"async" => .fastcc,
+        .auto, .async => .fastcc,
         .naked => .ccc,
         .x86_64_sysv => .x86_64_sysvcc,
         .x86_64_win => .win64cc,
@@ -12379,7 +12379,7 @@ const ParamTypeIterator = struct {
                     return .byval;
                 }
             },
-            .@"async" => {
+            .async => {
                 @panic("TODO implement async function lowering in the LLVM backend");
             },
             .x86_64_sysv => return it.nextSystemV(ty),
@@ -12634,7 +12634,7 @@ fn ccAbiPromoteInt(
 ) ?std.builtin.Signedness {
     const target = zcu.getTarget();
     switch (cc) {
-        .auto, .@"inline", .@"async" => return null,
+        .auto, .@"inline", .async => return null,
         else => {},
     }
     const int_info = switch (ty.zigTypeTag(zcu)) {

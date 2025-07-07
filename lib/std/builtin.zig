@@ -246,7 +246,7 @@ pub const CallingConvention = union(enum(u8)) {
     /// The calling convention of a function that can be called with `async` syntax. An `async` call
     /// of a runtime-known function must target a function with this calling convention.
     /// Comptime-known functions with other calling conventions may be coerced to this one.
-    @"async",
+    async,
 
     /// Functions with this calling convention have no prologue or epilogue, making the function
     /// uncallable in regular Zig code. This can be useful when integrating with assembly.
@@ -849,7 +849,7 @@ pub const LinkMode = enum {
 pub const UnwindTables = enum {
     none,
     sync,
-    @"async",
+    async,
 };
 
 /// This data structure is used by the Zig language code generation and

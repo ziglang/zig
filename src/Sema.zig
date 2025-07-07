@@ -26687,7 +26687,7 @@ fn explainWhyTypeIsNotExtern(
             }
             switch (ty.fnCallingConvention(zcu)) {
                 .auto => try sema.errNote(src_loc, msg, "extern function must specify calling convention", .{}),
-                .@"async" => try sema.errNote(src_loc, msg, "async function cannot be extern", .{}),
+                .async => try sema.errNote(src_loc, msg, "async function cannot be extern", .{}),
                 .@"inline" => try sema.errNote(src_loc, msg, "inline function cannot be extern", .{}),
                 else => return,
             }

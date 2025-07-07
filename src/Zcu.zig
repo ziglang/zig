@@ -4453,7 +4453,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
     const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
     switch (cc) {
         .auto, .@"inline" => return .ok,
-        .@"async" => return .{ .bad_backend = backend }, // nothing supports async currently
+        .async => return .{ .bad_backend = backend }, // nothing supports async currently
         .naked => {}, // depends only on backend
         else => for (cc.archs()) |allowed_arch| {
             if (allowed_arch == target.cpu.arch) break;
