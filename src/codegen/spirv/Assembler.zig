@@ -381,10 +381,18 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             const child_type = try self.resolveRefId(operands[1].ref_id);
             break :blk try self.spv.vectorType(operands[2].literal32, child_type);
         },
-        .OpTypeArray => {
+        .OpTypeArray => blk: {
             // TODO: The length of an OpTypeArray is determined by a constant (which may be a spec constant),
             // and so some consideration must be taken when entering this in the type system.
-            return self.todo("process OpTypeArray", .{});
+            const element_type = try self.resolveRefId(operands[1].ref_id);
+            const length = try self.resolveRefId(operands[2].ref_id);
+            const result_id = self.spv.allocId();
+            try section.emit(self.spv.gpa, .OpTypeArray, .{
+                .id_result = result_id,
+                .element_type = element_type,
+                .length = length,
+            });
+            break :blk result_id;
         },
         .OpTypeRuntimeArray => blk: {
             const element_type = try self.resolveRefId(operands[1].ref_id);
