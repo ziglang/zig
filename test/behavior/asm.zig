@@ -179,3 +179,13 @@ test "asm modifiers (AArch64)" {
     );
     try expectEqual(2 * x, double);
 }
+
+test "SPIR-V string constants with c constraint" {
+    if (builtin.zig_backend != .stage2_spirv) return error.SkipZigTest;
+    if (builtin.target.os.tag != .opencl) return error.SkipZigTest;
+
+    _ = std.gpu.printf("testing printf\n", .{});
+    var a: i32 = -10;
+    _ = &a;
+    _ = std.gpu.printf("a: %d, a + 10: %d\n", .{ a, a + 10 });
+}
