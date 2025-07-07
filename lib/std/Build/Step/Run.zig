@@ -1112,7 +1112,10 @@ fn runCommand(
                 .link_libc = exe.is_linking_libc,
             })) {
                 .native, .rosetta => {
-                    if (allow_skip) return error.MakeSkipped;
+                    if (allow_skip) {
+                        run.step.result_skip_reason = "Invalid binary";
+                        return error.MakeSkipped;
+                    }
                     break :interpret;
                 },
                 .wine => |bin_name| {
@@ -1184,7 +1187,10 @@ fn runCommand(
                     }
                 },
                 .bad_dl => |foreign_dl| {
-                    if (allow_skip) return error.MakeSkipped;
+                    if (allow_skip) {
+                        run.step.result_skip_reason = "Invalid binary";
+                        return error.MakeSkipped;
+                    }
 
                     const host_dl = b.graph.host.result.dynamic_linker.get() orelse "(none)";
 
@@ -1196,7 +1202,10 @@ fn runCommand(
                     , .{ host_dl, foreign_dl });
                 },
                 .bad_os_or_cpu => {
-                    if (allow_skip) return error.MakeSkipped;
+                    if (allow_skip) {
+                        run.step.result_skip_reason = "Invalid os or cpu";
+                        return error.MakeSkipped;
+                    }
 
                     const host_name = try b.graph.host.result.zigTriple(b.allocator);
                     const foreign_name = try root_target.zigTriple(b.allocator);
@@ -1215,7 +1224,10 @@ fn runCommand(
             try Step.handleVerbose2(step.owner, cwd, run.env_map, interp_argv.items);
 
             break :term spawnChildAndCollect(run, interp_argv.items, has_side_effects, prog_node, fuzz_context) catch |e| {
-                if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
+                if (!run.failing_to_execute_foreign_is_an_error) {
+                    run.step.result_skip_reason = "Foreign binary failed";
+                    return error.MakeSkipped;
+                }
 
                 return step.fail("unable to spawn interpreter {s}: {s}", .{
                     interp_argv.items[0], @errorName(e),
@@ -1842,8 +1854,10 @@ fn failForeign(
 ) error{ MakeFailed, MakeSkipped, OutOfMemory } {
     switch (run.stdio) {
         .check, .zig_test => {
-            if (run.skip_foreign_checks)
+            if (run.skip_foreign_checks) {
+                run.step.result_skip_reason = "Foreign binary failed";
                 return error.MakeSkipped;
+            }
 
             const b = run.step.owner;
             const host_name = try b.graph.host.result.zigTriple(b.allocator);
