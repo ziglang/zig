@@ -2088,27 +2088,57 @@ const Writer = struct {
         self.indent += 2;
 
         else_prong: {
-            const special_prong = extra.data.bits.specialProng();
-            const prong_name = switch (special_prong) {
-                .@"else" => "else",
-                .under => "_",
-                else => break :else_prong,
-            };
+            const special_prong = extra.data.bits.special_prong;
+            if (special_prong == .none) break :else_prong;
 
+            var items_len: u32 = 0;
+            var ranges_len: u32 = 0;
+            if (special_prong == .absorbing_under) {
+                items_len = self.code.extra[extra_index];
+                extra_index += 1;
+                ranges_len = self.code.extra[extra_index];
+                extra_index += 1;
+            }
             const info = @as(Zir.Inst.SwitchBlock.ProngInfo, @bitCast(self.code.extra[extra_index]));
-            const capture_text = switch (info.capture) {
-                .none => "",
-                .by_val => "by_val ",
-                .by_ref => "by_ref ",
-            };
-            const inline_text = if (info.is_inline) "inline " else "";
             extra_index += 1;
-            const body = self.code.bodySlice(extra_index, info.body_len);
-            extra_index += body.len;
+            const items = self.code.refSlice(extra_index, items_len);
+            extra_index += items_len;
 
             try stream.writeAll(",\n");
             try stream.splatByteAll(' ', self.indent);
-            try stream.print("{s}{s}{s} => ", .{ capture_text, inline_text, prong_name });
+            switch (info.capture) {
+                .none => {},
+                .by_val => try stream.writeAll("by_val "),
+                .by_ref => try stream.writeAll("by_ref "),
+            }
+            if (info.is_inline) try stream.writeAll("inline ");
+            switch (special_prong) {
+                .@"else" => try stream.writeAll("else"),
+                .under, .absorbing_under => try stream.writeAll("_"),
+                .none => unreachable,
+            }
+
+            for (items) |item_ref| {
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, item_ref);
+            }
+
+            var range_i: usize = 0;
+            while (range_i < ranges_len) : (range_i += 1) {
+                const item_first = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
+                extra_index += 1;
+                const item_last = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
+                extra_index += 1;
+
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, item_first);
+                try stream.writeAll("...");
+                try self.writeInstRef(stream, item_last);
+            }
+
+            const body = self.code.bodySlice(extra_index, info.body_len);
+            extra_index += info.body_len;
+            try stream.writeAll(" => ");
             try self.writeBracedBody(stream, body);
         }
 

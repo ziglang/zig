@@ -1065,3 +1065,28 @@ test "switch on a signed value smaller than the smallest prong value" {
         else => {},
     }
 }
+
+test "switch on non-exhaustive enum" {
+    const E = enum(u32) {
+        a,
+        b,
+        c,
+        _,
+    };
+
+    var e: E = .a;
+    _ = &e;
+    switch (e) {
+        .a, .b => {},
+        else => return error.TestFailed,
+    }
+    switch (e) {
+        .a, .b => {},
+        .c => return error.TestFailed,
+        _ => return error.TestFailed,
+    }
+    switch (e) {
+        .a, .b => {},
+        .c, _ => return error.TestFailed,
+    }
+}
