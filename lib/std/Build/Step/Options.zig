@@ -151,12 +151,27 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
     }
 
     switch (@typeInfo(T)) {
-        .array => {
+        .array => |info| {
+            try printUserDefinedType(options, out, info.child, 0);
+
+            const type_name = @typeName(T);
+
             if (name) |some| {
-                try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
+                // If the type name doesn't contains a '.' the type is from zig builtins.
+                if (std.mem.containsAtLeast(u8, type_name, 1, ".")) {
+                    const i = std.mem.lastIndexOf(u8, type_name, "]").?;
+                    const indexer = type_name[0 .. i + 1];
+                    const t = std.mem.lastIndexOf(u8, type_name, " ") orelse 0;
+                    const child_type = if (t > i) type_name[t + 1 ..] else type_name[i + 1 ..];
+                    const qualifier = if (t > i) type_name[i + 1 .. t + 1] else "";
+
+                    try out.print("pub const {}: {s}{s}{p_} = ", .{ std.zig.fmtId(some), indexer, qualifier, std.zig.fmtId(child_type) });
+                } else {
+                    try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), type_name });
+                }
             }
 
-            try out.print("{s} {{\n", .{@typeName(T)});
+            try out.writeAll(".{\n");
             for (value) |item| {
                 try out.writeByteNTimes(' ', indent + 4);
                 try printType(options, out, @TypeOf(item), item, indent + 4, null);
@@ -175,12 +190,26 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
             if (p.size != .slice) {
                 @compileError("Non-slice pointers are not yet supported in build options");
             }
+            try printUserDefinedType(options, out, p.child, 0);
+
+            const type_name = @typeName(T);
 
             if (name) |some| {
-                try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
+                // If the type name doesn't contains a '.' the type is from zig builtins.
+                if (std.mem.containsAtLeast(u8, type_name, 1, ".")) {
+                    const i = std.mem.lastIndexOf(u8, type_name, "]").?;
+                    const indexer = type_name[0 .. i + 1];
+                    const t = std.mem.lastIndexOf(u8, type_name, " ") orelse 0;
+                    const child_type = if (t > i) type_name[t + 1 ..] else type_name[i + 1 ..];
+                    const qualifier = if (t > i) type_name[i + 1 .. t + 1] else "";
+
+                    try out.print("pub const {}: {s}{s}{p_} = ", .{ std.zig.fmtId(some), indexer, qualifier, std.zig.fmtId(child_type) });
+                } else {
+                    try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), type_name });
+                }
             }
 
-            try out.print("&[_]{s} {{\n", .{@typeName(p.child)});
+            try out.writeAll("&.{\n");
             for (value) |item| {
                 try out.writeByteNTimes(' ', indent + 4);
                 try printType(options, out, @TypeOf(item), item, indent + 4, null);
@@ -195,13 +224,22 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
             }
             return;
         },
-        .optional => {
+        .optional => |info| {
+            try printUserDefinedType(options, out, info.child, 0);
+
+            const type_name = @typeName(T);
+
             if (name) |some| {
-                try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
+                // If the type name doesn't contains a '.' the type is from zig builtins.
+                if (std.mem.containsAtLeast(u8, type_name, 1, ".")) {
+                    try out.print("pub const {}: ?{p_} = ", .{ std.zig.fmtId(some), std.zig.fmtId(@typeName(info.child)) });
+                } else {
+                    try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), type_name });
+                }
             }
 
             if (value) |inner| {
-                try printType(options, out, @TypeOf(inner), inner, indent + 4, null);
+                try printType(options, out, @TypeOf(inner), inner, indent, null);
                 // Pop the '\n' and ',' chars
                 _ = options.contents.pop();
                 _ = options.contents.pop();
@@ -250,8 +288,8 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
                     std.zig.fmtId(some),
                     std.zig.fmtId(@typeName(T)),
                 });
-                try printStructValue(options, out, info, value, indent);
             }
+            try printStructValue(options, out, info, value, indent);
             return;
         },
         else => @compileError(std.fmt.comptimePrint("`{s}` are not yet supported as build options", .{@tagName(@typeInfo(T))})),
@@ -572,6 +610,27 @@ test Options {
     options.addOption(NestedStruct, "nested_struct", NestedStruct{
         .normal_struct = .{ .hello = "bar" },
     });
+    options.addOption(?NormalStruct, "optional_struct", .{
+        .hello = "optional",
+    });
+    options.addOption([1]NormalStruct, "struct_array", [1]NormalStruct{
+        .{ .hello = "array" },
+    });
+    options.addOption([1][1]NormalStruct, "nested_struct_array", [1][1]NormalStruct{
+        .{.{ .hello = "array" }},
+    });
+    options.addOption([]const NormalStruct, "struct_slice", &[_]NormalStruct{
+        .{ .hello = "slice" },
+    });
+    options.addOption([]const []const NormalStruct, "nested_struct_slice", &.{
+        &.{.{ .hello = "slice" }},
+    });
+    options.addOption([]const [1]NormalStruct, "array_struct_slice", &.{
+        .{.{ .hello = "array" }},
+    });
+    options.addOption([1][]const NormalStruct, "slice_struct_array", .{
+        &.{.{ .hello = "slice" }},
+    });
 
     try std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
@@ -580,22 +639,22 @@ test Options {
         \\pub const option4: comptime_int = 4;
         \\pub const string: []const u8 = "zigisthebest";
         \\pub const optional_string: ?[]const u8 = null;
-        \\pub const nested_array: [2][2]u16 = [2][2]u16 {
-        \\    [2]u16 {
+        \\pub const nested_array: [2][2]u16 = .{
+        \\    .{
         \\        300,
         \\        200,
         \\    },
-        \\    [2]u16 {
+        \\    .{
         \\        300,
         \\        200,
         \\    },
         \\};
-        \\pub const nested_slice: []const []const u16 = &[_][]const u16 {
-        \\    &[_]u16 {
+        \\pub const nested_slice: []const []const u16 = &.{
+        \\    &.{
         \\        300,
         \\        200,
         \\    },
-        \\    &[_]u16 {
+        \\    &.{
         \\        300,
         \\        200,
         \\    },
@@ -639,6 +698,54 @@ test Options {
         \\        .world = true,
         \\    },
         \\    .normal_enum = .foo,
+        \\};
+        \\pub const optional_struct: ?@"Build.Step.Options.decltest.Options.NormalStruct" = .{
+        \\    .hello = "optional",
+        \\    .world = true,
+        \\};
+        \\pub const struct_array: [1]@"Build.Step.Options.decltest.Options.NormalStruct" = .{
+        \\    .{
+        \\        .hello = "array",
+        \\        .world = true,
+        \\    },
+        \\};
+        \\pub const nested_struct_array: [1][1]@"Build.Step.Options.decltest.Options.NormalStruct" = .{
+        \\    .{
+        \\        .{
+        \\            .hello = "array",
+        \\            .world = true,
+        \\        },
+        \\    },
+        \\};
+        \\pub const struct_slice: []const @"Build.Step.Options.decltest.Options.NormalStruct" = &.{
+        \\    .{
+        \\        .hello = "slice",
+        \\        .world = true,
+        \\    },
+        \\};
+        \\pub const nested_struct_slice: []const []const @"Build.Step.Options.decltest.Options.NormalStruct" = &.{
+        \\    &.{
+        \\        .{
+        \\            .hello = "slice",
+        \\            .world = true,
+        \\        },
+        \\    },
+        \\};
+        \\pub const array_struct_slice: []const [1]@"Build.Step.Options.decltest.Options.NormalStruct" = &.{
+        \\    .{
+        \\        .{
+        \\            .hello = "array",
+        \\            .world = true,
+        \\        },
+        \\    },
+        \\};
+        \\pub const slice_struct_array: [1][]const @"Build.Step.Options.decltest.Options.NormalStruct" = .{
+        \\    &.{
+        \\        .{
+        \\            .hello = "slice",
+        \\            .world = true,
+        \\        },
+        \\    },
         \\};
         \\
     , options.contents.items);
