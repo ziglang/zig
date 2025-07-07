@@ -1350,7 +1350,7 @@ pub const Reader = struct {
                 };
                 var remaining = std.math.cast(u64, offset) orelse return seek_err;
                 while (remaining > 0) {
-                    const n = discard(&r.interface, .limited(remaining)) catch |err| {
+                    const n = discard(&r.interface, .limited64(remaining)) catch |err| {
                         r.seek_err = err;
                         return err;
                     };
@@ -1385,7 +1385,7 @@ pub const Reader = struct {
     const max_buffers_len = 16;
 
     fn stream(io_reader: *std.io.Reader, w: *std.io.Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
-        const r: *Reader = @fieldParentPtr("interface", io_reader);
+        const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
         switch (r.mode) {
             .positional, .streaming => return w.sendFile(r, limit) catch |write_err| switch (write_err) {
                 error.Unimplemented => {
@@ -1459,7 +1459,7 @@ pub const Reader = struct {
     }
 
     fn discard(io_reader: *std.io.Reader, limit: std.io.Limit) std.io.Reader.Error!usize {
-        const r: *Reader = @fieldParentPtr("interface", io_reader);
+        const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
         const file = r.file;
         const pos = r.pos;
         switch (r.mode) {
@@ -1661,7 +1661,7 @@ pub const Writer = struct {
     }
 
     pub fn drain(io_w: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
-        const w: *Writer = @fieldParentPtr("interface", io_w);
+        const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
         const handle = w.file.handle;
         const buffered = io_w.buffered();
         if (is_windows) switch (w.mode) {
@@ -1789,7 +1789,7 @@ pub const Writer = struct {
         file_reader: *Reader,
         limit: std.io.Limit,
     ) std.io.Writer.FileError!usize {
-        const w: *Writer = @fieldParentPtr("interface", io_w);
+        const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
         const out_fd = w.file.handle;
         const in_fd = file_reader.file.handle;
         // TODO try using copy_file_range on FreeBSD

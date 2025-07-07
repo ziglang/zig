@@ -1295,7 +1295,7 @@ pub const DeclGen = struct {
                     }
                     const ai = ty.arrayInfo(zcu);
                     if (ai.elem_type.eql(.u8, zcu)) {
-                        var literal: StringLiteral = .init(w, ty.arrayLenIncludingSentinel(zcu));
+                        var literal: StringLiteral = .init(w, @intCast(ty.arrayLenIncludingSentinel(zcu)));
                         try literal.start();
                         var index: usize = 0;
                         while (index < ai.len) : (index += 1) {
@@ -1854,7 +1854,7 @@ pub const DeclGen = struct {
                     const ai = ty.arrayInfo(zcu);
                     if (ai.elem_type.eql(.u8, zcu)) {
                         const c_len = ty.arrayLenIncludingSentinel(zcu);
-                        var literal: StringLiteral = .init(w, c_len);
+                        var literal: StringLiteral = .init(w, @intCast(c_len));
                         try literal.start();
                         var index: u64 = 0;
                         while (index < c_len) : (index += 1)

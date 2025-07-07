@@ -1958,7 +1958,7 @@ pub fn discardingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) F
     if (File.Handle == void) return error.Unimplemented;
     w.end = 0;
     if (file_reader.getSize()) |size| {
-        const n = limit.minInt(size - file_reader.pos);
+        const n = limit.minInt64(size - file_reader.pos);
         file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
         w.end = 0;
         return n;
@@ -2256,7 +2256,7 @@ pub const Allocating = struct {
         defer setArrayList(a, list);
         const pos = file_reader.pos;
         const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
-        list.ensureUnusedCapacity(gpa, limit.minInt(additional)) catch return error.WriteFailed;
+        list.ensureUnusedCapacity(gpa, limit.minInt64(additional)) catch return error.WriteFailed;
         const dest = limit.slice(list.unusedCapacitySlice());
         const n = file_reader.read(dest) catch |err| switch (err) {
             error.ReadFailed => return error.ReadFailed,

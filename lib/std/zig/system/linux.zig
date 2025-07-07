@@ -391,7 +391,7 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     const current_arch = builtin.cpu.arch;
     switch (current_arch) {
         .arm, .armeb, .thumb, .thumbeb => {
-            return ArmCpuinfoParser.parse(current_arch, f.reader()) catch null;
+            return ArmCpuinfoParser.parse(current_arch, f.deprecatedReader()) catch null;
         },
         .aarch64, .aarch64_be => {
             const registers = [12]u64{

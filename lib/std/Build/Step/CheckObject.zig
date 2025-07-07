@@ -1231,12 +1231,12 @@ const MachODumper = struct {
         }
 
         fn parseRebaseInfo(ctx: ObjectContext, data: []const u8, rebases: *std.ArrayList(u64)) !void {
-            var br: std.io.Reader = .fixed(data);
+            var r: std.io.Reader = .fixed(data);
 
             var seg_id: ?u8 = null;
             var offset: u64 = 0;
             while (true) {
-                const byte = br.takeByte() catch break;
+                const byte = r.takeByte() catch break;
                 const opc = byte & macho.REBASE_OPCODE_MASK;
                 const imm = byte & macho.REBASE_IMMEDIATE_MASK;
                 switch (opc) {
@@ -1244,17 +1244,17 @@ const MachODumper = struct {
                     macho.REBASE_OPCODE_SET_TYPE_IMM => {},
                     macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
                         seg_id = imm;
-                        offset = try br.takeLeb128(u64);
+                        offset = try r.takeLeb128(u64);
                     },
                     macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED => {
                         offset += imm * @sizeOf(u64);
                     },
                     macho.REBASE_OPCODE_ADD_ADDR_ULEB => {
-                        const addend = try br.takeLeb128(u64);
+                        const addend = try r.takeLeb128(u64);
                         offset += addend;
                     },
                     macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB => {
-                        const addend = try br.takeLeb128(u64);
+                        const addend = try r.takeLeb128(u64);
                         const seg = ctx.segments.items[seg_id.?];
                         const addr = seg.vmaddr + offset;
                         try rebases.append(addr);
@@ -1271,11 +1271,11 @@ const MachODumper = struct {
                                 ntimes = imm;
                             },
                             macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES => {
-                                ntimes = try br.takeLeb128(u64);
+                                ntimes = try r.takeLeb128(u64);
                             },
                             macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB => {
-                                ntimes = try br.takeLeb128(u64);
-                                skip = try br.takeLeb128(u64);
+                                ntimes = try r.takeLeb128(u64);
+                                skip = try r.takeLeb128(u64);
                             },
                             else => unreachable,
                         }
@@ -1341,7 +1341,7 @@ const MachODumper = struct {
         }
 
         fn parseBindInfo(ctx: ObjectContext, data: []const u8, bindings: *std.ArrayList(Binding)) !void {
-            var br: std.io.Reader = .fixed(data);
+            var r: std.io.Reader = .fixed(data);
 
             var seg_id: ?u8 = null;
             var tag: Binding.Tag = .self;
@@ -1352,7 +1352,7 @@ const MachODumper = struct {
             var name_buf: std.io.Writer.Allocating = .init(ctx.gpa);
             defer name_buf.deinit();
 
-            while (br.takeByte()) |byte| {
+            while (r.takeByte()) |byte| {
                 const opc = byte & macho.BIND_OPCODE_MASK;
                 const imm = byte & macho.BIND_IMMEDIATE_MASK;
                 switch (opc) {
@@ -1373,18 +1373,18 @@ const MachODumper = struct {
                     },
                     macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
                         seg_id = imm;
-                        offset = try br.takeLeb128(u64);
+                        offset = try r.takeLeb128(u64);
                     },
                     macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
                         name_buf.clearRetainingCapacity();
-                        _ = try br.streamDelimiterLimit(&name_buf.writer, 0, .limited(std.math.maxInt(u32)));
+                        _ = try r.streamDelimiterLimit(&name_buf.writer, 0, .limited(std.math.maxInt(u32)));
                         try name_buf.writer.writeByte(0);
                     },
                     macho.BIND_OPCODE_SET_ADDEND_SLEB => {
-                        addend = try br.takeLeb128(i64);
+                        addend = try r.takeLeb128(i64);
                     },
                     macho.BIND_OPCODE_ADD_ADDR_ULEB => {
-                        const x = try br.takeLeb128(u64);
+                        const x = try r.takeLeb128(u64);
                         offset = @intCast(@as(i64, @intCast(offset)) + @as(i64, @bitCast(x)));
                     },
                     macho.BIND_OPCODE_DO_BIND,
@@ -1399,14 +1399,14 @@ const MachODumper = struct {
                         switch (opc) {
                             macho.BIND_OPCODE_DO_BIND => {},
                             macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB => {
-                                add_addr = try br.takeLeb128(u64);
+                                add_addr = try r.takeLeb128(u64);
                             },
                             macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED => {
                                 add_addr = imm * @sizeOf(u64);
                             },
                             macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB => {
-                                count = try br.takeLeb128(u64);
-                                skip = try br.takeLeb128(u64);
+                                count = try r.takeLeb128(u64);
+                                skip = try r.takeLeb128(u64);
                             },
                             else => unreachable,
                         }
@@ -1437,8 +1437,8 @@ const MachODumper = struct {
             defer arena.deinit();
 
             var exports: std.ArrayList(Export) = .init(arena.allocator());
-            var br: std.io.Reader = .fixed(data);
-            try parseTrieNode(arena.allocator(), &br, "", &exports);
+            var r: std.io.Reader = .fixed(data);
+            try parseTrieNode(arena.allocator(), &r, "", &exports);
 
             mem.sort(Export, exports.items, {}, Export.lessThan);
 
@@ -1506,17 +1506,17 @@ const MachODumper = struct {
 
         fn parseTrieNode(
             arena: Allocator,
-            br: *std.io.Reader,
+            r: *std.io.Reader,
             prefix: []const u8,
             exports: *std.ArrayList(Export),
         ) !void {
-            const size = try br.takeLeb128(u64);
+            const size = try r.takeLeb128(u64);
             if (size > 0) {
-                const flags = try br.takeLeb128(u8);
+                const flags = try r.takeLeb128(u8);
                 switch (flags) {
                     macho.EXPORT_SYMBOL_FLAGS_REEXPORT => {
-                        const ord = try br.takeLeb128(u64);
-                        const name = try br.takeSentinel(0);
+                        const ord = try r.takeLeb128(u64);
+                        const name = try r.takeSentinel(0);
                         try exports.append(.{
                             .name = if (name.len > 0) name else prefix,
                             .tag = .reexport,
@@ -1524,8 +1524,8 @@ const MachODumper = struct {
                         });
                     },
                     macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER => {
-                        const stub_offset = try br.takeLeb128(u64);
-                        const resolver_offset = try br.takeLeb128(u64);
+                        const stub_offset = try r.takeLeb128(u64);
+                        const resolver_offset = try r.takeLeb128(u64);
                         try exports.append(.{
                             .name = prefix,
                             .tag = .stub_resolver,
@@ -1536,7 +1536,7 @@ const MachODumper = struct {
                         });
                     },
                     else => {
-                        const vmoff = try br.takeLeb128(u64);
+                        const vmoff = try r.takeLeb128(u64);
                         try exports.append(.{
                             .name = prefix,
                             .tag = .@"export",
@@ -1555,15 +1555,15 @@ const MachODumper = struct {
                 }
             }
 
-            const nedges = try br.takeByte();
+            const nedges = try r.takeByte();
             for (0..nedges) |_| {
-                const label = try br.takeSentinel(0);
-                const off = try br.takeLeb128(usize);
+                const label = try r.takeSentinel(0);
+                const off = try r.takeLeb128(usize);
                 const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
-                const seek = br.seek;
-                br.seek = off;
-                try parseTrieNode(arena, br, prefix_label, exports);
-                br.seek = seek;
+                const seek = r.seek;
+                r.seek = off;
+                try parseTrieNode(arena, r, prefix_label, exports);
+                r.seek = seek;
             }
         }
 
@@ -1693,9 +1693,9 @@ const ElfDumper = struct {
 
     fn parseAndDumpArchive(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var br: std.io.Reader = .fixed(bytes);
+        var r: std.io.Reader = .fixed(bytes);
 
-        if (!mem.eql(u8, try br.takeArray(elf.ARMAG.len), elf.ARMAG)) return error.InvalidArchiveMagicNumber;
+        if (!mem.eql(u8, try r.takeArray(elf.ARMAG.len), elf.ARMAG)) return error.InvalidArchiveMagicNumber;
 
         var ctx: ArchiveContext = .{
             .gpa = gpa,
@@ -1706,14 +1706,14 @@ const ElfDumper = struct {
         };
         defer ctx.deinit();
 
-        while (br.seek < bytes.len) {
-            const hdr_seek = std.mem.alignForward(usize, br.seek, 2);
-            br.seek = hdr_seek;
-            const hdr = try br.takeStruct(elf.ar_hdr);
+        while (r.seek < bytes.len) {
+            const hdr_seek = std.mem.alignForward(usize, r.seek, 2);
+            r.seek = hdr_seek;
+            const hdr = try r.takeStruct(elf.ar_hdr);
 
             if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) return error.InvalidArchiveHeaderMagicNumber;
 
-            const data = try br.take(try hdr.size());
+            const data = try r.take(try hdr.size());
 
             if (hdr.isSymtab()) {
                 try ctx.parseSymtab(data, .p32);
@@ -1766,17 +1766,17 @@ const ElfDumper = struct {
         }
 
         fn parseSymtab(ctx: *ArchiveContext, data: []const u8, ptr_width: enum { p32, p64 }) !void {
-            var br: std.io.Reader = .fixed(data);
+            var r: std.io.Reader = .fixed(data);
             const num = switch (ptr_width) {
-                .p32 => try br.takeInt(u32, .big),
-                .p64 => try br.takeInt(u64, .big),
+                .p32 => try r.takeInt(u32, .big),
+                .p64 => try r.takeInt(u64, .big),
             };
             const ptr_size: usize = switch (ptr_width) {
                 .p32 => @sizeOf(u32),
                 .p64 => @sizeOf(u64),
             };
-            _ = try br.discard(.limited(num * ptr_size));
-            const strtab = br.buffered();
+            _ = try r.discard(.limited(num * ptr_size));
+            const strtab = r.buffered();
 
             assert(ctx.symtab.len == 0);
             ctx.symtab = try ctx.gpa.alloc(ArSymtabEntry, num);
@@ -1784,8 +1784,8 @@ const ElfDumper = struct {
             var stroff: usize = 0;
             for (ctx.symtab) |*entry| {
                 const off = switch (ptr_width) {
-                    .p32 => try br.takeInt(u32, .big),
-                    .p64 => try br.takeInt(u64, .big),
+                    .p32 => try r.takeInt(u32, .big),
+                    .p64 => try r.takeInt(u64, .big),
                 };
                 const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab[stroff..].ptr)), 0);
                 stroff += name.len + 1;
@@ -1836,9 +1836,9 @@ const ElfDumper = struct {
 
     fn parseAndDumpObject(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var br: std.io.Reader = .fixed(bytes);
+        var r: std.io.Reader = .fixed(bytes);
 
-        const hdr = try br.takeStruct(elf.Elf64_Ehdr);
+        const hdr = try r.takeStruct(elf.Elf64_Ehdr);
         if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) return error.InvalidMagicNumber;
 
         const shdrs = @as([*]align(1) const elf.Elf64_Shdr, @ptrCast(bytes[hdr.e_shoff..].ptr))[0..hdr.e_shnum];
@@ -2327,9 +2327,9 @@ const WasmDumper = struct {
 
     fn parseAndDump(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var br: std.io.Reader = .fixed(bytes);
+        var r: std.io.Reader = .fixed(bytes);
 
-        const buf = try br.takeArray(8);
+        const buf = try r.takeArray(8);
         if (!mem.eql(u8, buf[0..4], &std.wasm.magic)) return error.InvalidMagicByte;
         if (!mem.eql(u8, buf[4..8], &std.wasm.version)) return error.UnsupportedWasmVersion;
 
@@ -2337,7 +2337,7 @@ const WasmDumper = struct {
         defer aw.deinit();
         const bw = &aw.writer;
 
-        parseAndDumpInner(step, check, &br, bw) catch |err| switch (err) {
+        parseAndDumpInner(step, check, &r, bw) catch |err| switch (err) {
             error.EndOfStream => try bw.writeAll("\n<UnexpectedEndOfStream>"),
             else => |e| return e,
         };
@@ -2347,14 +2347,13 @@ const WasmDumper = struct {
     fn parseAndDumpInner(
         step: *Step,
         check: Check,
-        br: *std.io.Reader,
+        r: *std.io.Reader,
         bw: *Writer,
     ) !void {
-        var section_br: std.io.Reader = undefined;
         switch (check.kind) {
-            .headers => while (br.takeEnum(std.wasm.Section, .little)) |section| {
-                section_br = .fixed(try br.take(try br.takeLeb128(u32)));
-                try parseAndDumpSection(step, section, &section_br, bw);
+            .headers => while (r.takeEnum(std.wasm.Section, .little)) |section| {
+                var section_reader: std.io.Reader = .fixed(try r.take(try r.takeLeb128(u32)));
+                try parseAndDumpSection(step, section, &section_reader, bw);
             } else |err| switch (err) {
                 error.InvalidEnumTag => return step.fail("invalid section id", .{}),
                 error.EndOfStream => {},
@@ -2367,13 +2366,13 @@ const WasmDumper = struct {
     fn parseAndDumpSection(
         step: *Step,
         section: std.wasm.Section,
-        br: *std.io.Reader,
+        r: *std.io.Reader,
         bw: *Writer,
     ) !void {
         try bw.print(
             \\Section {s}
             \\size {d}
-        , .{ @tagName(section), br.buffer.len });
+        , .{ @tagName(section), r.buffer.len });
 
         switch (section) {
             .type,
@@ -2387,63 +2386,63 @@ const WasmDumper = struct {
             .code,
             .data,
             => {
-                const entries = try br.takeLeb128(u32);
+                const entries = try r.takeLeb128(u32);
                 try bw.print("\nentries {d}\n", .{entries});
-                try parseSection(step, section, br, entries, bw);
+                try parseSection(step, section, r, entries, bw);
             },
             .custom => {
-                const name = try br.take(try br.takeLeb128(u32));
+                const name = try r.take(try r.takeLeb128(u32));
                 try bw.print("\nname {s}\n", .{name});
 
                 if (mem.eql(u8, name, "name")) {
-                    try parseDumpNames(step, br, bw);
+                    try parseDumpNames(step, r, bw);
                 } else if (mem.eql(u8, name, "producers")) {
-                    try parseDumpProducers(br, bw);
+                    try parseDumpProducers(r, bw);
                 } else if (mem.eql(u8, name, "target_features")) {
-                    try parseDumpFeatures(br, bw);
+                    try parseDumpFeatures(r, bw);
                 }
                 // TODO: Implement parsing and dumping other custom sections (such as relocations)
             },
             .start => {
-                const start = try br.takeLeb128(u32);
+                const start = try r.takeLeb128(u32);
                 try bw.print("\nstart {d}\n", .{start});
             },
             .data_count => {
-                const count = try br.takeLeb128(u32);
+                const count = try r.takeLeb128(u32);
                 try bw.print("\ncount {d}\n", .{count});
             },
             else => {}, // skip unknown sections
         }
     }
 
-    fn parseSection(step: *Step, section: std.wasm.Section, br: *std.io.Reader, entries: u32, bw: *Writer) !void {
+    fn parseSection(step: *Step, section: std.wasm.Section, r: *std.io.Reader, entries: u32, bw: *Writer) !void {
         switch (section) {
             .type => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    const func_type = try br.takeByte();
+                    const func_type = try r.takeByte();
                     if (func_type != std.wasm.function_type) {
                         return step.fail("expected function type, found byte '{d}'", .{func_type});
                     }
-                    const params = try br.takeLeb128(u32);
+                    const params = try r.takeLeb128(u32);
                     try bw.print("params {d}\n", .{params});
                     var index: u32 = 0;
                     while (index < params) : (index += 1) {
-                        _ = try parseDumpType(step, std.wasm.Valtype, br, bw);
+                        _ = try parseDumpType(step, std.wasm.Valtype, r, bw);
                     } else index = 0;
-                    const returns = try br.takeLeb128(u32);
+                    const returns = try r.takeLeb128(u32);
                     try bw.print("returns {d}\n", .{returns});
                     while (index < returns) : (index += 1) {
-                        _ = try parseDumpType(step, std.wasm.Valtype, br, bw);
+                        _ = try parseDumpType(step, std.wasm.Valtype, r, bw);
                     }
                 }
             },
             .import => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    const module_name = try br.take(try br.takeLeb128(u32));
-                    const name = try br.take(try br.takeLeb128(u32));
-                    const kind = br.takeEnum(std.wasm.ExternalKind, .little) catch |err| switch (err) {
+                    const module_name = try r.take(try r.takeLeb128(u32));
+                    const name = try r.take(try r.takeLeb128(u32));
+                    const kind = r.takeEnum(std.wasm.ExternalKind, .little) catch |err| switch (err) {
                         error.InvalidEnumTag => return step.fail("invalid import kind", .{}),
                         else => |e| return e,
                     };
@@ -2455,15 +2454,15 @@ const WasmDumper = struct {
                     , .{ module_name, name, @tagName(kind) });
                     try bw.writeByte('\n');
                     switch (kind) {
-                        .function => try bw.print("index {d}\n", .{try br.takeLeb128(u32)}),
-                        .memory => try parseDumpLimits(br, bw),
+                        .function => try bw.print("index {d}\n", .{try r.takeLeb128(u32)}),
+                        .memory => try parseDumpLimits(r, bw),
                         .global => {
-                            _ = try parseDumpType(step, std.wasm.Valtype, br, bw);
-                            try bw.print("mutable {}\n", .{0x01 == try br.takeLeb128(u32)});
+                            _ = try parseDumpType(step, std.wasm.Valtype, r, bw);
+                            try bw.print("mutable {}\n", .{0x01 == try r.takeLeb128(u32)});
                         },
                         .table => {
-                            _ = try parseDumpType(step, std.wasm.RefType, br, bw);
-                            try parseDumpLimits(br, bw);
+                            _ = try parseDumpType(step, std.wasm.RefType, r, bw);
+                            try parseDumpLimits(r, bw);
                         },
                     }
                 }
@@ -2471,39 +2470,39 @@ const WasmDumper = struct {
             .function => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try bw.print("index {d}\n", .{try br.takeLeb128(u32)});
+                    try bw.print("index {d}\n", .{try r.takeLeb128(u32)});
                 }
             },
             .table => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    _ = try parseDumpType(step, std.wasm.RefType, br, bw);
-                    try parseDumpLimits(br, bw);
+                    _ = try parseDumpType(step, std.wasm.RefType, r, bw);
+                    try parseDumpLimits(r, bw);
                 }
             },
             .memory => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try parseDumpLimits(br, bw);
+                    try parseDumpLimits(r, bw);
                 }
             },
             .global => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    _ = try parseDumpType(step, std.wasm.Valtype, br, bw);
-                    try bw.print("mutable {}\n", .{0x01 == try br.takeLeb128(u1)});
-                    try parseDumpInit(step, br, bw);
+                    _ = try parseDumpType(step, std.wasm.Valtype, r, bw);
+                    try bw.print("mutable {}\n", .{0x01 == try r.takeLeb128(u1)});
+                    try parseDumpInit(step, r, bw);
                 }
             },
             .@"export" => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    const name = try br.take(try br.takeLeb128(u32));
-                    const kind = br.takeEnum(std.wasm.ExternalKind, .little) catch |err| switch (err) {
+                    const name = try r.take(try r.takeLeb128(u32));
+                    const kind = r.takeEnum(std.wasm.ExternalKind, .little) catch |err| switch (err) {
                         error.InvalidEnumTag => return step.fail("invalid export kind value", .{}),
                         else => |e| return e,
                     };
-                    const index = try br.takeLeb128(u32);
+                    const index = try r.takeLeb128(u32);
                     try bw.print(
                         \\name {s}
                         \\kind {s}
@@ -2515,14 +2514,14 @@ const WasmDumper = struct {
             .element => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try bw.print("table index {d}\n", .{try br.takeLeb128(u32)});
-                    try parseDumpInit(step, br, bw);
+                    try bw.print("table index {d}\n", .{try r.takeLeb128(u32)});
+                    try parseDumpInit(step, r, bw);
 
-                    const function_indexes = try br.takeLeb128(u32);
+                    const function_indexes = try r.takeLeb128(u32);
                     var function_index: u32 = 0;
                     try bw.print("indexes {d}\n", .{function_indexes});
                     while (function_index < function_indexes) : (function_index += 1) {
-                        try bw.print("index {d}\n", .{try br.takeLeb128(u32)});
+                        try bw.print("index {d}\n", .{try r.takeLeb128(u32)});
                     }
                 }
             },
@@ -2534,21 +2533,21 @@ const WasmDumper = struct {
                         passive: bool,
                         memidx: bool,
                         unused: u30,
-                    } = @bitCast(try br.takeLeb128(u32));
-                    const index = if (flags.memidx) try br.takeLeb128(u32) else 0;
+                    } = @bitCast(try r.takeLeb128(u32));
+                    const index = if (flags.memidx) try r.takeLeb128(u32) else 0;
                     try bw.print("memory index 0x{x}\n", .{index});
-                    if (!flags.passive) try parseDumpInit(step, br, bw);
-                    const size = try br.takeLeb128(u32);
+                    if (!flags.passive) try parseDumpInit(step, r, bw);
+                    const size = try r.takeLeb128(u32);
                     try bw.print("size {d}\n", .{size});
-                    _ = try br.discard(.limited(size)); // we do not care about the content of the segments
+                    _ = try r.discard(.limited(size)); // we do not care about the content of the segments
                 }
             },
             else => unreachable,
         }
     }
 
-    fn parseDumpType(step: *Step, comptime E: type, br: *std.io.Reader, bw: *Writer) !E {
-        const tag = br.takeEnum(E, .little) catch |err| switch (err) {
+    fn parseDumpType(step: *Step, comptime E: type, r: *std.io.Reader, bw: *Writer) !E {
+        const tag = r.takeEnum(E, .little) catch |err| switch (err) {
             error.InvalidEnumTag => return step.fail("invalid wasm type value", .{}),
             else => |e| return e,
         };
@@ -2556,42 +2555,42 @@ const WasmDumper = struct {
         return tag;
     }
 
-    fn parseDumpLimits(br: *std.io.Reader, bw: *Writer) !void {
-        const flags = try br.takeLeb128(u8);
-        const min = try br.takeLeb128(u32);
+    fn parseDumpLimits(r: *std.io.Reader, bw: *Writer) !void {
+        const flags = try r.takeLeb128(u8);
+        const min = try r.takeLeb128(u32);
 
         try bw.print("min {x}\n", .{min});
-        if (flags != 0) try bw.print("max {x}\n", .{try br.takeLeb128(u32)});
+        if (flags != 0) try bw.print("max {x}\n", .{try r.takeLeb128(u32)});
     }
 
-    fn parseDumpInit(step: *Step, br: *std.io.Reader, bw: *Writer) !void {
-        const opcode = br.takeEnum(std.wasm.Opcode, .little) catch |err| switch (err) {
+    fn parseDumpInit(step: *Step, r: *std.io.Reader, bw: *Writer) !void {
+        const opcode = r.takeEnum(std.wasm.Opcode, .little) catch |err| switch (err) {
             error.InvalidEnumTag => return step.fail("invalid wasm opcode", .{}),
             else => |e| return e,
         };
         switch (opcode) {
-            .i32_const => try bw.print("i32.const {x}\n", .{try br.takeLeb128(i32)}),
-            .i64_const => try bw.print("i64.const {x}\n", .{try br.takeLeb128(i64)}),
-            .f32_const => try bw.print("f32.const {x}\n", .{@as(f32, @bitCast(try br.takeInt(u32, .little)))}),
-            .f64_const => try bw.print("f64.const {x}\n", .{@as(f64, @bitCast(try br.takeInt(u64, .little)))}),
-            .global_get => try bw.print("global.get {x}\n", .{try br.takeLeb128(u32)}),
+            .i32_const => try bw.print("i32.const {x}\n", .{try r.takeLeb128(i32)}),
+            .i64_const => try bw.print("i64.const {x}\n", .{try r.takeLeb128(i64)}),
+            .f32_const => try bw.print("f32.const {x}\n", .{@as(f32, @bitCast(try r.takeInt(u32, .little)))}),
+            .f64_const => try bw.print("f64.const {x}\n", .{@as(f64, @bitCast(try r.takeInt(u64, .little)))}),
+            .global_get => try bw.print("global.get {x}\n", .{try r.takeLeb128(u32)}),
             else => unreachable,
         }
-        const end_opcode = try br.takeLeb128(u8);
+        const end_opcode = try r.takeLeb128(u8);
         if (end_opcode != @intFromEnum(std.wasm.Opcode.end)) {
             return step.fail("expected 'end' opcode in init expression", .{});
         }
     }
 
     /// https://webassembly.github.io/spec/core/appendix/custom.html
-    fn parseDumpNames(step: *Step, br: *std.io.Reader, bw: *Writer) !void {
+    fn parseDumpNames(step: *Step, r: *std.io.Reader, bw: *Writer) !void {
         var subsection_br: std.io.Reader = undefined;
-        while (br.seek < br.buffer.len) {
-            switch (try parseDumpType(step, std.wasm.NameSubsection, br, bw)) {
+        while (r.seek < r.buffer.len) {
+            switch (try parseDumpType(step, std.wasm.NameSubsection, r, bw)) {
                 // The module name subsection ... consists of a single name
                 // that is assigned to the module itself.
                 .module => {
-                    subsection_br = .fixed(try br.take(try br.takeLeb128(u32)));
+                    subsection_br = .fixed(try r.take(try r.takeLeb128(u32)));
                     const name = try subsection_br.take(try subsection_br.takeLeb128(u32));
                     try bw.print(
                         \\name {s}
@@ -2603,15 +2602,15 @@ const WasmDumper = struct {
                 // The function name subsection ... consists of a name map
                 // assigning function names to function indices.
                 .function, .global, .data_segment => {
-                    subsection_br = .fixed(try br.take(try br.takeLeb128(u32)));
-                    const entries = try br.takeLeb128(u32);
+                    subsection_br = .fixed(try r.take(try r.takeLeb128(u32)));
+                    const entries = try r.takeLeb128(u32);
                     try bw.print(
                         \\names {d}
                         \\
                     , .{entries});
                     for (0..entries) |_| {
-                        const index = try br.takeLeb128(u32);
-                        const name = try br.take(try br.takeLeb128(u32));
+                        const index = try r.takeLeb128(u32);
+                        const name = try r.take(try r.takeLeb128(u32));
                         try bw.print(
                             \\index {d}
                             \\name {s}
@@ -2633,16 +2632,16 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpProducers(br: *std.io.Reader, bw: *Writer) !void {
-        const field_count = try br.takeLeb128(u32);
+    fn parseDumpProducers(r: *std.io.Reader, bw: *Writer) !void {
+        const field_count = try r.takeLeb128(u32);
         try bw.print(
             \\fields {d}
             \\
         , .{field_count});
         var current_field: u32 = 0;
         while (current_field < field_count) : (current_field += 1) {
-            const field_name = try br.take(try br.takeLeb128(u32));
-            const value_count = try br.takeLeb128(u32);
+            const field_name = try r.take(try r.takeLeb128(u32));
+            const value_count = try r.takeLeb128(u32);
             try bw.print(
                 \\field_name {s}
                 \\values {d}
@@ -2650,8 +2649,8 @@ const WasmDumper = struct {
             , .{ field_name, value_count });
             var current_value: u32 = 0;
             while (current_value < value_count) : (current_value += 1) {
-                const value = try br.take(try br.takeLeb128(u32));
-                const version = try br.take(try br.takeLeb128(u32));
+                const value = try r.take(try r.takeLeb128(u32));
+                const version = try r.take(try r.takeLeb128(u32));
                 try bw.print(
                     \\value_name {s}
                     \\version {s}
@@ -2661,8 +2660,8 @@ const WasmDumper = struct {
         }
     }
 
-    fn parseDumpFeatures(br: *std.io.Reader, bw: *Writer) !void {
-        const feature_count = try br.takeLeb128(u32);
+    fn parseDumpFeatures(r: *std.io.Reader, bw: *Writer) !void {
+        const feature_count = try r.takeLeb128(u32);
         try bw.print(
             \\features {d}
             \\
@@ -2670,8 +2669,8 @@ const WasmDumper = struct {
 
         var index: u32 = 0;
         while (index < feature_count) : (index += 1) {
-            const prefix_byte = try br.takeLeb128(u8);
-            const feature_name = try br.take(try br.takeLeb128(u32));
+            const prefix_byte = try r.takeLeb128(u8);
+            const feature_name = try r.take(try r.takeLeb128(u32));
             try bw.print(
                 \\{c} {s}
                 \\
