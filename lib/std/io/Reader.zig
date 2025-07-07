@@ -1060,11 +1060,12 @@ pub fn fillMore(r: *Reader) Error!void {
 pub fn peekByte(r: *Reader) Error!u8 {
     const buffer = r.buffer[0..r.end];
     const seek = r.seek;
-    if (seek >= buffer.len) {
-        @branchHint(.unlikely);
-        try fill(r, 1);
+    if (seek < buffer.len) {
+        @branchHint(.likely);
+        return buffer[seek];
     }
-    return buffer[seek];
+    try fill(r, 1);
+    return r.buffer[r.seek];
 }
 
 /// Reads 1 byte from the stream or returns `error.EndOfStream`.
