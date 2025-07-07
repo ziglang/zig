@@ -390,12 +390,15 @@ pub const WritableVectorIterator = struct {
 pub const VectorWrapper = struct {
     writer: Writer,
     it: WritableVectorIterator,
+    /// Tracks whether the "writable vector" API was used.
+    used: bool = false,
     pub const vtable: VTable = .{ .drain = fixedDrain };
 };
 
 pub fn writableVectorIterator(w: *Writer) Error!WritableVectorIterator {
     if (w.vtable == &VectorWrapper.vtable) {
         const wrapper: *VectorWrapper = @fieldParentPtr("writer", w);
+        wrapper.used = true;
         return wrapper.it;
     }
     return .{ .first = try writableSliceGreedy(w, 1) };

@@ -328,17 +328,24 @@ pub fn readVecLimit(r: *Reader, data: []const []u8, limit: Limit) Error!usize {
         };
         var n = r.vtable.stream(r, &wrapper.writer, .limited(remaining)) catch |err| switch (err) {
             error.WriteFailed => {
+                assert(!wrapper.used);
                 if (wrapper.writer.buffer.ptr == first.ptr) {
                     remaining -= wrapper.writer.end;
                 } else {
+                    assert(wrapper.writer.end <= r.buffer.len);
                     r.end = wrapper.writer.end;
                 }
                 break;
             },
             else => |e| return e,
         };
-        if (wrapper.writer.buffer.ptr != first.ptr) {
-            r.end = n;
+        if (!wrapper.used) {
+            if (wrapper.writer.buffer.ptr == first.ptr) {
+                remaining -= n;
+            } else {
+                assert(n <= r.buffer.len);
+                r.end = n;
+            }
             break;
         }
         if (n < first.len) {
@@ -355,6 +362,7 @@ pub fn readVecLimit(r: *Reader, data: []const []u8, limit: Limit) Error!usize {
             remaining -= mid.len;
             n -= mid.len;
         }
+        assert(n <= r.buffer.len);
         r.end = n;
         break;
     }
@@ -596,12 +604,11 @@ pub fn readSliceShort(r: *Reader, buffer: []u8) ShortError!usize {
         };
         const n = r.vtable.stream(r, &wrapper.writer, .unlimited) catch |err| switch (err) {
             error.WriteFailed => {
-                if (wrapper.writer.buffer.ptr != remaining.ptr) {
+                if (!wrapper.used) {
                     assert(r.seek == 0);
                     r.seek = remaining.len;
                     r.end = wrapper.writer.end;
                     @memcpy(remaining, r.buffer[0..remaining.len]);
-                    return buffer.len;
                 }
                 return buffer.len;
             },
