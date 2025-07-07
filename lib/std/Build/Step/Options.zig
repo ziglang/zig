@@ -415,7 +415,8 @@ pub fn addOptionPath(
     name: []const u8,
     path: LazyPath,
 ) void {
-    options.args.append(.{
+    const arena = options.step.owner.allocator;
+    options.args.append(arena, .{
         .name = options.step.owner.dupe(name),
         .path = path.dupe(options.step.owner),
     }) catch @panic("OOM");
