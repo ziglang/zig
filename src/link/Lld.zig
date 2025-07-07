@@ -1539,13 +1539,6 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
 
         if (comp.config.link_libc and is_exe_or_dyn_lib) {
             if (target.os.tag == .wasi) {
-                for (comp.wasi_emulated_libs) |crt_file| {
-                    try argv.append(try comp.crtFileAsString(
-                        arena,
-                        wasi_libc.emulatedLibCRFileLibName(crt_file),
-                    ));
-                }
-
                 try argv.append(try comp.crtFileAsString(
                     arena,
                     wasi_libc.execModelCrtFileFullName(comp.config.wasi_exec_model),
