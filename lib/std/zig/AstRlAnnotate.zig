@@ -334,12 +334,8 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
             const full = tree.fullCall(&buf, node).?;
@@ -353,11 +349,6 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
                 .call,
                 .call_comma,
                 => false, // TODO: once function calls are passed result locations this will change
-                .async_call_one,
-                .async_call_one_comma,
-                .async_call,
-                .async_call_comma,
-                => ri.have_ptr, // always use result ptr for frames
                 else => unreachable,
             };
         },
@@ -503,7 +494,6 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             return false;
         },
         .@"try",
-        .@"await",
         .@"nosuspend",
         => return astrl.expr(tree.nodeData(node).node, block, ri),
         .grouped_expression,
@@ -948,7 +938,6 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .tag_name,
         .type_name,
         .Frame,
-        .frame_size,
         .int_from_float,
         .float_from_int,
         .ptr_from_int,
@@ -1078,13 +1067,6 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
             _ = try astrl.expr(args[2], block, ResultInfo.none);
             _ = try astrl.expr(args[3], block, ResultInfo.none);
             return false;
-        },
-        .async_call => {
-            _ = try astrl.expr(args[0], block, ResultInfo.none);
-            _ = try astrl.expr(args[1], block, ResultInfo.none);
-            _ = try astrl.expr(args[2], block, ResultInfo.none);
-            _ = try astrl.expr(args[3], block, ResultInfo.none);
-            return false; // buffer passed as arg for frame data
         },
         .Vector => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);

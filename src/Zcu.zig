@@ -1443,12 +1443,8 @@ pub const SrcLoc = struct {
                     .field_access => tree.nodeData(node).node_and_token[1],
                     .call_one,
                     .call_one_comma,
-                    .async_call_one,
-                    .async_call_one_comma,
                     .call,
                     .call_comma,
-                    .async_call,
-                    .async_call_comma,
                     => blk: {
                         const full = tree.fullCall(&buf, node).?;
                         break :blk tree.lastToken(full.ast.fn_expr);

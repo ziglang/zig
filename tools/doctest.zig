@@ -653,8 +653,6 @@ fn tokenizeAndPrint(arena: Allocator, out: anytype, raw_src: []const u8) !void {
             .keyword_align,
             .keyword_and,
             .keyword_asm,
-            .keyword_async,
-            .keyword_await,
             .keyword_break,
             .keyword_catch,
             .keyword_comptime,

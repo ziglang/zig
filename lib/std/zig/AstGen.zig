@@ -510,12 +510,8 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .number_literal,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .unreachable_literal,
         .@"return",
         .@"if",
@@ -547,7 +543,6 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .merge_error_sets,
         .switch_range,
         .for_range,
-        .@"await",
         .bit_not,
         .negation,
         .negation_wrap,
@@ -836,12 +831,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
             return callExpr(gz, scope, ri, .none, node, tree.fullCall(&buf, node).?);
@@ -1114,7 +1105,6 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .@"nosuspend" => return nosuspendExpr(gz, scope, ri, node),
         .@"suspend" => return suspendExpr(gz, scope, node),
-        .@"await" => return awaitExpr(gz, scope, ri, node),
         .@"resume" => return resumeExpr(gz, scope, ri, node),
 
         .@"try" => return tryExpr(gz, scope, ri, node, tree.nodeData(node).node),
@@ -1257,33 +1247,6 @@ fn suspendExpr(
     try suspend_scope.setBlockBody(suspend_inst);
 
     return suspend_inst.toRef();
-}
-
-fn awaitExpr(
-    gz: *GenZir,
-    scope: *Scope,
-    ri: ResultInfo,
-    node: Ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
-    const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const rhs_node = tree.nodeData(node).node;
-
-    if (gz.suspend_node.unwrap()) |suspend_node| {
-        return astgen.failNodeNotes(node, "cannot await inside suspend block", .{}, &[_]u32{
-            try astgen.errNoteNode(suspend_node, "suspend block here", .{}),
-        });
-    }
-    const operand = try expr(gz, scope, .{ .rl = .ref }, rhs_node);
-    const result = if (gz.nosuspend_node != .none)
-        try gz.addExtendedPayload(.await_nosuspend, Zir.Inst.UnNode{
-            .node = gz.nodeIndexToRelative(node),
-            .operand = operand,
-        })
-    else
-        try gz.addUnNode(.@"await", operand, node);
-
-    return rvalue(gz, ri, result, node);
 }
 
 fn resumeExpr(
@@ -2853,7 +2816,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .tag_name,
             .type_name,
             .frame_type,
-            .frame_size,
             .int_from_float,
             .float_from_int,
             .ptr_from_int,
@@ -2887,7 +2849,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .min,
             .c_import,
             .@"resume",
-            .@"await",
             .ret_err_value_code,
             .ret_ptr,
             .ret_type,
@@ -9501,7 +9462,6 @@ fn builtinCall(
         .tag_name              => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                                     params[0], .tag_name),
         .type_name             => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                                     params[0], .type_name),
         .Frame                 => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                                     params[0], .frame_type),
-        .frame_size            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                                     params[0], .frame_size),
 
         .int_from_float => return typeCast(gz, scope, ri, node, params[0], .int_from_float, builtin_name),
         .float_from_int => return typeCast(gz, scope, ri, node, params[0], .float_from_int, builtin_name),
@@ -9764,16 +9724,6 @@ fn builtinCall(
                 .pred = try expr(gz, scope, .{ .rl = .none }, params[1]),
                 .a = try expr(gz, scope, .{ .rl = .none }, params[2]),
                 .b = try expr(gz, scope, .{ .rl = .none }, params[3]),
-            });
-            return rvalue(gz, ri, result, node);
-        },
-        .async_call => {
-            const result = try gz.addExtendedPayload(.builtin_async_call, Zir.Inst.AsyncCall{
-                .node = gz.nodeIndexToRelative(node),
-                .frame_buffer = try expr(gz, scope, .{ .rl = .none }, params[0]),
-                .result_ptr = try expr(gz, scope, .{ .rl = .none }, params[1]),
-                .fn_ptr = try expr(gz, scope, .{ .rl = .none }, params[2]),
-                .args = try expr(gz, scope, .{ .rl = .none }, params[3]),
             });
             return rvalue(gz, ri, result, node);
         },
@@ -10175,11 +10125,8 @@ fn callExpr(
 
     const callee = try calleeExpr(gz, scope, ri.rl, override_decl_literal_type, call.ast.fn_expr);
     const modifier: std.builtin.CallModifier = blk: {
-        if (call.async_token != null) {
-            break :blk .async_kw;
-        }
         if (gz.nosuspend_node != .none) {
-            break :blk .no_async;
+            break :blk .no_suspend;
         }
         break :blk .auto;
     };
@@ -10483,12 +10430,8 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .switch_comma,
             .call_one,
             .call_one_comma,
-            .async_call_one,
-            .async_call_one_comma,
             .call,
             .call_comma,
-            .async_call,
-            .async_call_comma,
             => return .maybe,
 
             .@"return",
@@ -10613,7 +10556,6 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
 
             // Forward the question to the LHS sub-expression.
             .@"try",
-            .@"await",
             .@"comptime",
             .@"nosuspend",
             => node = tree.nodeData(node).node,
@@ -10803,12 +10745,8 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .switch_comma,
             .call_one,
             .call_one_comma,
-            .async_call_one,
-            .async_call_one_comma,
             .call,
             .call_comma,
-            .async_call,
-            .async_call_comma,
             .block_two,
             .block_two_semicolon,
             .block,
@@ -10826,7 +10764,6 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
 
             // Forward the question to the LHS sub-expression.
             .@"try",
-            .@"await",
             .@"comptime",
             .@"nosuspend",
             => node = tree.nodeData(node).node,
@@ -11047,12 +10984,8 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .switch_comma,
             .call_one,
             .call_one_comma,
-            .async_call_one,
-            .async_call_one_comma,
             .call,
             .call_comma,
-            .async_call,
-            .async_call_comma,
             .block_two,
             .block_two_semicolon,
             .block,
@@ -11079,7 +11012,6 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
 
             // Forward the question to the LHS sub-expression.
             .@"try",
-            .@"await",
             .@"comptime",
             .@"nosuspend",
             => node = tree.nodeData(node).node,

@@ -50,8 +50,6 @@ zig_keywords = {
     'anyframe',
     'anytype',
     'asm',
-    'async',
-    'await',
     'break',
     'callconv',
     'catch',

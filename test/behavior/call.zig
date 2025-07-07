@@ -37,7 +37,7 @@ test "basic invocations" {
     comptime {
         // comptime calls with supported modifiers
         try expect(@call(.auto, foo, .{2}) == 1234);
-        try expect(@call(.no_async, foo, .{3}) == 1234);
+        try expect(@call(.no_suspend, foo, .{3}) == 1234);
         try expect(@call(.always_tail, foo, .{4}) == 1234);
         try expect(@call(.always_inline, foo, .{5}) == 1234);
     }
@@ -45,7 +45,7 @@ test "basic invocations" {
     const result = @call(.compile_time, foo, .{6}) == 1234;
     comptime assert(result);
     // runtime calls of comptime-known function
-    try expect(@call(.no_async, foo, .{7}) == 1234);
+    try expect(@call(.no_suspend, foo, .{7}) == 1234);
     try expect(@call(.never_tail, foo, .{8}) == 1234);
     try expect(@call(.never_inline, foo, .{9}) == 1234);
     // CBE does not support attributes on runtime functions
@@ -53,7 +53,7 @@ test "basic invocations" {
         // runtime calls of non comptime-known function
         var alias_foo = &foo;
         _ = &alias_foo;
-        try expect(@call(.no_async, alias_foo, .{10}) == 1234);
+        try expect(@call(.no_suspend, alias_foo, .{10}) == 1234);
         try expect(@call(.never_tail, alias_foo, .{11}) == 1234);
         try expect(@call(.never_inline, alias_foo, .{12}) == 1234);
     }

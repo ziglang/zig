@@ -238,12 +238,8 @@ pub const File = struct {
 
                 .call_one,
                 .call_one_comma,
-                .async_call_one,
-                .async_call_one_comma,
                 .call,
                 .call_comma,
-                .async_call,
-                .async_call_comma,
                 => {
                     var buf: [1]Ast.Node.Index = undefined;
                     return categorize_call(file_index, node, ast.fullCall(&buf, node).?);
@@ -743,7 +739,6 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
         .@"comptime",
         .@"nosuspend",
         .@"suspend",
-        .@"await",
         .@"resume",
         .@"try",
         => try expr(w, scope, parent_decl, ast.nodeData(node).node),
@@ -806,12 +801,8 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
             const full = ast.fullCall(&buf, node).?;

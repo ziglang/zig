@@ -5273,7 +5273,7 @@ pub const FuncGen = struct {
         switch (modifier) {
             .auto, .always_tail => {},
             .never_tail, .never_inline => try attributes.addFnAttr(.@"noinline", &o.builder),
-            .async_kw, .no_async, .always_inline, .compile_time => unreachable,
+            .no_suspend, .always_inline, .compile_time => unreachable,
         }
 
         const ret_ptr = if (!sret) null else blk: {
@@ -5488,7 +5488,7 @@ pub const FuncGen = struct {
                 .auto, .never_inline => .normal,
                 .never_tail => .notail,
                 .always_tail => .musttail,
-                .async_kw, .no_async, .always_inline, .compile_time => unreachable,
+                .no_suspend, .always_inline, .compile_time => unreachable,
             },
             toLlvmCallConvTag(fn_info.cc, target).?,
             try attributes.finish(&o.builder),

@@ -4279,16 +4279,9 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       {#header_close#}
 
       {#header_open|Async Functions#}
-      <p>Async functions regressed with the release of 0.11.0. Their future in
-      the Zig language is unclear due to multiple unsolved problems:</p>
-      <ul>
-        <li>LLVM's lack of ability to optimize them.</li>
-        <li>Third-party debuggers' lack of ability to debug them.</li>
-        <li><a href="https://github.com/ziglang/zig/issues/5913">The cancellation problem</a>.</li>
-        <li>Async function pointers preventing the stack size from being known.</li>
-      </ul>
-      <p>These problems are surmountable, but it will take time. The Zig team
-      is currently focused on other priorities.</p>
+      <p>Async functions regressed with the release of 0.11.0. The current plan is to
+      reintroduce them as a lower level primitive that powers I/O implementations.</p>
+      <p>Tracking issue: <a href="https://github.com/ziglang/zig/issues/23446">Proposal: stackless coroutines as low-level primitives</a></p>
       {#header_close#}
 
       {#header_open|Builtin Functions|2col#}
@@ -7374,29 +7367,6 @@ fn readU32Be() u32 {}
         </tr>
         <tr>
           <th scope="row">
-            <pre>{#syntax#}async{#endsyntax#}</pre>
-          </th>
-          <td>
-            {#syntax#}async{#endsyntax#} can be used before a function call to get a pointer to the function's frame when it suspends.
-            <ul>
-              <li>See also {#link|Async Functions#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
-            <pre>{#syntax#}await{#endsyntax#}</pre>
-          </th>
-          <td>
-            {#syntax#}await{#endsyntax#} can be used to suspend the current function until the frame provided after the {#syntax#}await{#endsyntax#} completes.
-            {#syntax#}await{#endsyntax#} copies the value returned from the target function's frame to the caller.
-            <ul>
-              <li>See also {#link|Async Functions#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
             <pre>{#syntax#}break{#endsyntax#}</pre>
           </th>
           <td>
@@ -8006,8 +7976,7 @@ TypeExpr <- PrefixTypeOp* ErrorUnionExpr
 ErrorUnionExpr <- SuffixExpr (EXCLAMATIONMARK TypeExpr)?
 
 SuffixExpr
-    <- KEYWORD_async PrimaryTypeExpr SuffixOp* FnCallArguments
-     / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
+    <- PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 
 PrimaryTypeExpr
     <- BUILTINIDENTIFIER FnCallArguments
@@ -8183,7 +8152,6 @@ PrefixOp
      / MINUSPERCENT
      / AMPERSAND
      / KEYWORD_try
-     / KEYWORD_await
 
 PrefixTypeOp
     <- QUESTIONMARK
@@ -8404,8 +8372,6 @@ KEYWORD_and         <- 'and'         end_of_word
 KEYWORD_anyframe    <- 'anyframe'    end_of_word
 KEYWORD_anytype     <- 'anytype'     end_of_word
 KEYWORD_asm         <- 'asm'         end_of_word
-KEYWORD_async       <- 'async'       end_of_word
-KEYWORD_await       <- 'await'       end_of_word
 KEYWORD_break       <- 'break'       end_of_word
 KEYWORD_callconv    <- 'callconv'    end_of_word
 KEYWORD_catch       <- 'catch'       end_of_word
@@ -8448,8 +8414,8 @@ KEYWORD_volatile    <- 'volatile'    end_of_word
 KEYWORD_while       <- 'while'       end_of_word
 
 keyword <- KEYWORD_addrspace / KEYWORD_align / KEYWORD_allowzero / KEYWORD_and
-         / KEYWORD_anyframe / KEYWORD_anytype / KEYWORD_asm / KEYWORD_async
-         / KEYWORD_await / KEYWORD_break / KEYWORD_callconv / KEYWORD_catch
+         / KEYWORD_anyframe / KEYWORD_anytype / KEYWORD_asm
+         / KEYWORD_break / KEYWORD_callconv / KEYWORD_catch
          / KEYWORD_comptime / KEYWORD_const / KEYWORD_continue / KEYWORD_defer
          / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer / KEYWORD_error / KEYWORD_export
          / KEYWORD_extern / KEYWORD_fn / KEYWORD_for / KEYWORD_if

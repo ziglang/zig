@@ -710,8 +710,6 @@ fn tokenizeAndPrintRaw(
             .keyword_align,
             .keyword_and,
             .keyword_asm,
-            .keyword_async,
-            .keyword_await,
             .keyword_break,
             .keyword_catch,
             .keyword_comptime,

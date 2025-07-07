@@ -1280,7 +1280,6 @@ fn analyzeBodyInner(
             .tag_name                     => try sema.zirTagName(block, inst),
             .type_name                    => try sema.zirTypeName(block, inst),
             .frame_type                   => try sema.zirFrameType(block, inst),
-            .frame_size                   => try sema.zirFrameSize(block, inst),
             .int_from_float               => try sema.zirIntFromFloat(block, inst),
             .float_from_int               => try sema.zirFloatFromInt(block, inst),
             .ptr_from_int                 => try sema.zirPtrFromInt(block, inst),
@@ -1302,7 +1301,6 @@ fn analyzeBodyInner(
             .mul_add                      => try sema.zirMulAdd(block, inst),
             .builtin_call                 => try sema.zirBuiltinCall(block, inst),
             .@"resume"                    => try sema.zirResume(block, inst),
-            .@"await"                     => try sema.zirAwait(block, inst),
             .for_len                      => try sema.zirForLen(block, inst),
             .validate_array_init_ref_ty   => try sema.zirValidateArrayInitRefTy(block, inst),
             .opt_eu_base_ptr_init         => try sema.zirOptEuBasePtrInit(block, inst),
@@ -1410,12 +1408,10 @@ fn analyzeBodyInner(
                     .wasm_memory_grow   => try sema.zirWasmMemoryGrow(    block, extended),
                     .prefetch           => try sema.zirPrefetch(          block, extended),
                     .error_cast         => try sema.zirErrorCast(         block, extended),
-                    .await_nosuspend    => try sema.zirAwaitNosuspend(    block, extended),
                     .select             => try sema.zirSelect(            block, extended),
                     .int_from_error     => try sema.zirIntFromError(      block, extended),
                     .error_from_int     => try sema.zirErrorFromInt(      block, extended),
                     .reify              => try sema.zirReify(             block, extended, inst),
-                    .builtin_async_call => try sema.zirBuiltinAsyncCall(  block, extended),
                     .cmpxchg            => try sema.zirCmpxchg(           block, extended),
                     .c_va_arg           => try sema.zirCVaArg(            block, extended),
                     .c_va_copy          => try sema.zirCVaCopy(           block, extended),
@@ -7653,10 +7649,6 @@ fn analyzeCall(
     const ip = &zcu.intern_pool;
     const arena = sema.arena;
 
-    if (modifier == .async_kw) {
-        return sema.failWithUseOfAsync(block, call_src);
-    }
-
     const maybe_func_inst = try sema.funcDeclSrcInst(callee);
     const func_ret_ty_src: LazySrcLoc = if (maybe_func_inst) |fn_decl_inst| .{
         .base_node_inst = fn_decl_inst,
@@ -8048,14 +8040,13 @@ fn analyzeCall(
         }
 
         const call_tag: Air.Inst.Tag = switch (modifier) {
-            .auto, .no_async => .call,
+            .auto, .no_suspend => .call,
             .never_tail => .call_never_tail,
             .never_inline => .call_never_inline,
             .always_tail => .call_always_tail,
 
             .always_inline,
             .compile_time,
-            .async_kw,
             => unreachable,
         };
 
@@ -22133,12 +22124,6 @@ fn zirFrameType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     return sema.failWithUseOfAsync(block, src);
 }
 
-fn zirFrameSize(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
-    const src = block.nodeOffset(inst_data.src_node);
-    return sema.failWithUseOfAsync(block, src);
-}
-
 fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -24776,14 +24761,14 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     var modifier = try sema.interpretBuiltinType(block, modifier_src, modifier_val, std.builtin.CallModifier);
     switch (modifier) {
         // These can be upgraded to comptime or nosuspend calls.
-        .auto, .never_tail, .no_async => {
+        .auto, .never_tail, .no_suspend => {
             if (block.isComptime()) {
                 if (modifier == .never_tail) {
                     return sema.fail(block, modifier_src, "unable to perform 'never_tail' call at compile-time", .{});
                 }
                 modifier = .compile_time;
             } else if (extra.flags.is_nosuspend) {
-                modifier = .no_async;
+                modifier = .no_suspend;
             }
         },
         // These can be upgraded to comptime. nosuspend bit can be safely ignored.
@@ -24799,14 +24784,6 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .always_tail => {
             if (block.isComptime()) {
                 modifier = .compile_time;
-            }
-        },
-        .async_kw => {
-            if (extra.flags.is_nosuspend) {
-                return sema.fail(block, modifier_src, "modifier 'async_kw' cannot be used inside nosuspend block", .{});
-            }
-            if (block.isComptime()) {
-                return sema.fail(block, modifier_src, "modifier 'async_kw' cannot be used in combination with comptime function call", .{});
             }
         },
         .never_inline => {
@@ -25797,37 +25774,9 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     });
 }
 
-fn zirBuiltinAsyncCall(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
-    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const src = block.nodeOffset(extra.node);
-    return sema.failWithUseOfAsync(block, src);
-}
-
 fn zirResume(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
-    return sema.failWithUseOfAsync(block, src);
-}
-
-fn zirAwait(
-    sema: *Sema,
-    block: *Block,
-    inst: Zir.Inst.Index,
-) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
-    const src = block.nodeOffset(inst_data.src_node);
-
-    return sema.failWithUseOfAsync(block, src);
-}
-
-fn zirAwaitNosuspend(
-    sema: *Sema,
-    block: *Block,
-    extended: Zir.Inst.Extended.InstData,
-) CompileError!Air.Inst.Ref {
-    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const src = block.nodeOffset(extra.node);
-
     return sema.failWithUseOfAsync(block, src);
 }
 

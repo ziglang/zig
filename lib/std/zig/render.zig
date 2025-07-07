@@ -591,7 +591,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .@"try",
         .@"resume",
-        .@"await",
         => {
             try renderToken(r, tree.nodeMainToken(node), .space);
             return renderExpression(r, tree.nodeData(node).node, space);
@@ -635,12 +634,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
             return renderCall(r, tree.fullCall(&buf, node).?, space);
@@ -2551,9 +2546,6 @@ fn renderCall(
     call: Ast.full.Call,
     space: Space,
 ) Error!void {
-    if (call.async_token) |async_token| {
-        try renderToken(r, async_token, .space);
-    }
     try renderExpression(r, call.ast.fn_expr, .none);
     try renderParamList(r, call.ast.lparen, call.ast.params, space);
 }

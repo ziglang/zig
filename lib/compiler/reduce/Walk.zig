@@ -335,7 +335,6 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .address_of,
         .@"try",
         .@"resume",
-        .@"await",
         .deref,
         => {
             return walkExpression(w, ast.nodeData(node).node);
@@ -379,12 +378,8 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
             return walkCall(w, ast.fullCall(&buf, node).?);
