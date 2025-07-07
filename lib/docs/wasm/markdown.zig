@@ -145,7 +145,7 @@ fn mainImpl() !void {
     var parser = try Parser.init(gpa);
     defer parser.deinit();
 
-    var stdin_buf = std.io.bufferedReader(std.fs.File.stdin().reader());
+    var stdin_buf = std.io.bufferedReader(std.fs.File.stdin().deprecatedReader());
     var line_buf = std.ArrayList(u8).init(gpa);
     defer line_buf.deinit();
     while (stdin_buf.reader().streamUntilDelimiter(line_buf.writer(), '\n', null)) {

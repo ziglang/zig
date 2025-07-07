@@ -1781,7 +1781,8 @@ test "Macro matching" {
 fn renderErrorsAndExit(comp: *aro.Compilation) noreturn {
     defer std.process.exit(1);
 
-    var writer = aro.Diagnostics.defaultMsgWriter(std.io.tty.detectConfig(std.fs.File.stderr()));
+    var buffer: [1000]u8 = undefined;
+    var writer = aro.Diagnostics.defaultMsgWriter(std.io.tty.detectConfig(std.fs.File.stderr()), &buffer);
     defer writer.deinit(); // writer deinit must run *before* exit so that stderr is flushed
 
     var saw_error = false;
