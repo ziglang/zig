@@ -1684,13 +1684,13 @@ pub const SrcLoc = struct {
                 const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
                 for (case_nodes) |case_node| {
                     const case = tree.fullSwitchCase(case_node).?;
-                    const is_special = (case.ast.values.len == 0) or
-                        (case.ast.values.len == 1 and
-                            tree.nodeTag(case.ast.values[0]) == .identifier and
-                            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(case.ast.values[0])), "_"));
-                    if (!is_special) continue;
-
-                    return tree.nodeToSpan(case_node);
+                    if (case.isSpecial(tree)) |special_node| {
+                        return tree.tokensToSpan(
+                            tree.firstToken(case_node),
+                            tree.lastToken(case_node),
+                            tree.nodeMainToken(special_node.unwrap() orelse case_node),
+                        );
+                    }
                 } else unreachable;
             },
 
@@ -1701,11 +1701,9 @@ pub const SrcLoc = struct {
                 const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
                 for (case_nodes) |case_node| {
                     const case = tree.fullSwitchCase(case_node).?;
-                    const is_special = (case.ast.values.len == 0) or
-                        (case.ast.values.len == 1 and
-                            tree.nodeTag(case.ast.values[0]) == .identifier and
-                            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(case.ast.values[0])), "_"));
-                    if (is_special) continue;
+                    if (case.isSpecial(tree)) |maybe_else| {
+                        if (maybe_else == .none) continue;
+                    }
 
                     for (case.ast.values) |item_node| {
                         if (tree.nodeTag(item_node) == .switch_range) {
@@ -2111,17 +2109,21 @@ pub const SrcLoc = struct {
 
                 var multi_i: u32 = 0;
                 var scalar_i: u32 = 0;
+                var found_special = false;
+                var underscore_node: Ast.Node.OptionalIndex = .none;
                 const case = for (case_nodes) |case_node| {
                     const case = tree.fullSwitchCase(case_node).?;
                     const is_special = special: {
-                        if (case.ast.values.len == 0) break :special true;
-                        if (case.ast.values.len == 1 and tree.nodeTag(case.ast.values[0]) == .identifier) {
-                            break :special mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(case.ast.values[0])), "_");
+                        if (found_special) break :special false;
+                        if (case.isSpecial(tree)) |special_node| {
+                            underscore_node = special_node;
+                            found_special = true;
+                            break :special true;
                         }
                         break :special false;
                     };
                     if (is_special) {
-                        if (want_case_idx.isSpecial()) {
+                        if (want_case_idx == LazySrcLoc.Offset.SwitchCaseIndex.special) {
                             break case;
                         }
                         continue;
@@ -2171,7 +2173,11 @@ pub const SrcLoc = struct {
                     .single => {
                         var item_i: u32 = 0;
                         for (case.ast.values) |item_node| {
-                            if (tree.nodeTag(item_node) == .switch_range) continue;
+                            if (item_node.toOptional() == underscore_node or
+                                tree.nodeTag(item_node) == .switch_range)
+                            {
+                                continue;
+                            }
                             if (item_i != want_item.index) {
                                 item_i += 1;
                                 continue;
@@ -2182,7 +2188,9 @@ pub const SrcLoc = struct {
                     .range => {
                         var range_i: u32 = 0;
                         for (case.ast.values) |item_node| {
-                            if (tree.nodeTag(item_node) != .switch_range) continue;
+                            if (tree.nodeTag(item_node) != .switch_range) {
+                                continue;
+                            }
                             if (range_i != want_item.index) {
                                 range_i += 1;
                                 continue;
@@ -2561,9 +2569,6 @@ pub const LazySrcLoc = struct {
             index: u31,
 
             pub const special: SwitchCaseIndex = @bitCast(@as(u32, std.math.maxInt(u32)));
-            pub fn isSpecial(idx: SwitchCaseIndex) bool {
-                return @as(u32, @bitCast(idx)) == @as(u32, @bitCast(special));
-            }
         };
 
         pub const SwitchItemIndex = packed struct(u32) {

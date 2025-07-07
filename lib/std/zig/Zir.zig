@@ -3226,8 +3226,15 @@ pub const Inst = struct {
 
     /// 0. multi_cases_len: u32 // If has_multi_cases is set.
     /// 1. tag_capture_inst: u32 // If any_has_tag_capture is set. Index of instruction prongs use to refer to the inline tag capture.
-    /// 2. else_body { // If has_else or has_under is set.
+    /// 2. else_body { // If special_prong != .none
+    ///        items_len: u32, // If special_prong == .absorbing_under
+    ///        ranges_len: u32, // If special_prong == .absorbing_under
     ///        info: ProngInfo,
+    ///        item: Ref, // for every items_len
+    ///        ranges: { // for every ranges_len
+    ///            item_first: Ref,
+    ///            item_last: Ref,
+    ///        }
     ///        body member Index for every info.body_len
     ///     }
     /// 3. scalar_cases: { // for every scalar_cases_len
@@ -3239,7 +3246,7 @@ pub const Inst = struct {
     ///        items_len: u32,
     ///        ranges_len: u32,
     ///        info: ProngInfo,
-    ///        item: Ref // for every items_len
+    ///        item: Ref, // for every items_len
     ///        ranges: { // for every ranges_len
     ///            item_first: Ref,
     ///            item_last: Ref,
@@ -3275,10 +3282,8 @@ pub const Inst = struct {
         pub const Bits = packed struct(u32) {
             /// If true, one or more prongs have multiple items.
             has_multi_cases: bool,
-            /// If true, there is an else prong. This is mutually exclusive with `has_under`.
-            has_else: bool,
-            /// If true, there is an underscore prong. This is mutually exclusive with `has_else`.
-            has_under: bool,
+            /// Information about the special prong.
+            special_prong: SpecialProng,
             /// If true, at least one prong has an inline tag capture.
             any_has_tag_capture: bool,
             /// If true, at least one prong has a capture which may not
@@ -3288,17 +3293,6 @@ pub const Inst = struct {
             scalar_cases_len: ScalarCasesLen,
 
             pub const ScalarCasesLen = u26;
-
-            pub fn specialProng(bits: Bits) SpecialProng {
-                const has_else: u2 = @intFromBool(bits.has_else);
-                const has_under: u2 = @intFromBool(bits.has_under);
-                return switch ((has_else << 1) | has_under) {
-                    0b00 => .none,
-                    0b01 => .under,
-                    0b10 => .@"else",
-                    0b11 => unreachable,
-                };
-            }
         };
 
         pub const MultiProng = struct {
@@ -3874,7 +3868,18 @@ pub const Inst = struct {
     };
 };
 
-pub const SpecialProng = enum { none, @"else", under };
+pub const SpecialProng = enum(u2) {
+    none,
+    /// Simple else prong.
+    /// `else => {}`
+    @"else",
+    /// Simple '_' prong.
+    /// `_ => {}`
+    under,
+    /// '_' prong with additional items.
+    /// `a, _, b => {}`
+    absorbing_under,
+};
 
 pub const DeclIterator = struct {
     extra_index: u32,
@@ -4718,7 +4723,7 @@ fn findTrackableSwitch(
     }
 
     const has_special = switch (kind) {
-        .normal => extra.data.bits.specialProng() != .none,
+        .normal => extra.data.bits.special_prong != .none,
         .err_union => has_special: {
             // Handle `non_err_body` first.
             const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
@@ -4733,6 +4738,23 @@ fn findTrackableSwitch(
     };
 
     if (has_special) {
+        if (kind == .normal) {
+            if (extra.data.bits.special_prong == .absorbing_under) {
+                const items_len = zir.extra[extra_index];
+                extra_index += 1;
+                const ranges_len = zir.extra[extra_index];
+                extra_index += 1;
+                const prong_info: Zir.Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
+                extra_index += 1;
+
+                extra_index += items_len + ranges_len * 2;
+
+                const body = zir.bodySlice(extra_index, prong_info.body_len);
+                extra_index += body.len;
+
+                try zir.findTrackableBody(gpa, contents, defers, body);
+            }
+        }
         const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
         extra_index += 1;
         const body = zir.bodySlice(extra_index, prong_info.body_len);

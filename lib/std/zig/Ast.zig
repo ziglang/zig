@@ -2877,6 +2877,24 @@ pub const full = struct {
             arrow_token: TokenIndex,
             target_expr: Node.Index,
         };
+
+        /// Returns:
+        ///   `null` if case is not special
+        ///   `.none` if case is else prong
+        ///   Index of underscore otherwise
+        pub fn isSpecial(case: *const SwitchCase, tree: *const Ast) ?Node.OptionalIndex {
+            if (case.ast.values.len == 0) {
+                return .none;
+            }
+            for (case.ast.values) |val| {
+                if (tree.nodeTag(val) == .identifier and
+                    mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(val)), "_"))
+                {
+                    return val.toOptional();
+                }
+            }
+            return null;
+        }
     };
 
     pub const Asm = struct {
