@@ -505,7 +505,7 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
     const b = s.owner;
     const arena = b.allocator;
 
-    var timer = try std.time.Timer.start();
+    var stopwatch = try std.time.Stopwatch.start();
 
     try sendMessage(zp.child.stdin.?, .update);
     if (!watch) try sendMessage(zp.child.stdin.?, .exit);
@@ -617,7 +617,7 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
         stdout.discard(body.len);
     }
 
-    s.result_duration_ns = timer.read();
+    s.result_duration_ns = stopwatch.read();
 
     const stderr = zp.poller.fifo(.stderr);
     if (stderr.readableLength() > 0) {

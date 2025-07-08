@@ -117,7 +117,7 @@ pub const s_per_week = s_per_day * 7;
 ///
 /// It tries to sample the system's fastest and most precise timer available.
 /// It also tries to be monotonic, but this is not a guarantee due to OS/hardware bugs.
-/// If you need monotonic readings for elapsed time, consider `Timer` instead.
+/// If you need monotonic readings for elapsed time, consider `Stopwatch` instead.
 pub const Instant = struct {
     timestamp: if (is_posix) posix.timespec else u64,
 
@@ -220,52 +220,52 @@ pub const Instant = struct {
     }
 };
 
-/// A monotonic, high performance timer.
+/// A monotonic, high performance stopwatch.
 ///
-/// Timer.start() is used to initialize the timer
+/// Stopwatch.start() is used to initialize the stopwatch
 /// and gives the caller an opportunity to check for the existence of a supported clock.
 /// Once a supported clock is discovered,
-/// it is assumed that it will be available for the duration of the Timer's use.
+/// it is assumed that it will be available while the Stopwatch is in use.
 ///
 /// Monotonicity is ensured by saturating on the most previous sample.
 /// This means that while timings reported are monotonic,
 /// they're not guaranteed to tick at a steady rate as this is up to the underlying system.
-pub const Timer = struct {
+pub const Stopwatch = struct {
     started: Instant,
     previous: Instant,
 
-    pub const Error = error{TimerUnsupported};
+    pub const Error = error{StopwatchUnsupported};
 
-    /// Initialize the timer by querying for a supported clock.
-    /// Returns `error.TimerUnsupported` when such a clock is unavailable.
+    /// Initialize the stopwatch by querying for a supported clock.
+    /// Returns `error.StopwatchUnsupported` when such a clock is unavailable.
     /// This should only fail in hostile environments such as linux seccomp misuse.
-    pub fn start() Error!Timer {
-        const current = Instant.now() catch return error.TimerUnsupported;
-        return Timer{ .started = current, .previous = current };
+    pub fn start() Error!Stopwatch {
+        const current = Instant.now() catch return .StopwatchUnsupported;
+        return Stopwatch{ .started = current, .previous = current };
     }
 
-    /// Reads the timer value since start or the last reset in nanoseconds.
-    pub fn read(self: *Timer) u64 {
+    /// Reads the stopwatch value since start or the last reset in nanoseconds.
+    pub fn read(self: *Stopwatch) u64 {
         const current = self.sample();
         return current.since(self.started);
     }
 
-    /// Resets the timer value to 0/now.
-    pub fn reset(self: *Timer) void {
+    /// Resets the stopwatch value to 0/now.
+    pub fn reset(self: *Stopwatch) void {
         const current = self.sample();
         self.started = current;
     }
 
-    /// Returns the current value of the timer in nanoseconds, then resets it.
-    pub fn lap(self: *Timer) u64 {
+    /// Returns the current value of the stopwatch in nanoseconds, then resets it.
+    pub fn lap(self: *Stopwatch) u64 {
         const current = self.sample();
         defer self.started = current;
         return current.since(self.started);
     }
 
     /// Returns an Instant sampled at the callsite that is
-    /// guaranteed to be monotonic with respect to the timer's starting point.
-    fn sample(self: *Timer) Instant {
+    /// guaranteed to be monotonic with respect to the starting point of the stopwatch.
+    fn sample(self: *Stopwatch) Instant {
         const current = Instant.now() catch unreachable;
         if (current.order(self.previous) == .gt) {
             self.previous = current;
@@ -274,14 +274,14 @@ pub const Timer = struct {
     }
 };
 
-test Timer {
-    var timer = try Timer.start();
+test Stopwatch {
+    var stopwatch = try Stopwatch.start();
 
     std.Thread.sleep(10 * ns_per_ms);
-    const time_0 = timer.read();
+    const time_0 = stopwatch.read();
     try testing.expect(time_0 > 0);
 
-    const time_1 = timer.lap();
+    const time_1 = stopwatch.lap();
     try testing.expect(time_1 >= time_0);
 }
 

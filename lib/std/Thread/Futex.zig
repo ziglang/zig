@@ -406,10 +406,10 @@ const OpenbsdImpl = struct {
 const DragonflyImpl = struct {
     fn wait(ptr: *const atomic.Value(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
         // Dragonfly uses a scheme where 0 timeout means wait until signaled or spurious wake.
-        // It's reporting of timeout's is also unrealiable so we use an external timing source (Timer) instead.
+        // It's reporting of timeouts is also unreliable so we use an external timing source (Stopwatch) instead.
         var timeout_us: c_int = 0;
         var timeout_overflowed = false;
-        var sleep_timer: std.time.Timer = undefined;
+        var sleep_stopwatch: std.time.Stopwatch = undefined;
 
         if (timeout) |delay| {
             assert(delay != 0); // handled by timedWait().
@@ -420,7 +420,7 @@ const DragonflyImpl = struct {
 
             // Only need to record the start time if we can provide somewhat accurate error.Timeout's
             if (!timeout_overflowed) {
-                sleep_timer = std.time.Timer.start() catch unreachable;
+                sleep_stopwatch = std.time.Stopwatch.start() catch unreachable;
             }
         }
 
@@ -435,7 +435,7 @@ const DragonflyImpl = struct {
                 if (timeout) |timeout_ns| {
                     // Report error.Timeout only if we know the timeout duration has passed.
                     // If not, there's not much choice other than treating it as a spurious wake.
-                    if (!timeout_overflowed and sleep_timer.read() >= timeout_ns) {
+                    if (!timeout_overflowed and sleep_stopwatch.read() >= timeout_ns) {
                         return error.Timeout;
                     }
                 }
@@ -1015,7 +1015,7 @@ test "broadcasting" {
 /// to Futex timedWait() can block for and report more accurate error.Timeouts.
 pub const Deadline = struct {
     timeout: ?u64,
-    started: std.time.Timer,
+    started: std.time.Stopwatch,
 
     /// Create the deadline to expire after the given amount of time in nanoseconds passes.
     /// Pass in `null` to have the deadline call `Futex.wait()` and never expire.
@@ -1023,9 +1023,9 @@ pub const Deadline = struct {
         var deadline: Deadline = undefined;
         deadline.timeout = expires_in_ns;
 
-        // std.time.Timer is required to be supported for somewhat accurate reportings of error.Timeout.
+        // std.time.Stopwatch is required to be supported for somewhat accurate reportings of error.Timeout.
         if (deadline.timeout != null) {
-            deadline.started = std.time.Timer.start() catch unreachable;
+            deadline.started = std.time.Stopwatch.start() catch unreachable;
         }
 
         return deadline;
