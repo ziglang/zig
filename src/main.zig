@@ -1416,7 +1416,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-funwind-tables")) {
                         mod_opts.unwind_tables = .sync;
                     } else if (mem.eql(u8, arg, "-fasync-unwind-tables")) {
-                        mod_opts.unwind_tables = .@"async";
+                        mod_opts.unwind_tables = .async;
                     } else if (mem.eql(u8, arg, "-fno-unwind-tables")) {
                         mod_opts.unwind_tables = .none;
                     } else if (mem.eql(u8, arg, "-fstack-check")) {
@@ -2035,15 +2035,15 @@ fn buildOutputType(
                         .none => {
                             mod_opts.unwind_tables = .sync;
                         },
-                        .sync, .@"async" => {},
+                        .sync, .async => {},
                     } else {
                         mod_opts.unwind_tables = .sync;
                     },
                     .no_unwind_tables => mod_opts.unwind_tables = .none,
-                    .asynchronous_unwind_tables => mod_opts.unwind_tables = .@"async",
+                    .asynchronous_unwind_tables => mod_opts.unwind_tables = .async,
                     .no_asynchronous_unwind_tables => if (mod_opts.unwind_tables) |uwt| switch (uwt) {
                         .none, .sync => {},
-                        .@"async" => {
+                        .async => {
                             mod_opts.unwind_tables = .sync;
                         },
                     } else {
@@ -2951,7 +2951,7 @@ fn buildOutputType(
             create_module.opts.any_fuzz = true;
         if (mod_opts.unwind_tables) |uwt| switch (uwt) {
             .none => {},
-            .sync, .@"async" => create_module.opts.any_unwind_tables = true,
+            .sync, .async => create_module.opts.any_unwind_tables = true,
         };
         if (mod_opts.strip == false)
             create_module.opts.any_non_stripped = true;
@@ -7413,7 +7413,7 @@ fn handleModArg(
         create_module.opts.any_fuzz = true;
     if (mod_opts.unwind_tables) |uwt| switch (uwt) {
         .none => {},
-        .sync, .@"async" => create_module.opts.any_unwind_tables = true,
+        .sync, .async => create_module.opts.any_unwind_tables = true,
     };
     if (mod_opts.strip == false)
         create_module.opts.any_non_stripped = true;

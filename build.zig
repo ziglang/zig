@@ -460,8 +460,8 @@ pub fn build(b: *std.Build) !void {
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-        // 2923515904 was observed on an x86_64-linux-gnu host.
-        .max_rss = 3100000000,
+        // 3888779264 was observed on an x86_64-linux-gnu host.
+        .max_rss = 4000000000,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{

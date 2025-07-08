@@ -1107,27 +1107,6 @@ test "inline call of function with a switch inside the return statement" {
     try expect(S.foo(1) == 1);
 }
 
-test "ambiguous reference error ignores current declaration" {
-    const S = struct {
-        const foo = 666;
-
-        const a = @This();
-        const b = struct {
-            const foo = a.foo;
-            const bar = struct {
-                bar: u32 = b.foo,
-            };
-
-            comptime {
-                _ = b.foo;
-            }
-        };
-
-        usingnamespace b;
-    };
-    try expect(S.b.foo == 666);
-}
-
 test "pointer to zero sized global is mutable" {
     const S = struct {
         const Thing = struct {};

@@ -262,17 +262,6 @@ fn renderMember(
             return renderToken(r, tree.lastToken(decl) + 1, space); // semicolon
         },
 
-        .@"usingnamespace" => {
-            const main_token = tree.nodeMainToken(decl);
-            const expr = tree.nodeData(decl).node;
-            if (tree.isTokenPrecededByTags(main_token, &.{.keyword_pub})) {
-                try renderToken(r, main_token - 1, .space); // pub
-            }
-            try renderToken(r, main_token, .space); // usingnamespace
-            try renderExpression(r, expr, .none);
-            return renderToken(r, tree.lastToken(expr) + 1, space); // ;
-        },
-
         .global_var_decl,
         .local_var_decl,
         .simple_var_decl,
@@ -591,7 +580,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .@"try",
         .@"resume",
-        .@"await",
         => {
             try renderToken(r, tree.nodeMainToken(node), .space);
             return renderExpression(r, tree.nodeData(node).node, space);
@@ -635,12 +623,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
             return renderCall(r, tree.fullCall(&buf, node).?, space);
@@ -882,7 +866,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .local_var_decl => unreachable,
         .simple_var_decl => unreachable,
         .aligned_var_decl => unreachable,
-        .@"usingnamespace" => unreachable,
         .test_decl => unreachable,
         .asm_output => unreachable,
         .asm_input => unreachable,
@@ -2551,9 +2534,6 @@ fn renderCall(
     call: Ast.full.Call,
     space: Space,
 ) Error!void {
-    if (call.async_token) |async_token| {
-        try renderToken(r, async_token, .space);
-    }
     try renderExpression(r, call.ast.fn_expr, .none);
     try renderParamList(r, call.ast.lparen, call.ast.params, space);
 }

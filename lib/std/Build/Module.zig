@@ -572,7 +572,7 @@ pub fn appendZigProcessFlags(
         try zig_args.append(switch (unwind_tables) {
             .none => "-fno-unwind-tables",
             .sync => "-funwind-tables",
-            .@"async" => "-fasync-unwind-tables",
+            .async => "-fasync-unwind-tables",
         });
     }
 

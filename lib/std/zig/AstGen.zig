@@ -442,7 +442,6 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
     const tree = astgen.tree;
     switch (tree.nodeTag(node)) {
         .root => unreachable,
-        .@"usingnamespace" => unreachable,
         .test_decl => unreachable,
         .global_var_decl => unreachable,
         .local_var_decl => unreachable,
@@ -510,12 +509,8 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .number_literal,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .unreachable_literal,
         .@"return",
         .@"if",
@@ -547,7 +542,6 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .merge_error_sets,
         .switch_range,
         .for_range,
-        .@"await",
         .bit_not,
         .negation,
         .negation_wrap,
@@ -642,7 +636,6 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
     switch (tree.nodeTag(node)) {
         .root => unreachable, // Top-level declaration.
-        .@"usingnamespace" => unreachable, // Top-level declaration.
         .test_decl => unreachable, // Top-level declaration.
         .container_field_init => unreachable, // Top-level declaration.
         .container_field_align => unreachable, // Top-level declaration.
@@ -836,12 +829,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
             return callExpr(gz, scope, ri, .none, node, tree.fullCall(&buf, node).?);
@@ -1114,7 +1103,6 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .@"nosuspend" => return nosuspendExpr(gz, scope, ri, node),
         .@"suspend" => return suspendExpr(gz, scope, node),
-        .@"await" => return awaitExpr(gz, scope, ri, node),
         .@"resume" => return resumeExpr(gz, scope, ri, node),
 
         .@"try" => return tryExpr(gz, scope, ri, node, tree.nodeData(node).node),
@@ -1257,33 +1245,6 @@ fn suspendExpr(
     try suspend_scope.setBlockBody(suspend_inst);
 
     return suspend_inst.toRef();
-}
-
-fn awaitExpr(
-    gz: *GenZir,
-    scope: *Scope,
-    ri: ResultInfo,
-    node: Ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
-    const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const rhs_node = tree.nodeData(node).node;
-
-    if (gz.suspend_node.unwrap()) |suspend_node| {
-        return astgen.failNodeNotes(node, "cannot await inside suspend block", .{}, &[_]u32{
-            try astgen.errNoteNode(suspend_node, "suspend block here", .{}),
-        });
-    }
-    const operand = try expr(gz, scope, .{ .rl = .ref }, rhs_node);
-    const result = if (gz.nosuspend_node != .none)
-        try gz.addExtendedPayload(.await_nosuspend, Zir.Inst.UnNode{
-            .node = gz.nodeIndexToRelative(node),
-            .operand = operand,
-        })
-    else
-        try gz.addUnNode(.@"await", operand, node);
-
-    return rvalue(gz, ri, result, node);
 }
 
 fn resumeExpr(
@@ -2853,7 +2814,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .tag_name,
             .type_name,
             .frame_type,
-            .frame_size,
             .int_from_float,
             .float_from_int,
             .ptr_from_int,
@@ -2887,7 +2847,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .min,
             .c_import,
             .@"resume",
-            .@"await",
             .ret_err_value_code,
             .ret_ptr,
             .ret_type,
@@ -4739,69 +4698,6 @@ fn comptimeDecl(
     });
 }
 
-fn usingnamespaceDecl(
-    astgen: *AstGen,
-    gz: *GenZir,
-    scope: *Scope,
-    wip_members: *WipMembers,
-    node: Ast.Node.Index,
-) InnerError!void {
-    const tree = astgen.tree;
-
-    const old_hasher = astgen.src_hasher;
-    defer astgen.src_hasher = old_hasher;
-    astgen.src_hasher = std.zig.SrcHasher.init(.{});
-    astgen.src_hasher.update(tree.getNodeSource(node));
-    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
-
-    const type_expr = tree.nodeData(node).node;
-    const is_pub = tree.isTokenPrecededByTags(tree.nodeMainToken(node), &.{.keyword_pub});
-
-    // Up top so the ZIR instruction index marks the start range of this
-    // top-level declaration.
-    const decl_inst = try gz.makeDeclaration(node);
-    wip_members.nextDecl(decl_inst);
-    astgen.advanceSourceCursorToNode(node);
-
-    // This is just needed for the `setDeclaration` call.
-    var dummy_gz = gz.makeSubBlock(scope);
-    defer dummy_gz.unstack();
-
-    var usingnamespace_gz: GenZir = .{
-        .is_comptime = true,
-        .decl_node_index = node,
-        .decl_line = astgen.source_line,
-        .parent = scope,
-        .astgen = astgen,
-        .instructions = gz.instructions,
-        .instructions_top = gz.instructions.items.len,
-    };
-    defer usingnamespace_gz.unstack();
-
-    const decl_column = astgen.source_column;
-
-    const namespace_inst = try typeExpr(&usingnamespace_gz, &usingnamespace_gz.base, type_expr);
-    _ = try usingnamespace_gz.addBreak(.break_inline, decl_inst, namespace_inst);
-
-    var hash: std.zig.SrcHash = undefined;
-    astgen.src_hasher.final(&hash);
-    try setDeclaration(decl_inst, .{
-        .src_hash = hash,
-        .src_line = usingnamespace_gz.decl_line,
-        .src_column = decl_column,
-        .kind = .@"usingnamespace",
-        .name = .empty,
-        .is_pub = is_pub,
-        .is_threadlocal = false,
-        .linkage = .normal,
-        .type_gz = &dummy_gz,
-        .align_gz = &dummy_gz,
-        .linksection_gz = &dummy_gz,
-        .addrspace_gz = &dummy_gz,
-        .value_gz = &usingnamespace_gz,
-    });
-}
-
 fn testDecl(
     astgen: *AstGen,
     gz: *GenZir,
@@ -5967,23 +5863,6 @@ fn containerMember(
                         .empty,
                         member_node,
                         false,
-                    );
-                },
-            };
-        },
-        .@"usingnamespace" => {
-            const prev_decl_index = wip_members.decl_index;
-            astgen.usingnamespaceDecl(gz, scope, wip_members, member_node) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => {
-                    wip_members.decl_index = prev_decl_index;
-                    try addFailedDeclaration(
-                        wip_members,
-                        gz,
-                        .@"usingnamespace",
-                        .empty,
-                        member_node,
-                        tree.isTokenPrecededByTags(tree.nodeMainToken(member_node), &.{.keyword_pub}),
                     );
                 },
             };
@@ -9501,7 +9380,6 @@ fn builtinCall(
         .tag_name              => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                                     params[0], .tag_name),
         .type_name             => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                                     params[0], .type_name),
         .Frame                 => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                                     params[0], .frame_type),
-        .frame_size            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                                     params[0], .frame_size),
 
         .int_from_float => return typeCast(gz, scope, ri, node, params[0], .int_from_float, builtin_name),
         .float_from_int => return typeCast(gz, scope, ri, node, params[0], .float_from_int, builtin_name),
@@ -9764,16 +9642,6 @@ fn builtinCall(
                 .pred = try expr(gz, scope, .{ .rl = .none }, params[1]),
                 .a = try expr(gz, scope, .{ .rl = .none }, params[2]),
                 .b = try expr(gz, scope, .{ .rl = .none }, params[3]),
-            });
-            return rvalue(gz, ri, result, node);
-        },
-        .async_call => {
-            const result = try gz.addExtendedPayload(.builtin_async_call, Zir.Inst.AsyncCall{
-                .node = gz.nodeIndexToRelative(node),
-                .frame_buffer = try expr(gz, scope, .{ .rl = .none }, params[0]),
-                .result_ptr = try expr(gz, scope, .{ .rl = .none }, params[1]),
-                .fn_ptr = try expr(gz, scope, .{ .rl = .none }, params[2]),
-                .args = try expr(gz, scope, .{ .rl = .none }, params[3]),
             });
             return rvalue(gz, ri, result, node);
         },
@@ -10175,11 +10043,8 @@ fn callExpr(
 
     const callee = try calleeExpr(gz, scope, ri.rl, override_decl_literal_type, call.ast.fn_expr);
     const modifier: std.builtin.CallModifier = blk: {
-        if (call.async_token != null) {
-            break :blk .async_kw;
-        }
         if (gz.nosuspend_node != .none) {
-            break :blk .no_async;
+            break :blk .no_suspend;
         }
         break :blk .auto;
     };
@@ -10451,7 +10316,6 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
     while (true) {
         switch (tree.nodeTag(node)) {
             .root,
-            .@"usingnamespace",
             .test_decl,
             .switch_case,
             .switch_case_inline,
@@ -10483,12 +10347,8 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .switch_comma,
             .call_one,
             .call_one_comma,
-            .async_call_one,
-            .async_call_one_comma,
             .call,
             .call_comma,
-            .async_call,
-            .async_call_comma,
             => return .maybe,
 
             .@"return",
@@ -10613,7 +10473,6 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
 
             // Forward the question to the LHS sub-expression.
             .@"try",
-            .@"await",
             .@"comptime",
             .@"nosuspend",
             => node = tree.nodeData(node).node,
@@ -10664,7 +10523,6 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
     while (true) {
         switch (tree.nodeTag(node)) {
             .root,
-            .@"usingnamespace",
             .test_decl,
             .switch_case,
             .switch_case_inline,
@@ -10803,12 +10661,8 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .switch_comma,
             .call_one,
             .call_one_comma,
-            .async_call_one,
-            .async_call_one_comma,
             .call,
             .call_comma,
-            .async_call,
-            .async_call_comma,
             .block_two,
             .block_two_semicolon,
             .block,
@@ -10826,7 +10680,6 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
 
             // Forward the question to the LHS sub-expression.
             .@"try",
-            .@"await",
             .@"comptime",
             .@"nosuspend",
             => node = tree.nodeData(node).node,
@@ -10908,7 +10761,6 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
     while (true) {
         switch (tree.nodeTag(node)) {
             .root,
-            .@"usingnamespace",
             .test_decl,
             .switch_case,
             .switch_case_inline,
@@ -11047,12 +10899,8 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .switch_comma,
             .call_one,
             .call_one_comma,
-            .async_call_one,
-            .async_call_one_comma,
             .call,
             .call_comma,
-            .async_call,
-            .async_call_comma,
             .block_two,
             .block_two_semicolon,
             .block,
@@ -11079,7 +10927,6 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
 
             // Forward the question to the LHS sub-expression.
             .@"try",
-            .@"await",
             .@"comptime",
             .@"nosuspend",
             => node = tree.nodeData(node).node,
@@ -13586,7 +13433,7 @@ fn scanContainer(
                 break :blk .{ .decl, ident };
             },
 
-            .@"comptime", .@"usingnamespace" => {
+            .@"comptime" => {
                 decl_count += 1;
                 continue;
             },
@@ -13964,7 +13811,6 @@ const DeclarationName = union(enum) {
     decltest: Ast.TokenIndex,
     unnamed_test,
     @"comptime",
-    @"usingnamespace",
 };
 
 fn addFailedDeclaration(
@@ -14054,7 +13900,6 @@ fn setDeclaration(
         .@"test" => .@"test",
         .decltest => .decltest,
         .@"comptime" => .@"comptime",
-        .@"usingnamespace" => if (args.is_pub) .pub_usingnamespace else .@"usingnamespace",
         .@"const" => switch (args.linkage) {
             .normal => if (args.is_pub) id: {
                 if (has_special_body) break :id .pub_const;

@@ -4,7 +4,6 @@ pub const Tag = enum {
     align_cast,
     align_of,
     as,
-    async_call,
     atomic_load,
     atomic_rmw,
     atomic_store,
@@ -55,7 +54,6 @@ pub const Tag = enum {
     frame,
     Frame,
     frame_address,
-    frame_size,
     has_decl,
     has_field,
     import,
@@ -182,13 +180,6 @@ pub const list = list: {
                 .tag = .as,
                 .eval_to_error = .maybe,
                 .param_count = 2,
-            },
-        },
-        .{
-            "@asyncCall",
-            .{
-                .tag = .async_call,
-                .param_count = 4,
             },
         },
         .{
@@ -548,13 +539,6 @@ pub const list = list: {
                 .tag = .frame_address,
                 .param_count = 0,
                 .illegal_outside_function = true,
-            },
-        },
-        .{
-            "@frameSize",
-            .{
-                .tag = .frame_size,
-                .param_count = 1,
             },
         },
         .{

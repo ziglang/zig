@@ -261,14 +261,12 @@ const Writer = struct {
             .tag_name,
             .type_name,
             .frame_type,
-            .frame_size,
             .clz,
             .ctz,
             .pop_count,
             .byte_swap,
             .bit_reverse,
             .@"resume",
-            .@"await",
             .make_ptr_const,
             .validate_deref,
             .validate_const,
@@ -565,7 +563,6 @@ const Writer = struct {
 
             .tuple_decl => try self.writeTupleDecl(stream, extended),
 
-            .await_nosuspend,
             .c_undef,
             .c_include,
             .set_float_mode,
@@ -611,7 +608,6 @@ const Writer = struct {
                 try self.writeSrcNode(stream, inst_data.node);
             },
 
-            .builtin_async_call => try self.writeBuiltinAsyncCall(stream, extended),
             .cmpxchg => try self.writeCmpxchg(stream, extended),
             .ptr_cast_full => try self.writePtrCastFull(stream, extended),
             .ptr_cast_no_dest => try self.writePtrCastNoDest(stream, extended),
@@ -930,19 +926,6 @@ const Writer = struct {
         try self.writeInstRef(stream, extra.field_ptr);
         try stream.writeAll(") ");
         try self.writeSrcNode(stream, extra.src_node);
-    }
-
-    fn writeBuiltinAsyncCall(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const extra = self.code.extraData(Zir.Inst.AsyncCall, extended.operand).data;
-        try self.writeInstRef(stream, extra.frame_buffer);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.result_ptr);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.fn_ptr);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, extra.args);
-        try stream.writeAll(") ");
-        try self.writeSrcNode(stream, extra.node);
     }
 
     fn writeParam(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
@@ -2605,7 +2588,6 @@ const Writer = struct {
         }
         switch (decl.kind) {
             .@"comptime" => try stream.writeAll("comptime"),
-            .@"usingnamespace" => try stream.writeAll("usingnamespace"),
             .unnamed_test => try stream.writeAll("test"),
             .@"test", .decltest, .@"const", .@"var" => {
                 try stream.print("{s} '{s}'", .{ @tagName(decl.kind), self.code.nullTerminatedString(decl.name) });

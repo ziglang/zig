@@ -606,7 +606,6 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .negation_wrap,
         .address_of,
         .@"try",
-        .@"await",
         .optional_type,
         .@"switch",
         .switch_comma,
@@ -756,27 +755,6 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
             return i - end_offset;
         },
 
-        .@"usingnamespace" => {
-            const main_token: TokenIndex = tree.nodeMainToken(n);
-            const has_visib_token = tree.isTokenPrecededByTags(main_token, &.{.keyword_pub});
-            end_offset += @intFromBool(has_visib_token);
-            return main_token - end_offset;
-        },
-
-        .async_call_one,
-        .async_call_one_comma,
-        => {
-            end_offset += 1; // async token
-            n = tree.nodeData(n).node_and_opt_node[0];
-        },
-
-        .async_call,
-        .async_call_comma,
-        => {
-            end_offset += 1; // async token
-            n = tree.nodeData(n).node_and_extra[0];
-        },
-
         .container_field_init,
         .container_field_align,
         .container_field,
@@ -896,14 +874,12 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
     while (true) switch (tree.nodeTag(n)) {
         .root => return @intCast(tree.tokens.len - 1),
 
-        .@"usingnamespace",
         .bool_not,
         .negation,
         .bit_not,
         .negation_wrap,
         .address_of,
         .@"try",
-        .@"await",
         .optional_type,
         .@"suspend",
         .@"resume",
@@ -1022,7 +998,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             };
         },
 
-        .call, .async_call => {
+        .call => {
             _, const extra_index = tree.nodeData(n).node_and_extra;
             const params = tree.extraData(extra_index, Node.SubRange);
             assert(params.start != params.end);
@@ -1041,7 +1017,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             }
         },
         .call_comma,
-        .async_call_comma,
         .tagged_union_enum_tag_trailing,
         => {
             _, const extra_index = tree.nodeData(n).node_and_extra;
@@ -1122,7 +1097,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             n = @enumFromInt(tree.extra_data[@intFromEnum(range.end) - 1]); // last member
         },
         .call_one,
-        .async_call_one,
         => {
             _, const first_param = tree.nodeData(n).node_and_opt_node;
             end_offset += 1; // for the rparen
@@ -1271,7 +1245,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             n = first_element;
         },
         .call_one_comma,
-        .async_call_one_comma,
         .struct_init_one_comma,
         => {
             _, const first_field = tree.nodeData(n).node_and_opt_node;
@@ -1988,21 +1961,21 @@ pub fn forFull(tree: Ast, node: Node.Index) full.For {
 pub fn callOne(tree: Ast, buffer: *[1]Node.Index, node: Node.Index) full.Call {
     const fn_expr, const first_param = tree.nodeData(node).node_and_opt_node;
     const params = loadOptionalNodesIntoBuffer(1, buffer, .{first_param});
-    return tree.fullCallComponents(.{
+    return .{ .ast = .{
         .lparen = tree.nodeMainToken(node),
         .fn_expr = fn_expr,
         .params = params,
-    });
+    } };
 }
 
 pub fn callFull(tree: Ast, node: Node.Index) full.Call {
     const fn_expr, const extra_index = tree.nodeData(node).node_and_extra;
     const params = tree.extraDataSlice(tree.extraData(extra_index, Node.SubRange), Node.Index);
-    return tree.fullCallComponents(.{
+    return .{ .ast = .{
         .lparen = tree.nodeMainToken(node),
         .fn_expr = fn_expr,
         .params = params,
-    });
+    } };
 }
 
 fn fullVarDeclComponents(tree: Ast, info: full.VarDecl.Components) full.VarDecl {
@@ -2336,18 +2309,6 @@ fn fullForComponents(tree: Ast, info: full.For.Components) full.For {
     return result;
 }
 
-fn fullCallComponents(tree: Ast, info: full.Call.Components) full.Call {
-    var result: full.Call = .{
-        .ast = info,
-        .async_token = null,
-    };
-    const first_token = tree.firstToken(info.fn_expr);
-    if (tree.isTokenPrecededByTags(first_token, &.{.keyword_async})) {
-        result.async_token = first_token - 1;
-    }
-    return result;
-}
-
 pub fn fullVarDecl(tree: Ast, node: Node.Index) ?full.VarDecl {
     return switch (tree.nodeTag(node)) {
         .global_var_decl => tree.globalVarDecl(node),
@@ -2488,8 +2449,8 @@ pub fn fullAsm(tree: Ast, node: Node.Index) ?full.Asm {
 
 pub fn fullCall(tree: Ast, buffer: *[1]Ast.Node.Index, node: Node.Index) ?full.Call {
     return switch (tree.nodeTag(node)) {
-        .call, .call_comma, .async_call, .async_call_comma => tree.callFull(node),
-        .call_one, .call_one_comma, .async_call_one, .async_call_one_comma => tree.callOne(buffer, node),
+        .call, .call_comma => tree.callFull(node),
+        .call_one, .call_one_comma => tree.callOne(buffer, node),
         else => null,
     };
 }
@@ -2882,7 +2843,6 @@ pub const full = struct {
 
     pub const Call = struct {
         ast: Components,
-        async_token: ?TokenIndex,
 
         pub const Components = struct {
             lparen: TokenIndex,
@@ -3065,12 +3025,6 @@ pub const Node = struct {
         ///
         /// The `main_token` field is the first token for the source file.
         root,
-        /// `usingnamespace expr;`.
-        ///
-        /// The `data` field is a `.node` to expr.
-        ///
-        /// The `main_token` field is the `usingnamespace` token.
-        @"usingnamespace",
         /// `test {}`,
         /// `test "name" {}`,
         /// `test identifier {}`.
@@ -3301,8 +3255,6 @@ pub const Node = struct {
         address_of,
         /// `try expr`. The `main_token` field is the `try` token.
         @"try",
-        /// `await expr`. The `main_token` field is the `await` token.
-        @"await",
         /// `?expr`. The `main_token` field is the `?` token.
         optional_type,
         /// `[lhs]rhs`. The `main_token` field is the `[` token.
@@ -3498,17 +3450,6 @@ pub const Node = struct {
         /// Same as `call_one` except there is known to be a trailing comma
         /// before the final rparen.
         call_one_comma,
-        /// `async a(b)`, `async a()`.
-        ///
-        /// The `data` field is a `.node_and_opt_node`:
-        ///   1. a `Node.Index` to the function expression.
-        ///   2. a `Node.OptionalIndex` to the first argument, if any.
-        ///
-        /// The `main_token` field is the `(` token.
-        async_call_one,
-        /// Same as `async_call_one` except there is known to be a trailing
-        /// comma before the final rparen.
-        async_call_one_comma,
         /// `a(b, c, d)`.
         ///
         /// The `data` field is a `.node_and_extra`:
@@ -3521,18 +3462,6 @@ pub const Node = struct {
         /// Same as `call` except there is known to be a trailing comma before
         /// the final rparen.
         call_comma,
-        /// `async a(b, c, d)`.
-        ///
-        /// The `data` field is a `.node_and_extra`:
-        ///   1. a `Node.Index` to the function expression.
-        ///   2. a `ExtraIndex` to a `SubRange` that stores a `Node.Index` for
-        ///      each argument.
-        ///
-        /// The `main_token` field is the `(` token.
-        async_call,
-        /// Same as `async_call` except there is known to be a trailing comma
-        /// before the final rparen.
-        async_call_comma,
         /// `switch(a) {}`.
         ///
         /// The `data` field is a `.node_and_extra`:
