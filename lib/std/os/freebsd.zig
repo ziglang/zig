@@ -4,7 +4,7 @@ const off_t = std.c.off_t;
 const unexpectedErrno = std.posix.unexpectedErrno;
 const errno = std.posix.errno;
 
-pub const CopyFileRangeError = error{
+pub const CopyFileRangeError = std.posix.UnexpectedError || error{
     /// If infd is not open for reading or outfd is not open for writing, or
     /// opened for writing with O_APPEND, or if infd and outfd refer to the
     /// same file.
