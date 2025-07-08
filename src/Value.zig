@@ -185,7 +185,7 @@ pub fn toBigIntSema(val: Value, space: *BigIntSpace, pt: Zcu.PerThread) !BigIntC
     return try val.toBigIntAdvanced(space, .sema, pt.zcu, pt.tid);
 }
 
-/// Asserts the value is an integer.
+/// Asserts the value is integer-like.
 pub fn toBigIntAdvanced(
     val: Value,
     space: *BigIntSpace,
@@ -194,11 +194,11 @@ pub fn toBigIntAdvanced(
     tid: strat.Tid(),
 ) Zcu.SemaError!BigIntConst {
     const ip = &zcu.intern_pool;
-    return switch (val.toIntern()) {
+    return sw: switch (val.toIntern()) {
         .bool_false => BigIntMutable.init(&space.limbs, 0).toConst(),
         .bool_true => BigIntMutable.init(&space.limbs, 1).toConst(),
         .null_value => BigIntMutable.init(&space.limbs, 0).toConst(),
-        else => switch (ip.indexToKey(val.toIntern())) {
+        else => |pl| switch (ip.indexToKey(pl)) {
             .int => |int| switch (int.storage) {
                 .u64, .i64, .big_int => int.storage.toBigInt(space),
                 .lazy_align, .lazy_size => |ty| {
@@ -211,12 +211,89 @@ pub fn toBigIntAdvanced(
                     return BigIntMutable.init(&space.limbs, x).toConst();
                 },
             },
-            .enum_tag => |enum_tag| Value.fromInterned(enum_tag.int).toBigIntAdvanced(space, strat, zcu, tid),
+            .enum_tag => |enum_tag| continue :sw enum_tag.int,
             .opt, .ptr => BigIntMutable.init(
                 &space.limbs,
                 (try val.getUnsignedIntInner(strat, zcu, tid)).?,
             ).toConst(),
             .err => |err| BigIntMutable.init(&space.limbs, ip.getErrorValueIfExists(err.name).?).toConst(),
+            .aggregate => |agg| {
+                const struct_ty = Type.fromInterned(agg.ty);
+                if (strat == .sema) {
+                    const pt = strat.pt(zcu, tid);
+                    try struct_ty.resolveLayout(pt);
+                }
+                const ps_ty = zcu.typeToPackedStruct(struct_ty).?;
+                const backing_int_ty = Type.fromInterned(ps_ty.backingIntTypeUnordered(ip));
+                const bit_count: usize = @intCast(try backing_int_ty.bitSizeInner(strat, zcu, tid));
+                const limb_count = std.math.big.int.calcNonZeroTwosCompLimbCount(bit_count);
+                const Limb = std.math.big.Limb;
+                var allocated_limbs: []Limb = &.{};
+                errdefer zcu.gpa.free(allocated_limbs);
+                const limbs: []Limb = if (limb_count <= space.limbs.len)
+                    &space.limbs
+                else limbs: {
+                    // This works under the assumption that OOM is fatal anyways because it
+                    // would break the `catch unreachable` promise of `toBigInt` otherwise.
+                    // Allocating is the only (?) way to make large packed structs work with
+                    // .normal strat without adding inconvenient function args.
+                    //
+                    // TODO find a better way
+                    allocated_limbs = zcu.gpa.alloc(Limb, limb_count) catch |err| {
+                        if (strat == .sema)
+                            return err
+                        else
+                            @panic("out of memory");
+                    };
+                    break :limbs allocated_limbs;
+                };
+
+                if (strat == .sema) {
+                    const pt = strat.pt(zcu, tid);
+                    try struct_ty.resolveFields(pt);
+                }
+                var big = BigIntMutable.init(limbs, 0);
+                const field_tys = ps_ty.field_types.get(ip);
+                for (field_tys, 0..) |field_ty, i| {
+                    const field_val = Value.fromInterned(switch (agg.storage) {
+                        .bytes => unreachable,
+                        .elems => |elems| elems[i],
+                        .repeated_elem => |elem| elem,
+                    });
+                    const field_bits: u16 = @intCast(try Type.fromInterned(field_ty).bitSizeInner(strat, zcu, tid));
+                    var sub_space: BigIntSpace = undefined;
+                    const field_as_int = try field_val.toBigIntAdvanced(&sub_space, strat, zcu, tid);
+                    big.shiftLeft(big.toConst(), field_bits);
+                    big.bitOr(big.toConst(), field_as_int);
+                }
+                const key: InternPool.Key = .{ .int = .{
+                    .ty = backing_int_ty.toIntern(),
+                    .storage = .{ .big_int = big.toConst() },
+                } };
+                if (strat == .sema) {
+                    const pt = strat.pt(zcu, tid);
+                    const interned = try pt.intern(key);
+                    zcu.gpa.free(allocated_limbs);
+                    continue :sw interned;
+                }
+                if (ip.getIfExists(key)) |interned| {
+                    zcu.gpa.free(allocated_limbs);
+                    continue :sw interned;
+                }
+                // This might leak a gpa allocation without expecting the caller to clean it up.
+                // Especially for repeated calls on the same value using .sema strat at least
+                // once to intern the resulting big int is preferrable.
+                return big.toConst();
+            },
+            .un => |un| {
+                const union_ty = Type.fromInterned(un.ty);
+                if (strat == .sema) {
+                    const pt = strat.pt(zcu, tid);
+                    try union_ty.resolveLayout(pt);
+                }
+                assert(union_ty.containerLayout(zcu) == .@"packed");
+                continue :sw un.val;
+            },
             else => unreachable,
         },
     };
@@ -246,7 +323,7 @@ pub fn getUnsignedInt(val: Value, zcu: *const Zcu) ?u64 {
     return getUnsignedIntInner(val, .normal, zcu, {}) catch unreachable;
 }
 
-/// Asserts the value is an integer and it fits in a u64
+/// Asserts the value is integer-like and it fits in a u64
 pub fn toUnsignedInt(val: Value, zcu: *const Zcu) u64 {
     return getUnsignedInt(val, zcu).?;
 }
@@ -263,11 +340,12 @@ pub fn getUnsignedIntInner(
     zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) !?u64 {
-    return switch (val.toIntern()) {
+    const ip = &zcu.intern_pool;
+    return sw: switch (val.toIntern()) {
         .undef => unreachable,
         .bool_false => 0,
         .bool_true => 1,
-        else => switch (zcu.intern_pool.indexToKey(val.toIntern())) {
+        else => |pl| switch (ip.indexToKey(pl)) {
             .undef => unreachable,
             .int => |int| switch (int.storage) {
                 .big_int => |big_int| big_int.toInt(u64) catch null,
@@ -291,15 +369,57 @@ pub fn getUnsignedIntInner(
             },
             .opt => |opt| switch (opt.val) {
                 .none => 0,
-                else => |payload| Value.fromInterned(payload).getUnsignedIntInner(strat, zcu, tid),
+                else => |payload| continue :sw payload,
             },
-            .enum_tag => |enum_tag| return Value.fromInterned(enum_tag.int).getUnsignedIntInner(strat, zcu, tid),
+            .enum_tag => |enum_tag| continue :sw enum_tag.int,
+            .aggregate => |agg| {
+                const struct_ty = Type.fromInterned(agg.ty);
+                if (strat == .sema) {
+                    const pt = strat.pt(zcu, tid);
+                    try struct_ty.resolveLayout(pt);
+                }
+                const ps_ty: InternPool.LoadedStructType = zcu.typeToPackedStruct(struct_ty) orelse return null;
+                const backing_int_ty = Type.fromInterned(ps_ty.backingIntTypeUnordered(ip));
+                const bit_count = try backing_int_ty.bitSizeInner(strat, zcu, tid);
+                if (bit_count > 64) return null;
+                if (strat == .sema) {
+                    const pt = strat.pt(zcu, tid);
+                    try struct_ty.resolveFields(pt);
+                }
+                var result: u64 = 0;
+                var bit_offset: u16 = 0;
+                const field_tys = ps_ty.field_types.get(ip);
+                for (field_tys, 0..) |field_ty, i| {
+                    const field_val = Value.fromInterned(switch (agg.storage) {
+                        .bytes => unreachable,
+                        .elems => |elems| elems[i],
+                        .repeated_elem => |elem| elem,
+                    });
+                    const field_bits: u16 = @intCast(try Type.fromInterned(field_ty).bitSizeInner(strat, zcu, tid));
+                    const field_as_uint = (try field_val.getUnsignedIntInner(strat, zcu, tid)) orelse return null;
+                    std.mem.writeVarPackedInt(@ptrCast(&result), bit_offset, field_bits, field_as_uint, builtin.cpu.arch.endian());
+                    bit_offset += field_bits;
+                }
+                return result;
+            },
+            .un => |un| {
+                const union_ty = Type.fromInterned(un.ty);
+                if (strat == .sema) {
+                    const pt = strat.pt(zcu, tid);
+                    try union_ty.resolveLayout(pt);
+                }
+                if (un.tag == .none or union_ty.containerLayout(zcu) != .@"packed") return null;
+                const backing_int_ty = Type.fromInterned(un.tag);
+                const max_bit_count = try backing_int_ty.bitSizeInner(strat, zcu, tid);
+                if (max_bit_count > 64) return null;
+                continue :sw un.val;
+            },
             else => null,
         },
     };
 }
 
-/// Asserts the value is an integer and it fits in a u64
+/// Asserts the value is integer-like and it fits in a u64
 pub fn toUnsignedIntSema(val: Value, pt: Zcu.PerThread) !u64 {
     return (try getUnsignedIntInner(val, .sema, pt.zcu, pt.tid)).?;
 }
@@ -1011,10 +1131,11 @@ pub fn orderAgainstZeroInner(
     zcu: *Zcu,
     tid: strat.Tid(),
 ) Zcu.SemaError!std.math.Order {
-    return switch (lhs.toIntern()) {
+    const ip = &zcu.intern_pool;
+    return sw: switch (lhs.toIntern()) {
         .bool_false => .eq,
         .bool_true => .gt,
-        else => switch (zcu.intern_pool.indexToKey(lhs.toIntern())) {
+        else => |pl| switch (ip.indexToKey(pl)) {
             .ptr => |ptr| if (ptr.byte_offset > 0) .gt else switch (ptr.base_addr) {
                 .nav, .comptime_alloc, .comptime_field => .gt,
                 .int => .eq,
@@ -1034,11 +1155,16 @@ pub fn orderAgainstZeroInner(
                     else => |e| return e,
                 }) .gt else .eq,
             },
-            .enum_tag => |enum_tag| Value.fromInterned(enum_tag.int).orderAgainstZeroInner(strat, zcu, tid),
+            .enum_tag => |enum_tag| continue :sw enum_tag.int,
             .float => |float| switch (float.storage) {
                 inline else => |x| std.math.order(x, 0),
             },
             .err => .gt, // error values cannot be 0
+            .aggregate, .un => {
+                var space: BigIntSpace = undefined;
+                const big_int = try Value.fromInterned(pl).toBigIntAdvanced(&space, strat, zcu, tid);
+                return big_int.orderAgainstScalar(0);
+            },
             else => unreachable,
         },
     };

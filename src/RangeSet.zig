@@ -5,11 +5,12 @@ const Order = std.math.Order;
 const InternPool = @import("InternPool.zig");
 const Type = @import("Type.zig");
 const Value = @import("Value.zig");
+const Sema = @import("Sema.zig");
 const Zcu = @import("Zcu.zig");
-const RangeSet = @This();
 const LazySrcLoc = Zcu.LazySrcLoc;
 
-zcu: *Zcu,
+const RangeSet = @This();
+
 ranges: std.ArrayList(Range),
 
 pub const Range = struct {
@@ -18,11 +19,8 @@ pub const Range = struct {
     src: LazySrcLoc,
 };
 
-pub fn init(allocator: std.mem.Allocator, zcu: *Zcu) RangeSet {
-    return .{
-        .zcu = zcu,
-        .ranges = std.ArrayList(Range).init(allocator),
-    };
+pub fn init(allocator: std.mem.Allocator) RangeSet {
+    return .{ .ranges = std.ArrayList(Range).init(allocator) };
 }
 
 pub fn deinit(self: *RangeSet) void {
@@ -34,19 +32,12 @@ pub fn add(
     first: InternPool.Index,
     last: InternPool.Index,
     src: LazySrcLoc,
+    sema: *Sema,
 ) !?LazySrcLoc {
-    const zcu = self.zcu;
-    const ip = &zcu.intern_pool;
-
-    const ty = ip.typeOf(first);
-    assert(ty == ip.typeOf(last));
-
+    const pt = sema.pt;
     for (self.ranges.items) |range| {
-        assert(ty == ip.typeOf(range.first));
-        assert(ty == ip.typeOf(range.last));
-
-        if (Value.fromInterned(last).compareScalar(.gte, Value.fromInterned(range.first), Type.fromInterned(ty), zcu) and
-            Value.fromInterned(first).compareScalar(.lte, Value.fromInterned(range.last), Type.fromInterned(ty), zcu))
+        if (try Value.compareHeteroSema(.fromInterned(last), .gte, .fromInterned(range.first), pt) and
+            try Value.compareHeteroSema(.fromInterned(first), .lte, .fromInterned(range.last), pt))
         {
             return range.src; // They overlap.
         }
@@ -61,42 +52,43 @@ pub fn add(
 }
 
 /// Assumes a and b do not overlap
-fn lessThan(zcu: *Zcu, a: Range, b: Range) bool {
-    const ty = Type.fromInterned(zcu.intern_pool.typeOf(a.first));
-    return Value.fromInterned(a.first).compareScalar(.lt, Value.fromInterned(b.first), ty, zcu);
+fn lessThan(pt: Zcu.PerThread, a: Range, b: Range) bool {
+    return Value.compareHeteroSema(.fromInterned(a.first), .lt, .fromInterned(b.first), pt) catch unreachable;
 }
 
-pub fn spans(self: *RangeSet, first: InternPool.Index, last: InternPool.Index) !bool {
-    const zcu = self.zcu;
-    const ip = &zcu.intern_pool;
-    assert(ip.typeOf(first) == ip.typeOf(last));
+pub fn spans(self: *RangeSet, first: InternPool.Index, last: InternPool.Index, sema: *Sema) !bool {
+    const pt = sema.pt;
 
     if (self.ranges.items.len == 0)
         return false;
 
-    std.mem.sort(Range, self.ranges.items, zcu, lessThan);
+    std.mem.sort(Range, self.ranges.items, pt, lessThan);
 
-    if (self.ranges.items[0].first != first or
-        self.ranges.items[self.ranges.items.len - 1].last != last)
+    const ranges_start = self.ranges.items[0].first;
+    const ranges_end = self.ranges.items[self.ranges.items.len - 1].last;
+
+    if (try Value.compareHeteroSema(.fromInterned(ranges_start), .neq, .fromInterned(first), pt) or
+        try Value.compareHeteroSema(.fromInterned(ranges_end), .neq, .fromInterned(last), pt))
     {
         return false;
     }
 
-    var space: InternPool.Key.Int.Storage.BigIntSpace = undefined;
+    // Iterate over ranges
+    var space: Value.BigIntSpace = undefined;
 
     var counter = try std.math.big.int.Managed.init(self.ranges.allocator);
     defer counter.deinit();
 
-    // look for gaps
+    // Look for gaps
     for (self.ranges.items[1..], 0..) |cur, i| {
         // i starts counting from the second item.
         const prev = self.ranges.items[i];
 
         // prev.last + 1 == cur.first
-        try counter.copy(Value.fromInterned(prev.last).toBigInt(&space, zcu));
+        try counter.copy(try Value.fromInterned(prev.last).toBigIntSema(&space, pt));
         try counter.addScalar(&counter, 1);
 
-        const cur_start_int = Value.fromInterned(cur.first).toBigInt(&space, zcu);
+        const cur_start_int = try Value.fromInterned(cur.first).toBigIntSema(&space, pt);
         if (!cur_start_int.eql(counter.toConst())) {
             return false;
         }

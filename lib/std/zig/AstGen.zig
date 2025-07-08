@@ -2308,12 +2308,12 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                     if (gen_zir.label) |*label| {
                         if (try astgen.tokenIdentEql(label.token, break_label)) {
                             const maybe_switch_tag = astgen.instructions.items(.tag)[@intFromEnum(label.block_inst)];
-                            if (opt_rhs != .none) switch (maybe_switch_tag) {
-                                .switch_block, .switch_block_ref => {},
-                                else => return astgen.failNode(node, "cannot continue loop with operand", .{}),
-                            } else switch (maybe_switch_tag) {
-                                .switch_block, .switch_block_ref => return astgen.failNode(node, "cannot continue switch without operand", .{}),
-                                else => {},
+                            if (opt_rhs != .none) {
+                                if (maybe_switch_tag != .switch_block)
+                                    return astgen.failNode(node, "cannot continue loop with operand", .{});
+                            } else {
+                                if (maybe_switch_tag == .switch_block)
+                                    return astgen.failNode(node, "cannot continue switch without operand", .{});
                             }
 
                             label.used = true;
@@ -2327,12 +2327,9 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                 } else if (gen_zir.label) |label| {
                     // This `continue` is unlabeled. If the gz we've found corresponds to a labeled
                     // `switch`, ignore it and continue to parent scopes.
-                    switch (astgen.instructions.items(.tag)[@intFromEnum(label.block_inst)]) {
-                        .switch_block, .switch_block_ref => {
-                            scope = gen_zir.parent;
-                            continue;
-                        },
-                        else => {},
+                    if (astgen.instructions.items(.tag)[@intFromEnum(label.block_inst)] == .switch_block) {
+                        scope = gen_zir.parent;
+                        continue;
                     }
                 }
 
@@ -2819,8 +2816,9 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .slice_length,
             .slice_sentinel_ty,
             .import,
+            .switch_cond,
+            .switch_cond_ref,
             .switch_block,
-            .switch_block_ref,
             .switch_block_err_union,
             .union_init,
             .field_type_ref,
@@ -7903,7 +7901,10 @@ fn switchExpr(
     const operand_lc: LineColumn = .{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
 
     const raw_operand = try expr(parent_gz, scope, operand_ri, operand_node);
-    const item_ri: ResultInfo = .{ .rl = .none };
+    const cond_tag: Zir.Inst.Tag = if (any_payload_is_ref) .switch_cond_ref else .switch_cond;
+    const cond = try parent_gz.addUnNode(cond_tag, raw_operand, operand_node);
+    const cond_ty_ref = try parent_gz.addUnNode(.typeof, cond, operand_node);
+    const item_ri: ResultInfo = .{ .rl = .{ .coerced_ty = cond_ty_ref } };
 
     // If this switch is labeled, it may have `continue`s targeting it, and thus we need the operand type
     // to provide a result type.
@@ -7928,11 +7929,10 @@ fn switchExpr(
     block_scope.instructions_top = GenZir.unstacked_top;
     block_scope.setBreakResultInfo(block_ri);
 
-    // Sema expects a dbg_stmt immediately before switch_block(_ref)
+    // Sema expects a dbg_stmt immediately before switch_block
     try emitDbgStmtForceCurrentIndex(parent_gz, operand_lc);
     // This gets added to the parent block later, after the item expressions.
-    const switch_tag: Zir.Inst.Tag = if (any_payload_is_ref) .switch_block_ref else .switch_block;
-    const switch_block = try parent_gz.makeBlockInst(switch_tag, node);
+    const switch_block = try parent_gz.makeBlockInst(.switch_block, node);
 
     if (switch_full.label_token) |label_token| {
         block_scope.continue_block = switch_block.toOptional();
@@ -8140,7 +8140,7 @@ fn switchExpr(
         (case_table_end - case_table_start) * @typeInfo(Zir.Inst.As).@"struct".fields.len);
 
     const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.SwitchBlock{
-        .operand = raw_operand,
+        .operand = cond,
         .bits = Zir.Inst.SwitchBlock.Bits{
             .has_multi_cases = multi_cases_len != 0,
             .has_else = special_prong == .@"else",

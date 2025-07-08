@@ -36,11 +36,11 @@ export fn f3() void {
 
 // error
 //
-// :8:10: error: no field named 'x' in enum 'tmp.E'
+// :8:10: error: enum 'tmp.E' has no member named 'x'
 // :1:11: note: enum declared here
-// :16:10: error: no field named 'x' in enum 'tmp.E'
+// :16:10: error: enum 'tmp.E' has no member named 'x'
 // :1:11: note: enum declared here
-// :24:10: error: no field named 'x' in enum 'tmp.E'
+// :24:10: error: enum 'tmp.E' has no member named 'x'
 // :1:11: note: enum declared here
-// :32:10: error: no field named 'x' in enum 'tmp.E'
+// :32:10: error: enum 'tmp.E' has no member named 'x'
 // :1:11: note: enum declared here

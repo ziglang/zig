@@ -1247,8 +1247,9 @@ fn analyzeBodyInner(
             .slice_length                 => try sema.zirSliceLength(block, inst),
             .slice_sentinel_ty            => try sema.zirSliceSentinelTy(block, inst),
             .str                          => try sema.zirStr(inst),
-            .switch_block                 => try sema.zirSwitchBlock(block, inst, false),
-            .switch_block_ref             => try sema.zirSwitchBlock(block, inst, true),
+            .switch_cond                  => try sema.zirSwitchCond(block, inst, false),
+            .switch_cond_ref              => try sema.zirSwitchCond(block, inst, true),
+            .switch_block                 => try sema.zirSwitchBlock(block, inst),
             .switch_block_err_union       => try sema.zirSwitchBlockErrUnion(block, inst),
             .type_info                    => try sema.zirTypeInfo(block, inst),
             .size_of                      => try sema.zirSizeOf(block, inst),
@@ -6775,22 +6776,21 @@ fn zirSwitchContinue(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) Com
     const tracy = trace(@src());
     defer tracy.end();
 
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].@"break";
+    const datas = sema.code.instructions.items(.data);
+    const inst_data = datas[@intFromEnum(inst)].@"break";
     const extra = sema.code.extraData(Zir.Inst.Break, inst_data.payload_index).data;
     const operand_src = start_block.nodeOffset(extra.operand_src_node.unwrap().?);
     const uncoerced_operand = try sema.resolveInst(inst_data.operand);
     const switch_inst = extra.block_inst;
 
-    switch (sema.code.instructions.items(.tag)[@intFromEnum(switch_inst)]) {
-        .switch_block, .switch_block_ref => {},
-        else => unreachable, // assertion failure
-    }
+    assert(sema.code.instructions.items(.tag)[@intFromEnum(switch_inst)] == .switch_block);
 
-    const switch_payload_index = sema.code.instructions.items(.data)[@intFromEnum(switch_inst)].pl_node.payload_index;
-    const switch_operand_ref = sema.code.extraData(Zir.Inst.SwitchBlock, switch_payload_index).data.operand;
-    const switch_operand_ty = sema.typeOf(try sema.resolveInst(switch_operand_ref));
+    const switch_payload_index = datas[@intFromEnum(switch_inst)].pl_node.payload_index;
+    const switch_cond_index = sema.code.extraData(Zir.Inst.SwitchBlock, switch_payload_index).data.operand.toIndex().?;
+    const switch_cond = sema.resolveInst(datas[@intFromEnum(switch_cond_index)].un_node.operand) catch unreachable;
+    const switch_cond_ty = sema.typeOf(switch_cond);
 
-    const operand = try sema.coerce(start_block, switch_operand_ty, uncoerced_operand, operand_src);
+    const operand = try sema.coerce(start_block, switch_cond_ty, uncoerced_operand, operand_src);
 
     try sema.validateRuntimeValue(start_block, operand_src, operand);
 
@@ -11366,6 +11366,23 @@ const SwitchProngAnalysis = struct {
     }
 };
 
+fn zirSwitchCond(
+    sema: *Sema,
+    block: *Block,
+    inst: Zir.Inst.Index,
+    is_ref: bool,
+) CompileError!Air.Inst.Ref {
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
+    const src = block.nodeOffset(inst_data.src_node);
+    const operand_src = block.src(.{ .node_offset_switch_operand = inst_data.src_node });
+    const maybe_ptr = try sema.resolveInst(inst_data.operand);
+    const operand = if (is_ref)
+        try sema.analyzeLoad(block, src, maybe_ptr, operand_src)
+    else
+        maybe_ptr;
+    return sema.switchCond(block, src, operand);
+}
+
 fn switchCond(
     sema: *Sema,
     block: *Block,
@@ -11374,6 +11391,7 @@ fn switchCond(
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     const operand_ty = sema.typeOf(operand);
     switch (operand_ty.zigTypeTag(zcu)) {
         .type,
@@ -11414,10 +11432,30 @@ fn switchCond(
             return sema.unionToTag(block, enum_ty, operand, src);
         },
 
+        .@"struct" => {
+            try operand_ty.resolveLayout(pt);
+            const struct_ty = ip.loadStructType(operand_ty.toIntern());
+            if (struct_ty.layout != .@"packed") {
+                const msg = msg: {
+                    const msg = try sema.errMsg(
+                        src,
+                        "switch on struct requires 'packed' layout; type '{}' has '{s}' layout",
+                        .{ operand_ty.fmt(pt), @tagName(struct_ty.layout) },
+                    );
+                    errdefer msg.destroy(sema.gpa);
+                    if (operand_ty.srcLocOrNull(zcu)) |struct_src| {
+                        try sema.errNote(struct_src, msg, "consider 'packed struct' here", .{});
+                    }
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            }
+            return operand;
+        },
+
         .error_union,
         .noreturn,
         .array,
-        .@"struct",
         .undefined,
         .null,
         .optional,
@@ -11751,7 +11789,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     return sema.resolveAnalyzedBlock(block, main_src, &child_block, merges, false);
 }
 
-fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_ref: bool) CompileError!Air.Inst.Ref {
+fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -11764,23 +11802,31 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
     const operand_src = block.src(.{ .node_offset_switch_operand = src_node_offset });
     const special_prong_src = block.src(.{ .node_offset_switch_special_prong = src_node_offset });
     const extra = sema.code.extraData(Zir.Inst.SwitchBlock, inst_data.payload_index);
+    const cond = try sema.resolveInst(extra.data.operand);
+    const cond_index = extra.data.operand.toIndex().?;
 
-    const operand: SwitchProngAnalysis.Operand, const raw_operand_ty: Type = op: {
-        const maybe_ptr = try sema.resolveInst(extra.data.operand);
+    const operand: SwitchProngAnalysis.Operand, const raw_operand_ty: Type, const operand_is_ref = op: {
+        const tags = sema.code.instructions.items(.tag);
+        const datas = sema.code.instructions.items(.data);
+        const maybe_ptr =
+            sema.resolveInst(datas[@intFromEnum(cond_index)].un_node.operand) catch unreachable;
+        const operand_is_ref = switch (tags[@intFromEnum(cond_index)]) {
+            .switch_cond_ref => true,
+            .switch_cond => false,
+            else => unreachable,
+        };
         const val, const ref = if (operand_is_ref)
             .{ try sema.analyzeLoad(block, src, maybe_ptr, operand_src), maybe_ptr }
         else
             .{ maybe_ptr, undefined };
 
-        const init_cond = try sema.switchCond(block, operand_src, val);
-
-        const operand_ty = sema.typeOf(val);
+        const raw_operand_ty = sema.typeOf(val);
 
         if (extra.data.bits.has_continue and !block.isComptime()) {
             // Even if the operand is comptime-known, this `switch` is runtime.
-            if (try operand_ty.comptimeOnlySema(pt)) {
+            if (try raw_operand_ty.comptimeOnlySema(pt)) {
                 return sema.failWithOwnedErrorMsg(block, msg: {
-                    const msg = try sema.errMsg(operand_src, "operand of switch loop has comptime-only type '{}'", .{operand_ty.fmt(pt)});
+                    const msg = try sema.errMsg(operand_src, "operand of switch loop has comptime-only type '{}'", .{raw_operand_ty.fmt(pt)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(operand_src, msg, "switch loops are evaluated at runtime outside of comptime scopes", .{});
                     break :msg msg;
@@ -11797,9 +11843,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 .{ .loop = .{
                     .operand_alloc = operand_alloc,
                     .operand_is_ref = operand_is_ref,
-                    .init_cond = init_cond,
+                    .init_cond = cond,
                 } },
-                operand_ty,
+                raw_operand_ty,
+                operand_is_ref,
             };
         }
 
@@ -11810,9 +11857,10 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             .{ .simple = .{
                 .by_val = val,
                 .by_ref = ref,
-                .cond = init_cond,
+                .cond = cond,
             } },
-            operand_ty,
+            raw_operand_ty,
+            operand_is_ref,
         };
     };
 
@@ -11824,7 +11872,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
     };
 
     // AstGen guarantees that the instruction immediately preceding
-    // switch_block(_ref) is a dbg_stmt
+    // switch_block is a dbg_stmt
     const cond_dbg_node_index: Zir.Inst.Index = @enumFromInt(@intFromEnum(inst) - 1);
 
     var header_extra_index: usize = extra.end;
@@ -11874,7 +11922,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
     // Duplicate checking variables later also used for `inline else`.
     var seen_enum_fields: []?LazySrcLoc = &.{};
     var seen_errors = SwitchErrorSet.init(gpa);
-    var range_set = RangeSet.init(gpa, zcu);
+    var range_set = RangeSet.init(gpa);
     var true_count: u8 = 0;
     var false_count: u8 = 0;
 
@@ -12038,7 +12086,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             .{ .body = special.body, .end = special.end, .src = special_prong_src },
             special_prong == .@"else",
         ),
-        .int, .comptime_int => {
+        .int, .comptime_int, .@"struct" => {
             var extra_index: usize = special.end;
             {
                 var scalar_i: u32 = 0;
@@ -12088,28 +12136,32 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                         ));
                     }
 
-                    try case_vals.ensureUnusedCapacity(gpa, 2 * ranges_len);
-                    var range_i: u32 = 0;
-                    while (range_i < ranges_len) : (range_i += 1) {
-                        const item_first: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
-                        extra_index += 1;
-                        const item_last: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
-                        extra_index += 1;
+                    if (cond_ty.zigTypeTag(zcu) == .@"struct") {
+                        try sema.validateSwitchNoRange(block, ranges_len, cond_ty, src_node_offset);
+                    } else {
+                        try case_vals.ensureUnusedCapacity(gpa, 2 * ranges_len);
+                        var range_i: u32 = 0;
+                        while (range_i < ranges_len) : (range_i += 1) {
+                            const item_first: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
+                            extra_index += 1;
+                            const item_last: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
+                            extra_index += 1;
 
-                        const vals = try sema.validateSwitchRange(
-                            block,
-                            &range_set,
-                            item_first,
-                            item_last,
-                            cond_ty,
-                            block.src(.{ .switch_case_item = .{
-                                .switch_node_offset = src_node_offset,
-                                .case_idx = .{ .kind = .multi, .index = @intCast(multi_i) },
-                                .item_idx = .{ .kind = .range, .index = @intCast(range_i) },
-                            } }),
-                        );
-                        case_vals.appendAssumeCapacity(vals[0]);
-                        case_vals.appendAssumeCapacity(vals[1]);
+                            const vals = try sema.validateSwitchRange(
+                                block,
+                                &range_set,
+                                item_first,
+                                item_last,
+                                cond_ty,
+                                block.src(.{ .switch_case_item = .{
+                                    .switch_node_offset = src_node_offset,
+                                    .case_idx = .{ .kind = .multi, .index = @intCast(multi_i) },
+                                    .item_idx = .{ .kind = .range, .index = @intCast(range_i) },
+                                } }),
+                            );
+                            case_vals.appendAssumeCapacity(vals[0]);
+                            case_vals.appendAssumeCapacity(vals[1]);
+                        }
                     }
 
                     extra_index += info.body_len;
@@ -12117,10 +12169,15 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             }
 
             check_range: {
-                if (cond_ty.zigTypeTag(zcu) == .int) {
-                    const min_int = try cond_ty.minInt(pt, cond_ty);
-                    const max_int = try cond_ty.maxInt(pt, cond_ty);
-                    if (try range_set.spans(min_int.toIntern(), max_int.toIntern())) {
+                if (cond_ty.zigTypeTag(zcu) != .comptime_int) {
+                    // Necessary because `[min|max]Int` expects a pure integer as its `dest_ty`.
+                    const int_ty: Type = if (cond_ty.zigTypeTag(zcu) == .int) cond_ty else ty: {
+                        const ps_ty = zcu.typeToPackedStruct(cond_ty).?;
+                        break :ty .fromInterned(ps_ty.backingIntTypeUnordered(&zcu.intern_pool));
+                    };
+                    const min_int = try cond_ty.minInt(pt, int_ty);
+                    const max_int = try cond_ty.maxInt(pt, int_ty);
+                    if (try range_set.spans(min_int.toIntern(), max_int.toIntern(), sema)) {
                         if (special_prong == .@"else") {
                             return sema.fail(
                                 block,
@@ -12289,7 +12346,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         .error_union,
         .noreturn,
         .array,
-        .@"struct",
         .undefined,
         .null,
         .optional,
@@ -13649,7 +13705,7 @@ fn validateSwitchRange(
     if (try Value.fromInterned(first.val).compareAll(.gt, Value.fromInterned(last.val), operand_ty, sema.pt)) {
         return sema.fail(block, item_src, "range start value is greater than the end value", .{});
     }
-    const maybe_prev_src = try range_set.add(first.val, last.val, item_src);
+    const maybe_prev_src = try range_set.add(first.val, last.val, item_src, sema);
     try sema.validateSwitchDupe(block, maybe_prev_src, item_src);
     return .{ first.ref, last.ref };
 }
@@ -13663,7 +13719,7 @@ fn validateSwitchItemInt(
     item_src: LazySrcLoc,
 ) CompileError!Air.Inst.Ref {
     const item = try sema.resolveSwitchItemVal(block, item_ref, operand_ty, item_src);
-    const maybe_prev_src = try range_set.add(item.val, item.val, item_src);
+    const maybe_prev_src = try range_set.add(item.val, item.val, item_src, sema);
     try sema.validateSwitchDupe(block, maybe_prev_src, item_src);
     return item.ref;
 }
@@ -13681,7 +13737,7 @@ fn validateSwitchItemEnum(
     const item = try sema.resolveSwitchItemVal(block, item_ref, operand_ty, item_src);
     const int = ip.indexToKey(item.val).enum_tag.int;
     const field_index = ip.loadEnumType(ip.typeOf(item.val)).tagValueIndex(ip, int) orelse {
-        const maybe_prev_src = try range_set.add(int, int, item_src);
+        const maybe_prev_src = try range_set.add(int, int, item_src, sema);
         try sema.validateSwitchDupe(block, maybe_prev_src, item_src);
         return item.ref;
     };
