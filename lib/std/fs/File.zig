@@ -1665,32 +1665,60 @@ pub const Writer = struct {
         const handle = w.file.handle;
         const buffered = io_w.buffered();
         if (is_windows) switch (w.mode) {
-            .positional, .positional_reading => @panic("TODO"),
-            .streaming, .streaming_reading => {
-                var i: usize = 0;
-                while (i < buffered.len) {
-                    const n = windows.WriteFile(handle, buffered[i..], null) catch |err| {
+            .positional, .positional_reading => {
+                if (buffered.len != 0) {
+                    const n = windows.WriteFile(handle, buffered, w.pos) catch |err| {
                         w.err = err;
-                        w.pos += i;
-                        _ = io_w.consume(i);
                         return error.WriteFailed;
                     };
-                    i += n;
-                    if (data.len > 0 and buffered.len - i < n) {
-                        w.pos += i;
-                        return io_w.consume(i);
-                    }
+                    w.pos += n;
+                    return io_w.consume(n);
                 }
-                if (i != 0 or data.len == 0 or (data.len == 1 and splat == 0)) {
-                    w.pos += i;
-                    return io_w.consume(i);
+                for (data[0 .. data.len - 1]) |buf| {
+                    if (buf.len == 0) continue;
+                    const n = windows.WriteFile(handle, buf, w.pos) catch |err| {
+                        w.err = err;
+                        return error.WriteFailed;
+                    };
+                    w.pos += n;
+                    return io_w.consume(n);
                 }
-                const n = windows.WriteFile(handle, data[0], null) catch |err| {
+                const pattern = data[data.len - 1];
+                if (pattern.len == 0 or splat == 0) return 0;
+                const n = windows.WriteFile(handle, pattern, w.pos) catch |err| {
                     w.err = err;
-                    return 0;
+                    return error.WriteFailed;
                 };
                 w.pos += n;
-                return n;
+                return io_w.consume(n);
+            },
+            .streaming, .streaming_reading => {
+                if (buffered.len != 0) {
+                    const n = windows.WriteFile(handle, buffered, null) catch |err| {
+                        w.err = err;
+                        return error.WriteFailed;
+                    };
+                    w.pos += n;
+                    return io_w.consume(n);
+                }
+                for (data[0 .. data.len - 1]) |buf| {
+                    if (buf.len == 0) continue;
+                    const n = windows.WriteFile(handle, buf, null) catch |err| {
+                        w.err = err;
+                        return error.WriteFailed;
+                    };
+                    w.pos += n;
+                    return io_w.consume(n);
+                }
+                const pattern = data[data.len - 1];
+                if (pattern.len == 0 or splat == 0) return 0;
+                const n = windows.WriteFile(handle, pattern, null) catch |err| {
+                    std.debug.print("windows write file failed3: {t}\n", .{err});
+                    w.err = err;
+                    return error.WriteFailed;
+                };
+                w.pos += n;
+                return io_w.consume(n);
             },
             .failure => return error.WriteFailed,
         };
