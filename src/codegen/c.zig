@@ -5196,13 +5196,7 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !CVal
     const operand_lval = if (operand == .constant) blk: {
         const operand_local = try f.allocLocal(null, operand_ty);
         try f.writeCValue(w, operand_local, .Other);
-        if (operand_ty.isAbiInt(zcu)) {
-            try w.writeAll(" = ");
-        } else {
-            try w.writeAll(" = (");
-            try f.renderType(w, operand_ty);
-            try w.writeByte(')');
-        }
+        try w.writeAll(" = ");
         try f.writeCValue(w, operand, .Other);
         try w.writeByte(';');
         try f.object.newline();
