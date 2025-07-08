@@ -392,11 +392,14 @@ pub const VectorWrapper = struct {
     it: WritableVectorIterator,
     /// Tracks whether the "writable vector" API was used.
     used: bool = false,
-    pub const vtable: VTable = .{ .drain = fixedDrain };
+    pub const vtable: *const VTable = &unique_vtable_allocation;
+    /// This is intended to be constant but it must be a unique address for
+    /// `@fieldParentPtr` to work.
+    var unique_vtable_allocation: VTable = .{ .drain = fixedDrain };
 };
 
 pub fn writableVectorIterator(w: *Writer) Error!WritableVectorIterator {
-    if (w.vtable == &VectorWrapper.vtable) {
+    if (w.vtable == VectorWrapper.vtable) {
         const wrapper: *VectorWrapper = @fieldParentPtr("writer", w);
         wrapper.used = true;
         return wrapper.it;
