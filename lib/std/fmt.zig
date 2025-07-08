@@ -167,7 +167,8 @@ pub fn format(w: *Writer, comptime fmt: []const u8, args: anytype) Writer.Error!
         comptime assert(fmt[i] == '}');
         i += 1;
 
-        const placeholder = comptime Placeholder.parse(&(fmt[fmt_begin..fmt_end].*));
+        const placeholder_array = fmt[fmt_begin..fmt_end].*;
+        const placeholder = comptime Placeholder.parse(&placeholder_array);
         const arg_pos = comptime switch (placeholder.arg) {
             .none => null,
             .number => |pos| pos,
@@ -231,10 +232,6 @@ pub fn deprecatedFormat(writer: anytype, comptime fmt: []const u8, args: anytype
     };
 }
 
-fn cacheString(str: anytype) []const u8 {
-    return &str;
-}
-
 pub const Placeholder = struct {
     specifier_arg: []const u8,
     fill: u8,
@@ -243,7 +240,7 @@ pub const Placeholder = struct {
     width: Specifier,
     precision: Specifier,
 
-    pub fn parse(bytes: []const u8) Placeholder {
+    pub fn parse(comptime bytes: []const u8) Placeholder {
         var parser: Parser = .{ .bytes = bytes, .i = 0 };
         const arg = parser.specifier() catch |err| @compileError(@errorName(err));
         const specifier_arg = parser.until(':');
@@ -298,8 +295,10 @@ pub const Placeholder = struct {
 
         if (parser.char()) |b| @compileError("extraneous trailing character '" ++ &[1]u8{b} ++ "'");
 
+        const specifier_array = specifier_arg[0..specifier_arg.len].*;
+
         return .{
-            .specifier_arg = cacheString(specifier_arg[0..specifier_arg.len].*),
+            .specifier_arg = &specifier_array,
             .fill = fill orelse default_fill_char,
             .alignment = alignment orelse default_alignment,
             .arg = arg,
