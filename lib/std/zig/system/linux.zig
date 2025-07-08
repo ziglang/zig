@@ -413,13 +413,13 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
             return core;
         },
         .sparc64 => {
-            return SparcCpuinfoParser.parse(current_arch, f.reader()) catch null;
+            return SparcCpuinfoParser.parse(current_arch, f.deprecatedReader()) catch null;
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
-            return PowerpcCpuinfoParser.parse(current_arch, f.reader()) catch null;
+            return PowerpcCpuinfoParser.parse(current_arch, f.deprecatedReader()) catch null;
         },
         .riscv64, .riscv32 => {
-            return RiscvCpuinfoParser.parse(current_arch, f.reader()) catch null;
+            return RiscvCpuinfoParser.parse(current_arch, f.deprecatedReader()) catch null;
         },
         else => {},
     }
