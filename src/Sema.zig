@@ -5907,26 +5907,25 @@ fn zirCompileLog(
 
     var aw: std.io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
-    const bw = &aw.writer;
+    const writer = &aw.writer;
 
     const extra = sema.code.extraData(Zir.Inst.NodeMultiOp, extended.operand);
     const src_node = extra.data.src_node;
     const args = sema.code.refSlice(extra.end, extended.small);
 
     for (args, 0..) |arg_ref, i| {
-        if (i != 0) bw.writeAll(", ") catch return error.OutOfMemory;
+        if (i != 0) writer.writeAll(", ") catch return error.OutOfMemory;
 
         const arg = try sema.resolveInst(arg_ref);
         const arg_ty = sema.typeOf(arg);
         if (try sema.resolveValueResolveLazy(arg)) |val| {
-            bw.print("@as({f}, {f})", .{
+            writer.print("@as({f}, {f})", .{
                 arg_ty.fmt(pt), val.fmtValueSema(pt, sema),
             }) catch return error.OutOfMemory;
         } else {
-            bw.print("@as({f}, [runtime value])", .{arg_ty.fmt(pt)}) catch return error.OutOfMemory;
+            writer.print("@as({f}, [runtime value])", .{arg_ty.fmt(pt)}) catch return error.OutOfMemory;
         }
     }
-    bw.writeByte('\n') catch return error.OutOfMemory;
 
     const line_data = try zcu.intern_pool.getOrPutString(gpa, pt.tid, aw.getWritten(), .no_embedded_nulls);
 
