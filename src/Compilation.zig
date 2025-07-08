@@ -1321,7 +1321,7 @@ pub const MiscTask = enum {
 
     @"mingw-w64 crt2.o",
     @"mingw-w64 dllcrt2.o",
-    @"mingw-w64 libmingw32.lib",
+    @"mingw-w64 libmingw32.a",
 };
 
 pub const MiscError = struct {
@@ -1377,13 +1377,13 @@ pub const cache_helpers = struct {
         hh.add(resolved_target.is_explicit_dynamic_linker);
     }
 
-    pub fn addOptionalDebugFormat(hh: *Cache.HashHelper, x: ?Config.DebugFormat) void {
+    pub fn addOptionalDebugFormat(hh: *Cache.HashHelper, x: ?std.builtin.DebugFormat) void {
         hh.add(x != null);
         addDebugFormat(hh, x orelse return);
     }
 
-    pub fn addDebugFormat(hh: *Cache.HashHelper, x: Config.DebugFormat) void {
-        const tag: @typeInfo(Config.DebugFormat).@"union".tag_type.? = x;
+    pub fn addDebugFormat(hh: *Cache.HashHelper, x: std.builtin.DebugFormat) void {
+        const tag: @typeInfo(std.builtin.DebugFormat).@"union".tag_type.? = x;
         hh.add(tag);
         switch (x) {
             .strip, .code_view => {},
@@ -2384,7 +2384,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                     const main_crt_file: mingw.CrtFile = if (is_dyn_lib) .dllcrt2_o else .crt2_o;
                     comp.queued_jobs.mingw_crt_file[@intFromEnum(main_crt_file)] = true;
-                    comp.queued_jobs.mingw_crt_file[@intFromEnum(mingw.CrtFile.libmingw32_lib)] = true;
+                    comp.queued_jobs.mingw_crt_file[@intFromEnum(mingw.CrtFile.libmingw32_a)] = true;
                     comp.link_task_queue.pending_prelink_tasks += 2;
 
                     // When linking mingw-w64 there are some import libs we always need.
@@ -5693,7 +5693,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         c_source_basename[0 .. c_source_basename.len - std.fs.path.extension(c_source_basename).len];
 
     const target = comp.getTarget();
-    const o_ext = target.ofmt.fileExt(target.cpu.arch);
+    const o_ext = target.objFileExt();
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
         var argv = std.ArrayList([]const u8).init(gpa);
         defer argv.deinit();
@@ -6994,7 +6994,7 @@ pub const FileExt = enum {
             .assembly => ".s",
             .assembly_with_cpp => ".S",
             .shared_library => target.dynamicLibSuffix(),
-            .object => target.ofmt.fileExt(target.cpu.arch),
+            .object => target.objFileExt(),
             .static_library => target.staticLibSuffix(),
             .zig => ".zig",
             .def => ".def",
@@ -7291,6 +7291,7 @@ fn buildOutputFromZig(
         .emit_bin = true,
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
+        .debug_format = comp.config.debug_format,
         .link_libc = comp.config.link_libc,
         .any_unwind_tables = comp.root_mod.unwind_tables != .none,
         .any_error_tracing = false,
@@ -7419,6 +7420,7 @@ pub fn build_crt_file(
         .emit_bin = true,
         .root_optimize_mode = comp.compilerRtOptMode(),
         .root_strip = comp.compilerRtStrip(),
+        .debug_format = comp.config.debug_format,
         .link_libc = false,
         .any_unwind_tables = options.unwind_tables != .none,
         .lto = switch (output_mode) {

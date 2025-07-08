@@ -253,6 +253,10 @@ const known_options = [_]KnownOpt{
         .ident = "debug",
     },
     .{
+        .name = "gcodeview",
+        .ident = "gcodeview",
+    },
+    .{
         .name = "gdwarf32",
         .ident = "gdwarf32",
     },
@@ -559,6 +563,10 @@ const known_options = [_]KnownOpt{
     .{
         .name = "municode",
         .ident = "mingw_unicode_entry_point",
+    },
+    .{
+        .name = "mwindows",
+        .ident = "mingw_subsystem_windows",
     },
     .{
         .name = "fsanitize-coverage-trace-pc-guard",

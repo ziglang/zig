@@ -765,7 +765,7 @@ fn processSource(
         const fmt_template = "{s}{s}";
         const fmt_args = .{
             std.fs.path.stem(source.path),
-            d.comp.target.ofmt.fileExt(d.comp.target.cpu.arch),
+            d.comp.target.objFileExt(),
         };
         break :blk d.output_name orelse
             std.fmt.bufPrint(&name_buf, fmt_template, fmt_args) catch return d.fatal("Filename too long for filesystem: " ++ fmt_template, fmt_args);
@@ -781,7 +781,7 @@ fn processSource(
         const fmt_template = "/tmp/{s}{s}";
         const fmt_args = .{
             random_name,
-            d.comp.target.ofmt.fileExt(d.comp.target.cpu.arch),
+            d.comp.target.objFileExt(),
         };
         break :blk std.fmt.bufPrint(&name_buf, fmt_template, fmt_args) catch return d.fatal("Filename too long for filesystem: " ++ fmt_template, fmt_args);
     };
