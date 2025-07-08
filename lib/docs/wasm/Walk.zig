@@ -440,7 +440,7 @@ fn parse(file_name: []const u8, source: []u8) Oom!Ast {
             const err_loc = std.zig.findLineColumn(ast.source, err_offset);
             rendered_err.clearRetainingCapacity();
             try ast.renderError(err, rendered_err.writer(gpa));
-            log.err("{s}:{}:{}: {s}", .{ file_name, err_loc.line + 1, err_loc.column + 1, rendered_err.items });
+            log.err("{s}:{d}:{d}: {s}", .{ file_name, err_loc.line + 1, err_loc.column + 1, rendered_err.items });
         }
         return Ast.parse(gpa, "", .zig);
     }
