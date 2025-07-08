@@ -1109,6 +1109,7 @@ pub fn writeFileAll(self: File, in_file: File, args: WriteFileOptions) WriteFile
         error.FileDescriptorNotASocket,
         error.NetworkUnreachable,
         error.NetworkSubsystemFailed,
+        error.ConnectionRefused,
         => return self.writeFileAllUnseekable(in_file, args),
         else => |e| return e,
     };

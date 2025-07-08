@@ -6088,6 +6088,9 @@ pub const SendError = error{
 
     /// The local network interface used to reach the destination is down.
     NetworkSubsystemFailed,
+
+    /// The destination address is not listening.
+    ConnectionRefused,
 } || UnexpectedError;
 
 pub const SendMsgError = SendError || error{
@@ -6319,7 +6322,6 @@ pub fn send(
         error.AddressNotAvailable => unreachable,
         error.SocketNotConnected => unreachable,
         error.UnreachableAddress => unreachable,
-        error.ConnectionRefused => unreachable,
         else => |e| return e,
     };
 }
