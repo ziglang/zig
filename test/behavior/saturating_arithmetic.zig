@@ -4,8 +4,6 @@ const minInt = std.math.minInt;
 const maxInt = std.math.maxInt;
 const expect = std.testing.expect;
 
-const spirv = builtin.zig_backend == .stage2_spirv;
-
 test "saturating add" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -275,11 +273,13 @@ test "saturating multiplication" {
             try testSatMul(i8, -128, -128, 127);
             try testSatMul(i8, maxInt(i8), maxInt(i8), maxInt(i8));
             try testSatMul(i16, maxInt(i16), -1, minInt(i16) + 1);
-            if (!spirv) try testSatMul(i128, maxInt(i128), -1, minInt(i128) + 1);
-            if (!spirv) try testSatMul(i128, minInt(i128), -1, maxInt(i128));
             try testSatMul(u8, 10, 3, 30);
             try testSatMul(u8, 2, 255, 255);
-            if (!spirv) try testSatMul(u128, maxInt(u128), maxInt(u128), maxInt(u128));
+            if (builtin.zig_backend != .stage2_spirv) {
+                try testSatMul(i128, maxInt(i128), -1, minInt(i128) + 1);
+                try testSatMul(i128, minInt(i128), -1, maxInt(i128));
+                try testSatMul(u128, maxInt(u128), maxInt(u128), maxInt(u128));
+            }
         }
     };
 
@@ -304,7 +304,7 @@ test "saturating shift-left" {
             try testSatShl(i8, 127, u8, 1, 127);
             try testSatShl(i8, -128, u8, 1, -128);
             // TODO: remove wasm check once #9668 is completed
-            if (!spirv and !builtin.cpu.arch.isWasm()) {
+            if (builtin.zig_backend != .stage2_spirv and !builtin.cpu.arch.isWasm()) {
                 // skip testing ints > 64 bits on wasm due to miscompilation / wasmtime ci error
                 try testSatShl(i128, maxInt(i128), u128, 64, maxInt(i128));
                 try testSatShl(u128, maxInt(u128), u128, 64, maxInt(u128));
