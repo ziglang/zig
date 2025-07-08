@@ -63,13 +63,20 @@ const String = extern struct {
         .start = 0,
         .len = 0,
     };
+
+    fn concat(lhs: String, rhs: String) String {
+        assert(lhs.start + lhs.len == rhs.start);
+        return .{
+            .start = lhs.start,
+            .len = lhs.len + rhs.len,
+        };
+    }
 };
 
 /// Per-declaration data.
 pub const AvBlock = struct {
     fwd_decl: String = .empty,
     code: String = .empty,
-    code_header: String = .empty,
     /// Each `Decl` stores a set of used `CType`s.  In `flush()`, we iterate
     /// over each `Decl` and generate the definition for each used `CType` once.
     ctype_pool: codegen.CType.Pool = .empty,
@@ -205,9 +212,10 @@ pub fn updateFunc(
         .ctype_pool = mir.c.ctype_pool.move(),
         .lazy_fns = mir.c.lazy_fns.move(),
     };
-    gop.value_ptr.code = try self.addString(mir.c.code);
     gop.value_ptr.fwd_decl = try self.addString(mir.c.fwd_decl);
-    gop.value_ptr.code_header = try self.addString(mir.c.code_header);
+    const code_header = try self.addString(mir.c.code_header);
+    const code = try self.addString(mir.c.code);
+    gop.value_ptr.code = code_header.concat(code);
     try self.addUavsFromCodegen(&mir.c.uavs);
 }
 

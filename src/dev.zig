@@ -154,6 +154,7 @@ pub const Env = enum {
                 else => Env.ast_gen.supports(feature),
             },
             .cbe => switch (feature) {
+                .legalize,
                 .c_backend,
                 .c_linker,
                 => true,
