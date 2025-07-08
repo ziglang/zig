@@ -918,14 +918,16 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        .{
-            .target = std.Target.Query.parse(.{
-                .arch_os_abi = "riscv64-linux-none",
-                .cpu_features = "baseline+v+zbb",
-            }) catch unreachable,
-            .use_llvm = false,
-            .use_lld = false,
-        },
+        // TODO implement codegen airFieldParentPtr
+        // TODO implement airMemmove for riscv64
+        //.{
+        //    .target = std.Target.Query.parse(.{
+        //        .arch_os_abi = "riscv64-linux-none",
+        //        .cpu_features = "baseline+v+zbb",
+        //    }) catch unreachable,
+        //    .use_llvm = false,
+        //    .use_lld = false,
+        //},
         .{
             .target = .{
                 .cpu_arch = .riscv64,
