@@ -43,8 +43,7 @@ pub fn main() !void {
     while (args_it.next()) |arg| {
         if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                const stdout = io.getStdOut().writer();
-                try stdout.writeAll(usage);
+                try fs.File.stdout().writeAll(usage);
                 process.exit(0);
             } else if (mem.eql(u8, arg, "--code-dir")) {
                 if (args_it.next()) |param| {

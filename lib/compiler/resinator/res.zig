@@ -442,7 +442,7 @@ pub const NameOrOrdinal = union(enum) {
     pub fn format(self: NameOrOrdinal, w: *std.io.Writer) !void {
         switch (self) {
             .name => |name| {
-                try w.print("{s}", .{std.unicode.fmtUtf16Le(name)});
+                try w.print("{f}", .{std.unicode.fmtUtf16Le(name)});
             },
             .ordinal => |ordinal| {
                 try w.print("{d}", .{ordinal});
@@ -453,7 +453,7 @@ pub const NameOrOrdinal = union(enum) {
     fn formatResourceType(self: NameOrOrdinal, w: *std.io.Writer) std.io.Writer.Error!void {
         switch (self) {
             .name => |name| {
-                try w.print("{s}", .{std.unicode.fmtUtf16Le(name)});
+                try w.print("{f}", .{std.unicode.fmtUtf16Le(name)});
             },
             .ordinal => |ordinal| {
                 if (std.enums.tagName(RT, @enumFromInt(ordinal))) |predefined_type_name| {

@@ -705,6 +705,8 @@ pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) File
     return n;
 }
 
+/// Number of bytes logically written is returned. This excludes bytes from
+/// `buffer` because they have already been logically written.
 pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {

@@ -333,7 +333,9 @@ pub fn main() !void {
         }
     }
 
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [2000]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
     try stdout.writeAll(
         \\#ifdef PTR64
         \\#define WEAK64 .weak
@@ -533,6 +535,8 @@ pub fn main() !void {
         .all => {},
         .single, .multi, .family, .time32 => try stdout.writeAll("#endif\n"),
     }
+
+    try stdout.flush();
 }
 
 fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian) !void {

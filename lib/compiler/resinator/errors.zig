@@ -62,9 +62,8 @@ pub const Diagnostics = struct {
     }
 
     pub fn renderToStdErr(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, tty_config: std.io.tty.Config, source_mappings: ?SourceMappings) void {
-        std.debug.lockStdErr();
-        defer std.debug.unlockStdErr();
-        const stderr = std.fs.File.stderr().deprecatedWriter();
+        const stderr = std.debug.lockStderrWriter(&.{});
+        defer std.debug.unlockStderrWriter();
         for (self.errors.items) |err_details| {
             renderErrorMessage(stderr, tty_config, cwd, err_details, source, self.strings.items, source_mappings) catch return;
         }
@@ -445,7 +444,7 @@ pub const ErrorDetails = struct {
     pub fn render(self: ErrorDetails, writer: anytype, source: []const u8, strings: []const []const u8) !void {
         switch (self.err) {
             .unfinished_string_literal => {
-                return writer.print("unfinished string literal at '{s}', expected closing '\"'", .{self.fmtToken(source)});
+                return writer.print("unfinished string literal at '{f}', expected closing '\"'", .{self.fmtToken(source)});
             },
             .string_literal_too_long => {
                 return writer.print("string literal too long (max is currently {} characters)", .{self.extra.number});
@@ -524,26 +523,26 @@ pub const ErrorDetails = struct {
                 return writer.print("unsupported code page '{s} (id={})' in #pragma code_page", .{ @tagName(code_page), number });
             },
             .unfinished_raw_data_block => {
-                return writer.print("unfinished raw data block at '{s}', expected closing '}}' or 'END'", .{self.fmtToken(source)});
+                return writer.print("unfinished raw data block at '{f}', expected closing '}}' or 'END'", .{self.fmtToken(source)});
             },
             .unfinished_string_table_block => {
-                return writer.print("unfinished STRINGTABLE block at '{s}', expected closing '}}' or 'END'", .{self.fmtToken(source)});
+                return writer.print("unfinished STRINGTABLE block at '{f}', expected closing '}}' or 'END'", .{self.fmtToken(source)});
             },
             .expected_token => {
-                return writer.print("expected '{s}', got '{s}'", .{ self.extra.expected.nameForErrorDisplay(), self.fmtToken(source) });
+                return writer.print("expected '{s}', got '{f}'", .{ self.extra.expected.nameForErrorDisplay(), self.fmtToken(source) });
             },
             .expected_something_else => {
                 try writer.writeAll("expected ");
                 try self.extra.expected_types.writeCommaSeparated(writer);
-                return writer.print("; got '{s}'", .{self.fmtToken(source)});
+                return writer.print("; got '{f}'", .{self.fmtToken(source)});
             },
             .resource_type_cant_use_raw_data => switch (self.type) {
-                .err, .warning => try writer.print("expected '<filename>', found '{s}' (resource type '{s}' can't use raw data)", .{ self.fmtToken(source), self.extra.resource.nameForErrorDisplay() }),
-                .note => try writer.print("if '{s}' is intended to be a filename, it must be specified as a quoted string literal", .{self.fmtToken(source)}),
+                .err, .warning => try writer.print("expected '<filename>', found '{f}' (resource type '{s}' can't use raw data)", .{ self.fmtToken(source), self.extra.resource.nameForErrorDisplay() }),
+                .note => try writer.print("if '{f}' is intended to be a filename, it must be specified as a quoted string literal", .{self.fmtToken(source)}),
                 .hint => return,
             },
             .id_must_be_ordinal => {
-                try writer.print("id of resource type '{s}' must be an ordinal (u16), got '{s}'", .{ self.extra.resource.nameForErrorDisplay(), self.fmtToken(source) });
+                try writer.print("id of resource type '{s}' must be an ordinal (u16), got '{f}'", .{ self.extra.resource.nameForErrorDisplay(), self.fmtToken(source) });
             },
             .name_or_id_not_allowed => {
                 try writer.print("name or id is not allowed for resource type '{s}'", .{self.extra.resource.nameForErrorDisplay()});
@@ -559,7 +558,7 @@ pub const ErrorDetails = struct {
                 try writer.writeAll("ASCII character not equivalent to virtual key code");
             },
             .empty_menu_not_allowed => {
-                try writer.print("empty menu of type '{s}' not allowed", .{self.fmtToken(source)});
+                try writer.print("empty menu of type '{f}' not allowed", .{self.fmtToken(source)});
             },
             .rc_would_miscompile_version_value_padding => switch (self.type) {
                 .err, .warning => return writer.print("the padding before this quoted string value would be miscompiled by the Win32 RC compiler", .{}),
@@ -624,7 +623,7 @@ pub const ErrorDetails = struct {
             .string_already_defined => switch (self.type) {
                 .err, .warning => {
                     const language = self.extra.string_and_language.language;
-                    return writer.print("string with id {d} (0x{X}) already defined for language {}", .{ self.extra.string_and_language.id, self.extra.string_and_language.id, language });
+                    return writer.print("string with id {d} (0x{X}) already defined for language {f}", .{ self.extra.string_and_language.id, self.extra.string_and_language.id, language });
                 },
                 .note => return writer.print("previous definition of string with id {d} (0x{X}) here", .{ self.extra.string_and_language.id, self.extra.string_and_language.id }),
                 .hint => return,
@@ -639,7 +638,7 @@ pub const ErrorDetails = struct {
                 try writer.print("unable to open file '{s}': {s}", .{ strings[self.extra.file_open_error.filename_string_index], @tagName(self.extra.file_open_error.err) });
             },
             .invalid_accelerator_key => {
-                try writer.print("invalid accelerator key '{s}': {s}", .{ self.fmtToken(source), @tagName(self.extra.accelerator_error.err) });
+                try writer.print("invalid accelerator key '{f}': {s}", .{ self.fmtToken(source), @tagName(self.extra.accelerator_error.err) });
             },
             .accelerator_type_required => {
                 try writer.writeAll("accelerator type [ASCII or VIRTKEY] required when key is an integer");
@@ -895,7 +894,7 @@ fn cellCount(code_page: SupportedCodePage, source: []const u8, start_index: usiz
 
 const truncated_str = "<...truncated...>";
 
-pub fn renderErrorMessage(writer: anytype, tty_config: std.io.tty.Config, cwd: std.fs.Dir, err_details: ErrorDetails, source: []const u8, strings: []const []const u8, source_mappings: ?SourceMappings) !void {
+pub fn renderErrorMessage(writer: *std.io.Writer, tty_config: std.io.tty.Config, cwd: std.fs.Dir, err_details: ErrorDetails, source: []const u8, strings: []const []const u8, source_mappings: ?SourceMappings) !void {
     if (err_details.type == .hint) return;
 
     const source_line_start = err_details.token.getLineStartForErrorDisplay(source);
@@ -978,10 +977,10 @@ pub fn renderErrorMessage(writer: anytype, tty_config: std.io.tty.Config, cwd: s
 
     try tty_config.setColor(writer, .green);
     const num_spaces = truncated_visual_info.point_offset - truncated_visual_info.before_len;
-    try writer.writeByteNTimes(' ', num_spaces);
-    try writer.writeByteNTimes('~', truncated_visual_info.before_len);
+    try writer.splatByteAll(' ', num_spaces);
+    try writer.splatByteAll('~', truncated_visual_info.before_len);
     try writer.writeByte('^');
-    try writer.writeByteNTimes('~', truncated_visual_info.after_len);
+    try writer.splatByteAll('~', truncated_visual_info.after_len);
     try writer.writeByte('\n');
     try tty_config.setColor(writer, .reset);
 
@@ -1082,7 +1081,7 @@ const CorrespondingLines = struct {
     buffered_reader: BufferedReaderType,
     code_page: SupportedCodePage,
 
-    const BufferedReaderType = std.io.BufferedReader(512, std.fs.File.Reader);
+    const BufferedReaderType = std.io.BufferedReader(512, std.fs.File.DeprecatedReader);
 
     pub fn init(cwd: std.fs.Dir, err_details: ErrorDetails, line_for_comparison: []const u8, corresponding_span: SourceMappings.CorrespondingSpan, corresponding_file: []const u8) !CorrespondingLines {
         // We don't do line comparison for this error, so don't print the note if the line

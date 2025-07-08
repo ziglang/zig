@@ -19,13 +19,13 @@ pub fn main() !void {
     child.stderr_behavior = .Inherit;
     try child.spawn();
     const child_stdin = child.stdin.?;
-    try child_stdin.writer().writeAll("hello from stdin"); // verified in child
+    try child_stdin.writeAll("hello from stdin"); // verified in child
     child_stdin.close();
     child.stdin = null;
 
     const hello_stdout = "hello from stdout";
     var buf: [hello_stdout.len]u8 = undefined;
-    const n = try child.stdout.?.reader().readAll(&buf);
+    const n = try child.stdout.?.deprecatedReader().readAll(&buf);
     if (!std.mem.eql(u8, buf[0..n], hello_stdout)) {
         testError("child stdout: '{s}'; want '{s}'", .{ buf[0..n], hello_stdout });
     }
@@ -45,7 +45,8 @@ pub fn main() !void {
 var parent_test_error = false;
 
 fn testError(comptime fmt: []const u8, args: anytype) void {
-    const stderr = std.io.getStdErr().writer();
+    var stderr_writer = std.fs.File.stderr().writer(&.{});
+    const stderr = &stderr_writer.interface;
     stderr.print("PARENT TEST ERROR: ", .{}) catch {};
     stderr.print(fmt, args) catch {};
     if (fmt[fmt.len - 1] != '\n') {

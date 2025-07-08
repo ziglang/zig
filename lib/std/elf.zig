@@ -511,7 +511,7 @@ pub const Header = struct {
     pub fn read(parse_source: anytype) !Header {
         var hdr_buf: [@sizeOf(Elf64_Ehdr)]u8 align(@alignOf(Elf64_Ehdr)) = undefined;
         try parse_source.seekableStream().seekTo(0);
-        try parse_source.reader().readNoEof(&hdr_buf);
+        try parse_source.deprecatedReader().readNoEof(&hdr_buf);
         return Header.parse(&hdr_buf);
     }
 
@@ -586,7 +586,7 @@ pub fn ProgramHeaderIterator(comptime ParseSource: anytype) type {
                 var phdr: Elf64_Phdr = undefined;
                 const offset = self.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * self.index;
                 try self.parse_source.seekableStream().seekTo(offset);
-                try self.parse_source.reader().readNoEof(mem.asBytes(&phdr));
+                try self.parse_source.deprecatedReader().readNoEof(mem.asBytes(&phdr));
 
                 // ELF endianness matches native endianness.
                 if (self.elf_header.endian == native_endian) return phdr;
@@ -599,7 +599,7 @@ pub fn ProgramHeaderIterator(comptime ParseSource: anytype) type {
             var phdr: Elf32_Phdr = undefined;
             const offset = self.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * self.index;
             try self.parse_source.seekableStream().seekTo(offset);
-            try self.parse_source.reader().readNoEof(mem.asBytes(&phdr));
+            try self.parse_source.deprecatedReader().readNoEof(mem.asBytes(&phdr));
 
             // ELF endianness does NOT match native endianness.
             if (self.elf_header.endian != native_endian) {
@@ -636,7 +636,7 @@ pub fn SectionHeaderIterator(comptime ParseSource: anytype) type {
                 var shdr: Elf64_Shdr = undefined;
                 const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
                 try self.parse_source.seekableStream().seekTo(offset);
-                try self.parse_source.reader().readNoEof(mem.asBytes(&shdr));
+                try self.parse_source.deprecatedReader().readNoEof(mem.asBytes(&shdr));
 
                 // ELF endianness matches native endianness.
                 if (self.elf_header.endian == native_endian) return shdr;
@@ -649,7 +649,7 @@ pub fn SectionHeaderIterator(comptime ParseSource: anytype) type {
             var shdr: Elf32_Shdr = undefined;
             const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
             try self.parse_source.seekableStream().seekTo(offset);
-            try self.parse_source.reader().readNoEof(mem.asBytes(&shdr));
+            try self.parse_source.deprecatedReader().readNoEof(mem.asBytes(&shdr));
 
             // ELF endianness does NOT match native endianness.
             if (self.elf_header.endian != native_endian) {

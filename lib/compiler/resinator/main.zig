@@ -29,7 +29,7 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     if (args.len < 2) {
-        try renderErrorMessage(stderr.deprecatedWriter(), stderr_config, .err, "expected zig lib dir as first argument", .{});
+        try renderErrorMessage(std.debug.lockStderrWriter(&.{}), stderr_config, .err, "expected zig lib dir as first argument", .{});
         std.process.exit(1);
     }
     const zig_lib_dir = args[1];
@@ -343,7 +343,7 @@ pub fn main() !void {
         switch (err) {
             error.DuplicateResource => {
                 const duplicate_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
-                try error_handler.emitMessage(allocator, .err, "duplicate resource [id: {}, type: {}, language: {}]", .{
+                try error_handler.emitMessage(allocator, .err, "duplicate resource [id: {f}, type: {f}, language: {f}]", .{
                     duplicate_resource.name_value,
                     fmtResourceType(duplicate_resource.type_value),
                     duplicate_resource.language,
@@ -352,7 +352,7 @@ pub fn main() !void {
             error.ResourceDataTooLong => {
                 const overflow_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
                 try error_handler.emitMessage(allocator, .err, "resource has a data length that is too large to be written into a coff section", .{});
-                try error_handler.emitMessage(allocator, .note, "the resource with the invalid size is [id: {}, type: {}, language: {}]", .{
+                try error_handler.emitMessage(allocator, .note, "the resource with the invalid size is [id: {f}, type: {f}, language: {f}]", .{
                     overflow_resource.name_value,
                     fmtResourceType(overflow_resource.type_value),
                     overflow_resource.language,
@@ -361,7 +361,7 @@ pub fn main() !void {
             error.TotalResourceDataTooLong => {
                 const overflow_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
                 try error_handler.emitMessage(allocator, .err, "total resource data exceeds the maximum of the coff 'size of raw data' field", .{});
-                try error_handler.emitMessage(allocator, .note, "size overflow occurred when attempting to write this resource: [id: {}, type: {}, language: {}]", .{
+                try error_handler.emitMessage(allocator, .note, "size overflow occurred when attempting to write this resource: [id: {f}, type: {f}, language: {f}]", .{
                     overflow_resource.name_value,
                     fmtResourceType(overflow_resource.type_value),
                     overflow_resource.language,
@@ -645,7 +645,9 @@ const ErrorHandler = union(enum) {
             },
             .tty => {
                 // extra newline to separate this line from the aro errors
-                try renderErrorMessage(std.fs.File.stderr().deprecatedWriter(), self.tty, .err, "{s}\n", .{fail_msg});
+                const stderr = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                try renderErrorMessage(stderr, self.tty, .err, "{s}\n", .{fail_msg});
                 aro.Diagnostics.render(comp, self.tty);
             },
         }
@@ -690,7 +692,9 @@ const ErrorHandler = union(enum) {
                 try server.serveErrorBundle(error_bundle);
             },
             .tty => {
-                try renderErrorMessage(std.fs.File.stderr().deprecatedWriter(), self.tty, msg_type, format, args);
+                const stderr = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                try renderErrorMessage(stderr, self.tty, msg_type, format, args);
             },
         }
     }

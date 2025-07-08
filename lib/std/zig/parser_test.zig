@@ -2744,11 +2744,11 @@ test "zig fmt: preserve spacing" {
         \\const std = @import("std");
         \\
         \\pub fn main() !void {
-        \\    var stdout_file = std.io.getStdOut;
-        \\    var stdout_file = std.io.getStdOut;
+        \\    var stdout_file = std.lol.abcd;
+        \\    var stdout_file = std.lol.abcd;
         \\
-        \\    var stdout_file = std.io.getStdOut;
-        \\    var stdout_file = std.io.getStdOut;
+        \\    var stdout_file = std.lol.abcd;
+        \\    var stdout_file = std.lol.abcd;
         \\}
         \\
     );

@@ -6074,7 +6074,7 @@ fn cmdAstCheck(
 
     const tree = try Ast.parse(arena, source, mode);
 
-    var stdout_writer = fs.File.stdout().writer(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
     const stdout_bw = &stdout_writer.interface;
     switch (mode) {
         .zig => {
@@ -6289,7 +6289,7 @@ fn detectNativeCpuWithLLVM(
 }
 
 fn printCpu(cpu: std.Target.Cpu) !void {
-    var stdout_writer = fs.File.stdout().writer(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
     const stdout_bw = &stdout_writer.interface;
 
     if (cpu.model.llvm_name) |llvm_name| {
@@ -6338,7 +6338,7 @@ fn cmdDumpLlvmInts(
     const dl = tm.createTargetDataLayout();
     const context = llvm.Context.create();
 
-    var stdout_writer = fs.File.stdout().writer(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
     const stdout_bw = &stdout_writer.interface;
     for ([_]u16{ 1, 8, 16, 32, 64, 128, 256 }) |bits| {
         const int_type = context.intType(bits);
@@ -6367,7 +6367,7 @@ fn cmdDumpZir(
     defer f.close();
 
     const zir = try Zcu.loadZirCache(arena, f);
-    var stdout_writer = fs.File.stdout().writer(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
     const stdout_bw = &stdout_writer.interface;
 
     {
@@ -6453,7 +6453,7 @@ fn cmdChangelist(
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty;
     try Zcu.mapOldZirToNew(arena, old_zir, new_zir, &inst_map);
 
-    var stdout_writer = fs.File.stdout().writer(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
     const stdout_bw = &stdout_writer.interface;
     {
         try stdout_bw.print("Instruction mappings:\n", .{});
@@ -6913,7 +6913,7 @@ fn cmdFetch(
 
     const name = switch (save) {
         .no => {
-            var stdout = fs.File.stdout().writer(&stdio_buffer);
+            var stdout = fs.File.stdout().writerStreaming(&stdio_buffer);
             try stdout.interface.print("{s}\n", .{package_hash_slice});
             try stdout.interface.flush();
             return cleanExit();
