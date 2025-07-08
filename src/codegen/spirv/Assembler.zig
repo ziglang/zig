@@ -160,7 +160,7 @@ const AsmValue = union(enum) {
         return switch (self) {
             .just_declared,
             .unresolved_forward_reference,
-            .constant
+            .constant,
             => unreachable, // TODO: Create constant integer instruction
             .string => |str| {
                 return try spv.constStringGlobal(str);

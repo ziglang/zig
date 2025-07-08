@@ -199,5 +199,5 @@ test "SPIR-V string constants with c constraint" {
     _ = std.gpu.printf("testing printf\n", .{});
     var a: i32 = -10;
     _ = &a;
-    _ = std.gpu.printf("a: %d, a + 10: %d\n", .{a, a + 10});
+    _ = std.gpu.printf("a: %d, a + 10: %d\n", .{ a, a + 10 });
 }
