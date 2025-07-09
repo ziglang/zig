@@ -805,15 +805,18 @@ pub fn printValue(
                 .pointer => |info| switch (info.size) {
                     .one, .slice => {
                         const slice: []const u8 = value;
+                        optionsForbidden(options);
                         return printHex(w, slice, .lower);
                     },
                     .many, .c => {
                         const slice: [:0]const u8 = std.mem.span(value);
+                        optionsForbidden(options);
                         return printHex(w, slice, .lower);
                     },
                 },
                 .array => {
                     const slice: []const u8 = &value;
+                    optionsForbidden(options);
                     return printHex(w, slice, .lower);
                 },
                 .vector => return printVector(w, fmt, options, value, max_depth),
@@ -827,15 +830,18 @@ pub fn printValue(
                 .pointer => |info| switch (info.size) {
                     .one, .slice => {
                         const slice: []const u8 = value;
+                        optionsForbidden(options);
                         return printHex(w, slice, .upper);
                     },
                     .many, .c => {
                         const slice: [:0]const u8 = std.mem.span(value);
+                        optionsForbidden(options);
                         return printHex(w, slice, .upper);
                     },
                 },
                 .array => {
                     const slice: []const u8 = &value;
+                    optionsForbidden(options);
                     return printHex(w, slice, .upper);
                 },
                 .vector => return printVector(w, fmt, options, value, max_depth),
@@ -845,15 +851,18 @@ pub fn printValue(
                 .pointer => |info| switch (info.size) {
                     .one, .slice => {
                         const slice: []const u8 = value;
+                        optionsForbidden(options); // Alignment not allowed on strings.
                         return w.writeAll(slice);
                     },
                     .many, .c => {
                         const slice: [:0]const u8 = std.mem.span(value);
+                        optionsForbidden(options); // Alignment not allowed on strings.
                         return w.writeAll(slice);
                     },
                 },
                 .array => {
                     const slice: []const u8 = &value;
+                    optionsForbidden(options); // Alignment not allowed on strings.
                     return w.writeAll(slice);
                 },
                 else => invalidFmtError(fmt, value),
@@ -900,15 +909,18 @@ pub fn printValue(
             .pointer => |info| switch (info.size) {
                 .one, .slice => {
                     const slice: []const u8 = value;
+                    optionsForbidden(options);
                     return w.printBase64(slice);
                 },
                 .many, .c => {
                     const slice: [:0]const u8 = std.mem.span(value);
+                    optionsForbidden(options);
                     return w.printBase64(slice);
                 },
             },
             .array => {
                 const slice: []const u8 = &value;
+                optionsForbidden(options);
                 return w.printBase64(slice);
             },
             else => invalidFmtError(fmt, value),
@@ -933,11 +945,12 @@ pub fn printValue(
         },
         .bool => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
-            return w.writeAll(if (value) "true" else "false");
+            const string: []const u8 = if (value) "true" else "false";
+            return w.alignBufferOptions(string, options);
         },
         .void => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
-            return w.writeAll("void");
+            return w.alignBufferOptions("void", options);
         },
         .optional => {
             const remaining_fmt = comptime if (fmt.len > 0 and fmt[0] == '?')
@@ -967,10 +980,12 @@ pub fn printValue(
         },
         .error_set => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
+            optionsForbidden(options);
             return printErrorSet(w, value);
         },
         .@"enum" => |info| {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
+            optionsForbidden(options);
             if (info.is_exhaustive) {
                 return printEnumExhaustive(w, value);
             } else {
@@ -1067,6 +1082,7 @@ pub fn printValue(
             },
             .many, .c => {
                 if (!is_any) @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
+                optionsForbidden(options);
                 try w.printAddress(value);
             },
             .slice => {
@@ -1102,19 +1118,26 @@ pub fn printValue(
         .@"fn" => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .type => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
+            optionsForbidden(options);
             return w.writeAll(@typeName(value));
         },
         .enum_literal => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
+            optionsForbidden(options);
             var vecs: [2][]const u8 = .{ ".", @tagName(value) };
             return w.writeVecAll(&vecs);
         },
         .null => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
-            return w.writeAll("null");
+            return w.alignBufferOptions("null", options);
         },
         else => @compileError("unable to format type '" ++ @typeName(T) ++ "'"),
     }
+}
+
+fn optionsForbidden(options: std.fmt.Options) void {
+    assert(options.precision == null);
+    assert(options.width == null);
 }
 
 fn printErrorSet(w: *Writer, error_set: anyerror) Error!void {
