@@ -752,6 +752,11 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
         @branchHint(.likely);
         return buffer[seek .. end + 1];
     }
+    if (r.vtable.stream == &endingStream) {
+        // Protect the `@constCast` of `fixed`.
+        return error.EndOfStream;
+    }
+    r.rebase();
     while (r.buffer.len - r.end != 0) {
         const end_cap = r.buffer[r.end..];
         var writer: Writer = .fixed(end_cap);
@@ -761,28 +766,8 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
         };
         r.end += n;
         if (std.mem.indexOfScalarPos(u8, end_cap[0..n], 0, delimiter)) |end| {
-            return r.buffer[seek .. r.end - n + end + 1];
+            return r.buffer[0 .. r.end - n + end + 1];
         }
-    }
-    var i: usize = 0;
-    while (seek - i != 0) {
-        const begin_cap = r.buffer[i..seek];
-        var writer: Writer = .fixed(begin_cap);
-        const n = r.vtable.stream(r, &writer, .limited(begin_cap.len)) catch |err| switch (err) {
-            error.WriteFailed => unreachable,
-            else => |e| return e,
-        };
-        i += n;
-        if (std.mem.indexOfScalarPos(u8, r.buffer[0..seek], i, delimiter)) |end| {
-            std.mem.rotate(u8, r.buffer, seek);
-            r.seek = 0;
-            r.end += i;
-            return r.buffer[0 .. seek + end + 1];
-        }
-    } else if (i != 0) {
-        std.mem.rotate(u8, r.buffer, seek);
-        r.seek = 0;
-        r.end += i;
     }
     return error.StreamTooLong;
 }
@@ -1663,6 +1648,23 @@ test "readAlloc when the backing reader provides one byte at a time" {
     const res = try one_byte_stream.reader.allocRemaining(std.testing.allocator, .unlimited);
     defer std.testing.allocator.free(res);
     try std.testing.expectEqualStrings(str, res);
+}
+
+test "takeDelimiterInclusive when it rebases" {
+    const written_line = "ABCDEFGHIJKLMNOPQRSTUVWXYZ\n";
+    var buffer: [128]u8 = undefined;
+    var tr: std.testing.Reader = .init(&buffer, &.{
+        .{ .buffer = written_line },
+        .{ .buffer = written_line },
+        .{ .buffer = written_line },
+        .{ .buffer = written_line },
+        .{ .buffer = written_line },
+        .{ .buffer = written_line },
+    });
+    const r = &tr.interface;
+    for (0..6) |_| {
+        try std.testing.expectEqualStrings(written_line, try r.takeDelimiterInclusive('\n'));
+    }
 }
 
 /// Provides a `Reader` implementation by passing data from an underlying

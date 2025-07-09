@@ -1206,3 +1206,43 @@ pub inline fn fuzz(
 ) anyerror!void {
     return @import("root").fuzz(context, testOne, options);
 }
+
+/// A `std.io.Reader` that writes a predetermined list of buffers during `stream`.
+pub const Reader = struct {
+    calls: []const Call,
+    interface: std.io.Reader,
+    next_call_index: usize,
+    next_offset: usize,
+
+    pub const Call = struct {
+        buffer: []const u8,
+    };
+
+    pub fn init(buffer: []u8, calls: []const Call) Reader {
+        return .{
+            .next_call_index = 0,
+            .next_offset = 0,
+            .interface = .{
+                .vtable = &.{ .stream = stream },
+                .buffer = buffer,
+                .seek = 0,
+                .end = 0,
+            },
+            .calls = calls,
+        };
+    }
+
+    fn stream(io_r: *std.io.Reader, w: *std.io.Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
+        const r: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
+        if (r.calls.len - r.next_call_index == 0) return error.EndOfStream;
+        const call = r.calls[r.next_call_index];
+        const buffer = limit.sliceConst(call.buffer[r.next_offset..]);
+        const n = try w.write(buffer);
+        r.next_offset += n;
+        if (call.buffer.len - r.next_offset == 0) {
+            r.next_call_index += 1;
+            r.next_offset = 0;
+        }
+        return n;
+    }
+};
