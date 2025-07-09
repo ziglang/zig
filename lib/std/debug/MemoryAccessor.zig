@@ -38,8 +38,8 @@ pub fn deinit(ma: *MemoryAccessor) void {
 
 fn read(ma: *MemoryAccessor, address: usize, buf: []u8) bool {
     switch (native_os) {
-        .linux => while (true) switch (ma.mem.handle) {
-            -2 => break,
+        .linux => linux: switch (ma.mem.handle) {
+            -2 => break :linux,
             -1 => {
                 const linux = std.os.linux;
                 const pid = switch (@atomicLoad(posix.pid_t, &cached_pid, .monotonic)) {
@@ -59,7 +59,15 @@ fn read(ma: *MemoryAccessor, address: usize, buf: []u8) bool {
                 switch (linux.E.init(bytes_read)) {
                     .SUCCESS => return bytes_read == buf.len,
                     .FAULT => return false,
-                    .INVAL, .SRCH => unreachable, // own pid is always valid
+                    .INVAL => unreachable, // EINVAL is returned when flags to process_vm_readv is non-zero
+                    .SRCH => {
+                        // process with pid does not exist, but it should be our pid, so we'll try again.
+                        // This can happen after a call to fork() without a corresponding exec()
+                        const newpid = linux.getpid();
+                        std.debug.assert(newpid != pid);
+                        @atomicStore(posix.pid_t, &cached_pid, newpid, .monotonic);
+                        continue :linux -1;
+                    },
                     .PERM => {}, // Known to happen in containers.
                     .NOMEM => {},
                     .NOSYS => {}, // QEMU is known not to implement this syscall.
@@ -72,7 +80,7 @@ fn read(ma: *MemoryAccessor, address: usize, buf: []u8) bool {
                     unreachable;
                 ma.mem = std.fs.openFileAbsolute(path, .{}) catch {
                     ma.mem.handle = -2;
-                    break;
+                    break :linux;
                 };
             },
             else => return (ma.mem.pread(buf, address) catch return false) == buf.len,
