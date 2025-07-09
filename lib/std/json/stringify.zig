@@ -689,7 +689,7 @@ fn outputUnicodeEscape(codepoint: u21, out_stream: anytype) !void {
         // by the lowercase letter u, followed by four hexadecimal digits that encode the character's code point.
         try out_stream.writeAll("\\u");
         //try w.printInt("x", .{ .width = 4, .fill = '0' }, codepoint);
-        try std.fmt.deprecatedFormat(out_stream, "{x:0>4}", .{codepoint});
+        try std.fmt.format(out_stream, "{x:0>4}", .{codepoint});
     } else {
         assert(codepoint <= 0x10FFFF);
         // To escape an extended character that is not in the Basic Multilingual Plane,
@@ -698,10 +698,10 @@ fn outputUnicodeEscape(codepoint: u21, out_stream: anytype) !void {
         const low = @as(u16, @intCast(codepoint & 0x3FF)) + 0xDC00;
         try out_stream.writeAll("\\u");
         //try w.printInt("x", .{ .width = 4, .fill = '0' }, high);
-        try std.fmt.deprecatedFormat(out_stream, "{x:0>4}", .{high});
+        try std.fmt.format(out_stream, "{x:0>4}", .{high});
         try out_stream.writeAll("\\u");
         //try w.printInt("x", .{ .width = 4, .fill = '0' }, low);
-        try std.fmt.deprecatedFormat(out_stream, "{x:0>4}", .{low});
+        try std.fmt.format(out_stream, "{x:0>4}", .{low});
     }
 }
 

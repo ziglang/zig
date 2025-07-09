@@ -83,15 +83,15 @@ pub const Node = struct {
 
         pub fn format(self: *const Doc, writer: *std.io.Writer) std.io.Writer.Error!void {
             if (self.directive) |id| {
-                try std.fmt.format(writer, "{{ ", .{});
+                try writer.print("{{ ", .{});
                 const directive = self.base.tree.getRaw(id, id);
-                try std.fmt.format(writer, ".directive = {s}, ", .{directive});
+                try writer.print(".directive = {s}, ", .{directive});
             }
             if (self.value) |node| {
-                try std.fmt.format(writer, "{}", .{node});
+                try writer.print("{}", .{node});
             }
             if (self.directive != null) {
-                try std.fmt.format(writer, " }}", .{});
+                try writer.print(" }}", .{});
             }
         }
     };

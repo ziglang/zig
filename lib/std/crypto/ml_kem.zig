@@ -1737,11 +1737,11 @@ test "NIST KAT test" {
         var f = sha2.Sha256.init(.{});
         const fw = f.writer();
         var g = NistDRBG.init(seed);
-        try std.fmt.deprecatedFormat(fw, "# {s}\n\n", .{mode.name});
+        try std.fmt.format(fw, "# {s}\n\n", .{mode.name});
         for (0..100) |i| {
             g.fill(&seed);
-            try std.fmt.deprecatedFormat(fw, "count = {}\n", .{i});
-            try std.fmt.deprecatedFormat(fw, "seed = {X}\n", .{&seed});
+            try std.fmt.format(fw, "count = {}\n", .{i});
+            try std.fmt.format(fw, "seed = {X}\n", .{&seed});
             var g2 = NistDRBG.init(seed);
 
             // This is not equivalent to g2.fill(kseed[:]). As the reference
@@ -1756,10 +1756,10 @@ test "NIST KAT test" {
             const e = kp.public_key.encaps(eseed);
             const ss2 = try kp.secret_key.decaps(&e.ciphertext);
             try testing.expectEqual(ss2, e.shared_secret);
-            try std.fmt.deprecatedFormat(fw, "pk = {X}\n", .{&kp.public_key.toBytes()});
-            try std.fmt.deprecatedFormat(fw, "sk = {X}\n", .{&kp.secret_key.toBytes()});
-            try std.fmt.deprecatedFormat(fw, "ct = {X}\n", .{&e.ciphertext});
-            try std.fmt.deprecatedFormat(fw, "ss = {X}\n\n", .{&e.shared_secret});
+            try std.fmt.format(fw, "pk = {X}\n", .{&kp.public_key.toBytes()});
+            try std.fmt.format(fw, "sk = {X}\n", .{&kp.secret_key.toBytes()});
+            try std.fmt.format(fw, "ct = {X}\n", .{&e.ciphertext});
+            try std.fmt.format(fw, "ss = {X}\n\n", .{&e.shared_secret});
         }
 
         var out: [32]u8 = undefined;

@@ -21,7 +21,7 @@ pub fn writeAll(self: Self, bytes: []const u8) anyerror!void {
 }
 
 pub fn print(self: Self, comptime format: []const u8, args: anytype) anyerror!void {
-    return std.fmt.deprecatedFormat(self, format, args);
+    return std.fmt.format(self, format, args);
 }
 
 pub fn writeByte(self: Self, byte: u8) anyerror!void {

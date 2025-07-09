@@ -2872,7 +2872,7 @@ fn renderIdentifierContents(writer: anytype, bytes: []const u8) !void {
                     .success => |codepoint| {
                         if (codepoint <= 0x7f) {
                             const buf = [1]u8{@as(u8, @intCast(codepoint))};
-                            try std.fmt.deprecatedFormat(writer, "{f}", .{std.zig.fmtString(&buf)});
+                            try std.fmt.format(writer, "{f}", .{std.zig.fmtString(&buf)});
                         } else {
                             try writer.writeAll(escape_sequence);
                         }
@@ -2884,7 +2884,7 @@ fn renderIdentifierContents(writer: anytype, bytes: []const u8) !void {
             },
             0x00...('\\' - 1), ('\\' + 1)...0x7f => {
                 const buf = [1]u8{byte};
-                try std.fmt.deprecatedFormat(writer, "{f}", .{std.zig.fmtString(&buf)});
+                try std.fmt.format(writer, "{f}", .{std.zig.fmtString(&buf)});
                 pos += 1;
             },
             0x80...0xff => {

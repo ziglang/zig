@@ -519,8 +519,192 @@ pub fn writeAllPreserve(w: *Writer, preserve_length: usize, bytes: []const u8) E
     while (index < bytes.len) index += try w.writePreserve(preserve_length, bytes[index..]);
 }
 
-pub fn print(w: *Writer, comptime format: []const u8, args: anytype) Error!void {
-    try std.fmt.format(w, format, args);
+/// Renders fmt string with args, calling `writer` with slices of bytes.
+/// If `writer` returns an error, the error is returned from `format` and
+/// `writer` is not called again.
+///
+/// The format string must be comptime-known and may contain placeholders following
+/// this format:
+/// `{[argument][specifier]:[fill][alignment][width].[precision]}`
+///
+/// Above, each word including its surrounding [ and ] is a parameter which you have to replace with something:
+///
+/// - *argument* is either the numeric index or the field name of the argument that should be inserted
+///   - when using a field name, you are required to enclose the field name (an identifier) in square
+///     brackets, e.g. {[score]...} as opposed to the numeric index form which can be written e.g. {2...}
+/// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
+/// - *fill* is a single byte which is used to pad formatted numbers.
+/// - *alignment* is one of the three bytes '<', '^', or '>' to make numbers
+///   left, center, or right-aligned, respectively.
+///   - Not all specifiers support alignment.
+///   - Alignment is not Unicode-aware; appropriate only when used with raw bytes or ASCII.
+/// - *width* is the total width of the field in bytes. This only applies to number formatting.
+/// - *precision* specifies how many decimals a formatted number should have.
+///
+/// Note that most of the parameters are optional and may be omitted. Also you
+/// can leave out separators like `:` and `.` when all parameters after the
+/// separator are omitted.
+///
+/// Only exception is the *fill* parameter. If a non-zero *fill* character is
+/// required at the same time as *width* is specified, one has to specify
+/// *alignment* as well, as otherwise the digit following `:` is interpreted as
+/// *width*, not *fill*.
+///
+/// The *specifier* has several options for types:
+/// - `x` and `X`: output numeric value in hexadecimal notation, or string in hexadecimal bytes
+/// - `s`:
+///   - for pointer-to-many and C pointers of u8, print as a C-string using zero-termination
+///   - for slices of u8, print the entire slice as a string without zero-termination
+/// - `t`:
+///   - for enums and tagged unions: prints the tag name
+///   - for error sets: prints the error name
+/// - `b64`: output string as standard base64
+/// - `e`: output floating point value in scientific notation
+/// - `d`: output numeric value in decimal notation
+/// - `b`: output integer value in binary notation
+/// - `o`: output integer value in octal notation
+/// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
+/// - `u`: output integer as an UTF-8 sequence. Integer type must have 21 bits at max.
+/// - `D`: output nanoseconds as duration
+/// - `B`: output bytes in SI units (decimal)
+/// - `Bi`: output bytes in IEC units (binary)
+/// - `?`: output optional value as either the unwrapped value, or `null`; may be followed by a format specifier for the underlying value.
+/// - `!`: output error union value as either the unwrapped value, or the formatted error value; may be followed by a format specifier for the underlying value.
+/// - `*`: output the address of the value instead of the value itself.
+/// - `any`: output a value of any type using its default format.
+/// - `f`: delegates to a method on the type named "format" with the signature `fn (*Writer, args: anytype) Writer.Error!void`.
+///
+/// A user type may be a `struct`, `vector`, `union` or `enum` type.
+///
+/// To print literal curly braces, escape them by writing them twice, e.g. `{{` or `}}`.
+pub fn print(w: *Writer, comptime fmt: []const u8, args: anytype) Error!void {
+    const ArgsType = @TypeOf(args);
+    const args_type_info = @typeInfo(ArgsType);
+    if (args_type_info != .@"struct") {
+        @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType));
+    }
+
+    const fields_info = args_type_info.@"struct".fields;
+    const max_format_args = @typeInfo(std.fmt.ArgSetType).int.bits;
+    if (fields_info.len > max_format_args) {
+        @compileError("32 arguments max are supported per format call");
+    }
+
+    @setEvalBranchQuota(fmt.len * 1000);
+    comptime var arg_state: std.fmt.ArgState = .{ .args_len = fields_info.len };
+    comptime var i = 0;
+    comptime var literal: []const u8 = "";
+    inline while (true) {
+        const start_index = i;
+
+        inline while (i < fmt.len) : (i += 1) {
+            switch (fmt[i]) {
+                '{', '}' => break,
+                else => {},
+            }
+        }
+
+        comptime var end_index = i;
+        comptime var unescape_brace = false;
+
+        // Handle {{ and }}, those are un-escaped as single braces
+        if (i + 1 < fmt.len and fmt[i + 1] == fmt[i]) {
+            unescape_brace = true;
+            // Make the first brace part of the literal...
+            end_index += 1;
+            // ...and skip both
+            i += 2;
+        }
+
+        literal = literal ++ fmt[start_index..end_index];
+
+        // We've already skipped the other brace, restart the loop
+        if (unescape_brace) continue;
+
+        // Write out the literal
+        if (literal.len != 0) {
+            try w.writeAll(literal);
+            literal = "";
+        }
+
+        if (i >= fmt.len) break;
+
+        if (fmt[i] == '}') {
+            @compileError("missing opening {");
+        }
+
+        // Get past the {
+        comptime assert(fmt[i] == '{');
+        i += 1;
+
+        const fmt_begin = i;
+        // Find the closing brace
+        inline while (i < fmt.len and fmt[i] != '}') : (i += 1) {}
+        const fmt_end = i;
+
+        if (i >= fmt.len) {
+            @compileError("missing closing }");
+        }
+
+        // Get past the }
+        comptime assert(fmt[i] == '}');
+        i += 1;
+
+        const placeholder_array = fmt[fmt_begin..fmt_end].*;
+        const placeholder = comptime std.fmt.Placeholder.parse(&placeholder_array);
+        const arg_pos = comptime switch (placeholder.arg) {
+            .none => null,
+            .number => |pos| pos,
+            .named => |arg_name| std.meta.fieldIndex(ArgsType, arg_name) orelse
+                @compileError("no argument with name '" ++ arg_name ++ "'"),
+        };
+
+        const width = switch (placeholder.width) {
+            .none => null,
+            .number => |v| v,
+            .named => |arg_name| blk: {
+                const arg_i = comptime std.meta.fieldIndex(ArgsType, arg_name) orelse
+                    @compileError("no argument with name '" ++ arg_name ++ "'");
+                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("too few arguments");
+                break :blk @field(args, arg_name);
+            },
+        };
+
+        const precision = switch (placeholder.precision) {
+            .none => null,
+            .number => |v| v,
+            .named => |arg_name| blk: {
+                const arg_i = comptime std.meta.fieldIndex(ArgsType, arg_name) orelse
+                    @compileError("no argument with name '" ++ arg_name ++ "'");
+                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("too few arguments");
+                break :blk @field(args, arg_name);
+            },
+        };
+
+        const arg_to_print = comptime arg_state.nextArg(arg_pos) orelse
+            @compileError("too few arguments");
+
+        try w.printValue(
+            placeholder.specifier_arg,
+            .{
+                .fill = placeholder.fill,
+                .alignment = placeholder.alignment,
+                .width = width,
+                .precision = precision,
+            },
+            @field(args, fields_info[arg_to_print].name),
+            std.options.fmt_max_depth,
+        );
+    }
+
+    if (comptime arg_state.hasUnusedArgs()) {
+        const missing_count = arg_state.args_len - @popCount(arg_state.used_args);
+        switch (missing_count) {
+            0 => unreachable,
+            1 => @compileError("unused argument in '" ++ fmt ++ "'"),
+            else => @compileError(std.fmt.comptimePrint("{d}", .{missing_count}) ++ " unused arguments in '" ++ fmt ++ "'"),
+        }
+    }
 }
 
 /// Calls `drain` as many times as necessary such that `byte` is transferred.
