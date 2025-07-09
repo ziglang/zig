@@ -40,7 +40,7 @@ pub const backend_can_print = switch (builtin.zig_backend) {
     else => true,
 };
 
-fn print(comptime fmt: []const u8, args: anytype) void {
+pub fn print(comptime fmt: []const u8, args: anytype) void {
     if (@inComptime()) {
         @compileError(std.fmt.comptimePrint(fmt, args));
     } else if (backend_can_print) {
