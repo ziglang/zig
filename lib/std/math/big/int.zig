@@ -2030,11 +2030,11 @@ pub const Mutable = struct {
     }
 
     pub fn format(self: Mutable, w: *std.io.Writer) std.io.Writer.Error!void {
-        return formatInteger(self, w, 10, .lower);
+        return formatNumber(self, w, .{});
     }
 
-    pub fn formatInteger(self: Const, w: *std.io.Writer, base: u8, case: std.fmt.Case) std.io.Writer.Error!void {
-        return self.toConst().formatInteger(w, base, case);
+    pub fn formatNumber(self: Const, w: *std.io.Writer, n: std.fmt.Number) std.io.Writer.Error!void {
+        return self.toConst().formatNumber(w, n);
     }
 };
 
@@ -2329,7 +2329,7 @@ pub const Const = struct {
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn formatInteger(self: Const, w: *std.io.Writer, base: u8, case: std.fmt.Case) std.io.Writer.Error!void {
+    pub fn formatNumber(self: Const, w: *std.io.Writer, number: std.fmt.Number) std.io.Writer.Error!void {
         const available_len = 64;
         if (self.limbs.len > available_len)
             return w.writeAll("(BigInt)");
@@ -2341,7 +2341,8 @@ pub const Const = struct {
             .positive = false,
         };
         var buf: [biggest.sizeInBaseUpperBound(2)]u8 = undefined;
-        const len = self.toString(&buf, base, case, &limbs);
+        const base: u8 = number.mode.base() orelse @panic("TODO print big int in scientific form");
+        const len = self.toString(&buf, base, number.case, &limbs);
         return w.writeAll(buf[0..len]);
     }
 
@@ -2913,15 +2914,15 @@ pub const Managed = struct {
 
     /// To allow `std.fmt.format` to work with `Managed`.
     pub fn format(self: Managed, w: *std.io.Writer) std.io.Writer.Error!void {
-        return formatInteger(self, w, 10, .lower);
+        return formatNumber(self, w, .{});
     }
 
     /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn formatInteger(self: Managed, w: *std.io.Writer, base: u8, case: std.fmt.Case) std.io.Writer.Error!void {
-        return self.toConst().formatInteger(w, base, case);
+    pub fn formatNumber(self: Managed, w: *std.io.Writer, n: std.fmt.Number) std.io.Writer.Error!void {
+        return self.toConst().formatNumber(w, n);
     }
 
     /// Returns math.Order.lt, math.Order.eq, math.Order.gt if |a| < |b|, |a| ==

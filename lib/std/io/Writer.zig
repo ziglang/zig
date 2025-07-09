@@ -744,11 +744,8 @@ pub fn printAddress(w: *Writer, value: anytype) Error!void {
     switch (@typeInfo(T)) {
         .pointer => |info| {
             try w.writeAll(@typeName(info.child) ++ "@");
-            if (info.size == .slice)
-                try w.printInt(@intFromPtr(value.ptr), 16, .lower, .{})
-            else
-                try w.printInt(@intFromPtr(value), 16, .lower, .{});
-            return;
+            const int = if (info.size == .slice) @intFromPtr(value.ptr) else @intFromPtr(value);
+            return w.printInt(int, 16, .lower, .{});
         },
         .optional => |info| {
             if (@typeInfo(info.child) == .pointer) {
@@ -777,9 +774,9 @@ pub fn printValue(
             '*' => return w.printAddress(value),
             'f' => return value.format(w),
             'd' => switch (@typeInfo(T)) {
-                .float, .comptime_float => return printFloat(w, value, .decimal, options),
+                .float, .comptime_float => return printFloat(w, value, options.toNumber(.decimal, .lower)),
                 .int, .comptime_int => return printInt(w, value, 10, .lower, options),
-                .@"struct" => return value.formatInteger(w, 10, .lower),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.decimal, .lower)),
                 .@"enum" => return printInt(w, @intFromEnum(value), 10, .lower, options),
                 .vector => return printVector(w, fmt, options, value, max_depth),
                 else => invalidFmtError(fmt, value),
@@ -789,22 +786,22 @@ pub fn printValue(
             'b' => switch (@typeInfo(T)) {
                 .int, .comptime_int => return printInt(w, value, 2, .lower, options),
                 .@"enum" => return printInt(w, @intFromEnum(value), 2, .lower, options),
-                .@"struct" => return value.formatInteger(w, 2, .lower),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.binary, .lower)),
                 .vector => return printVector(w, fmt, options, value, max_depth),
                 else => invalidFmtError(fmt, value),
             },
             'o' => switch (@typeInfo(T)) {
                 .int, .comptime_int => return printInt(w, value, 8, .lower, options),
                 .@"enum" => return printInt(w, @intFromEnum(value), 8, .lower, options),
-                .@"struct" => return value.formatInteger(w, 8, .lower),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.octal, .lower)),
                 .vector => return printVector(w, fmt, options, value, max_depth),
                 else => invalidFmtError(fmt, value),
             },
             'x' => switch (@typeInfo(T)) {
-                .float, .comptime_float => return printFloatHexOptions(w, value, .lower, options),
+                .float, .comptime_float => return printFloatHexOptions(w, value, options.toNumber(.hex, .lower)),
                 .int, .comptime_int => return printInt(w, value, 16, .lower, options),
                 .@"enum" => return printInt(w, @intFromEnum(value), 16, .lower, options),
-                .@"struct" => return value.formatInteger(w, 16, .lower),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.hex, .lower)),
                 .pointer => |info| switch (info.size) {
                     .one, .slice => {
                         const slice: []const u8 = value;
@@ -823,10 +820,10 @@ pub fn printValue(
                 else => invalidFmtError(fmt, value),
             },
             'X' => switch (@typeInfo(T)) {
-                .float, .comptime_float => return printFloatHexOptions(w, value, .lower, options),
+                .float, .comptime_float => return printFloatHexOptions(w, value, options.toNumber(.hex, .lower)),
                 .int, .comptime_int => return printInt(w, value, 16, .upper, options),
                 .@"enum" => return printInt(w, @intFromEnum(value), 16, .upper, options),
-                .@"struct" => return value.formatInteger(w, 16, .upper),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.hex, .upper)),
                 .pointer => |info| switch (info.size) {
                     .one, .slice => {
                         const slice: []const u8 = value;
@@ -872,8 +869,13 @@ pub fn printValue(
                 else => invalidFmtError(fmt, value),
             },
             'e' => switch (@typeInfo(T)) {
-                .float, .comptime_float => return printFloat(w, value, .scientific, options),
-                .@"struct" => return value.formatFloat(w, .scientific),
+                .float, .comptime_float => return printFloat(w, value, options.toNumber(.scientific, .lower)),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.scientific, .lower)),
+                else => invalidFmtError(fmt, value),
+            },
+            'E' => switch (@typeInfo(T)) {
+                .float, .comptime_float => return printFloat(w, value, options.toNumber(.scientific, .upper)),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.scientific, .upper)),
                 else => invalidFmtError(fmt, value),
             },
             't' => switch (@typeInfo(T)) {
@@ -923,7 +925,7 @@ pub fn printValue(
     switch (@typeInfo(T)) {
         .float, .comptime_float => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
-            return printFloat(w, value, .decimal, options);
+            return printFloat(w, value, options.toNumber(.decimal, .lower));
         },
         .int, .comptime_int => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
@@ -1262,12 +1264,13 @@ pub fn printUnicodeCodepoint(w: *Writer, c: u21) Error!void {
     return w.writeAll(buf[0..len]);
 }
 
-pub fn printFloat(
-    w: *Writer,
-    value: anytype,
-    mode: std.fmt.float.Mode,
-    options: std.fmt.Options,
-) Error!void {
+/// Uses a larger stack buffer; asserts mode is decimal or scientific.
+pub fn printFloat(w: *Writer, value: anytype, options: std.fmt.Number) Error!void {
+    const mode: std.fmt.float.Mode = switch (options.mode) {
+        .decimal => .decimal,
+        .scientific => .scientific,
+        .binary, .octal, .hex => unreachable,
+    };
     var buf: [std.fmt.float.bufferSize(.decimal, f64)]u8 = undefined;
     const s = std.fmt.float.render(&buf, value, .{
         .mode = mode,
@@ -1275,20 +1278,36 @@ pub fn printFloat(
     }) catch |err| switch (err) {
         error.BufferTooSmall => "(float)",
     };
-    return w.alignBufferOptions(s, options);
+    return w.alignBuffer(s, options.width orelse s.len, options.alignment, options.fill);
 }
 
-pub fn printFloatHexOptions(w: *Writer, value: anytype, case: std.fmt.Case, options: std.fmt.Options) Error!void {
+/// Uses a smaller stack buffer; asserts mode is not decimal or scientific.
+pub fn printFloatHexOptions(w: *Writer, value: anytype, options: std.fmt.Number) Error!void {
     var buf: [50]u8 = undefined; // for aligning
     var sub_writer: Writer = .fixed(&buf);
-    printFloatHex(&sub_writer, value, case, options.precision) catch unreachable; // buf is large enough
-    return w.alignBufferOptions(sub_writer.buffered(), options);
+    switch (options.mode) {
+        .decimal => unreachable,
+        .scientific => unreachable,
+        .binary => @panic("TODO"),
+        .octal => @panic("TODO"),
+        .hex => {},
+    }
+    printFloatHex(&sub_writer, value, options.case, options.precision) catch unreachable; // buf is large enough
+
+    const printed = sub_writer.buffered();
+    return w.alignBuffer(printed, options.width orelse printed.len, options.alignment, options.fill);
 }
 
 pub fn printFloatHex(w: *Writer, value: anytype, case: std.fmt.Case, opt_precision: ?usize) Error!void {
     if (std.math.signbit(value)) try w.writeByte('-');
-    if (std.math.isNan(value)) return w.writeAll("nan");
-    if (std.math.isInf(value)) return w.writeAll("inf");
+    if (std.math.isNan(value)) return w.writeAll(switch (case) {
+        .lower => "nan",
+        .upper => "NAN",
+    });
+    if (std.math.isInf(value)) return w.writeAll(switch (case) {
+        .lower => "inf",
+        .upper => "INF",
+    });
 
     const T = @TypeOf(value);
     const TU = std.meta.Int(.unsigned, @bitSizeOf(T));
@@ -1822,7 +1841,7 @@ test printInt {
 test "printFloat with comptime_float" {
     var buf: [20]u8 = undefined;
     var w: Writer = .fixed(&buf);
-    try w.printFloat(@as(comptime_float, 1.0), .scientific, .{});
+    try w.printFloat(@as(comptime_float, 1.0), std.fmt.Options.toNumber(.{}, .scientific, .lower));
     try std.testing.expectEqualStrings(w.buffered(), "1e0");
     try std.testing.expectFmt("1", "{}", .{1.0});
 }

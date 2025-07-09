@@ -37,6 +37,45 @@ pub const Options = struct {
     width: ?usize = null,
     alignment: Alignment = default_alignment,
     fill: u8 = default_fill_char,
+
+    pub fn toNumber(o: Options, mode: Number.Mode, case: Case) Number {
+        return .{
+            .mode = mode,
+            .case = case,
+            .precision = o.precision,
+            .width = o.width,
+            .alignment = o.alignment,
+            .fill = o.fill,
+        };
+    }
+};
+
+pub const Number = struct {
+    mode: Mode = .decimal,
+    /// Affects hex digits as well as floating point "inf"/"INF".
+    case: Case = .lower,
+    precision: ?usize = null,
+    width: ?usize = null,
+    alignment: Alignment = default_alignment,
+    fill: u8 = default_fill_char,
+
+    pub const Mode = enum {
+        decimal,
+        binary,
+        octal,
+        hex,
+        scientific,
+
+        pub fn base(mode: Mode) ?u8 {
+            return switch (mode) {
+                .decimal => 10,
+                .binary => 2,
+                .octal => 8,
+                .hex => 16,
+                .scientific => null,
+            };
+        }
+    };
 };
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
