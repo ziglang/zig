@@ -586,10 +586,23 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?mem.Alignment) ty
             return val;
         }
 
+        /// Returns a pointer to the last element from the list.
+        /// Asserts that the list is not empty.
+        pub fn getLastPtr(self: Self) *T {
+            const val = &self.items[self.items.len - 1];
+            return val;
+        }
+
         /// Returns the last element from the list, or `null` if list is empty.
         pub fn getLastOrNull(self: Self) ?T {
             if (self.items.len == 0) return null;
             return self.getLast();
+        }
+
+        /// Returns a pointer to the last element from the list, or `null` if list is empty.
+        pub fn getLastOrNullPtr(self: Self) ?*T {
+            if (self.items.len == 0) return null;
+            return self.getLastPtr();
         }
     };
 }
@@ -1208,11 +1221,25 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?mem.Alig
             return val;
         }
 
+        /// Return a pointer to the last element from the list.
+        /// Asserts that the list is not empty.
+        pub fn getLastPtr(self: Self) *T {
+            const val = &self.items[self.items.len - 1];
+            return val;
+        }
+
         /// Return the last element from the list, or
         /// return `null` if list is empty.
         pub fn getLastOrNull(self: Self) ?T {
             if (self.items.len == 0) return null;
             return self.getLast();
+        }
+
+        /// Return a pointer the last element from the list, or
+        /// return `null` if list is empty.
+        pub fn getLastOrNullPtr(self: Self) ?*T {
+            if (self.items.len == 0) return null;
+            return self.getLastPtr();
         }
 
         const init_capacity = @as(comptime_int, @max(1, std.atomic.cache_line / @sizeOf(T)));
