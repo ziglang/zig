@@ -3666,6 +3666,12 @@ const NavGen = struct {
         comptime op: BinaryOp,
         comptime mode: enum { WithOverflow, Saturating },
     ) !?IdRef {
+        // Note: OpIAddCarry and OpISubBorrow are not really useful here: For unsigned numbers,
+        // there is in both cases only one extra operation required. For signed operations,
+        // the overflow bit is set then going from 0x80.. to 0x00.., but this doesn't actually
+        // normally set a carry bit. So the SPIR-V overflow operations are not particularly
+        // useful here.
+
         const info = self.arithmeticTypeInfo(lhs.ty);
         switch (info.class) {
             .composite_integer => unreachable, // TODO
@@ -3682,7 +3688,7 @@ const NavGen = struct {
             .unsigned => switch (op) {
                 .i_add => try self.buildCmp(.u_lt, result, lhs),
                 .i_sub => try self.buildCmp(.u_gt, result, lhs),
-                else => unreachable,
+                else => @compileLog(op),
             },
             // For signed operations, we check the signs of the operands and the result.
             .signed => blk: {
@@ -3702,10 +3708,11 @@ const NavGen = struct {
                 const signs_match = try self.buildCmp(.l_eq, lhs_is_neg, rhs_is_neg);
                 const result_sign_differs = try self.buildCmp(.l_ne, lhs_is_neg, result_is_neg);
 
-                const overflow_condition = if (op == .i_add)
-                    signs_match
-                else // .i_sub
-                    try self.buildUnary(.l_not, signs_match);
+                const overflow_condition = switch (op) {
+                    .i_add => signs_match,
+                    .i_sub => try self.buildUnary(.l_not, signs_match),
+                    else => @compileLog(op),
+                };
 
                 break :blk try self.buildBinary(.l_and, overflow_condition, result_sign_differs);
             },
@@ -3743,7 +3750,7 @@ const NavGen = struct {
                     const saturation_val: u64 = switch (op) {
                         .i_add => if (info.bits == 0) 0 else if (info.bits == 64) std.math.maxInt(u64) else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1, // saturate to max on overflow
                         .i_sub => 0, // saturate to min (0) on underflow
-                        else => unreachable,
+                        else => @compileLog(op),
                     };
                     const saturation_id = try self.constInt(scalar_ty, saturation_val);
                     const saturation_tmp = Temporary.init(scalar_ty, saturation_id);
