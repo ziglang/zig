@@ -1293,13 +1293,14 @@ pub const basic_authorization = struct {
         const user: Uri.Component = uri.user orelse .empty;
         const password: Uri.Component = uri.password orelse .empty;
 
-        var w: std.io.Writer = .discarding(&.{});
-        user.formatUser(&w) catch unreachable; // discarding
-        const user_len = w.count;
+        var dw: std.io.Writer.Discarding = .init(&.{});
+        user.formatUser(&dw.writer) catch unreachable; // discarding
+        const user_len = dw.count + dw.writer.end;
 
-        w.count = 0;
-        password.formatPassword(&w) catch unreachable; // discarding
-        const password_len = w.count;
+        dw.count = 0;
+        dw.writer.end = 0;
+        password.formatPassword(&dw.writer) catch unreachable; // discarding
+        const password_len = dw.count + dw.writer.end;
 
         return valueLength(@intCast(user_len), @intCast(password_len));
     }
@@ -1311,7 +1312,6 @@ pub const basic_authorization = struct {
         var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
         var w: std.io.Writer = .fixed(&buf);
         user.formatUser(&w) catch unreachable; // fixed
-        assert(w.count <= max_user_len);
         password.formatPassword(&w) catch unreachable; // fixed
 
         @memcpy(out[0..prefix.len], prefix);

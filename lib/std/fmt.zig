@@ -772,11 +772,11 @@ pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErr
 /// Count the characters needed for format.
 pub fn count(comptime fmt: []const u8, args: anytype) usize {
     var trash_buffer: [64]u8 = undefined;
-    var w: Writer = .discarding(&trash_buffer);
-    w.print(fmt, args) catch |err| switch (err) {
+    var dw: Writer.Discarding = .init(&trash_buffer);
+    dw.writer.print(fmt, args) catch |err| switch (err) {
         error.WriteFailed => unreachable,
     };
-    return w.count;
+    return @intCast(dw.count + dw.writer.end);
 }
 
 pub fn allocPrint(gpa: Allocator, comptime fmt: []const u8, args: anytype) Allocator.Error![]u8 {

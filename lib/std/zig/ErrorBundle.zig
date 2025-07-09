@@ -195,22 +195,30 @@ fn renderErrorMessageToWriter(
 ) (Writer.Error || std.posix.UnexpectedError)!void {
     const ttyconf = options.ttyconf;
     const err_msg = eb.getErrorMessage(err_msg_index);
-    const prefix_start = w.count;
     if (err_msg.src_loc != .none) {
         const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
+        var prefix: std.io.Writer.Discarding = .init(&.{});
         try w.splatByteAll(' ', indent);
+        prefix.count += indent;
         try ttyconf.setColor(w, .bold);
         try w.print("{s}:{d}:{d}: ", .{
             eb.nullTerminatedString(src.data.src_path),
             src.data.line + 1,
             src.data.column + 1,
         });
+        try prefix.writer.print("{s}:{d}:{d}: ", .{
+            eb.nullTerminatedString(src.data.src_path),
+            src.data.line + 1,
+            src.data.column + 1,
+        });
         try ttyconf.setColor(w, color);
         try w.writeAll(kind);
+        prefix.count += kind.len;
         try w.writeAll(": ");
+        prefix.count += 2;
         // This is the length of the part before the error message:
         // e.g. "file.zig:4:5: error: "
-        const prefix_len = w.count - prefix_start;
+        const prefix_len: usize = @intCast(prefix.count);
         try ttyconf.setColor(w, .reset);
         try ttyconf.setColor(w, .bold);
         if (err_msg.count == 1) {

@@ -1390,8 +1390,8 @@ const x86_64 = struct {
                     // TODO: hack to force imm32s in the assembler
                     .{ .imm = .s(-129) },
                 }, t) catch return false;
-                var trash = std.io.Writer.discarding(&.{});
-                inst.encode(&trash, .{}) catch return false;
+                var trash: std.io.Writer.Discarding = .init(&.{});
+                inst.encode(&trash.writer, .{}) catch return false;
                 return true;
             },
             else => return false,

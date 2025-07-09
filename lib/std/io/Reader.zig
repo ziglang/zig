@@ -132,10 +132,8 @@ pub fn stream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
         r.seek += n;
         return n;
     }
-    const before = w.count;
     const n = try r.vtable.stream(r, w, limit);
     assert(n <= @intFromEnum(limit));
-    assert(w.count == before + n);
     return n;
 }
 
@@ -158,17 +156,17 @@ pub fn discard(r: *Reader, limit: Limit) Error!usize {
 pub fn defaultDiscard(r: *Reader, limit: Limit) Error!usize {
     assert(r.seek == 0);
     assert(r.end == 0);
-    var w: Writer = .discarding(r.buffer);
-    const n = r.stream(&w, limit) catch |err| switch (err) {
+    var dw: Writer.Discarding = .init(r.buffer);
+    const n = r.stream(&dw.writer, limit) catch |err| switch (err) {
         error.WriteFailed => unreachable,
         error.ReadFailed => return error.ReadFailed,
         error.EndOfStream => return error.EndOfStream,
     };
     if (n > @intFromEnum(limit)) {
         const over_amt = n - @intFromEnum(limit);
-        r.seek = w.end - over_amt;
-        r.end = w.end;
-        assert(r.end <= w.buffer.len); // limit may be exceeded only by an amount within buffer capacity.
+        r.seek = dw.writer.end - over_amt;
+        r.end = dw.writer.end;
+        assert(r.end <= dw.writer.buffer.len); // limit may be exceeded only by an amount within buffer capacity.
         return @intFromEnum(limit);
     }
     return n;

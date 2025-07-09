@@ -14,12 +14,6 @@ vtable: *const VTable,
 buffer: []u8,
 /// In `buffer` before this are buffered bytes, after this is `undefined`.
 end: usize = 0,
-/// Tracks total number of bytes written to this `Writer`. This value
-/// only increases. In the case of fixed mode, this value always equals `end`.
-///
-/// This value is maintained by the interface; `VTable` function
-/// implementations need not modify it.
-count: usize = 0,
 
 pub const VTable = struct {
     /// Sends bytes to the logical sink. A write will only be sent here if it
@@ -117,8 +111,7 @@ pub const FileError = error{
     Unimplemented,
 };
 
-/// Writes to `buffer` and returns `error.WriteFailed` when it is full. Unless
-/// modified externally, `count` will always equal `end`.
+/// Writes to `buffer` and returns `error.WriteFailed` when it is full.
 pub fn fixed(buffer: []u8) Writer {
     return .{
         .vtable = &.{ .drain = fixedDrain },
@@ -136,16 +129,6 @@ pub const failing: Writer = .{
         .sendFile = failingSendFile,
     },
 };
-
-pub fn discarding(buffer: []u8) Writer {
-    return .{
-        .vtable = &.{
-            .drain = discardingDrain,
-            .sendFile = discardingSendFile,
-        },
-        .buffer = buffer,
-    };
-}
 
 /// Returns the contents not yet drained.
 pub fn buffered(w: *const Writer) []u8 {
@@ -178,12 +161,7 @@ pub fn writeSplat(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     assert(data.len > 0);
     const buffer = w.buffer;
     const count = countSplat(data, splat);
-    if (w.end + count > buffer.len) {
-        const n = try w.vtable.drain(w, data, splat);
-        w.count += n;
-        return n;
-    }
-    w.count += count;
+    if (w.end + count > buffer.len) return w.vtable.drain(w, data, splat);
     for (data) |bytes| {
         @memcpy(buffer[w.end..][0..bytes.len], bytes);
         w.end += bytes.len;
@@ -236,7 +214,6 @@ pub fn writeSplatHeader(
     if (new_end <= w.buffer.len) {
         @memcpy(w.buffer[w.end..][0..header.len], header);
         w.end = new_end;
-        w.count += header.len;
         return header.len + try writeSplat(w, data, splat);
     }
     var vecs: [8][]const u8 = undefined; // Arbitrarily chosen size.
@@ -249,9 +226,7 @@ pub fn writeSplatHeader(
         if (vecs.len - i == 0) break;
     }
     const new_splat = if (vecs[i - 1].ptr == data[data.len - 1].ptr) splat else 1;
-    const n = try w.vtable.drain(w, vecs[0..i], new_splat);
-    w.count += n;
-    return n;
+    return w.vtable.drain(w, vecs[0..i], new_splat);
 }
 
 /// Equivalent to `writeSplatHeader` but writes at most `limit` bytes.
@@ -429,7 +404,6 @@ pub fn ensureUnusedCapacity(w: *Writer, n: usize) Error!void {
 
 pub fn undo(w: *Writer, n: usize) void {
     w.end -= n;
-    w.count -= n;
 }
 
 /// After calling `writableSliceGreedy`, this function tracks how many bytes
@@ -440,13 +414,11 @@ pub fn advance(w: *Writer, n: usize) void {
     const new_end = w.end + n;
     assert(new_end <= w.buffer.len);
     w.end = new_end;
-    w.count += n;
 }
 
 /// After calling `writableVector`, this function tracks how many bytes were
 /// written to it.
 pub fn advanceVector(w: *Writer, n: usize) usize {
-    w.count += n;
     return consume(w, n);
 }
 
@@ -504,12 +476,9 @@ pub fn write(w: *Writer, bytes: []const u8) Error!usize {
         @branchHint(.likely);
         @memcpy(w.buffer[w.end..][0..bytes.len], bytes);
         w.end += bytes.len;
-        w.count += bytes.len;
         return bytes.len;
     }
-    const n = try w.vtable.drain(w, &.{bytes}, 1);
-    w.count += n;
-    return n;
+    return w.vtable.drain(w, &.{bytes}, 1);
 }
 
 /// Asserts `buffer` capacity exceeds `preserve_length`.
@@ -519,7 +488,6 @@ pub fn writePreserve(w: *Writer, preserve_length: usize, bytes: []const u8) Erro
         @branchHint(.likely);
         @memcpy(w.buffer[w.end..][0..bytes.len], bytes);
         w.end += bytes.len;
-        w.count += bytes.len;
         return bytes.len;
     }
     const temp_end = w.end -| preserve_length;
@@ -527,7 +495,6 @@ pub fn writePreserve(w: *Writer, preserve_length: usize, bytes: []const u8) Erro
     w.end = temp_end;
     defer w.end += preserved.len;
     const n = try w.vtable.drain(w, &.{bytes}, 1);
-    w.count += n;
     assert(w.end <= temp_end + preserved.len);
     @memmove(w.buffer[w.end..][0..preserved.len], preserved);
     return n;
@@ -560,15 +527,11 @@ pub fn print(w: *Writer, comptime format: []const u8, args: anytype) Error!void 
 pub fn writeByte(w: *Writer, byte: u8) Error!void {
     while (w.buffer.len - w.end == 0) {
         const n = try w.vtable.drain(w, &.{&.{byte}}, 1);
-        if (n > 0) {
-            w.count += 1;
-            return;
-        }
+        if (n > 0) return;
     } else {
         @branchHint(.likely);
         w.buffer[w.end] = byte;
         w.end += 1;
-        w.count += 1;
     }
 }
 
@@ -581,7 +544,6 @@ pub fn writeBytePreserve(w: *Writer, preserve_length: usize, byte: u8) Error!voi
         @branchHint(.likely);
         w.buffer[w.end] = byte;
         w.end += 1;
-        w.count += 1;
     }
 }
 
@@ -690,12 +652,10 @@ pub fn sendFileHeader(
     if (new_end <= w.buffer.len) {
         @memcpy(w.buffer[w.end..][0..header.len], header);
         w.end = new_end;
-        w.count += header.len;
         return header.len + try w.vtable.sendFile(w, file_reader, limit);
     }
     const buffered_contents = limit.slice(file_reader.interface.buffered());
     const n = try w.vtable.drain(w, &.{ header, buffered_contents }, 1);
-    w.count += n;
     file_reader.interface.toss(n - header.len);
     return n;
 }
@@ -1950,29 +1910,52 @@ pub fn failingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) File
     return error.WriteFailed;
 }
 
-pub fn discardingDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-    const slice = data[0 .. data.len - 1];
-    const pattern = data[slice.len..];
-    var written: usize = pattern.len * splat;
-    for (slice) |bytes| written += bytes.len;
-    w.end = 0;
-    return written;
-}
+pub const Discarding = struct {
+    count: u64,
+    writer: Writer,
 
-pub fn discardingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
-    if (File.Handle == void) return error.Unimplemented;
-    w.end = 0;
-    if (file_reader.getSize()) |size| {
-        const n = limit.minInt64(size - file_reader.pos);
-        file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
-        w.end = 0;
-        return n;
-    } else |_| {
-        // Error is observable on `file_reader` instance, and it is better to
-        // treat the file as a pipe.
-        return error.Unimplemented;
+    pub fn init(buffer: []u8) Discarding {
+        return .{
+            .count = 0,
+            .writer = .{
+                .vtable = &.{
+                    .drain = Discarding.drain,
+                    .sendFile = Discarding.sendFile,
+                },
+                .buffer = buffer,
+            },
+        };
     }
-}
+
+    pub fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+        const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
+        const slice = data[0 .. data.len - 1];
+        const pattern = data[slice.len..];
+        var written: usize = pattern.len * splat;
+        for (slice) |bytes| written += bytes.len;
+        d.count += w.end + written;
+        w.end = 0;
+        return written;
+    }
+
+    pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+        if (File.Handle == void) return error.Unimplemented;
+        const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
+        d.count += w.end;
+        w.end = 0;
+        if (file_reader.getSize()) |size| {
+            const n = limit.minInt64(size - file_reader.pos);
+            file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
+            w.end = 0;
+            d.count += n;
+            return n;
+        } else |_| {
+            // Error is observable on `file_reader` instance, and it is better to
+            // treat the file as a pipe.
+            return error.Unimplemented;
+        }
+    }
+};
 
 /// Removes the first `n` bytes from `buffer` by shifting buffer contents,
 /// returning how many bytes are left after consuming the entire buffer, or
@@ -2219,9 +2202,7 @@ pub const Allocating = struct {
     }
 
     pub fn shrinkRetainingCapacity(a: *Allocating, new_len: usize) void {
-        const shrink_by = a.writer.end - new_len;
         a.writer.end = new_len;
-        a.writer.count -= shrink_by;
     }
 
     pub fn clearRetainingCapacity(a: *Allocating) void {

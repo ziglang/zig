@@ -1016,8 +1016,8 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
     // By using a buffer with maximum length of encoded instruction, we can use
     // the `end` field of the Writer for the count.
     var buf: [16]u8 = undefined;
-    var trash = std.io.Writer.discarding(&buf);
-    inst.encode(&trash, .{
+    var trash: std.io.Writer.Discarding = .init(&buf);
+    inst.encode(&trash.writer, .{
         .allow_frame_locs = true,
         .allow_symbols = true,
     }) catch {
@@ -1027,7 +1027,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
         // (`estimateInstructionLength`) has the wrong function signature.
         @panic("unexpected failure to encode");
     };
-    return @intCast(trash.end);
+    return trash.writer.end;
 }
 
 const mnemonic_to_encodings_map = init: {

@@ -1603,10 +1603,10 @@ test "manage resources correctly" {
     // self-hosted debug info is still too buggy
     if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
 
-    var writer: std.io.Writer = .discarding(&.{});
+    var discarding: std.io.Writer.Discarding = .init(&.{});
     var di = try SelfInfo.open(testing.allocator);
     defer di.deinit();
-    try printSourceAtAddress(&di, &writer, showMyTrace(), io.tty.detectConfig(.stderr()));
+    try printSourceAtAddress(&di, &discarding.writer, showMyTrace(), io.tty.detectConfig(.stderr()));
 }
 
 noinline fn showMyTrace() usize {
