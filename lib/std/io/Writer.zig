@@ -851,19 +851,16 @@ pub fn printValue(
                 .pointer => |info| switch (info.size) {
                     .one, .slice => {
                         const slice: []const u8 = value;
-                        optionsForbidden(options); // Alignment not allowed on strings.
-                        return w.writeAll(slice);
+                        return w.alignBufferOptions(slice, options);
                     },
                     .many, .c => {
                         const slice: [:0]const u8 = std.mem.span(value);
-                        optionsForbidden(options); // Alignment not allowed on strings.
-                        return w.writeAll(slice);
+                        return w.alignBufferOptions(slice, options);
                     },
                 },
                 .array => {
                     const slice: []const u8 = &value;
-                    optionsForbidden(options); // Alignment not allowed on strings.
-                    return w.writeAll(slice);
+                    return w.alignBufferOptions(slice, options);
                 },
                 else => invalidFmtError(fmt, value),
             },
@@ -1118,8 +1115,7 @@ pub fn printValue(
         .@"fn" => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .type => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
-            optionsForbidden(options);
-            return w.writeAll(@typeName(value));
+            return w.alignBufferOptions(@typeName(value), options);
         },
         .enum_literal => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);

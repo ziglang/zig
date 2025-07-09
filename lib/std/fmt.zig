@@ -95,6 +95,8 @@ pub const Number = struct {
 /// - *fill* is a single byte which is used to pad formatted numbers.
 /// - *alignment* is one of the three bytes '<', '^', or '>' to make numbers
 ///   left, center, or right-aligned, respectively.
+///   - Not all specifiers support alignment.
+///   - Alignment is not Unicode-aware; appropriate only when used with raw bytes or ASCII.
 /// - *width* is the total width of the field in bytes. This only applies to number formatting.
 /// - *precision* specifies how many decimals a formatted number should have.
 ///
