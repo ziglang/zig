@@ -275,11 +275,12 @@ test "saturating multiplication" {
             try testSatMul(i16, maxInt(i16), -1, minInt(i16) + 1);
             try testSatMul(u8, 10, 3, 30);
             try testSatMul(u8, 2, 255, 255);
-            if (builtin.zig_backend != .stage2_spirv) {
-                try testSatMul(i128, maxInt(i128), -1, minInt(i128) + 1);
-                try testSatMul(i128, minInt(i128), -1, maxInt(i128));
-                try testSatMul(u128, maxInt(u128), maxInt(u128), maxInt(u128));
-            }
+
+            if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO composite_integer
+
+            try testSatMul(i128, maxInt(i128), -1, minInt(i128) + 1);
+            try testSatMul(i128, minInt(i128), -1, maxInt(i128));
+            try testSatMul(u128, maxInt(u128), maxInt(u128), maxInt(u128));
         }
     };
 
@@ -303,12 +304,6 @@ test "saturating shift-left" {
             try testSatShl(i8, 1, u8, 2, 4);
             try testSatShl(i8, 127, u8, 1, 127);
             try testSatShl(i8, -128, u8, 1, -128);
-            // TODO: remove wasm check once #9668 is completed
-            if (builtin.zig_backend != .stage2_spirv and !builtin.cpu.arch.isWasm()) {
-                // skip testing ints > 64 bits on wasm due to miscompilation / wasmtime ci error
-                try testSatShl(i128, maxInt(i128), u128, 64, maxInt(i128));
-                try testSatShl(u128, maxInt(u128), u128, 64, maxInt(u128));
-            }
             try testSatShl(u8, 1, u8, 2, 4);
             try testSatShl(u8, 255, u8, 1, 255);
             try testSatShl(i8, -3, u4, 8, minInt(i8));
@@ -316,6 +311,11 @@ test "saturating shift-left" {
             try testSatShl(i8, 3, u4, 8, maxInt(i8));
             try testSatShl(u8, 0, u4, 8, 0);
             try testSatShl(u8, 3, u4, 8, maxInt(u8));
+
+            if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO composite_integer
+
+            try testSatShl(i128, maxInt(i128), u128, 64, maxInt(i128));
+            try testSatShl(u128, maxInt(u128), u128, 64, maxInt(u128));
         }
 
         fn testSatShl(comptime Lhs: type, lhs: Lhs, comptime Rhs: type, rhs: Rhs, expected: Lhs) !void {
