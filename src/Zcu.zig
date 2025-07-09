@@ -1677,19 +1677,36 @@ pub const SrcLoc = struct {
                 return tree.nodeToSpan(condition);
             },
 
-            .node_offset_switch_special_prong => |node_off| {
+            .node_offset_switch_else_prong => |node_off| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const switch_node = node_off.toAbsolute(src_loc.base_node);
                 _, const extra_index = tree.nodeData(switch_node).node_and_extra;
                 const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
                 for (case_nodes) |case_node| {
                     const case = tree.fullSwitchCase(case_node).?;
-                    if (case.isSpecial(tree)) |special_node| {
-                        return tree.tokensToSpan(
-                            tree.firstToken(case_node),
-                            tree.lastToken(case_node),
-                            tree.nodeMainToken(special_node.unwrap() orelse case_node),
-                        );
+                    if (case.ast.values.len == 0) {
+                        return tree.nodeToSpan(case_node);
+                    }
+                } else unreachable;
+            },
+
+            .node_offset_switch_under_prong => |node_off| {
+                const tree = try src_loc.file_scope.getTree(zcu);
+                const switch_node = node_off.toAbsolute(src_loc.base_node);
+                _, const extra_index = tree.nodeData(switch_node).node_and_extra;
+                const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
+                for (case_nodes) |case_node| {
+                    const case = tree.fullSwitchCase(case_node).?;
+                    for (case.ast.values) |val| {
+                        if (tree.nodeTag(val) == .identifier and
+                            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(val)), "_"))
+                        {
+                            return tree.tokensToSpan(
+                                tree.firstToken(case_node),
+                                tree.lastToken(case_node),
+                                tree.nodeMainToken(val),
+                            );
+                        }
                     }
                 } else unreachable;
             },
@@ -1701,10 +1718,6 @@ pub const SrcLoc = struct {
                 const case_nodes = tree.extraDataSlice(tree.extraData(extra_index, Ast.Node.SubRange), Ast.Node.Index);
                 for (case_nodes) |case_node| {
                     const case = tree.fullSwitchCase(case_node).?;
-                    if (case.isSpecial(tree)) |maybe_else| {
-                        if (maybe_else == .none) continue;
-                    }
-
                     for (case.ast.values) |item_node| {
                         if (tree.nodeTag(item_node) == .switch_range) {
                             return tree.nodeToSpan(item_node);
@@ -2109,32 +2122,35 @@ pub const SrcLoc = struct {
 
                 var multi_i: u32 = 0;
                 var scalar_i: u32 = 0;
-                var found_special = false;
                 var underscore_node: Ast.Node.OptionalIndex = .none;
-                const case = for (case_nodes) |case_node| {
+                const case = case: for (case_nodes) |case_node| {
                     const case = tree.fullSwitchCase(case_node).?;
-                    const is_special = special: {
-                        if (found_special) break :special false;
-                        if (case.isSpecial(tree)) |special_node| {
-                            underscore_node = special_node;
-                            found_special = true;
-                            break :special true;
+                    if (case.ast.values.len == 0) {
+                        if (want_case_idx == LazySrcLoc.Offset.SwitchCaseIndex.special_else) {
+                            break :case case;
                         }
-                        break :special false;
-                    };
-                    if (is_special) {
-                        if (want_case_idx == LazySrcLoc.Offset.SwitchCaseIndex.special) {
-                            break case;
-                        }
-                        continue;
+                        continue :case;
                     }
+                    if (underscore_node == .none) for (case.ast.values) |val_node| {
+                        if (tree.nodeTag(val_node) == .identifier and
+                            mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(val_node)), "_"))
+                        {
+                            underscore_node = val_node.toOptional();
+                            if (want_case_idx == LazySrcLoc.Offset.SwitchCaseIndex.special_under) {
+                                break :case case;
+                            }
+                            continue :case;
+                        }
+                    };
 
                     const is_multi = case.ast.values.len != 1 or
                         tree.nodeTag(case.ast.values[0]) == .switch_range;
 
                     switch (want_case_idx.kind) {
-                        .scalar => if (!is_multi and want_case_idx.index == scalar_i) break case,
-                        .multi => if (is_multi and want_case_idx.index == multi_i) break case,
+                        .scalar => if (!is_multi and want_case_idx.index == scalar_i)
+                            break :case case,
+                        .multi => if (is_multi and want_case_idx.index == multi_i)
+                            break :case case,
                     }
 
                     if (is_multi) {
@@ -2148,7 +2164,10 @@ pub const SrcLoc = struct {
                     .switch_case_item,
                     .switch_case_item_range_first,
                     .switch_case_item_range_last,
-                    => |x| x.item_idx,
+                    => |x| item_idx: {
+                        assert(want_case_idx != LazySrcLoc.Offset.SwitchCaseIndex.special_else);
+                        break :item_idx x.item_idx;
+                    },
                     .switch_capture, .switch_tag_capture => {
                         const start = switch (src_loc.lazy) {
                             .switch_capture => case.payload_token.?,
@@ -2369,10 +2388,14 @@ pub const LazySrcLoc = struct {
         /// by taking this AST node index offset from the containing base node,
         /// which points to a switch expression AST node. Next, navigate to the operand.
         node_offset_switch_operand: Ast.Node.Offset,
-        /// The source location points to the else/`_` prong of a switch expression, found
+        /// The source location points to the else prong of a switch expression, found
         /// by taking this AST node index offset from the containing base node,
-        /// which points to a switch expression AST node. Next, navigate to the else/`_` prong.
-        node_offset_switch_special_prong: Ast.Node.Offset,
+        /// which points to a switch expression AST node. Next, navigate to the else prong.
+        node_offset_switch_else_prong: Ast.Node.Offset,
+        /// The source location points to the `_` prong of a switch expression, found
+        /// by taking this AST node index offset from the containing base node,
+        /// which points to a switch expression AST node. Next, navigate to the `_` prong.
+        node_offset_switch_under_prong: Ast.Node.Offset,
         /// The source location points to all the ranges of a switch expression, found
         /// by taking this AST node index offset from the containing base node,
         /// which points to a switch expression AST node. Next, navigate to any of the
@@ -2568,7 +2591,8 @@ pub const LazySrcLoc = struct {
             kind: enum(u1) { scalar, multi },
             index: u31,
 
-            pub const special: SwitchCaseIndex = @bitCast(@as(u32, std.math.maxInt(u32)));
+            pub const special_else: SwitchCaseIndex = @bitCast(@as(u32, std.math.maxInt(u32)));
+            pub const special_under: SwitchCaseIndex = @bitCast(@as(u32, std.math.maxInt(u32) - 1));
         };
 
         pub const SwitchItemIndex = packed struct(u32) {
