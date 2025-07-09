@@ -8157,8 +8157,8 @@ fn compareOperatorC(operator: std.math.CompareOperator) []const u8 {
 const StringLiteral = struct {
     len: usize,
     cur_len: usize,
-    start_count: usize,
     w: *Writer,
+    first: bool,
 
     // MSVC throws C2078 if an array of size 65536 or greater is initialized with a string literal,
     // regardless of the length of the string literal initializing it. Array initializer syntax is
@@ -8175,8 +8175,8 @@ const StringLiteral = struct {
         return .{
             .cur_len = 0,
             .len = len,
-            .start_count = w.count,
             .w = w,
+            .first = true,
         };
     }
 
@@ -8196,38 +8196,73 @@ const StringLiteral = struct {
         }
     }
 
-    fn writeStringLiteralChar(sl: *StringLiteral, c: u8) Writer.Error!void {
+    fn writeStringLiteralChar(sl: *StringLiteral, c: u8) Writer.Error!usize {
+        const w = sl.w;
         switch (c) {
-            7 => try sl.w.writeAll("\\a"),
-            8 => try sl.w.writeAll("\\b"),
-            '\t' => try sl.w.writeAll("\\t"),
-            '\n' => try sl.w.writeAll("\\n"),
-            11 => try sl.w.writeAll("\\v"),
-            12 => try sl.w.writeAll("\\f"),
-            '\r' => try sl.w.writeAll("\\r"),
-            '"', '\'', '?', '\\' => try sl.w.print("\\{c}", .{c}),
-            else => switch (c) {
-                ' '...'~' => try sl.w.writeByte(c),
-                else => try sl.w.print("\\{o:0>3}", .{c}),
+            7 => {
+                try w.writeAll("\\a");
+                return 2;
+            },
+            8 => {
+                try w.writeAll("\\b");
+                return 2;
+            },
+            '\t' => {
+                try w.writeAll("\\t");
+                return 2;
+            },
+            '\n' => {
+                try w.writeAll("\\n");
+                return 2;
+            },
+            11 => {
+                try w.writeAll("\\v");
+                return 2;
+            },
+            12 => {
+                try w.writeAll("\\f");
+                return 2;
+            },
+            '\r' => {
+                try w.writeAll("\\r");
+                return 2;
+            },
+            '"', '\'', '?', '\\' => {
+                try w.print("\\{c}", .{c});
+                return 2;
+            },
+            ' '...'!', '#'...'&', '('...'>', '@'...'[', ']'...'~' => {
+                try w.writeByte(c);
+                return 1;
+            },
+            else => {
+                var buf: [4]u8 = undefined;
+                const printed = std.fmt.bufPrint(&buf, "\\{o:0>3}", .{c}) catch unreachable;
+                try w.writeAll(printed);
+                return printed.len;
             },
         }
     }
 
     pub fn writeChar(sl: *StringLiteral, c: u8) Writer.Error!void {
         if (sl.len <= max_string_initializer_len) {
-            if (sl.cur_len == 0 and sl.w.count - sl.start_count > 1)
-                try sl.w.writeAll("\"\"");
+            if (sl.cur_len == 0 and !sl.first) try sl.w.writeAll("\"\"");
 
-            const count = sl.w.count;
-            try sl.writeStringLiteralChar(c);
-            const char_len = sl.w.count - count;
+            const char_len = try sl.writeStringLiteralChar(c);
             assert(char_len <= max_char_len);
             sl.cur_len += char_len;
 
-            if (sl.cur_len >= max_literal_len) sl.cur_len = 0;
+            if (sl.cur_len >= max_literal_len) {
+                sl.cur_len = 0;
+                sl.first = false;
+            }
         } else {
-            if (sl.w.count - sl.start_count > 1) try sl.w.writeByte(',');
-            try sl.w.print("'\\x{x}'", .{c});
+            if (!sl.first) try sl.w.writeByte(',');
+            var buf: [6]u8 = undefined;
+            const printed = std.fmt.bufPrint(&buf, "'\\x{x}'", .{c}) catch unreachable;
+            try sl.w.writeAll(printed);
+            sl.cur_len += printed.len;
+            sl.first = false;
         }
     }
 };
