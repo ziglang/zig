@@ -3668,6 +3668,32 @@ pub const Object = struct {
         });
     }
 
+    fn lowerUndefValue(o: *Object, llvm_ty: Builder.Type, bit_size: u64) Error!Builder.Constant {
+        const optimize_mode = o.pt.zcu.comp.root_mod.optimize_mode;
+
+        if (optimize_mode == .Debug and bit_size % 8 == 0 and !llvm_ty.isAggregate(&o.builder)) {
+            var result: std.math.big.int.Managed = try .init(o.gpa);
+            defer result.deinit();
+            var int: std.math.big.int.Managed = try .initSet(o.gpa, 0xaa);
+            defer int.deinit();
+            for (0..bit_size / 8) |_| {
+                try result.shiftLeft(&result, 8);
+                try result.bitOr(&result, &int);
+            }
+            if (llvm_ty.isInteger(&o.builder)) {
+                return o.builder.bigIntConst(llvm_ty, result.toConst());
+            }
+            const llvm_int_ty = try o.builder.intType(@intCast(bit_size));
+            const llvm_int = try o.builder.bigIntConst(llvm_int_ty, result.toConst());
+            if (llvm_ty.isPointer(&o.builder)) {
+                return o.builder.castConst(.inttoptr, llvm_int, llvm_ty);
+            }
+            return o.builder.castConst(.bitcast, llvm_int, llvm_ty);
+        }
+
+        return o.builder.undefConst(llvm_ty);
+    }
+
     fn lowerValue(o: *Object, arg_val: InternPool.Index) Error!Builder.Constant {
         const pt = o.pt;
         const zcu = pt.zcu;
@@ -3676,12 +3702,12 @@ pub const Object = struct {
 
         const val = Value.fromInterned(arg_val);
         const val_key = ip.indexToKey(val.toIntern());
+        const ty = Type.fromInterned(val_key.typeOf());
 
         if (val.isUndefDeep(zcu)) {
-            return o.builder.undefConst(try o.lowerType(Type.fromInterned(val_key.typeOf())));
+            return o.lowerUndefValue(try o.lowerType(ty), ty.bitSize(zcu));
         }
 
-        const ty = Type.fromInterned(val_key.typeOf());
         return switch (val_key) {
             .int_type,
             .ptr_type,
