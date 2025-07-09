@@ -106,6 +106,9 @@ pub fn parseCommon(
     const header_buffer = try Elf.preadAllAlloc(gpa, handle, offset, @sizeOf(elf.Elf64_Ehdr));
     defer gpa.free(header_buffer);
     self.header = @as(*align(1) const elf.Elf64_Ehdr, @ptrCast(header_buffer)).*;
+    if (!mem.eql(u8, self.header.?.e_ident[0..4], elf.MAGIC)) {
+        return diags.failParse(path, "not an ELF file", .{});
+    }
 
     const em = target.toElfMachine();
     if (em != self.header.?.e_machine) {
