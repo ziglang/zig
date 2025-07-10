@@ -227,8 +227,8 @@ test join {
         try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\", "b\\", "c" }, "c:\\a\\b\\c", zero);
 
         try testJoinMaybeZWindows(
-            &[_][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig" },
-            "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig",
+            &[_][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "ab.zig" },
+            "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\ab.zig",
             zero,
         );
 
@@ -252,8 +252,8 @@ test join {
         try testJoinMaybeZPosix(&[_][]const u8{ "/a/", "b/", "c" }, "/a/b/c", zero);
 
         try testJoinMaybeZPosix(
-            &[_][]const u8{ "/home/andy/dev/zig/build/lib/zig/std", "io.zig" },
-            "/home/andy/dev/zig/build/lib/zig/std/io.zig",
+            &[_][]const u8{ "/home/andy/dev/zig/build/lib/zig/std", "ab.zig" },
+            "/home/andy/dev/zig/build/lib/zig/std/ab.zig",
             zero,
         );
 

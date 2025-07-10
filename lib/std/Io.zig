@@ -79,13 +79,13 @@ pub const Limit = enum(usize) {
     }
 };
 
-pub const Reader = @import("io/Reader.zig");
-pub const Writer = @import("io/Writer.zig");
+pub const Reader = @import("Io/Reader.zig");
+pub const Writer = @import("Io/Writer.zig");
 
-pub const ChangeDetectionStream = @import("io/change_detection_stream.zig").ChangeDetectionStream;
-pub const changeDetectionStream = @import("io/change_detection_stream.zig").changeDetectionStream;
+pub const ChangeDetectionStream = @import("Io/change_detection_stream.zig").ChangeDetectionStream;
+pub const changeDetectionStream = @import("Io/change_detection_stream.zig").changeDetectionStream;
 
-pub const tty = @import("io/tty.zig");
+pub const tty = @import("Io/tty.zig");
 
 pub fn poll(
     gpa: Allocator,
@@ -495,5 +495,5 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 test {
     _ = Reader;
     _ = Writer;
-    _ = @import("io/test.zig");
+    _ = @import("Io/test.zig");
 }

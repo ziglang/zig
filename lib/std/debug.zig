@@ -219,13 +219,16 @@ pub fn unlockStderrWriter() void {
     std.Progress.unlockStderrWriter();
 }
 
-/// Print to stderr, unbuffered, and silently returning on failure. Intended
-/// for use in "printf debugging". Use `std.log` functions for proper logging.
+/// Print to stderr, silently returning on failure. Intended for use in "printf
+/// debugging". Use `std.log` functions for proper logging.
+///
+/// Uses a 64-byte buffer for formatted printing which is flushed before this
+/// function returns.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
-    var buffer: [32]u8 = undefined;
-    const bw = lockStderrWriter(&buffer);
+    var buffer: [64]u8 = undefined;
+    const w = lockStderrWriter(&buffer);
     defer unlockStderrWriter();
-    nosuspend bw.print(fmt, args) catch return;
+    nosuspend w.print(fmt, args) catch return;
 }
 
 pub fn getStderrMutex() *std.Thread.Mutex {
