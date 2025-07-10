@@ -840,6 +840,9 @@ pub fn peekDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 /// Returns number of bytes streamed, which may be zero, or error.EndOfStream
 /// if the delimiter was not found.
 ///
+/// Asserts buffer capacity of at least one. This function performs better with
+/// larger buffers.
+///
 /// See also:
 /// * `streamDelimiterEnding`
 /// * `streamDelimiterLimit`
@@ -857,6 +860,9 @@ pub fn streamDelimiter(r: *Reader, w: *Writer, delimiter: u8) StreamError!usize 
 ///
 /// Returns number of bytes streamed, which may be zero. End of stream can be
 /// detected by checking if the next byte in the stream is the delimiter.
+///
+/// Asserts buffer capacity of at least one. This function performs better with
+/// larger buffers.
 ///
 /// See also:
 /// * `streamDelimiter`
@@ -884,6 +890,9 @@ pub const StreamDelimiterLimitError = error{
 ///
 /// Returns number of bytes streamed, which may be zero. End of stream can be
 /// detected by checking if the next byte in the stream is the delimiter.
+///
+/// Asserts buffer capacity of at least one. This function performs better with
+/// larger buffers.
 pub fn streamDelimiterLimit(
     r: *Reader,
     w: *Writer,
