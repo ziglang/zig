@@ -1652,38 +1652,38 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     // -I and -L arguments that appear after the last --mod argument apply to all modules.
-    for (b.search_prefixes.items) |search_prefix| {
-        var prefix_dir = fs.cwd().openDir(search_prefix, .{}) catch |err| {
-            return step.fail("unable to open prefix directory '{s}': {s}", .{
-                search_prefix, @errorName(err),
-            });
-        };
-        defer prefix_dir.close();
+    for (b.search_methods.items) |search| {
 
         // Avoid passing -L and -I flags for nonexistent directories.
         // This prevents a warning, that should probably be upgraded to an error in Zig's
         // CLI parsing code, when the linker sees an -L directory that does not exist.
 
-        if (prefix_dir.accessZ("lib", .{})) |_| {
-            try zig_args.appendSlice(&.{
-                "-L", b.pathJoin(&.{ search_prefix, "lib" }),
-            });
-        } else |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return step.fail("unable to access '{s}/lib' directory: {s}", .{
-                search_prefix, @errorName(e),
-            }),
+        if (search.libraries(b)) |libraries_lazy_path| {
+            const libraries_path = libraries_lazy_path.getPath3(b, step);
+            if (libraries_path.access(".", .{})) {
+                try zig_args.appendSlice(&.{
+                    "-L", libraries_path.toString(b.allocator) catch @panic("OOM"),
+                });
+            } else |err| switch (err) {
+                error.FileNotFound => {},
+                else => return step.fail("unable to access '{}' directory: {s}", .{
+                    libraries_path, @errorName(err),
+                }),
+            }
         }
 
-        if (prefix_dir.accessZ("include", .{})) |_| {
-            try zig_args.appendSlice(&.{
-                "-I", b.pathJoin(&.{ search_prefix, "include" }),
-            });
-        } else |err| switch (err) {
-            error.FileNotFound => {},
-            else => |e| return step.fail("unable to access '{s}/include' directory: {s}", .{
-                search_prefix, @errorName(e),
-            }),
+        if (search.includes(b)) |includes_lazy_path| {
+            const includes_path = includes_lazy_path.getPath3(b, step);
+            if (includes_path.access(".", .{})) {
+                try zig_args.appendSlice(&.{
+                    "-I", includes_path.toString(b.allocator) catch @panic("OOM"),
+                });
+            } else |err| switch (err) {
+                error.FileNotFound => {},
+                else => return step.fail("unable to access '{}' directory: {s}", .{
+                    includes_path, @errorName(err),
+                }),
+            }
         }
     }
 
