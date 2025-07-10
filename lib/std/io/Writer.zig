@@ -181,20 +181,6 @@ pub fn writeSplat(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     return count;
 }
 
-/// Equivalent to `writeSplat` but writes at most `limit` bytes.
-pub fn writeSplatLimit(
-    w: *Writer,
-    data: []const []const u8,
-    splat: usize,
-    limit: Limit,
-) Error!usize {
-    _ = w;
-    _ = data;
-    _ = splat;
-    _ = limit;
-    @panic("TODO");
-}
-
 /// Returns how many bytes were consumed from `header` and `data`.
 pub fn writeSplatHeader(
     w: *Writer,
@@ -240,22 +226,6 @@ test "writeSplatHeader splatting avoids buffer aliasing temptation" {
         "header which is longer than buf 123456foo",
         aw.writer.buffered(),
     );
-}
-
-/// Equivalent to `writeSplatHeader` but writes at most `limit` bytes.
-pub fn writeSplatHeaderLimit(
-    w: *Writer,
-    header: []const u8,
-    data: []const []const u8,
-    splat: usize,
-    limit: Limit,
-) Error!usize {
-    _ = w;
-    _ = header;
-    _ = data;
-    _ = splat;
-    _ = limit;
-    @panic("TODO");
 }
 
 /// Drains all remaining buffered data.
@@ -825,14 +795,6 @@ pub inline fn writeSliceEndian(
     } else {
         return w.writeArraySwap(w, Elem, slice);
     }
-}
-
-/// Asserts that the buffer storage capacity is at least enough to store `@sizeOf(Elem)`
-pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
-    // copy to storage first, then swap in place
-    _ = w;
-    _ = slice;
-    @panic("TODO");
 }
 
 /// Unlike `writeSplat` and `writeVec`, this function will call into `VTable`
