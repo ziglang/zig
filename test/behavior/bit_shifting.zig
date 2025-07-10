@@ -1,6 +1,5 @@
 const std = @import("std");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
 const builtin = @import("builtin");
 
 fn ShardedTable(comptime Key: type, comptime mask_bit_count: comptime_int, comptime V: type) type {
@@ -179,7 +178,7 @@ test "Saturating Shift Left" {
             inline while (true) : (rhs += 1) {
                 comptime var lhs: T = std.math.minInt(T);
                 inline while (true) : (lhs += 1) {
-                    try expectEqual(lhs <<| rhs, shlSat(lhs, rhs));
+                    try expect(lhs <<| rhs == shlSat(lhs, rhs));
                     if (lhs == std.math.maxInt(T)) break;
                 }
                 if (rhs == @bitSizeOf(T) - 1) break;
@@ -194,12 +193,12 @@ test "Saturating Shift Left" {
     try S.testType(u4);
     try S.testType(i4);
 
-    try expectEqual(0xfffffffffffffff0fffffffffffffff0, S.shlSat(@as(u128, 0x0fffffffffffffff0fffffffffffffff), 4));
-    try expectEqual(0xffffffffffffffffffffffffffffffff, S.shlSat(@as(u128, 0x0fffffffffffffff0fffffffffffffff), 5));
-    try expectEqual(-0x80000000000000000000000000000000, S.shlSat(@as(i128, -0x0fffffffffffffff0fffffffffffffff), 5));
+    try expect(0xfffffffffffffff0fffffffffffffff0 == S.shlSat(@as(u128, 0x0fffffffffffffff0fffffffffffffff), 4));
+    try expect(0xffffffffffffffffffffffffffffffff == S.shlSat(@as(u128, 0x0fffffffffffffff0fffffffffffffff), 5));
+    try expect(-0x80000000000000000000000000000000 == S.shlSat(@as(i128, -0x0fffffffffffffff0fffffffffffffff), 5));
 
-    try expectEqual(51146728248377216718956089012931236753385031969422887335676427626502090568823039920051095192592252455482604439493126109519019633529459266458258243583, S.shlSat(@as(i495, 0x2fe6bc5448c55ce18252e2c9d44777505dfe63ff249a8027a6626c7d8dd9893fd5731e51474727be556f757facb586a4e04bbc0148c6c7ad692302f46fbd), 0x31));
-    try expectEqual(-57896044618658097711785492504343953926634992332820282019728792003956564819968, S.shlSat(@as(i256, -0x53d4148cee74ea43477a65b3daa7b8fdadcbf4508e793f4af113b8d8da5a7eb6), 0x91));
-    try expectEqual(170141183460469231731687303715884105727, S.shlSat(@as(i128, 0x2fe6bc5448c55ce18252e2c9d4477750), 0x31));
-    try expectEqual(0, S.shlSat(@as(i128, 0), 127));
+    try expect(51146728248377216718956089012931236753385031969422887335676427626502090568823039920051095192592252455482604439493126109519019633529459266458258243583 == S.shlSat(@as(i495, 0x2fe6bc5448c55ce18252e2c9d44777505dfe63ff249a8027a6626c7d8dd9893fd5731e51474727be556f757facb586a4e04bbc0148c6c7ad692302f46fbd), 0x31));
+    try expect(-57896044618658097711785492504343953926634992332820282019728792003956564819968 == S.shlSat(@as(i256, -0x53d4148cee74ea43477a65b3daa7b8fdadcbf4508e793f4af113b8d8da5a7eb6), 0x91));
+    try expect(170141183460469231731687303715884105727 == S.shlSat(@as(i128, 0x2fe6bc5448c55ce18252e2c9d4477750), 0x31));
+    try expect(0 == S.shlSat(@as(i128, 0), 127));
 }

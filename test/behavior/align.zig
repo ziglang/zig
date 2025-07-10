@@ -1,8 +1,8 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const native_arch = builtin.target.cpu.arch;
-const assert = std.debug.assert;
 
 var foo: u8 align(4) = 100;
 
@@ -575,7 +575,7 @@ test "function pointer @intFromPtr/@ptrFromInt roundtrip" {
     const nothing_int: usize = @intFromPtr(nothing_ptr);
     const nothing_ptr2: *const fn () callconv(.c) void = @ptrFromInt(nothing_int);
 
-    try std.testing.expectEqual(nothing_ptr, nothing_ptr2);
+    try std.testing.expect(nothing_ptr == nothing_ptr2);
 }
 
 test "function pointer align mask" {

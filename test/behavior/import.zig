@@ -1,7 +1,7 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
+const builtin = @import("builtin");
+
 const a_namespace = @import("import/a_namespace.zig");
 
 test "call fn via namespace lookup" {

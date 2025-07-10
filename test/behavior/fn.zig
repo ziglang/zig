@@ -1,9 +1,8 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const assert = std.debug.assert;
 const expect = testing.expect;
-const expectEqual = testing.expectEqual;
+const builtin = @import("builtin");
 
 test "params" {
     try expect(testParamsAdd(22, 11) == 33);
@@ -408,7 +407,7 @@ test "function with inferred error set but returning no error" {
     };
 
     const return_ty = @typeInfo(@TypeOf(S.foo)).@"fn".return_type.?;
-    try expectEqual(0, @typeInfo(@typeInfo(return_ty).error_union.error_set).error_set.?.len);
+    try expect(0 == @typeInfo(@typeInfo(return_ty).error_union.error_set).error_set.?.len);
 }
 
 test "import passed byref to function in return type" {
@@ -576,8 +575,8 @@ test "pass and return comptime-only types" {
         }
     };
 
-    try expectEqual(null, S.returnNull(null));
-    try expectEqual(@as(u0, 0), S.returnUndefined(undefined));
+    try expect(null == S.returnNull(null));
+    try expect(@as(u0, 0) == S.returnUndefined(undefined));
 }
 
 test "pointer to alias behaves same as pointer to function" {
@@ -615,8 +614,8 @@ test "inline function with comptime-known comptime-only return type called at ru
     var a: i32 = 0;
     const b: i32 = 111;
     const T = S.foo(&a, &b);
-    try expectEqual(111, a);
-    try expectEqual(f32, T);
+    try expect(111 == a);
+    try expect(f32 == T);
 }
 
 test "address of function parameter is consistent" {

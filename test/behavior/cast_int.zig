@@ -1,8 +1,7 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
 const maxInt = std.math.maxInt;
+const builtin = @import("builtin");
 
 test "@intCast i32 to u7" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -46,11 +45,11 @@ test "coerce non byte-sized integers accross 32bits boundary" {
         _ = &w;
         const d: u21 = @truncate(w);
         const e: u60 = d;
-        try expectEqual(@as(u32, 6417), a);
-        try expectEqual(@as(u64, 6417), b);
-        try expectEqual(@as(u64, 6417), c);
-        try expectEqual(@as(u21, 0x145678), d);
-        try expectEqual(@as(u60, 0x145678), e);
+        try expect(@as(u32, 6417) == a);
+        try expect(@as(u64, 6417) == b);
+        try expect(@as(u64, 6417) == c);
+        try expect(@as(u21, 0x145678) == d);
+        try expect(@as(u60, 0x145678) == e);
     }
 
     {
@@ -63,11 +62,11 @@ test "coerce non byte-sized integers accross 32bits boundary" {
         _ = &w;
         const d: u10 = @truncate(w);
         const e: u60 = d;
-        try expectEqual(@as(u32, 234), a);
-        try expectEqual(@as(u64, 234), b);
-        try expectEqual(@as(u64, 234), c);
-        try expectEqual(@as(u21, 0x278), d);
-        try expectEqual(@as(u60, 0x278), e);
+        try expect(@as(u32, 234) == a);
+        try expect(@as(u64, 234) == b);
+        try expect(@as(u64, 234) == c);
+        try expect(@as(u21, 0x278) == d);
+        try expect(@as(u60, 0x278) == e);
     }
     {
         var v: u7 = 11;
@@ -79,11 +78,11 @@ test "coerce non byte-sized integers accross 32bits boundary" {
         _ = &w;
         const d: u7 = @truncate(w);
         const e: u60 = d;
-        try expectEqual(@as(u32, 11), a);
-        try expectEqual(@as(u64, 11), b);
-        try expectEqual(@as(u64, 11), c);
-        try expectEqual(@as(u21, 0x78), d);
-        try expectEqual(@as(u60, 0x78), e);
+        try expect(@as(u32, 11) == a);
+        try expect(@as(u64, 11) == b);
+        try expect(@as(u64, 11) == c);
+        try expect(@as(u21, 0x78) == d);
+        try expect(@as(u60, 0x78) == e);
     }
 
     {
@@ -96,11 +95,11 @@ test "coerce non byte-sized integers accross 32bits boundary" {
         _ = &w;
         const d: i21 = @intCast(w);
         const e: i60 = d;
-        try expectEqual(@as(i32, -6417), a);
-        try expectEqual(@as(i64, -6417), b);
-        try expectEqual(@as(i64, -6417), c);
-        try expectEqual(@as(i21, -12345), d);
-        try expectEqual(@as(i60, -12345), e);
+        try expect(@as(i32, -6417) == a);
+        try expect(@as(i64, -6417) == b);
+        try expect(@as(i64, -6417) == c);
+        try expect(@as(i21, -12345) == d);
+        try expect(@as(i60, -12345) == e);
     }
 
     {
@@ -113,11 +112,11 @@ test "coerce non byte-sized integers accross 32bits boundary" {
         _ = &w;
         const d: i10 = @intCast(w);
         const e: i60 = d;
-        try expectEqual(@as(i32, -234), a);
-        try expectEqual(@as(i64, -234), b);
-        try expectEqual(@as(i64, -234), c);
-        try expectEqual(@as(i10, -456), d);
-        try expectEqual(@as(i60, -456), e);
+        try expect(@as(i32, -234) == a);
+        try expect(@as(i64, -234) == b);
+        try expect(@as(i64, -234) == c);
+        try expect(@as(i10, -456) == d);
+        try expect(@as(i60, -456) == e);
     }
     {
         var v: i7 = -11;
@@ -129,11 +128,11 @@ test "coerce non byte-sized integers accross 32bits boundary" {
         _ = &w;
         const d: i7 = @intCast(w);
         const e: i60 = d;
-        try expectEqual(@as(i32, -11), a);
-        try expectEqual(@as(i64, -11), b);
-        try expectEqual(@as(i64, -11), c);
-        try expectEqual(@as(i7, -42), d);
-        try expectEqual(@as(i60, -42), e);
+        try expect(@as(i32, -11) == a);
+        try expect(@as(i64, -11) == b);
+        try expect(@as(i64, -11) == c);
+        try expect(@as(i7, -42) == d);
+        try expect(@as(i60, -42) == e);
     }
 }
 

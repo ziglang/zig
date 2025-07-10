@@ -1,8 +1,7 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const expect = testing.expect;
-const expectEqual = testing.expectEqual;
+const builtin = @import("builtin");
 
 test "one param, explicit comptime" {
     var x: usize = 0;
@@ -593,7 +592,7 @@ test "call generic function that uses capture from function declaration's scope"
 
     const S = StructCapture(f64);
     const s = S.foo(123);
-    try expectEqual(123.0, s[0]);
+    try expect(123.0 == s[0]);
 }
 
 comptime {
