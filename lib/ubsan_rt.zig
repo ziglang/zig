@@ -84,7 +84,7 @@ const Value = extern struct {
         assert(value.td.kind == .float);
         const size = value.td.info.float;
         const max_inline_size = @bitSizeOf(ValueHandle);
-        if (size <= max_inline_size) {
+        if (size <= max_inline_size and @bitSizeOf(usize) >= 32) {
             return @as(switch (@bitSizeOf(usize)) {
                 32 => f32,
                 64 => f64,
@@ -92,6 +92,7 @@ const Value = extern struct {
             }, @bitCast(@intFromPtr(value.handle)));
         }
         return @floatCast(switch (size) {
+            32 => @as(*const f32, @alignCast(@ptrCast(value.handle))).*,
             64 => @as(*const f64, @alignCast(@ptrCast(value.handle))).*,
             80 => @as(*const f80, @alignCast(@ptrCast(value.handle))).*,
             128 => @as(*const f128, @alignCast(@ptrCast(value.handle))).*,
