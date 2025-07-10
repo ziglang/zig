@@ -4408,7 +4408,19 @@ comptime {
       <pre>{#syntax#}@branchHint(hint: BranchHint) void{#endsyntax#}</pre>
       <p>Hints to the optimizer how likely a given branch of control flow is to be reached.</p>
       <p>{#syntax#}BranchHint{#endsyntax#} can be found with {#syntax#}@import("std").builtin.BranchHint{#endsyntax#}.</p>
-      <p>This function is only valid as the first statement in a control flow branch, or the first statement in a function.</p>
+      <p>This function is only valid in a function or control flow branch and must occur before any
+      statement that is not an optimizer hint. This function can only be called once per function or
+      control flow branch.</p>
+      {#see_also|@loopHint#}
+      {#header_close#}
+
+      {#header_open|@loopHint#}
+      <pre>{#syntax#}@loopHint(hint: LoopHint) void{#endsyntax#}</pre>
+      <p>Hints to the optimizer how a loop should be optimized.</p>
+      <p>{#syntax#}LoopHint{#endsyntax#} can be found with {#syntax#}@import("std").builtin.LoopHint{#endsyntax#}.</p>
+      <p>This function is only valid in the body of a loop and must occur before any statement that
+      is not an optimizer hint. This function can only be called once per loop.</p>
+      {#see_also|@branchHint#}
       {#header_close#}
 
       {#header_open|@breakpoint#}
