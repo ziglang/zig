@@ -313,6 +313,7 @@ test "saturating shift-left" {
             try testSatShl(u8, 3, u4, 8, maxInt(u8));
 
             if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO composite_integer
+            if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO #9668
 
             try testSatShl(i128, maxInt(i128), u128, 64, maxInt(i128));
             try testSatShl(u128, maxInt(u128), u128, 64, maxInt(u128));
