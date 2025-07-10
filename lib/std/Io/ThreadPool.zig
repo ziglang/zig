@@ -494,13 +494,12 @@ fn async(
 const DetachedClosure = struct {
     pool: *Pool,
     func: *const fn (context: *anyopaque) void,
-    run_node: Pool.RunQueue.Node = .{ .data = .{ .runFn = runFn } },
+    runnable: Runnable = .{ .runFn = runFn },
     context_alignment: std.mem.Alignment,
     context_len: usize,
 
     fn runFn(runnable: *Pool.Runnable, _: ?usize) void {
-        const run_node: *Pool.RunQueue.Node = @fieldParentPtr("data", runnable);
-        const closure: *DetachedClosure = @alignCast(@fieldParentPtr("run_node", run_node));
+        const closure: *DetachedClosure = @alignCast(@fieldParentPtr("runnable", runnable));
         closure.func(closure.contextPointer());
         const gpa = closure.pool.allocator;
         const base: [*]align(@alignOf(DetachedClosure)) u8 = @ptrCast(closure);
@@ -544,7 +543,7 @@ fn asyncDetached(
         .context_len = context.len,
     };
     @memcpy(closure.contextPointer()[0..context.len], context);
-    pool.run_queue.prepend(&closure.run_node);
+    pool.run_queue.prepend(&closure.runnable.node);
 
     if (pool.threads.items.len < pool.threads.capacity) {
         pool.threads.addOneAssumeCapacity().* = std.Thread.spawn(.{
