@@ -1491,6 +1491,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (b.verbose_link or compile.verbose_link) try zig_args.append("--verbose-link");
     if (b.verbose_cc or compile.verbose_cc) try zig_args.append("--verbose-cc");
     if (b.verbose_llvm_cpu_features) try zig_args.append("--verbose-llvm-cpu-features");
+    if (b.graph.time_report) try zig_args.append("--time-report");
 
     if (compile.generated_asm != null) try zig_args.append("-femit-asm");
     if (compile.generated_bin == null) try zig_args.append("-fno-emit-bin");
@@ -1851,6 +1852,8 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         zig_args,
         options.progress_node,
         (b.graph.incremental == true) and options.watch,
+        options.web_server,
+        options.gpa,
     ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(compile.expect_errors != null);
@@ -1905,9 +1908,7 @@ fn outputPath(c: *Compile, out_dir: std.Build.Cache.Path, ea: std.zig.EmitArtifa
     return out_dir.joinString(arena, name) catch @panic("OOM");
 }
 
-pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) !Path {
-    const gpa = c.step.owner.allocator;
-
+pub fn rebuildInFuzzMode(c: *Compile, gpa: Allocator, progress_node: std.Progress.Node) !Path {
     c.step.result_error_msgs.clearRetainingCapacity();
     c.step.result_stderr = "";
 
@@ -1915,7 +1916,7 @@ pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) !Path {
     c.step.result_error_bundle = std.zig.ErrorBundle.empty;
 
     const zig_args = try getZigArgs(c, true);
-    const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false);
+    const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false, null, gpa);
     return maybe_output_bin_path.?;
 }
 

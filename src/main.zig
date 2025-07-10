@@ -484,6 +484,7 @@ const usage_build_generic =
     \\  -fno-structured-cfg       (SPIR-V) force SPIR-V kernels to not use structured control flow
     \\  -mexec-model=[value]      (WASI) Execution model
     \\  -municode                 (Windows) Use wmain/wWinMain as entry point
+    \\  --time-report             Send timing diagnostics to '--listen' clients
     \\
     \\Per-Module Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
@@ -678,7 +679,6 @@ const usage_build_generic =
     \\
     \\Debug Options (Zig Compiler Development):
     \\  -fopt-bisect-limit=[limit]   Only run [limit] first LLVM optimization passes
-    \\  -ftime-report                Print timing diagnostics
     \\  -fstack-report               Print stack size diagnostics
     \\  --verbose-link               Display linker invocations
     \\  --verbose-cc                 Display C compiler invocations
@@ -1403,7 +1403,7 @@ fn buildOutputType(
                         try test_exec_args.append(arena, null);
                     } else if (mem.eql(u8, arg, "--test-no-exec")) {
                         test_no_exec = true;
-                    } else if (mem.eql(u8, arg, "-ftime-report")) {
+                    } else if (mem.eql(u8, arg, "--time-report")) {
                         time_report = true;
                     } else if (mem.eql(u8, arg, "-fstack-report")) {
                         stack_report = true;
@@ -2899,6 +2899,10 @@ fn buildOutputType(
         fatal("test-obj requires --test-no-exec", .{});
     }
 
+    if (time_report and listen == .none) {
+        fatal("--time-report requires --listen", .{});
+    }
+
     if (arg_mode == .translate_c and create_module.c_source_files.items.len != 1) {
         fatal("translate-c expects exactly 1 source file (found {d})", .{create_module.c_source_files.items.len});
     }
@@ -4208,6 +4212,84 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
         }
     }
 
+    if (comp.time_report) |*tr| {
+        var decls_len: u32 = 0;
+
+        var file_name_bytes: std.ArrayListUnmanaged(u8) = .empty;
+        defer file_name_bytes.deinit(gpa);
+        var files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, void) = .empty;
+        defer files.deinit(gpa);
+        var decl_data: std.ArrayListUnmanaged(u8) = .empty;
+        defer decl_data.deinit(gpa);
+
+        // Each decl needs at least 34 bytes:
+        // * 2 for 1-byte name plus null terminator
+        // * 4 for `file`
+        // * 4 for `sema_count`
+        // * 8 for `sema_ns`
+        // * 8 for `codegen_ns`
+        // * 8 for `link_ns`
+        // Most, if not all, decls in `tr.decl_sema_ns` are valid, so we have a good size estimate.
+        try decl_data.ensureUnusedCapacity(gpa, tr.decl_sema_info.count() * 34);
+
+        for (tr.decl_sema_info.keys(), tr.decl_sema_info.values()) |tracked_inst, sema_info| {
+            const resolved = tracked_inst.resolveFull(&comp.zcu.?.intern_pool) orelse continue;
+            const file = comp.zcu.?.fileByIndex(resolved.file);
+            const zir = file.zir orelse continue;
+            const decl_name = zir.nullTerminatedString(zir.getDeclaration(resolved.inst).name);
+
+            const gop = try files.getOrPut(gpa, resolved.file);
+            if (!gop.found_existing) try file_name_bytes.writer(gpa).print("{f}\x00", .{file.path.fmt(comp)});
+
+            const codegen_ns = tr.decl_codegen_ns.get(tracked_inst) orelse 0;
+            const link_ns = tr.decl_link_ns.get(tracked_inst) orelse 0;
+
+            decls_len += 1;
+
+            try decl_data.ensureUnusedCapacity(gpa, 33 + decl_name.len);
+            decl_data.appendSliceAssumeCapacity(decl_name);
+            decl_data.appendAssumeCapacity(0);
+
+            const out_file = decl_data.addManyAsArrayAssumeCapacity(4);
+            const out_sema_count = decl_data.addManyAsArrayAssumeCapacity(4);
+            const out_sema_ns = decl_data.addManyAsArrayAssumeCapacity(8);
+            const out_codegen_ns = decl_data.addManyAsArrayAssumeCapacity(8);
+            const out_link_ns = decl_data.addManyAsArrayAssumeCapacity(8);
+            std.mem.writeInt(u32, out_file, @intCast(gop.index), .little);
+            std.mem.writeInt(u32, out_sema_count, sema_info.count, .little);
+            std.mem.writeInt(u64, out_sema_ns, sema_info.ns, .little);
+            std.mem.writeInt(u64, out_codegen_ns, codegen_ns, .little);
+            std.mem.writeInt(u64, out_link_ns, link_ns, .little);
+        }
+
+        const header: std.zig.Server.Message.TimeReport = .{
+            .stats = tr.stats,
+            .llvm_pass_timings_len = @intCast(tr.llvm_pass_timings.len),
+            .files_len = @intCast(files.count()),
+            .decls_len = decls_len,
+            .flags = .{
+                .use_llvm = comp.zcu != null and comp.zcu.?.llvm_object != null,
+            },
+        };
+
+        var slices: [4][]const u8 = .{
+            @ptrCast(&header),
+            tr.llvm_pass_timings,
+            file_name_bytes.items,
+            decl_data.items,
+        };
+        try s.serveMessageHeader(.{
+            .tag = .time_report,
+            .bytes_len = len: {
+                var len: u32 = 0;
+                for (slices) |slice| len += @intCast(slice.len);
+                break :len len;
+            },
+        });
+        try s.out.writeVecAll(&slices);
+        try s.out.flush();
+    }
+
     if (error_bundle.errorMessageCount() > 0) {
         try s.serveErrorBundle(error_bundle);
         return;
@@ -5277,7 +5359,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             var windows_libs: std.StringArrayHashMapUnmanaged(void) = .empty;
 
             if (resolved_target.result.os.tag == .windows) {
-                try windows_libs.put(arena, "advapi32", {});
+                try windows_libs.ensureUnusedCapacity(arena, 2);
+                windows_libs.putAssumeCapacity("advapi32", {});
+                windows_libs.putAssumeCapacity("ws2_32", {}); // for `--listen` (web interface)
             }
 
             const comp = Compilation.create(gpa, arena, .{

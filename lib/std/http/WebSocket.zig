@@ -18,14 +18,13 @@ pub const InitError = error{WebSocketUpgradeMissingKey} ||
     std.http.Server.Request.ReaderError;
 
 pub fn init(
-    ws: *WebSocket,
     request: *std.http.Server.Request,
     send_buffer: []u8,
     recv_buffer: []align(4) u8,
-) InitError!bool {
+) InitError!?WebSocket {
     switch (request.head.version) {
-        .@"HTTP/1.0" => return false,
-        .@"HTTP/1.1" => if (request.head.method != .GET) return false,
+        .@"HTTP/1.0" => return null,
+        .@"HTTP/1.1" => if (request.head.method != .GET) return null,
     }
 
     var sec_websocket_key: ?[]const u8 = null;
@@ -36,12 +35,12 @@ pub fn init(
             sec_websocket_key = header.value;
         } else if (std.ascii.eqlIgnoreCase(header.name, "upgrade")) {
             if (!std.ascii.eqlIgnoreCase(header.value, "websocket"))
-                return false;
+                return null;
             upgrade_websocket = true;
         }
     }
     if (!upgrade_websocket)
-        return false;
+        return null;
 
     const key = sec_websocket_key orelse return error.WebSocketUpgradeMissingKey;
 
@@ -55,7 +54,7 @@ pub fn init(
 
     request.head.content_length = std.math.maxInt(u64);
 
-    ws.* = .{
+    return .{
         .key = key,
         .recv_fifo = std.fifo.LinearFifo(u8, .Slice).init(recv_buffer),
         .reader = try request.reader(),
@@ -74,7 +73,6 @@ pub fn init(
         .request = request,
         .outstanding_len = 0,
     };
-    return true;
 }
 
 pub const Header0 = packed struct(u8) {

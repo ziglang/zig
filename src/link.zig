@@ -1302,6 +1302,14 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
         comp.link_prog_node.completeOne();
         return;
     };
+
+    var timer = comp.startTimer();
+    defer if (timer.finish()) |ns| {
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+        comp.time_report.?.stats.cpu_ns_link += ns;
+    };
+
     switch (task) {
         .load_explicitly_provided => {
             const prog_node = comp.link_prog_node.start("Parse Inputs", comp.link_inputs.len);
@@ -1428,6 +1436,9 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
     const ip = &zcu.intern_pool;
     const pt: Zcu.PerThread = .activate(zcu, @enumFromInt(tid));
     defer pt.deactivate();
+
+    var timer = comp.startTimer();
+
     switch (task) {
         .link_nav => |nav_index| {
             const fqn_slice = ip.getNav(nav_index).fqn.toSlice(ip);
@@ -1501,6 +1512,28 @@ pub fn doZcuTask(comp: *Compilation, tid: usize, task: ZcuTask) void {
                 }
             }
         },
+    }
+
+    if (timer.finish()) |ns_link| report_time: {
+        const zir_decl: ?InternPool.TrackedInst.Index = switch (task) {
+            .link_type, .update_line_number => null,
+            .link_nav => |nav| ip.getNav(nav).srcInst(ip),
+            .link_func => |f| ip.getNav(ip.indexToKey(f.func).func.owner_nav).srcInst(ip),
+        };
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+        const tr = &zcu.comp.time_report.?;
+        tr.stats.cpu_ns_link += ns_link;
+        if (zir_decl) |inst| {
+            const gop = tr.decl_link_ns.getOrPut(zcu.gpa, inst) catch |err| switch (err) {
+                error.OutOfMemory => {
+                    zcu.comp.setAllocFailure();
+                    break :report_time;
+                },
+            };
+            if (!gop.found_existing) gop.value_ptr.* = 0;
+            gop.value_ptr.* += ns_link;
+        }
     }
 }
 /// After the main pipeline is done, but before flush, the compilation may need to link one final

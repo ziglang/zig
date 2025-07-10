@@ -312,6 +312,10 @@ builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
 incremental_debug_state: if (build_options.enable_debug_extensions) IncrementalDebugState else void =
     if (build_options.enable_debug_extensions) .init else {},
 
+/// Times semantic analysis of the current `AnalUnit`. When we pause to analyze a different unit,
+/// this timer must be temporarily paused and resumed later.
+cur_analysis_timer: ?Compilation.Timer = null,
+
 generation: u32 = 0,
 
 pub const IncrementalDebugState = struct {
@@ -4683,26 +4687,56 @@ fn explainWhyFileIsInModule(
     }
 }
 
-const SemaProgNode = struct {
+const TrackedUnitSema = struct {
     /// `null` means we created the node, so should end it.
     old_name: ?[std.Progress.Node.max_name_len]u8,
-    pub fn end(spn: SemaProgNode, zcu: *Zcu) void {
-        if (spn.old_name) |old_name| {
+    old_analysis_timer: ?Compilation.Timer,
+    analysis_timer_decl: ?InternPool.TrackedInst.Index,
+    pub fn end(tus: TrackedUnitSema, zcu: *Zcu) void {
+        const comp = zcu.comp;
+        if (tus.old_name) |old_name| {
             zcu.sema_prog_node.completeOne(); // we're just renaming, but it's effectively completion
             zcu.cur_sema_prog_node.setName(&old_name);
         } else {
             zcu.cur_sema_prog_node.end();
             zcu.cur_sema_prog_node = .none;
         }
+        report_time: {
+            const sema_ns = zcu.cur_analysis_timer.?.finish() orelse break :report_time;
+            const zir_decl = tus.analysis_timer_decl orelse break :report_time;
+            comp.mutex.lock();
+            defer comp.mutex.unlock();
+            comp.time_report.?.stats.cpu_ns_sema += sema_ns;
+            const gop = comp.time_report.?.decl_sema_info.getOrPut(comp.gpa, zir_decl) catch |err| switch (err) {
+                error.OutOfMemory => {
+                    comp.setAllocFailure();
+                    break :report_time;
+                },
+            };
+            if (!gop.found_existing) gop.value_ptr.* = .{ .ns = 0, .count = 0 };
+            gop.value_ptr.ns += sema_ns;
+            gop.value_ptr.count += 1;
+        }
+        zcu.cur_analysis_timer = tus.old_analysis_timer;
+        if (zcu.cur_analysis_timer) |*t| t.@"resume"();
     }
 };
-pub fn startSemaProgNode(zcu: *Zcu, name: []const u8) SemaProgNode {
-    if (zcu.cur_sema_prog_node.index != .none) {
+pub fn trackUnitSema(zcu: *Zcu, name: []const u8, zir_inst: ?InternPool.TrackedInst.Index) TrackedUnitSema {
+    if (zcu.cur_analysis_timer) |*t| t.pause();
+    const old_analysis_timer = zcu.cur_analysis_timer;
+    zcu.cur_analysis_timer = zcu.comp.startTimer();
+    const old_name: ?[std.Progress.Node.max_name_len]u8 = old_name: {
+        if (zcu.cur_sema_prog_node.index == .none) {
+            zcu.cur_sema_prog_node = zcu.sema_prog_node.start(name, 0);
+            break :old_name null;
+        }
         const old_name = zcu.cur_sema_prog_node.getName();
         zcu.cur_sema_prog_node.setName(name);
-        return .{ .old_name = old_name };
-    } else {
-        zcu.cur_sema_prog_node = zcu.sema_prog_node.start(name, 0);
-        return .{ .old_name = null };
-    }
+        break :old_name old_name;
+    };
+    return .{
+        .old_name = old_name,
+        .old_analysis_timer = old_analysis_timer,
+        .analysis_timer_decl = zir_inst,
+    };
 }

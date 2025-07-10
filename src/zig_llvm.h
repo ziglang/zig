@@ -66,7 +66,10 @@ enum ZigLLVMThinOrFullLTOPhase {
 struct ZigLLVMEmitOptions {
     bool is_debug;
     bool is_small;
-    bool time_report;
+    // If not null, and `ZigLLVMTargetMachineEmitToFile` returns `false` indicating success, this
+    // `char *` will be populated with a `malloc`-allocated string containing the serialized (as
+    // JSON) time report data. The caller is responsible for freeing that memory.
+    char **time_report_out;
     bool tsan;
     bool sancov;
     ZigLLVMThinOrFullLTOPhase lto;
