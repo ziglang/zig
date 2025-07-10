@@ -1728,25 +1728,22 @@ pub const Writer = struct {
             iovecs[len] = .{ .base = buffered.ptr, .len = buffered.len };
             len += 1;
         }
-        for (data) |d| {
+        for (data[0 .. data.len - 1]) |d| {
             if (d.len == 0) continue;
             iovecs[len] = .{ .base = d.ptr, .len = d.len };
             len += 1;
             if (iovecs.len - len == 0) break;
         }
-        if (len == 0) return 0;
         const pattern = data[data.len - 1];
-        switch (splat) {
-            0 => if (iovecs[len - 1].base == pattern.ptr) {
-                len -= 1;
+        if (iovecs.len - len != 0) switch (splat) {
+            0 => {},
+            1 => if (pattern.len != 0) {
+                iovecs[len] = .{ .base = pattern.ptr, .len = pattern.len };
+                len += 1;
             },
-            1 => {},
             else => switch (pattern.len) {
                 0 => {},
-                1 => memset: {
-                    // Replace the 1-byte buffer with a bigger one.
-                    if (iovecs[len - 1].base == pattern.ptr) len -= 1;
-                    if (iovecs.len - len == 0) break :memset;
+                1 => {
                     const splat_buffer_candidate = io_w.buffer[io_w.end..];
                     var backup_buffer: [64]u8 = undefined;
                     const splat_buffer = if (splat_buffer_candidate.len >= backup_buffer.len)
@@ -1770,13 +1767,14 @@ pub const Writer = struct {
                         len += 1;
                     }
                 },
-                else => for (0..splat - 1) |_| {
-                    if (iovecs.len - len == 0) break;
+                else => for (0..splat) |_| {
                     iovecs[len] = .{ .base = pattern.ptr, .len = pattern.len };
                     len += 1;
+                    if (iovecs.len - len == 0) break;
                 },
             },
-        }
+        };
+        if (len == 0) return 0;
         switch (w.mode) {
             .positional, .positional_reading => {
                 const n = std.posix.pwritev(handle, iovecs[0..len], w.pos) catch |err| switch (err) {
