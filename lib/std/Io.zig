@@ -938,7 +938,7 @@ pub const VTable = struct {
     /// up. This mode does not support results, await, or cancel.
     ///
     /// Thread-safe.
-    go: *const fn (
+    asyncDetached: *const fn (
         /// Corresponds to `Io.userdata`.
         userdata: ?*anyopaque,
         /// Copied and then passed to `start`.
@@ -1515,7 +1515,7 @@ pub fn async(io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(functio
 
 /// Calls `function` with `args` asynchronously. The resource cleans itself up
 /// when the function returns. Does not support await, cancel, or a return value.
-pub fn go(io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
+pub fn asyncDetached(io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
     const Args = @TypeOf(args);
     const TypeErased = struct {
         fn start(context: *const anyopaque) void {
@@ -1523,7 +1523,7 @@ pub fn go(io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))
             @call(.auto, function, args_casted.*);
         }
     };
-    io.vtable.go(io.userdata, @ptrCast((&args)[0..1]), .of(Args), TypeErased.start);
+    io.vtable.asyncDetached(io.userdata, @ptrCast((&args)[0..1]), .of(Args), TypeErased.start);
 }
 
 pub fn now(io: Io, clockid: std.posix.clockid_t) ClockGetTimeError!Timestamp {
