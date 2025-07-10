@@ -40,6 +40,11 @@ pub const VTable = struct {
     /// also called when it needs to be filled more due to the API user
     /// requesting contiguous memory. In either case, the existing buffer data
     /// should be ignored; new data written to `w`.
+    ///
+    /// In addition to, or instead of writing to `w`, the implementation may
+    /// choose to store data in `buffer`, modifying `seek` and `end`
+    /// accordingly. Stream implementations are encouraged to take advantage of
+    /// this if simplifies the logic.
     stream: *const fn (r: *Reader, w: *Writer, limit: Limit) StreamError!usize,
 
     /// Consumes bytes from the internally tracked stream position without
@@ -59,6 +64,8 @@ pub const VTable = struct {
     /// The default implementation is is based on calling `stream`, borrowing
     /// `buffer` to construct a temporary `Writer` and ignoring the written
     /// data.
+    ///
+    /// This function is only called when `buffer` is empty.
     discard: *const fn (r: *Reader, limit: Limit) Error!usize = defaultDiscard,
 };
 
@@ -162,13 +169,7 @@ pub fn defaultDiscard(r: *Reader, limit: Limit) Error!usize {
         error.ReadFailed => return error.ReadFailed,
         error.EndOfStream => return error.EndOfStream,
     };
-    if (n > @intFromEnum(limit)) {
-        const over_amt = n - @intFromEnum(limit);
-        r.seek = dw.writer.end - over_amt;
-        r.end = dw.writer.end;
-        assert(r.end <= dw.writer.buffer.len); // limit may be exceeded only by an amount within buffer capacity.
-        return @intFromEnum(limit);
-    }
+    assert(n <= @intFromEnum(limit));
     return n;
 }
 
