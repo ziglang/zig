@@ -690,11 +690,7 @@ pub const Manifest = struct {
             const size = iter.next() orelse return error.InvalidFormat;
             const inode = iter.next() orelse return error.InvalidFormat;
             const mtime_nsec_str = iter.next() orelse return error.InvalidFormat;
-            const digest_str = iter.next() orelse {
-                std.debug.print("contents:\n{s}\n", .{file_contents});
-                @breakpoint();
-                return error.InvalidFormat;
-            };
+            const digest_str = iter.next() orelse return error.InvalidFormat;
             const prefix_str = iter.next() orelse return error.InvalidFormat;
             const file_path = iter.rest();
 
