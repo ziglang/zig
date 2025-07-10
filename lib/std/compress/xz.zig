@@ -40,7 +40,7 @@ pub fn Decompress(comptime ReaderType: type) type {
         block_decoder: block.Decoder(ReaderType),
         in_reader: ReaderType,
 
-        fn init(allocator: Allocator, source: ReaderType) !Self {
+        pub fn init(allocator: Allocator, source: ReaderType) !Self {
             const magic = try source.readBytesNoEof(6);
             if (!std.mem.eql(u8, &magic, &.{ 0xFD, '7', 'z', 'X', 'Z', 0x00 }))
                 return error.BadHeader;
