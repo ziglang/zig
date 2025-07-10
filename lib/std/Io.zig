@@ -911,6 +911,7 @@ test {
 const Io = @This();
 
 pub const EventLoop = @import("Io/EventLoop.zig");
+pub const ThreadPool = @import("Io/ThreadPool.zig");
 
 userdata: ?*anyopaque,
 vtable: *const VTable,
