@@ -6,7 +6,6 @@ const leb = std.leb;
 const DW = std.dwarf;
 const abi = std.debug.Dwarf.abi;
 const assert = std.debug.assert;
-const native_endian = builtin.cpu.arch.endian();
 
 /// TODO merge with std.dwarf.CFA
 const Opcode = enum(u8) {

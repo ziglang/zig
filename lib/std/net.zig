@@ -1155,7 +1155,7 @@ fn linuxLookupName(
         } else {
             sa6.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
             da6.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
-            mem.writeInt(u32, da6.addr[12..], addr.addr.in.sa.addr, native_endian);
+            mem.writeInt(u32, da6.addr[12..], addr.addr.in.sa.addr, .native);
             da4.addr = addr.addr.in.sa.addr;
             da = @ptrCast(&da4);
             dalen = @sizeOf(posix.sockaddr.in);
@@ -1175,7 +1175,7 @@ fn linuxLookupName(
             key |= DAS_USABLE;
             posix.getsockname(fd, sa, &salen) catch break :syscalls;
             if (addr.addr.any.family == posix.AF.INET) {
-                mem.writeInt(u32, sa6.addr[12..16], sa4.addr, native_endian);
+                mem.writeInt(u32, sa6.addr[12..16], sa4.addr, .native);
             }
             if (dscope == @as(i32, scopeOf(sa6.addr))) key |= DAS_MATCHINGSCOPE;
             if (dlabel == labelOf(sa6.addr)) key |= DAS_MATCHINGLABEL;
@@ -1671,7 +1671,7 @@ fn resMSendRc(
         );
         for (0..ns.len) |i| {
             if (ns[i].any.family != posix.AF.INET) continue;
-            mem.writeInt(u32, ns[i].in6.sa.addr[12..], ns[i].in.sa.addr, native_endian);
+            mem.writeInt(u32, ns[i].in6.sa.addr[12..], ns[i].in.sa.addr, .native);
             ns[i].in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
             ns[i].any.family = posix.AF.INET6;
             ns[i].in6.sa.flowinfo = 0;

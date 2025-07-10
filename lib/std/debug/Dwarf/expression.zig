@@ -36,7 +36,7 @@ pub const Options = struct {
     /// The address size of the target architecture
     addr_size: u8 = @sizeOf(usize),
     /// Endianness of the target architecture
-    endian: std.builtin.Endian = native_endian,
+    endian: std.builtin.Endian = .native,
     /// Restrict the stack machine to a subset of opcodes used in call frame instructions
     call_frame_context: bool = false,
 };
@@ -140,10 +140,10 @@ pub fn StackMachine(comptime options: Options) type {
                     .regval_type => |regval_type| regval_type.value,
                     .const_type => |const_type| {
                         const value: u64 = switch (const_type.value_bytes.len) {
-                            1 => mem.readInt(u8, const_type.value_bytes[0..1], native_endian),
-                            2 => mem.readInt(u16, const_type.value_bytes[0..2], native_endian),
-                            4 => mem.readInt(u32, const_type.value_bytes[0..4], native_endian),
-                            8 => mem.readInt(u64, const_type.value_bytes[0..8], native_endian),
+                            1 => mem.readInt(u8, const_type.value_bytes[0..1], .native),
+                            2 => mem.readInt(u16, const_type.value_bytes[0..2], .native),
+                            4 => mem.readInt(u32, const_type.value_bytes[0..4], .native),
+                            8 => mem.readInt(u64, const_type.value_bytes[0..8], .native),
                             else => return error.InvalidIntegralTypeSize,
                         };
 
@@ -345,7 +345,7 @@ pub fn StackMachine(comptime options: Options) type {
                     const debug_addr_index = operand.?.generic;
                     const offset = context.compile_unit.?.addr_base + debug_addr_index;
                     if (offset >= context.debug_addr.?.len) return error.InvalidExpression;
-                    const value = mem.readInt(usize, context.debug_addr.?[offset..][0..@sizeOf(usize)], native_endian);
+                    const value = mem.readInt(usize, context.debug_addr.?[offset..][0..@sizeOf(usize)], .native);
                     try self.stack.append(allocator, .{ .generic = value });
                 },
 
@@ -383,7 +383,7 @@ pub fn StackMachine(comptime options: Options) type {
                         context.thread_context.?,
                         base_register.base_register,
                         context.reg_context,
-                    ))[0..@sizeOf(usize)], native_endian));
+                    ))[0..@sizeOf(usize)], .native));
                     value += base_register.offset;
                     try self.stack.append(allocator, .{ .generic = @intCast(value) });
                 },
@@ -393,7 +393,7 @@ pub fn StackMachine(comptime options: Options) type {
                         context.thread_context.?,
                         register_type.register,
                         context.reg_context,
-                    ))[0..@sizeOf(usize)], native_endian);
+                    ))[0..@sizeOf(usize)], .native);
                     try self.stack.append(allocator, .{
                         .regval_type = .{
                             .type_offset = register_type.type_offset,
@@ -758,7 +758,7 @@ pub fn StackMachine(comptime options: Options) type {
 
                         var block_stream = std.io.fixedBufferStream(block);
                         const register = (try readOperand(&block_stream, block[0], context)).?.register;
-                        const value = mem.readInt(usize, (try abi.regBytes(context.thread_context.?, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
+                        const value = mem.readInt(usize, (try abi.regBytes(context.thread_context.?, register, context.reg_context))[0..@sizeOf(usize)], .native);
                         try self.stack.append(allocator, .{ .generic = value });
                     } else {
                         var stack_machine: Self = .{};
@@ -1123,9 +1123,9 @@ test "DWARF expressions" {
         var mock_debug_addr = std.ArrayList(u8).init(allocator);
         defer mock_debug_addr.deinit();
 
-        try mock_debug_addr.writer().writeInt(u16, 0, native_endian);
-        try mock_debug_addr.writer().writeInt(usize, input[11], native_endian);
-        try mock_debug_addr.writer().writeInt(usize, input[12], native_endian);
+        try mock_debug_addr.writer().writeInt(u16, 0, .native);
+        try mock_debug_addr.writer().writeInt(usize, input[11], .native);
+        try mock_debug_addr.writer().writeInt(usize, input[12], .native);
 
         const context = Context{
             .compile_unit = &mock_compile_unit,
@@ -1187,7 +1187,7 @@ test "DWARF expressions" {
 
             // TODO: Test fbreg (once implemented): mock a DIE and point compile_unit.frame_base at it
 
-            mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
+            mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, .native);
             (try abi.regValueNative(&thread_context, abi.fpRegNum(native_arch, reg_context), reg_context)).* = 1;
             (try abi.regValueNative(&thread_context, abi.spRegNum(native_arch, reg_context), reg_context)).* = 2;
             (try abi.regValueNative(&thread_context, abi.ipRegNum(native_arch).?, reg_context)).* = 3;
@@ -1540,7 +1540,7 @@ test "DWARF expressions" {
 
         const value: usize = @truncate(0xffeeffee_ffeeffee);
         var value_bytes: [options.addr_size]u8 = undefined;
-        mem.writeInt(usize, &value_bytes, value, native_endian);
+        mem.writeInt(usize, &value_bytes, value, .native);
 
         // Convert to generic type
         stack_machine.reset();
@@ -1615,7 +1615,7 @@ test "DWARF expressions" {
         };
 
         if (abi.regBytes(&thread_context, 0, reg_context)) |reg_bytes| {
-            mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
+            mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, .native);
 
             var sub_program = std.ArrayList(u8).init(allocator);
             defer sub_program.deinit();

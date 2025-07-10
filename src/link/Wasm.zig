@@ -15,7 +15,6 @@ const Object = @import("Wasm/Object.zig");
 pub const Flush = @import("Wasm/Flush.zig");
 
 const builtin = @import("builtin");
-const native_endian = builtin.cpu.arch.endian();
 
 const build_options = @import("build_options");
 

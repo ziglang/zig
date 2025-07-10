@@ -7,7 +7,6 @@ const expectError = std.testing.expectError;
 const mem = std.mem;
 const fs = std.fs;
 const File = std.fs.File;
-const native_endian = @import("builtin").target.cpu.arch.endian();
 
 const tmpDir = std.testing.tmpDir;
 
@@ -66,7 +65,7 @@ test "BitStreams with File Stream" {
         var file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
-        var bit_stream = io.bitWriter(native_endian, file.writer());
+        var bit_stream = io.bitWriter(.native, file.writer());
 
         try bit_stream.writeBits(@as(u2, 1), 1);
         try bit_stream.writeBits(@as(u5, 2), 2);
@@ -80,7 +79,7 @@ test "BitStreams with File Stream" {
         var file = try tmp.dir.openFile(tmp_file_name, .{});
         defer file.close();
 
-        var bit_stream = io.bitReader(native_endian, file.reader());
+        var bit_stream = io.bitReader(.native, file.reader());
 
         var out_bits: u16 = undefined;
 

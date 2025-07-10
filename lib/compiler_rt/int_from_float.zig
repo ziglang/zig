@@ -99,7 +99,7 @@ pub inline fn bigIntFromFloat(comptime signedness: std.builtin.Signedness, resul
         },
         .unsigned => @memset(result, 0),
     }
-    std.mem.writePackedIntNative(I, std.mem.sliceAsBytes(result), exponent, int);
+    std.mem.writePackedInt(I, std.mem.sliceAsBytes(result), exponent, int, .native);
 }
 
 test {
