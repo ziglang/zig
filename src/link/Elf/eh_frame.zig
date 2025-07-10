@@ -47,48 +47,32 @@ pub const Fde = struct {
         return object.relocs.items[fde.rel_index..][0..fde.rel_num];
     }
 
-    pub fn format(
-        fde: Fde,
-        bw: *Writer,
-        comptime unused_fmt_string: []const u8,
-    ) !void {
-        _ = fde;
-        _ = unused_fmt_string;
-        _ = bw;
-        @compileError("do not format FDEs directly");
-    }
-
-    pub fn fmt(fde: Fde, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(fde: Fde, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{
             .fde = fde,
             .elf_file = elf_file,
         } };
     }
 
-    const FdeFormatContext = struct {
+    const Format = struct {
         fde: Fde,
         elf_file: *Elf,
-    };
 
-    fn format2(
-        ctx: FdeFormatContext,
-        bw: *Writer,
-        comptime unused_fmt_string: []const u8,
-    ) !void {
-        _ = unused_fmt_string;
-        const fde = ctx.fde;
-        const elf_file = ctx.elf_file;
-        const base_addr = fde.address(elf_file);
-        const object = elf_file.file(fde.file_index).?.object;
-        const atom_name = fde.atom(object).name(elf_file);
-        try bw.print("@{x} : size({x}) : cie({d}) : {s}", .{
-            base_addr + fde.out_offset,
-            fde.calcSize(),
-            fde.cie_index,
-            atom_name,
-        });
-        if (!fde.alive) try bw.writeAll(" : [*]");
-    }
+        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const fde = f.fde;
+            const elf_file = f.elf_file;
+            const base_addr = fde.address(elf_file);
+            const object = elf_file.file(fde.file_index).?.object;
+            const atom_name = fde.atom(object).name(elf_file);
+            try writer.print("@{x} : size({x}) : cie({d}) : {s}", .{
+                base_addr + fde.out_offset,
+                fde.calcSize(),
+                fde.cie_index,
+                atom_name,
+            });
+            if (!fde.alive) try writer.writeAll(" : [*]");
+        }
+    };
 };
 
 pub const Cie = struct {
@@ -146,44 +130,28 @@ pub const Cie = struct {
         return true;
     }
 
-    pub fn format(
-        cie: Cie,
-        bw: *Writer,
-        comptime unused_fmt_string: []const u8,
-    ) !void {
-        _ = cie;
-        _ = unused_fmt_string;
-        _ = bw;
-        @compileError("do not format CIEs directly");
-    }
-
-    pub fn fmt(cie: Cie, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(cie: Cie, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{
             .cie = cie,
             .elf_file = elf_file,
         } };
     }
 
-    const CieFormatContext = struct {
+    const Format = struct {
         cie: Cie,
         elf_file: *Elf,
-    };
 
-    fn format2(
-        ctx: CieFormatContext,
-        bw: *Writer,
-        comptime unused_fmt_string: []const u8,
-    ) !void {
-        _ = unused_fmt_string;
-        const cie = ctx.cie;
-        const elf_file = ctx.elf_file;
-        const base_addr = cie.address(elf_file);
-        try bw.print("@{x} : size({x})", .{
-            base_addr + cie.out_offset,
-            cie.calcSize(),
-        });
-        if (!cie.alive) try bw.writeAll(" : [*]");
-    }
+        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const cie = f.cie;
+            const elf_file = f.elf_file;
+            const base_addr = cie.address(elf_file);
+            try writer.print("@{x} : size({x})", .{
+                base_addr + cie.out_offset,
+                cie.calcSize(),
+            });
+            if (!cie.alive) try writer.writeAll(" : [*]");
+        }
+    };
 };
 
 pub const Iterator = struct {

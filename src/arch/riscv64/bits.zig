@@ -256,15 +256,6 @@ pub const FrameIndex = enum(u32) {
     pub fn isNamed(fi: FrameIndex) bool {
         return @intFromEnum(fi) < named_count;
     }
-
-    pub fn format(fi: FrameIndex, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
-        comptime assert(fmt.len == 0);
-        try bw.writeAll("FrameIndex");
-        if (fi.isNamed())
-            try bw.print(".{s}", .{@tagName(fi)})
-        else
-            try bw.print("({d})", .{@intFromEnum(fi)});
-    }
 };
 
 /// A linker symbol not yet allocated in VM.

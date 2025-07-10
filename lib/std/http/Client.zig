@@ -920,7 +920,7 @@ pub const Request = struct {
                 .authority = connection.proxied,
                 .path = true,
                 .query = true,
-            }, w);
+            });
         }
         try w.writeByte(' ');
         try w.writeAll(@tagName(r.version));
@@ -1280,9 +1280,18 @@ pub const basic_authorization = struct {
     }
 
     pub fn valueLengthFromUri(uri: Uri) usize {
-        // TODO don't abuse formatted printing to count percent encoded characters
-        const user_len = std.fmt.count("{fuser}", .{uri.user orelse Uri.Component.empty});
-        const password_len = std.fmt.count("{fpassword}", .{uri.password orelse Uri.Component.empty});
+        const user: Uri.Component = uri.user orelse .empty;
+        const password: Uri.Component = uri.password orelse .empty;
+
+        var dw: std.io.Writer.Discarding = .init(&.{});
+        user.formatUser(&dw.writer) catch unreachable; // discarding
+        const user_len = dw.count + dw.writer.end;
+
+        dw.count = 0;
+        dw.writer.end = 0;
+        password.formatPassword(&dw.writer) catch unreachable; // discarding
+        const password_len = dw.count + dw.writer.end;
+
         return valueLength(@intCast(user_len), @intCast(password_len));
     }
 

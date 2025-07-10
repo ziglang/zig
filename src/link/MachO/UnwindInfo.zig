@@ -449,9 +449,8 @@ pub const Encoding = extern struct {
         return enc.enc == other.enc;
     }
 
-    pub fn format(enc: Encoding, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        _ = unused_fmt_string;
-        try bw.print("0x{x:0>8}", .{enc.enc});
+    pub fn format(enc: Encoding, w: *Writer) Writer.Error!void {
+        try w.print("0x{x:0>8}", .{enc.enc});
     }
 };
 
@@ -505,36 +504,28 @@ pub const Record = struct {
         return lsda.getAddress(macho_file) + rec.lsda_offset;
     }
 
-    pub fn format(rec: Record, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        _ = rec;
-        _ = bw;
-        _ = unused_fmt_string;
-        @compileError("do not format UnwindInfo.Records directly");
-    }
-
-    pub fn fmt(rec: Record, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(rec: Record, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{
             .rec = rec,
             .macho_file = macho_file,
         } };
     }
 
-    const FormatContext = struct {
+    const Format = struct {
         rec: Record,
         macho_file: *MachO,
-    };
 
-    fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        _ = unused_fmt_string;
-        const rec = ctx.rec;
-        const macho_file = ctx.macho_file;
-        try bw.print("{x} : len({x})", .{
-            rec.enc.enc, rec.length,
-        });
-        if (rec.enc.isDwarf(macho_file)) try bw.print(" : fde({d})", .{rec.fde});
-        try bw.print(" : {s}", .{rec.getAtom(macho_file).getName(macho_file)});
-        if (!rec.alive) try bw.writeAll(" : [*]");
-    }
+        fn default(f: Format, w: *Writer) Writer.Error!void {
+            const rec = f.rec;
+            const macho_file = f.macho_file;
+            try w.print("{x} : len({x})", .{
+                rec.enc.enc, rec.length,
+            });
+            if (rec.enc.isDwarf(macho_file)) try w.print(" : fde({d})", .{rec.fde});
+            try w.print(" : {s}", .{rec.getAtom(macho_file).getName(macho_file)});
+            if (!rec.alive) try w.writeAll(" : [*]");
+        }
+    };
 
     pub const Index = u32;
 
@@ -589,33 +580,25 @@ const Page = struct {
         return null;
     }
 
-    fn format(page: *const Page, bw: *Writer, comptime unused_format_string: []const u8) Writer.Error!void {
-        _ = page;
-        _ = bw;
-        _ = unused_format_string;
-        @compileError("do not format Page directly; use page.fmt()");
-    }
-
-    const FormatPageContext = struct {
+    const Format = struct {
         page: Page,
         info: UnwindInfo,
+
+        fn default(f: Format, w: *Writer) Writer.Error!void {
+            try w.writeAll("Page:\n");
+            try w.print("  kind: {s}\n", .{@tagName(f.page.kind)});
+            try w.print("  entries: {d} - {d}\n", .{
+                f.page.start,
+                f.page.start + f.page.count,
+            });
+            try w.print("  encodings (count = {d})\n", .{f.page.page_encodings_count});
+            for (f.page.page_encodings[0..f.page.page_encodings_count], 0..) |enc, i| {
+                try w.print("    {d}: {f}\n", .{ f.info.common_encodings_count + i, enc });
+            }
+        }
     };
 
-    fn format2(ctx: FormatPageContext, bw: *Writer, comptime unused_format_string: []const u8) Writer.Error!void {
-        _ = unused_format_string;
-        try bw.writeAll("Page:\n");
-        try bw.print("  kind: {s}\n", .{@tagName(ctx.page.kind)});
-        try bw.print("  entries: {d} - {d}\n", .{
-            ctx.page.start,
-            ctx.page.start + ctx.page.count,
-        });
-        try bw.print("  encodings (count = {d})\n", .{ctx.page.page_encodings_count});
-        for (ctx.page.page_encodings[0..ctx.page.page_encodings_count], 0..) |enc, i| {
-            try bw.print("    {d}: {f}\n", .{ ctx.info.common_encodings_count + i, enc });
-        }
-    }
-
-    fn fmt(page: Page, info: UnwindInfo) std.fmt.Formatter(format2) {
+    fn fmt(page: Page, info: UnwindInfo) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{
             .page = page,
             .info = info,

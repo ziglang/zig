@@ -937,8 +937,8 @@ const x86_64 = struct {
     }
 
     fn encode(insts: []const Instruction, code: []u8) !void {
-        var bw: Writer = .fixed(code);
-        for (insts) |inst| try inst.encode(&bw, .{});
+        var stream: Writer = .fixed(code);
+        for (insts) |inst| try inst.encode(&stream, .{});
     }
 
     const bits = @import("../../arch/x86_64/bits.zig");
@@ -1113,54 +1113,40 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
     assert(i == buffer.len);
 }
 
-pub fn format(
-    atom: Atom,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = atom;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format Atom directly");
-}
-
-pub fn fmt(atom: Atom, macho_file: *MachO) std.fmt.Formatter(format2) {
+pub fn fmt(atom: Atom, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
     return .{ .data = .{
         .atom = atom,
         .macho_file = macho_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     atom: Atom,
     macho_file: *MachO,
-};
 
-fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    comptime assert(unused_fmt_string.len == 0);
-    const atom = ctx.atom;
-    const macho_file = ctx.macho_file;
-    const file = atom.getFile(macho_file);
-    try bw.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : nreloc({d}) : thunk({d})", .{
-        atom.atom_index,                atom.getName(macho_file),        atom.getAddress(macho_file),
-        atom.out_n_sect,                atom.alignment,                  atom.size,
-        atom.getRelocs(macho_file).len, atom.getExtra(macho_file).thunk,
-    });
-    if (!atom.isAlive()) try bw.writeAll(" : [*]");
-    if (atom.getUnwindRecords(macho_file).len > 0) {
-        try bw.writeAll(" : unwind{ ");
-        const extra = atom.getExtra(macho_file);
-        for (atom.getUnwindRecords(macho_file), extra.unwind_index..) |index, i| {
-            const rec = file.object.getUnwindRecord(index);
-            try bw.print("{d}", .{index});
-            if (!rec.alive) try bw.writeAll("([*])");
-            if (i < extra.unwind_index + extra.unwind_count - 1) try bw.writeAll(", ");
+    fn print(f: Format, w: *Writer) Writer.Error!void {
+        const atom = f.atom;
+        const macho_file = f.macho_file;
+        const file = atom.getFile(macho_file);
+        try w.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : nreloc({d}) : thunk({d})", .{
+            atom.atom_index,                atom.getName(macho_file),        atom.getAddress(macho_file),
+            atom.out_n_sect,                atom.alignment,                  atom.size,
+            atom.getRelocs(macho_file).len, atom.getExtra(macho_file).thunk,
+        });
+        if (!atom.isAlive()) try w.writeAll(" : [*]");
+        if (atom.getUnwindRecords(macho_file).len > 0) {
+            try w.writeAll(" : unwind{ ");
+            const extra = atom.getExtra(macho_file);
+            for (atom.getUnwindRecords(macho_file), extra.unwind_index..) |index, i| {
+                const rec = file.object.getUnwindRecord(index);
+                try w.print("{d}", .{index});
+                if (!rec.alive) try w.writeAll("([*])");
+                if (i < extra.unwind_index + extra.unwind_count - 1) try w.writeAll(", ");
+            }
+            try w.writeAll(" }");
         }
-        try bw.writeAll(" }");
     }
-}
+};
 
 pub const Index = u32;
 

@@ -251,7 +251,7 @@ test "Value.jsonStringify" {
         \\ true,
         \\ 42,
         \\ 43,
-        \\ 4.2e1,
+        \\ 42,
         \\ "weeee",
         \\ [
         \\  1,

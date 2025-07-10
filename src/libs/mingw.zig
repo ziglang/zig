@@ -29,7 +29,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     const target = comp.getTarget();
 
     // The old 32-bit x86 variant of SEH doesn't use tables.
-    const unwind_tables: std.builtin.UnwindTables = if (target.cpu.arch != .x86) .@"async" else .none;
+    const unwind_tables: std.builtin.UnwindTables = if (target.cpu.arch != .x86) .async else .none;
 
     switch (crt_file) {
         .crt2_o => {
@@ -325,7 +325,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     for (aro_comp.diagnostics.list.items) |diagnostic| {
         if (diagnostic.kind == .@"fatal error" or diagnostic.kind == .@"error") {
-            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(.stderr()));
+            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.fs.File.stderr()));
             return error.AroPreprocessorFailed;
         }
     }
@@ -334,7 +334,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         // new scope to ensure definition file is written before passing the path to WriteImportLibrary
         const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
-        try pp.prettyPrintTokens(def_final_file.writer(), .result_only);
+        try pp.prettyPrintTokens(def_final_file.deprecatedWriter(), .result_only);
     }
 
     const lib_final_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename });
@@ -930,7 +930,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "exp2l.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "expl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "expm1l.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "floorl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fmodl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fucom.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ilogbl.S",
@@ -974,7 +973,6 @@ const mingw32_x86_32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atan2f.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atanf.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ceilf.S",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "floorf.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fmodf.c",
 };
 
@@ -1013,6 +1011,7 @@ const mingw32_winpthreads_src = [_][]const u8{
     "winpthreads" ++ path.sep_str ++ "thread.c",
 };
 
+// Note: kernel32 and ntdll are always linked even without targeting MinGW-w64.
 pub const always_link_libs = [_][]const u8{
     "api-ms-win-crt-conio-l1-1-0",
     "api-ms-win-crt-convert-l1-1-0",
@@ -1030,8 +1029,6 @@ pub const always_link_libs = [_][]const u8{
     "api-ms-win-crt-time-l1-1-0",
     "api-ms-win-crt-utility-l1-1-0",
     "advapi32",
-    "kernel32",
-    "ntdll",
     "shell32",
     "user32",
 };

@@ -286,59 +286,51 @@ pub fn setOutputSym(symbol: Symbol, macho_file: *MachO, out: *macho.nlist_64) vo
     }
 }
 
-pub fn format(symbol: Symbol, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = symbol;
-    _ = bw;
-    _ = unused_fmt_string;
-    @compileError("do not format symbols directly");
-}
-
-const FormatContext = struct {
-    symbol: Symbol,
-    macho_file: *MachO,
-};
-
-pub fn fmt(symbol: Symbol, macho_file: *MachO) std.fmt.Formatter(format2) {
+pub fn fmt(symbol: Symbol, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
     return .{ .data = .{
         .symbol = symbol,
         .macho_file = macho_file,
     } };
 }
 
-fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    comptime assert(unused_fmt_string.len == 0);
-    const symbol = ctx.symbol;
-    try bw.print("%{d} : {s} : @{x}", .{
-        symbol.nlist_idx,
-        symbol.getName(ctx.macho_file),
-        symbol.getAddress(.{}, ctx.macho_file),
-    });
-    if (symbol.getFile(ctx.macho_file)) |file| {
-        if (symbol.getOutputSectionIndex(ctx.macho_file) != 0) {
-            try bw.print(" : sect({d})", .{symbol.getOutputSectionIndex(ctx.macho_file)});
-        }
-        if (symbol.getAtom(ctx.macho_file)) |atom| {
-            try bw.print(" : atom({d})", .{atom.atom_index});
-        }
-        var buf: [3]u8 = .{'_'} ** 3;
-        if (symbol.flags.@"export") buf[0] = 'E';
-        if (symbol.flags.import) buf[1] = 'I';
-        switch (symbol.visibility) {
-            .local => buf[2] = 'L',
-            .hidden => buf[2] = 'H',
-            .global => buf[2] = 'G',
-        }
-        try bw.print(" : {s}", .{&buf});
-        if (symbol.flags.weak) try bw.writeAll(" : weak");
-        if (symbol.isSymbolStab(ctx.macho_file)) try bw.writeAll(" : stab");
-        switch (file) {
-            .zig_object => |x| try bw.print(" : zig_object({d})", .{x.index}),
-            .internal => |x| try bw.print(" : internal({d})", .{x.index}),
-            .object => |x| try bw.print(" : object({d})", .{x.index}),
-            .dylib => |x| try bw.print(" : dylib({d})", .{x.index}),
-        }
-    } else try bw.writeAll(" : unresolved");
-}
+const Format = struct {
+    symbol: Symbol,
+    macho_file: *MachO,
+
+    fn default(f: Format, w: *Writer) Writer.Error!void {
+        const symbol = f.symbol;
+        try w.print("%{d} : {s} : @{x}", .{
+            symbol.nlist_idx,
+            symbol.getName(f.macho_file),
+            symbol.getAddress(.{}, f.macho_file),
+        });
+        if (symbol.getFile(f.macho_file)) |file| {
+            if (symbol.getOutputSectionIndex(f.macho_file) != 0) {
+                try w.print(" : sect({d})", .{symbol.getOutputSectionIndex(f.macho_file)});
+            }
+            if (symbol.getAtom(f.macho_file)) |atom| {
+                try w.print(" : atom({d})", .{atom.atom_index});
+            }
+            var buf: [3]u8 = .{'_'} ** 3;
+            if (symbol.flags.@"export") buf[0] = 'E';
+            if (symbol.flags.import) buf[1] = 'I';
+            switch (symbol.visibility) {
+                .local => buf[2] = 'L',
+                .hidden => buf[2] = 'H',
+                .global => buf[2] = 'G',
+            }
+            try w.print(" : {s}", .{&buf});
+            if (symbol.flags.weak) try w.writeAll(" : weak");
+            if (symbol.isSymbolStab(f.macho_file)) try w.writeAll(" : stab");
+            switch (file) {
+                .zig_object => |x| try w.print(" : zig_object({d})", .{x.index}),
+                .internal => |x| try w.print(" : internal({d})", .{x.index}),
+                .object => |x| try w.print(" : object({d})", .{x.index}),
+                .dylib => |x| try w.print(" : dylib({d})", .{x.index}),
+            }
+        } else try w.writeAll(" : unresolved");
+    }
+};
 
 pub const Flags = packed struct {
     /// Whether the symbol is imported at runtime.

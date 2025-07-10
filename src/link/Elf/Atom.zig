@@ -906,53 +906,45 @@ pub fn setExtra(atom: Atom, extras: Extra, elf_file: *Elf) void {
     atom.file(elf_file).?.setAtomExtra(atom.extra_index, extras);
 }
 
-pub fn format(atom: Atom, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = atom;
-    _ = bw;
-    _ = unused_fmt_string;
-    @compileError("do not format Atom directly");
-}
-
-pub fn fmt(atom: Atom, elf_file: *Elf) std.fmt.Formatter(format2) {
+pub fn fmt(atom: Atom, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
     return .{ .data = .{
         .atom = atom,
         .elf_file = elf_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     atom: Atom,
     elf_file: *Elf,
-};
 
-fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
-    const atom = ctx.atom;
-    const elf_file = ctx.elf_file;
-    try bw.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x}) : prev({f}) : next({f})", .{
-        atom.atom_index,           atom.name(elf_file),                   atom.address(elf_file),
-        atom.output_section_index, atom.alignment.toByteUnits() orelse 0, atom.size,
-        atom.prev_atom_ref,        atom.next_atom_ref,
-    });
-    if (atom.file(elf_file)) |atom_file| switch (atom_file) {
-        .object => |object| {
-            if (atom.fdes(object).len > 0) {
-                try bw.writeAll(" : fdes{ ");
-                const extras = atom.extra(elf_file);
-                for (atom.fdes(object), extras.fde_start..) |fde, i| {
-                    try bw.print("{d}", .{i});
-                    if (!fde.alive) try bw.writeAll("([*])");
-                    if (i - extras.fde_start < extras.fde_count - 1) try bw.writeAll(", ");
+    fn default(f: Format, w: *std.io.Writer) std.io.Writer.Error!void {
+        const atom = f.atom;
+        const elf_file = f.elf_file;
+        try w.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x}) : prev({f}) : next({f})", .{
+            atom.atom_index,           atom.name(elf_file),                   atom.address(elf_file),
+            atom.output_section_index, atom.alignment.toByteUnits() orelse 0, atom.size,
+            atom.prev_atom_ref,        atom.next_atom_ref,
+        });
+        if (atom.file(elf_file)) |atom_file| switch (atom_file) {
+            .object => |object| {
+                if (atom.fdes(object).len > 0) {
+                    try w.writeAll(" : fdes{ ");
+                    const extras = atom.extra(elf_file);
+                    for (atom.fdes(object), extras.fde_start..) |fde, i| {
+                        try w.print("{d}", .{i});
+                        if (!fde.alive) try w.writeAll("([*])");
+                        if (i - extras.fde_start < extras.fde_count - 1) try w.writeAll(", ");
+                    }
+                    try w.writeAll(" }");
                 }
-                try bw.writeAll(" }");
-            }
-        },
-        else => {},
-    };
-    if (!atom.alive) {
-        try bw.writeAll(" : [*]");
+            },
+            else => {},
+        };
+        if (!atom.alive) {
+            try w.writeAll(" : [*]");
+        }
     }
-}
+};
 
 pub const Index = u32;
 
@@ -1385,9 +1377,8 @@ const x86_64 = struct {
                     // TODO: hack to force imm32s in the assembler
                     .{ .imm = .s(-129) },
                 }, t) catch return false;
-                var buf: [std.atomic.cache_line]u8 = undefined;
-                var bw = Writer.null.buffered(&buf);
-                inst.encode(&bw, .{}) catch return false;
+                var trash: std.io.Writer.Discarding = .init(&.{});
+                inst.encode(&trash.writer, .{}) catch return false;
                 return true;
             },
             else => return false,
@@ -1433,7 +1424,7 @@ const x86_64 = struct {
         rels: []const elf.Elf64_Rela,
         value: i32,
         elf_file: *Elf,
-        bw: *Writer,
+        writer: *Writer,
     ) !void {
         dev.check(.x86_64_backend);
         assert(rels.len == 2);
@@ -1450,8 +1441,8 @@ const x86_64 = struct {
                     0x48, 0x81, 0xc0, 0, 0, 0, 0, // add $tp_offset, %rax
                 };
                 std.mem.writeInt(i32, insts[12..][0..4], value, .little);
-                bw.end -= 4;
-                try bw.writeAll(&insts);
+                try writer.seekBy(-4);
+                try writer.writeAll(&insts);
                 relocs_log.debug("    relaxing {f} and {f}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
@@ -1481,8 +1472,8 @@ const x86_64 = struct {
     }
 
     fn encode(insts: []const Instruction, code: []u8) !void {
-        var bw: Writer = .fixed(code);
-        for (insts) |inst| try inst.encode(&bw, .{});
+        var stream: std.io.Writer = .fixed(code);
+        for (insts) |inst| try inst.encode(&stream, .{});
     }
 
     const bits = @import("../../arch/x86_64/bits.zig");

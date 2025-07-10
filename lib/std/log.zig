@@ -45,9 +45,8 @@
 //!     const prefix = "[" ++ comptime level.asText() ++ "] " ++ scope_prefix;
 //!
 //!     // Print the message to stderr, silently ignoring any errors
-//!     std.debug.lockStdErr();
-//!     defer std.debug.unlockStdErr();
-//!     const stderr = std.fs.File.stderr().writer();
+//!     const stderr = std.debug.lockStderrWriter(&.{});
+//!     defer std.debug.unlockStderrWriter();
 //!     nosuspend stderr.print(prefix ++ format ++ "\n", args) catch return;
 //! }
 //!
@@ -101,8 +100,7 @@ pub const Level = enum {
 /// The default log level is based on build mode.
 pub const default_level: Level = switch (builtin.mode) {
     .Debug => .debug,
-    .ReleaseSafe => .info,
-    .ReleaseFast, .ReleaseSmall => .err,
+    .ReleaseSafe, .ReleaseFast, .ReleaseSmall => .info,
 };
 
 const level = std.options.log_level;
@@ -148,10 +146,10 @@ pub fn defaultLog(
 ) void {
     const level_txt = comptime message_level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-    var buffer: [1024]u8 = undefined;
-    const bw = std.debug.lockStderrWriter(&buffer);
+    var buffer: [32]u8 = undefined;
+    const stderr = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
-    bw.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+    nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
 }
 
 /// Returns a scoped logging namespace that logs all messages using the scope

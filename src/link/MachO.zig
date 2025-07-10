@@ -3898,29 +3898,28 @@ pub fn ptraceDetach(self: *MachO, pid: std.posix.pid_t) !void {
     self.hot_state.mach_task = null;
 }
 
-pub fn dumpState(self: *MachO) std.fmt.Formatter(fmtDumpState) {
+pub fn dumpState(self: *MachO) std.fmt.Formatter(*MachO, fmtDumpState) {
     return .{ .data = self };
 }
 
-fn fmtDumpState(self: *MachO, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
+fn fmtDumpState(self: *MachO, w: *Writer) Writer.Error!void {
     if (self.getZigObject()) |zo| {
-        try bw.print("zig_object({d}) : {s}\n", .{ zo.index, zo.basename });
-        try bw.print("{f}{f}\n", .{
+        try w.print("zig_object({d}) : {s}\n", .{ zo.index, zo.basename });
+        try w.print("{f}{f}\n", .{
             zo.fmtAtoms(self),
             zo.fmtSymtab(self),
         });
     }
     for (self.objects.items) |index| {
         const object = self.getFile(index).?.object;
-        try bw.print("object({d}) : {f} : has_debug({})", .{
+        try w.print("object({d}) : {f} : has_debug({})", .{
             index,
             object.fmtPath(),
             object.hasDebugInfo(),
         });
-        if (!object.alive) try bw.writeAll(" : ([*])");
-        try bw.writeByte('\n');
-        try bw.print("{f}{f}{f}{f}{f}\n", .{
+        if (!object.alive) try w.writeAll(" : ([*])");
+        try w.writeByte('\n');
+        try w.print("{f}{f}{f}{f}{f}\n", .{
             object.fmtAtoms(self),
             object.fmtCies(self),
             object.fmtFdes(self),
@@ -3930,42 +3929,41 @@ fn fmtDumpState(self: *MachO, bw: *Writer, comptime unused_fmt_string: []const u
     }
     for (self.dylibs.items) |index| {
         const dylib = self.getFile(index).?.dylib;
-        try bw.print("dylib({d}) : {f} : needed({}) : weak({})", .{
+        try w.print("dylib({d}) : {f} : needed({}) : weak({})", .{
             index,
             @as(Path, dylib.path),
             dylib.needed,
             dylib.weak,
         });
-        if (!dylib.isAlive(self)) try bw.writeAll(" : ([*])");
-        try bw.writeByte('\n');
-        try bw.print("{f}\n", .{dylib.fmtSymtab(self)});
+        if (!dylib.isAlive(self)) try w.writeAll(" : ([*])");
+        try w.writeByte('\n');
+        try w.print("{f}\n", .{dylib.fmtSymtab(self)});
     }
     if (self.getInternalObject()) |internal| {
-        try bw.print("internal({d}) : internal\n", .{internal.index});
-        try bw.print("{f}{f}\n", .{ internal.fmtAtoms(self), internal.fmtSymtab(self) });
+        try w.print("internal({d}) : internal\n", .{internal.index});
+        try w.print("{f}{f}\n", .{ internal.fmtAtoms(self), internal.fmtSymtab(self) });
     }
-    try bw.writeAll("thunks\n");
+    try w.writeAll("thunks\n");
     for (self.thunks.items, 0..) |thunk, index| {
-        try bw.print("thunk({d}) : {f}\n", .{ index, thunk.fmt(self) });
+        try w.print("thunk({d}) : {f}\n", .{ index, thunk.fmt(self) });
     }
-    try bw.print("stubs\n{f}\n", .{self.stubs.fmt(self)});
-    try bw.print("objc_stubs\n{f}\n", .{self.objc_stubs.fmt(self)});
-    try bw.print("got\n{f}\n", .{self.got.fmt(self)});
-    try bw.print("tlv_ptr\n{f}\n", .{self.tlv_ptr.fmt(self)});
-    try bw.writeByte('\n');
-    try bw.print("sections\n{f}\n", .{self.fmtSections()});
-    try bw.print("segments\n{f}\n", .{self.fmtSegments()});
+    try w.print("stubs\n{f}\n", .{self.stubs.fmt(self)});
+    try w.print("objc_stubs\n{f}\n", .{self.objc_stubs.fmt(self)});
+    try w.print("got\n{f}\n", .{self.got.fmt(self)});
+    try w.print("tlv_ptr\n{f}\n", .{self.tlv_ptr.fmt(self)});
+    try w.writeByte('\n');
+    try w.print("sections\n{f}\n", .{self.fmtSections()});
+    try w.print("segments\n{f}\n", .{self.fmtSegments()});
 }
 
-fn fmtSections(self: *MachO) std.fmt.Formatter(formatSections) {
+fn fmtSections(self: *MachO) std.fmt.Formatter(*MachO, formatSections) {
     return .{ .data = self };
 }
 
-fn formatSections(self: *MachO, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
+fn formatSections(self: *MachO, w: *Writer) Writer.Error!void {
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.segment_id), 0..) |header, seg_id, i| {
-        try bw.print(
+        try w.print(
             "sect({d}) : seg({d}) : {s},{s} : @{x} ({x}) : align({x}) : size({x}) : relocs({x};{d})\n",
             .{
                 i,               seg_id,      header.segName(), header.sectName(), header.addr, header.offset,
@@ -3975,26 +3973,24 @@ fn formatSections(self: *MachO, bw: *Writer, comptime unused_fmt_string: []const
     }
 }
 
-fn fmtSegments(self: *MachO) std.fmt.Formatter(formatSegments) {
+fn fmtSegments(self: *MachO) std.fmt.Formatter(*MachO, formatSegments) {
     return .{ .data = self };
 }
 
-fn formatSegments(self: *MachO, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
+fn formatSegments(self: *MachO, w: *Writer) Writer.Error!void {
     for (self.segments.items, 0..) |seg, i| {
-        try bw.print("seg({d}) : {s} : @{x}-{x} ({x}-{x})\n", .{
+        try w.print("seg({d}) : {s} : @{x}-{x} ({x}-{x})\n", .{
             i,           seg.segName(),              seg.vmaddr, seg.vmaddr + seg.vmsize,
             seg.fileoff, seg.fileoff + seg.filesize,
         });
     }
 }
 
-pub fn fmtSectType(tt: u8) std.fmt.Formatter(formatSectType) {
+pub fn fmtSectType(tt: u8) std.fmt.Formatter(u8, formatSectType) {
     return .{ .data = tt };
 }
 
-fn formatSectType(tt: u8, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
+fn formatSectType(tt: u8, w: *Writer) Writer.Error!void {
     const name = switch (tt) {
         macho.S_REGULAR => "REGULAR",
         macho.S_ZEROFILL => "ZEROFILL",
@@ -4018,9 +4014,9 @@ fn formatSectType(tt: u8, bw: *Writer, comptime unused_fmt_string: []const u8) W
         macho.S_THREAD_LOCAL_VARIABLE_POINTERS => "THREAD_LOCAL_VARIABLE_POINTERS",
         macho.S_THREAD_LOCAL_INIT_FUNCTION_POINTERS => "THREAD_LOCAL_INIT_FUNCTION_POINTERS",
         macho.S_INIT_FUNC_OFFSETS => "INIT_FUNC_OFFSETS",
-        else => |x| return bw.print("UNKNOWN({x})", .{x}),
+        else => |x| return w.print("UNKNOWN({x})", .{x}),
     };
-    try bw.print("{s}", .{name});
+    try w.print("{s}", .{name});
 }
 
 const is_hot_update_compatible = switch (builtin.target.os.tag) {
@@ -4253,28 +4249,27 @@ pub const Platform = struct {
         return false;
     }
 
-    pub fn fmtTarget(plat: Platform, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(formatTarget) {
+    pub fn fmtTarget(plat: Platform, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(Format, Format.target) {
         return .{ .data = .{ .platform = plat, .cpu_arch = cpu_arch } };
     }
 
-    const FmtCtx = struct {
+    const Format = struct {
         platform: Platform,
         cpu_arch: std.Target.Cpu.Arch,
-    };
 
-    pub fn formatTarget(ctx: FmtCtx, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        _ = unused_fmt_string;
-        try bw.print("{s}-{s}", .{ @tagName(ctx.cpu_arch), @tagName(ctx.platform.os_tag) });
-        if (ctx.platform.abi != .none) {
-            try bw.print("-{s}", .{@tagName(ctx.platform.abi)});
+        pub fn target(f: Format, w: *Writer) Writer.Error!void {
+            try w.print("{s}-{s}", .{ @tagName(f.cpu_arch), @tagName(f.platform.os_tag) });
+            if (f.platform.abi != .none) {
+                try w.print("-{s}", .{@tagName(f.platform.abi)});
+            }
         }
-    }
+    };
 
     /// Caller owns the memory.
     pub fn allocPrintTarget(plat: Platform, gpa: Allocator, cpu_arch: std.Target.Cpu.Arch) error{OutOfMemory}![]u8 {
         var buffer = std.ArrayList(u8).init(gpa);
         defer buffer.deinit();
-        try buffer.writer().print("{}", .{plat.fmtTarget(cpu_arch)});
+        try buffer.writer().print("{f}", .{plat.fmtTarget(cpu_arch)});
         return buffer.toOwnedSlice();
     }
 
@@ -4475,8 +4470,7 @@ pub const Ref = struct {
         };
     }
 
-    pub fn format(ref: Ref, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        comptime assert(unused_fmt_string.len == 0);
+    pub fn format(ref: Ref, bw: *Writer) Writer.Error!void {
         try bw.print("%{d} in file({d})", .{ ref.index, ref.file });
     }
 };

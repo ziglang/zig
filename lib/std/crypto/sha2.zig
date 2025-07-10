@@ -383,12 +383,28 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
             for (&d.s, v) |*dv, vv| dv.* +%= vv;
         }
 
+<<<<<<< HEAD
         pub fn writer(this: *@This(), buffer: []u8) Writer {
             return .{
                 .context = this,
                 .vtable = &.{ .drain = drain },
                 .buffer = buffer,
             };
+||||||| edf785db0f
+        pub const Error = error{};
+        pub const Writer = std.io.Writer(*Self, Error, write);
+
+        fn write(self: *Self, bytes: []const u8) Error!usize {
+            self.update(bytes);
+            return bytes.len;
+=======
+        pub const Error = error{};
+        pub const Writer = std.io.GenericWriter(*Self, Error, write);
+
+        fn write(self: *Self, bytes: []const u8) Error!usize {
+            self.update(bytes);
+            return bytes.len;
+>>>>>>> origin/master
         }
 
         fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {

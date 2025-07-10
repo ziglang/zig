@@ -436,7 +436,7 @@ const InstTracking = struct {
     fn trackSpill(inst_tracking: *InstTracking, function: *Func, inst: Air.Inst.Index) !void {
         try function.freeValue(inst_tracking.short);
         inst_tracking.reuseFrame();
-        tracking_log.debug("%{f} => {f} (spilled)", .{ inst, inst_tracking.* });
+        tracking_log.debug("%{d} => {f} (spilled)", .{ inst, inst_tracking.* });
     }
 
     fn verifyMaterialize(inst_tracking: InstTracking, target: InstTracking) void {
@@ -500,14 +500,14 @@ const InstTracking = struct {
             else => target.long,
         } else target.long;
         inst_tracking.short = target.short;
-        tracking_log.debug("%{f} => {f} (materialize)", .{ inst, inst_tracking.* });
+        tracking_log.debug("%{d} => {f} (materialize)", .{ inst, inst_tracking.* });
     }
 
     fn resurrect(inst_tracking: *InstTracking, inst: Air.Inst.Index, scope_generation: u32) void {
         switch (inst_tracking.short) {
             .dead => |die_generation| if (die_generation >= scope_generation) {
                 inst_tracking.reuseFrame();
-                tracking_log.debug("%{f} => {f} (resurrect)", .{ inst, inst_tracking.* });
+                tracking_log.debug("%{d} => {f} (resurrect)", .{ inst, inst_tracking.* });
             },
             else => {},
         }
@@ -517,7 +517,7 @@ const InstTracking = struct {
         if (inst_tracking.short == .dead) return;
         try function.freeValue(inst_tracking.short);
         inst_tracking.short = .{ .dead = function.scope_generation };
-        tracking_log.debug("%{f} => {f} (death)", .{ inst, inst_tracking.* });
+        tracking_log.debug("%{d} => {f} (death)", .{ inst, inst_tracking.* });
     }
 
     fn reuse(
@@ -528,15 +528,15 @@ const InstTracking = struct {
     ) void {
         inst_tracking.short = .{ .dead = function.scope_generation };
         if (new_inst) |inst|
-            tracking_log.debug("%{f} => {f} (reuse %{f})", .{ inst, inst_tracking.*, old_inst })
+            tracking_log.debug("%{d} => {f} (reuse %{d})", .{ inst, inst_tracking.*, old_inst })
         else
-            tracking_log.debug("tmp => {f} (reuse %{f})", .{ inst_tracking.*, old_inst });
+            tracking_log.debug("tmp => {f} (reuse %{d})", .{ inst_tracking.*, old_inst });
     }
 
     fn liveOut(inst_tracking: *InstTracking, function: *Func, inst: Air.Inst.Index) void {
         for (inst_tracking.getRegs()) |reg| {
             if (function.register_manager.isRegFree(reg)) {
-                tracking_log.debug("%{f} => {f} (live-out)", .{ inst, inst_tracking.* });
+                tracking_log.debug("%{d} => {f} (live-out)", .{ inst, inst_tracking.* });
                 continue;
             }
 
@@ -563,14 +563,13 @@ const InstTracking = struct {
             // Perform side-effects of freeValue manually.
             function.register_manager.freeReg(reg);
 
-            tracking_log.debug("%{f} => {f} (live-out %{f})", .{ inst, inst_tracking.*, tracked_inst });
+            tracking_log.debug("%{d} => {f} (live-out %{d})", .{ inst, inst_tracking.*, tracked_inst });
         }
     }
 
-    pub fn format(inst_tracking: InstTracking, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
-        comptime assert(fmt.len == 0);
-        if (!std.meta.eql(inst_tracking.long, inst_tracking.short)) try bw.print("|{}| ", .{inst_tracking.long});
-        try bw.print("{}", .{inst_tracking.short});
+    pub fn format(inst_tracking: InstTracking, writer: *std.io.Writer) std.io.Writer.Error!void {
+        if (!std.meta.eql(inst_tracking.long, inst_tracking.short)) try writer.print("|{}| ", .{inst_tracking.long});
+        try writer.print("{}", .{inst_tracking.short});
     }
 };
 
@@ -934,7 +933,7 @@ const FormatWipMirData = struct {
     func: *Func,
     inst: Mir.Inst.Index,
 };
-fn formatWipMir(data: FormatWipMirData, bw: *Writer, comptime _: []const u8) Writer.Error!void {
+fn formatWipMir(data: FormatWipMirData, writer: *std.io.Writer) std.io.Writer.Error!void {
     const pt = data.func.pt;
     const comp = pt.zcu.comp;
     var lower: Lower = .{
@@ -957,11 +956,11 @@ fn formatWipMir(data: FormatWipMirData, bw: *Writer, comptime _: []const u8) Wri
                 lower.err_msg.?.deinit(data.func.gpa);
                 lower.err_msg = null;
             }
-            try bw.writeAll(lower.err_msg.?.msg);
+            try writer.writeAll(lower.err_msg.?.msg);
             return;
         },
         error.OutOfMemory, error.InvalidInstruction => |e| {
-            try bw.writeAll(switch (e) {
+            try writer.writeAll(switch (e) {
                 error.OutOfMemory => "Out of memory",
                 error.InvalidInstruction => "CodeGen failed to find a viable instruction.",
             });
@@ -969,12 +968,12 @@ fn formatWipMir(data: FormatWipMirData, bw: *Writer, comptime _: []const u8) Wri
         },
         else => |e| return e,
     }).insts) |lowered_inst| {
-        if (!first) try bw.writeAll("\ndebug(wip_mir): ");
-        try bw.print("  | {}", .{lowered_inst});
+        if (!first) try writer.writeAll("\ndebug(wip_mir): ");
+        try writer.print("  | {}", .{lowered_inst});
         first = false;
     }
 }
-fn fmtWipMir(func: *Func, inst: Mir.Inst.Index) std.fmt.Formatter(formatWipMir) {
+fn fmtWipMir(func: *Func, inst: Mir.Inst.Index) std.fmt.Formatter(FormatWipMirData, formatWipMir) {
     return .{ .data = .{ .func = func, .inst = inst } };
 }
 
@@ -982,10 +981,10 @@ const FormatNavData = struct {
     ip: *const InternPool,
     nav_index: InternPool.Nav.Index,
 };
-fn formatNav(data: FormatNavData, bw: *Writer, comptime _: []const u8) Writer.Error!void {
-    try bw.print("{f}", .{data.ip.getNav(data.nav_index).fqn.fmt(data.ip)});
+fn formatNav(data: FormatNavData, writer: *std.io.Writer) std.io.Writer.Error!void {
+    try writer.print("{f}", .{data.ip.getNav(data.nav_index).fqn.fmt(data.ip)});
 }
-fn fmtNav(nav_index: InternPool.Nav.Index, ip: *const InternPool) std.fmt.Formatter(formatNav) {
+fn fmtNav(nav_index: InternPool.Nav.Index, ip: *const InternPool) std.fmt.Formatter(FormatNavData, formatNav) {
     return .{ .data = .{
         .ip = ip,
         .nav_index = nav_index,
@@ -996,27 +995,25 @@ const FormatAirData = struct {
     func: *Func,
     inst: Air.Inst.Index,
 };
-fn formatAir(data: FormatAirData, w: *std.io.Writer, comptime fmt: []const u8) std.io.Writer.Error!void {
-    comptime assert(fmt.len == 0);
-    // not acceptable implementation:
-    // data.func.air.dumpInst(data.inst, data.func.pt, data.func.liveness);
+fn formatAir(data: FormatAirData, writer: *std.io.Writer) std.io.Writer.Error!void {
+    // Not acceptable implementation because it ignores `writer`:
+    //data.func.air.dumpInst(data.inst, data.func.pt, data.func.liveness);
     _ = data;
-    _ = w;
-    @panic("TODO: unimplemented");
+    _ = writer;
+    @panic("unimplemented");
 }
-fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(formatAir) {
+fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(FormatAirData, formatAir) {
     return .{ .data = .{ .func = func, .inst = inst } };
 }
 
 const FormatTrackingData = struct {
     func: *Func,
 };
-fn formatTracking(data: FormatTrackingData, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
-    comptime assert(fmt.len == 0);
+fn formatTracking(data: FormatTrackingData, writer: *std.io.Writer) std.io.Writer.Error!void {
     var it = data.func.inst_tracking.iterator();
-    while (it.next()) |entry| try bw.print("\n%{d} = {f}", .{ entry.key_ptr.*, entry.value_ptr.* });
+    while (it.next()) |entry| try writer.print("\n%{d} = {f}", .{ entry.key_ptr.*, entry.value_ptr.* });
 }
-fn fmtTracking(func: *Func) std.fmt.Formatter(formatTracking) {
+fn fmtTracking(func: *Func) std.fmt.Formatter(FormatTrackingData, formatTracking) {
     return .{ .data = .{ .func = func } };
 }
 
@@ -1826,7 +1823,7 @@ fn computeFrameLayout(func: *Func) !FrameLayout {
         total_alloc_size + 64 + args_frame_size + spill_frame_size + call_frame_size,
         @intCast(frame_align[@intFromEnum(FrameIndex.base_ptr)].toByteUnits().?),
     );
-    log.debug("frame size: {}", .{acc_frame_size});
+    log.debug("frame size: {d}", .{acc_frame_size});
 
     // store the ra at total_size - 8, so it's the very first thing in the stack
     // relative to the fp

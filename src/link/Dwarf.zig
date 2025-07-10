@@ -2557,7 +2557,7 @@ fn initWipNavInner(
             const addr: Loc = .{ .addr_reloc = sym_index };
             const loc: Loc = if (decl.is_threadlocal) .{ .form_tls_address = &addr } else addr;
             switch (decl.kind) {
-                .unnamed_test, .@"test", .decltest, .@"comptime", .@"usingnamespace" => unreachable,
+                .unnamed_test, .@"test", .decltest, .@"comptime" => unreachable,
                 .@"const" => {
                     const const_ty_reloc_index = try wip_nav.refForward();
                     try wip_nav.infoExprLoc(loc);
@@ -2834,7 +2834,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
 
     const is_test = switch (decl.kind) {
         .unnamed_test, .@"test", .decltest => true,
-        .@"comptime", .@"usingnamespace", .@"const", .@"var" => false,
+        .@"comptime", .@"const", .@"var" => false,
     };
     if (is_test) {
         // This isn't actually a comptime Nav! It's a test, so it'll definitely never be referenced at comptime.
@@ -3657,7 +3657,7 @@ fn updateLazyType(
                 // For better or worse, we try to match what Clang emits.
                 break :cc switch (func_type.cc) {
                     .@"inline" => .nocall,
-                    .@"async", .auto, .naked => .normal,
+                    .async, .auto, .naked => .normal,
                     .x86_64_sysv => .LLVM_X86_64SysV,
                     .x86_64_win => .LLVM_Win64,
                     .x86_64_regcall_v3_sysv => .LLVM_X86RegCall,
@@ -4301,7 +4301,7 @@ fn updateContainerTypeInner(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: Intern
         };
         defer wip_nav.deinit();
         const diw = wip_nav.debug_info.writer(dwarf.gpa);
-        const name = try std.fmt.allocPrint(dwarf.gpa, "{}", .{ty.fmt(pt)});
+        const name = try std.fmt.allocPrint(dwarf.gpa, "{f}", .{ty.fmt(pt)});
         defer dwarf.gpa.free(name);
 
         switch (ip.indexToKey(type_index)) {

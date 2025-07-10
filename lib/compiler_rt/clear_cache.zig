@@ -86,6 +86,26 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
         const result = std.os.linux.syscall3(.cacheflush, start, end - start, flags);
         std.debug.assert(result == 0);
         exportIt();
+    } else if (os == .netbsd and mips) {
+        // Replace with https://github.com/ziglang/zig/issues/23904 in the future.
+        const cfa: extern struct {
+            va: usize,
+            nbytes: usize,
+            whichcache: u32,
+        } = .{
+            .va = start,
+            .nbytes = end - start,
+            .whichcache = 3, // ICACHE | DCACHE
+        };
+        asm volatile (
+            \\ syscall
+            :
+            : [_] "{$2}" (165), // nr = SYS_sysarch
+              [_] "{$4}" (0), // op = MIPS_CACHEFLUSH
+              [_] "{$5}" (&cfa), // args = &cfa
+            : "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13", "$14", "$15", "$24", "$25", "hi", "lo", "memory"
+        );
+        exportIt();
     } else if (mips and os == .openbsd) {
         // TODO
         //cacheflush(start, (uintptr_t)end - (uintptr_t)start, BCACHE);

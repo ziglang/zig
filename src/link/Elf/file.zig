@@ -10,17 +10,16 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn fmtPath(file: File) std.fmt.Formatter(formatPath) {
+    pub fn fmtPath(file: File) std.fmt.Formatter(File, formatPath) {
         return .{ .data = file };
     }
 
-    fn formatPath(file: File, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        comptime assert(unused_fmt_string.len == 0);
+    fn formatPath(file: File, writer: *std.io.Writer) std.io.Writer.Error!void {
         switch (file) {
-            .zig_object => |zo| try bw.writeAll(zo.basename),
-            .linker_defined => try bw.writeAll("(linker defined)"),
-            .object => |x| try bw.print("{f}", .{x.fmtPath()}),
-            .shared_object => |x| try bw.print("{f}", .{x.path}),
+            .zig_object => |zo| try writer.writeAll(zo.basename),
+            .linker_defined => try writer.writeAll("(linker defined)"),
+            .object => |x| try writer.print("{f}", .{x.fmtPath()}),
+            .shared_object => |x| try writer.print("{f}", .{@as(Path, x.path)}),
         }
     }
 

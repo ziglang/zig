@@ -650,46 +650,32 @@ pub fn setSymbolExtra(self: *Dylib, index: u32, extra: Symbol.Extra) void {
     }
 }
 
-pub fn format(
-    self: *Dylib,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = self;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format dylib directly");
-}
-
-pub fn fmtSymtab(self: *Dylib, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *Dylib, macho_file: *MachO) std.fmt.Formatter(Format, Format.symtab) {
     return .{ .data = .{
         .dylib = self,
         .macho_file = macho_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     dylib: *Dylib,
     macho_file: *MachO,
-};
 
-fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
-    const dylib = ctx.dylib;
-    const macho_file = ctx.macho_file;
-    try bw.writeAll("  globals\n");
-    for (dylib.symbols.items, 0..) |sym, i| {
-        const ref = dylib.getSymbolRef(@intCast(i), macho_file);
-        if (ref.getFile(macho_file) == null) {
-            // TODO any better way of handling this?
-            try bw.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
-        } else {
-            try bw.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+    fn symtab(f: Format, w: *Writer) Writer.Error!void {
+        const dylib = f.dylib;
+        const macho_file = f.macho_file;
+        try w.writeAll("  globals\n");
+        for (dylib.symbols.items, 0..) |sym, i| {
+            const ref = dylib.getSymbolRef(@intCast(i), macho_file);
+            if (ref.getFile(macho_file) == null) {
+                // TODO any better way of handling this?
+                try w.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+            } else {
+                try w.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            }
         }
     }
-}
+};
 
 pub const TargetMatcher = struct {
     allocator: Allocator,

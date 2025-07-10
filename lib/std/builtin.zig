@@ -34,23 +34,21 @@ pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
 
-    pub fn format(st: StackTrace, bw: *std.io.Writer, comptime fmt: []const u8) !void {
-        comptime if (fmt.len != 0) unreachable;
-
+    pub fn format(self: StackTrace, writer: *std.io.Writer) std.io.Writer.Error!void {
         // TODO: re-evaluate whether to use format() methods at all.
         // Until then, avoid an error when using DebugAllocator with WebAssembly
         // where it tries to call detectTTYConfig here.
         if (builtin.os.tag == .freestanding) return 0;
 
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-            return bw.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{
+            return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{
                 @errorName(err),
             });
         };
-        const tty_config = std.io.tty.detectConfig(.stderr());
-        try bw.writeAll("\n");
-        std.debug.writeStackTrace(st, bw, debug_info, tty_config) catch |err| {
-            try bw.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
+        const tty_config = std.io.tty.detectConfig(std.fs.File.stderr());
+        try writer.writeAll("\n");
+        std.debug.writeStackTrace(self, writer, debug_info, tty_config) catch |err| {
+            try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
         };
     }
 };
@@ -195,8 +193,6 @@ pub const CallingConvention = union(enum(u8)) {
     pub const C: CallingConvention = .c;
     /// Deprecated; use `.naked`.
     pub const Naked: CallingConvention = .naked;
-    /// Deprecated; use `.@"async"`.
-    pub const Async: CallingConvention = .@"async";
     /// Deprecated; use `.@"inline"`.
     pub const Inline: CallingConvention = .@"inline";
     /// Deprecated; use `.x86_64_interrupt`, `.x86_interrupt`, or `.avr_interrupt`.
@@ -244,7 +240,7 @@ pub const CallingConvention = union(enum(u8)) {
     /// The calling convention of a function that can be called with `async` syntax. An `async` call
     /// of a runtime-known function must target a function with this calling convention.
     /// Comptime-known functions with other calling conventions may be coerced to this one.
-    @"async",
+    async,
 
     /// Functions with this calling convention have no prologue or epilogue, making the function
     /// uncallable in regular Zig code. This can be useful when integrating with assembly.
@@ -847,7 +843,7 @@ pub const LinkMode = enum {
 pub const UnwindTables = enum {
     none,
     sync,
-    @"async",
+    async,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -862,32 +858,23 @@ pub const WasiExecModel = enum {
 pub const CallModifier = enum {
     /// Equivalent to function call syntax.
     auto,
-
-    /// Equivalent to async keyword used with function call syntax.
-    async_kw,
-
     /// Prevents tail call optimization. This guarantees that the return
     /// address will point to the callsite, as opposed to the callsite's
     /// callsite. If the call is otherwise required to be tail-called
     /// or inlined, a compile error is emitted instead.
     never_tail,
-
     /// Guarantees that the call will not be inlined. If the call is
     /// otherwise required to be inlined, a compile error is emitted instead.
     never_inline,
-
     /// Asserts that the function call will not suspend. This allows a
     /// non-async function to call an async function.
-    no_async,
-
+    no_suspend,
     /// Guarantees that the call will be generated with tail call optimization.
     /// If this is not possible, a compile error is emitted instead.
     always_tail,
-
     /// Guarantees that the call will be inlined at the callsite.
     /// If this is not possible, a compile error is emitted instead.
     always_inline,
-
     /// Evaluates the call at compile-time. If the call cannot be completed at
     /// compile-time, a compile error is emitted instead.
     compile_time,

@@ -61,35 +61,27 @@ pub fn writeSymtab(thunk: Thunk, macho_file: *MachO, ctx: anytype) void {
     }
 }
 
-pub fn format(thunk: Thunk, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = thunk;
-    _ = bw;
-    _ = unused_fmt_string;
-    @compileError("do not format Thunk directly");
-}
-
-pub fn fmt(thunk: Thunk, macho_file: *MachO) std.fmt.Formatter(format2) {
+pub fn fmt(thunk: Thunk, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
     return .{ .data = .{
         .thunk = thunk,
         .macho_file = macho_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     thunk: Thunk,
     macho_file: *MachO,
-};
 
-fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
-    const thunk = ctx.thunk;
-    const macho_file = ctx.macho_file;
-    try bw.print("@{x} : size({x})\n", .{ thunk.value, thunk.size() });
-    for (thunk.symbols.keys()) |ref| {
-        const sym = ref.getSymbol(macho_file).?;
-        try bw.print("  {f} : {s} : @{x}\n", .{ ref, sym.getName(macho_file), sym.value });
+    fn default(f: Format, w: *Writer) Writer.Error!void {
+        const thunk = f.thunk;
+        const macho_file = f.macho_file;
+        try w.print("@{x} : size({x})\n", .{ thunk.value, thunk.size() });
+        for (thunk.symbols.keys()) |ref| {
+            const sym = ref.getSymbol(macho_file).?;
+            try w.print("  {f} : {s} : @{x}\n", .{ ref, sym.getName(macho_file), sym.value });
+        }
     }
-}
+};
 
 const trampoline_size = 3 * @sizeOf(u32);
 

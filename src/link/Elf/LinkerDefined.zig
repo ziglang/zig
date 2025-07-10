@@ -147,9 +147,9 @@ pub fn initStartStopSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
     for (slice.items(.shdr)) |shdr| {
         // TODO use getOrPut for incremental so that we don't create duplicates
         if (elf_file.getStartStopBasename(shdr)) |name| {
-            const start_name = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
+            const start_name = try std.fmt.allocPrintSentinel(gpa, "__start_{s}", .{name}, 0);
             defer gpa.free(start_name);
-            const stop_name = try std.fmt.allocPrintZ(gpa, "__stop_{s}", .{name});
+            const stop_name = try std.fmt.allocPrintSentinel(gpa, "__stop_{s}", .{name}, 0);
             defer gpa.free(stop_name);
 
             for (&[_][]const u8{ start_name, stop_name }) |nn| {
@@ -437,32 +437,31 @@ pub fn setSymbolExtra(self: *LinkerDefined, index: u32, extra: Symbol.Extra) voi
     }
 }
 
-pub fn fmtSymtab(self: *LinkerDefined, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *LinkerDefined, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
     return .{ .data = .{
         .self = self,
         .elf_file = elf_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     self: *LinkerDefined,
     elf_file: *Elf,
-};
 
-fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    comptime assert(unused_fmt_string.len == 0);
-    const self = ctx.self;
-    const elf_file = ctx.elf_file;
-    try bw.writeAll("  globals\n");
-    for (self.symbols.items, 0..) |sym, i| {
-        const ref = self.resolveSymbol(@intCast(i), elf_file);
-        if (elf_file.symbol(ref)) |ref_sym| {
-            try bw.print("    {f}\n", .{ref_sym.fmt(elf_file)});
-        } else {
-            try bw.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+    fn symtab(ctx: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const self = ctx.self;
+        const elf_file = ctx.elf_file;
+        try writer.writeAll("  globals\n");
+        for (self.symbols.items, 0..) |sym, i| {
+            const ref = self.resolveSymbol(@intCast(i), elf_file);
+            if (elf_file.symbol(ref)) |ref_sym| {
+                try writer.print("    {f}\n", .{ref_sym.fmt(elf_file)});
+            } else {
+                try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+            }
         }
     }
-}
+};
 
 const std = @import("std");
 const Allocator = mem.Allocator;

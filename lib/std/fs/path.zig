@@ -146,30 +146,28 @@ pub fn joinZ(allocator: Allocator, paths: []const []const u8) ![:0]u8 {
     return out[0 .. out.len - 1 :0];
 }
 
-pub fn fmtJoin(paths: []const []const u8) std.fmt.Formatter(formatJoin) {
+pub fn fmtJoin(paths: []const []const u8) std.fmt.Formatter([]const []const u8, formatJoin) {
     return .{ .data = paths };
 }
 
-fn formatJoin(paths: []const []const u8, bw: *std.io.Writer, comptime fmt: []const u8) !void {
-    comptime assert(fmt.len == 0);
-
+fn formatJoin(paths: []const []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
     const first_path_idx = for (paths, 0..) |p, idx| {
         if (p.len != 0) break idx;
     } else return;
 
-    try bw.writeAll(paths[first_path_idx]); // first component
+    try w.writeAll(paths[first_path_idx]); // first component
     var prev_path = paths[first_path_idx];
     for (paths[first_path_idx + 1 ..]) |this_path| {
         if (this_path.len == 0) continue; // skip empty components
         const prev_sep = isSep(prev_path[prev_path.len - 1]);
         const this_sep = isSep(this_path[0]);
         if (!prev_sep and !this_sep) {
-            try bw.writeByte(sep);
+            try w.writeByte(sep);
         }
         if (prev_sep and this_sep) {
-            try bw.writeAll(this_path[1..]); // skip redundant separator
+            try w.writeAll(this_path[1..]); // skip redundant separator
         } else {
-            try bw.writeAll(this_path);
+            try w.writeAll(this_path);
         }
         prev_path = this_path;
     }

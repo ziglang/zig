@@ -357,7 +357,7 @@ fn transFileScopeAsm(c: *Context, scope: *Scope, file_scope_asm: *const clang.Fi
     var len: usize = undefined;
     const bytes_ptr = asm_string.getString_bytes_begin_size(&len);
 
-    const str = try std.fmt.allocPrint(c.arena, "\"{f}\"", .{std.zig.fmtEscapes(bytes_ptr[0..len])});
+    const str = try std.fmt.allocPrint(c.arena, "\"{f}\"", .{std.zig.fmtString(bytes_ptr[0..len])});
     const str_node = try Tag.string_literal.create(c.arena, str);
 
     const asm_node = try Tag.asm_simple.create(c.arena, str_node);
@@ -2276,7 +2276,7 @@ fn transNarrowStringLiteral(
     var len: usize = undefined;
     const bytes_ptr = stmt.getString_bytes_begin_size(&len);
 
-    const str = try std.fmt.allocPrint(c.arena, "\"{f}\"", .{std.zig.fmtEscapes(bytes_ptr[0..len])});
+    const str = try std.fmt.allocPrint(c.arena, "\"{f}\"", .{std.zig.fmtString(bytes_ptr[0..len])});
     const node = try Tag.string_literal.create(c.arena, str);
     return maybeSuppressResult(c, result_used, node);
 }
@@ -3338,7 +3338,7 @@ fn transPredefinedExpr(c: *Context, scope: *Scope, expr: *const clang.Predefined
 
 fn transCreateCharLitNode(c: *Context, narrow: bool, val: u32) TransError!Node {
     return Tag.char_literal.create(c.arena, if (narrow)
-        try std.fmt.allocPrint(c.arena, "'{f'}'", .{std.zig.fmtEscapes(&.{@as(u8, @intCast(val))})})
+        try std.fmt.allocPrint(c.arena, "'{f}'", .{std.zig.fmtChar(&.{@as(u8, @intCast(val))})})
     else
         try std.fmt.allocPrint(c.arena, "'\\u{{{x}}}'", .{val}));
 }
@@ -5832,7 +5832,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                         num += c - 'A' + 10;
                     },
                     else => {
-                        i += std.fmt.printInt(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+                        i += std.fmt.printInt(bytes[i..], num, 16, .lower, .{ .fill = '0', .width = 2 });
                         num = 0;
                         if (c == '\\')
                             state = .escape
@@ -5858,7 +5858,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                     };
                     num += c - '0';
                 } else {
-                    i += std.fmt.printInt(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+                    i += std.fmt.printInt(bytes[i..], num, 16, .lower, .{ .fill = '0', .width = 2 });
                     num = 0;
                     count = 0;
                     if (c == '\\')
@@ -5872,19 +5872,19 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
         }
     }
     if (state == .hex or state == .octal)
-        i += std.fmt.printInt(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+        i += std.fmt.printInt(bytes[i..], num, 16, .lower, .{ .fill = '0', .width = 2 });
     return bytes[0..i];
 }
 
-/// non-ASCII characters (c > 127) are also treated as non-printable by fmtSliceEscapeLower.
+/// non-ASCII characters (c > 127) are also treated as non-printable by ascii.hexEscape.
 /// If a C string literal or char literal in a macro is not valid UTF-8, we need to escape
 /// non-ASCII characters so that the Zig source we output will itself be UTF-8.
 fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
     const zigified = try zigifyEscapeSequences(ctx, m);
     if (std.unicode.utf8ValidateSlice(zigified)) return zigified;
 
-    const formatter = std.fmt.fmtSliceEscapeLower(zigified);
-    const encoded_size = std.fmt.count("{f}", .{formatter});
+    const formatter = std.ascii.hexEscape(zigified, .lower);
+    const encoded_size: usize = @intCast(std.fmt.count("{f}", .{formatter}));
     const output = try ctx.arena.alloc(u8, encoded_size);
     return std.fmt.bufPrint(output, "{f}", .{formatter}) catch |err| switch (err) {
         error.NoSpaceLeft => unreachable,

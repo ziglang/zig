@@ -309,6 +309,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return jitCmd(gpa, arena, cmd_args, .{
             .cmd_name = "resinator",
             .root_src_path = "resinator/main.zig",
+            .windows_libs = &.{"advapi32"},
             .depend_on_aro = true,
             .prepend_zig_lib_dir_path = true,
             .server = use_server,
@@ -972,8 +973,6 @@ fn buildOutputType(
         .windows_libs = .empty,
         .link_inputs = .empty,
 
-        .wasi_emulated_libs = .{},
-
         .c_source_files = .{},
         .rc_source_files = .{},
 
@@ -1418,7 +1417,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-funwind-tables")) {
                         mod_opts.unwind_tables = .sync;
                     } else if (mem.eql(u8, arg, "-fasync-unwind-tables")) {
-                        mod_opts.unwind_tables = .@"async";
+                        mod_opts.unwind_tables = .async;
                     } else if (mem.eql(u8, arg, "-fno-unwind-tables")) {
                         mod_opts.unwind_tables = .none;
                     } else if (mem.eql(u8, arg, "-fstack-check")) {
@@ -2039,15 +2038,15 @@ fn buildOutputType(
                         .none => {
                             mod_opts.unwind_tables = .sync;
                         },
-                        .sync, .@"async" => {},
+                        .sync, .async => {},
                     } else {
                         mod_opts.unwind_tables = .sync;
                     },
                     .no_unwind_tables => mod_opts.unwind_tables = .none,
-                    .asynchronous_unwind_tables => mod_opts.unwind_tables = .@"async",
+                    .asynchronous_unwind_tables => mod_opts.unwind_tables = .async,
                     .no_asynchronous_unwind_tables => if (mod_opts.unwind_tables) |uwt| switch (uwt) {
                         .none, .sync => {},
-                        .@"async" => {
+                        .async => {
                             mod_opts.unwind_tables = .sync;
                         },
                     } else {
@@ -2955,7 +2954,7 @@ fn buildOutputType(
             create_module.opts.any_fuzz = true;
         if (mod_opts.unwind_tables) |uwt| switch (uwt) {
             .none => {},
-            .sync, .@"async" => create_module.opts.any_unwind_tables = true,
+            .sync, .async => create_module.opts.any_unwind_tables = true,
         };
         if (mod_opts.strip == false)
             create_module.opts.any_non_stripped = true;
@@ -3331,16 +3330,16 @@ fn buildOutputType(
         // We are providing our own cache key, because this file has nothing
         // to do with the cache manifest.
         var file_writer = f.writer(&.{});
-        var hasher_writer = file_writer.interface.hashed(Cache.Hasher.init("0123456789abcdef"));
         var buffer: [1000]u8 = undefined;
-        var bw = hasher_writer.writer(&buffer);
-        bw.writeFileAll(.stdin(), .{}) catch |err| switch (err) {
-            error.WriteFailed => fatal("failed to write {s}: {s}", .{ dump_path, file_writer.err.? }),
-            else => fatal("failed to pipe stdin to {s}: {s}", .{ dump_path, err }),
+        var hasher = file_writer.interface.hashed(Cache.Hasher.init("0123456789abcdef"), &buffer);
+        var stdin_reader = fs.File.stdin().readerStreaming(&.{});
+        _ = hasher.writer.sendFileAll(&stdin_reader, .unlimited) catch |err| switch (err) {
+            error.WriteFailed => fatal("failed to write {s}: {t}", .{ dump_path, file_writer.err.? }),
+            else => fatal("failed to pipe stdin to {s}: {t}", .{ dump_path, err }),
         };
-        try bw.flush();
+        try hasher.writer.flush();
 
-        const bin_digest: Cache.BinDigest = hasher_writer.final();
+        const bin_digest: Cache.BinDigest = hasher.hasher.finalResult();
 
         const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-stdin{s}", .{
             &bin_digest, ext.canonicalName(target),
@@ -3412,7 +3411,6 @@ fn buildOutputType(
         .framework_dirs = create_module.framework_dirs.items,
         .frameworks = resolved_frameworks.items,
         .windows_lib_names = create_module.windows_libs.keys(),
-        .wasi_emulated_libs = create_module.wasi_emulated_libs.items,
         .want_compiler_rt = want_compiler_rt,
         .want_ubsan_rt = want_ubsan_rt,
         .hash_style = hash_style,
@@ -3562,8 +3560,8 @@ fn buildOutputType(
         .stdio => {
             try serve(
                 comp,
-                fs.File.stdin(),
-                fs.File.stdout(),
+                .stdin(),
+                .stdout(),
                 test_exec_args.items,
                 self_exe_path,
                 arg_mode,
@@ -3638,7 +3636,6 @@ fn buildOutputType(
             } else if (target.os.tag == .windows) {
                 try test_exec_args.appendSlice(arena, &.{
                     "--subsystem", "console",
-                    "-lkernel32",  "-lntdll",
                 });
             }
 
@@ -3693,8 +3690,6 @@ const CreateModule = struct {
     /// resolution, mutating the input array, and producing this data as
     /// output. Allocated with gpa.
     link_inputs: std.ArrayListUnmanaged(link.Input),
-
-    wasi_emulated_libs: std.ArrayListUnmanaged(wasi_libc.CrtFile),
 
     c_source_files: std.ArrayListUnmanaged(Compilation.CSourceFile),
     rc_source_files: std.ArrayListUnmanaged(Compilation.RcSourceFile),
@@ -3826,14 +3821,6 @@ fn createModule(
             .name_query => |nq| {
                 const lib_name = nq.name;
 
-                if (target.os.tag == .wasi) {
-                    if (wasi_libc.getEmulatedLibCrtFile(lib_name)) |crt_file| {
-                        try create_module.wasi_emulated_libs.append(arena, crt_file);
-                        create_module.opts.link_libc = true;
-                        continue;
-                    }
-                }
-
                 if (std.zig.target.isLibCLibName(target, lib_name)) {
                     create_module.opts.link_libc = true;
                     continue;
@@ -3852,7 +3839,8 @@ fn createModule(
                     .only_compiler_rt => continue,
                 }
 
-                if (target.isMinGW()) {
+                // We currently prefer import libraries provided by MinGW-w64 even for MSVC.
+                if (target.os.tag == .windows) {
                     const exists = mingw.libExists(arena, target, create_module.dirs.zig_lib, lib_name) catch |err| {
                         fatal("failed to check zig installation for DLL import libs: {s}", .{
                             @errorName(err),
@@ -5228,6 +5216,12 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
             try root_mod.deps.put(arena, "@build", build_mod);
 
+            var windows_libs: std.StringArrayHashMapUnmanaged(void) = .empty;
+
+            if (resolved_target.result.os.tag == .windows) {
+                try windows_libs.put(arena, "advapi32", {});
+            }
+
             const comp = Compilation.create(gpa, arena, .{
                 .dirs = dirs,
                 .root_name = "build",
@@ -5249,6 +5243,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .cache_mode = .whole,
                 .reference_trace = reference_trace,
                 .debug_compile_errors = debug_compile_errors,
+                .windows_lib_names = windows_libs.keys(),
             }) catch |err| {
                 fatal("unable to create compilation: {s}", .{@errorName(err)});
             };
@@ -5299,7 +5294,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         const s = fs.path.sep_str;
                         const tmp_sub_path = "tmp" ++ s ++ results_tmp_file_nonce;
                         const stdout = dirs.local_cache.handle.readFileAlloc(arena, tmp_sub_path, 50 * 1024 * 1024) catch |err| {
-                            fatal("unable to read results of configure phase from '{}{s}': {s}", .{
+                            fatal("unable to read results of configure phase from '{f}{s}': {s}", .{
                                 dirs.local_cache, tmp_sub_path, @errorName(err),
                             });
                         };
@@ -5352,6 +5347,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 const JitCmdOptions = struct {
     cmd_name: []const u8,
     root_src_path: []const u8,
+    windows_libs: []const []const u8 = &.{},
     prepend_zig_lib_dir_path: bool = false,
     prepend_global_cache_path: bool = false,
     prepend_zig_exe_path: bool = false,
@@ -5468,6 +5464,13 @@ fn jitCmd(
             try root_mod.deps.put(arena, "aro", aro_mod);
         }
 
+        var windows_libs: std.StringArrayHashMapUnmanaged(void) = .empty;
+
+        if (resolved_target.result.os.tag == .windows) {
+            try windows_libs.ensureUnusedCapacity(arena, options.windows_libs.len);
+            for (options.windows_libs) |lib| windows_libs.putAssumeCapacity(lib, {});
+        }
+
         const comp = Compilation.create(gpa, arena, .{
             .dirs = dirs,
             .root_name = options.cmd_name,
@@ -5478,6 +5481,7 @@ fn jitCmd(
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
             .cache_mode = .whole,
+            .windows_lib_names = windows_libs.keys(),
         }) catch |err| {
             fatal("unable to create compilation: {s}", .{@errorName(err)});
         };
@@ -6049,7 +6053,7 @@ fn cmdAstCheck(
             break :file fs.cwd().openFile(p, .{}) catch |err| {
                 fatal("unable to open file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
             };
-        } else io.getStdIn();
+        } else fs.File.stdin();
         defer if (zig_source_path != null) f.close();
         break :s std.zig.readSourceFileToEndAlloc(arena, f, null) catch |err| {
             fatal("unable to load file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
@@ -6068,7 +6072,8 @@ fn cmdAstCheck(
 
     const tree = try Ast.parse(arena, source, mode);
 
-    var stdout_bw = fs.File.stdout().writer().buffered(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
+    const stdout_bw = &stdout_writer.interface;
     switch (mode) {
         .zig => {
             const zir = try AstGen.generate(arena, tree);
@@ -6133,7 +6138,7 @@ fn cmdAstCheck(
                 // zig fmt: on
             }
 
-            try @import("print_zir.zig").renderAsText(arena, tree, zir, &stdout_bw);
+            try @import("print_zir.zig").renderAsText(arena, tree, zir, stdout_bw);
             try stdout_bw.flush();
 
             if (zir.hasCompileErrors()) {
@@ -6161,7 +6166,7 @@ fn cmdAstCheck(
                 fatal("-t option only available in builds of zig with debug extensions", .{});
             }
 
-            try @import("print_zoir.zig").renderToWriter(zoir, arena, &stdout_bw);
+            try @import("print_zoir.zig").renderToWriter(zoir, arena, stdout_bw);
             try stdout_bw.flush();
             return cleanExit();
         },
@@ -6282,7 +6287,8 @@ fn detectNativeCpuWithLLVM(
 }
 
 fn printCpu(cpu: std.Target.Cpu) !void {
-    var stdout_bw = fs.File.stdout().writer().buffered(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
+    const stdout_bw = &stdout_writer.interface;
 
     if (cpu.model.llvm_name) |llvm_name| {
         try stdout_bw.print("{s}\n", .{llvm_name});
@@ -6326,11 +6332,12 @@ fn cmdDumpLlvmInts(
         if (llvm.Target.getFromTriple(triple, &target, &error_message) != .False) @panic("bad");
         break :t target;
     };
-    const tm = llvm.TargetMachine.create(target, triple, null, null, .None, .Default, .Default, false, false, .Default, null);
+    const tm = llvm.TargetMachine.create(target, triple, null, null, .None, .Default, .Default, false, false, .Default, null, false);
     const dl = tm.createTargetDataLayout();
     const context = llvm.Context.create();
 
-    var stdout_bw = fs.File.stdout().writer().buffered(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
+    const stdout_bw = &stdout_writer.interface;
     for ([_]u16{ 1, 8, 16, 32, 64, 128, 256 }) |bits| {
         const int_type = context.intType(bits);
         const alignment = dl.abiAlignmentOfType(int_type);
@@ -6358,9 +6365,8 @@ fn cmdDumpZir(
     defer f.close();
 
     const zir = try Zcu.loadZirCache(arena, f);
-
-    var stdout_fw = fs.File.stdout().writer();
-    var stdout_bw = stdout_fw.interface().buffered(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
+    const stdout_bw = &stdout_writer.interface;
     {
         const instruction_bytes = zir.instructions.len *
             // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
@@ -6385,7 +6391,7 @@ fn cmdDumpZir(
         // zig fmt: on
     }
 
-    try @import("print_zir.zig").renderAsText(arena, null, zir, &stdout_bw);
+    try @import("print_zir.zig").renderAsText(arena, null, zir, stdout_bw);
     try stdout_bw.flush();
 }
 
@@ -6444,7 +6450,8 @@ fn cmdChangelist(
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty;
     try Zcu.mapOldZirToNew(arena, old_zir, new_zir, &inst_map);
 
-    var stdout_bw = fs.File.stdout().writer().buffered(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
+    const stdout_bw = &stdout_writer.interface;
     {
         try stdout_bw.print("Instruction mappings:\n", .{});
         var it = inst_map.iterator();
@@ -6903,9 +6910,9 @@ fn cmdFetch(
 
     const name = switch (save) {
         .no => {
-            var stdout_bw = fs.File.stdout().writer().buffered(&stdio_buffer);
-            try stdout_bw.print("{s}\n", .{package_hash_slice});
-            try stdout_bw.flush();
+            var stdout = fs.File.stdout().writerStreaming(&stdio_buffer);
+            try stdout.interface.print("{s}\n", .{package_hash_slice});
+            try stdout.interface.flush();
             return cleanExit();
         },
         .yes, .exact => |name| name: {
@@ -6954,7 +6961,9 @@ fn cmdFetch(
             std.log.info("resolved ref '{s}' to commit {s}", .{ target_ref, latest_commit_hex });
 
             // include the original refspec in a query parameter, could be used to check for updates
-            uri.query = .{ .percent_encoded = try std.fmt.allocPrint(arena, "ref={f%}", .{fragment}) };
+            uri.query = .{ .percent_encoded = try std.fmt.allocPrint(arena, "ref={f}", .{
+                std.fmt.alt(fragment, .formatEscaped),
+            }) };
         } else {
             std.log.info("resolved to commit {s}", .{latest_commit_hex});
         }
@@ -6974,12 +6983,12 @@ fn cmdFetch(
         \\            .hash = "{f}",
         \\        }}
     , .{
-        std.zig.fmtEscapes(saved_path_or_url),
-        std.zig.fmtEscapes(package_hash_slice),
+        std.zig.fmtString(saved_path_or_url),
+        std.zig.fmtString(package_hash_slice),
     });
 
-    const new_node_text = try std.fmt.allocPrint(arena, ".{fp_} = {s},\n", .{
-        std.zig.fmtId(name), new_node_init,
+    const new_node_text = try std.fmt.allocPrint(arena, ".{f} = {s},\n", .{
+        std.zig.fmtIdPU(name), new_node_init,
     });
 
     const dependencies_init = try std.fmt.allocPrint(arena, ".{{\n        {s}    }}", .{
@@ -7006,12 +7015,12 @@ fn cmdFetch(
         const location_replace = try std.fmt.allocPrint(
             arena,
             "\"{f}\"",
-            .{std.zig.fmtEscapes(saved_path_or_url)},
+            .{std.zig.fmtString(saved_path_or_url)},
         );
         const hash_replace = try std.fmt.allocPrint(
             arena,
             "\"{f}\"",
-            .{std.zig.fmtEscapes(package_hash_slice)},
+            .{std.zig.fmtString(package_hash_slice)},
         );
 
         warn("overwriting existing dependency named '{s}'", .{name});
@@ -7411,7 +7420,7 @@ fn handleModArg(
         create_module.opts.any_fuzz = true;
     if (mod_opts.unwind_tables) |uwt| switch (uwt) {
         .none => {},
-        .sync, .@"async" => create_module.opts.any_unwind_tables = true,
+        .sync, .async => create_module.opts.any_unwind_tables = true,
     };
     if (mod_opts.strip == false)
         create_module.opts.any_non_stripped = true;

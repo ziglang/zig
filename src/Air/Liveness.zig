@@ -1300,10 +1300,10 @@ fn analyzeOperands(
 
             // This logic must synchronize with `will_die_immediately` in `AnalyzeBigOperands.init`.
             const immediate_death = if (data.live_set.remove(inst)) blk: {
-                log.debug("[{}] %{}: removed from live set", .{ pass, @intFromEnum(inst) });
+                log.debug("[{}] %{d}: removed from live set", .{ pass, @intFromEnum(inst) });
                 break :blk false;
             } else blk: {
-                log.debug("[{}] %{}: immediate death", .{ pass, @intFromEnum(inst) });
+                log.debug("[{}] %{d}: immediate death", .{ pass, @intFromEnum(inst) });
                 break :blk true;
             };
 
@@ -1324,7 +1324,7 @@ fn analyzeOperands(
                     const mask = @as(Bpi, 1) << @as(OperandInt, @intCast(i));
 
                     if ((try data.live_set.fetchPut(gpa, operand, {})) == null) {
-                        log.debug("[{}] %{}: added %{f} to live set (operand dies here)", .{ pass, @intFromEnum(inst), operand });
+                        log.debug("[{}] %{d}: added %{d} to live set (operand dies here)", .{ pass, @intFromEnum(inst), operand });
                         tomb_bits |= mask;
                     }
                 }
@@ -2037,15 +2037,15 @@ fn fmtInstSet(set: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void)) FmtIns
 const FmtInstSet = struct {
     set: *const std.AutoHashMapUnmanaged(Air.Inst.Index, void),
 
-    pub fn format(val: FmtInstSet, bw: *Writer, comptime _: []const u8) !void {
+    pub fn format(val: FmtInstSet, w: *std.io.Writer) std.io.Writer.Error!void {
         if (val.set.count() == 0) {
-            try bw.writeAll("[no instructions]");
+            try w.writeAll("[no instructions]");
             return;
         }
         var it = val.set.keyIterator();
-        try bw.print("%{f}", .{it.next().?.*});
+        try w.print("%{f}", .{it.next().?.*});
         while (it.next()) |key| {
-            try bw.print(" %{f}", .{key.*});
+            try w.print(" %{f}", .{key.*});
         }
     }
 };
@@ -2057,15 +2057,14 @@ fn fmtInstList(list: []const Air.Inst.Index) FmtInstList {
 const FmtInstList = struct {
     list: []const Air.Inst.Index,
 
-    pub fn format(val: FmtInstList, bw: *Writer, comptime fmt: []const u8) !void {
-        comptime assert(fmt.len == 0);
+    pub fn format(val: FmtInstList, w: *std.io.Writer) std.io.Writer.Error!void {
         if (val.list.len == 0) {
-            try bw.writeAll("[no instructions]");
+            try w.writeAll("[no instructions]");
             return;
         }
-        try bw.print("%{f}", .{val.list[0]});
+        try w.print("%{f}", .{val.list[0]});
         for (val.list[1..]) |inst| {
-            try bw.print(" %{f}", .{inst});
+            try w.print(" %{f}", .{inst});
         }
     }
 };

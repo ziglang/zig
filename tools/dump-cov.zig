@@ -48,8 +48,9 @@ pub fn main() !void {
         fatal("failed to load coverage file {}: {s}", .{ cov_path, @errorName(err) });
     };
 
-    var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
-    const stdout = bw.writer();
+    var stdout_buffer: [4000]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     const header: *SeenPcsHeader = @ptrCast(cov_bytes);
     try stdout.print("{any}\n", .{header.*});
@@ -83,5 +84,5 @@ pub fn main() !void {
         });
     }
 
-    try bw.flush();
+    try stdout.flush();
 }

@@ -1032,44 +1032,6 @@ test "function called at runtime is properly analyzed for inferred error set" {
     };
 }
 
-test "generic type constructed from inferred error set of unresolved function" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        fn write(_: void, bytes: []const u8) !usize {
-            _ = bytes;
-            return 0;
-        }
-        fn Writer(
-            comptime Context: type,
-            comptime WriteError: type,
-            comptime writeFn: fn (context: Context, bytes: []const u8) WriteError!usize,
-        ) type {
-            return struct {
-                context: Context,
-                comptime {
-                    _ = writeFn;
-                }
-            };
-        }
-        const T = Writer(void, @typeInfo(@typeInfo(@TypeOf(write)).@"fn".return_type.?).error_union.error_set, write);
-        fn writer() T {
-            return .{ .context = {} };
-        }
-        fn multiWriter(streams: anytype) MultiWriter(@TypeOf(streams)) {
-            return .{ .streams = streams };
-        }
-        fn MultiWriter(comptime Writers: type) type {
-            return struct {
-                streams: Writers,
-            };
-        }
-    };
-    _ = S.multiWriter(.{S.writer()});
-}
-
 test "errorCast to adhoc inferred error set" {
     const S = struct {
         inline fn baz() !i32 {

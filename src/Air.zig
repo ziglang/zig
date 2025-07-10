@@ -747,7 +747,9 @@ pub const Inst = struct {
         /// Dest slice may have any alignment; source pointer may have any alignment.
         /// The two memory regions must not overlap.
         /// Result type is always void.
+        ///
         /// Uses the `bin_op` field. LHS is the dest slice. RHS is the source pointer.
+        ///
         /// If the length is compile-time known (due to the destination or
         /// source being a pointer-to-array), then it is guaranteed to be
         /// greater than zero.
@@ -759,7 +761,9 @@ pub const Inst = struct {
         /// Dest slice may have any alignment; source pointer may have any alignment.
         /// The two memory regions may overlap.
         /// Result type is always void.
+        ///
         /// Uses the `bin_op` field. LHS is the dest slice. RHS is the source pointer.
+        ///
         /// If the length is compile-time known (due to the destination or
         /// source being a pointer-to-array), then it is guaranteed to be
         /// greater than zero.
@@ -958,14 +962,13 @@ pub const Inst = struct {
             return index.unwrap().target;
         }
 
-        pub fn format(index: Index, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
-            comptime assert(fmt.len == 0);
-            try bw.writeByte('%');
+        pub fn format(index: Index, w: *std.io.Writer) std.io.Writer.Error!void {
+            try w.writeByte('%');
             switch (index.unwrap()) {
                 .ref => {},
-                .target => try bw.writeByte('t'),
+                .target => try w.writeByte('t'),
             }
-            try bw.print("{d}", .{@as(u31, @truncate(@intFromEnum(index)))});
+            try w.print("{d}", .{@as(u31, @truncate(@intFromEnum(index)))});
         }
     };
 

@@ -1054,7 +1054,7 @@ const TraceKind = enum {
     free,
 };
 
-const test_config = Config{};
+const test_config: Config = .{};
 
 test "small allocations - free in same order" {
     var gpa = DebugAllocator(test_config){};

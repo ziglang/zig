@@ -18,7 +18,7 @@ const Compilation = @import("../../Compilation.zig");
 const link = @import("../../link.zig");
 const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
-const abi = @import("abi.zig");
+const abi = @import("../../codegen/wasm/abi.zig");
 const Alignment = InternPool.Alignment;
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
@@ -1960,7 +1960,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .wasm_memory_size => cg.airWasmMemorySize(inst),
         .wasm_memory_grow => cg.airWasmMemoryGrow(inst),
 
-        .memcpy => cg.airMemcpy(inst),
+        .memcpy, .memmove => cg.airMemcpy(inst),
 
         .ret_addr => cg.airRetAddr(inst),
         .tag_name => cg.airTagName(inst),
@@ -1984,7 +1984,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .c_va_copy,
         .c_va_end,
         .c_va_start,
-        .memmove,
         => |tag| return cg.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
         .atomic_load => cg.airAtomicLoad(inst),
@@ -2047,7 +2046,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
         try cg.genInst(inst);
 
         if (std.debug.runtime_safety and cg.air_bookkeeping < old_bookkeeping_value + 1) {
-            std.debug.panic("Missing call to `finishAir` in AIR instruction %{d} ('{}')", .{
+            std.debug.panic("Missing call to `finishAir` in AIR instruction %{d} ('{t}')", .{
                 inst,
                 cg.air.instructions.items(.tag)[@intFromEnum(inst)],
             });
@@ -2405,10 +2404,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
             try cg.memcpy(lhs, rhs, .{ .imm32 = @as(u32, @intCast(ty.abiSize(zcu))) });
         },
         else => if (abi_size > 8) {
-            return cg.fail("TODO: `store` for type `{f}` with abisize `{d}`", .{
-                ty.fmt(pt),
-                abi_size,
-            });
+            return cg.fail("TODO: `store` for type `{f}` with abisize `{d}`", .{ ty.fmt(pt), abi_size });
         },
     }
     try cg.emitWValue(lhs);
@@ -2597,10 +2593,7 @@ fn binOp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WV
         if (ty.zigTypeTag(zcu) == .int) {
             return cg.binOpBigInt(lhs, rhs, ty, op);
         } else {
-            return cg.fail(
-                "TODO: Implement binary operation for type: {f}",
-                .{ty.fmt(pt)},
-            );
+            return cg.fail("TODO: Implement binary operation for type: {f}", .{ty.fmt(pt)});
         }
     }
 
@@ -3333,7 +3326,7 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
             },
             else => unreachable,
         },
-        else => return cg.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty.zigTypeTag(zcu)}),
+        else => return cg.fail("Wasm TODO: emitUndefined for type: {t}\n", .{ty.zigTypeTag(zcu)}),
     }
 }
 

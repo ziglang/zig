@@ -957,7 +957,7 @@ fn updateNavCode(
     sym.out_n_sect = sect_index;
     atom.out_n_sect = sect_index;
 
-    const sym_name = try std.fmt.allocPrintZ(gpa, "_{s}", .{nav.fqn.toSlice(ip)});
+    const sym_name = try std.fmt.allocPrintSentinel(gpa, "_{s}", .{nav.fqn.toSlice(ip)}, 0);
     defer gpa.free(sym_name);
     sym.name = try self.addString(gpa, sym_name);
     atom.setAlive(true);
@@ -1676,50 +1676,48 @@ pub fn asFile(self: *ZigObject) File {
     return .{ .zig_object = self };
 }
 
-pub fn fmtSymtab(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(Format, Format.symtab) {
     return .{ .data = .{
         .self = self,
         .macho_file = macho_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     self: *ZigObject,
     macho_file: *MachO,
-};
 
-fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
-    try bw.writeAll("  symbols\n");
-    const self = ctx.self;
-    const macho_file = ctx.macho_file;
-    for (self.symbols.items, 0..) |sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        if (ref.getFile(macho_file) == null) {
-            // TODO any better way of handling this?
-            try bw.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
-        } else {
-            try bw.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+    fn symtab(f: Format, w: *Writer) Writer.Error!void {
+        try w.writeAll("  symbols\n");
+        const self = f.self;
+        const macho_file = f.macho_file;
+        for (self.symbols.items, 0..) |sym, i| {
+            const ref = self.getSymbolRef(@intCast(i), macho_file);
+            if (ref.getFile(macho_file) == null) {
+                // TODO any better way of handling this?
+                try w.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+            } else {
+                try w.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            }
         }
     }
-}
 
-pub fn fmtAtoms(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(formatAtoms) {
+    fn atoms(f: Format, w: *Writer) Writer.Error!void {
+        const self = f.self;
+        const macho_file = f.macho_file;
+        try w.writeAll("  atoms\n");
+        for (self.getAtoms()) |atom_index| {
+            const atom = self.getAtom(atom_index) orelse continue;
+            try w.print("    {f}\n", .{atom.fmt(macho_file)});
+        }
+    }
+};
+
+pub fn fmtAtoms(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(Format, Format.atoms) {
     return .{ .data = .{
         .self = self,
         .macho_file = macho_file,
     } };
-}
-
-fn formatAtoms(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
-    const self = ctx.self;
-    const macho_file = ctx.macho_file;
-    try bw.writeAll("  atoms\n");
-    for (self.getAtoms()) |atom_index| {
-        const atom = self.getAtom(atom_index) orelse continue;
-        try bw.print("    {f}\n", .{atom.fmt(macho_file)});
-    }
 }
 
 const AvMetadata = struct {

@@ -10,17 +10,16 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn fmtPath(file: File) std.fmt.Formatter(formatPath) {
+    pub fn fmtPath(file: File) std.fmt.Formatter(File, formatPath) {
         return .{ .data = file };
     }
 
-    fn formatPath(file: File, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        _ = unused_fmt_string;
+    fn formatPath(file: File, w: *Writer) Writer.Error!void {
         switch (file) {
-            .zig_object => |zo| try bw.writeAll(zo.basename),
-            .internal => try bw.writeAll("internal"),
-            .object => |x| try bw.print("{f}", .{x.fmtPath()}),
-            .dylib => |dl| try bw.print("{f}", .{@as(Path, dl.path)}),
+            .zig_object => |zo| try w.writeAll(zo.basename),
+            .internal => try w.writeAll("internal"),
+            .object => |x| try w.print("{f}", .{x.fmtPath()}),
+            .dylib => |dl| try w.print("{f}", .{@as(Path, dl.path)}),
         }
     }
 

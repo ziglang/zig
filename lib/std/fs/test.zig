@@ -1798,11 +1798,11 @@ test "walker" {
     var num_walked: usize = 0;
     while (try walker.next()) |entry| {
         testing.expect(expected_basenames.has(entry.basename)) catch |err| {
-            std.debug.print("found unexpected basename: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.basename)});
+            std.debug.print("found unexpected basename: {f}\n", .{std.ascii.hexEscape(entry.basename, .lower)});
             return err;
         };
         testing.expect(expected_paths.has(entry.path)) catch |err| {
-            std.debug.print("found unexpected path: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.path)});
+            std.debug.print("found unexpected path: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
             return err;
         };
         // make sure that the entry.dir is the containing dir

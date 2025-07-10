@@ -45,50 +45,49 @@ pub const Error = union(enum) {
         raw_string: []const u8,
     };
 
-    fn formatMessage(self: FormatMessage, bw: *Writer, comptime f: []const u8) !void {
-        _ = f;
+    fn formatMessage(self: FormatMessage, writer: *std.io.Writer) std.io.Writer.Error!void {
         switch (self.err) {
-            .invalid_escape_character => |bad_index| try bw.print(
+            .invalid_escape_character => |bad_index| try writer.print(
                 "invalid escape character: '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .expected_hex_digit => |bad_index| try bw.print(
+            .expected_hex_digit => |bad_index| try writer.print(
                 "expected hex digit, found '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .empty_unicode_escape_sequence => try bw.writeAll(
+            .empty_unicode_escape_sequence => try writer.writeAll(
                 "empty unicode escape sequence",
             ),
-            .expected_hex_digit_or_rbrace => |bad_index| try bw.print(
+            .expected_hex_digit_or_rbrace => |bad_index| try writer.print(
                 "expected hex digit or '}}', found '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .invalid_unicode_codepoint => try bw.writeAll(
+            .invalid_unicode_codepoint => try writer.writeAll(
                 "unicode escape does not correspond to a valid unicode scalar value",
             ),
-            .expected_lbrace => |bad_index| try bw.print(
+            .expected_lbrace => |bad_index| try writer.print(
                 "expected '{{', found '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .expected_rbrace => |bad_index| try bw.print(
+            .expected_rbrace => |bad_index| try writer.print(
                 "expected '}}', found '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .expected_single_quote => |bad_index| try bw.print(
+            .expected_single_quote => |bad_index| try writer.print(
                 "expected single quote ('), found '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .invalid_character => |bad_index| try bw.print(
+            .invalid_character => |bad_index| try writer.print(
                 "invalid byte in string or character literal: '{c}'",
                 .{self.raw_string[bad_index]},
             ),
-            .empty_char_literal => try bw.writeAll(
+            .empty_char_literal => try writer.writeAll(
                 "empty character literal",
             ),
         }
     }
 
-    pub fn fmt(self: @This(), raw_string: []const u8) std.fmt.Formatter(formatMessage) {
+    pub fn fmt(self: @This(), raw_string: []const u8) std.fmt.Formatter(FormatMessage, formatMessage) {
         return .{ .data = .{
             .err = self,
             .raw_string = raw_string,
@@ -318,6 +317,7 @@ test parseCharLiteral {
 }
 
 /// Parses `bytes` as a Zig string literal and writes the result to the `Writer` type.
+///
 /// Asserts `bytes` has '"' at beginning and end.
 pub fn parseWrite(writer: *Writer, bytes: []const u8) Writer.Error!Result {
     assert(bytes.len >= 2 and bytes[0] == '"' and bytes[bytes.len - 1] == '"');

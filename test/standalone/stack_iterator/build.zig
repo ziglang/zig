@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path("unwind.zig"),
                 .target = target,
                 .optimize = optimize,
-                .unwind_tables = if (target.result.os.tag.isDarwin()) .@"async" else null,
+                .unwind_tables = if (target.result.os.tag.isDarwin()) .async else null,
                 .omit_frame_pointer = false,
             }),
         });
@@ -54,7 +54,7 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path("unwind.zig"),
                 .target = target,
                 .optimize = optimize,
-                .unwind_tables = .@"async",
+                .unwind_tables = .async,
                 .omit_frame_pointer = true,
             }),
             // self-hosted lacks omit_frame_pointer support
@@ -101,7 +101,7 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path("shared_lib_unwind.zig"),
                 .target = target,
                 .optimize = optimize,
-                .unwind_tables = if (target.result.os.tag.isDarwin()) .@"async" else null,
+                .unwind_tables = if (target.result.os.tag.isDarwin()) .async else null,
                 .omit_frame_pointer = true,
             }),
             // zig objcopy doesn't support incremental binaries

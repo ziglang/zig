@@ -320,261 +320,261 @@ pub fn rootDecls(tree: Ast) []const Node.Index {
     }
 }
 
-pub fn renderError(tree: Ast, parse_error: Error, bw: *Writer) Writer.Error!void {
+pub fn renderError(tree: Ast, parse_error: Error, w: *Writer) Writer.Error!void {
     switch (parse_error.tag) {
         .asterisk_after_ptr_deref => {
             // Note that the token will point at the `.*` but ideally the source
             // location would point to the `*` after the `.*`.
-            return bw.writeAll("'.*' cannot be followed by '*'; are you missing a space?");
+            return w.writeAll("'.*' cannot be followed by '*'; are you missing a space?");
         },
         .chained_comparison_operators => {
-            return bw.writeAll("comparison operators cannot be chained");
+            return w.writeAll("comparison operators cannot be chained");
         },
         .decl_between_fields => {
-            return bw.writeAll("declarations are not allowed between container fields");
+            return w.writeAll("declarations are not allowed between container fields");
         },
         .expected_block => {
-            return bw.print("expected block, found '{s}'", .{
+            return w.print("expected block, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_block_or_assignment => {
-            return bw.print("expected block or assignment, found '{s}'", .{
+            return w.print("expected block or assignment, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_block_or_expr => {
-            return bw.print("expected block or expression, found '{s}'", .{
+            return w.print("expected block or expression, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_block_or_field => {
-            return bw.print("expected block or field, found '{s}'", .{
+            return w.print("expected block or field, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_container_members => {
-            return bw.print("expected test, comptime, var decl, or container field, found '{s}'", .{
+            return w.print("expected test, comptime, var decl, or container field, found '{s}'", .{
                 tree.tokenTag(parse_error.token).symbol(),
             });
         },
         .expected_expr => {
-            return bw.print("expected expression, found '{s}'", .{
+            return w.print("expected expression, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_expr_or_assignment => {
-            return bw.print("expected expression or assignment, found '{s}'", .{
+            return w.print("expected expression or assignment, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_expr_or_var_decl => {
-            return bw.print("expected expression or var decl, found '{s}'", .{
+            return w.print("expected expression or var decl, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_fn => {
-            return bw.print("expected function, found '{s}'", .{
+            return w.print("expected function, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_inlinable => {
-            return bw.print("expected 'while' or 'for', found '{s}'", .{
+            return w.print("expected 'while' or 'for', found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_labelable => {
-            return bw.print("expected 'while', 'for', 'inline', or '{{', found '{s}'", .{
+            return w.print("expected 'while', 'for', 'inline', or '{{', found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_param_list => {
-            return bw.print("expected parameter list, found '{s}'", .{
+            return w.print("expected parameter list, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_prefix_expr => {
-            return bw.print("expected prefix expression, found '{s}'", .{
+            return w.print("expected prefix expression, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_primary_type_expr => {
-            return bw.print("expected primary type expression, found '{s}'", .{
+            return w.print("expected primary type expression, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_pub_item => {
-            return bw.writeAll("expected function or variable declaration after pub");
+            return w.writeAll("expected function or variable declaration after pub");
         },
         .expected_return_type => {
-            return bw.print("expected return type expression, found '{s}'", .{
+            return w.print("expected return type expression, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_semi_or_else => {
-            return bw.writeAll("expected ';' or 'else' after statement");
+            return w.writeAll("expected ';' or 'else' after statement");
         },
         .expected_semi_or_lbrace => {
-            return bw.writeAll("expected ';' or block after function prototype");
+            return w.writeAll("expected ';' or block after function prototype");
         },
         .expected_statement => {
-            return bw.print("expected statement, found '{s}'", .{
+            return w.print("expected statement, found '{s}'", .{
                 tree.tokenTag(parse_error.token).symbol(),
             });
         },
         .expected_suffix_op => {
-            return bw.print("expected pointer dereference, optional unwrap, or field access, found '{s}'", .{
+            return w.print("expected pointer dereference, optional unwrap, or field access, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_type_expr => {
-            return bw.print("expected type expression, found '{s}'", .{
+            return w.print("expected type expression, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_var_decl => {
-            return bw.print("expected variable declaration, found '{s}'", .{
+            return w.print("expected variable declaration, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_var_decl_or_fn => {
-            return bw.print("expected variable declaration or function, found '{s}'", .{
+            return w.print("expected variable declaration or function, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_loop_payload => {
-            return bw.print("expected loop payload, found '{s}'", .{
+            return w.print("expected loop payload, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_container => {
-            return bw.print("expected a struct, enum or union, found '{s}'", .{
+            return w.print("expected a struct, enum or union, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .extern_fn_body => {
-            return bw.writeAll("extern functions have no body");
+            return w.writeAll("extern functions have no body");
         },
         .extra_addrspace_qualifier => {
-            return bw.writeAll("extra addrspace qualifier");
+            return w.writeAll("extra addrspace qualifier");
         },
         .extra_align_qualifier => {
-            return bw.writeAll("extra align qualifier");
+            return w.writeAll("extra align qualifier");
         },
         .extra_allowzero_qualifier => {
-            return bw.writeAll("extra allowzero qualifier");
+            return w.writeAll("extra allowzero qualifier");
         },
         .extra_const_qualifier => {
-            return bw.writeAll("extra const qualifier");
+            return w.writeAll("extra const qualifier");
         },
         .extra_volatile_qualifier => {
-            return bw.writeAll("extra volatile qualifier");
+            return w.writeAll("extra volatile qualifier");
         },
         .ptr_mod_on_array_child_type => {
-            return bw.print("pointer modifier '{s}' not allowed on array child type", .{
+            return w.print("pointer modifier '{s}' not allowed on array child type", .{
                 tree.tokenTag(parse_error.token).symbol(),
             });
         },
         .invalid_bit_range => {
-            return bw.writeAll("bit range not allowed on slices and arrays");
+            return w.writeAll("bit range not allowed on slices and arrays");
         },
         .same_line_doc_comment => {
-            return bw.writeAll("same line documentation comment");
+            return w.writeAll("same line documentation comment");
         },
         .unattached_doc_comment => {
-            return bw.writeAll("unattached documentation comment");
+            return w.writeAll("unattached documentation comment");
         },
         .test_doc_comment => {
-            return bw.writeAll("documentation comments cannot be attached to tests");
+            return w.writeAll("documentation comments cannot be attached to tests");
         },
         .comptime_doc_comment => {
-            return bw.writeAll("documentation comments cannot be attached to comptime blocks");
+            return w.writeAll("documentation comments cannot be attached to comptime blocks");
         },
         .varargs_nonfinal => {
-            return bw.writeAll("function prototype has parameter after varargs");
+            return w.writeAll("function prototype has parameter after varargs");
         },
         .expected_continue_expr => {
-            return bw.writeAll("expected ':' before while continue expression");
+            return w.writeAll("expected ':' before while continue expression");
         },
 
         .expected_semi_after_decl => {
-            return bw.writeAll("expected ';' after declaration");
+            return w.writeAll("expected ';' after declaration");
         },
         .expected_semi_after_stmt => {
-            return bw.writeAll("expected ';' after statement");
+            return w.writeAll("expected ';' after statement");
         },
         .expected_comma_after_field => {
-            return bw.writeAll("expected ',' after field");
+            return w.writeAll("expected ',' after field");
         },
         .expected_comma_after_arg => {
-            return bw.writeAll("expected ',' after argument");
+            return w.writeAll("expected ',' after argument");
         },
         .expected_comma_after_param => {
-            return bw.writeAll("expected ',' after parameter");
+            return w.writeAll("expected ',' after parameter");
         },
         .expected_comma_after_initializer => {
-            return bw.writeAll("expected ',' after initializer");
+            return w.writeAll("expected ',' after initializer");
         },
         .expected_comma_after_switch_prong => {
-            return bw.writeAll("expected ',' after switch prong");
+            return w.writeAll("expected ',' after switch prong");
         },
         .expected_comma_after_for_operand => {
-            return bw.writeAll("expected ',' after for operand");
+            return w.writeAll("expected ',' after for operand");
         },
         .expected_comma_after_capture => {
-            return bw.writeAll("expected ',' after for capture");
+            return w.writeAll("expected ',' after for capture");
         },
         .expected_initializer => {
-            return bw.writeAll("expected field initializer");
+            return w.writeAll("expected field initializer");
         },
         .mismatched_binary_op_whitespace => {
-            return bw.print("binary operator '{s}' has whitespace on one side, but not the other", .{tree.tokenTag(parse_error.token).lexeme().?});
+            return w.print("binary operator '{s}' has whitespace on one side, but not the other", .{tree.tokenTag(parse_error.token).lexeme().?});
         },
         .invalid_ampersand_ampersand => {
-            return bw.writeAll("ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND");
+            return w.writeAll("ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND");
         },
         .c_style_container => {
-            return bw.print("'{s} {s}' is invalid", .{
+            return w.print("'{s} {s}' is invalid", .{
                 parse_error.extra.expected_tag.symbol(), tree.tokenSlice(parse_error.token),
             });
         },
         .zig_style_container => {
-            return bw.print("to declare a container do 'const {s} = {s}'", .{
+            return w.print("to declare a container do 'const {s} = {s}'", .{
                 tree.tokenSlice(parse_error.token), parse_error.extra.expected_tag.symbol(),
             });
         },
         .previous_field => {
-            return bw.writeAll("field before declarations here");
+            return w.writeAll("field before declarations here");
         },
         .next_field => {
-            return bw.writeAll("field after declarations here");
+            return w.writeAll("field after declarations here");
         },
         .expected_var_const => {
-            return bw.writeAll("expected 'var' or 'const' before variable declaration");
+            return w.writeAll("expected 'var' or 'const' before variable declaration");
         },
         .wrong_equal_var_decl => {
-            return bw.writeAll("variable initialized with '==' instead of '='");
+            return w.writeAll("variable initialized with '==' instead of '='");
         },
         .var_const_decl => {
-            return bw.writeAll("use 'var' or 'const' to declare variable");
+            return w.writeAll("use 'var' or 'const' to declare variable");
         },
         .extra_for_capture => {
-            return bw.writeAll("extra capture in for loop");
+            return w.writeAll("extra capture in for loop");
         },
         .for_input_not_captured => {
-            return bw.writeAll("for input is not captured");
+            return w.writeAll("for input is not captured");
         },
 
         .invalid_byte => {
             const tok_slice = tree.source[tree.tokens.items(.start)[parse_error.token]..];
-            return bw.print("{s} contains invalid byte: '{f'}'", .{
+            return w.print("{s} contains invalid byte: '{f}'", .{
                 switch (tok_slice[0]) {
                     '\'' => "character literal",
                     '"', '\\' => "string literal",
                     '/' => "comment",
                     else => unreachable,
                 },
-                std.zig.fmtEscapes(tok_slice[parse_error.extra.offset..][0..1]),
+                std.zig.fmtChar(tok_slice[parse_error.extra.offset..][0..1]),
             });
         },
 
@@ -582,10 +582,10 @@ pub fn renderError(tree: Ast, parse_error: Error, bw: *Writer) Writer.Error!void
             const found_tag = tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev));
             const expected_symbol = parse_error.extra.expected_tag.symbol();
             switch (found_tag) {
-                .invalid => return bw.print("expected '{s}', found invalid bytes", .{
+                .invalid => return w.print("expected '{s}', found invalid bytes", .{
                     expected_symbol,
                 }),
-                else => return bw.print("expected '{s}', found '{s}'", .{
+                else => return w.print("expected '{s}', found '{s}'", .{
                     expected_symbol, found_tag.symbol(),
                 }),
             }
@@ -608,7 +608,6 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .negation_wrap,
         .address_of,
         .@"try",
-        .@"await",
         .optional_type,
         .@"switch",
         .switch_comma,
@@ -758,27 +757,6 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
             return i - end_offset;
         },
 
-        .@"usingnamespace" => {
-            const main_token: TokenIndex = tree.nodeMainToken(n);
-            const has_visib_token = tree.isTokenPrecededByTags(main_token, &.{.keyword_pub});
-            end_offset += @intFromBool(has_visib_token);
-            return main_token - end_offset;
-        },
-
-        .async_call_one,
-        .async_call_one_comma,
-        => {
-            end_offset += 1; // async token
-            n = tree.nodeData(n).node_and_opt_node[0];
-        },
-
-        .async_call,
-        .async_call_comma,
-        => {
-            end_offset += 1; // async token
-            n = tree.nodeData(n).node_and_extra[0];
-        },
-
         .container_field_init,
         .container_field_align,
         .container_field,
@@ -898,14 +876,12 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
     while (true) switch (tree.nodeTag(n)) {
         .root => return @intCast(tree.tokens.len - 1),
 
-        .@"usingnamespace",
         .bool_not,
         .negation,
         .bit_not,
         .negation_wrap,
         .address_of,
         .@"try",
-        .@"await",
         .optional_type,
         .@"suspend",
         .@"resume",
@@ -1024,7 +1000,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             };
         },
 
-        .call, .async_call => {
+        .call => {
             _, const extra_index = tree.nodeData(n).node_and_extra;
             const params = tree.extraData(extra_index, Node.SubRange);
             assert(params.start != params.end);
@@ -1043,7 +1019,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             }
         },
         .call_comma,
-        .async_call_comma,
         .tagged_union_enum_tag_trailing,
         => {
             _, const extra_index = tree.nodeData(n).node_and_extra;
@@ -1124,7 +1099,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             n = @enumFromInt(tree.extra_data[@intFromEnum(range.end) - 1]); // last member
         },
         .call_one,
-        .async_call_one,
         => {
             _, const first_param = tree.nodeData(n).node_and_opt_node;
             end_offset += 1; // for the rparen
@@ -1273,7 +1247,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
             n = first_element;
         },
         .call_one_comma,
-        .async_call_one_comma,
         .struct_init_one_comma,
         => {
             _, const first_field = tree.nodeData(n).node_and_opt_node;
@@ -1990,21 +1963,21 @@ pub fn forFull(tree: Ast, node: Node.Index) full.For {
 pub fn callOne(tree: Ast, buffer: *[1]Node.Index, node: Node.Index) full.Call {
     const fn_expr, const first_param = tree.nodeData(node).node_and_opt_node;
     const params = loadOptionalNodesIntoBuffer(1, buffer, .{first_param});
-    return tree.fullCallComponents(.{
+    return .{ .ast = .{
         .lparen = tree.nodeMainToken(node),
         .fn_expr = fn_expr,
         .params = params,
-    });
+    } };
 }
 
 pub fn callFull(tree: Ast, node: Node.Index) full.Call {
     const fn_expr, const extra_index = tree.nodeData(node).node_and_extra;
     const params = tree.extraDataSlice(tree.extraData(extra_index, Node.SubRange), Node.Index);
-    return tree.fullCallComponents(.{
+    return .{ .ast = .{
         .lparen = tree.nodeMainToken(node),
         .fn_expr = fn_expr,
         .params = params,
-    });
+    } };
 }
 
 fn fullVarDeclComponents(tree: Ast, info: full.VarDecl.Components) full.VarDecl {
@@ -2338,18 +2311,6 @@ fn fullForComponents(tree: Ast, info: full.For.Components) full.For {
     return result;
 }
 
-fn fullCallComponents(tree: Ast, info: full.Call.Components) full.Call {
-    var result: full.Call = .{
-        .ast = info,
-        .async_token = null,
-    };
-    const first_token = tree.firstToken(info.fn_expr);
-    if (tree.isTokenPrecededByTags(first_token, &.{.keyword_async})) {
-        result.async_token = first_token - 1;
-    }
-    return result;
-}
-
 pub fn fullVarDecl(tree: Ast, node: Node.Index) ?full.VarDecl {
     return switch (tree.nodeTag(node)) {
         .global_var_decl => tree.globalVarDecl(node),
@@ -2490,8 +2451,8 @@ pub fn fullAsm(tree: Ast, node: Node.Index) ?full.Asm {
 
 pub fn fullCall(tree: Ast, buffer: *[1]Ast.Node.Index, node: Node.Index) ?full.Call {
     return switch (tree.nodeTag(node)) {
-        .call, .call_comma, .async_call, .async_call_comma => tree.callFull(node),
-        .call_one, .call_one_comma, .async_call_one, .async_call_one_comma => tree.callOne(buffer, node),
+        .call, .call_comma => tree.callFull(node),
+        .call_one, .call_one_comma => tree.callOne(buffer, node),
         else => null,
     };
 }
@@ -2884,7 +2845,6 @@ pub const full = struct {
 
     pub const Call = struct {
         ast: Components,
-        async_token: ?TokenIndex,
 
         pub const Components = struct {
             lparen: TokenIndex,
@@ -3067,12 +3027,6 @@ pub const Node = struct {
         ///
         /// The `main_token` field is the first token for the source file.
         root,
-        /// `usingnamespace expr;`.
-        ///
-        /// The `data` field is a `.node` to expr.
-        ///
-        /// The `main_token` field is the `usingnamespace` token.
-        @"usingnamespace",
         /// `test {}`,
         /// `test "name" {}`,
         /// `test identifier {}`.
@@ -3303,8 +3257,6 @@ pub const Node = struct {
         address_of,
         /// `try expr`. The `main_token` field is the `try` token.
         @"try",
-        /// `await expr`. The `main_token` field is the `await` token.
-        @"await",
         /// `?expr`. The `main_token` field is the `?` token.
         optional_type,
         /// `[lhs]rhs`. The `main_token` field is the `[` token.
@@ -3500,17 +3452,6 @@ pub const Node = struct {
         /// Same as `call_one` except there is known to be a trailing comma
         /// before the final rparen.
         call_one_comma,
-        /// `async a(b)`, `async a()`.
-        ///
-        /// The `data` field is a `.node_and_opt_node`:
-        ///   1. a `Node.Index` to the function expression.
-        ///   2. a `Node.OptionalIndex` to the first argument, if any.
-        ///
-        /// The `main_token` field is the `(` token.
-        async_call_one,
-        /// Same as `async_call_one` except there is known to be a trailing
-        /// comma before the final rparen.
-        async_call_one_comma,
         /// `a(b, c, d)`.
         ///
         /// The `data` field is a `.node_and_extra`:
@@ -3523,18 +3464,6 @@ pub const Node = struct {
         /// Same as `call` except there is known to be a trailing comma before
         /// the final rparen.
         call_comma,
-        /// `async a(b, c, d)`.
-        ///
-        /// The `data` field is a `.node_and_extra`:
-        ///   1. a `Node.Index` to the function expression.
-        ///   2. a `ExtraIndex` to a `SubRange` that stores a `Node.Index` for
-        ///      each argument.
-        ///
-        /// The `main_token` field is the `(` token.
-        async_call,
-        /// Same as `async_call` except there is known to be a trailing comma
-        /// before the final rparen.
-        async_call_comma,
         /// `switch(a) {}`.
         ///
         /// The `data` field is a `.node_and_extra`:

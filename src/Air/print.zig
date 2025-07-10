@@ -518,13 +518,13 @@ const Writer = struct {
             if (mask_idx > 0) try s.writeAll(", ");
             switch (mask_elem.unwrap()) {
                 .elem => |idx| try s.print("elem {d}", .{idx}),
-                .value => |val| try s.print("val {}", .{Value.fromInterned(val).fmtValue(w.pt)}),
+                .value => |val| try s.print("val {f}", .{Value.fromInterned(val).fmtValue(w.pt)}),
             }
         }
         try s.writeByte(']');
     }
 
-    fn writeShuffleTwo(w: *Writer, s: anytype, inst: Air.Inst.Index) Error!void {
+    fn writeShuffleTwo(w: *Writer, s: *std.io.Writer, inst: Air.Inst.Index) Error!void {
         const unwrapped = w.air.unwrapShuffleTwo(w.pt.zcu, inst);
         try w.writeType(s, unwrapped.result_ty);
         try s.writeAll(", ");
@@ -590,7 +590,7 @@ const Writer = struct {
         const ip = &w.pt.zcu.intern_pool;
         const ty_nav = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
         try w.writeType(s, .fromInterned(ty_nav.ty));
-        try s.print(", '{}'", .{ip.getNav(ty_nav.nav).fqn.fmt(ip)});
+        try s.print(", '{f}'", .{ip.getNav(ty_nav.nav).fqn.fmt(ip)});
     }
 
     fn writeAtomicLoad(w: *Writer, s: *std.io.Writer, inst: Air.Inst.Index) Error!void {
@@ -710,7 +710,7 @@ const Writer = struct {
             }
         }
         const asm_source = std.mem.sliceAsBytes(w.air.extra.items[extra_i..])[0..extra.data.source_len];
-        try s.print(", \"{f}\"", .{std.zig.fmtEscapes(asm_source)});
+        try s.print(", \"{f}\"", .{std.zig.fmtString(asm_source)});
     }
 
     fn writeDbgStmt(w: *Writer, s: *std.io.Writer, inst: Air.Inst.Index) Error!void {
@@ -722,7 +722,7 @@ const Writer = struct {
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         try w.writeOperand(s, inst, 0, pl_op.operand);
         const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
-        try s.print(", \"{f}\"", .{std.zig.fmtEscapes(name.toSlice(w.air))});
+        try s.print(", \"{f}\"", .{std.zig.fmtString(name.toSlice(w.air))});
     }
 
     fn writeCall(w: *Writer, s: *std.io.Writer, inst: Air.Inst.Index) Error!void {
@@ -1010,7 +1010,7 @@ const Writer = struct {
 
     fn writeInstRef(
         w: *Writer,
-        s: anytype,
+        s: *std.io.Writer,
         operand: Air.Inst.Ref,
         dies: bool,
     ) Error!void {

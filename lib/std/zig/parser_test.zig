@@ -1,3 +1,9 @@
+const std = @import("std");
+const mem = std.mem;
+const print = std.debug.print;
+const io = std.io;
+const maxInt = std.math.maxInt;
+
 test "zig fmt: remove extra whitespace at start and end of file with comment between" {
     try testTransform(
         \\
@@ -336,15 +342,6 @@ test "zig fmt: nosuspend block" {
         \\    nosuspend {
         \\        var foo: Foo = .{ .bar = 42 };
         \\    }
-        \\}
-        \\
-    );
-}
-
-test "zig fmt: nosuspend await" {
-    try testCanonical(
-        \\fn foo() void {
-        \\    x = nosuspend await y;
         \\}
         \\
     );
@@ -1093,18 +1090,6 @@ test "zig fmt: block in slice expression" {
     );
 }
 
-test "zig fmt: async function" {
-    try testCanonical(
-        \\pub const Server = struct {
-        \\    handleRequestFn: fn (*Server, *const std.net.Address, File) callconv(.@"async") void,
-        \\};
-        \\test "hi" {
-        \\    var ptr: fn (i32) callconv(.@"async") void = @ptrCast(other);
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: whitespace fixes" {
     try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}\n// zig fmt: off\ntest \"\"{\r\n\tconst a  = b;}\r\n",
         \\test "" {
@@ -1545,17 +1530,6 @@ test "zig fmt: spaces around slice operator" {
         \\var a = b[c .. d + 1 :0];
         \\var a = b[c.a..d.e];
         \\var a = b[c.a..d.e :0];
-        \\
-    );
-}
-
-test "zig fmt: async call in if condition" {
-    try testCanonical(
-        \\comptime {
-        \\    if (async b()) {
-        \\        a();
-        \\    }
-        \\}
         \\
     );
 }
@@ -2770,11 +2744,11 @@ test "zig fmt: preserve spacing" {
         \\const std = @import("std");
         \\
         \\pub fn main() !void {
-        \\    var stdout_file = std.io.getStdOut;
-        \\    var stdout_file = std.io.getStdOut;
+        \\    var stdout_file = std.lol.abcd;
+        \\    var stdout_file = std.lol.abcd;
         \\
-        \\    var stdout_file = std.io.getStdOut;
-        \\    var stdout_file = std.io.getStdOut;
+        \\    var stdout_file = std.lol.abcd;
+        \\    var stdout_file = std.lol.abcd;
         \\}
         \\
     );
@@ -3946,27 +3920,6 @@ test "zig fmt: inline asm" {
     );
 }
 
-test "zig fmt: async functions" {
-    try testCanonical(
-        \\fn simpleAsyncFn() void {
-        \\    const a = async a.b();
-        \\    x += 1;
-        \\    suspend {}
-        \\    x += 1;
-        \\    suspend {}
-        \\    const p: anyframe->void = async simpleAsyncFn() catch unreachable;
-        \\    await p;
-        \\}
-        \\
-        \\test "suspend, resume, await" {
-        \\    const p: anyframe = async testAsyncSeq();
-        \\    resume p;
-        \\    await p;
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: nosuspend" {
     try testCanonical(
         \\const a = nosuspend foo();
@@ -3985,14 +3938,6 @@ test "zig fmt: Block after if" {
         \\        const a = 0;
         \\    }
         \\}
-        \\
-    );
-}
-
-test "zig fmt: usingnamespace" {
-    try testCanonical(
-        \\usingnamespace @import("std");
-        \\pub usingnamespace @import("std");
         \\
     );
 }
@@ -5140,17 +5085,6 @@ test "zig fmt: line comment after multiline single expr if statement with multil
     );
 }
 
-test "zig fmt: respect extra newline between fn and pub usingnamespace" {
-    try testCanonical(
-        \\fn foo() void {
-        \\    bar();
-        \\}
-        \\
-        \\pub usingnamespace baz;
-        \\
-    );
-}
-
 test "zig fmt: respect extra newline between switch items" {
     try testCanonical(
         \\const a = switch (b) {
@@ -5719,34 +5653,6 @@ test "zig fmt: canonicalize symbols (primitive types)" {
     );
 }
 
-// Never unescape names spelled like keywords.
-test "zig fmt: canonicalize symbols (keywords)" {
-    try testCanonical(
-        \\const @"enum" = struct {
-        \\    @"error": @"struct" = true,
-        \\    const @"struct" = bool;
-        \\};
-        \\
-        \\fn @"usingnamespace"(@"union": @"enum") error{@"try"}!void {
-        \\    var @"struct" = @"union";
-        \\    @"struct".@"error" = false;
-        \\    if (@"struct".@"error") {
-        \\        return @"usingnamespace"(.{ .@"error" = false });
-        \\    } else {
-        \\        return error.@"try";
-        \\    }
-        \\}
-        \\
-        \\test @"usingnamespace" {
-        \\    try @"usingnamespace"(.{});
-        \\    _ = @"return": {
-        \\        break :@"return" 4;
-        \\    };
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: no space before newline before multiline string" {
     try testCanonical(
         \\const S = struct {
@@ -6181,29 +6087,6 @@ test "recovery: missing return type" {
     });
 }
 
-test "recovery: continue after invalid decl" {
-    try testError(
-        \\fn foo {
-        \\    inline;
-        \\}
-        \\pub test "" {
-        \\    async a & b;
-        \\}
-    , &[_]Error{
-        .expected_token,
-        .expected_pub_item,
-        .expected_param_list,
-    });
-    try testError(
-        \\threadlocal test "" {
-        \\    @a & b;
-        \\}
-    , &[_]Error{
-        .expected_var_decl,
-        .expected_param_list,
-    });
-}
-
 test "recovery: invalid extern/inline" {
     try testError(
         \\inline test "" { a & b; }
@@ -6228,22 +6111,6 @@ test "recovery: missing semicolon" {
         .expected_semi_after_stmt,
         .expected_semi_after_stmt,
         .expected_param_list,
-        .expected_semi_after_stmt,
-    });
-}
-
-test "recovery: invalid container members" {
-    try testError(
-        \\usingnamespace;
-        \\@foo()+
-        \\@bar()@,
-        \\while (a == 2) { test "" {}}
-        \\test "" {
-        \\    a & b
-        \\}
-    , &[_]Error{
-        .expected_expr,
-        .expected_comma_after_field,
         .expected_semi_after_stmt,
     });
 }
@@ -6453,12 +6320,6 @@ test "ampersand" {
         \\ _ = &&foo, 
     , &.{});
 }
-
-const std = @import("std");
-const mem = std.mem;
-const print = std.debug.print;
-const io = std.io;
-const maxInt = std.math.maxInt;
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 

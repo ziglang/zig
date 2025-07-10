@@ -119,24 +119,22 @@ const Value = extern struct {
         }
     }
 
-    pub fn format(value: Value, bw: *std.io.Writer, comptime fmt: []const u8) !void {
-        comptime assert(fmt.len == 0);
-
+    pub fn format(value: Value, writer: *std.io.Writer) std.io.Writer.Error!void {
         // Work around x86_64 backend limitation.
         if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) {
-            return bw.writeAll("(unknown)");
+            return writer.writeAll("(unknown)");
         }
 
         switch (value.td.kind) {
             .integer => {
                 if (value.td.isSigned()) {
-                    return bw.print("{d}", .{value.getSignedInteger()});
+                    try writer.print("{d}", .{value.getSignedInteger()});
                 } else {
-                    return bw.print("{d}", .{value.getUnsignedInteger()});
+                    try writer.print("{d}", .{value.getUnsignedInteger()});
                 }
             },
-            .float => return bw.print("{d}", .{value.getFloat()}),
-            .unknown => return bw.writeAll("(unknown)"),
+            .float => try writer.print("{d}", .{value.getFloat()}),
+            .unknown => try writer.writeAll("(unknown)"),
         }
     }
 };
@@ -166,17 +164,12 @@ fn overflowHandler(
         ) callconv(.c) noreturn {
             const lhs: Value = .{ .handle = lhs_handle, .td = data.td };
             const rhs: Value = .{ .handle = rhs_handle, .td = data.td };
-
-            const is_signed = data.td.isSigned();
-            const fmt = "{s} integer overflow: " ++ "{f} " ++
-                operator ++ " {f} cannot be represented in type {s}";
-
-            panic(@returnAddress(), fmt, .{
-                if (is_signed) "signed" else "unsigned",
-                lhs,
-                rhs,
-                data.td.getName(),
-            });
+            const signed_str = if (data.td.isSigned()) "signed" else "unsigned";
+            panic(
+                @returnAddress(),
+                "{s} integer overflow: {f} " ++ operator ++ " {f} cannot be represented in type {s}",
+                .{ signed_str, lhs, rhs, data.td.getName() },
+            );
         }
     };
 
@@ -195,11 +188,9 @@ fn negationHandler(
     value_handle: ValueHandle,
 ) callconv(.c) noreturn {
     const value: Value = .{ .handle = value_handle, .td = data.td };
-    panic(
-        @returnAddress(),
-        "negation of {f} cannot be represented in type {s}",
-        .{ value, data.td.getName() },
-    );
+    panic(@returnAddress(), "negation of {f} cannot be represented in type {s}", .{
+        value, data.td.getName(),
+    });
 }
 
 fn divRemHandlerAbort(
@@ -219,11 +210,9 @@ fn divRemHandler(
     const rhs: Value = .{ .handle = rhs_handle, .td = data.td };
 
     if (rhs.isMinusOne()) {
-        panic(
-            @returnAddress(),
-            "division of {f} by -1 cannot be represented in type {s}",
-            .{ lhs, data.td.getName() },
-        );
+        panic(@returnAddress(), "division of {f} by -1 cannot be represented in type {s}", .{
+            lhs, data.td.getName(),
+        });
     } else panic(@returnAddress(), "division by zero", .{});
 }
 
@@ -353,11 +342,10 @@ fn outOfBounds(
     index_handle: ValueHandle,
 ) callconv(.c) noreturn {
     const index: Value = .{ .handle = index_handle, .td = data.index_type };
-    panic(
-        @returnAddress(),
-        "index {f} out of bounds for type {s}",
-        .{ index, data.array_type.getName() },
-    );
+    panic(@returnAddress(), "index {f} out of bounds for type {s}", .{
+        index,
+        data.array_type.getName(),
+    });
 }
 
 const PointerOverflowData = extern struct {
@@ -547,11 +535,9 @@ fn loadInvalidValue(
     value_handle: ValueHandle,
 ) callconv(.c) noreturn {
     const value: Value = .{ .handle = value_handle, .td = data.td };
-    panic(
-        @returnAddress(),
-        "load of value {f}, which is not valid for type {s}",
-        .{ value, data.td.getName() },
-    );
+    panic(@returnAddress(), "load of value {f}, which is not valid for type {s}", .{
+        value, data.td.getName(),
+    });
 }
 
 const InvalidBuiltinData = extern struct {
@@ -590,11 +576,7 @@ fn vlaBoundNotPositive(
     bound_handle: ValueHandle,
 ) callconv(.c) noreturn {
     const bound: Value = .{ .handle = bound_handle, .td = data.td };
-    panic(
-        @returnAddress(),
-        "variable length array bound evaluates to non-positive value {f}",
-        .{bound},
-    );
+    panic(@returnAddress(), "variable length array bound evaluates to non-positive value {f}", .{bound});
 }
 
 const FloatCastOverflowData = extern struct {

@@ -1,3 +1,20 @@
+const builtin = @import("builtin");
+const Os = std.builtin.Os;
+const native_os = builtin.os.tag;
+const is_windows = native_os == .windows;
+
+const File = @This();
+const std = @import("../std.zig");
+const Allocator = std.mem.Allocator;
+const posix = std.posix;
+const io = std.io;
+const math = std.math;
+const assert = std.debug.assert;
+const linux = std.os.linux;
+const windows = std.os.windows;
+const maxInt = std.math.maxInt;
+const Alignment = std.mem.Alignment;
+
 /// The OS-specific file descriptor or file handle.
 handle: Handle,
 
@@ -844,7 +861,7 @@ pub fn write(self: File, bytes: []const u8) WriteError!usize {
     return posix.write(self.handle, bytes);
 }
 
-/// One-shot alternative to `std.io.Writer.writeAll` via `writer`.
+/// Deprecated in favor of `Writer`.
 pub fn writeAll(self: File, bytes: []const u8) WriteError!void {
     var index: usize = 0;
     while (index < bytes.len) {
@@ -900,6 +917,8 @@ pub const Reader = struct {
     file: File,
     err: ?ReadError = null,
     mode: Reader.Mode = .positional,
+    /// Tracks the true seek position in the file. To obtain the logical
+    /// position, subtract the buffer size from this value.
     pos: u64 = 0,
     size: ?u64 = null,
     size_err: ?GetEndPosError = null,
@@ -1008,7 +1027,7 @@ pub const Reader = struct {
                 };
                 var remaining = std.math.cast(u64, offset) orelse return seek_err;
                 while (remaining > 0) {
-                    const n = discard(&r.interface, .limited(remaining)) catch |err| {
+                    const n = discard(&r.interface, .limited64(remaining)) catch |err| {
                         r.seek_err = err;
                         return err;
                     };
@@ -1043,7 +1062,7 @@ pub const Reader = struct {
     const max_buffers_len = 16;
 
     fn stream(io_reader: *std.io.Reader, w: *std.io.Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
-        const r: *Reader = @fieldParentPtr("interface", io_reader);
+        const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
         switch (r.mode) {
             .positional, .streaming => return w.sendFile(r, limit) catch |write_err| switch (write_err) {
                 error.Unimplemented => {
@@ -1067,10 +1086,14 @@ pub const Reader = struct {
                 const n = posix.preadv(r.file.handle, dest, r.pos) catch |err| switch (err) {
                     error.Unseekable => {
                         r.mode = r.mode.toStreaming();
-                        if (r.pos != 0) r.seekBy(@intCast(r.pos)) catch {
-                            r.mode = .failure;
-                            return error.ReadFailed;
-                        };
+                        const pos = r.pos;
+                        if (pos != 0) {
+                            r.pos = 0;
+                            r.seekBy(@intCast(pos)) catch {
+                                r.mode = .failure;
+                                return error.ReadFailed;
+                            };
+                        }
                         return 0;
                     },
                     else => |e| {
@@ -1113,7 +1136,7 @@ pub const Reader = struct {
     }
 
     fn discard(io_reader: *std.io.Reader, limit: std.io.Limit) std.io.Reader.Error!usize {
-        const r: *Reader = @fieldParentPtr("interface", io_reader);
+        const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
         const file = r.file;
         const pos = r.pos;
         switch (r.mode) {
@@ -1195,10 +1218,14 @@ pub const Reader = struct {
         const n = r.file.pread(dest, r.pos) catch |err| switch (err) {
             error.Unseekable => {
                 r.mode = r.mode.toStreaming();
-                if (r.pos != 0) r.seekBy(@intCast(r.pos)) catch {
-                    r.mode = .failure;
-                    return error.ReadFailed;
-                };
+                const pos = r.pos;
+                if (pos != 0) {
+                    r.pos = 0;
+                    r.seekBy(@intCast(pos)) catch {
+                        r.mode = .failure;
+                        return error.ReadFailed;
+                    };
+                }
                 return 0;
             },
             else => |e| {
@@ -1246,6 +1273,8 @@ pub const Writer = struct {
     file: File,
     err: ?WriteError = null,
     mode: Writer.Mode = .positional,
+    /// Tracks the true seek position in the file. To obtain the logical
+    /// position, add the buffer size to this value.
     pos: u64 = 0,
     sendfile_err: ?SendfileError = null,
     copy_file_range_err: ?CopyFileRangeError = null,
@@ -1308,110 +1337,162 @@ pub const Writer = struct {
         };
     }
 
-    pub fn drain(io_writer: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
-        const w: *Writer = @fieldParentPtr("interface", io_writer);
+    pub fn drain(io_w: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
+        const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
         const handle = w.file.handle;
-        const buffered = io_writer.buffered();
-        var splat_buffer: [256]u8 = undefined;
-        if (is_windows) {
-            var i: usize = 0;
-            while (i < buffered.len) {
-                const n = windows.WriteFile(handle, buffered[i..], null) catch |err| {
-                    w.err = err;
-                    w.pos += i;
-                    _ = io_writer.consume(i);
-                    return error.WriteFailed;
-                };
-                i += n;
-                if (data.len > 0 and buffered.len - i < n) {
-                    w.pos += i;
-                    return io_writer.consume(i);
+        const buffered = io_w.buffered();
+        if (is_windows) switch (w.mode) {
+            .positional, .positional_reading => {
+                if (buffered.len != 0) {
+                    const n = windows.WriteFile(handle, buffered, w.pos) catch |err| {
+                        w.err = err;
+                        return error.WriteFailed;
+                    };
+                    w.pos += n;
+                    return io_w.consume(n);
                 }
-            }
-            if (i != 0 or data.len == 0 or (data.len == 1 and splat == 0)) {
-                w.pos += i;
-                return io_writer.consume(i);
-            }
-            const n = windows.WriteFile(handle, data[0], null) catch |err| {
-                w.err = err;
-                return 0;
-            };
-            w.pos += n;
-            return n;
-        }
-        if (data.len == 0) {
-            var i: usize = 0;
-            while (i < buffered.len) {
-                i += std.posix.write(handle, buffered) catch |err| {
+                for (data[0 .. data.len - 1]) |buf| {
+                    if (buf.len == 0) continue;
+                    const n = windows.WriteFile(handle, buf, w.pos) catch |err| {
+                        w.err = err;
+                        return error.WriteFailed;
+                    };
+                    w.pos += n;
+                    return io_w.consume(n);
+                }
+                const pattern = data[data.len - 1];
+                if (pattern.len == 0 or splat == 0) return 0;
+                const n = windows.WriteFile(handle, pattern, w.pos) catch |err| {
                     w.err = err;
-                    w.pos += i;
-                    _ = io_writer.consume(i);
                     return error.WriteFailed;
                 };
-            }
-            w.pos += i;
-            return io_writer.consumeAll();
-        }
+                w.pos += n;
+                return io_w.consume(n);
+            },
+            .streaming, .streaming_reading => {
+                if (buffered.len != 0) {
+                    const n = windows.WriteFile(handle, buffered, null) catch |err| {
+                        w.err = err;
+                        return error.WriteFailed;
+                    };
+                    w.pos += n;
+                    return io_w.consume(n);
+                }
+                for (data[0 .. data.len - 1]) |buf| {
+                    if (buf.len == 0) continue;
+                    const n = windows.WriteFile(handle, buf, null) catch |err| {
+                        w.err = err;
+                        return error.WriteFailed;
+                    };
+                    w.pos += n;
+                    return io_w.consume(n);
+                }
+                const pattern = data[data.len - 1];
+                if (pattern.len == 0 or splat == 0) return 0;
+                const n = windows.WriteFile(handle, pattern, null) catch |err| {
+                    std.debug.print("windows write file failed3: {t}\n", .{err});
+                    w.err = err;
+                    return error.WriteFailed;
+                };
+                w.pos += n;
+                return io_w.consume(n);
+            },
+            .failure => return error.WriteFailed,
+        };
         var iovecs: [max_buffers_len]std.posix.iovec_const = undefined;
         var len: usize = 0;
         if (buffered.len > 0) {
             iovecs[len] = .{ .base = buffered.ptr, .len = buffered.len };
             len += 1;
         }
-        for (data) |d| {
+        for (data[0 .. data.len - 1]) |d| {
             if (d.len == 0) continue;
-            if (iovecs.len - len == 0) break;
             iovecs[len] = .{ .base = d.ptr, .len = d.len };
             len += 1;
+            if (iovecs.len - len == 0) break;
         }
-        switch (splat) {
-            0 => if (data[data.len - 1].len != 0) {
-                len -= 1;
+        const pattern = data[data.len - 1];
+        if (iovecs.len - len != 0) switch (splat) {
+            0 => {},
+            1 => if (pattern.len != 0) {
+                iovecs[len] = .{ .base = pattern.ptr, .len = pattern.len };
+                len += 1;
             },
-            1 => {},
-            else => switch (data[data.len - 1].len) {
+            else => switch (pattern.len) {
                 0 => {},
                 1 => {
+                    const splat_buffer_candidate = io_w.buffer[io_w.end..];
+                    var backup_buffer: [64]u8 = undefined;
+                    const splat_buffer = if (splat_buffer_candidate.len >= backup_buffer.len)
+                        splat_buffer_candidate
+                    else
+                        &backup_buffer;
                     const memset_len = @min(splat_buffer.len, splat);
                     const buf = splat_buffer[0..memset_len];
-                    @memset(buf, data[data.len - 1][0]);
-                    iovecs[len - 1] = .{ .base = buf.ptr, .len = buf.len };
-                    var remaining_splat = splat - buf.len;
-                    while (remaining_splat > splat_buffer.len and len < iovecs.len) {
-                        iovecs[len] = .{ .base = &splat_buffer, .len = splat_buffer.len };
-                        remaining_splat -= splat_buffer.len;
-                        len += 1;
-                    }
-                    if (remaining_splat > 0 and len < iovecs.len) {
-                        iovecs[len] = .{ .base = &splat_buffer, .len = remaining_splat };
-                        len += 1;
-                    }
-                    return std.posix.writev(handle, iovecs[0..len]) catch |err| {
-                        w.err = err;
-                        return error.WriteFailed;
-                    };
-                },
-                else => for (0..splat - 1) |_| {
-                    if (iovecs.len - len == 0) break;
-                    iovecs[len] = .{ .base = data[data.len - 1].ptr, .len = data[data.len - 1].len };
+                    @memset(buf, pattern[0]);
+                    iovecs[len] = .{ .base = buf.ptr, .len = buf.len };
                     len += 1;
+                    var remaining_splat = splat - buf.len;
+                    while (remaining_splat > splat_buffer.len and iovecs.len - len != 0) {
+                        assert(buf.len == splat_buffer.len);
+                        iovecs[len] = .{ .base = splat_buffer.ptr, .len = splat_buffer.len };
+                        len += 1;
+                        remaining_splat -= splat_buffer.len;
+                    }
+                    if (remaining_splat > 0 and iovecs.len - len != 0) {
+                        iovecs[len] = .{ .base = splat_buffer.ptr, .len = remaining_splat };
+                        len += 1;
+                    }
+                },
+                else => for (0..splat) |_| {
+                    iovecs[len] = .{ .base = pattern.ptr, .len = pattern.len };
+                    len += 1;
+                    if (iovecs.len - len == 0) break;
                 },
             },
-        }
-        const n = std.posix.writev(handle, iovecs[0..len]) catch |err| {
-            w.err = err;
-            return error.WriteFailed;
         };
-        w.pos += n;
-        return io_writer.consume(n);
+        if (len == 0) return 0;
+        switch (w.mode) {
+            .positional, .positional_reading => {
+                const n = std.posix.pwritev(handle, iovecs[0..len], w.pos) catch |err| switch (err) {
+                    error.Unseekable => {
+                        w.mode = w.mode.toStreaming();
+                        const pos = w.pos;
+                        if (pos != 0) {
+                            w.pos = 0;
+                            w.seekTo(@intCast(pos)) catch {
+                                w.mode = .failure;
+                                return error.WriteFailed;
+                            };
+                        }
+                        return 0;
+                    },
+                    else => |e| {
+                        w.err = e;
+                        return error.WriteFailed;
+                    },
+                };
+                w.pos += n;
+                return io_w.consume(n);
+            },
+            .streaming, .streaming_reading => {
+                const n = std.posix.writev(handle, iovecs[0..len]) catch |err| {
+                    w.err = err;
+                    return error.WriteFailed;
+                };
+                w.pos += n;
+                return io_w.consume(n);
+            },
+            .failure => return error.WriteFailed,
+        }
     }
 
     pub fn sendFile(
-        io_writer: *std.io.Writer,
+        io_w: *std.io.Writer,
         file_reader: *Reader,
         limit: std.io.Limit,
     ) std.io.Writer.FileError!usize {
-        const w: *Writer = @fieldParentPtr("interface", io_writer);
+        const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
         const out_fd = w.file.handle;
         const in_fd = file_reader.file.handle;
         // TODO try using copy_file_range on FreeBSD
@@ -1422,7 +1503,7 @@ pub const Writer = struct {
             if (w.sendfile_err != null) break :sf;
             // Linux sendfile does not support headers.
             const buffered = limit.slice(file_reader.interface.buffer);
-            if (io_writer.end != 0 or buffered.len != 0) return drain(io_writer, &.{buffered}, 1);
+            if (io_w.end != 0 or buffered.len != 0) return drain(io_w, &.{buffered}, 1);
             const max_count = 0x7ffff000; // Avoid EINVAL.
             var off: std.os.linux.off_t = undefined;
             const off_ptr: ?*std.os.linux.off_t, const count: usize = switch (file_reader.mode) {
@@ -1446,10 +1527,14 @@ pub const Writer = struct {
             const n = std.os.linux.wrapped.sendfile(out_fd, in_fd, off_ptr, count) catch |err| switch (err) {
                 error.Unseekable => {
                     file_reader.mode = file_reader.mode.toStreaming();
-                    if (file_reader.pos != 0) file_reader.seekBy(@intCast(file_reader.pos)) catch {
-                        file_reader.mode = .failure;
-                        return error.ReadFailed;
-                    };
+                    const pos = file_reader.pos;
+                    if (pos != 0) {
+                        file_reader.pos = 0;
+                        file_reader.seekBy(@intCast(pos)) catch {
+                            file_reader.mode = .failure;
+                            return error.ReadFailed;
+                        };
+                    }
                     return 0;
                 },
                 else => |e| {
@@ -1465,21 +1550,21 @@ pub const Writer = struct {
             w.pos += n;
             return n;
         }
-        const copy_file_range_fn = switch (native_os) {
+        const copy_file_range = switch (native_os) {
             .freebsd => std.os.freebsd.copy_file_range,
-            .linux => if (std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) std.os.linux.wrapped.copy_file_range else null,
-            else => null,
+            .linux => if (std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) std.os.linux.wrapped.copy_file_range else {},
+            else => {},
         };
-        if (copy_file_range_fn) |copy_file_range| cfr: {
+        if (@TypeOf(copy_file_range) != void) cfr: {
             if (w.copy_file_range_err != null) break :cfr;
             const buffered = limit.slice(file_reader.interface.buffer);
-            if (io_writer.end != 0 or buffered.len != 0) return drain(io_writer, &.{buffered}, 1);
+            if (io_w.end != 0 or buffered.len != 0) return drain(io_w, &.{buffered}, 1);
             var off_in: i64 = undefined;
             var off_out: i64 = undefined;
             const off_in_ptr: ?*i64 = switch (file_reader.mode) {
                 .positional_reading, .streaming_reading => return error.Unimplemented,
                 .positional => p: {
-                    off_in = file_reader.pos;
+                    off_in = @intCast(file_reader.pos);
                     break :p &off_in;
                 },
                 .streaming => null,
@@ -1488,7 +1573,7 @@ pub const Writer = struct {
             const off_out_ptr: ?*i64 = switch (w.mode) {
                 .positional_reading, .streaming_reading => return error.Unimplemented,
                 .positional => p: {
-                    off_out = w.pos;
+                    off_out = @intCast(w.pos);
                     break :p &off_out;
                 },
                 .streaming => null,
@@ -1542,18 +1627,34 @@ pub const Writer = struct {
     }
 
     pub fn seekTo(w: *Writer, offset: u64) SeekError!void {
-        if (w.seek_err) |err| return err;
         switch (w.mode) {
             .positional, .positional_reading => {
                 w.pos = offset;
             },
             .streaming, .streaming_reading => {
+                if (w.seek_err) |err| return err;
                 posix.lseek_SET(w.file.handle, offset) catch |err| {
                     w.seek_err = err;
                     return err;
                 };
+                w.pos = offset;
             },
+            .failure => return w.seek_err.?,
         }
+    }
+
+    pub const EndError = SetEndPosError || std.io.Writer.Error;
+
+    /// Flushes any buffered data and sets the end position of the file.
+    ///
+    /// If not overwriting existing contents, then calling `interface.flush`
+    /// directly is sufficient.
+    ///
+    /// Flush failure is handled by setting `err` so that it can be handled
+    /// along with other write failures.
+    pub fn end(w: *Writer) EndError!void {
+        try w.interface.flush();
+        return w.file.setEndPos(w.pos);
     }
 };
 
@@ -1568,9 +1669,10 @@ pub fn reader(file: File, buffer: []u8) Reader {
 /// Positional is more threadsafe, since the global seek position is not
 /// affected, but when such syscalls are not available, preemptively choosing
 /// `Reader.Mode.streaming` will skip a failed syscall.
-pub fn readerStreaming(file: File) Reader {
+pub fn readerStreaming(file: File, buffer: []u8) Reader {
     return .{
         .file = file,
+        .interface = Reader.initInterface(buffer),
         .mode = .streaming,
         .seek_err = error.Unseekable,
     };
@@ -1753,20 +1855,3 @@ pub fn downgradeLock(file: File) LockError!void {
         };
     }
 }
-
-const builtin = @import("builtin");
-const Os = std.builtin.Os;
-const native_os = builtin.os.tag;
-const is_windows = native_os == .windows;
-
-const File = @This();
-const std = @import("../std.zig");
-const Allocator = std.mem.Allocator;
-const posix = std.posix;
-const io = std.io;
-const math = std.math;
-const assert = std.debug.assert;
-const linux = std.os.linux;
-const windows = std.os.windows;
-const maxInt = std.math.maxInt;
-const Alignment = std.mem.Alignment;

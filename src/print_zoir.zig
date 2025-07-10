@@ -1,4 +1,6 @@
-pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: *Writer) error{ WriteFailed, OutOfMemory }!void {
+pub const Error = error{ WriteFailed, OutOfMemory };
+
+pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: *Writer) Error!void {
     assert(!zoir.hasCompileErrors());
 
     const bytes_per_node = comptime n: {
@@ -45,8 +47,6 @@ const PrintZon = struct {
     arena: Allocator,
     zoir: Zoir,
     indent: u32,
-
-    const Error = Writer.Error;
 
     fn renderRoot(pz: *PrintZon) Error!void {
         try pz.renderNode(.root);

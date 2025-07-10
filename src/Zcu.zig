@@ -793,10 +793,6 @@ pub const Namespace = struct {
     pub_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
     /// Members of the namespace which are *not* marked `pub`.
     priv_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
-    /// All `usingnamespace` declarations in this namespace which are marked `pub`.
-    pub_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
-    /// All `usingnamespace` declarations in this namespace which are *not* marked `pub`.
-    priv_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
     /// All `comptime` declarations in this namespace. We store these purely so that incremental
     /// compilation can re-use the existing `ComptimeUnit`s when a namespace changes.
     comptime_decls: std.ArrayListUnmanaged(InternPool.ComptimeUnit.Id) = .empty,
@@ -1116,7 +1112,7 @@ pub const File = struct {
         eb: *std.zig.ErrorBundle.Wip,
     ) !std.zig.ErrorBundle.SourceLocationIndex {
         return eb.addSourceLocation(.{
-            .src_path = try eb.printString("{}", .{file.path.fmt(zcu.comp)}),
+            .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = 0,
             .span_main = 0,
             .span_end = 0,
@@ -1137,7 +1133,7 @@ pub const File = struct {
         const end = start + tree.tokenSlice(tok).len;
         const loc = std.zig.findLineColumn(source.bytes, start);
         return eb.addSourceLocation(.{
-            .src_path = try eb.printString("{}", .{file.path.fmt(zcu.comp)}),
+            .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = start,
             .span_main = start,
             .span_end = @intCast(end),
@@ -1298,9 +1294,6 @@ pub const SrcLoc = struct {
                     .simple_var_decl,
                     .aligned_var_decl,
                     => tree.fullVarDecl(node).?,
-                    .@"usingnamespace" => {
-                        return tree.nodeToSpan(tree.nodeData(node).node);
-                    },
                     else => unreachable,
                 };
                 if (full.ast.type_node.unwrap()) |type_node| {
@@ -1438,12 +1431,8 @@ pub const SrcLoc = struct {
                     .field_access => tree.nodeData(node).node_and_token[1],
                     .call_one,
                     .call_one_comma,
-                    .async_call_one,
-                    .async_call_one_comma,
                     .call,
                     .call_comma,
-                    .async_call,
-                    .async_call_comma,
                     => blk: {
                         const full = tree.fullCall(&buf, node).?;
                         break :blk tree.lastToken(full.ast.fn_expr);
@@ -3306,9 +3295,6 @@ pub fn mapOldZirToNew(
         // All comptime declarations, in order, for a best-effort match.
         var comptime_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
         defer comptime_decls.deinit(gpa);
-        // All usingnamespace declarations, in order, for a best-effort match.
-        var usingnamespace_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
-        defer usingnamespace_decls.deinit(gpa);
 
         {
             var old_decl_it = old_zir.declIterator(match_item.old_inst);
@@ -3316,7 +3302,6 @@ pub fn mapOldZirToNew(
                 const old_decl = old_zir.getDeclaration(old_decl_inst);
                 switch (old_decl.kind) {
                     .@"comptime" => try comptime_decls.append(gpa, old_decl_inst),
-                    .@"usingnamespace" => try usingnamespace_decls.append(gpa, old_decl_inst),
                     .unnamed_test => try unnamed_tests.append(gpa, old_decl_inst),
                     .@"test" => try named_tests.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
                     .decltest => try named_decltests.put(gpa, old_zir.nullTerminatedString(old_decl.name), old_decl_inst),
@@ -3327,7 +3312,6 @@ pub fn mapOldZirToNew(
 
         var unnamed_test_idx: u32 = 0;
         var comptime_decl_idx: u32 = 0;
-        var usingnamespace_decl_idx: u32 = 0;
 
         var new_decl_it = new_zir.declIterator(match_item.new_inst);
         while (new_decl_it.next()) |new_decl_inst| {
@@ -3337,18 +3321,12 @@ pub fn mapOldZirToNew(
             // * For named tests (`test "foo"`) and decltests (`test foo`), we also match based on name.
             // * For unnamed tests, we match based on order.
             // * For comptime blocks, we match based on order.
-            // * For usingnamespace decls, we match based on order.
             // If we cannot match this declaration, we can't match anything nested inside of it either, so we just `continue`.
             const old_decl_inst = switch (new_decl.kind) {
                 .@"comptime" => inst: {
                     if (comptime_decl_idx == comptime_decls.items.len) continue;
                     defer comptime_decl_idx += 1;
                     break :inst comptime_decls.items[comptime_decl_idx];
-                },
-                .@"usingnamespace" => inst: {
-                    if (usingnamespace_decl_idx == usingnamespace_decls.items.len) continue;
-                    defer usingnamespace_decl_idx += 1;
-                    break :inst usingnamespace_decls.items[usingnamespace_decl_idx];
                 },
                 .unnamed_test => inst: {
                     if (unnamed_test_idx == unnamed_tests.items.len) continue;
@@ -4058,7 +4036,6 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 if (!comp.config.is_test or file.mod != zcu.main_mod) continue;
 
                 const want_analysis = switch (decl.kind) {
-                    .@"usingnamespace" => unreachable,
                     .@"const", .@"var" => unreachable,
                     .@"comptime" => unreachable,
                     .unnamed_test => true,
@@ -4115,16 +4092,6 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                         try unit_queue.put(gpa, unit, referencer);
                     }
                 }
-            }
-            // Incremental compilation does not support `usingnamespace`.
-            // These are only included to keep good reference traces in non-incremental updates.
-            for (zcu.namespacePtr(ns).pub_usingnamespace.items) |nav| {
-                const unit: AnalUnit = .wrap(.{ .nav_val = nav });
-                if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
-            }
-            for (zcu.namespacePtr(ns).priv_usingnamespace.items) |nav| {
-                const unit: AnalUnit = .wrap(.{ .nav_val = nav });
-                if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
             }
             continue;
         }
@@ -4271,17 +4238,17 @@ fn formatAnalUnit(data: FormatAnalUnit, writer: *std.io.Writer) std.io.Writer.Er
             const cu = ip.getComptimeUnit(cu_id);
             if (cu.zir_index.resolveFull(ip)) |resolved| {
                 const file_path = zcu.fileByIndex(resolved.file).path;
-                return writer.print("comptime(inst=('{}', %{}) [{}])", .{ file_path.fmt(zcu.comp), @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
+                return writer.print("comptime(inst=('{f}', %{}) [{}])", .{ file_path.fmt(zcu.comp), @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
             } else {
                 return writer.print("comptime(inst=<lost> [{}])", .{@intFromEnum(cu_id)});
             }
         },
-        .nav_val => |nav| return writer.print("nav_val('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
-        .nav_ty => |nav| return writer.print("nav_ty('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
-        .type => |ty| return writer.print("ty('{}' [{}])", .{ Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @intFromEnum(ty) }),
+        .nav_val => |nav| return writer.print("nav_val('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
+        .nav_ty => |nav| return writer.print("nav_ty('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
+        .type => |ty| return writer.print("ty('{f}' [{}])", .{ Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @intFromEnum(ty) }),
         .func => |func| {
             const nav = zcu.funcInfo(func).owner_nav;
-            return writer.print("func('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(func) });
+            return writer.print("func('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(func) });
         },
         .memoized_state => return writer.writeAll("memoized_state"),
     }
@@ -4298,42 +4265,42 @@ fn formatDependee(data: FormatDependee, writer: *std.io.Writer) std.io.Writer.Er
                 return writer.writeAll("inst(<lost>)");
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return writer.print("inst('{}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
+            return writer.print("inst('{f}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
         },
         .nav_val => |nav| {
             const fqn = ip.getNav(nav).fqn;
-            return writer.print("nav_val('{}')", .{fqn.fmt(ip)});
+            return writer.print("nav_val('{f}')", .{fqn.fmt(ip)});
         },
         .nav_ty => |nav| {
             const fqn = ip.getNav(nav).fqn;
-            return writer.print("nav_ty('{}')", .{fqn.fmt(ip)});
+            return writer.print("nav_ty('{f}')", .{fqn.fmt(ip)});
         },
         .interned => |ip_index| switch (ip.indexToKey(ip_index)) {
-            .struct_type, .union_type, .enum_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
-            .func => |f| return writer.print("ies('{}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
+            .struct_type, .union_type, .enum_type => return writer.print("type('{f}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
+            .func => |f| return writer.print("ies('{f}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
             else => unreachable,
         },
         .zon_file => |file| {
             const file_path = zcu.fileByIndex(file).path;
-            return writer.print("zon_file('{}')", .{file_path.fmt(zcu.comp)});
+            return writer.print("zon_file('{f}')", .{file_path.fmt(zcu.comp)});
         },
         .embed_file => |ef_idx| {
             const ef = ef_idx.get(zcu);
-            return writer.print("embed_file('{}')", .{ef.path.fmt(zcu.comp)});
+            return writer.print("embed_file('{f}')", .{ef.path.fmt(zcu.comp)});
         },
         .namespace => |ti| {
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("namespace(<lost>)");
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return writer.print("namespace('{}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
+            return writer.print("namespace('{f}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
         },
         .namespace_name => |k| {
             const info = k.namespace.resolveFull(ip) orelse {
-                return writer.print("namespace(<lost>, '{}')", .{k.name.fmt(ip)});
+                return writer.print("namespace(<lost>, '{f}')", .{k.name.fmt(ip)});
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return writer.print("namespace('{}', %{d}, '{}')", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst), k.name.fmt(ip) });
+            return writer.print("namespace('{f}', %{d}, '{f}')", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst), k.name.fmt(ip) });
         },
         .memoized_state => return writer.writeAll("memoized_state"),
     }
@@ -4374,7 +4341,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
     const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
     switch (cc) {
         .auto, .@"inline" => return .ok,
-        .@"async" => return .{ .bad_backend = backend }, // nothing supports async currently
+        .async => return .{ .bad_backend = backend }, // nothing supports async currently
         .naked => {}, // depends only on backend
         else => for (cc.archs()) |allowed_arch| {
             if (allowed_arch == target.cpu.arch) break;

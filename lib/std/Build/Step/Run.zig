@@ -1015,16 +1015,17 @@ fn populateGeneratedPaths(
     }
 }
 
-fn formatTerm(term: ?std.process.Child.Term, w: *std.io.Writer, comptime fmt: []const u8) !void {
-    comptime assert(fmt.len == 0);
+fn formatTerm(term: ?std.process.Child.Term, w: *std.io.Writer) std.io.Writer.Error!void {
     if (term) |t| switch (t) {
-        .Exited => |code| try w.print("exited with code {}", .{code}),
-        .Signal => |sig| try w.print("terminated with signal {}", .{sig}),
-        .Stopped => |sig| try w.print("stopped with signal {}", .{sig}),
-        .Unknown => |code| try w.print("terminated for unknown reason with code {}", .{code}),
-    } else try w.writeAll("exited with any code");
+        .Exited => |code| try w.print("exited with code {d}", .{code}),
+        .Signal => |sig| try w.print("terminated with signal {d}", .{sig}),
+        .Stopped => |sig| try w.print("stopped with signal {d}", .{sig}),
+        .Unknown => |code| try w.print("terminated for unknown reason with code {d}", .{code}),
+    } else {
+        try w.writeAll("exited with any code");
+    }
 }
-fn fmtTerm(term: ?std.process.Child.Term) std.fmt.Formatter(formatTerm) {
+fn fmtTerm(term: ?std.process.Child.Term) std.fmt.Formatter(?std.process.Child.Term, formatTerm) {
     return .{ .data = term };
 }
 

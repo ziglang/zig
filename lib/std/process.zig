@@ -1553,7 +1553,7 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
     const file = try std.fs.openFileAbsolute("/etc/passwd", .{});
     defer file.close();
 
-    const reader = file.reader();
+    const reader = file.deprecatedReader();
 
     const State = enum {
         Start,

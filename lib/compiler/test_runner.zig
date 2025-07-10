@@ -303,7 +303,7 @@ pub fn mainSimple() anyerror!void {
     var failed: u64 = 0;
 
     // we don't want to bring in File and Writer if the backend doesn't support it
-    const stderr = if (comptime enable_print) std.io.getStdErr() else {};
+    const stderr = if (comptime enable_print) std.fs.File.stderr() else {};
 
     for (builtin.test_functions) |test_fn| {
         if (test_fn.func()) |_| {
@@ -330,7 +330,7 @@ pub fn mainSimple() anyerror!void {
         passed += 1;
     }
     if (enable_print and print_summary) {
-        stderr.writer().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
+        stderr.deprecatedWriter().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
     }
     if (failed != 0) std.process.exit(1);
 }

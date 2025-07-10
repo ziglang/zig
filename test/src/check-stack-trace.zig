@@ -84,5 +84,5 @@ pub fn main() !void {
         break :got_result try buf.toOwnedSlice();
     };
 
-    try std.io.getStdOut().writeAll(got);
+    try std.fs.File.stdout().writeAll(got);
 }

@@ -286,28 +286,25 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 }
 
 /// For debugging purposes, prints identifying information about this Step.
-pub fn dump(step: *Step, file: std.fs.File) void {
-    var fw = file.writer(&.{});
-    const bw = &fw.interface;
-    const tty_config = std.io.tty.detectConfig(file);
+pub fn dump(step: *Step, w: *std.io.Writer, tty_config: std.io.tty.Config) void {
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-        bw.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
+        w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
             @errorName(err),
         }) catch {};
         return;
     };
     if (step.getStackTrace()) |stack_trace| {
-        bw.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
-        std.debug.writeStackTrace(stack_trace, &bw, debug_info, tty_config) catch |err| {
-            bw.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
+        w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
+        std.debug.writeStackTrace(stack_trace, w, debug_info, tty_config) catch |err| {
+            w.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
             return;
         };
     } else {
         const field = "debug_stack_frames_count";
         comptime assert(@hasField(Build, field));
-        tty_config.setColor(&bw, .yellow) catch {};
-        bw.print("name: '{s}'. no stack trace collected for this step, see std.Build." ++ field ++ "\n", .{step.name}) catch {};
-        tty_config.setColor(&bw, .reset) catch {};
+        tty_config.setColor(w, .yellow) catch {};
+        w.print("name: '{s}'. no stack trace collected for this step, see std.Build." ++ field ++ "\n", .{step.name}) catch {};
+        tty_config.setColor(w, .reset) catch {};
     }
 }
 
@@ -483,9 +480,9 @@ pub fn evalZigProcess(
 pub fn installFile(s: *Step, src_lazy_path: Build.LazyPath, dest_path: []const u8) !std.fs.Dir.PrevStatus {
     const b = s.owner;
     const src_path = src_lazy_path.getPath3(b, s);
-    try handleVerbose(b, null, &.{ "install", "-C", b.fmt("{}", .{src_path}), dest_path });
+    try handleVerbose(b, null, &.{ "install", "-C", b.fmt("{f}", .{src_path}), dest_path });
     return src_path.root_dir.handle.updateFile(src_path.sub_path, std.fs.cwd(), dest_path, .{}) catch |err| {
-        return s.fail("unable to update file from '{}' to '{s}': {s}", .{
+        return s.fail("unable to update file from '{f}' to '{s}': {s}", .{
             src_path, dest_path, @errorName(err),
         });
     };

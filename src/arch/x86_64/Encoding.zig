@@ -159,14 +159,12 @@ pub fn modRmExt(encoding: Encoding) u3 {
     };
 }
 
-pub fn format(encoding: Encoding, bw: *Writer, comptime fmt: []const u8) !void {
-    comptime assert(fmt.len == 0);
-
+pub fn format(encoding: Encoding, writer: *std.io.Writer) std.io.Writer.Error!void {
     var opc = encoding.opcode();
     if (encoding.data.mode.isVex()) {
-        try bw.writeAll("VEX.");
+        try writer.writeAll("VEX.");
 
-        try bw.writeAll(switch (encoding.data.mode) {
+        try writer.writeAll(switch (encoding.data.mode) {
             .vex_128_w0, .vex_128_w1, .vex_128_wig => "128",
             .vex_256_w0, .vex_256_w1, .vex_256_wig => "256",
             .vex_lig_w0, .vex_lig_w1, .vex_lig_wig => "LIG",
@@ -177,25 +175,25 @@ pub fn format(encoding: Encoding, bw: *Writer, comptime fmt: []const u8) !void {
         switch (opc[0]) {
             else => {},
             0x66, 0xf3, 0xf2 => {
-                try bw.print(".{X:0>2}", .{opc[0]});
+                try writer.print(".{X:0>2}", .{opc[0]});
                 opc = opc[1..];
             },
         }
 
-        try bw.print(".{X}", .{opc[0 .. opc.len - 1]});
+        try writer.print(".{X}", .{opc[0 .. opc.len - 1]});
         opc = opc[opc.len - 1 ..];
 
-        try bw.writeAll(".W");
-        try bw.writeAll(switch (encoding.data.mode) {
+        try writer.writeAll(".W");
+        try writer.writeAll(switch (encoding.data.mode) {
             .vex_128_w0, .vex_256_w0, .vex_lig_w0, .vex_lz_w0 => "0",
             .vex_128_w1, .vex_256_w1, .vex_lig_w1, .vex_lz_w1 => "1",
             .vex_128_wig, .vex_256_wig, .vex_lig_wig, .vex_lz_wig => "IG",
             else => unreachable,
         });
 
-        try bw.writeByte(' ');
-    } else if (encoding.data.mode.isLong()) try bw.writeAll("REX.W + ");
-    for (opc) |byte| try bw.print("{x:0>2} ", .{byte});
+        try writer.writeByte(' ');
+    } else if (encoding.data.mode.isLong()) try writer.writeAll("REX.W + ");
+    for (opc) |byte| try writer.print("{x:0>2} ", .{byte});
 
     switch (encoding.data.op_en) {
         .z, .fd, .td, .i, .zi, .ii, .d => {},
@@ -212,10 +210,10 @@ pub fn format(encoding: Encoding, bw: *Writer, comptime fmt: []const u8) !void {
                 .r64 => "rd",
                 else => unreachable,
             };
-            try bw.print("+{s} ", .{tag});
+            try writer.print("+{s} ", .{tag});
         },
-        .ia, .m, .mi, .m1, .mc, .vm, .vmi => try bw.print("/{d} ", .{encoding.modRmExt()}),
-        .mr, .rm, .rmi, .mri, .mrc, .rm0, .rvm, .rvmr, .rvmi, .mvr, .rmv => try bw.writeAll("/r "),
+        .ia, .m, .mi, .m1, .mc, .vm, .vmi => try writer.print("/{d} ", .{encoding.modRmExt()}),
+        .mr, .rm, .rmi, .mri, .mrc, .rm0, .rvm, .rvmr, .rvmi, .mvr, .rmv => try writer.writeAll("/r "),
     }
 
     switch (encoding.data.op_en) {
@@ -244,24 +242,24 @@ pub fn format(encoding: Encoding, bw: *Writer, comptime fmt: []const u8) !void {
                 .rel32 => "cd",
                 else => unreachable,
             };
-            try bw.print("{s} ", .{tag});
+            try writer.print("{s} ", .{tag});
         },
-        .rvmr => try bw.writeAll("/is4 "),
+        .rvmr => try writer.writeAll("/is4 "),
         .z, .fd, .td, .o, .zo, .oz, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .vm, .rvm, .mvr, .rmv => {},
     }
 
-    try bw.print("{s} ", .{@tagName(encoding.mnemonic)});
+    try writer.print("{s} ", .{@tagName(encoding.mnemonic)});
 
     for (encoding.data.ops) |op| switch (op) {
         .none => break,
-        else => try bw.print("{s} ", .{@tagName(op)}),
+        else => try writer.print("{s} ", .{@tagName(op)}),
     };
 
     const op_en = switch (encoding.data.op_en) {
         .zi => .i,
         else => |op_en| op_en,
     };
-    try bw.print("{s}", .{@tagName(op_en)});
+    try writer.print("{s}", .{@tagName(op_en)});
 }
 
 pub const Mnemonic = enum {
@@ -1016,13 +1014,21 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
     };
     @memcpy(inst.ops[0..ops.len], ops);
 
-    var buf: [15]u8 = undefined;
-    var bw: Writer = .fixed(&buf);
-    inst.encode(&bw, .{
+    // By using a buffer with maximum length of encoded instruction, we can use
+    // the `end` field of the Writer for the count.
+    var buf: [16]u8 = undefined;
+    var trash: std.io.Writer.Discarding = .init(&buf);
+    inst.encode(&trash.writer, .{
         .allow_frame_locs = true,
         .allow_symbols = true,
-    }) catch unreachable;
-    return @intCast(bw.end);
+    }) catch {
+        // Since the function signature for encode() does not mention under what
+        // conditions it can fail, I have changed `unreachable` to `@panic` here.
+        // This is a TODO item since it indicates this function
+        // (`estimateInstructionLength`) has the wrong function signature.
+        @panic("unexpected failure to encode");
+    };
+    return trash.writer.end;
 }
 
 const mnemonic_to_encodings_map = init: {

@@ -255,7 +255,7 @@ pub fn main() !void {
                 builder.verbose_llvm_ir = "-";
             } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
                 builder.verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
-            } else if (mem.eql(u8, arg, "--verbose-llvm-bc=")) {
+            } else if (mem.startsWith(u8, arg, "--verbose-llvm-bc=")) {
                 builder.verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
             } else if (mem.eql(u8, arg, "--verbose-cimport")) {
                 builder.verbose_cimport = true;
@@ -718,6 +718,8 @@ fn runStepNames(
         if (test_skip_count > 0) w.print("; {d} skipped", .{test_skip_count}) catch {};
         if (test_fail_count > 0) w.print("; {d} failed", .{test_fail_count}) catch {};
         if (test_leak_count > 0) w.print("; {d} leaked", .{test_leak_count}) catch {};
+
+        w.writeAll("\n") catch {};
 
         // Print a fancy tree with build results.
         var step_stack_copy = try step_stack.clone(gpa);

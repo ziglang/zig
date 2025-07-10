@@ -9,7 +9,8 @@ pub const std_options = std.Options{
     .logFn = logOverride,
 };
 
-var log_file: ?std.fs.File = null;
+var log_file_buffer: [256]u8 = undefined;
+var log_file_writer: ?std.fs.File.Writer = null;
 
 fn logOverride(
     comptime level: std.log.Level,
@@ -17,15 +18,17 @@ fn logOverride(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    const f = if (log_file) |f| f else f: {
+    const fw = if (log_file_writer) |*f| f else f: {
         const f = fuzzer.cache_dir.createFile("tmp/libfuzzer.log", .{}) catch
             @panic("failed to open fuzzer log file");
-        log_file = f;
-        break :f f;
+        log_file_writer = f.writer(&log_file_buffer);
+        break :f &log_file_writer.?;
     };
     const prefix1 = comptime level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-    f.writer().print(prefix1 ++ prefix2 ++ format ++ "\n", args) catch @panic("failed to write to fuzzer log");
+    fw.interface.print(prefix1 ++ prefix2 ++ format ++ "\n", args) catch
+        @panic("failed to write to fuzzer log");
+    fw.interface.flush() catch @panic("failed to flush fuzzer log");
 }
 
 /// Helps determine run uniqueness in the face of recursion.
@@ -226,18 +229,18 @@ const Fuzzer = struct {
                         .read = true,
                     }) catch |e| switch (e) {
                         error.PathAlreadyExists => continue,
-                        else => fatal("unable to create '{}{d}: {s}", .{ f.corpus_directory, i, @errorName(err) }),
+                        else => fatal("unable to create '{f}{d}: {s}", .{ f.corpus_directory, i, @errorName(err) }),
                     };
                     errdefer input_file.close();
                     // Initialize the mmap for the current input.
                     f.input = MemoryMappedList.create(input_file, 0, std.heap.page_size_max) catch |e| {
-                        fatal("unable to init memory map for input at '{}{d}': {s}", .{
+                        fatal("unable to init memory map for input at '{f}{d}': {s}", .{
                             f.corpus_directory, i, @errorName(e),
                         });
                     };
                     break;
                 },
-                else => fatal("unable to read '{}{d}': {s}", .{ f.corpus_directory, i, @errorName(err) }),
+                else => fatal("unable to read '{f}{d}': {s}", .{ f.corpus_directory, i, @errorName(err) }),
             };
             errdefer gpa.free(input);
             f.corpus.append(gpa, .{
@@ -263,7 +266,7 @@ const Fuzzer = struct {
             const sub_path = try std.fmt.allocPrint(gpa, "f/{s}", .{f.unit_test_name});
             f.corpus_directory = .{
                 .handle = f.cache_dir.makeOpenPath(sub_path, .{}) catch |err|
-                    fatal("unable to open corpus directory 'f/{s}': {s}", .{ sub_path, @errorName(err) }),
+                    fatal("unable to open corpus directory 'f/{s}': {t}", .{ sub_path, err }),
                 .path = sub_path,
             };
             initNextInput(f);

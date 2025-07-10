@@ -30,7 +30,7 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
             return diags.failParse(path, "invalid header delimiter: expected '{f}', found '{f}'", .{
-                std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
+                std.ascii.hexEscape(ARFMAG, .lower), std.ascii.hexEscape(&hdr.ar_fmag, .lower),
             });
         }
 
@@ -203,24 +203,23 @@ pub const ArSymtab = struct {
         try bw.splatByteAll(0, strtab_size - ar.strtab.buffer.items.len);
     }
 
-    const FormatContext = struct {
+    const PrintFormat = struct {
         ar: ArSymtab,
         macho_file: *MachO,
+
+        fn default(f: PrintFormat, bw: *Writer) Writer.Error!void {
+            const ar = f.ar;
+            const macho_file = f.macho_file;
+            for (ar.entries.items, 0..) |entry, i| {
+                const name = ar.strtab.getAssumeExists(entry.off);
+                const file = macho_file.getFile(entry.file).?;
+                try bw.print("  {d}: {s} in file({d})({f})\n", .{ i, name, entry.file, file.fmtPath() });
+            }
+        }
     };
 
-    pub fn fmt(ar: ArSymtab, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(ar: ArSymtab, macho_file: *MachO) std.fmt.Formatter(PrintFormat, PrintFormat.default) {
         return .{ .data = .{ .ar = ar, .macho_file = macho_file } };
-    }
-
-    fn format2(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        _ = unused_fmt_string;
-        const ar = ctx.ar;
-        const macho_file = ctx.macho_file;
-        for (ar.entries.items, 0..) |entry, i| {
-            const name = ar.strtab.getAssumeExists(entry.off);
-            const file = macho_file.getFile(entry.file).?;
-            try bw.print("  {d}: {s} in file({d})({f})\n", .{ i, name, entry.file, file.fmtPath() });
-        }
     }
 
     const Entry = struct {

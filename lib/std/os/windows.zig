@@ -2812,9 +2812,8 @@ pub fn unexpectedError(err: Win32Error) UnexpectedError {
             buf_wstr.len,
             null,
         );
-        std.debug.print("error.Unexpected: GetLastError({}): {}\n", .{
-            @intFromEnum(err),
-            std.unicode.fmtUtf16Le(buf_wstr[0..len]),
+        std.debug.print("error.Unexpected: GetLastError({d}): {f}\n", .{
+            err, std.unicode.fmtUtf16Le(buf_wstr[0..len]),
         });
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }

@@ -164,22 +164,13 @@ pub const Address = extern union {
         }
     }
 
-    pub fn format(
-        self: Address,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
+    pub fn format(self: Address, w: *std.io.Writer) std.io.Writer.Error!void {
         switch (self.any.family) {
-            posix.AF.INET => try self.in.format(fmt, options, out_stream),
-            posix.AF.INET6 => try self.in6.format(fmt, options, out_stream),
+            posix.AF.INET => try self.in.format(w),
+            posix.AF.INET6 => try self.in6.format(w),
             posix.AF.UNIX => {
-                if (!has_unix_sockets) {
-                    unreachable;
-                }
-
-                try std.fmt.format(out_stream, "{s}", .{std.mem.sliceTo(&self.un.path, 0)});
+                if (!has_unix_sockets) unreachable;
+                try w.writeAll(std.mem.sliceTo(&self.un.path, 0));
             },
             else => unreachable,
         }
@@ -352,22 +343,9 @@ pub const Ip4Address = extern struct {
         self.sa.port = mem.nativeToBig(u16, port);
     }
 
-    pub fn format(
-        self: Ip4Address,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-        _ = options;
-        const bytes = @as(*const [4]u8, @ptrCast(&self.sa.addr));
-        try std.fmt.format(out_stream, "{}.{}.{}.{}:{}", .{
-            bytes[0],
-            bytes[1],
-            bytes[2],
-            bytes[3],
-            self.getPort(),
-        });
+    pub fn format(self: Ip4Address, w: *std.io.Writer) std.io.Writer.Error!void {
+        const bytes: *const [4]u8 = @ptrCast(&self.sa.addr);
+        try w.print("{d}.{d}.{d}.{d}:{d}", .{ bytes[0], bytes[1], bytes[2], bytes[3], self.getPort() });
     }
 
     pub fn getOsSockLen(self: Ip4Address) posix.socklen_t {
@@ -656,17 +634,10 @@ pub const Ip6Address = extern struct {
         self.sa.port = mem.nativeToBig(u16, port);
     }
 
-    pub fn format(
-        self: Ip6Address,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-        _ = options;
+    pub fn format(self: Ip6Address, w: *std.io.Writer) std.io.Writer.Error!void {
         const port = mem.bigToNative(u16, self.sa.port);
         if (mem.eql(u8, self.sa.addr[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
-            try std.fmt.format(out_stream, "[::ffff:{}.{}.{}.{}]:{}", .{
+            try w.print("[::ffff:{d}.{d}.{d}.{d}]:{d}", .{
                 self.sa.addr[12],
                 self.sa.addr[13],
                 self.sa.addr[14],
@@ -714,14 +685,14 @@ pub const Ip6Address = extern struct {
             longest_len = 0;
         }
 
-        try out_stream.writeAll("[");
+        try w.writeAll("[");
         var i: usize = 0;
         var abbrv = false;
         while (i < native_endian_parts.len) : (i += 1) {
             if (i == longest_start) {
                 // Emit "::" for the longest zero run
                 if (!abbrv) {
-                    try out_stream.writeAll(if (i == 0) "::" else ":");
+                    try w.writeAll(if (i == 0) "::" else ":");
                     abbrv = true;
                 }
                 i += longest_len - 1; // Skip the compressed range
@@ -730,12 +701,12 @@ pub const Ip6Address = extern struct {
             if (abbrv) {
                 abbrv = false;
             }
-            try std.fmt.format(out_stream, "{x}", .{native_endian_parts[i]});
+            try w.print("{x}", .{native_endian_parts[i]});
             if (i != native_endian_parts.len - 1) {
-                try out_stream.writeAll(":");
+                try w.writeAll(":");
             }
         }
-        try std.fmt.format(out_stream, "]:{}", .{port});
+        try w.print("]:{}", .{port});
     }
 
     pub fn getOsSockLen(self: Ip6Address) posix.socklen_t {
@@ -898,7 +869,7 @@ pub fn getAddressList(gpa: Allocator, name: []const u8, port: u16) GetAddressLis
         const name_c = try gpa.dupeZ(u8, name);
         defer gpa.free(name_c);
 
-        const port_c = try std.fmt.allocPrintZ(gpa, "{}", .{port});
+        const port_c = try std.fmt.allocPrintSentinel(gpa, "{}", .{port}, 0);
         defer gpa.free(port_c);
 
         const ws2_32 = windows.ws2_32;

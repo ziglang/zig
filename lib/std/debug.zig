@@ -222,7 +222,8 @@ pub fn unlockStderrWriter() void {
 /// Print to stderr, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging". Use `std.log` functions for proper logging.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
-    const bw = lockStderrWriter(&.{});
+    var buffer: [32]u8 = undefined;
+    const bw = lockStderrWriter(&buffer);
     defer unlockStderrWriter();
     nosuspend bw.print(fmt, args) catch return;
 }
@@ -307,7 +308,7 @@ test dumpHexFallible {
     var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
     defer aw.deinit();
 
-    try dumpHexFallible(&aw.interface, .no_color, bytes);
+    try dumpHexFallible(&aw.writer, .no_color, bytes);
     const expected = try std.fmt.allocPrint(std.testing.allocator,
         \\{x:0>[2]}  00 11 22 33 44 55 66 77  88 99 AA BB CC DD EE FF  .."3DUfw........
         \\{x:0>[2]}  01 12 13                                          ...
@@ -1228,9 +1229,9 @@ fn printLineFromFileAnyOs(writer: *Writer, source_location: SourceLocation) !voi
 }
 
 test printLineFromFileAnyOs {
-    var output = std.ArrayList(u8).init(std.testing.allocator);
-    defer output.deinit();
-    const output_stream = output.writer();
+    var aw: Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
+    const output_stream = &aw.writer;
 
     const allocator = std.testing.allocator;
     const join = std.fs.path.join;
@@ -1252,8 +1253,8 @@ test printLineFromFileAnyOs {
         try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings("no new lines in this file, but one is printed anyway\n", output.items);
-        output.clearRetainingCapacity();
+        try expectEqualStrings("no new lines in this file, but one is printed anyway\n", aw.getWritten());
+        aw.clearRetainingCapacity();
     }
     {
         const path = try fs.path.join(allocator, &.{ test_dir_path, "three_lines.zig" });
@@ -1268,12 +1269,12 @@ test printLineFromFileAnyOs {
         });
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings("1\n", output.items);
-        output.clearRetainingCapacity();
+        try expectEqualStrings("1\n", aw.getWritten());
+        aw.clearRetainingCapacity();
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 3, .column = 0 });
-        try expectEqualStrings("3\n", output.items);
-        output.clearRetainingCapacity();
+        try expectEqualStrings("3\n", aw.getWritten());
+        aw.clearRetainingCapacity();
     }
     {
         const file = try test_dir.dir.createFile("line_overlaps_page_boundary.zig", .{});
@@ -1282,14 +1283,17 @@ test printLineFromFileAnyOs {
         defer allocator.free(path);
 
         const overlap = 10;
-        var writer = file.writer();
+        var buf: [16]u8 = undefined;
+        var file_writer = file.writer(&buf);
+        const writer = &file_writer.interface;
         try writer.splatByteAll('a', std.heap.page_size_min - overlap);
         try writer.writeByte('\n');
         try writer.splatByteAll('a', overlap);
+        try writer.flush();
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
-        try expectEqualStrings(("a" ** overlap) ++ "\n", output.items);
-        output.clearRetainingCapacity();
+        try expectEqualStrings(("a" ** overlap) ++ "\n", aw.getWritten());
+        aw.clearRetainingCapacity();
     }
     {
         const file = try test_dir.dir.createFile("file_ends_on_page_boundary.zig", .{});
@@ -1297,12 +1301,13 @@ test printLineFromFileAnyOs {
         const path = try fs.path.join(allocator, &.{ test_dir_path, "file_ends_on_page_boundary.zig" });
         defer allocator.free(path);
 
-        var writer = file.writer();
+        var file_writer = file.writer(&.{});
+        const writer = &file_writer.interface;
         try writer.splatByteAll('a', std.heap.page_size_max);
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings(("a" ** std.heap.page_size_max) ++ "\n", output.items);
-        output.clearRetainingCapacity();
+        try expectEqualStrings(("a" ** std.heap.page_size_max) ++ "\n", aw.getWritten());
+        aw.clearRetainingCapacity();
     }
     {
         const file = try test_dir.dir.createFile("very_long_first_line_spanning_multiple_pages.zig", .{});
@@ -1310,24 +1315,25 @@ test printLineFromFileAnyOs {
         const path = try fs.path.join(allocator, &.{ test_dir_path, "very_long_first_line_spanning_multiple_pages.zig" });
         defer allocator.free(path);
 
-        var writer = file.writer();
+        var file_writer = file.writer(&.{});
+        const writer = &file_writer.interface;
         try writer.splatByteAll('a', 3 * std.heap.page_size_max);
 
         try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "\n", output.items);
-        output.clearRetainingCapacity();
+        try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "\n", aw.getWritten());
+        aw.clearRetainingCapacity();
 
         try writer.writeAll("a\na");
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "a\n", output.items);
-        output.clearRetainingCapacity();
+        try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "a\n", aw.getWritten());
+        aw.clearRetainingCapacity();
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
-        try expectEqualStrings("a\n", output.items);
-        output.clearRetainingCapacity();
+        try expectEqualStrings("a\n", aw.getWritten());
+        aw.clearRetainingCapacity();
     }
     {
         const file = try test_dir.dir.createFile("file_of_newlines.zig", .{});
@@ -1335,18 +1341,19 @@ test printLineFromFileAnyOs {
         const path = try fs.path.join(allocator, &.{ test_dir_path, "file_of_newlines.zig" });
         defer allocator.free(path);
 
-        var writer = file.writer();
+        var file_writer = file.writer(&.{});
+        const writer = &file_writer.interface;
         const real_file_start = 3 * std.heap.page_size_min;
         try writer.splatByteAll('\n', real_file_start);
         try writer.writeAll("abc\ndef");
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 1, .column = 0 });
-        try expectEqualStrings("abc\n", output.items);
-        output.clearRetainingCapacity();
+        try expectEqualStrings("abc\n", aw.getWritten());
+        aw.clearRetainingCapacity();
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 2, .column = 0 });
-        try expectEqualStrings("def\n", output.items);
-        output.clearRetainingCapacity();
+        try expectEqualStrings("def\n", aw.getWritten());
+        aw.clearRetainingCapacity();
     }
 }
 
@@ -1597,10 +1604,10 @@ test "manage resources correctly" {
     // self-hosted debug info is still too buggy
     if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
 
-    const writer = std.io.null_writer;
+    var discarding: std.io.Writer.Discarding = .init(&.{});
     var di = try SelfInfo.open(testing.allocator);
     defer di.deinit();
-    try printSourceAtAddress(&di, writer, showMyTrace(), io.tty.detectConfig(.stderr()));
+    try printSourceAtAddress(&di, &discarding.writer, showMyTrace(), io.tty.detectConfig(.stderr()));
 }
 
 noinline fn showMyTrace() usize {

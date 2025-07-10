@@ -3870,22 +3870,21 @@ pub fn failFile(
     return error.LinkFailure;
 }
 
-const FormatShdrCtx = struct {
+const FormatShdr = struct {
     elf_file: *Elf,
     shdr: elf.Elf64_Shdr,
 };
 
-fn fmtShdr(self: *Elf, shdr: elf.Elf64_Shdr) std.fmt.Formatter(formatShdr) {
+fn fmtShdr(self: *Elf, shdr: elf.Elf64_Shdr) std.fmt.Formatter(FormatShdr, formatShdr) {
     return .{ .data = .{
         .shdr = shdr,
         .elf_file = self,
     } };
 }
 
-fn formatShdr(ctx: FormatShdrCtx, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
+fn formatShdr(ctx: FormatShdr, writer: *std.io.Writer) std.io.Writer.Error!void {
     const shdr = ctx.shdr;
-    try bw.print("{s} : @{x} ({x}) : align({x}) : size({x}) : entsize({x}) : flags({f})", .{
+    try writer.print("{s} : @{x} ({x}) : align({x}) : size({x}) : entsize({x}) : flags({f})", .{
         ctx.elf_file.getShString(shdr.sh_name), shdr.sh_offset,
         shdr.sh_addr,                           shdr.sh_addralign,
         shdr.sh_size,                           shdr.sh_entsize,
@@ -3893,74 +3892,68 @@ fn formatShdr(ctx: FormatShdrCtx, bw: *Writer, comptime unused_fmt_string: []con
     });
 }
 
-pub fn fmtShdrFlags(sh_flags: u64) std.fmt.Formatter(formatShdrFlags) {
+pub fn fmtShdrFlags(sh_flags: u64) std.fmt.Formatter(u64, formatShdrFlags) {
     return .{ .data = sh_flags };
 }
 
-fn formatShdrFlags(sh_flags: u64, bw: *Writer, comptime unused_fmt_string: []const u8) !void {
-    _ = unused_fmt_string;
+fn formatShdrFlags(sh_flags: u64, writer: *std.io.Writer) std.io.Writer.Error!void {
     if (elf.SHF_WRITE & sh_flags != 0) {
-        try bw.writeByte('W');
+        try writer.writeByte('W');
     }
     if (elf.SHF_ALLOC & sh_flags != 0) {
-        try bw.writeByte('A');
+        try writer.writeByte('A');
     }
     if (elf.SHF_EXECINSTR & sh_flags != 0) {
-        try bw.writeByte('X');
+        try writer.writeByte('X');
     }
     if (elf.SHF_MERGE & sh_flags != 0) {
-        try bw.writeByte('M');
+        try writer.writeByte('M');
     }
     if (elf.SHF_STRINGS & sh_flags != 0) {
-        try bw.writeByte('S');
+        try writer.writeByte('S');
     }
     if (elf.SHF_INFO_LINK & sh_flags != 0) {
-        try bw.writeByte('I');
+        try writer.writeByte('I');
     }
     if (elf.SHF_LINK_ORDER & sh_flags != 0) {
-        try bw.writeByte('L');
+        try writer.writeByte('L');
     }
     if (elf.SHF_EXCLUDE & sh_flags != 0) {
-        try bw.writeByte('E');
+        try writer.writeByte('E');
     }
     if (elf.SHF_COMPRESSED & sh_flags != 0) {
-        try bw.writeByte('C');
+        try writer.writeByte('C');
     }
     if (elf.SHF_GROUP & sh_flags != 0) {
-        try bw.writeByte('G');
+        try writer.writeByte('G');
     }
     if (elf.SHF_OS_NONCONFORMING & sh_flags != 0) {
-        try bw.writeByte('O');
+        try writer.writeByte('O');
     }
     if (elf.SHF_TLS & sh_flags != 0) {
-        try bw.writeByte('T');
+        try writer.writeByte('T');
     }
     if (elf.SHF_X86_64_LARGE & sh_flags != 0) {
-        try bw.writeByte('l');
+        try writer.writeByte('l');
     }
     if (elf.SHF_MIPS_ADDR & sh_flags != 0 or elf.SHF_ARM_PURECODE & sh_flags != 0) {
-        try bw.writeByte('p');
+        try writer.writeByte('p');
     }
 }
 
-const FormatPhdrCtx = struct {
+const FormatPhdr = struct {
     elf_file: *Elf,
     phdr: elf.Elf64_Phdr,
 };
 
-fn fmtPhdr(self: *Elf, phdr: elf.Elf64_Phdr) std.fmt.Formatter(formatPhdr) {
+fn fmtPhdr(self: *Elf, phdr: elf.Elf64_Phdr) std.fmt.Formatter(FormatPhdr, formatPhdr) {
     return .{ .data = .{
         .phdr = phdr,
         .elf_file = self,
     } };
 }
 
-fn formatPhdr(
-    ctx: FormatPhdrCtx,
-    bw: *Writer,
-    comptime unused_fmt_string: []const u8,
-) !void {
-    _ = unused_fmt_string;
+fn formatPhdr(ctx: FormatPhdr, writer: *std.io.Writer) std.io.Writer.Error!void {
     const phdr = ctx.phdr;
     const write = phdr.p_flags & elf.PF_W != 0;
     const read = phdr.p_flags & elf.PF_R != 0;
@@ -3981,40 +3974,34 @@ fn formatPhdr(
         elf.PT_NOTE => "NOTE",
         else => "UNKNOWN",
     };
-    try bw.print("{s} : {s} : @{x} ({x}) : align({x}) : filesz({x}) : memsz({x})", .{
+    try writer.print("{s} : {s} : @{x} ({x}) : align({x}) : filesz({x}) : memsz({x})", .{
         p_type,       flags,         phdr.p_offset, phdr.p_vaddr,
         phdr.p_align, phdr.p_filesz, phdr.p_memsz,
     });
 }
 
-pub fn dumpState(self: *Elf) std.fmt.Formatter(fmtDumpState) {
+pub fn dumpState(self: *Elf) std.fmt.Formatter(*Elf, fmtDumpState) {
     return .{ .data = self };
 }
 
-fn fmtDumpState(
-    self: *Elf,
-    bw: *Writer,
-    comptime unused_fmt_string: []const u8,
-) !void {
-    _ = unused_fmt_string;
-
+fn fmtDumpState(self: *Elf, writer: *std.io.Writer) std.io.Writer.Error!void {
     const shared_objects = self.shared_objects.values();
 
     if (self.zigObjectPtr()) |zig_object| {
-        try bw.print("zig_object({d}) : {s}\n", .{ zig_object.index, zig_object.basename });
-        try bw.print("{f}{f}", .{
+        try writer.print("zig_object({d}) : {s}\n", .{ zig_object.index, zig_object.basename });
+        try writer.print("{f}{f}", .{
             zig_object.fmtAtoms(self),
             zig_object.fmtSymtab(self),
         });
-        try bw.writeByte('\n');
+        try writer.writeByte('\n');
     }
 
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
-        try bw.print("object({d}) : {f}", .{ index, object.fmtPath() });
-        if (!object.alive) try bw.writeAll(" : [*]");
-        try bw.writeByte('\n');
-        try bw.print("{f}{f}{f}{f}{f}\n", .{
+        try writer.print("object({d}) : {f}", .{ index, object.fmtPath() });
+        if (!object.alive) try writer.writeAll(" : [*]");
+        try writer.writeByte('\n');
+        try writer.print("{f}{f}{f}{f}{f}\n", .{
             object.fmtAtoms(self),
             object.fmtCies(self),
             object.fmtFdes(self),
@@ -4025,59 +4012,59 @@ fn fmtDumpState(
 
     for (shared_objects) |index| {
         const shared_object = self.file(index).?.shared_object;
-        try bw.print("shared_object({d}) : {f} : needed({})", .{
+        try writer.print("shared_object({d}) : {f} : needed({})", .{
             index, shared_object.path, shared_object.needed,
         });
-        if (!shared_object.alive) try bw.writeAll(" : [*]");
-        try bw.writeByte('\n');
-        try bw.print("{f}\n", .{shared_object.fmtSymtab(self)});
+        if (!shared_object.alive) try writer.writeAll(" : [*]");
+        try writer.writeByte('\n');
+        try writer.print("{f}\n", .{shared_object.fmtSymtab(self)});
     }
 
     if (self.linker_defined_index) |index| {
         const linker_defined = self.file(index).?.linker_defined;
-        try bw.print("linker_defined({d}) : (linker defined)\n", .{index});
-        try bw.print("{f}\n", .{linker_defined.fmtSymtab(self)});
+        try writer.print("linker_defined({d}) : (linker defined)\n", .{index});
+        try writer.print("{f}\n", .{linker_defined.fmtSymtab(self)});
     }
 
     const slice = self.sections.slice();
     {
-        try bw.writeAll("atom lists\n");
+        try writer.writeAll("atom lists\n");
         for (slice.items(.shdr), slice.items(.atom_list_2), 0..) |shdr, atom_list, shndx| {
-            try bw.print("shdr({d}) : {s} : {f}\n", .{ shndx, self.getShString(shdr.sh_name), atom_list.fmt(self) });
+            try writer.print("shdr({d}) : {s} : {f}\n", .{ shndx, self.getShString(shdr.sh_name), atom_list.fmt(self) });
         }
     }
 
     if (self.requiresThunks()) {
-        try bw.writeAll("thunks\n");
+        try writer.writeAll("thunks\n");
         for (self.thunks.items, 0..) |th, index| {
-            try bw.print("thunk({d}) : {f}\n", .{ index, th.fmt(self) });
+            try writer.print("thunk({d}) : {f}\n", .{ index, th.fmt(self) });
         }
     }
 
-    try bw.print("{f}\n", .{self.got.fmt(self)});
-    try bw.print("{f}\n", .{self.plt.fmt(self)});
+    try writer.print("{f}\n", .{self.got.fmt(self)});
+    try writer.print("{f}\n", .{self.plt.fmt(self)});
 
-    try bw.writeAll("Output groups\n");
+    try writer.writeAll("Output groups\n");
     for (self.group_sections.items) |cg| {
-        try bw.print("  shdr({d}) : GROUP({f})\n", .{ cg.shndx, cg.cg_ref });
+        try writer.print("  shdr({d}) : GROUP({f})\n", .{ cg.shndx, cg.cg_ref });
     }
 
-    try bw.writeAll("\nOutput merge sections\n");
+    try writer.writeAll("\nOutput merge sections\n");
     for (self.merge_sections.items) |msec| {
-        try bw.print("  shdr({d}) : {f}\n", .{ msec.output_section_index, msec.fmt(self) });
+        try writer.print("  shdr({d}) : {f}\n", .{ msec.output_section_index, msec.fmt(self) });
     }
 
-    try bw.writeAll("\nOutput shdrs\n");
+    try writer.writeAll("\nOutput shdrs\n");
     for (slice.items(.shdr), slice.items(.phndx), 0..) |shdr, phndx, shndx| {
-        try bw.print("  shdr({d}) : phdr({?d}) : {f}\n", .{
+        try writer.print("  shdr({d}) : phdr({d}) : {f}\n", .{
             shndx,
             phndx,
             self.fmtShdr(shdr),
         });
     }
-    try bw.writeAll("\nOutput phdrs\n");
+    try writer.writeAll("\nOutput phdrs\n");
     for (self.phdrs.items, 0..) |phdr, phndx| {
-        try bw.print("  phdr({d}) : {f}\n", .{ phndx, self.fmtPhdr(phdr) });
+        try writer.print("  phdr({d}) : {f}\n", .{ phndx, self.fmtPhdr(phdr) });
     }
 }
 
@@ -4215,9 +4202,8 @@ pub const Ref = struct {
         return ref.index == other.index and ref.file == other.file;
     }
 
-    pub fn format(ref: Ref, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        _ = unused_fmt_string;
-        try bw.print("ref({},{})", .{ ref.index, ref.file });
+    pub fn format(ref: Ref, writer: *std.io.Writer) std.io.Writer.Error!void {
+        try writer.print("ref({d},{d})", .{ ref.index, ref.file });
     }
 };
 

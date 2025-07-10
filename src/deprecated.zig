@@ -15,6 +15,14 @@ pub fn LinearFifo(comptime T: type) type {
         count: usize,
 
         const Self = @This();
+<<<<<<<< HEAD:src/deprecated.zig
+|||||||| edf785db0f:lib/std/fifo.zig
+        pub const Reader = std.io.Reader(*Self, error{}, readFn);
+        pub const Writer = std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
+========
+        pub const Reader = std.io.GenericReader(*Self, error{}, readFn);
+        pub const Writer = std.io.GenericWriter(*Self, error{OutOfMemory}, appendWrite);
+>>>>>>>> origin/master:lib/std/fifo.zig
 
         pub fn init(allocator: Allocator) Self {
             return .{
@@ -160,7 +168,7 @@ pub fn LinearFifo(comptime T: type) type {
         }
 
         /// Same as `read` except it returns an error union
-        /// The purpose of this function existing is to match `std.io.Reader` API.
+        /// The purpose of this function existing is to match `std.io.GenericReader` API.
         fn readFn(self: *Self, dest: []u8) error{}!usize {
             return self.read(dest);
         }
@@ -241,7 +249,7 @@ pub fn LinearFifo(comptime T: type) type {
         }
 
         /// Same as `write` except it returns the number of bytes written, which is always the same
-        /// as `bytes.len`. The purpose of this function existing is to match `std.io.Writer` API.
+        /// as `bytes.len`. The purpose of this function existing is to match `std.io.GenericWriter` API.
         fn appendWrite(self: *Self, bytes: []const u8) error{OutOfMemory}!usize {
             try self.write(bytes);
             return bytes.len;

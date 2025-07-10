@@ -511,7 +511,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 // The same stuff should be alive after the loop as before it.
                 const gop = try self.loops.getOrPut(self.gpa, inst);
-                if (gop.found_existing) return invalid("%{}: loop already exists", .{@intFromEnum(inst)});
+                if (gop.found_existing) return invalid("%{d}: loop already exists", .{@intFromEnum(inst)});
                 defer {
                     var live = self.loops.fetchRemove(inst).?;
                     live.value.deinit(self.gpa);
@@ -560,7 +560,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 // after the loop as before it.
                 {
                     const gop = try self.loops.getOrPut(self.gpa, inst);
-                    if (gop.found_existing) return invalid("%{}: loop already exists", .{@intFromEnum(inst)});
+                    if (gop.found_existing) return invalid("%{d}: loop already exists", .{@intFromEnum(inst)});
                     gop.value_ptr.* = self.live.move();
                 }
                 defer {
@@ -601,7 +601,9 @@ fn verifyOperand(self: *Verify, inst: Air.Inst.Index, op_ref: Air.Inst.Ref, dies
         return;
     };
     if (dies) {
-        if (!self.live.remove(operand)) return invalid("%{f}: dead operand %{f} reused and killed again", .{ inst, operand });
+        if (!self.live.remove(operand)) return invalid("%{f}: dead operand %{f} reused and killed again", .{
+            inst, operand,
+        });
     } else {
         if (!self.live.contains(operand)) return invalid("%{f}: dead operand %{f} reused", .{ inst, operand });
     }

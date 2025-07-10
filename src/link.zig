@@ -838,8 +838,10 @@ pub const File = struct {
             const cached_pp_file_path = the_key.status.success.object_path;
             cached_pp_file_path.root_dir.handle.copyFile(cached_pp_file_path.sub_path, emit.root_dir.handle, emit.sub_path, .{}) catch |err| {
                 const diags = &base.comp.link_diags;
-                return diags.fail("failed to copy '{f'}' to '{f'}': {s}", .{
-                    @as(Path, cached_pp_file_path), @as(Path, emit), @errorName(err),
+                return diags.fail("failed to copy '{f}' to '{f}': {s}", .{
+                    std.fmt.alt(@as(Path, cached_pp_file_path), .formatEscapeChar),
+                    std.fmt.alt(@as(Path, emit), .formatEscapeChar),
+                    @errorName(err),
                 });
             };
             return;
@@ -2095,8 +2097,8 @@ fn resolvePathInputLib(
     }) {
         var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => return .no_match,
-            else => |e| fatal("unable to search for {s} library '{f'}': {s}", .{
-                @tagName(link_mode), test_path, @errorName(e),
+            else => |e| fatal("unable to search for {s} library '{f}': {s}", .{
+                @tagName(link_mode), std.fmt.alt(test_path, .formatEscapeChar), @errorName(e),
             }),
         };
         errdefer file.close();
@@ -2105,9 +2107,8 @@ fn resolvePathInputLib(
         var br = fr.interface().unbuffered();
         ok: {
             br.readSlice(ld_script_bytes.items) catch |err| switch (err) {
-                error.ReadFailed => fatal("failed to read '{f'}': {s}", .{
-                    test_path,
-                    @errorName(fr.err.?),
+                error.ReadFailed => fatal("failed to read '{f}': {s}", .{
+                    test_path, @errorName(fr.err.?),
                 }),
                 error.EndOfStream => break :ok,
             };

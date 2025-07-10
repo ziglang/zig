@@ -353,8 +353,7 @@ pub const Instruction = struct {
         return inst;
     }
 
-    pub fn format(inst: Instruction, w: *Writer, comptime unused_format_string: []const u8) Writer.Error!void {
-        comptime assert(unused_format_string.len == 0);
+    pub fn format(inst: Instruction, w: *Writer) Writer.Error!void {
         switch (inst.prefix) {
             .none, .directive => {},
             else => try w.print("{s} ", .{@tagName(inst.prefix)}),

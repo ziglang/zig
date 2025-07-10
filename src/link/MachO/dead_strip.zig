@@ -196,9 +196,8 @@ const Level = struct {
         self.value += 1;
     }
 
-    pub fn format(self: *const @This(), bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        _ = unused_fmt_string;
-        try bw.splatByteAll(' ', self.value);
+    pub fn format(self: *const @This(), w: *Writer) Writer.Error!void {
+        try w.splatByteAll(' ', self.value);
     }
 };
 

@@ -185,9 +185,8 @@ const Level = struct {
         self.value += 1;
     }
 
-    pub fn format(self: *const @This(), bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-        comptime assert(unused_fmt_string.len == 0);
-        try bw.splatByteAll(' ', self.value);
+    pub fn format(self: *const @This(), w: *std.io.Writer) std.io.Writer.Error!void {
+        try w.splatByteAll(' ', self.value);
     }
 };
 

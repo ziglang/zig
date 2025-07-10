@@ -176,7 +176,7 @@ fn serveFile(
     // We load the file with every request so that the user can make changes to the file
     // and refresh the HTML page without restarting this server.
     const file_contents = ws.zig_lib_directory.handle.readFileAlloc(name, gpa, .limited(10 * 1024 * 1024)) catch |err| {
-        log.err("failed to read '{f}{s}': {s}", .{ ws.zig_lib_directory, name, @errorName(err) });
+        log.err("failed to read '{f}{s}': {t}", .{ ws.zig_lib_directory, name, err });
         return error.AlreadyReported;
     };
     defer gpa.free(file_contents);

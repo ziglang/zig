@@ -27,6 +27,22 @@
 //! All of this must be done with only referring to the state inside this struct
 //! because this work will be done in a dedicated thread.
 
+const builtin = @import("builtin");
+const std = @import("std");
+const fs = std.fs;
+const assert = std.debug.assert;
+const ascii = std.ascii;
+const Allocator = std.mem.Allocator;
+const Cache = std.Build.Cache;
+const ThreadPool = std.Thread.Pool;
+const WaitGroup = std.Thread.WaitGroup;
+const Fetch = @This();
+const git = @import("Fetch/git.zig");
+const Package = @import("../Package.zig");
+const Manifest = Package.Manifest;
+const ErrorBundle = std.zig.ErrorBundle;
+const native_os = builtin.os.tag;
+
 arena: std.heap.ArenaAllocator,
 location: Location,
 location_tok: std.zig.Ast.TokenIndex,
@@ -184,7 +200,7 @@ pub const JobQueue = struct {
 
             const hash_slice = hash.toSlice();
 
-            try buf.print(
+            try buf.writer().print(
                 \\    pub const {f} = struct {{
                 \\
             , .{std.zig.fmtId(hash_slice)});
@@ -211,15 +227,15 @@ pub const JobQueue = struct {
             }
 
             try buf.print(
-                \\        pub const build_root = "{fq}";
+                \\        pub const build_root = "{f}";
                 \\
-            , .{fetch.package_root});
+            , .{std.fmt.alt(fetch.package_root, .formatEscapeString)});
 
             if (fetch.has_build_zig) {
                 try buf.print(
                     \\        pub const build_zig = @import("{f}");
                     \\
-                , .{std.zig.fmtEscapes(hash_slice)});
+                , .{std.zig.fmtString(hash_slice)});
             }
 
             if (fetch.manifest) |*manifest| {
@@ -231,7 +247,7 @@ pub const JobQueue = struct {
                     const h = depDigest(fetch.package_root, jq.global_cache, dep) orelse continue;
                     try buf.print(
                         "            .{{ \"{f}\", \"{f}\" }},\n",
-                        .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h.toSlice()) },
+                        .{ std.zig.fmtEscapes(name), std.zig.fmtString(h.toSlice()) },
                     );
                 }
 
@@ -263,7 +279,7 @@ pub const JobQueue = struct {
             const h = depDigest(root_fetch.package_root, jq.global_cache, dep) orelse continue;
             try buf.print(
                 "    .{{ \"{f}\", \"{f}\" }},\n",
-                .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h.toSlice()) },
+                .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
             );
         }
         try buf.appendSlice("};\n");
@@ -420,14 +436,14 @@ pub fn run(f: *Fetch) RunError!void {
                 }
                 if (f.job_queue.read_only) return f.fail(
                     f.name_tok,
-                    try eb.printString("package not found at '{}{s}'", .{
+                    try eb.printString("package not found at '{f}{s}'", .{
                         cache_root, pkg_sub_path,
                     }),
                 );
             },
             else => |e| {
                 try eb.addRootErrorMessage(.{
-                    .msg = try eb.printString("unable to open global package cache directory '{}{s}': {s}", .{
+                    .msg = try eb.printString("unable to open global package cache directory '{f}{s}': {s}", .{
                         cache_root, pkg_sub_path, @errorName(e),
                     }),
                 });
@@ -961,7 +977,7 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
     if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
         const path = try uri.path.toRawMaybeAlloc(arena);
         return .{ .file = f.parent_package_root.openFile(path, .{}) catch |err| {
-            return f.fail(f.location_tok, try eb.printString("unable to open '{}{s}': {s}", .{
+            return f.fail(f.location_tok, try eb.printString("unable to open '{f}{s}': {s}", .{
                 f.parent_package_root, path, @errorName(err),
             }));
         } };
@@ -1063,13 +1079,16 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
             });
             const notes_start = try eb.reserveNotes(notes_len);
             eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
-                .msg = try eb.printString("try .url = \"{;+/}#{}\",", .{ uri, want_oid }),
+                .msg = try eb.printString("try .url = \"{f}#{f}\",", .{
+                    uri.fmt(.{ .scheme = true, .authority = true, .path = true }),
+                    want_oid,
+                }),
             }));
             return error.FetchFailed;
         }
 
         var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
-        _ = std.fmt.bufPrint(&want_oid_buf, "{}", .{want_oid}) catch unreachable;
+        _ = std.fmt.bufPrint(&want_oid_buf, "{f}", .{want_oid}) catch unreachable;
         var fetch_stream = session.fetch(&.{&want_oid_buf}, server_header_buffer) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to create fetch stream: {s}",
@@ -1305,7 +1324,7 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
                 .{@errorName(err)},
             ));
             if (len == 0) break;
-            zip_file.writer().writeAll(buf[0..len]) catch |err| return f.fail(f.location_tok, try eb.printString(
+            zip_file.deprecatedWriter().writeAll(buf[0..len]) catch |err| return f.fail(f.location_tok, try eb.printString(
                 "write temporary zip file failed: {s}",
                 .{@errorName(err)},
             ));
@@ -1813,28 +1832,6 @@ pub fn depDigest(pkg_root: Cache.Path, cache_root: Cache.Directory, dep: Manifes
     }
 }
 
-const builtin = @import("builtin");
-const std = @import("std");
-const fs = std.fs;
-const assert = std.debug.assert;
-const ascii = std.ascii;
-const Allocator = std.mem.Allocator;
-const Cache = std.Build.Cache;
-const ThreadPool = std.Thread.Pool;
-const WaitGroup = std.Thread.WaitGroup;
-const Fetch = @This();
-const git = @import("Fetch/git.zig");
-const Package = @import("../Package.zig");
-const Manifest = Package.Manifest;
-const ErrorBundle = std.zig.ErrorBundle;
-const native_os = builtin.os.tag;
-
-test {
-    _ = Filter;
-    _ = FileType;
-    _ = UnpackResult;
-}
-
 // Detects executable header: ELF or Macho-O magic header or shebang line.
 const FileHeader = struct {
     header: [4]u8 = undefined,
@@ -2052,15 +2049,15 @@ const UnpackResult = struct {
         // output errors to string
         var errors = try fetch.error_bundle.toOwnedBundle("");
         defer errors.deinit(gpa);
-        var out = std.ArrayList(u8).init(gpa);
-        defer out.deinit();
-        try errors.renderToWriter(.{ .ttyconf = .no_color }, out.writer());
+        var aw: std.io.Writer.Allocating = .init(gpa);
+        defer aw.deinit();
+        try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
         try std.testing.expectEqualStrings(
             \\error: unable to unpack
             \\    note: unable to create symlink from 'dir2/file2' to 'filename': SymlinkError
             \\    note: file 'dir2/file4' has unsupported type 'x'
             \\
-        , out.items);
+        , aw.getWritten());
     }
 };
 
@@ -2076,7 +2073,7 @@ test "zip" {
     {
         var zip_file = try tmp.dir.createFile("test.zip", .{});
         defer zip_file.close();
-        var bw = std.io.bufferedWriter(zip_file.writer());
+        var bw = std.io.bufferedWriter(zip_file.deprecatedWriter());
         var store: [test_files.len]std.zip.testutil.FileStore = undefined;
         try std.zip.testutil.writeZip(bw.writer(), &test_files, &store, .{});
         try bw.flush();
@@ -2109,7 +2106,7 @@ test "zip with one root folder" {
     {
         var zip_file = try tmp.dir.createFile("test.zip", .{});
         defer zip_file.close();
-        var bw = std.io.bufferedWriter(zip_file.writer());
+        var bw = std.io.bufferedWriter(zip_file.deprecatedWriter());
         var store: [test_files.len]std.zip.testutil.FileStore = undefined;
         try std.zip.testutil.writeZip(bw.writer(), &test_files, &store, .{});
         try bw.flush();
@@ -2427,9 +2424,15 @@ const TestFetchBuilder = struct {
         if (notes_len > 0) {
             try std.testing.expectEqual(notes_len, em.notes_len);
         }
-        var al = std.ArrayList(u8).init(std.testing.allocator);
-        defer al.deinit();
-        try errors.renderToWriter(.{ .ttyconf = .no_color }, al.writer());
-        try std.testing.expectEqualStrings(msg, al.items);
+        var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+        defer aw.deinit();
+        try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
+        try std.testing.expectEqualStrings(msg, aw.getWritten());
     }
 };
+
+test {
+    _ = Filter;
+    _ = FileType;
+    _ = UnpackResult;
+}

@@ -339,9 +339,10 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?mem.Alignment) ty
         }
 
         pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
+            const gpa = self.allocator;
             var unmanaged = self.moveToUnmanaged();
-            try unmanaged.print(self.allocator, fmt, args);
-            self.* = unmanaged.toManaged(self.allocator);
+            defer self.* = unmanaged.toManaged(gpa);
+            try unmanaged.print(gpa, fmt, args);
         }
 
         /// Append a value to the list `n` times.
@@ -907,7 +908,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?mem.Alig
             try self.ensureUnusedCapacity(gpa, fmt.len);
             var aw: std.io.Writer.Allocating = .fromArrayList(gpa, self);
             defer self.* = aw.toArrayList();
-            return aw.interface.print(fmt, args) catch |err| switch (err) {
+            return aw.writer.print(fmt, args) catch |err| switch (err) {
                 error.WriteFailed => return error.OutOfMemory,
             };
         }

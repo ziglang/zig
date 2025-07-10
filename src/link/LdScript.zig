@@ -42,7 +42,7 @@ pub fn parse(
         switch (tok.id) {
             .invalid => {
                 return diags.failParse(path, "invalid token in LD script: '{f}' ({d}:{d})", .{
-                    std.fmt.fmtSliceEscapeLower(tok.get(data)), line, column,
+                    std.ascii.hexEscape(tok.get(data), .lower), line, column,
                 });
             },
             .new_line => {

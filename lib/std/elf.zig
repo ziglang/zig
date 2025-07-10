@@ -508,6 +508,7 @@ pub const Header = struct {
         };
     }
 
+<<<<<<< HEAD
     pub const ReadError = std.io.Reader.Error || ParseError;
 
     pub fn read(r: *std.io.Reader) ReadError!Header {
@@ -515,6 +516,19 @@ pub const Header = struct {
         const result = try parse(@ptrCast(buf));
         r.toss(if (result.is_64) @sizeOf(Elf64_Ehdr) else @sizeOf(Elf32_Ehdr));
         return result;
+||||||| edf785db0f
+    pub fn read(parse_source: anytype) !Header {
+        var hdr_buf: [@sizeOf(Elf64_Ehdr)]u8 align(@alignOf(Elf64_Ehdr)) = undefined;
+        try parse_source.seekableStream().seekTo(0);
+        try parse_source.reader().readNoEof(&hdr_buf);
+        return Header.parse(&hdr_buf);
+=======
+    pub fn read(parse_source: anytype) !Header {
+        var hdr_buf: [@sizeOf(Elf64_Ehdr)]u8 align(@alignOf(Elf64_Ehdr)) = undefined;
+        try parse_source.seekableStream().seekTo(0);
+        try parse_source.deprecatedReader().readNoEof(&hdr_buf);
+        return Header.parse(&hdr_buf);
+>>>>>>> origin/master
     }
 
     pub const ParseError = error{
@@ -590,14 +604,92 @@ pub const ProgramHeaderIterator = struct {
         if (it.index >= it.elf_header.phnum) return null;
         defer it.index += 1;
 
+<<<<<<< HEAD
         if (it.elf_header.is_64) {
             var phdr: Elf64_Phdr = undefined;
             const offset = it.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * it.index;
             try it.file_reader.seekTo(offset);
             try it.file_reader.interface.readSlice(@ptrCast(&phdr));
             if (it.elf_header.endian != native_endian)
+||||||| edf785db0f
+            if (self.elf_header.is_64) {
+                var phdr: Elf64_Phdr = undefined;
+                const offset = self.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * self.index;
+                try self.parse_source.seekableStream().seekTo(offset);
+                try self.parse_source.reader().readNoEof(mem.asBytes(&phdr));
+
+                // ELF endianness matches native endianness.
+                if (self.elf_header.endian == native_endian) return phdr;
+
+                // Convert fields to native endianness.
+=======
+            if (self.elf_header.is_64) {
+                var phdr: Elf64_Phdr = undefined;
+                const offset = self.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * self.index;
+                try self.parse_source.seekableStream().seekTo(offset);
+                try self.parse_source.deprecatedReader().readNoEof(mem.asBytes(&phdr));
+
+                // ELF endianness matches native endianness.
+                if (self.elf_header.endian == native_endian) return phdr;
+
+                // Convert fields to native endianness.
+>>>>>>> origin/master
                 mem.byteSwapAllFields(Elf64_Phdr, &phdr);
+<<<<<<< HEAD
             return phdr;
+||||||| edf785db0f
+                return phdr;
+            }
+
+            var phdr: Elf32_Phdr = undefined;
+            const offset = self.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * self.index;
+            try self.parse_source.seekableStream().seekTo(offset);
+            try self.parse_source.reader().readNoEof(mem.asBytes(&phdr));
+
+            // ELF endianness does NOT match native endianness.
+            if (self.elf_header.endian != native_endian) {
+                // Convert fields to native endianness.
+                mem.byteSwapAllFields(Elf32_Phdr, &phdr);
+            }
+
+            // Convert 32-bit header to 64-bit.
+            return Elf64_Phdr{
+                .p_type = phdr.p_type,
+                .p_offset = phdr.p_offset,
+                .p_vaddr = phdr.p_vaddr,
+                .p_paddr = phdr.p_paddr,
+                .p_filesz = phdr.p_filesz,
+                .p_memsz = phdr.p_memsz,
+                .p_flags = phdr.p_flags,
+                .p_align = phdr.p_align,
+            };
+=======
+                return phdr;
+            }
+
+            var phdr: Elf32_Phdr = undefined;
+            const offset = self.elf_header.phoff + @sizeOf(@TypeOf(phdr)) * self.index;
+            try self.parse_source.seekableStream().seekTo(offset);
+            try self.parse_source.deprecatedReader().readNoEof(mem.asBytes(&phdr));
+
+            // ELF endianness does NOT match native endianness.
+            if (self.elf_header.endian != native_endian) {
+                // Convert fields to native endianness.
+                mem.byteSwapAllFields(Elf32_Phdr, &phdr);
+            }
+
+            // Convert 32-bit header to 64-bit.
+            return Elf64_Phdr{
+                .p_type = phdr.p_type,
+                .p_offset = phdr.p_offset,
+                .p_vaddr = phdr.p_vaddr,
+                .p_paddr = phdr.p_paddr,
+                .p_filesz = phdr.p_filesz,
+                .p_memsz = phdr.p_memsz,
+                .p_flags = phdr.p_flags,
+                .p_align = phdr.p_align,
+            };
+>>>>>>> origin/master
         }
 
         var phdr: Elf32_Phdr = undefined;
@@ -624,9 +716,23 @@ pub const SectionHeaderIterator = struct {
     file_reader: *std.fs.File.Reader,
     index: usize = 0,
 
+<<<<<<< HEAD
     pub fn next(it: *SectionHeaderIterator) !?Elf64_Shdr {
         if (it.index >= it.elf_header.shnum) return null;
         defer it.index += 1;
+||||||| edf785db0f
+            if (self.elf_header.is_64) {
+                var shdr: Elf64_Shdr = undefined;
+                const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
+                try self.parse_source.seekableStream().seekTo(offset);
+                try self.parse_source.reader().readNoEof(mem.asBytes(&shdr));
+=======
+            if (self.elf_header.is_64) {
+                var shdr: Elf64_Shdr = undefined;
+                const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
+                try self.parse_source.seekableStream().seekTo(offset);
+                try self.parse_source.deprecatedReader().readNoEof(mem.asBytes(&shdr));
+>>>>>>> origin/master
 
         if (it.elf_header.is_64) {
             var shdr: Elf64_Shdr = undefined;
@@ -635,7 +741,65 @@ pub const SectionHeaderIterator = struct {
             try it.file_reader.interface.readSlice(@ptrCast(&shdr));
             if (it.elf_header.endian != native_endian)
                 mem.byteSwapAllFields(Elf64_Shdr, &shdr);
+<<<<<<< HEAD
             return shdr;
+||||||| edf785db0f
+                return shdr;
+            }
+
+            var shdr: Elf32_Shdr = undefined;
+            const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
+            try self.parse_source.seekableStream().seekTo(offset);
+            try self.parse_source.reader().readNoEof(mem.asBytes(&shdr));
+
+            // ELF endianness does NOT match native endianness.
+            if (self.elf_header.endian != native_endian) {
+                // Convert fields to native endianness.
+                mem.byteSwapAllFields(Elf32_Shdr, &shdr);
+            }
+
+            // Convert 32-bit header to 64-bit.
+            return Elf64_Shdr{
+                .sh_name = shdr.sh_name,
+                .sh_type = shdr.sh_type,
+                .sh_flags = shdr.sh_flags,
+                .sh_addr = shdr.sh_addr,
+                .sh_offset = shdr.sh_offset,
+                .sh_size = shdr.sh_size,
+                .sh_link = shdr.sh_link,
+                .sh_info = shdr.sh_info,
+                .sh_addralign = shdr.sh_addralign,
+                .sh_entsize = shdr.sh_entsize,
+            };
+=======
+                return shdr;
+            }
+
+            var shdr: Elf32_Shdr = undefined;
+            const offset = self.elf_header.shoff + @sizeOf(@TypeOf(shdr)) * self.index;
+            try self.parse_source.seekableStream().seekTo(offset);
+            try self.parse_source.deprecatedReader().readNoEof(mem.asBytes(&shdr));
+
+            // ELF endianness does NOT match native endianness.
+            if (self.elf_header.endian != native_endian) {
+                // Convert fields to native endianness.
+                mem.byteSwapAllFields(Elf32_Shdr, &shdr);
+            }
+
+            // Convert 32-bit header to 64-bit.
+            return Elf64_Shdr{
+                .sh_name = shdr.sh_name,
+                .sh_type = shdr.sh_type,
+                .sh_flags = shdr.sh_flags,
+                .sh_addr = shdr.sh_addr,
+                .sh_offset = shdr.sh_offset,
+                .sh_size = shdr.sh_size,
+                .sh_link = shdr.sh_link,
+                .sh_info = shdr.sh_info,
+                .sh_addralign = shdr.sh_addralign,
+                .sh_entsize = shdr.sh_entsize,
+            };
+>>>>>>> origin/master
         }
 
         var shdr: Elf32_Shdr = undefined;

@@ -14,12 +14,6 @@ vtable: *const VTable,
 buffer: []u8,
 /// In `buffer` before this are buffered bytes, after this is `undefined`.
 end: usize = 0,
-/// Tracks total number of bytes written to this `Writer`. This value
-/// only increases. In the case of fixed mode, this value always equals `end`.
-///
-/// This value is maintained by the interface; `VTable` function
-/// implementations need not modify it.
-count: usize = 0,
 
 pub const VTable = struct {
     /// Sends bytes to the logical sink. A write will only be sent here if it
@@ -36,6 +30,10 @@ pub const VTable = struct {
     ///
     /// The last element of `data` is repeated as necessary so that it is
     /// written `splat` number of times, which may be zero.
+    ///
+    /// This function may not be called if the data to be written could have
+    /// been stored in `buffer` instead, including when the amount of data to
+    /// be written is zero and the buffer capacity is zero.
     ///
     /// Number of bytes consumed from `data` is returned, excluding bytes from
     /// `buffer`.
@@ -113,8 +111,7 @@ pub const FileError = error{
     Unimplemented,
 };
 
-/// Writes to `buffer` and returns `error.WriteFailed` when it is full. Unless
-/// modified externally, `count` will always equal `end`.
+/// Writes to `buffer` and returns `error.WriteFailed` when it is full.
 pub fn fixed(buffer: []u8) Writer {
     return .{
         .vtable = &.{ .drain = fixedDrain },
@@ -122,8 +119,8 @@ pub fn fixed(buffer: []u8) Writer {
     };
 }
 
-pub fn hashed(w: *Writer, hasher: anytype) Hashed(@TypeOf(hasher)) {
-    return .{ .out = w, .hasher = hasher };
+pub fn hashed(w: *Writer, hasher: anytype, buffer: []u8) Hashed(@TypeOf(hasher)) {
+    return .initHasher(w, hasher, buffer);
 }
 
 pub const failing: Writer = .{
@@ -132,16 +129,6 @@ pub const failing: Writer = .{
         .sendFile = failingSendFile,
     },
 };
-
-pub fn discarding(buffer: []u8) Writer {
-    return .{
-        .vtable = &.{
-            .drain = discardingDrain,
-            .sendFile = discardingSendFile,
-        },
-        .buffer = buffer,
-    };
-}
 
 /// Returns the contents not yet drained.
 pub fn buffered(w: *const Writer) []u8 {
@@ -174,51 +161,24 @@ pub fn writeSplat(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     assert(data.len > 0);
     const buffer = w.buffer;
     const count = countSplat(data, splat);
-    if (w.end + count > buffer.len) {
-        const n = try w.vtable.drain(w, data, splat);
-        w.count += n;
-        return n;
-    }
-    w.count += count;
-    for (data) |bytes| {
+    if (w.end + count > buffer.len) return w.vtable.drain(w, data, splat);
+    for (data[0 .. data.len - 1]) |bytes| {
         @memcpy(buffer[w.end..][0..bytes.len], bytes);
         w.end += bytes.len;
     }
     const pattern = data[data.len - 1];
-    if (splat == 0) {
-        @branchHint(.unlikely);
-        w.end -= pattern.len;
-        return count;
-    }
-    const remaining_splat = splat - 1;
     switch (pattern.len) {
         0 => {},
         1 => {
-            @memset(buffer[w.end..][0..remaining_splat], pattern[0]);
-            w.end += remaining_splat;
+            @memset(buffer[w.end..][0..splat], pattern[0]);
+            w.end += splat;
         },
-        else => {
-            const new_end = w.end + pattern.len * remaining_splat;
-            while (w.end < new_end) : (w.end += pattern.len) {
-                @memcpy(buffer[w.end..][0..pattern.len], pattern);
-            }
+        else => for (0..splat) |_| {
+            @memcpy(buffer[w.end..][0..pattern.len], pattern);
+            w.end += pattern.len;
         },
     }
     return count;
-}
-
-/// Equivalent to `writeSplat` but writes at most `limit` bytes.
-pub fn writeSplatLimit(
-    w: *Writer,
-    data: []const []const u8,
-    splat: usize,
-    limit: Limit,
-) Error!usize {
-    _ = w;
-    _ = data;
-    _ = splat;
-    _ = limit;
-    @panic("TODO");
 }
 
 /// Returns how many bytes were consumed from `header` and `data`.
@@ -232,38 +192,40 @@ pub fn writeSplatHeader(
     if (new_end <= w.buffer.len) {
         @memcpy(w.buffer[w.end..][0..header.len], header);
         w.end = new_end;
-        w.count += header.len;
         return header.len + try writeSplat(w, data, splat);
     }
     var vecs: [8][]const u8 = undefined; // Arbitrarily chosen size.
     var i: usize = 1;
     vecs[0] = header;
-    for (data) |buf| {
+    for (data[0 .. data.len - 1]) |buf| {
         if (buf.len == 0) continue;
         vecs[i] = buf;
         i += 1;
         if (vecs.len - i == 0) break;
     }
-    const new_splat = if (vecs[i - 1].ptr == data[data.len - 1].ptr) splat else 1;
-    const n = try w.vtable.drain(w, vecs[0..i], new_splat);
-    w.count += n;
-    return n;
+    const pattern = data[data.len - 1];
+    const new_splat = s: {
+        if (pattern.len == 0 or vecs.len - i == 0) break :s 1;
+        vecs[i] = pattern;
+        i += 1;
+        break :s splat;
+    };
+    return w.vtable.drain(w, vecs[0..i], new_splat);
 }
 
-/// Equivalent to `writeSplatHeader` but writes at most `limit` bytes.
-pub fn writeSplatHeaderLimit(
-    w: *Writer,
-    header: []const u8,
-    data: []const []const u8,
-    splat: usize,
-    limit: Limit,
-) Error!usize {
-    _ = w;
-    _ = header;
-    _ = data;
-    _ = splat;
-    _ = limit;
-    @panic("TODO");
+test "writeSplatHeader splatting avoids buffer aliasing temptation" {
+    const initial_buf = try testing.allocator.alloc(u8, 8);
+    var aw: std.io.Writer.Allocating = .initOwnedSlice(testing.allocator, initial_buf);
+    defer aw.deinit();
+    // This test assumes 8 vector buffer in this function.
+    const n = try aw.writer.writeSplatHeader("header which is longer than buf ", &.{
+        "1", "2", "3", "4", "5", "6", "foo", "bar", "foo",
+    }, 3);
+    try testing.expectEqual(41, n);
+    try testing.expectEqualStrings(
+        "header which is longer than buf 123456foo",
+        aw.writer.buffered(),
+    );
 }
 
 /// Drains all remaining buffered data.
@@ -386,12 +348,18 @@ pub const WritableVectorIterator = struct {
 pub const VectorWrapper = struct {
     writer: Writer,
     it: WritableVectorIterator,
-    pub const vtable: VTable = .{ .drain = fixedDrain };
+    /// Tracks whether the "writable vector" API was used.
+    used: bool = false,
+    pub const vtable: *const VTable = &unique_vtable_allocation;
+    /// This is intended to be constant but it must be a unique address for
+    /// `@fieldParentPtr` to work.
+    var unique_vtable_allocation: VTable = .{ .drain = fixedDrain };
 };
 
 pub fn writableVectorIterator(w: *Writer) Error!WritableVectorIterator {
-    if (w.vtable == &VectorWrapper.vtable) {
+    if (w.vtable == VectorWrapper.vtable) {
         const wrapper: *VectorWrapper = @fieldParentPtr("writer", w);
+        wrapper.used = true;
         return wrapper.it;
     }
     return .{ .first = try writableSliceGreedy(w, 1) };
@@ -419,7 +387,6 @@ pub fn ensureUnusedCapacity(w: *Writer, n: usize) Error!void {
 
 pub fn undo(w: *Writer, n: usize) void {
     w.end -= n;
-    w.count -= n;
 }
 
 /// After calling `writableSliceGreedy`, this function tracks how many bytes
@@ -430,13 +397,11 @@ pub fn advance(w: *Writer, n: usize) void {
     const new_end = w.end + n;
     assert(new_end <= w.buffer.len);
     w.end = new_end;
-    w.count += n;
 }
 
 /// After calling `writableVector`, this function tracks how many bytes were
 /// written to it.
 pub fn advanceVector(w: *Writer, n: usize) usize {
-    w.count += n;
     return consume(w, n);
 }
 
@@ -494,12 +459,9 @@ pub fn write(w: *Writer, bytes: []const u8) Error!usize {
         @branchHint(.likely);
         @memcpy(w.buffer[w.end..][0..bytes.len], bytes);
         w.end += bytes.len;
-        w.count += bytes.len;
         return bytes.len;
     }
-    const n = try w.vtable.drain(w, &.{bytes}, 1);
-    w.count += n;
-    return n;
+    return w.vtable.drain(w, &.{bytes}, 1);
 }
 
 /// Asserts `buffer` capacity exceeds `preserve_length`.
@@ -509,7 +471,6 @@ pub fn writePreserve(w: *Writer, preserve_length: usize, bytes: []const u8) Erro
         @branchHint(.likely);
         @memcpy(w.buffer[w.end..][0..bytes.len], bytes);
         w.end += bytes.len;
-        w.count += bytes.len;
         return bytes.len;
     }
     const temp_end = w.end -| preserve_length;
@@ -517,7 +478,6 @@ pub fn writePreserve(w: *Writer, preserve_length: usize, bytes: []const u8) Erro
     w.end = temp_end;
     defer w.end += preserved.len;
     const n = try w.vtable.drain(w, &.{bytes}, 1);
-    w.count += n;
     assert(w.end <= temp_end + preserved.len);
     @memmove(w.buffer[w.end..][0..preserved.len], preserved);
     return n;
@@ -542,23 +502,207 @@ pub fn writeAllPreserve(w: *Writer, preserve_length: usize, bytes: []const u8) E
     while (index < bytes.len) index += try w.writePreserve(preserve_length, bytes[index..]);
 }
 
-pub fn print(w: *Writer, comptime format: []const u8, args: anytype) Error!void {
-    try std.fmt.format(w, format, args);
+/// Renders fmt string with args, calling `writer` with slices of bytes.
+/// If `writer` returns an error, the error is returned from `format` and
+/// `writer` is not called again.
+///
+/// The format string must be comptime-known and may contain placeholders following
+/// this format:
+/// `{[argument][specifier]:[fill][alignment][width].[precision]}`
+///
+/// Above, each word including its surrounding [ and ] is a parameter which you have to replace with something:
+///
+/// - *argument* is either the numeric index or the field name of the argument that should be inserted
+///   - when using a field name, you are required to enclose the field name (an identifier) in square
+///     brackets, e.g. {[score]...} as opposed to the numeric index form which can be written e.g. {2...}
+/// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
+/// - *fill* is a single byte which is used to pad formatted numbers.
+/// - *alignment* is one of the three bytes '<', '^', or '>' to make numbers
+///   left, center, or right-aligned, respectively.
+///   - Not all specifiers support alignment.
+///   - Alignment is not Unicode-aware; appropriate only when used with raw bytes or ASCII.
+/// - *width* is the total width of the field in bytes. This only applies to number formatting.
+/// - *precision* specifies how many decimals a formatted number should have.
+///
+/// Note that most of the parameters are optional and may be omitted. Also you
+/// can leave out separators like `:` and `.` when all parameters after the
+/// separator are omitted.
+///
+/// Only exception is the *fill* parameter. If a non-zero *fill* character is
+/// required at the same time as *width* is specified, one has to specify
+/// *alignment* as well, as otherwise the digit following `:` is interpreted as
+/// *width*, not *fill*.
+///
+/// The *specifier* has several options for types:
+/// - `x` and `X`: output numeric value in hexadecimal notation, or string in hexadecimal bytes
+/// - `s`:
+///   - for pointer-to-many and C pointers of u8, print as a C-string using zero-termination
+///   - for slices of u8, print the entire slice as a string without zero-termination
+/// - `t`:
+///   - for enums and tagged unions: prints the tag name
+///   - for error sets: prints the error name
+/// - `b64`: output string as standard base64
+/// - `e`: output floating point value in scientific notation
+/// - `d`: output numeric value in decimal notation
+/// - `b`: output integer value in binary notation
+/// - `o`: output integer value in octal notation
+/// - `c`: output integer as an ASCII character. Integer type must have 8 bits at max.
+/// - `u`: output integer as an UTF-8 sequence. Integer type must have 21 bits at max.
+/// - `D`: output nanoseconds as duration
+/// - `B`: output bytes in SI units (decimal)
+/// - `Bi`: output bytes in IEC units (binary)
+/// - `?`: output optional value as either the unwrapped value, or `null`; may be followed by a format specifier for the underlying value.
+/// - `!`: output error union value as either the unwrapped value, or the formatted error value; may be followed by a format specifier for the underlying value.
+/// - `*`: output the address of the value instead of the value itself.
+/// - `any`: output a value of any type using its default format.
+/// - `f`: delegates to a method on the type named "format" with the signature `fn (*Writer, args: anytype) Writer.Error!void`.
+///
+/// A user type may be a `struct`, `vector`, `union` or `enum` type.
+///
+/// To print literal curly braces, escape them by writing them twice, e.g. `{{` or `}}`.
+///
+/// Asserts `buffer` capacity of at least 2 if a union is printed. This
+/// requirement could be lifted by adjusting the code, but if you trigger that
+/// assertion it is a clue that you should probably be using a buffer.
+pub fn print(w: *Writer, comptime fmt: []const u8, args: anytype) Error!void {
+    const ArgsType = @TypeOf(args);
+    const args_type_info = @typeInfo(ArgsType);
+    if (args_type_info != .@"struct") {
+        @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType));
+    }
+
+    const fields_info = args_type_info.@"struct".fields;
+    const max_format_args = @typeInfo(std.fmt.ArgSetType).int.bits;
+    if (fields_info.len > max_format_args) {
+        @compileError("32 arguments max are supported per format call");
+    }
+
+    @setEvalBranchQuota(fmt.len * 1000);
+    comptime var arg_state: std.fmt.ArgState = .{ .args_len = fields_info.len };
+    comptime var i = 0;
+    comptime var literal: []const u8 = "";
+    inline while (true) {
+        const start_index = i;
+
+        inline while (i < fmt.len) : (i += 1) {
+            switch (fmt[i]) {
+                '{', '}' => break,
+                else => {},
+            }
+        }
+
+        comptime var end_index = i;
+        comptime var unescape_brace = false;
+
+        // Handle {{ and }}, those are un-escaped as single braces
+        if (i + 1 < fmt.len and fmt[i + 1] == fmt[i]) {
+            unescape_brace = true;
+            // Make the first brace part of the literal...
+            end_index += 1;
+            // ...and skip both
+            i += 2;
+        }
+
+        literal = literal ++ fmt[start_index..end_index];
+
+        // We've already skipped the other brace, restart the loop
+        if (unescape_brace) continue;
+
+        // Write out the literal
+        if (literal.len != 0) {
+            try w.writeAll(literal);
+            literal = "";
+        }
+
+        if (i >= fmt.len) break;
+
+        if (fmt[i] == '}') {
+            @compileError("missing opening {");
+        }
+
+        // Get past the {
+        comptime assert(fmt[i] == '{');
+        i += 1;
+
+        const fmt_begin = i;
+        // Find the closing brace
+        inline while (i < fmt.len and fmt[i] != '}') : (i += 1) {}
+        const fmt_end = i;
+
+        if (i >= fmt.len) {
+            @compileError("missing closing }");
+        }
+
+        // Get past the }
+        comptime assert(fmt[i] == '}');
+        i += 1;
+
+        const placeholder_array = fmt[fmt_begin..fmt_end].*;
+        const placeholder = comptime std.fmt.Placeholder.parse(&placeholder_array);
+        const arg_pos = comptime switch (placeholder.arg) {
+            .none => null,
+            .number => |pos| pos,
+            .named => |arg_name| std.meta.fieldIndex(ArgsType, arg_name) orelse
+                @compileError("no argument with name '" ++ arg_name ++ "'"),
+        };
+
+        const width = switch (placeholder.width) {
+            .none => null,
+            .number => |v| v,
+            .named => |arg_name| blk: {
+                const arg_i = comptime std.meta.fieldIndex(ArgsType, arg_name) orelse
+                    @compileError("no argument with name '" ++ arg_name ++ "'");
+                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("too few arguments");
+                break :blk @field(args, arg_name);
+            },
+        };
+
+        const precision = switch (placeholder.precision) {
+            .none => null,
+            .number => |v| v,
+            .named => |arg_name| blk: {
+                const arg_i = comptime std.meta.fieldIndex(ArgsType, arg_name) orelse
+                    @compileError("no argument with name '" ++ arg_name ++ "'");
+                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("too few arguments");
+                break :blk @field(args, arg_name);
+            },
+        };
+
+        const arg_to_print = comptime arg_state.nextArg(arg_pos) orelse
+            @compileError("too few arguments");
+
+        try w.printValue(
+            placeholder.specifier_arg,
+            .{
+                .fill = placeholder.fill,
+                .alignment = placeholder.alignment,
+                .width = width,
+                .precision = precision,
+            },
+            @field(args, fields_info[arg_to_print].name),
+            std.options.fmt_max_depth,
+        );
+    }
+
+    if (comptime arg_state.hasUnusedArgs()) {
+        const missing_count = arg_state.args_len - @popCount(arg_state.used_args);
+        switch (missing_count) {
+            0 => unreachable,
+            1 => @compileError("unused argument in '" ++ fmt ++ "'"),
+            else => @compileError(std.fmt.comptimePrint("{d}", .{missing_count}) ++ " unused arguments in '" ++ fmt ++ "'"),
+        }
+    }
 }
 
 /// Calls `drain` as many times as necessary such that `byte` is transferred.
 pub fn writeByte(w: *Writer, byte: u8) Error!void {
     while (w.buffer.len - w.end == 0) {
         const n = try w.vtable.drain(w, &.{&.{byte}}, 1);
-        if (n > 0) {
-            w.count += 1;
-            return;
-        }
+        if (n > 0) return;
     } else {
         @branchHint(.likely);
         w.buffer[w.end] = byte;
         w.end += 1;
-        w.count += 1;
     }
 }
 
@@ -571,7 +715,6 @@ pub fn writeBytePreserve(w: *Writer, preserve_length: usize, byte: u8) Error!voi
         @branchHint(.likely);
         w.buffer[w.end] = byte;
         w.end += 1;
-        w.count += 1;
     }
 }
 
@@ -625,12 +768,23 @@ pub fn writeStruct(w: *Writer, value: anytype) Error!void {
 /// comptime-known and matches host endianness.
 /// TODO: make sure this value is not a reference type
 pub inline fn writeStructEndian(w: *Writer, value: anytype, endian: std.builtin.Endian) Error!void {
-    if (native_endian == endian) {
-        return w.writeStruct(value);
-    } else {
-        var copy = value;
-        std.mem.byteSwapAllFields(@TypeOf(value), &copy);
-        return w.writeStruct(copy);
+    switch (@typeInfo(@TypeOf(value))) {
+        .@"struct" => |info| switch (info.layout) {
+            .auto => @compileError("ill-defined memory layout"),
+            .@"extern" => {
+                if (native_endian == endian) {
+                    return w.writeStruct(value);
+                } else {
+                    var copy = value;
+                    std.mem.byteSwapAllFields(@TypeOf(value), &copy);
+                    return w.writeStruct(copy);
+                }
+            },
+            .@"packed" => {
+                return writeInt(w, info.backing_integer.?, @bitCast(value), endian);
+            },
+        },
+        else => @compileError("not a struct"),
     }
 }
 
@@ -645,14 +799,6 @@ pub inline fn writeSliceEndian(
     } else {
         return w.writeArraySwap(w, Elem, slice);
     }
-}
-
-/// Asserts that the buffer storage capacity is at least enough to store `@sizeOf(Elem)`
-pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
-    // copy to storage first, then swap in place
-    _ = w;
-    _ = slice;
-    @panic("TODO");
 }
 
 /// Unlike `writeSplat` and `writeVec`, this function will call into `VTable`
@@ -680,12 +826,10 @@ pub fn sendFileHeader(
     if (new_end <= w.buffer.len) {
         @memcpy(w.buffer[w.end..][0..header.len], header);
         w.end = new_end;
-        w.count += header.len;
         return header.len + try w.vtable.sendFile(w, file_reader, limit);
     }
     const buffered_contents = limit.slice(file_reader.interface.buffered());
     const n = try w.vtable.drain(w, &.{ header, buffered_contents }, 1);
-    w.count += n;
     file_reader.interface.toss(n - header.len);
     return n;
 }
@@ -698,6 +842,8 @@ pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) File
     return n;
 }
 
+/// Number of bytes logically written is returned. This excludes bytes from
+/// `buffer` because they have already been logically written.
 pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
@@ -772,16 +918,13 @@ pub fn printAddress(w: *Writer, value: anytype) Error!void {
     switch (@typeInfo(T)) {
         .pointer => |info| {
             try w.writeAll(@typeName(info.child) ++ "@");
-            if (info.size == .slice)
-                try w.printIntOptions(@intFromPtr(value.ptr), 16, .lower, .{})
-            else
-                try w.printIntOptions(@intFromPtr(value), 16, .lower, .{});
-            return;
+            const int = if (info.size == .slice) @intFromPtr(value.ptr) else @intFromPtr(value);
+            return w.printInt(int, 16, .lower, .{});
         },
         .optional => |info| {
             if (@typeInfo(info.child) == .pointer) {
                 try w.writeAll(@typeName(info.child) ++ "@");
-                try w.printIntOptions(@intFromPtr(value), 16, .lower, .{});
+                try w.printInt(@intFromPtr(value), 16, .lower, .{});
                 return;
             }
         },
@@ -791,6 +934,7 @@ pub fn printAddress(w: *Writer, value: anytype) Error!void {
     @compileError("cannot format non-pointer type " ++ @typeName(T) ++ " with * specifier");
 }
 
+/// Asserts `buffer` capacity of at least 2 if `value` is a union.
 pub fn printValue(
     w: *Writer,
     comptime fmt: []const u8,
@@ -800,26 +944,181 @@ pub fn printValue(
 ) Error!void {
     const T = @TypeOf(value);
 
-    if (comptime std.mem.eql(u8, fmt, "*")) {
-        return w.printAddress(value);
+    switch (fmt.len) {
+        1 => switch (fmt[0]) {
+            '*' => return w.printAddress(value),
+            'f' => return value.format(w),
+            'd' => switch (@typeInfo(T)) {
+                .float, .comptime_float => return printFloat(w, value, options.toNumber(.decimal, .lower)),
+                .int, .comptime_int => return printInt(w, value, 10, .lower, options),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.decimal, .lower)),
+                .@"enum" => return printInt(w, @intFromEnum(value), 10, .lower, options),
+                .vector => return printVector(w, fmt, options, value, max_depth),
+                else => invalidFmtError(fmt, value),
+            },
+            'c' => return w.printAsciiChar(value, options),
+            'u' => return w.printUnicodeCodepoint(value),
+            'b' => switch (@typeInfo(T)) {
+                .int, .comptime_int => return printInt(w, value, 2, .lower, options),
+                .@"enum" => return printInt(w, @intFromEnum(value), 2, .lower, options),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.binary, .lower)),
+                .vector => return printVector(w, fmt, options, value, max_depth),
+                else => invalidFmtError(fmt, value),
+            },
+            'o' => switch (@typeInfo(T)) {
+                .int, .comptime_int => return printInt(w, value, 8, .lower, options),
+                .@"enum" => return printInt(w, @intFromEnum(value), 8, .lower, options),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.octal, .lower)),
+                .vector => return printVector(w, fmt, options, value, max_depth),
+                else => invalidFmtError(fmt, value),
+            },
+            'x' => switch (@typeInfo(T)) {
+                .float, .comptime_float => return printFloatHexOptions(w, value, options.toNumber(.hex, .lower)),
+                .int, .comptime_int => return printInt(w, value, 16, .lower, options),
+                .@"enum" => return printInt(w, @intFromEnum(value), 16, .lower, options),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.hex, .lower)),
+                .pointer => |info| switch (info.size) {
+                    .one, .slice => {
+                        const slice: []const u8 = value;
+                        optionsForbidden(options);
+                        return printHex(w, slice, .lower);
+                    },
+                    .many, .c => {
+                        const slice: [:0]const u8 = std.mem.span(value);
+                        optionsForbidden(options);
+                        return printHex(w, slice, .lower);
+                    },
+                },
+                .array => {
+                    const slice: []const u8 = &value;
+                    optionsForbidden(options);
+                    return printHex(w, slice, .lower);
+                },
+                .vector => return printVector(w, fmt, options, value, max_depth),
+                else => invalidFmtError(fmt, value),
+            },
+            'X' => switch (@typeInfo(T)) {
+                .float, .comptime_float => return printFloatHexOptions(w, value, options.toNumber(.hex, .lower)),
+                .int, .comptime_int => return printInt(w, value, 16, .upper, options),
+                .@"enum" => return printInt(w, @intFromEnum(value), 16, .upper, options),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.hex, .upper)),
+                .pointer => |info| switch (info.size) {
+                    .one, .slice => {
+                        const slice: []const u8 = value;
+                        optionsForbidden(options);
+                        return printHex(w, slice, .upper);
+                    },
+                    .many, .c => {
+                        const slice: [:0]const u8 = std.mem.span(value);
+                        optionsForbidden(options);
+                        return printHex(w, slice, .upper);
+                    },
+                },
+                .array => {
+                    const slice: []const u8 = &value;
+                    optionsForbidden(options);
+                    return printHex(w, slice, .upper);
+                },
+                .vector => return printVector(w, fmt, options, value, max_depth),
+                else => invalidFmtError(fmt, value),
+            },
+            's' => switch (@typeInfo(T)) {
+                .pointer => |info| switch (info.size) {
+                    .one, .slice => {
+                        const slice: []const u8 = value;
+                        return w.alignBufferOptions(slice, options);
+                    },
+                    .many, .c => {
+                        const slice: [:0]const u8 = std.mem.span(value);
+                        return w.alignBufferOptions(slice, options);
+                    },
+                },
+                .array => {
+                    const slice: []const u8 = &value;
+                    return w.alignBufferOptions(slice, options);
+                },
+                else => invalidFmtError(fmt, value),
+            },
+            'B' => switch (@typeInfo(T)) {
+                .int, .comptime_int => return w.printByteSize(value, .decimal, options),
+                .@"struct" => return value.formatByteSize(w, .decimal),
+                else => invalidFmtError(fmt, value),
+            },
+            'D' => switch (@typeInfo(T)) {
+                .int, .comptime_int => return w.printDuration(value, options),
+                .@"struct" => return value.formatDuration(w),
+                else => invalidFmtError(fmt, value),
+            },
+            'e' => switch (@typeInfo(T)) {
+                .float, .comptime_float => return printFloat(w, value, options.toNumber(.scientific, .lower)),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.scientific, .lower)),
+                else => invalidFmtError(fmt, value),
+            },
+            'E' => switch (@typeInfo(T)) {
+                .float, .comptime_float => return printFloat(w, value, options.toNumber(.scientific, .upper)),
+                .@"struct" => return value.formatNumber(w, options.toNumber(.scientific, .upper)),
+                else => invalidFmtError(fmt, value),
+            },
+            't' => switch (@typeInfo(T)) {
+                .error_set => return w.writeAll(@errorName(value)),
+                .@"enum", .@"union" => return w.writeAll(@tagName(value)),
+                else => invalidFmtError(fmt, value),
+            },
+            else => {},
+        },
+        2 => switch (fmt[0]) {
+            'B' => switch (fmt[1]) {
+                'i' => switch (@typeInfo(T)) {
+                    .int, .comptime_int => return w.printByteSize(value, .binary, options),
+                    .@"struct" => return value.formatByteSize(w, .binary),
+                    else => invalidFmtError(fmt, value),
+                },
+                else => {},
+            },
+            else => {},
+        },
+        3 => if (fmt[0] == 'b' and fmt[1] == '6' and fmt[2] == '4') switch (@typeInfo(T)) {
+            .pointer => |info| switch (info.size) {
+                .one, .slice => {
+                    const slice: []const u8 = value;
+                    optionsForbidden(options);
+                    return w.printBase64(slice);
+                },
+                .many, .c => {
+                    const slice: [:0]const u8 = std.mem.span(value);
+                    optionsForbidden(options);
+                    return w.printBase64(slice);
+                },
+            },
+            .array => {
+                const slice: []const u8 = &value;
+                optionsForbidden(options);
+                return w.printBase64(slice);
+            },
+            else => invalidFmtError(fmt, value),
+        },
+        else => {},
     }
 
     const is_any = comptime std.mem.eql(u8, fmt, ANY);
-    if (!is_any and std.meta.hasMethod(T, "format")) {
-        if (fmt.len > 0 and fmt[0] == 'f') {
-            return value.format(w, fmt[1..]);
-        } else if (fmt.len == 0) {
-            // after 0.15.0 is tagged, delete the hasMethod condition and this compile error
-            @compileError("ambiguous format string; specify {f} to call format method, or {any} to skip it");
-        }
+    if (!is_any and std.meta.hasMethod(T, "format") and fmt.len == 0) {
+        // after 0.15.0 is tagged, delete this compile error and its condition
+        @compileError("ambiguous format string; specify {f} to call format method, or {any} to skip it");
     }
 
     switch (@typeInfo(T)) {
-        .float, .comptime_float => return w.printFloat(if (is_any) "d" else fmt, options, value),
-        .int, .comptime_int => return w.printInt(if (is_any) "d" else fmt, options, value),
+        .float, .comptime_float => {
+            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
+            return printFloat(w, value, options.toNumber(.decimal, .lower));
+        },
+        .int, .comptime_int => {
+            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
+            return printInt(w, value, 10, .lower, options);
+        },
         .bool => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
-            return w.alignBufferOptions(if (value) "true" else "false", options);
+            const string: []const u8 = if (value) "true" else "false";
+            return w.alignBufferOptions(string, options);
         },
         .void => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
@@ -852,50 +1151,30 @@ pub fn printValue(
             }
         },
         .error_set => {
-            if (fmt.len == 1 and fmt[0] == 's') return w.writeAll(@errorName(value));
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
-            try printErrorSet(w, value);
+            optionsForbidden(options);
+            return printErrorSet(w, value);
         },
-        .@"enum" => {
-            if (fmt.len == 1 and fmt[0] == 's') {
-                try w.writeAll(@tagName(value));
-                return;
+        .@"enum" => |info| {
+            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
+            optionsForbidden(options);
+            if (info.is_exhaustive) {
+                return printEnumExhaustive(w, value);
+            } else {
+                return printEnumNonexhaustive(w, value);
             }
-            if (!is_any) {
-                if (fmt.len != 0) return printValue(w, fmt, options, @intFromEnum(value), max_depth);
-                return printValue(w, ANY, options, value, max_depth);
-            }
-            const enum_info = @typeInfo(T).@"enum";
-            if (enum_info.is_exhaustive) {
-                var vecs: [3][]const u8 = .{ @typeName(T), ".", @tagName(value) };
-                try w.writeVecAll(&vecs);
-                return;
-            }
-            try w.writeAll(@typeName(T));
-            @setEvalBranchQuota(3 * enum_info.fields.len);
-            inline for (enum_info.fields) |field| {
-                if (@intFromEnum(value) == field.value) {
-                    try w.writeAll(".");
-                    try w.writeAll(@tagName(value));
-                    return;
-                }
-            }
-            try w.writeByte('(');
-            try w.printValue(ANY, options, @intFromEnum(value), max_depth);
-            try w.writeByte(')');
         },
         .@"union" => |info| {
             if (!is_any) {
                 if (fmt.len != 0) invalidFmtError(fmt, value);
                 return printValue(w, ANY, options, value, max_depth);
             }
-            try w.writeAll(@typeName(T));
             if (max_depth == 0) {
-                try w.writeAll("{ ... }");
+                try w.writeAll(".{ ... }");
                 return;
             }
             if (info.tag_type) |UnionTagType| {
-                try w.writeAll("{ .");
+                try w.writeAll(".{ .");
                 try w.writeAll(@tagName(@as(UnionTagType, value)));
                 try w.writeAll(" = ");
                 inline for (info.fields) |u_field| {
@@ -904,9 +1183,22 @@ pub fn printValue(
                     }
                 }
                 try w.writeAll(" }");
-            } else {
-                try w.writeByte('@');
-                try w.printIntOptions(@intFromPtr(&value), 16, .lower, options);
+            } else switch (info.layout) {
+                .auto => {
+                    return w.writeAll(".{ ... }");
+                },
+                .@"extern", .@"packed" => {
+                    if (info.fields.len == 0) return w.writeAll(".{}");
+                    try w.writeAll(".{ ");
+                    inline for (info.fields) |field| {
+                        try w.writeByte('.');
+                        try w.writeAll(field.name);
+                        try w.writeAll(" = ");
+                        try w.printValue(ANY, options, @field(value, field.name), max_depth - 1);
+                        (try w.writableArray(2)).* = ", ".*;
+                    }
+                    w.buffer[w.end - 2 ..][0..2].* = " }".*;
+                },
             }
         },
         .@"struct" => |info| {
@@ -917,10 +1209,10 @@ pub fn printValue(
             if (info.is_tuple) {
                 // Skip the type and field names when formatting tuples.
                 if (max_depth == 0) {
-                    try w.writeAll("{ ... }");
+                    try w.writeAll(".{ ... }");
                     return;
                 }
-                try w.writeAll("{");
+                try w.writeAll(".{");
                 inline for (info.fields, 0..) |f, i| {
                     if (i == 0) {
                         try w.writeAll(" ");
@@ -932,12 +1224,11 @@ pub fn printValue(
                 try w.writeAll(" }");
                 return;
             }
-            try w.writeAll(@typeName(T));
             if (max_depth == 0) {
-                try w.writeAll("{ ... }");
+                try w.writeAll(".{ ... }");
                 return;
             }
-            try w.writeAll("{");
+            try w.writeAll(".{");
             inline for (info.fields, 0..) |f, i| {
                 if (i == 0) {
                     try w.writeAll(" .");
@@ -952,44 +1243,24 @@ pub fn printValue(
         },
         .pointer => |ptr_info| switch (ptr_info.size) {
             .one => switch (@typeInfo(ptr_info.child)) {
-                .array, .@"enum", .@"union", .@"struct" => {
-                    return w.printValue(fmt, options, value.*, max_depth);
-                },
+                .array => |array_info| return w.printValue(fmt, options, @as([]const array_info.child, value), max_depth),
+                .@"enum", .@"union", .@"struct" => return w.printValue(fmt, options, value.*, max_depth),
                 else => {
                     var buffers: [2][]const u8 = .{ @typeName(ptr_info.child), "@" };
                     try w.writeVecAll(&buffers);
-                    try w.printIntOptions(@intFromPtr(value), 16, .lower, options);
+                    try w.printInt(@intFromPtr(value), 16, .lower, options);
                     return;
                 },
             },
             .many, .c => {
-                if (ptr_info.sentinel() != null)
-                    return w.printValue(fmt, options, std.mem.span(value), max_depth);
-                if (fmt.len == 1 and fmt[0] == 's' and ptr_info.child == u8)
-                    return w.alignBufferOptions(std.mem.span(value), options);
-                if (!is_any and fmt.len == 0)
-                    @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
-                if (!is_any and fmt.len != 0)
-                    invalidFmtError(fmt, value);
+                if (!is_any) @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
+                optionsForbidden(options);
                 try w.printAddress(value);
             },
             .slice => {
-                if (!is_any and fmt.len == 0)
+                if (!is_any)
                     @compileError("cannot format slice without a specifier (i.e. {s}, {x}, {b64}, or {any})");
-                if (max_depth == 0)
-                    return w.writeAll("{ ... }");
-                if (ptr_info.child == u8) switch (fmt.len) {
-                    1 => switch (fmt[0]) {
-                        's' => return w.alignBufferOptions(value, options),
-                        'x' => return w.printHex(value, .lower),
-                        'X' => return w.printHex(value, .upper),
-                        else => {},
-                    },
-                    3 => if (fmt[0] == 'b' and fmt[1] == '6' and fmt[2] == '4') {
-                        return w.printBase64(value);
-                    },
-                    else => {},
-                };
+                if (max_depth == 0) return w.writeAll("{ ... }");
                 try w.writeAll("{ ");
                 for (value, 0..) |elem, i| {
                     try w.printValue(fmt, options, elem, max_depth - 1);
@@ -1000,21 +1271,9 @@ pub fn printValue(
                 try w.writeAll(" }");
             },
         },
-        .array => |info| {
-            if (fmt.len == 0)
-                @compileError("cannot format array without a specifier (i.e. {s} or {any})");
-            if (max_depth == 0) {
-                return w.writeAll("{ ... }");
-            }
-            if (info.child == u8) {
-                if (fmt[0] == 's') {
-                    return w.alignBufferOptions(&value, options);
-                } else if (fmt[0] == 'x') {
-                    return w.printHex(&value, .lower);
-                } else if (fmt[0] == 'X') {
-                    return w.printHex(&value, .upper);
-                }
-            }
+        .array => {
+            if (!is_any) @compileError("cannot format array without a specifier (i.e. {s} or {any})");
+            if (max_depth == 0) return w.writeAll("{ ... }");
             try w.writeAll("{ ");
             for (value, 0..) |elem, i| {
                 try w.printValue(fmt, options, elem, max_depth - 1);
@@ -1024,19 +1283,9 @@ pub fn printValue(
             }
             try w.writeAll(" }");
         },
-        .vector => |info| {
-            if (max_depth == 0) {
-                return w.writeAll("{ ... }");
-            }
-            try w.writeAll("{ ");
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
-                try w.printValue(fmt, options, value[i], max_depth - 1);
-                if (i < info.len - 1) {
-                    try w.writeAll(", ");
-                }
-            }
-            try w.writeAll(" }");
+        .vector => {
+            if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
+            return printVector(w, fmt, options, value, max_depth);
         },
         .@"fn" => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .type => {
@@ -1045,8 +1294,9 @@ pub fn printValue(
         },
         .enum_literal => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
-            const buffer = [_]u8{'.'} ++ @tagName(value);
-            return w.alignBufferOptions(buffer, options);
+            optionsForbidden(options);
+            var vecs: [2][]const u8 = .{ ".", @tagName(value) };
+            return w.writeVecAll(&vecs);
         },
         .null => {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
@@ -1056,75 +1306,78 @@ pub fn printValue(
     }
 }
 
+fn optionsForbidden(options: std.fmt.Options) void {
+    assert(options.precision == null);
+    assert(options.width == null);
+}
+
 fn printErrorSet(w: *Writer, error_set: anyerror) Error!void {
     var vecs: [2][]const u8 = .{ "error.", @errorName(error_set) };
     try w.writeVecAll(&vecs);
 }
 
-pub fn printInt(
+fn printEnumExhaustive(w: *Writer, value: anytype) Error!void {
+    var vecs: [2][]const u8 = .{ ".", @tagName(value) };
+    try w.writeVecAll(&vecs);
+}
+
+fn printEnumNonexhaustive(w: *Writer, value: anytype) Error!void {
+    if (std.enums.tagName(@TypeOf(value), value)) |tag_name| {
+        var vecs: [2][]const u8 = .{ ".", tag_name };
+        try w.writeVecAll(&vecs);
+        return;
+    }
+    try w.writeAll("@enumFromInt(");
+    try w.printInt(@intFromEnum(value), 10, .lower, .{});
+    try w.writeByte(')');
+}
+
+pub fn printVector(
     w: *Writer,
     comptime fmt: []const u8,
     options: std.fmt.Options,
     value: anytype,
+    max_depth: usize,
 ) Error!void {
-    const int_value = if (@TypeOf(value) == comptime_int) blk: {
-        const Int = std.math.IntFittingRange(value, value);
-        break :blk @as(Int, value);
-    } else value;
-
-    switch (fmt.len) {
-        0 => return w.printIntOptions(int_value, 10, .lower, options),
-        1 => switch (fmt[0]) {
-            'd' => return w.printIntOptions(int_value, 10, .lower, options),
-            'c' => {
-                if (@typeInfo(@TypeOf(int_value)).int.bits <= 8) {
-                    return w.printAsciiChar(@as(u8, int_value), options);
-                } else {
-                    @compileError("cannot print integer that is larger than 8 bits as an ASCII character");
-                }
-            },
-            'u' => {
-                if (@typeInfo(@TypeOf(int_value)).int.bits <= 21) {
-                    return w.printUnicodeCodepoint(@as(u21, int_value), options);
-                } else {
-                    @compileError("cannot print integer that is larger than 21 bits as an UTF-8 sequence");
-                }
-            },
-            'b' => return w.printIntOptions(int_value, 2, .lower, options),
-            'x' => return w.printIntOptions(int_value, 16, .lower, options),
-            'X' => return w.printIntOptions(int_value, 16, .upper, options),
-            'o' => return w.printIntOptions(int_value, 8, .lower, options),
-            'B' => return w.printByteSize(int_value, .decimal, options),
-            'D' => return w.printDuration(int_value, options),
-            else => invalidFmtError(fmt, value),
-        },
-        2 => {
-            if (fmt[0] == 'B' and fmt[1] == 'i') {
-                return w.printByteSize(int_value, .binary, options);
-            } else {
-                invalidFmtError(fmt, value);
-            }
-        },
-        else => invalidFmtError(fmt, value),
+    const len = @typeInfo(@TypeOf(value)).vector.len;
+    if (max_depth == 0) return w.writeAll("{ ... }");
+    try w.writeAll("{ ");
+    inline for (0..len) |i| {
+        try w.printValue(fmt, options, value[i], max_depth - 1);
+        if (i < len - 1) try w.writeAll(", ");
     }
-    comptime unreachable;
+    try w.writeAll(" }");
 }
 
-pub fn printAsciiChar(w: *Writer, c: u8, options: std.fmt.Options) Error!void {
-    return w.alignBufferOptions(@as(*const [1]u8, &c), options);
+// A wrapper around `printIntAny` to avoid the generic explosion of this
+// function by funneling smaller integer types through `isize` and `usize`.
+pub inline fn printInt(
+    w: *Writer,
+    value: anytype,
+    base: u8,
+    case: std.fmt.Case,
+    options: std.fmt.Options,
+) Error!void {
+    switch (@TypeOf(value)) {
+        isize, usize => {},
+        comptime_int => {
+            if (comptime std.math.cast(usize, value)) |x| return printIntAny(w, x, base, case, options);
+            if (comptime std.math.cast(isize, value)) |x| return printIntAny(w, x, base, case, options);
+            const Int = std.math.IntFittingRange(value, value);
+            return printIntAny(w, @as(Int, value), base, case, options);
+        },
+        else => switch (@typeInfo(@TypeOf(value)).int.signedness) {
+            .signed => if (std.math.cast(isize, value)) |x| return printIntAny(w, x, base, case, options),
+            .unsigned => if (std.math.cast(usize, value)) |x| return printIntAny(w, x, base, case, options),
+        },
+    }
+    return printIntAny(w, value, base, case, options);
 }
 
-pub fn printAscii(w: *Writer, bytes: []const u8, options: std.fmt.Options) Error!void {
-    return w.alignBufferOptions(bytes, options);
-}
-
-pub fn printUnicodeCodepoint(w: *Writer, c: u21, options: std.fmt.Options) Error!void {
-    var buf: [4]u8 = undefined;
-    const len = try std.unicode.utf8Encode(c, &buf);
-    return w.alignBufferOptions(buf[0..len], options);
-}
-
-pub fn printIntOptions(
+/// In general, prefer `printInt` to avoid generic explosion. However this
+/// function may be used when optimal codegen for a particular integer type is
+/// desired.
+pub fn printIntAny(
     w: *Writer,
     value: anytype,
     base: u8,
@@ -1132,20 +1385,14 @@ pub fn printIntOptions(
     options: std.fmt.Options,
 ) Error!void {
     assert(base >= 2);
-
-    const int_value = if (@TypeOf(value) == comptime_int) blk: {
-        const Int = std.math.IntFittingRange(value, value);
-        break :blk @as(Int, value);
-    } else value;
-
-    const value_info = @typeInfo(@TypeOf(int_value)).int;
+    const value_info = @typeInfo(@TypeOf(value)).int;
 
     // The type must have the same size as `base` or be wider in order for the
     // division to work
     const min_int_bits = comptime @max(value_info.bits, 8);
     const MinInt = std.meta.Int(.unsigned, min_int_bits);
 
-    const abs_value = @abs(int_value);
+    const abs_value = @abs(value);
     // The worst case in terms of space needed is base 2, plus 1 for the sign
     var buf: [1 + @max(@as(comptime_int, value_info.bits), 1)]u8 = undefined;
 
@@ -1192,41 +1439,69 @@ pub fn printIntOptions(
     return w.alignBufferOptions(buf[index..], options);
 }
 
-pub fn printFloat(
-    w: *Writer,
-    comptime fmt: []const u8,
-    options: std.fmt.Options,
-    value: anytype,
-) Error!void {
-    var buf: [std.fmt.float.bufferSize(.decimal, f64)]u8 = undefined;
-
-    if (fmt.len > 1) invalidFmtError(fmt, value);
-    switch (if (fmt.len == 0) 'e' else fmt[0]) {
-        'e' => {
-            const s = std.fmt.float.render(&buf, value, .{ .mode = .scientific, .precision = options.precision }) catch |err| switch (err) {
-                error.BufferTooSmall => "(float)",
-            };
-            return w.alignBufferOptions(s, options);
-        },
-        'd' => {
-            const s = std.fmt.float.render(&buf, value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
-                error.BufferTooSmall => "(float)",
-            };
-            return w.alignBufferOptions(s, options);
-        },
-        'x' => {
-            var sub_bw: Writer = .fixed(&buf);
-            sub_bw.printFloatHexadecimal(value, options.precision) catch unreachable;
-            return w.alignBufferOptions(sub_bw.buffered(), options);
-        },
-        else => invalidFmtError(fmt, value),
-    }
+pub fn printAsciiChar(w: *Writer, c: u8, options: std.fmt.Options) Error!void {
+    return w.alignBufferOptions(@as(*const [1]u8, &c), options);
 }
 
-pub fn printFloatHexadecimal(w: *Writer, value: anytype, opt_precision: ?usize) Error!void {
+pub fn printAscii(w: *Writer, bytes: []const u8, options: std.fmt.Options) Error!void {
+    return w.alignBufferOptions(bytes, options);
+}
+
+pub fn printUnicodeCodepoint(w: *Writer, c: u21) Error!void {
+    var buf: [4]u8 = undefined;
+    const len = std.unicode.utf8Encode(c, &buf) catch |err| switch (err) {
+        error.Utf8CannotEncodeSurrogateHalf, error.CodepointTooLarge => l: {
+            buf[0..3].* = std.unicode.replacement_character_utf8;
+            break :l 3;
+        },
+    };
+    return w.writeAll(buf[0..len]);
+}
+
+/// Uses a larger stack buffer; asserts mode is decimal or scientific.
+pub fn printFloat(w: *Writer, value: anytype, options: std.fmt.Number) Error!void {
+    const mode: std.fmt.float.Mode = switch (options.mode) {
+        .decimal => .decimal,
+        .scientific => .scientific,
+        .binary, .octal, .hex => unreachable,
+    };
+    var buf: [std.fmt.float.bufferSize(.decimal, f64)]u8 = undefined;
+    const s = std.fmt.float.render(&buf, value, .{
+        .mode = mode,
+        .precision = options.precision,
+    }) catch |err| switch (err) {
+        error.BufferTooSmall => "(float)",
+    };
+    return w.alignBuffer(s, options.width orelse s.len, options.alignment, options.fill);
+}
+
+/// Uses a smaller stack buffer; asserts mode is not decimal or scientific.
+pub fn printFloatHexOptions(w: *Writer, value: anytype, options: std.fmt.Number) Error!void {
+    var buf: [50]u8 = undefined; // for aligning
+    var sub_writer: Writer = .fixed(&buf);
+    switch (options.mode) {
+        .decimal => unreachable,
+        .scientific => unreachable,
+        .binary => @panic("TODO"),
+        .octal => @panic("TODO"),
+        .hex => {},
+    }
+    printFloatHex(&sub_writer, value, options.case, options.precision) catch unreachable; // buf is large enough
+
+    const printed = sub_writer.buffered();
+    return w.alignBuffer(printed, options.width orelse printed.len, options.alignment, options.fill);
+}
+
+pub fn printFloatHex(w: *Writer, value: anytype, case: std.fmt.Case, opt_precision: ?usize) Error!void {
     if (std.math.signbit(value)) try w.writeByte('-');
-    if (std.math.isNan(value)) return w.writeAll("nan");
-    if (std.math.isInf(value)) return w.writeAll("inf");
+    if (std.math.isNan(value)) return w.writeAll(switch (case) {
+        .lower => "nan",
+        .upper => "NAN",
+    });
+    if (std.math.isInf(value)) return w.writeAll(switch (case) {
+        .lower => "inf",
+        .upper => "INF",
+    });
 
     const T = @TypeOf(value);
     const TU = std.meta.Int(.unsigned, @bitSizeOf(T));
@@ -1302,7 +1577,7 @@ pub fn printFloatHexadecimal(w: *Writer, value: anytype, opt_precision: ?usize) 
 
     // +1 for the decimal part.
     var buf: [1 + mantissa_digits]u8 = undefined;
-    assert(std.fmt.printInt(&buf, mantissa, 16, .lower, .{ .fill = '0', .width = 1 + mantissa_digits }) == buf.len);
+    assert(std.fmt.printInt(&buf, mantissa, 16, case, .{ .fill = '0', .width = 1 + mantissa_digits }) == buf.len);
 
     try w.writeAll("0x");
     try w.writeByte(buf[0]);
@@ -1319,7 +1594,7 @@ pub fn printFloatHexadecimal(w: *Writer, value: anytype, opt_precision: ?usize) 
             try w.splatByteAll('0', precision - trimmed.len);
     };
     try w.writeAll("p");
-    try w.printIntOptions(exponent - exponent_bias, 10, .lower, .{});
+    try w.printInt(exponent - exponent_bias, 10, case, .{});
 }
 
 pub const ByteSizeUnits = enum {
@@ -1415,7 +1690,7 @@ pub fn printDurationUnsigned(w: *Writer, ns: u64) Error!void {
     }) |unit| {
         if (ns_remaining >= unit.ns) {
             const units = ns_remaining / unit.ns;
-            try w.printIntOptions(units, 10, .lower, .{});
+            try w.printInt(units, 10, .lower, .{});
             try w.writeByte(unit.sep);
             ns_remaining -= units * unit.ns;
             if (ns_remaining == 0) return;
@@ -1429,13 +1704,13 @@ pub fn printDurationUnsigned(w: *Writer, ns: u64) Error!void {
     }) |unit| {
         const kunits = ns_remaining * 1000 / unit.ns;
         if (kunits >= 1000) {
-            try w.printIntOptions(kunits / 1000, 10, .lower, .{});
+            try w.printInt(kunits / 1000, 10, .lower, .{});
             const frac = kunits % 1000;
             if (frac > 0) {
                 // Write up to 3 decimal places
                 var decimal_buf = [_]u8{ '.', 0, 0, 0 };
                 var inner: Writer = .fixed(decimal_buf[1..]);
-                inner.printIntOptions(frac, 10, .lower, .{ .fill = '0', .width = 3 }) catch unreachable;
+                inner.printInt(frac, 10, .lower, .{ .fill = '0', .width = 3 }) catch unreachable;
                 var end: usize = 4;
                 while (end > 1) : (end -= 1) {
                     if (decimal_buf[end - 1] != '0') break;
@@ -1446,7 +1721,7 @@ pub fn printDurationUnsigned(w: *Writer, ns: u64) Error!void {
         }
     }
 
-    try w.printIntOptions(ns_remaining, 10, .lower, .{});
+    try w.printInt(ns_remaining, 10, .lower, .{});
     try w.writeAll("ns");
 }
 
@@ -1456,12 +1731,18 @@ pub fn printDurationUnsigned(w: *Writer, ns: u64) Error!void {
 pub fn printDuration(w: *Writer, nanoseconds: anytype, options: std.fmt.Options) Error!void {
     // worst case: "-XXXyXXwXXdXXhXXmXX.XXXs".len = 24
     var buf: [24]u8 = undefined;
-    var sub_bw: Writer = .fixed(&buf);
-    switch (@typeInfo(@TypeOf(nanoseconds)).int.signedness) {
-        .signed => sub_bw.printDurationSigned(nanoseconds) catch unreachable,
-        .unsigned => sub_bw.printDurationUnsigned(nanoseconds) catch unreachable,
+    var sub_writer: Writer = .fixed(&buf);
+    if (@TypeOf(nanoseconds) == comptime_int) {
+        if (nanoseconds >= 0) {
+            sub_writer.printDurationUnsigned(nanoseconds) catch unreachable;
+        } else {
+            sub_writer.printDurationSigned(nanoseconds) catch unreachable;
+        }
+    } else switch (@typeInfo(@TypeOf(nanoseconds)).int.signedness) {
+        .signed => sub_writer.printDurationSigned(nanoseconds) catch unreachable,
+        .unsigned => sub_writer.printDurationUnsigned(nanoseconds) catch unreachable,
     }
-    return w.alignBufferOptions(sub_bw.buffered(), options);
+    return w.alignBufferOptions(sub_writer.buffered(), options);
 }
 
 pub fn printHex(w: *Writer, bytes: []const u8, case: std.fmt.Case) Error!void {
@@ -1547,24 +1828,14 @@ fn writeMultipleOf7Leb128(w: *Writer, value: anytype) Error!void {
     }
 }
 
-test "formatValue max_depth" {
+test "printValue max_depth" {
     const Vec2 = struct {
         const SelfType = @This();
         x: f32,
         y: f32,
 
-        pub fn format(
-            self: SelfType,
-            comptime fmt: []const u8,
-            options: std.fmt.Options,
-            w: *Writer,
-        ) Error!void {
-            _ = options;
-            if (fmt.len == 0) {
-                return w.print("({d:.3},{d:.3})", .{ self.x, self.y });
-            } else {
-                @compileError("unknown format string: '" ++ fmt ++ "'");
-            }
+        pub fn format(self: SelfType, w: *Writer) Error!void {
+            return w.print("({d:.3},{d:.3})", .{ self.x, self.y });
         }
     };
     const E = enum {
@@ -1598,133 +1869,133 @@ test "formatValue max_depth" {
     var buf: [1000]u8 = undefined;
     var w: Writer = .fixed(&buf);
     try w.printValue("", .{}, inst, 0);
-    try testing.expectEqualStrings("io.Writer.test.printValue max_depth.S{ ... }", w.buffered());
+    try testing.expectEqualStrings(".{ ... }", w.buffered());
 
-    w.reset();
+    w = .fixed(&buf);
     try w.printValue("", .{}, inst, 1);
-    try testing.expectEqualStrings("io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ ... }, .tu = io.Writer.test.printValue max_depth.TU{ ... }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }", w.buffered());
+    try testing.expectEqualStrings(".{ .a = .{ ... }, .tu = .{ ... }, .e = .Two, .vec = .{ ... } }", w.buffered());
 
-    w.reset();
+    w = .fixed(&buf);
     try w.printValue("", .{}, inst, 2);
-    try testing.expectEqualStrings("io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ ... }, .tu = io.Writer.test.printValue max_depth.TU{ ... }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }, .tu = io.Writer.test.printValue max_depth.TU{ .ptr = io.Writer.test.printValue max_depth.TU{ ... } }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }", w.buffered());
+    try testing.expectEqualStrings(".{ .a = .{ .a = .{ ... }, .tu = .{ ... }, .e = .Two, .vec = .{ ... } }, .tu = .{ .ptr = .{ ... } }, .e = .Two, .vec = .{ .x = 10.2, .y = 2.22 } }", w.buffered());
 
-    w.reset();
+    w = .fixed(&buf);
     try w.printValue("", .{}, inst, 3);
-    try testing.expectEqualStrings("io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ .a = io.Writer.test.printValue max_depth.S{ ... }, .tu = io.Writer.test.printValue max_depth.TU{ ... }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }, .tu = io.Writer.test.printValue max_depth.TU{ .ptr = io.Writer.test.printValue max_depth.TU{ ... } }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }, .tu = io.Writer.test.printValue max_depth.TU{ .ptr = io.Writer.test.printValue max_depth.TU{ .ptr = io.Writer.test.printValue max_depth.TU{ ... } } }, .e = io.Writer.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }", w.buffered());
+    try testing.expectEqualStrings(".{ .a = .{ .a = .{ .a = .{ ... }, .tu = .{ ... }, .e = .Two, .vec = .{ ... } }, .tu = .{ .ptr = .{ ... } }, .e = .Two, .vec = .{ .x = 10.2, .y = 2.22 } }, .tu = .{ .ptr = .{ .ptr = .{ ... } } }, .e = .Two, .vec = .{ .x = 10.2, .y = 2.22 } }", w.buffered());
 
     const vec: @Vector(4, i32) = .{ 1, 2, 3, 4 };
-    w.reset();
+    w = .fixed(&buf);
     try w.printValue("", .{}, vec, 0);
     try testing.expectEqualStrings("{ ... }", w.buffered());
 
-    w.reset();
+    w = .fixed(&buf);
     try w.printValue("", .{}, vec, 1);
     try testing.expectEqualStrings("{ 1, 2, 3, 4 }", w.buffered());
 }
 
 test printDuration {
-    testDurationCase("0ns", 0);
-    testDurationCase("1ns", 1);
-    testDurationCase("999ns", std.time.ns_per_us - 1);
-    testDurationCase("1us", std.time.ns_per_us);
-    testDurationCase("1.45us", 1450);
-    testDurationCase("1.5us", 3 * std.time.ns_per_us / 2);
-    testDurationCase("14.5us", 14500);
-    testDurationCase("145us", 145000);
-    testDurationCase("999.999us", std.time.ns_per_ms - 1);
-    testDurationCase("1ms", std.time.ns_per_ms + 1);
-    testDurationCase("1.5ms", 3 * std.time.ns_per_ms / 2);
-    testDurationCase("1.11ms", 1110000);
-    testDurationCase("1.111ms", 1111000);
-    testDurationCase("1.111ms", 1111100);
-    testDurationCase("999.999ms", std.time.ns_per_s - 1);
-    testDurationCase("1s", std.time.ns_per_s);
-    testDurationCase("59.999s", std.time.ns_per_min - 1);
-    testDurationCase("1m", std.time.ns_per_min);
-    testDurationCase("1h", std.time.ns_per_hour);
-    testDurationCase("1d", std.time.ns_per_day);
-    testDurationCase("1w", std.time.ns_per_week);
-    testDurationCase("1y", 365 * std.time.ns_per_day);
-    testDurationCase("1y52w23h59m59.999s", 730 * std.time.ns_per_day - 1); // 365d = 52w1
-    testDurationCase("1y1h1.001s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms);
-    testDurationCase("1y1h1s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us);
-    testDurationCase("1y1h999.999us", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1);
-    testDurationCase("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms);
-    testDurationCase("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1);
-    testDurationCase("1y1m999ns", 365 * std.time.ns_per_day + std.time.ns_per_min + 999);
-    testDurationCase("584y49w23h34m33.709s", std.math.maxInt(u64));
+    try testDurationCase("0ns", 0);
+    try testDurationCase("1ns", 1);
+    try testDurationCase("999ns", std.time.ns_per_us - 1);
+    try testDurationCase("1us", std.time.ns_per_us);
+    try testDurationCase("1.45us", 1450);
+    try testDurationCase("1.5us", 3 * std.time.ns_per_us / 2);
+    try testDurationCase("14.5us", 14500);
+    try testDurationCase("145us", 145000);
+    try testDurationCase("999.999us", std.time.ns_per_ms - 1);
+    try testDurationCase("1ms", std.time.ns_per_ms + 1);
+    try testDurationCase("1.5ms", 3 * std.time.ns_per_ms / 2);
+    try testDurationCase("1.11ms", 1110000);
+    try testDurationCase("1.111ms", 1111000);
+    try testDurationCase("1.111ms", 1111100);
+    try testDurationCase("999.999ms", std.time.ns_per_s - 1);
+    try testDurationCase("1s", std.time.ns_per_s);
+    try testDurationCase("59.999s", std.time.ns_per_min - 1);
+    try testDurationCase("1m", std.time.ns_per_min);
+    try testDurationCase("1h", std.time.ns_per_hour);
+    try testDurationCase("1d", std.time.ns_per_day);
+    try testDurationCase("1w", std.time.ns_per_week);
+    try testDurationCase("1y", 365 * std.time.ns_per_day);
+    try testDurationCase("1y52w23h59m59.999s", 730 * std.time.ns_per_day - 1); // 365d = 52w1
+    try testDurationCase("1y1h1.001s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms);
+    try testDurationCase("1y1h1s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us);
+    try testDurationCase("1y1h999.999us", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1);
+    try testDurationCase("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms);
+    try testDurationCase("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1);
+    try testDurationCase("1y1m999ns", 365 * std.time.ns_per_day + std.time.ns_per_min + 999);
+    try testDurationCase("584y49w23h34m33.709s", std.math.maxInt(u64));
 
-    testing.expectFmt("=======0ns", "{D:=>10}", .{0});
-    testing.expectFmt("1ns=======", "{D:=<10}", .{1});
-    testing.expectFmt("  999ns   ", "{D:^10}", .{std.time.ns_per_us - 1});
+    try testing.expectFmt("=======0ns", "{D:=>10}", .{0});
+    try testing.expectFmt("1ns=======", "{D:=<10}", .{1});
+    try testing.expectFmt("  999ns   ", "{D:^10}", .{std.time.ns_per_us - 1});
 }
 
 test printDurationSigned {
-    testDurationCaseSigned("0ns", 0);
-    testDurationCaseSigned("1ns", 1);
-    testDurationCaseSigned("-1ns", -(1));
-    testDurationCaseSigned("999ns", std.time.ns_per_us - 1);
-    testDurationCaseSigned("-999ns", -(std.time.ns_per_us - 1));
-    testDurationCaseSigned("1us", std.time.ns_per_us);
-    testDurationCaseSigned("-1us", -(std.time.ns_per_us));
-    testDurationCaseSigned("1.45us", 1450);
-    testDurationCaseSigned("-1.45us", -(1450));
-    testDurationCaseSigned("1.5us", 3 * std.time.ns_per_us / 2);
-    testDurationCaseSigned("-1.5us", -(3 * std.time.ns_per_us / 2));
-    testDurationCaseSigned("14.5us", 14500);
-    testDurationCaseSigned("-14.5us", -(14500));
-    testDurationCaseSigned("145us", 145000);
-    testDurationCaseSigned("-145us", -(145000));
-    testDurationCaseSigned("999.999us", std.time.ns_per_ms - 1);
-    testDurationCaseSigned("-999.999us", -(std.time.ns_per_ms - 1));
-    testDurationCaseSigned("1ms", std.time.ns_per_ms + 1);
-    testDurationCaseSigned("-1ms", -(std.time.ns_per_ms + 1));
-    testDurationCaseSigned("1.5ms", 3 * std.time.ns_per_ms / 2);
-    testDurationCaseSigned("-1.5ms", -(3 * std.time.ns_per_ms / 2));
-    testDurationCaseSigned("1.11ms", 1110000);
-    testDurationCaseSigned("-1.11ms", -(1110000));
-    testDurationCaseSigned("1.111ms", 1111000);
-    testDurationCaseSigned("-1.111ms", -(1111000));
-    testDurationCaseSigned("1.111ms", 1111100);
-    testDurationCaseSigned("-1.111ms", -(1111100));
-    testDurationCaseSigned("999.999ms", std.time.ns_per_s - 1);
-    testDurationCaseSigned("-999.999ms", -(std.time.ns_per_s - 1));
-    testDurationCaseSigned("1s", std.time.ns_per_s);
-    testDurationCaseSigned("-1s", -(std.time.ns_per_s));
-    testDurationCaseSigned("59.999s", std.time.ns_per_min - 1);
-    testDurationCaseSigned("-59.999s", -(std.time.ns_per_min - 1));
-    testDurationCaseSigned("1m", std.time.ns_per_min);
-    testDurationCaseSigned("-1m", -(std.time.ns_per_min));
-    testDurationCaseSigned("1h", std.time.ns_per_hour);
-    testDurationCaseSigned("-1h", -(std.time.ns_per_hour));
-    testDurationCaseSigned("1d", std.time.ns_per_day);
-    testDurationCaseSigned("-1d", -(std.time.ns_per_day));
-    testDurationCaseSigned("1w", std.time.ns_per_week);
-    testDurationCaseSigned("-1w", -(std.time.ns_per_week));
-    testDurationCaseSigned("1y", 365 * std.time.ns_per_day);
-    testDurationCaseSigned("-1y", -(365 * std.time.ns_per_day));
-    testDurationCaseSigned("1y52w23h59m59.999s", 730 * std.time.ns_per_day - 1); // 365d = 52w1d
-    testDurationCaseSigned("-1y52w23h59m59.999s", -(730 * std.time.ns_per_day - 1)); // 365d = 52w1d
-    testDurationCaseSigned("1y1h1.001s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms);
-    testDurationCaseSigned("-1y1h1.001s", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms));
-    testDurationCaseSigned("1y1h1s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us);
-    testDurationCaseSigned("-1y1h1s", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us));
-    testDurationCaseSigned("1y1h999.999us", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1);
-    testDurationCaseSigned("-1y1h999.999us", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1));
-    testDurationCaseSigned("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms);
-    testDurationCaseSigned("-1y1h1ms", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms));
-    testDurationCaseSigned("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1);
-    testDurationCaseSigned("-1y1h1ms", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1));
-    testDurationCaseSigned("1y1m999ns", 365 * std.time.ns_per_day + std.time.ns_per_min + 999);
-    testDurationCaseSigned("-1y1m999ns", -(365 * std.time.ns_per_day + std.time.ns_per_min + 999));
-    testDurationCaseSigned("292y24w3d23h47m16.854s", std.math.maxInt(i64));
-    testDurationCaseSigned("-292y24w3d23h47m16.854s", std.math.minInt(i64) + 1);
-    testDurationCaseSigned("-292y24w3d23h47m16.854s", std.math.minInt(i64));
+    try testDurationCaseSigned("0ns", 0);
+    try testDurationCaseSigned("1ns", 1);
+    try testDurationCaseSigned("-1ns", -(1));
+    try testDurationCaseSigned("999ns", std.time.ns_per_us - 1);
+    try testDurationCaseSigned("-999ns", -(std.time.ns_per_us - 1));
+    try testDurationCaseSigned("1us", std.time.ns_per_us);
+    try testDurationCaseSigned("-1us", -(std.time.ns_per_us));
+    try testDurationCaseSigned("1.45us", 1450);
+    try testDurationCaseSigned("-1.45us", -(1450));
+    try testDurationCaseSigned("1.5us", 3 * std.time.ns_per_us / 2);
+    try testDurationCaseSigned("-1.5us", -(3 * std.time.ns_per_us / 2));
+    try testDurationCaseSigned("14.5us", 14500);
+    try testDurationCaseSigned("-14.5us", -(14500));
+    try testDurationCaseSigned("145us", 145000);
+    try testDurationCaseSigned("-145us", -(145000));
+    try testDurationCaseSigned("999.999us", std.time.ns_per_ms - 1);
+    try testDurationCaseSigned("-999.999us", -(std.time.ns_per_ms - 1));
+    try testDurationCaseSigned("1ms", std.time.ns_per_ms + 1);
+    try testDurationCaseSigned("-1ms", -(std.time.ns_per_ms + 1));
+    try testDurationCaseSigned("1.5ms", 3 * std.time.ns_per_ms / 2);
+    try testDurationCaseSigned("-1.5ms", -(3 * std.time.ns_per_ms / 2));
+    try testDurationCaseSigned("1.11ms", 1110000);
+    try testDurationCaseSigned("-1.11ms", -(1110000));
+    try testDurationCaseSigned("1.111ms", 1111000);
+    try testDurationCaseSigned("-1.111ms", -(1111000));
+    try testDurationCaseSigned("1.111ms", 1111100);
+    try testDurationCaseSigned("-1.111ms", -(1111100));
+    try testDurationCaseSigned("999.999ms", std.time.ns_per_s - 1);
+    try testDurationCaseSigned("-999.999ms", -(std.time.ns_per_s - 1));
+    try testDurationCaseSigned("1s", std.time.ns_per_s);
+    try testDurationCaseSigned("-1s", -(std.time.ns_per_s));
+    try testDurationCaseSigned("59.999s", std.time.ns_per_min - 1);
+    try testDurationCaseSigned("-59.999s", -(std.time.ns_per_min - 1));
+    try testDurationCaseSigned("1m", std.time.ns_per_min);
+    try testDurationCaseSigned("-1m", -(std.time.ns_per_min));
+    try testDurationCaseSigned("1h", std.time.ns_per_hour);
+    try testDurationCaseSigned("-1h", -(std.time.ns_per_hour));
+    try testDurationCaseSigned("1d", std.time.ns_per_day);
+    try testDurationCaseSigned("-1d", -(std.time.ns_per_day));
+    try testDurationCaseSigned("1w", std.time.ns_per_week);
+    try testDurationCaseSigned("-1w", -(std.time.ns_per_week));
+    try testDurationCaseSigned("1y", 365 * std.time.ns_per_day);
+    try testDurationCaseSigned("-1y", -(365 * std.time.ns_per_day));
+    try testDurationCaseSigned("1y52w23h59m59.999s", 730 * std.time.ns_per_day - 1); // 365d = 52w1d
+    try testDurationCaseSigned("-1y52w23h59m59.999s", -(730 * std.time.ns_per_day - 1)); // 365d = 52w1d
+    try testDurationCaseSigned("1y1h1.001s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms);
+    try testDurationCaseSigned("-1y1h1.001s", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + std.time.ns_per_ms));
+    try testDurationCaseSigned("1y1h1s", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us);
+    try testDurationCaseSigned("-1y1h1s", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_s + 999 * std.time.ns_per_us));
+    try testDurationCaseSigned("1y1h999.999us", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1);
+    try testDurationCaseSigned("-1y1h999.999us", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms - 1));
+    try testDurationCaseSigned("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms);
+    try testDurationCaseSigned("-1y1h1ms", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms));
+    try testDurationCaseSigned("1y1h1ms", 365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1);
+    try testDurationCaseSigned("-1y1h1ms", -(365 * std.time.ns_per_day + std.time.ns_per_hour + std.time.ns_per_ms + 1));
+    try testDurationCaseSigned("1y1m999ns", 365 * std.time.ns_per_day + std.time.ns_per_min + 999);
+    try testDurationCaseSigned("-1y1m999ns", -(365 * std.time.ns_per_day + std.time.ns_per_min + 999));
+    try testDurationCaseSigned("292y24w3d23h47m16.854s", std.math.maxInt(i64));
+    try testDurationCaseSigned("-292y24w3d23h47m16.854s", std.math.minInt(i64) + 1);
+    try testDurationCaseSigned("-292y24w3d23h47m16.854s", std.math.minInt(i64));
 
-    testing.expectFmt("=======0ns", "{s:=>10}", .{0});
-    testing.expectFmt("1ns=======", "{s:=<10}", .{1});
-    testing.expectFmt("-1ns======", "{s:=<10}", .{-(1)});
-    testing.expectFmt("  -999ns  ", "{s:^10}", .{-(std.time.ns_per_us - 1)});
+    try testing.expectFmt("=======0ns", "{D:=>10}", .{0});
+    try testing.expectFmt("1ns=======", "{D:=<10}", .{1});
+    try testing.expectFmt("-1ns======", "{D:=<10}", .{-(1)});
+    try testing.expectFmt("  -999ns  ", "{D:^10}", .{-(std.time.ns_per_us - 1)});
 }
 
 fn testDurationCase(expected: []const u8, input: u64) !void {
@@ -1741,7 +2012,7 @@ fn testDurationCaseSigned(expected: []const u8, input: i64) !void {
     try testing.expectEqualStrings(expected, w.buffered());
 }
 
-test printIntOptions {
+test printInt {
     try testPrintIntCase("-1", @as(i1, -1), 10, .lower, .{});
 
     try testPrintIntCase("-101111000110000101001110", @as(i32, -12345678), 2, .lower, .{});
@@ -1757,27 +2028,22 @@ test printIntOptions {
 
     try testPrintIntCase("+42", @as(i32, 42), 10, .lower, .{ .width = 3 });
     try testPrintIntCase("-42", @as(i32, -42), 10, .lower, .{ .width = 3 });
-}
 
-test "printInt with comptime_int" {
-    var buf: [20]u8 = undefined;
-    var w: Writer = .fixed(&buf);
-    try w.printInt(@as(comptime_int, 123456789123456789), "", .{});
-    try std.testing.expectEqualStrings("123456789123456789", w.buffered());
+    try testPrintIntCase("123456789123456789", @as(comptime_int, 123456789123456789), 10, .lower, .{});
 }
 
 test "printFloat with comptime_float" {
     var buf: [20]u8 = undefined;
     var w: Writer = .fixed(&buf);
-    try w.printFloat("", .{}, @as(comptime_float, 1.0));
-    try std.testing.expectEqualStrings(w.buffered(), "1e0");
-    try std.testing.expectFmt("1e0", "{}", .{1.0});
+    try w.printFloat(@as(comptime_float, 1.0), std.fmt.Options.toNumber(.{}, .scientific, .lower));
+    try testing.expectEqualStrings(w.buffered(), "1e0");
+    try testing.expectFmt("1", "{}", .{1.0});
 }
 
 fn testPrintIntCase(expected: []const u8, value: anytype, base: u8, case: std.fmt.Case, options: std.fmt.Options) !void {
     var buffer: [100]u8 = undefined;
     var w: Writer = .fixed(&buffer);
-    w.printIntOptions(value, base, case, options);
+    try w.printInt(value, base, case, options);
     try testing.expectEqualStrings(expected, w.buffered());
 }
 
@@ -1798,12 +2064,12 @@ test printByteSize {
 
 test "bytes.hex" {
     const some_bytes = "\xCA\xFE\xBA\xBE";
-    try std.testing.expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
-    try std.testing.expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
-    try std.testing.expectFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
-    try std.testing.expectFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
+    try testing.expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
+    try testing.expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
+    try testing.expectFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
+    try testing.expectFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
     const bytes_with_zeros = "\x00\x0E\xBA\xBE";
-    try std.testing.expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
+    try testing.expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
 }
 
 test fixed {
@@ -1832,17 +2098,22 @@ test "fixed output" {
     try w.writeAll("world");
     try testing.expect(std.mem.eql(u8, w.buffered(), "Helloworld"));
 
-    try testing.expectError(error.WriteStreamEnd, w.writeAll("!"));
+    try testing.expectError(error.WriteFailed, w.writeAll("!"));
     try testing.expect(std.mem.eql(u8, w.buffered(), "Helloworld"));
 
-    w.reset();
+    w = .fixed(&buffer);
+
     try testing.expect(w.buffered().len == 0);
 
-    try testing.expectError(error.WriteStreamEnd, w.writeAll("Hello world!"));
+    try testing.expectError(error.WriteFailed, w.writeAll("Hello world!"));
     try testing.expect(std.mem.eql(u8, w.buffered(), "Hello worl"));
+}
 
-    try w.seekTo((try w.getEndPos()) + 1);
-    try testing.expectError(error.WriteStreamEnd, w.writeAll("H"));
+test "writeSplat 0 len splat larger than capacity" {
+    var buf: [8]u8 = undefined;
+    var w: std.io.Writer = .fixed(&buf);
+    const n = try w.writeSplat(&.{"something that overflows buf"}, 0);
+    try testing.expectEqual(0, n);
 }
 
 pub fn failingDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
@@ -1859,29 +2130,52 @@ pub fn failingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) File
     return error.WriteFailed;
 }
 
-pub fn discardingDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-    const slice = data[0 .. data.len - 1];
-    const pattern = data[slice.len..];
-    var written: usize = pattern.len * splat;
-    for (slice) |bytes| written += bytes.len;
-    w.end = 0;
-    return written;
-}
+pub const Discarding = struct {
+    count: u64,
+    writer: Writer,
 
-pub fn discardingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
-    if (File.Handle == void) return error.Unimplemented;
-    w.end = 0;
-    if (file_reader.getSize()) |size| {
-        const n = limit.minInt(size - file_reader.pos);
-        file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
-        w.end = 0;
-        return n;
-    } else |_| {
-        // Error is observable on `file_reader` instance, and it is better to
-        // treat the file as a pipe.
-        return error.Unimplemented;
+    pub fn init(buffer: []u8) Discarding {
+        return .{
+            .count = 0,
+            .writer = .{
+                .vtable = &.{
+                    .drain = Discarding.drain,
+                    .sendFile = Discarding.sendFile,
+                },
+                .buffer = buffer,
+            },
+        };
     }
-}
+
+    pub fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+        const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
+        const slice = data[0 .. data.len - 1];
+        const pattern = data[slice.len..];
+        var written: usize = pattern.len * splat;
+        for (slice) |bytes| written += bytes.len;
+        d.count += w.end + written;
+        w.end = 0;
+        return written;
+    }
+
+    pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+        if (File.Handle == void) return error.Unimplemented;
+        const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
+        d.count += w.end;
+        w.end = 0;
+        if (file_reader.getSize()) |size| {
+            const n = limit.minInt64(size - file_reader.pos);
+            file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
+            w.end = 0;
+            d.count += n;
+            return n;
+        } else |_| {
+            // Error is observable on `file_reader` instance, and it is better to
+            // treat the file as a pipe.
+            return error.Unimplemented;
+        }
+    }
+};
 
 /// Removes the first `n` bytes from `buffer` by shifting buffer contents,
 /// returning how many bytes are left after consuming the entire buffer, or
@@ -1966,28 +2260,27 @@ pub fn Hashed(comptime Hasher: type) type {
     return struct {
         out: *Writer,
         hasher: Hasher,
-        interface: Writer,
+        writer: Writer,
 
-        pub fn init(out: *Writer) @This() {
+        pub fn init(out: *Writer, buffer: []u8) @This() {
+            return .initHasher(out, .{}, buffer);
+        }
+
+        pub fn initHasher(out: *Writer, hasher: Hasher, buffer: []u8) @This() {
             return .{
                 .out = out,
-                .hasher = .{},
-                .interface = .{
-                    .vtable = &.{@This().drain},
+                .hasher = hasher,
+                .writer = .{
+                    .buffer = buffer,
+                    .vtable = &.{ .drain = @This().drain },
                 },
             };
         }
 
         fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-            const this: *@This() = @alignCast(@fieldParentPtr("interface", w));
-            if (data.len == 0) {
-                const buf = w.buffered();
-                try this.out.writeAll(buf);
-                this.hasher.update(buf);
-                w.end = 0;
-                return buf.len;
-            }
-            const aux_n = try this.out.writeSplatAux(w.buffered(), data, splat);
+            const this: *@This() = @alignCast(@fieldParentPtr("writer", w));
+            const aux = w.buffered();
+            const aux_n = try this.out.writeSplatHeader(aux, data, splat);
             if (aux_n < w.end) {
                 this.hasher.update(w.buffer[0..aux_n]);
                 const remaining = w.buffer[aux_n..w.end];
@@ -1995,29 +2288,20 @@ pub fn Hashed(comptime Hasher: type) type {
                 w.end = remaining.len;
                 return 0;
             }
-            this.hasher.update(w.buffered());
+            this.hasher.update(aux);
             const n = aux_n - w.end;
             w.end = 0;
             var remaining: usize = n;
-            const short_data = data[0 .. data.len - @intFromBool(splat == 0)];
-            for (short_data) |slice| {
-                if (remaining < slice.len) {
+            for (data[0 .. data.len - 1]) |slice| {
+                if (remaining <= slice.len) {
                     this.hasher.update(slice[0..remaining]);
                     return n;
-                } else {
-                    remaining -= slice.len;
-                    this.hasher.update(slice);
                 }
+                remaining -= slice.len;
+                this.hasher.update(slice);
             }
-            const remaining_splat = switch (splat) {
-                0, 1 => {
-                    assert(remaining == 0);
-                    return n;
-                },
-                else => splat - 1,
-            };
             const pattern = data[data.len - 1];
-            assert(remaining == remaining_splat * pattern.len);
+            assert(remaining == splat * pattern.len);
             switch (pattern.len) {
                 0 => {
                     assert(remaining == 0);
@@ -2053,12 +2337,12 @@ pub fn Hashed(comptime Hasher: type) type {
 /// When using this API, it is not necessary to call `flush`.
 pub const Allocating = struct {
     allocator: Allocator,
-    interface: Writer,
+    writer: Writer,
 
     pub fn init(allocator: Allocator) Allocating {
         return .{
             .allocator = allocator,
-            .interface = .{
+            .writer = .{
                 .buffer = &.{},
                 .vtable = &vtable,
             },
@@ -2068,7 +2352,7 @@ pub const Allocating = struct {
     pub fn initCapacity(allocator: Allocator, capacity: usize) error{OutOfMemory}!Allocating {
         return .{
             .allocator = allocator,
-            .interface = .{
+            .writer = .{
                 .buffer = try allocator.alloc(u8, capacity),
                 .vtable = &vtable,
             },
@@ -2078,7 +2362,7 @@ pub const Allocating = struct {
     pub fn initOwnedSlice(allocator: Allocator, slice: []u8) Allocating {
         return .{
             .allocator = allocator,
-            .interface = .{
+            .writer = .{
                 .buffer = slice,
                 .vtable = &vtable,
             },
@@ -2090,7 +2374,7 @@ pub const Allocating = struct {
         defer array_list.* = .empty;
         return .{
             .allocator = allocator,
-            .interface = .{
+            .writer = .{
                 .vtable = &vtable,
                 .buffer = array_list.allocatedSlice(),
                 .end = array_list.items.len,
@@ -2105,14 +2389,14 @@ pub const Allocating = struct {
     };
 
     pub fn deinit(a: *Allocating) void {
-        a.allocator.free(a.interface.buffer);
+        a.allocator.free(a.writer.buffer);
         a.* = undefined;
     }
 
     /// Returns an array list that takes ownership of the allocated memory.
     /// Resets the `Allocating` to an empty state.
     pub fn toArrayList(a: *Allocating) std.ArrayListUnmanaged(u8) {
-        const w = &a.interface;
+        const w = &a.writer;
         const result: std.ArrayListUnmanaged(u8) = .{
             .items = w.buffer[0..w.end],
             .capacity = w.buffer.len,
@@ -2134,13 +2418,11 @@ pub const Allocating = struct {
     }
 
     pub fn getWritten(a: *Allocating) []u8 {
-        return a.interface.buffered();
+        return a.writer.buffered();
     }
 
     pub fn shrinkRetainingCapacity(a: *Allocating, new_len: usize) void {
-        const shrink_by = a.interface.end - new_len;
-        a.interface.end = new_len;
-        a.interface.count -= shrink_by;
+        a.writer.end = new_len;
     }
 
     pub fn clearRetainingCapacity(a: *Allocating) void {
@@ -2148,15 +2430,18 @@ pub const Allocating = struct {
     }
 
     fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-        const a: *Allocating = @fieldParentPtr("interface", w);
+        const a: *Allocating = @fieldParentPtr("writer", w);
         const gpa = a.allocator;
         const pattern = data[data.len - 1];
         const splat_len = pattern.len * splat;
         var list = a.toArrayList();
         defer setArrayList(a, list);
         const start_len = list.items.len;
+        // Even if we append no data, this function needs to ensure there is more
+        // capacity in the buffer to avoid infinite loop, hence the +1 in this loop.
+        assert(data.len != 0);
         for (data) |bytes| {
-            list.ensureUnusedCapacity(gpa, bytes.len + splat_len) catch return error.WriteFailed;
+            list.ensureUnusedCapacity(gpa, bytes.len + splat_len + 1) catch return error.WriteFailed;
             list.appendSliceAssumeCapacity(bytes);
         }
         if (splat == 0) {
@@ -2171,13 +2456,13 @@ pub const Allocating = struct {
 
     fn sendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) FileError!usize {
         if (File.Handle == void) return error.Unimplemented;
-        const a: *Allocating = @fieldParentPtr("interface", w);
+        const a: *Allocating = @fieldParentPtr("writer", w);
         const gpa = a.allocator;
         var list = a.toArrayList();
         defer setArrayList(a, list);
         const pos = file_reader.pos;
         const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
-        list.ensureUnusedCapacity(gpa, limit.minInt(additional)) catch return error.WriteFailed;
+        list.ensureUnusedCapacity(gpa, limit.minInt64(additional)) catch return error.WriteFailed;
         const dest = limit.slice(list.unusedCapacitySlice());
         const n = file_reader.read(dest) catch |err| switch (err) {
             error.ReadFailed => return error.ReadFailed,
@@ -2188,14 +2473,14 @@ pub const Allocating = struct {
     }
 
     fn setArrayList(a: *Allocating, list: std.ArrayListUnmanaged(u8)) void {
-        a.interface.buffer = list.allocatedSlice();
-        a.interface.end = list.items.len;
+        a.writer.buffer = list.allocatedSlice();
+        a.writer.end = list.items.len;
     }
 
     test Allocating {
-        var a: Allocating = .init(std.testing.allocator);
+        var a: Allocating = .init(testing.allocator);
         defer a.deinit();
-        const w = &a.interface;
+        const w = &a.writer;
 
         const x: i32 = 42;
         const y: i32 = 1234;

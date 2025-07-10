@@ -360,11 +360,7 @@ fn fail(
 fn lowerExprKnownResTy(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) CompileError!InternPool.Index {
     const pt = self.sema.pt;
     return self.lowerExprKnownResTyInner(node, res_ty) catch |err| switch (err) {
-        error.WrongType => return self.fail(
-            node,
-            "expected type '{f}'",
-            .{res_ty.fmt(pt)},
-        ),
+        error.WrongType => return self.fail(node, "expected type '{f}'", .{res_ty.fmt(pt)}),
         else => |e| return e,
     };
 }
@@ -458,7 +454,7 @@ fn lowerInt(
                     // If lhs is unsigned and rhs is less than 0, we're out of bounds
                     if (lhs_info.signedness == .unsigned and rhs < 0) return self.fail(
                         node,
-                        "type '{f}' cannot represent integer value '{}'",
+                        "type '{f}' cannot represent integer value '{d}'",
                         .{ res_ty.fmt(self.sema.pt), rhs },
                     );
 
@@ -478,7 +474,7 @@ fn lowerInt(
                         if (rhs < min_int or rhs > max_int) {
                             return self.fail(
                                 node,
-                                "type '{f}' cannot represent integer value '{}'",
+                                "type '{f}' cannot represent integer value '{d}'",
                                 .{ res_ty.fmt(self.sema.pt), rhs },
                             );
                         }
@@ -496,7 +492,7 @@ fn lowerInt(
                     if (!val.fitsInTwosComp(int_info.signedness, int_info.bits)) {
                         return self.fail(
                             node,
-                            "type '{f}' cannot represent integer value '{f}'",
+                            "type '{f}' cannot represent integer value '{d}'",
                             .{ res_ty.fmt(self.sema.pt), val },
                         );
                     }
@@ -517,7 +513,7 @@ fn lowerInt(
             switch (big_int.setFloat(val, .trunc)) {
                 .inexact => return self.fail(
                     node,
-                    "fractional component prevents float value '{}' from coercion to type '{f}'",
+                    "fractional component prevents float value '{d}' from coercion to type '{f}'",
                     .{ val, res_ty.fmt(self.sema.pt) },
                 ),
                 .exact => {},
@@ -528,8 +524,8 @@ fn lowerInt(
             if (!big_int.toConst().fitsInTwosComp(int_info.signedness, int_info.bits)) {
                 return self.fail(
                     node,
-                    "type '{}' cannot represent integer value '{f}'",
-                    .{ val, res_ty.fmt(self.sema.pt) },
+                    "type '{f}' cannot represent integer value '{d}'",
+                    .{ res_ty.fmt(self.sema.pt), val },
                 );
             }
 
@@ -550,7 +546,7 @@ fn lowerInt(
                     if (val >= out_of_range) {
                         return self.fail(
                             node,
-                            "type '{f}' cannot represent integer value '{}'",
+                            "type '{f}' cannot represent integer value '{d}'",
                             .{ res_ty.fmt(self.sema.pt), val },
                         );
                     }

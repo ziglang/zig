@@ -518,8 +518,6 @@ pub const Nav = struct {
         namespace: NamespaceIndex,
         zir_index: TrackedInst.Index,
     },
-    /// TODO: this is a hack! If #20663 isn't accepted, let's figure out something a bit better.
-    is_usingnamespace: bool,
     status: union(enum) {
         /// This `Nav` is pending semantic analysis.
         unresolved,
@@ -735,7 +733,7 @@ pub const Nav = struct {
             @"addrspace": std.builtin.AddressSpace,
             /// Populated only if `bits.status == .type_resolved`.
             is_threadlocal: bool,
-            is_usingnamespace: bool,
+            _: u1 = 0,
         };
 
         fn unpack(repr: Repr) Nav {
@@ -749,7 +747,6 @@ pub const Nav = struct {
                     assert(repr.analysis_zir_index == .none);
                     break :a null;
                 },
-                .is_usingnamespace = repr.bits.is_usingnamespace,
                 .status = switch (repr.bits.status) {
                     .unresolved => .unresolved,
                     .type_resolved, .type_resolved_extern_decl => .{ .type_resolved = .{
@@ -797,7 +794,6 @@ pub const Nav = struct {
                     .is_const = false,
                     .alignment = .none,
                     .@"addrspace" = .generic,
-                    .is_usingnamespace = nav.is_usingnamespace,
                     .is_threadlocal = false,
                 },
                 .type_resolved => |r| .{
@@ -805,7 +801,6 @@ pub const Nav = struct {
                     .is_const = r.is_const,
                     .alignment = r.alignment,
                     .@"addrspace" = r.@"addrspace",
-                    .is_usingnamespace = nav.is_usingnamespace,
                     .is_threadlocal = r.is_threadlocal,
                 },
                 .fully_resolved => |r| .{
@@ -813,7 +808,6 @@ pub const Nav = struct {
                     .is_const = r.is_const,
                     .alignment = r.alignment,
                     .@"addrspace" = r.@"addrspace",
-                    .is_usingnamespace = nav.is_usingnamespace,
                     .is_threadlocal = false,
                 },
             },
@@ -6865,8 +6859,6 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
             {
                 namespace.pub_decls.deinit(gpa);
                 namespace.priv_decls.deinit(gpa);
-                namespace.pub_usingnamespace.deinit(gpa);
-                namespace.priv_usingnamespace.deinit(gpa);
                 namespace.comptime_decls.deinit(gpa);
                 namespace.test_decls.deinit(gpa);
             }
@@ -11502,7 +11494,6 @@ pub fn createNav(
             .@"linksection" = opts.@"linksection",
             .@"addrspace" = opts.@"addrspace",
         } },
-        .is_usingnamespace = false,
     }));
     return index_unwrapped.wrap(ip);
 }
@@ -11517,8 +11508,6 @@ pub fn createDeclNav(
     fqn: NullTerminatedString,
     zir_index: TrackedInst.Index,
     namespace: NamespaceIndex,
-    /// TODO: this is hacky! See `Nav.is_usingnamespace`.
-    is_usingnamespace: bool,
 ) Allocator.Error!Nav.Index {
     const navs = ip.getLocal(tid).getMutableNavs(gpa);
 
@@ -11537,7 +11526,6 @@ pub fn createDeclNav(
             .zir_index = zir_index,
         },
         .status = .unresolved,
-        .is_usingnamespace = is_usingnamespace,
     }));
 
     return nav;

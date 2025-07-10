@@ -37,31 +37,26 @@ pub const GotSection = struct {
         }
     }
 
-    const FormatCtx = struct {
+    const Format = struct {
         got: GotSection,
         macho_file: *MachO,
+
+        pub fn print(f: Format, w: *Writer) Writer.Error!void {
+            for (f.got.symbols.items, 0..) |ref, i| {
+                const symbol = ref.getSymbol(f.macho_file).?;
+                try w.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
+                    i,
+                    symbol.getGotAddress(f.macho_file),
+                    ref,
+                    symbol.getAddress(.{}, f.macho_file),
+                    symbol.getName(f.macho_file),
+                });
+            }
+        }
     };
 
-    pub fn fmt(got: GotSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(got: GotSection, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
         return .{ .data = .{ .got = got, .macho_file = macho_file } };
-    }
-
-    pub fn format2(
-        ctx: FormatCtx,
-        bw: *Writer,
-        comptime unused_fmt_string: []const u8,
-    ) !void {
-        _ = unused_fmt_string;
-        for (ctx.got.symbols.items, 0..) |ref, i| {
-            const symbol = ref.getSymbol(ctx.macho_file).?;
-            try bw.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
-                i,
-                symbol.getGotAddress(ctx.macho_file),
-                ref,
-                symbol.getAddress(.{}, ctx.macho_file),
-                symbol.getName(ctx.macho_file),
-            });
-        }
     }
 };
 
@@ -126,32 +121,27 @@ pub const StubsSection = struct {
         }
     }
 
-    const FormatCtx = struct {
-        stubs: StubsSection,
-        macho_file: *MachO,
-    };
-
-    pub fn fmt(stubs: StubsSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(stubs: StubsSection, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
         return .{ .data = .{ .stubs = stubs, .macho_file = macho_file } };
     }
 
-    pub fn format2(
-        ctx: FormatCtx,
-        bw: *Writer,
-        comptime unused_fmt_string: []const u8,
-    ) !void {
-        _ = unused_fmt_string;
-        for (ctx.stubs.symbols.items, 0..) |ref, i| {
-            const symbol = ref.getSymbol(ctx.macho_file).?;
-            try bw.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
-                i,
-                symbol.getStubsAddress(ctx.macho_file),
-                ref,
-                symbol.getAddress(.{}, ctx.macho_file),
-                symbol.getName(ctx.macho_file),
-            });
+    const Format = struct {
+        stubs: StubsSection,
+        macho_file: *MachO,
+
+        pub fn print(f: Format, w: *Writer) Writer.Error!void {
+            for (f.stubs.symbols.items, 0..) |ref, i| {
+                const symbol = ref.getSymbol(f.macho_file).?;
+                try w.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
+                    i,
+                    symbol.getStubsAddress(f.macho_file),
+                    ref,
+                    symbol.getAddress(.{}, f.macho_file),
+                    symbol.getName(f.macho_file),
+                });
+            }
         }
-    }
+    };
 };
 
 pub const StubsHelperSection = struct {
@@ -353,32 +343,27 @@ pub const TlvPtrSection = struct {
         }
     }
 
-    const FormatCtx = struct {
-        tlv: TlvPtrSection,
-        macho_file: *MachO,
-    };
-
-    pub fn fmt(tlv: TlvPtrSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(tlv: TlvPtrSection, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
         return .{ .data = .{ .tlv = tlv, .macho_file = macho_file } };
     }
 
-    pub fn format2(
-        ctx: FormatCtx,
-        bw: *Writer,
-        comptime unused_fmt_string: []const u8,
-    ) !void {
-        _ = unused_fmt_string;
-        for (ctx.tlv.symbols.items, 0..) |ref, i| {
-            const symbol = ref.getSymbol(ctx.macho_file).?;
-            try bw.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
-                i,
-                symbol.getTlvPtrAddress(ctx.macho_file),
-                ref,
-                symbol.getAddress(.{}, ctx.macho_file),
-                symbol.getName(ctx.macho_file),
-            });
+    const Format = struct {
+        tlv: TlvPtrSection,
+        macho_file: *MachO,
+
+        pub fn print(f: Format, w: *Writer) Writer.Error!void {
+            for (f.tlv.symbols.items, 0..) |ref, i| {
+                const symbol = ref.getSymbol(f.macho_file).?;
+                try w.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
+                    i,
+                    symbol.getTlvPtrAddress(f.macho_file),
+                    ref,
+                    symbol.getAddress(.{}, f.macho_file),
+                    symbol.getName(f.macho_file),
+                });
+            }
         }
-    }
+    };
 };
 
 pub const ObjcStubsSection = struct {
@@ -476,32 +461,27 @@ pub const ObjcStubsSection = struct {
         }
     }
 
-    const FormatCtx = struct {
-        objc: ObjcStubsSection,
-        macho_file: *MachO,
-    };
-
-    pub fn fmt(objc: ObjcStubsSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(objc: ObjcStubsSection, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
         return .{ .data = .{ .objc = objc, .macho_file = macho_file } };
     }
 
-    pub fn format2(
-        ctx: FormatCtx,
-        bw: *Writer,
-        comptime unused_fmt_string: []const u8,
-    ) !void {
-        _ = unused_fmt_string;
-        for (ctx.objc.symbols.items, 0..) |ref, i| {
-            const symbol = ref.getSymbol(ctx.macho_file).?;
-            try bw.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
-                i,
-                symbol.getObjcStubsAddress(ctx.macho_file),
-                ref,
-                symbol.getAddress(.{}, ctx.macho_file),
-                symbol.getName(ctx.macho_file),
-            });
+    const Format = struct {
+        objc: ObjcStubsSection,
+        macho_file: *MachO,
+
+        pub fn print(f: Format, w: *Writer) Writer.Error!void {
+            for (f.objc.symbols.items, 0..) |ref, i| {
+                const symbol = ref.getSymbol(f.macho_file).?;
+                try w.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
+                    i,
+                    symbol.getObjcStubsAddress(f.macho_file),
+                    ref,
+                    symbol.getAddress(.{}, f.macho_file),
+                    symbol.getName(f.macho_file),
+                });
+            }
         }
-    }
+    };
 
     pub const Index = u32;
 };

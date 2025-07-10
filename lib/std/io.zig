@@ -19,6 +19,12 @@ pub const Limit = enum(usize) {
         return @enumFromInt(n);
     }
 
+    /// Any value grater than `std.math.maxInt(usize)` is interpreted to mean
+    /// `.unlimited`.
+    pub fn limited64(n: u64) Limit {
+        return @enumFromInt(@min(n, std.math.maxInt(usize)));
+    }
+
     pub fn countVec(data: []const []const u8) Limit {
         var total: usize = 0;
         for (data) |d| total += d.len;
@@ -30,6 +36,10 @@ pub const Limit = enum(usize) {
     }
 
     pub fn minInt(l: Limit, n: usize) usize {
+        return @min(n, @intFromEnum(l));
+    }
+
+    pub fn minInt64(l: Limit, n: u64) usize {
         return @min(n, @intFromEnum(l));
     }
 

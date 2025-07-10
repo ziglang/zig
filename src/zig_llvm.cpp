@@ -83,7 +83,7 @@ static const bool assertions_on = false;
 LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
     LLVMCodeModel CodeModel, bool function_sections, bool data_sections, ZigLLVMFloatABI float_abi,
-    const char *abi_name)
+    const char *abi_name, bool emulated_tls)
 {
     std::optional<Reloc::Model> RM;
     switch (Reloc){
@@ -147,6 +147,10 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
 
     if (abi_name != nullptr) {
         opt.MCOptions.ABIName = abi_name;
+    }
+
+    if (emulated_tls) {
+        opt.EmulatedTLS = true;
     }
 
     TargetMachine *TM = reinterpret_cast<Target*>(T)->createTargetMachine(Triple, CPU, Features, opt, RM, CM,

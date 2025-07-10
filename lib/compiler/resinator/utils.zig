@@ -86,7 +86,7 @@ pub const ErrorMessageType = enum { err, warning, note };
 
 /// Used for generic colored errors/warnings/notes, more context-specific error messages
 /// are handled elsewhere.
-pub fn renderErrorMessage(writer: anytype, config: std.io.tty.Config, msg_type: ErrorMessageType, comptime format: []const u8, args: anytype) !void {
+pub fn renderErrorMessage(writer: *std.io.Writer, config: std.io.tty.Config, msg_type: ErrorMessageType, comptime format: []const u8, args: anytype) !void {
     switch (msg_type) {
         .err => {
             try config.setColor(writer, .bold);

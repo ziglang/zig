@@ -193,7 +193,7 @@ pub const Bind = struct {
                 }
             }
 
-            log.debug("{x}, {d}, {x}, {?x}, {s}", .{ offset, count, skip, addend, @tagName(state) });
+            log.debug("{x}, {d}, {x}, {x}, {s}", .{ offset, count, skip, addend, @tagName(state) });
             log.debug("  => {x}", .{current.offset});
             switch (state) {
                 .start => {
@@ -423,7 +423,7 @@ pub const WeakBind = struct {
                 }
             }
 
-            log.debug("{x}, {d}, {x}, {?x}, {s}", .{ offset, count, skip, addend, @tagName(state) });
+            log.debug("{x}, {d}, {x}, {x}, {s}", .{ offset, count, skip, addend, @tagName(state) });
             log.debug("  => {x}", .{current.offset});
             switch (state) {
                 .start => {

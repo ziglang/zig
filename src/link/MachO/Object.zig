@@ -308,7 +308,9 @@ fn initSubsections(self: *Object, allocator: Allocator, nlists: anytype) !void {
         } else nlists.len;
 
         if (nlist_start == nlist_end or nlists[nlist_start].nlist.n_value > sect.addr) {
-            const name = try std.fmt.allocPrintZ(allocator, "{s}${s}$begin", .{ sect.segName(), sect.sectName() });
+            const name = try std.fmt.allocPrintSentinel(allocator, "{s}${s}$begin", .{
+                sect.segName(), sect.sectName(),
+            }, 0);
             defer allocator.free(name);
             const size = if (nlist_start == nlist_end) sect.size else nlists[nlist_start].nlist.n_value - sect.addr;
             const atom_index = try self.addAtom(allocator, .{
@@ -364,7 +366,9 @@ fn initSubsections(self: *Object, allocator: Allocator, nlists: anytype) !void {
         // which cannot be contained in any non-zero atom (since then this atom
         // would exceed section boundaries). In order to facilitate this behaviour,
         // we create a dummy zero-sized atom at section end (addr + size).
-        const name = try std.fmt.allocPrintZ(allocator, "{s}${s}$end", .{ sect.segName(), sect.sectName() });
+        const name = try std.fmt.allocPrintSentinel(allocator, "{s}${s}$end", .{
+            sect.segName(), sect.sectName(),
+        }, 0);
         defer allocator.free(name);
         const atom_index = try self.addAtom(allocator, .{
             .name = try self.addString(allocator, name),
@@ -394,7 +398,7 @@ fn initSections(self: *Object, allocator: Allocator, nlists: anytype) !void {
         if (isFixedSizeLiteral(sect)) continue;
         if (isPtrLiteral(sect)) continue;
 
-        const name = try std.fmt.allocPrintZ(allocator, "{s}${s}", .{ sect.segName(), sect.sectName() });
+        const name = try std.fmt.allocPrintSentinel(allocator, "{s}${s}", .{ sect.segName(), sect.sectName() }, 0);
         defer allocator.free(name);
 
         const atom_index = try self.addAtom(allocator, .{
@@ -462,7 +466,7 @@ fn initCstringLiterals(self: *Object, allocator: Allocator, file: File.Handle, m
             }
             end += 1;
 
-            const name = try std.fmt.allocPrintZ(allocator, "l._str{d}", .{count});
+            const name = try std.fmt.allocPrintSentinel(allocator, "l._str{d}", .{count}, 0);
             defer allocator.free(name);
             const name_str = try self.addString(allocator, name);
 
@@ -529,7 +533,7 @@ fn initFixedSizeLiterals(self: *Object, allocator: Allocator, macho_file: *MachO
             pos += rec_size;
             count += 1;
         }) {
-            const name = try std.fmt.allocPrintZ(allocator, "l._literal{d}", .{count});
+            const name = try std.fmt.allocPrintSentinel(allocator, "l._literal{d}", .{count}, 0);
             defer allocator.free(name);
             const name_str = try self.addString(allocator, name);
 
@@ -587,7 +591,7 @@ fn initPointerLiterals(self: *Object, allocator: Allocator, macho_file: *MachO) 
         for (0..num_ptrs) |i| {
             const pos: u32 = @as(u32, @intCast(i)) * rec_size;
 
-            const name = try std.fmt.allocPrintZ(allocator, "l._ptr{d}", .{i});
+            const name = try std.fmt.allocPrintSentinel(allocator, "l._ptr{d}", .{i}, 0);
             defer allocator.free(name);
             const name_str = try self.addString(allocator, name);
 
@@ -1558,7 +1562,7 @@ pub fn convertTentativeDefinitions(self: *Object, macho_file: *MachO) !void {
         const nlist = &self.symtab.items(.nlist)[nlist_idx];
         const nlist_atom = &self.symtab.items(.atom)[nlist_idx];
 
-        const name = try std.fmt.allocPrintZ(gpa, "__DATA$__common${s}", .{sym.getName(macho_file)});
+        const name = try std.fmt.allocPrintSentinel(gpa, "__DATA$__common${s}", .{sym.getName(macho_file)}, 0);
         defer gpa.free(name);
 
         const alignment = (nlist.n_desc >> 8) & 0x0f;
@@ -2512,130 +2516,114 @@ pub fn readSectionData(self: Object, allocator: Allocator, file: File.Handle, n_
     return data;
 }
 
-pub fn format(self: *Object, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = self;
-    _ = bw;
-    _ = unused_fmt_string;
-    @compileError("do not format objects directly");
-}
-
-const FormatContext = struct {
+const Format = struct {
     object: *Object,
     macho_file: *MachO,
+
+    fn atoms(f: Format, w: *Writer) Writer.Error!void {
+        const object = f.object;
+        const macho_file = f.macho_file;
+        try w.writeAll("  atoms\n");
+        for (object.getAtoms()) |atom_index| {
+            const atom = object.getAtom(atom_index) orelse continue;
+            try w.print("    {f}\n", .{atom.fmt(macho_file)});
+        }
+    }
+    fn cies(f: Format, w: *Writer) Writer.Error!void {
+        const object = f.object;
+        try w.writeAll("  cies\n");
+        for (object.cies.items, 0..) |cie, i| {
+            try w.print("    cie({d}) : {f}\n", .{ i, cie.fmt(f.macho_file) });
+        }
+    }
+    fn fdes(f: Format, w: *Writer) Writer.Error!void {
+        const object = f.object;
+        try w.writeAll("  fdes\n");
+        for (object.fdes.items, 0..) |fde, i| {
+            try w.print("    fde({d}) : {f}\n", .{ i, fde.fmt(f.macho_file) });
+        }
+    }
+    fn unwindRecords(f: Format, w: *Writer) Writer.Error!void {
+        const object = f.object;
+        const macho_file = f.macho_file;
+        try w.writeAll("  unwind records\n");
+        for (object.unwind_records_indexes.items) |rec| {
+            try w.print("    rec({d}) : {f}\n", .{ rec, object.getUnwindRecord(rec).fmt(macho_file) });
+        }
+    }
+
+    fn symtab(f: Format, w: *Writer) Writer.Error!void {
+        const object = f.object;
+        const macho_file = f.macho_file;
+        try w.writeAll("  symbols\n");
+        for (object.symbols.items, 0..) |sym, i| {
+            const ref = object.getSymbolRef(@intCast(i), macho_file);
+            if (ref.getFile(macho_file) == null) {
+                // TODO any better way of handling this?
+                try w.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+            } else {
+                try w.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            }
+        }
+        for (object.stab_files.items) |sf| {
+            try w.print("  stabs({s},{s},{s})\n", .{
+                sf.getCompDir(object.*),
+                sf.getTuName(object.*),
+                sf.getOsoPath(object.*),
+            });
+            for (sf.stabs.items) |stab| {
+                try w.print("    {f}", .{stab.fmt(object.*)});
+            }
+        }
+    }
 };
 
-pub fn fmtAtoms(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatAtoms) {
+pub fn fmtAtoms(self: *Object, macho_file: *MachO) std.fmt.Formatter(Format, Format.atoms) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatAtoms(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
-    const object = ctx.object;
-    const macho_file = ctx.macho_file;
-    try bw.writeAll("  atoms\n");
-    for (object.getAtoms()) |atom_index| {
-        const atom = object.getAtom(atom_index) orelse continue;
-        try bw.print("    {f}\n", .{atom.fmt(macho_file)});
-    }
-}
-
-pub fn fmtCies(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatCies) {
+pub fn fmtCies(self: *Object, macho_file: *MachO) std.fmt.Formatter(Format, Format.cies) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatCies(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
-    const object = ctx.object;
-    try bw.writeAll("  cies\n");
-    for (object.cies.items, 0..) |cie, i| {
-        try bw.print("    cie({d}) : {f}\n", .{ i, cie.fmt(ctx.macho_file) });
-    }
-}
-
-pub fn fmtFdes(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatFdes) {
+pub fn fmtFdes(self: *Object, macho_file: *MachO) std.fmt.Formatter(Format, Format.fdes) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatFdes(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
-    const object = ctx.object;
-    try bw.writeAll("  fdes\n");
-    for (object.fdes.items, 0..) |fde, i| {
-        try bw.print("    fde({d}) : {f}\n", .{ i, fde.fmt(ctx.macho_file) });
-    }
-}
-
-pub fn fmtUnwindRecords(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatUnwindRecords) {
+pub fn fmtUnwindRecords(self: *Object, macho_file: *MachO) std.fmt.Formatter(Format, Format.unwindRecords) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatUnwindRecords(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
-    const object = ctx.object;
-    const macho_file = ctx.macho_file;
-    try bw.writeAll("  unwind records\n");
-    for (object.unwind_records_indexes.items) |rec| {
-        try bw.print("    rec({d}) : {f}\n", .{ rec, object.getUnwindRecord(rec).fmt(macho_file) });
-    }
-}
-
-pub fn fmtSymtab(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *Object, macho_file: *MachO) std.fmt.Formatter(Format, Format.symtab) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
-    const object = ctx.object;
-    const macho_file = ctx.macho_file;
-    try bw.writeAll("  symbols\n");
-    for (object.symbols.items, 0..) |sym, i| {
-        const ref = object.getSymbolRef(@intCast(i), macho_file);
-        if (ref.getFile(macho_file) == null) {
-            // TODO any better way of handling this?
-            try bw.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
-        } else {
-            try bw.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
-        }
-    }
-    for (object.stab_files.items) |sf| {
-        try bw.print("  stabs({s},{s},{s})\n", .{
-            sf.getCompDir(object.*),
-            sf.getTuName(object.*),
-            sf.getOsoPath(object.*),
-        });
-        for (sf.stabs.items) |stab| {
-            try bw.print("    {f}", .{stab.fmt(object.*)});
-        }
-    }
-}
-
-pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Formatter(Object, formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(object: Object, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
+fn formatPath(object: Object, w: *Writer) Writer.Error!void {
     if (object.in_archive) |ar| {
-        try bw.print("{f}({s})", .{
+        try w.print("{f}({s})", .{
             ar.path, object.path.basename(),
         });
     } else {
-        try bw.print("{f}", .{object.path});
+        try w.print("{f}", .{object.path});
     }
 }
 
@@ -2689,30 +2677,25 @@ const StabFile = struct {
             return object.symbols.items[index];
         }
 
-        pub fn format(stab: Stab, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-            _ = stab;
-            _ = bw;
-            _ = unused_fmt_string;
-            @compileError("do not format stabs directly");
-        }
+        const Format = struct {
+            stab: Stab,
+            object: Object,
 
-        const StabFormatContext = struct { Stab, Object };
-
-        pub fn fmt(stab: Stab, object: Object) std.fmt.Formatter(format2) {
-            return .{ .data = .{ stab, object } };
-        }
-
-        fn format2(ctx: StabFormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-            _ = unused_fmt_string;
-            const stab, const object = ctx;
-            const sym = stab.getSymbol(object).?;
-            if (stab.is_func) {
-                try bw.print("func({d})", .{stab.index.?});
-            } else if (sym.visibility == .global) {
-                try bw.print("gsym({d})", .{stab.index.?});
-            } else {
-                try bw.print("stsym({d})", .{stab.index.?});
+            fn default(f: Stab.Format, w: *Writer) Writer.Error!void {
+                const stab = f.stab;
+                const sym = stab.getSymbol(f.object).?;
+                if (stab.is_func) {
+                    try w.print("func({d})", .{stab.index.?});
+                } else if (sym.visibility == .global) {
+                    try w.print("gsym({d})", .{stab.index.?});
+                } else {
+                    try w.print("stsym({d})", .{stab.index.?});
+                }
             }
+        };
+
+        pub fn fmt(stab: Stab, object: Object) std.fmt.Formatter(Stab.Format, Stab.Format.default) {
+            return .{ .data = .{ .stab = stab, .object = object } };
         }
     };
 };

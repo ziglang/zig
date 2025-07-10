@@ -651,7 +651,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
     }
 
     const file: fs.File = .{ .handle = fd };
-    const stream = file.reader();
+    const stream = file.deprecatedReader();
     stream.readNoEof(buf) catch return error.Unexpected;
 }
 
@@ -3936,6 +3936,7 @@ pub fn accept(
                     .WSANOTINITIALISED => unreachable, // not initialized WSA
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
                     .WSAEFAULT => unreachable,
+                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
                     .WSAEINVAL => return error.SocketNotListening,
                     .WSAEMFILE => return error.ProcessFdQuotaExceeded,
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
@@ -4335,7 +4336,7 @@ pub const GetSockOptError = error{
 } || UnexpectedError;
 
 pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
-    var len: socklen_t = undefined;
+    var len: socklen_t = @intCast(opt.len);
     switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
         .SUCCESS => {
             std.debug.assert(len == opt.len);

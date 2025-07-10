@@ -1714,7 +1714,7 @@ pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) 
             }
         },
     }
-    return @as(ReturnType, @truncate(result));
+    return @truncate(result);
 }
 
 test readVarInt {

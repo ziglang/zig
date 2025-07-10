@@ -150,15 +150,10 @@ fn parseNum(text: []const u8) error{ InvalidVersion, Overflow }!usize {
     };
 }
 
-pub fn format(
-    self: Version,
-    bw: *std.io.Writer,
-    comptime fmt: []const u8,
-) !void {
-    if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-    try bw.print("{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
-    if (self.pre) |pre| try bw.print("-{s}", .{pre});
-    if (self.build) |build| try bw.print("+{s}", .{build});
+pub fn format(self: Version, w: *std.io.Writer) std.io.Writer.Error!void {
+    try w.print("{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
+    if (self.pre) |pre| try w.print("-{s}", .{pre});
+    if (self.build) |build| try w.print("+{s}", .{build});
 }
 
 const expect = std.testing.expect;
@@ -200,7 +195,7 @@ test format {
         "1.0.0+0.build.1-rc.10000aaa-kk-0.1",
         "5.4.0-1018-raspi",
         "5.7.123",
-    }) |valid| try std.testing.expectFmt(valid, "{}", .{try parse(valid)});
+    }) |valid| try std.testing.expectFmt(valid, "{f}", .{try parse(valid)});
 
     // Invalid version strings should be rejected.
     for ([_][]const u8{
@@ -267,12 +262,12 @@ test format {
     // Valid version string that may overflow.
     const big_valid = "99999999999999999999999.999999999999999999.99999999999999999";
     if (parse(big_valid)) |ver| {
-        try std.testing.expectFmt(big_valid, "{}", .{ver});
+        try std.testing.expectFmt(big_valid, "{f}", .{ver});
     } else |err| try expect(err == error.Overflow);
 
     // Invalid version string that may overflow.
     const big_invalid = "99999999999999999999999.999999999999999999.99999999999999999----RC-SNAPSHOT.12.09.1--------------------------------..12";
-    if (parse(big_invalid)) |ver| std.debug.panic("expected error, found {}", .{ver}) else |_| {}
+    if (parse(big_invalid)) |ver| std.debug.panic("expected error, found {f}", .{ver}) else |_| {}
 }
 
 test "precedence" {

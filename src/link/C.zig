@@ -63,6 +63,14 @@ const String = extern struct {
         .start = 0,
         .len = 0,
     };
+
+    fn concat(lhs: String, rhs: String) String {
+        assert(lhs.start + lhs.len == rhs.start);
+        return .{
+            .start = lhs.start,
+            .len = lhs.len + rhs.len,
+        };
+    }
 };
 
 /// Per-declaration data.
@@ -205,8 +213,10 @@ pub fn updateFunc(
         .ctype_pool = mir.c.ctype_pool.move(),
         .lazy_fns = mir.c.lazy_fns.move(),
     };
-    gop.value_ptr.fwd_decl = try self.addString(&.{&function.object.dg.fwd_decl});
-    gop.value_ptr.code = try self.addString(&.{ &function.object.code_header, &function.object.code });
+    gop.value_ptr.fwd_decl = try self.addString(mir.c.fwd_decl);
+    const code_header = try self.addString(mir.c.code_header);
+    const code = try self.addString(mir.c.code);
+    gop.value_ptr.code = code_header.concat(code);
     try self.addUavsFromCodegen(&mir.c.uavs);
 }
 
@@ -232,8 +242,8 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) link.File.FlushError!void {
         .code = undefined,
         .indent_counter = 0,
     };
-    object.dg.fwd_decl.initOwnedSlice(gpa, self.fwd_decl_buf);
-    object.code.initOwnedSlice(gpa, self.code_buf);
+    object.dg.fwd_decl = .initOwnedSlice(gpa, self.fwd_decl_buf);
+    object.code = .initOwnedSlice(gpa, self.code_buf);
     defer {
         object.dg.uavs.deinit(gpa);
         object.dg.ctype_pool.deinit(object.dg.gpa);
@@ -259,8 +269,8 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) link.File.FlushError!void {
 
     object.dg.ctype_pool.freeUnusedCapacity(gpa);
     self.uavs.values()[i] = .{
-        .fwd_decl = try self.addString(&.{&object.dg.fwd_decl}),
-        .code = try self.addString(&.{&object.code}),
+        .fwd_decl = try self.addString(object.dg.fwd_decl.getWritten()),
+        .code = try self.addString(object.code.getWritten()),
         .ctype_pool = object.dg.ctype_pool.move(),
     };
 }
@@ -307,8 +317,8 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) l
         .code = undefined,
         .indent_counter = 0,
     };
-    object.dg.fwd_decl.initOwnedSlice(gpa, self.fwd_decl_buf);
-    object.code.initOwnedSlice(gpa, self.code_buf);
+    object.dg.fwd_decl = .initOwnedSlice(gpa, self.fwd_decl_buf);
+    object.code = .initOwnedSlice(gpa, self.code_buf);
     defer {
         object.dg.uavs.deinit(gpa);
         ctype_pool.* = object.dg.ctype_pool.move();
@@ -326,8 +336,8 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) l
         },
         error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
-    gop.value_ptr.fwd_decl = try self.addString(&.{&object.dg.fwd_decl});
-    gop.value_ptr.code = try self.addString(&.{&object.code});
+    gop.value_ptr.fwd_decl = try self.addString(object.dg.fwd_decl.getWritten());
+    gop.value_ptr.code = try self.addString(object.code.getWritten());
     try self.addUavsFromCodegen(&object.dg.uavs);
 }
 
@@ -339,12 +349,12 @@ pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedIn
     _ = ti_id;
 }
 
-fn abiDefines(bw: *std.io.BufferedWriter, target: std.Target) !void {
+fn abiDefines(w: *std.io.Writer, target: *const std.Target) !void {
     switch (target.abi) {
-        .msvc, .itanium => try bw.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
+        .msvc, .itanium => try w.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
         else => {},
     }
-    try bw.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{
+    try w.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{
         target.cMaxIntAlignment(),
     });
 }
@@ -391,10 +401,9 @@ pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.P
     };
     defer f.deinit(gpa);
 
-    var abi_defines_aw: std.io.AllocatingWriter = undefined;
-    abi_defines_aw.init(gpa);
+    var abi_defines_aw: std.io.Writer.Allocating = .init(gpa);
     defer abi_defines_aw.deinit();
-    abiDefines(&abi_defines_aw.buffered_writer, zcu.getTarget()) catch |err| switch (err) {
+    abiDefines(&abi_defines_aw.writer, zcu.getTarget()) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
     };
 
@@ -407,10 +416,9 @@ pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.P
     const ctypes_index = f.all_buffers.items.len;
     f.all_buffers.items.len += 1;
 
-    var asm_aw: std.io.AllocatingWriter = undefined;
-    asm_aw.init(gpa);
+    var asm_aw: std.io.Writer.Allocating = .init(gpa);
     defer asm_aw.deinit();
-    codegen.genGlobalAsm(zcu, &asm_aw.buffered_writer) catch |err| switch (err) {
+    codegen.genGlobalAsm(zcu, &asm_aw.writer) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
     };
     f.appendBufAssumeCapacity(asm_aw.getWritten());
@@ -501,11 +509,11 @@ pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.P
 
     const file = self.base.file.?;
     file.setEndPos(f.file_size) catch |err| return diags.fail("failed to allocate file: {s}", .{@errorName(err)});
-    var fw = file.writer();
-    var bw = fw.interface().unbuffered();
-    bw.writeVecAll(f.all_buffers.items) catch |err| switch (err) {
-        error.WriteFailed => return diags.fail("failed to write to '{f'}': {s}", .{
-            self.base.emit, @errorName(fw.err.?),
+    var fw = file.writer(&.{});
+    var w = &fw.interface;
+    w.writeVecAll(f.all_buffers.items) catch |err| switch (err) {
+        error.WriteFailed => return diags.fail("failed to write to '{f}': {s}", .{
+            std.fmt.alt(self.base.emit, .formatEscapeChar), @errorName(fw.err.?),
         }),
     };
 }
@@ -575,8 +583,8 @@ fn flushCTypes(
     try global_from_decl_map.ensureTotalCapacity(gpa, decl_ctype_pool.items.len);
     defer global_from_decl_map.clearRetainingCapacity();
 
-    var ctypes_aw: std.io.AllocatingWriter = undefined;
-    const ctypes_bw = ctypes_aw.fromArrayList(gpa, &f.ctypes);
+    var ctypes_aw: std.io.Writer.Allocating = .fromArrayList(gpa, &f.ctypes);
+    const ctypes_bw = &ctypes_aw.writer;
     defer f.ctypes = ctypes_aw.toArrayList();
 
     for (0..decl_ctype_pool.items.len) |decl_ctype_pool_index| {
@@ -640,8 +648,8 @@ fn flushErrDecls(self: *C, pt: Zcu.PerThread, f: *Flush) FlushDeclError!void {
         .code = undefined,
         .indent_counter = 0,
     };
-    _ = object.dg.fwd_decl.fromArrayList(gpa, &f.lazy_fwd_decl);
-    _ = object.code.fromArrayList(gpa, &f.lazy_code);
+    object.dg.fwd_decl = .fromArrayList(gpa, &f.lazy_fwd_decl);
+    object.code = .fromArrayList(gpa, &f.lazy_code);
     defer {
         object.dg.uavs.deinit(gpa);
         f.lazy_ctype_pool = object.dg.ctype_pool.move();
@@ -688,8 +696,8 @@ fn flushLazyFn(
         .code = undefined,
         .indent_counter = 0,
     };
-    _ = object.dg.fwd_decl.fromArrayList(gpa, &f.lazy_fwd_decl);
-    _ = object.code.fromArrayList(gpa, &f.lazy_code);
+    object.dg.fwd_decl = .fromArrayList(gpa, &f.lazy_fwd_decl);
+    object.code = .fromArrayList(gpa, &f.lazy_code);
     defer {
         // If this assert trips just handle the anon_decl_deps the same as
         // `updateFunc()` does.
@@ -830,7 +838,7 @@ pub fn updateExports(
         .scratch = .initBuffer(self.scratch_buf),
         .uavs = .empty,
     };
-    dg.fwd_decl.initOwnedSlice(gpa, self.fwd_decl_buf);
+    dg.fwd_decl = .initOwnedSlice(gpa, self.fwd_decl_buf);
     defer {
         assert(dg.uavs.count() == 0);
         ctype_pool.* = dg.ctype_pool.move();
@@ -842,7 +850,7 @@ pub fn updateExports(
     codegen.genExports(&dg, exported, export_indices) catch |err| switch (err) {
         error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
-    exported_block.* = .{ .fwd_decl = try self.addString(&.{&dg.fwd_decl}) };
+    exported_block.* = .{ .fwd_decl = try self.addString(dg.fwd_decl.getWritten()) };
 }
 
 pub fn deleteExport(

@@ -2466,10 +2466,9 @@ pub const GeneratedFile = struct {
 
     pub fn getPath2(gen: GeneratedFile, src_builder: *Build, asking_step: ?*Step) []const u8 {
         return gen.path orelse {
-            std.debug.lockStdErr();
-            const stderr = std.io.getStdErr();
-            dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
-            std.debug.unlockStdErr();
+            const w = debug.lockStderrWriter(&.{});
+            dumpBadGetPathHelp(gen.step, w, .detect(.stderr()), src_builder, asking_step) catch {};
+            debug.unlockStderrWriter();
             @panic("misconfigured build script");
         };
     }
@@ -2676,10 +2675,9 @@ pub const LazyPath = union(enum) {
                 var file_path: Cache.Path = .{
                     .root_dir = Cache.Directory.cwd(),
                     .sub_path = gen.file.path orelse {
-                        std.debug.lockStdErr();
-                        const stderr: fs.File = .stderr();
-                        dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
-                        std.debug.unlockStdErr();
+                        const w = debug.lockStderrWriter(&.{});
+                        dumpBadGetPathHelp(gen.file.step, w, .detect(.stderr()), src_builder, asking_step) catch {};
+                        debug.unlockStderrWriter();
                         @panic("misconfigured build script");
                     },
                 };
@@ -2769,17 +2767,16 @@ fn dumpBadDirnameHelp(
     const w = debug.lockStderrWriter(&.{});
     defer debug.unlockStderrWriter();
 
-    const stderr: fs.File = .stderr();
     try w.print(msg, args);
 
-    const tty_config = std.io.tty.detectConfig(stderr);
+    const tty_config = std.io.tty.detectConfig(.stderr());
 
     if (fail_step) |s| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writeAll("    The step was created by this stack trace:\n");
+        try w.writeAll("    The step was created by this stack trace:\n");
         tty_config.setColor(w, .reset) catch {};
 
-        s.dump(stderr);
+        s.dump(w, tty_config);
     }
 
     if (asking_step) |as| {
@@ -2787,24 +2784,23 @@ fn dumpBadDirnameHelp(
         try w.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
         tty_config.setColor(w, .reset) catch {};
 
-        as.dump(stderr);
+        as.dump(w, tty_config);
     }
 
     tty_config.setColor(w, .red) catch {};
-    try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
+    try w.writeAll("    Hope that helps. Proceeding to panic.\n");
     tty_config.setColor(w, .reset) catch {};
 }
 
 /// In this function the stderr mutex has already been locked.
 pub fn dumpBadGetPathHelp(
     s: *Step,
-    stderr: fs.File,
+    w: *std.io.Writer,
+    tty_config: std.io.tty.Config,
     src_builder: *Build,
     asking_step: ?*Step,
 ) anyerror!void {
-    var fw = stderr.writer(&.{});
-    const bw = &fw.interface;
-    try bw.print(
+    try w.print(
         \\getPath() was called on a GeneratedFile that wasn't built yet.
         \\  source package path: {s}
         \\  Is there a missing Step dependency on step '{s}'?
@@ -2814,22 +2810,21 @@ pub fn dumpBadGetPathHelp(
         s.name,
     });
 
-    const tty_config = std.io.tty.detectConfig(stderr);
-    tty_config.setColor(&bw, .red) catch {};
-    try stderr.writeAll("    The step was created by this stack trace:\n");
-    tty_config.setColor(&bw, .reset) catch {};
+    tty_config.setColor(w, .red) catch {};
+    try w.writeAll("    The step was created by this stack trace:\n");
+    tty_config.setColor(w, .reset) catch {};
 
-    s.dump(stderr);
+    s.dump(w, tty_config);
     if (asking_step) |as| {
-        tty_config.setColor(&bw, .red) catch {};
-        try bw.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
-        tty_config.setColor(&bw, .reset) catch {};
+        tty_config.setColor(w, .red) catch {};
+        try w.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        tty_config.setColor(w, .reset) catch {};
 
-        as.dump(stderr);
+        as.dump(w, tty_config);
     }
-    tty_config.setColor(&bw, .red) catch {};
-    try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
-    tty_config.setColor(&bw, .reset) catch {};
+    tty_config.setColor(w, .red) catch {};
+    try w.writeAll("    Hope that helps. Proceeding to panic.\n");
+    tty_config.setColor(w, .reset) catch {};
 }
 
 pub const InstallDir = union(enum) {
@@ -2864,11 +2859,6 @@ pub fn makeTempPath(b: *Build) []const u8 {
         });
     };
     return result_path;
-}
-
-/// Deprecated; use `std.fmt.hex` instead.
-pub fn hex64(x: u64) [16]u8 {
-    return std.fmt.hex(x);
 }
 
 /// A pair of target query and fully resolved target.

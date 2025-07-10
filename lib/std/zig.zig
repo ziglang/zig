@@ -54,7 +54,7 @@ pub const Color = enum {
 
     pub fn get_tty_conf(color: Color) std.io.tty.Config {
         return switch (color) {
-            .auto => std.io.tty.detectConfig(.stderr()),
+            .auto => std.io.tty.detectConfig(std.fs.File.stderr()),
             .on => .escape_codes,
             .off => .no_color,
         };
@@ -364,138 +364,136 @@ pub fn serializeCpuAlloc(ally: Allocator, cpu: std.Target.Cpu) Allocator.Error![
 
 /// Return a Formatter for a Zig identifier, escaping it with `@""` syntax if needed.
 ///
-/// - An empty `{}` format specifier escapes invalid identifiers, identifiers that shadow primitives
-///   and the reserved `_` identifier.
-/// - Add `p` to the specifier to render identifiers that shadow primitives unescaped.
-/// - Add `_` to the specifier to render the reserved `_` identifier unescaped.
-/// - `p` and `_` can be combined, e.g. `{p_}`.
+/// See also `fmtIdFlags`.
+pub fn fmtId(bytes: []const u8) std.fmt.Formatter(FormatId, FormatId.render) {
+    return .{ .data = .{ .bytes = bytes, .flags = .{} } };
+}
+
+/// Return a Formatter for a Zig identifier, escaping it with `@""` syntax if needed.
 ///
-pub fn fmtId(bytes: []const u8) std.fmt.Formatter(formatId) {
-    return .{ .data = bytes };
+/// See also `fmtId`.
+pub fn fmtIdFlags(bytes: []const u8, flags: FormatId.Flags) std.fmt.Formatter(FormatId, FormatId.render) {
+    return .{ .data = .{ .bytes = bytes, .flags = flags } };
+}
+
+pub fn fmtIdPU(bytes: []const u8) std.fmt.Formatter(FormatId, FormatId.render) {
+    return .{ .data = .{ .bytes = bytes, .flags = .{ .allow_primitive = true, .allow_underscore = true } } };
+}
+
+pub fn fmtIdP(bytes: []const u8) std.fmt.Formatter(FormatId, FormatId.render) {
+    return .{ .data = .{ .bytes = bytes, .flags = .{ .allow_primitive = true } } };
 }
 
 test fmtId {
     const expectFmt = std.testing.expectFmt;
-    try expectFmt("@\"while\"", "{}", .{fmtId("while")});
-    try expectFmt("@\"while\"", "{p}", .{fmtId("while")});
-    try expectFmt("@\"while\"", "{_}", .{fmtId("while")});
-    try expectFmt("@\"while\"", "{p_}", .{fmtId("while")});
-    try expectFmt("@\"while\"", "{_p}", .{fmtId("while")});
+    try expectFmt("@\"while\"", "{f}", .{fmtId("while")});
+    try expectFmt("@\"while\"", "{f}", .{fmtIdFlags("while", .{ .allow_primitive = true })});
+    try expectFmt("@\"while\"", "{f}", .{fmtIdFlags("while", .{ .allow_underscore = true })});
+    try expectFmt("@\"while\"", "{f}", .{fmtIdFlags("while", .{ .allow_primitive = true, .allow_underscore = true })});
 
-    try expectFmt("hello", "{}", .{fmtId("hello")});
-    try expectFmt("hello", "{p}", .{fmtId("hello")});
-    try expectFmt("hello", "{_}", .{fmtId("hello")});
-    try expectFmt("hello", "{p_}", .{fmtId("hello")});
-    try expectFmt("hello", "{_p}", .{fmtId("hello")});
+    try expectFmt("hello", "{f}", .{fmtId("hello")});
+    try expectFmt("hello", "{f}", .{fmtIdFlags("hello", .{ .allow_primitive = true })});
+    try expectFmt("hello", "{f}", .{fmtIdFlags("hello", .{ .allow_underscore = true })});
+    try expectFmt("hello", "{f}", .{fmtIdFlags("hello", .{ .allow_primitive = true, .allow_underscore = true })});
 
-    try expectFmt("@\"type\"", "{}", .{fmtId("type")});
-    try expectFmt("type", "{p}", .{fmtId("type")});
-    try expectFmt("@\"type\"", "{_}", .{fmtId("type")});
-    try expectFmt("type", "{p_}", .{fmtId("type")});
-    try expectFmt("type", "{_p}", .{fmtId("type")});
+    try expectFmt("@\"type\"", "{f}", .{fmtId("type")});
+    try expectFmt("type", "{f}", .{fmtIdFlags("type", .{ .allow_primitive = true })});
+    try expectFmt("@\"type\"", "{f}", .{fmtIdFlags("type", .{ .allow_underscore = true })});
+    try expectFmt("type", "{f}", .{fmtIdFlags("type", .{ .allow_primitive = true, .allow_underscore = true })});
 
-    try expectFmt("@\"_\"", "{}", .{fmtId("_")});
-    try expectFmt("@\"_\"", "{p}", .{fmtId("_")});
-    try expectFmt("_", "{_}", .{fmtId("_")});
-    try expectFmt("_", "{p_}", .{fmtId("_")});
-    try expectFmt("_", "{_p}", .{fmtId("_")});
+    try expectFmt("@\"_\"", "{f}", .{fmtId("_")});
+    try expectFmt("@\"_\"", "{f}", .{fmtIdFlags("_", .{ .allow_primitive = true })});
+    try expectFmt("_", "{f}", .{fmtIdFlags("_", .{ .allow_underscore = true })});
+    try expectFmt("_", "{f}", .{fmtIdFlags("_", .{ .allow_primitive = true, .allow_underscore = true })});
 
-    try expectFmt("@\"i123\"", "{}", .{fmtId("i123")});
-    try expectFmt("i123", "{p}", .{fmtId("i123")});
-    try expectFmt("@\"4four\"", "{}", .{fmtId("4four")});
-    try expectFmt("_underscore", "{}", .{fmtId("_underscore")});
-    try expectFmt("@\"11\\\"23\"", "{}", .{fmtId("11\"23")});
-    try expectFmt("@\"11\\x0f23\"", "{}", .{fmtId("11\x0F23")});
+    try expectFmt("@\"i123\"", "{f}", .{fmtId("i123")});
+    try expectFmt("i123", "{f}", .{fmtIdFlags("i123", .{ .allow_primitive = true })});
+    try expectFmt("@\"4four\"", "{f}", .{fmtId("4four")});
+    try expectFmt("_underscore", "{f}", .{fmtId("_underscore")});
+    try expectFmt("@\"11\\\"23\"", "{f}", .{fmtId("11\"23")});
+    try expectFmt("@\"11\\x0f23\"", "{f}", .{fmtId("11\x0F23")});
 
     // These are technically not currently legal in Zig.
-    try expectFmt("@\"\"", "{}", .{fmtId("")});
-    try expectFmt("@\"\\x00\"", "{}", .{fmtId("\x00")});
+    try expectFmt("@\"\"", "{f}", .{fmtId("")});
+    try expectFmt("@\"\\x00\"", "{f}", .{fmtId("\x00")});
 }
 
-/// Print the string as a Zig identifier, escaping it with `@""` syntax if needed.
-fn formatId(bytes: []const u8, bw: *Writer, comptime fmt: []const u8) !void {
-    const allow_primitive, const allow_underscore = comptime parse_fmt: {
-        var allow_primitive = false;
-        var allow_underscore = false;
-        for (fmt) |char| {
-            switch (char) {
-                'p' => if (!allow_primitive) {
-                    allow_primitive = true;
-                    continue;
-                },
-                '_' => if (!allow_underscore) {
-                    allow_underscore = true;
-                    continue;
-                },
-                else => {},
-            }
-            @compileError("expected {}, {p}, {_}, {p_} or {_p}, found {" ++ fmt ++ "}");
-        }
-        break :parse_fmt .{ allow_primitive, allow_underscore };
+pub const FormatId = struct {
+    bytes: []const u8,
+    flags: Flags,
+    pub const Flags = struct {
+        allow_primitive: bool = false,
+        allow_underscore: bool = false,
     };
 
-    if (isValidId(bytes) and
-        (allow_primitive or !std.zig.isPrimitive(bytes)) and
-        (allow_underscore or !isUnderscore(bytes)))
-    {
-        return bw.writeAll(bytes);
+    /// Print the string as a Zig identifier, escaping it with `@""` syntax if needed.
+    fn render(ctx: FormatId, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const bytes = ctx.bytes;
+        if (isValidId(bytes) and
+            (ctx.flags.allow_primitive or !std.zig.isPrimitive(bytes)) and
+            (ctx.flags.allow_underscore or !isUnderscore(bytes)))
+        {
+            return writer.writeAll(bytes);
+        }
+        try writer.writeAll("@\"");
+        try stringEscape(bytes, writer);
+        try writer.writeByte('"');
     }
-    try bw.writeAll("@\"");
-    try stringEscape(bytes, bw, "");
-    try bw.writeByte('"');
-}
+};
 
-/// Return a Formatter for Zig Escapes of a double quoted string.
-/// The format specifier must be one of:
-///  * `{}` treats contents as a double-quoted string.
-///  * `{'}` treats contents as a single-quoted string.
-pub fn fmtEscapes(bytes: []const u8) std.fmt.Formatter(stringEscape) {
+/// Return a formatter for escaping a double quoted Zig string.
+pub fn fmtString(bytes: []const u8) std.fmt.Formatter([]const u8, stringEscape) {
     return .{ .data = bytes };
 }
 
-test fmtEscapes {
-    const expectFmt = std.testing.expectFmt;
-    try expectFmt("\\x0f", "{}", .{fmtEscapes("\x0f")});
-    try expectFmt(
-        \\" \\ hi \x07 \x11 " derp \'"
-    , "\"{'}\"", .{fmtEscapes(" \\ hi \x07 \x11 \" derp '")});
-    try expectFmt(
-        \\" \\ hi \x07 \x11 \" derp '"
-    , "\"{}\"", .{fmtEscapes(" \\ hi \x07 \x11 \" derp '")});
+/// Return a formatter for escaping a single quoted Zig string.
+pub fn fmtChar(bytes: []const u8) std.fmt.Formatter([]const u8, charEscape) {
+    return .{ .data = bytes };
 }
 
-/// Print the string as escaped contents of a double quoted or single-quoted string.
-/// Format `{}` treats contents as a double-quoted string.
-/// Format `{'}` treats contents as a single-quoted string.
-pub fn stringEscape(bytes: []const u8, bw: *Writer, comptime f: []const u8) !void {
+test fmtString {
+    try std.testing.expectFmt("\\x0f", "{f}", .{fmtString("\x0f")});
+    try std.testing.expectFmt(
+        \\" \\ hi \x07 \x11 \" derp '"
+    , "\"{f}\"", .{fmtString(" \\ hi \x07 \x11 \" derp '")});
+}
+
+test fmtChar {
+    try std.testing.expectFmt(
+        \\" \\ hi \x07 \x11 " derp \'"
+    , "\"{f}\"", .{fmtChar(" \\ hi \x07 \x11 \" derp '")});
+}
+
+/// Print the string as escaped contents of a double quoted string.
+pub fn stringEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
     for (bytes) |byte| switch (byte) {
-        '\n' => try bw.writeAll("\\n"),
-        '\r' => try bw.writeAll("\\r"),
-        '\t' => try bw.writeAll("\\t"),
-        '\\' => try bw.writeAll("\\\\"),
-        '"' => {
-            if (f.len == 1 and f[0] == '\'') {
-                try bw.writeByte('"');
-            } else if (f.len == 0) {
-                try bw.writeAll("\\\"");
-            } else {
-                @compileError("expected {} or {'}, found {" ++ f ++ "}");
-            }
-        },
-        '\'' => {
-            if (f.len == 1 and f[0] == '\'') {
-                try bw.writeAll("\\'");
-            } else if (f.len == 0) {
-                try bw.writeByte('\'');
-            } else {
-                @compileError("expected {} or {'}, found {" ++ f ++ "}");
-            }
-        },
-        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try bw.writeByte(byte),
-        // Use hex escapes for rest any unprintable characters.
+        '\n' => try w.writeAll("\\n"),
+        '\r' => try w.writeAll("\\r"),
+        '\t' => try w.writeAll("\\t"),
+        '\\' => try w.writeAll("\\\\"),
+        '"' => try w.writeAll("\\\""),
+        '\'' => try w.writeByte('\''),
+        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try w.writeByte(byte),
         else => {
-            try bw.writeAll("\\x");
-            try bw.printIntOptions(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            try w.writeAll("\\x");
+            try w.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+        },
+    };
+}
+
+/// Print the string as escaped contents of a single-quoted string.
+pub fn charEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+    for (bytes) |byte| switch (byte) {
+        '\n' => try w.writeAll("\\n"),
+        '\r' => try w.writeAll("\\r"),
+        '\t' => try w.writeAll("\\t"),
+        '\\' => try w.writeAll("\\\\"),
+        '"' => try w.writeByte('"'),
+        '\'' => try w.writeAll("\\'"),
+        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try w.writeByte(byte),
+        else => {
+            try w.writeAll("\\x");
+            try w.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
         },
     };
 }

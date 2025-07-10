@@ -167,32 +167,29 @@ pub fn lastAtom(list: AtomList, elf_file: *Elf) *Atom {
     return elf_file.atom(list.atoms.keys()[list.atoms.keys().len - 1]).?;
 }
 
-pub fn format(list: AtomList, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = list;
-    _ = bw;
-    _ = unused_fmt_string;
-    @compileError("do not format AtomList directly");
-}
+const Format = struct {
+    atom_list: AtomList,
+    elf_file: *Elf,
 
-const FormatCtx = struct { AtomList, *Elf };
-
-pub fn fmt(list: AtomList, elf_file: *Elf) std.fmt.Formatter(format2) {
-    return .{ .data = .{ list, elf_file } };
-}
-
-fn format2(ctx: FormatCtx, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    comptime assert(unused_fmt_string.len == 0);
-    const list, const elf_file = ctx;
-    try bw.print("list : @{x} : shdr({d}) : align({x}) : size({x})", .{
-        list.address(elf_file),                list.output_section_index,
-        list.alignment.toByteUnits() orelse 0, list.size,
-    });
-    try bw.writeAll(" : atoms{ ");
-    for (list.atoms.keys(), 0..) |ref, i| {
-        try bw.print("{f}", .{ref});
-        if (i < list.atoms.keys().len - 1) try bw.writeAll(", ");
+    fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const list = f.atom_list;
+        try writer.print("list : @{x} : shdr({d}) : align({x}) : size({x})", .{
+            list.address(f.elf_file),
+            list.output_section_index,
+            list.alignment.toByteUnits() orelse 0,
+            list.size,
+        });
+        try writer.writeAll(" : atoms{ ");
+        for (list.atoms.keys(), 0..) |ref, i| {
+            try writer.print("{f}", .{ref});
+            if (i < list.atoms.keys().len - 1) try writer.writeAll(", ");
+        }
+        try writer.writeAll(" }");
     }
-    try bw.writeAll(" }");
+};
+
+pub fn fmt(atom_list: AtomList, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    return .{ .data = .{ .atom_list = atom_list, .elf_file = elf_file } };
 }
 
 const std = @import("std");

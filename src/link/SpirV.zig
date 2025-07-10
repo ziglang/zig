@@ -206,7 +206,7 @@ pub fn flush(
     var error_info: std.io.Writer.Allocating = .init(self.object.gpa);
     defer error_info.deinit();
 
-    try error_info.writer.writeAll("zig_errors:");
+    error_info.writer.writeAll("zig_errors:") catch return error.OutOfMemory;
     const ip = &self.base.comp.zcu.?.intern_pool;
     for (ip.global_error_set.getNamesFromMainThread()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
@@ -214,8 +214,8 @@ pub fn flush(
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
 
-        try error_info.writer.writeByte(':');
-        try std.Uri.Component.percentEncode(
+        error_info.writer.writeByte(':') catch return error.OutOfMemory;
+        std.Uri.Component.percentEncode(
             &error_info.writer,
             name.toSlice(ip),
             struct {
@@ -226,7 +226,7 @@ pub fn flush(
                     };
                 }
             }.isValidChar,
-        );
+        ) catch return error.OutOfMemory;
     }
     try spv.sections.debug_strings.emit(gpa, .OpSourceExtension, .{
         .extension = error_info.getWritten(),

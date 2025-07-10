@@ -729,15 +729,6 @@ pub const FrameIndex = enum(u32) {
     pub fn isNamed(fi: FrameIndex) bool {
         return @intFromEnum(fi) < named_count;
     }
-
-    pub fn format(fi: FrameIndex, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
-        comptime assert(fmt.len == 0);
-        try bw.writeAll("FrameIndex");
-        if (fi.isNamed())
-            try bw.print(".{s}", .{@tagName(fi)})
-        else
-            try bw.print("({d})", .{@intFromEnum(fi)});
-    }
 };
 
 pub const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
@@ -838,14 +829,13 @@ pub const Memory = struct {
             };
         }
 
-        pub fn format(s: Size, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
-            comptime assert(fmt.len == 0);
+        pub fn format(s: Size, writer: *std.io.Writer) std.io.Writer.Error!void {
             if (s == .none) return;
-            try bw.writeAll(@tagName(s));
+            try writer.writeAll(@tagName(s));
             switch (s) {
                 .none => unreachable,
                 .ptr, .gpr => {},
-                else => try bw.writeAll(" ptr"),
+                else => try writer.writeAll(" ptr"),
             }
         }
     };
@@ -901,12 +891,7 @@ pub const Immediate = union(enum) {
         return .{ .signed = x };
     }
 
-    pub fn format(
-        imm: Immediate,
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
+    pub fn format(imm: Immediate, writer: *std.io.Writer) std.io.Writer.Error!void {
         switch (imm) {
             inline else => |int| try writer.print("{d}", .{int}),
             .nav => |nav_off| try writer.print("Nav({d}) + {d}", .{ @intFromEnum(nav_off.nav), nav_off.off }),

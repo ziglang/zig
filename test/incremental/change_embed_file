@@ -7,7 +7,7 @@
 const std = @import("std");
 const string = @embedFile("string.txt");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(string);
+    try std.fs.File.stdout().writeAll(string);
 }
 #file=string.txt
 Hello, World!
@@ -27,7 +27,7 @@ Hello again, World!
 const std = @import("std");
 const string = @embedFile("string.txt");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll("a hardcoded string\n");
+    try std.fs.File.stdout().writeAll("a hardcoded string\n");
 }
 #expect_stdout="a hardcoded string\n"
 
@@ -36,7 +36,7 @@ pub fn main() !void {
 const std = @import("std");
 const string = @embedFile("string.txt");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(string);
+    try std.fs.File.stdout().writeAll(string);
 }
 #expect_error=main.zig:2:27: error: unable to open 'string.txt': FileNotFound
 

@@ -51,10 +51,10 @@ pub const Value = union(enum) {
     }
 
     pub fn dump(v: Value) void {
-        const bw = std.debug.lockStderrWriter(&.{});
+        const w = std.debug.lockStderrWriter(&.{});
         defer std.debug.unlockStderrWriter();
 
-        json.Stringify.value(v, .{}, bw) catch return;
+        json.Stringify.value(v, .{}, w) catch return;
     }
 
     pub fn jsonStringify(value: @This(), jws: anytype) !void {

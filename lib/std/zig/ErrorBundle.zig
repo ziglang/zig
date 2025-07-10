@@ -164,22 +164,22 @@ pub const RenderOptions = struct {
 
 pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
     var buffer: [256]u8 = undefined;
-    const bw = std.debug.lockStderrWriter(&buffer);
+    const w = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
-    renderToWriter(eb, options, bw) catch return;
+    renderToWriter(eb, options, w) catch return;
 }
 
-pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, bw: *Writer) (Writer.Error || std.posix.UnexpectedError)!void {
+pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, w: *Writer) (Writer.Error || std.posix.UnexpectedError)!void {
     if (eb.extra.len == 0) return;
     for (eb.getMessages()) |err_msg| {
-        try renderErrorMessageToWriter(eb, options, err_msg, bw, "error", .red, 0);
+        try renderErrorMessageToWriter(eb, options, err_msg, w, "error", .red, 0);
     }
 
     if (options.include_log_text) {
         const log_text = eb.getCompileLogOutput();
         if (log_text.len != 0) {
-            try bw.writeAll("\nCompile Log Output:\n");
-            try bw.writeAll(log_text);
+            try w.writeAll("\nCompile Log Output:\n");
+            try w.writeAll(log_text);
         }
     }
 }
@@ -188,73 +188,81 @@ fn renderErrorMessageToWriter(
     eb: ErrorBundle,
     options: RenderOptions,
     err_msg_index: MessageIndex,
-    bw: *Writer,
+    w: *Writer,
     kind: []const u8,
     color: std.io.tty.Color,
     indent: usize,
 ) (Writer.Error || std.posix.UnexpectedError)!void {
     const ttyconf = options.ttyconf;
     const err_msg = eb.getErrorMessage(err_msg_index);
-    const prefix_start = bw.count;
     if (err_msg.src_loc != .none) {
         const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
-        try bw.splatByteAll(' ', indent);
-        try ttyconf.setColor(bw, .bold);
-        try bw.print("{s}:{d}:{d}: ", .{
+        var prefix: std.io.Writer.Discarding = .init(&.{});
+        try w.splatByteAll(' ', indent);
+        prefix.count += indent;
+        try ttyconf.setColor(w, .bold);
+        try w.print("{s}:{d}:{d}: ", .{
             eb.nullTerminatedString(src.data.src_path),
             src.data.line + 1,
             src.data.column + 1,
         });
-        try ttyconf.setColor(bw, color);
-        try bw.writeAll(kind);
-        try bw.writeAll(": ");
+        try prefix.writer.print("{s}:{d}:{d}: ", .{
+            eb.nullTerminatedString(src.data.src_path),
+            src.data.line + 1,
+            src.data.column + 1,
+        });
+        try ttyconf.setColor(w, color);
+        try w.writeAll(kind);
+        prefix.count += kind.len;
+        try w.writeAll(": ");
+        prefix.count += 2;
         // This is the length of the part before the error message:
         // e.g. "file.zig:4:5: error: "
-        const prefix_len = bw.count - prefix_start;
-        try ttyconf.setColor(bw, .reset);
-        try ttyconf.setColor(bw, .bold);
+        const prefix_len: usize = @intCast(prefix.count);
+        try ttyconf.setColor(w, .reset);
+        try ttyconf.setColor(w, .bold);
         if (err_msg.count == 1) {
-            try writeMsg(eb, err_msg, bw, prefix_len);
-            try bw.writeByte('\n');
+            try writeMsg(eb, err_msg, w, prefix_len);
+            try w.writeByte('\n');
         } else {
-            try writeMsg(eb, err_msg, bw, prefix_len);
-            try ttyconf.setColor(bw, .dim);
-            try bw.print(" ({d} times)\n", .{err_msg.count});
+            try writeMsg(eb, err_msg, w, prefix_len);
+            try ttyconf.setColor(w, .dim);
+            try w.print(" ({d} times)\n", .{err_msg.count});
         }
-        try ttyconf.setColor(bw, .reset);
+        try ttyconf.setColor(w, .reset);
         if (src.data.source_line != 0 and options.include_source_line) {
             const line = eb.nullTerminatedString(src.data.source_line);
             for (line) |b| switch (b) {
-                '\t' => try bw.writeByte(' '),
-                else => try bw.writeByte(b),
+                '\t' => try w.writeByte(' '),
+                else => try w.writeByte(b),
             };
-            try bw.writeByte('\n');
+            try w.writeByte('\n');
             // TODO basic unicode code point monospace width
             const before_caret = src.data.span_main - src.data.span_start;
             // -1 since span.main includes the caret
             const after_caret = src.data.span_end -| src.data.span_main -| 1;
-            try bw.splatByteAll(' ', src.data.column - before_caret);
-            try ttyconf.setColor(bw, .green);
-            try bw.splatByteAll('~', before_caret);
-            try bw.writeByte('^');
-            try bw.splatByteAll('~', after_caret);
-            try bw.writeByte('\n');
-            try ttyconf.setColor(bw, .reset);
+            try w.splatByteAll(' ', src.data.column - before_caret);
+            try ttyconf.setColor(w, .green);
+            try w.splatByteAll('~', before_caret);
+            try w.writeByte('^');
+            try w.splatByteAll('~', after_caret);
+            try w.writeByte('\n');
+            try ttyconf.setColor(w, .reset);
         }
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, bw, "note", .cyan, indent);
+            try renderErrorMessageToWriter(eb, options, note, w, "note", .cyan, indent);
         }
         if (src.data.reference_trace_len > 0 and options.include_reference_trace) {
-            try ttyconf.setColor(bw, .reset);
-            try ttyconf.setColor(bw, .dim);
-            try bw.print("referenced by:\n", .{});
+            try ttyconf.setColor(w, .reset);
+            try ttyconf.setColor(w, .dim);
+            try w.print("referenced by:\n", .{});
             var ref_index = src.end;
             for (0..src.data.reference_trace_len) |_| {
                 const ref_trace = eb.extraData(ReferenceTrace, ref_index);
                 ref_index = ref_trace.end;
                 if (ref_trace.data.src_loc != .none) {
                     const ref_src = eb.getSourceLocation(ref_trace.data.src_loc);
-                    try bw.print("    {s}: {s}:{d}:{d}\n", .{
+                    try w.print("    {s}: {s}:{d}:{d}\n", .{
                         eb.nullTerminatedString(ref_trace.data.decl_name),
                         eb.nullTerminatedString(ref_src.src_path),
                         ref_src.line + 1,
@@ -262,36 +270,36 @@ fn renderErrorMessageToWriter(
                     });
                 } else if (ref_trace.data.decl_name != 0) {
                     const count = ref_trace.data.decl_name;
-                    try bw.print(
+                    try w.print(
                         "    {d} reference(s) hidden; use '-freference-trace={d}' to see all references\n",
                         .{ count, count + src.data.reference_trace_len - 1 },
                     );
                 } else {
-                    try bw.print(
+                    try w.print(
                         "    remaining reference traces hidden; use '-freference-trace' to see all reference traces\n",
                         .{},
                     );
                 }
             }
-            try ttyconf.setColor(bw, .reset);
+            try ttyconf.setColor(w, .reset);
         }
     } else {
-        try ttyconf.setColor(bw, color);
-        try bw.splatByteAll(' ', indent);
-        try bw.writeAll(kind);
-        try bw.writeAll(": ");
-        try ttyconf.setColor(bw, .reset);
+        try ttyconf.setColor(w, color);
+        try w.splatByteAll(' ', indent);
+        try w.writeAll(kind);
+        try w.writeAll(": ");
+        try ttyconf.setColor(w, .reset);
         const msg = eb.nullTerminatedString(err_msg.msg);
         if (err_msg.count == 1) {
-            try bw.print("{s}\n", .{msg});
+            try w.print("{s}\n", .{msg});
         } else {
-            try bw.print("{s}", .{msg});
-            try ttyconf.setColor(bw, .dim);
-            try bw.print(" ({d} times)\n", .{err_msg.count});
+            try w.print("{s}", .{msg});
+            try ttyconf.setColor(w, .dim);
+            try w.print(" ({d} times)\n", .{err_msg.count});
         }
-        try ttyconf.setColor(bw, .reset);
+        try ttyconf.setColor(w, .reset);
         for (eb.getNotes(err_msg_index)) |note| {
-            try renderErrorMessageToWriter(eb, options, note, bw, "note", .cyan, indent + 4);
+            try renderErrorMessageToWriter(eb, options, note, w, "note", .cyan, indent + 4);
         }
     }
 }
@@ -300,13 +308,13 @@ fn renderErrorMessageToWriter(
 /// to allow for long, good-looking error messages.
 ///
 /// This is used to split the message in `@compileError("hello\nworld")` for example.
-fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, bw: *Writer, indent: usize) !void {
+fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, w: *Writer, indent: usize) !void {
     var lines = std.mem.splitScalar(u8, eb.nullTerminatedString(err_msg.msg), '\n');
     while (lines.next()) |line| {
-        try bw.writeAll(line);
+        try w.writeAll(line);
         if (lines.index == null) break;
-        try bw.writeByte('\n');
-        try bw.splatByteAll(' ', indent);
+        try w.writeByte('\n');
+        try w.splatByteAll(' ', indent);
     }
 }
 

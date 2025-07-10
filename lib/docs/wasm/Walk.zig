@@ -238,12 +238,8 @@ pub const File = struct {
 
                 .call_one,
                 .call_one_comma,
-                .async_call_one,
-                .async_call_one_comma,
                 .call,
                 .call_comma,
-                .async_call,
-                .async_call_comma,
                 => {
                     var buf: [1]Ast.Node.Index = undefined;
                     return categorize_call(file_index, node, ast.fullCall(&buf, node).?);
@@ -450,7 +446,7 @@ fn parse(file_name: []const u8, source: []u8) Oom!Ast {
                     error.WriteFailed => return error.OutOfMemory,
                 };
             }
-            log.err("{s}:{}:{}: {s}", .{ file_name, err_loc.line + 1, err_loc.column + 1, rendered_err.items });
+            log.err("{s}:{d}:{d}: {s}", .{ file_name, err_loc.line + 1, err_loc.column + 1, rendered_err.items });
         }
         return Ast.parse(gpa, "", .zig);
     }
@@ -577,7 +573,6 @@ fn struct_decl(
         },
 
         .@"comptime",
-        .@"usingnamespace",
         => try w.expr(&namespace.base, parent_decl, ast.nodeData(member).node),
 
         .test_decl => try w.expr(&namespace.base, parent_decl, ast.nodeData(member).opt_token_and_node[1]),
@@ -649,7 +644,6 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
     const ast = w.file.get_ast();
     switch (ast.nodeTag(node)) {
         .root => unreachable, // Top-level declaration.
-        .@"usingnamespace" => unreachable, // Top-level declaration.
         .test_decl => unreachable, // Top-level declaration.
         .container_field_init => unreachable, // Top-level declaration.
         .container_field_align => unreachable, // Top-level declaration.
@@ -749,7 +743,6 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
         .@"comptime",
         .@"nosuspend",
         .@"suspend",
-        .@"await",
         .@"resume",
         .@"try",
         => try expr(w, scope, parent_decl, ast.nodeData(node).node),
@@ -812,12 +805,8 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
             const full = ast.fullCall(&buf, node).?;

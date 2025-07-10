@@ -836,48 +836,46 @@ fn needsObjcMsgsendSymbol(self: InternalObject) bool {
     return false;
 }
 
-const FormatContext = struct {
+const Format = struct {
     self: *InternalObject,
     macho_file: *MachO,
-};
 
-pub fn fmtAtoms(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(formatAtoms) {
-    return .{ .data = .{
-        .self = self,
-        .macho_file = macho_file,
-    } };
-}
-
-fn formatAtoms(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    _ = unused_fmt_string;
-    try bw.writeAll("  atoms\n");
-    for (ctx.self.getAtoms()) |atom_index| {
-        const atom = ctx.self.getAtom(atom_index) orelse continue;
-        try bw.print("    {f}\n", .{atom.fmt(ctx.macho_file)});
-    }
-}
-
-pub fn fmtSymtab(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
-    return .{ .data = .{
-        .self = self,
-        .macho_file = macho_file,
-    } };
-}
-
-fn formatSymtab(ctx: FormatContext, bw: *Writer, comptime unused_fmt_string: []const u8) Writer.Error!void {
-    comptime assert(unused_fmt_string.len == 0);
-    const macho_file = ctx.macho_file;
-    const self = ctx.self;
-    try bw.writeAll("  symbols\n");
-    for (self.symbols.items, 0..) |sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        if (ref.getFile(macho_file) == null) {
-            // TODO any better way of handling this?
-            try bw.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
-        } else {
-            try bw.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+    fn atoms(f: Format, w: *Writer) Writer.Error!void {
+        try w.writeAll("  atoms\n");
+        for (f.self.getAtoms()) |atom_index| {
+            const atom = f.self.getAtom(atom_index) orelse continue;
+            try w.print("    {f}\n", .{atom.fmt(f.macho_file)});
         }
     }
+
+    fn symtab(f: Format, w: *Writer) Writer.Error!void {
+        const macho_file = f.macho_file;
+        const self = f.self;
+        try w.writeAll("  symbols\n");
+        for (self.symbols.items, 0..) |sym, i| {
+            const ref = self.getSymbolRef(@intCast(i), macho_file);
+            if (ref.getFile(macho_file) == null) {
+                // TODO any better way of handling this?
+                try w.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+            } else {
+                try w.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            }
+        }
+    }
+};
+
+pub fn fmtAtoms(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(Format, Format.atoms) {
+    return .{ .data = .{
+        .self = self,
+        .macho_file = macho_file,
+    } };
+}
+
+pub fn fmtSymtab(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(Format, Format.symtab) {
+    return .{ .data = .{
+        .self = self,
+        .macho_file = macho_file,
+    } };
 }
 
 const Section = struct {

@@ -230,16 +230,11 @@ const ComputeCompareExpected = struct {
         literal: u64,
     },
 
-    pub fn format(
-        value: ComputeCompareExpected,
-        bw: *Writer,
-        comptime fmt: []const u8,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, value);
-        try bw.print("{s} ", .{@tagName(value.op)});
+    pub fn format(value: ComputeCompareExpected, w: *Writer) Writer.Error!void {
+        try w.print("{t} ", .{value.op});
         switch (value.value) {
-            .variable => |name| try bw.writeAll(name),
-            .literal => |x| try bw.print("{x}", .{x}),
+            .variable => |name| try w.writeAll(name),
+            .literal => |x| try w.print("{x}", .{x}),
         }
     }
 };
@@ -571,7 +566,9 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         null,
         .of(u64),
         null,
-    ) catch |err| return step.fail("unable to read '{f'}': {s}", .{ src_path, @errorName(err) });
+    ) catch |err| return step.fail("unable to read '{f}': {s}", .{
+        std.fmt.alt(src_path, .formatEscapeChar), @errorName(err),
+    });
 
     var vars: std.StringHashMap(u64) = .init(gpa);
     for (check_object.checks.items) |chk| {
@@ -606,7 +603,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         // we either format message string with escaped codes, or not to aid debugging
         // the failed test.
         const fmtMessageString = struct {
-            fn fmtMessageString(kind: Check.Kind, msg: []const u8) std.fmt.Formatter(formatMessageString) {
+            fn fmtMessageString(kind: Check.Kind, msg: []const u8) std.fmt.Formatter(Ctx, formatMessageString) {
                 return .{ .data = .{
                     .kind = kind,
                     .msg = msg,
@@ -618,15 +615,10 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                 msg: []const u8,
             };
 
-            fn formatMessageString(
-                ctx: Ctx,
-                bw: *Writer,
-                comptime unused_fmt_string: []const u8,
-            ) !void {
-                _ = unused_fmt_string;
+            fn formatMessageString(ctx: Ctx, w: *Writer) !void {
                 switch (ctx.kind) {
-                    .dump_section => try bw.print("{f}", .{std.fmt.fmtSliceEscapeLower(ctx.msg)}),
-                    else => try bw.writeAll(ctx.msg),
+                    .dump_section => try w.print("{f}", .{std.ascii.hexEscape(ctx.msg, .lower)}),
+                    else => try w.writeAll(ctx.msg),
                 }
             }
         }.fmtMessageString;
@@ -882,9 +874,9 @@ const MachODumper = struct {
             try bw.writeByte('\n');
         }
 
-        fn dumpLoadCommand(lc: macho.LoadCommandIterator.LoadCommand, index: usize, bw: *Writer) !void {
+        fn dumpLoadCommand(lc: macho.LoadCommandIterator.LoadCommand, index: usize, writer: *Writer) !void {
             // print header first
-            try bw.print(
+            try writer.print(
                 \\LC {d}
                 \\cmd {s}
                 \\cmdsize {d}
@@ -893,8 +885,8 @@ const MachODumper = struct {
             switch (lc.cmd()) {
                 .SEGMENT_64 => {
                     const seg = lc.cast(macho.segment_command_64).?;
-                    try bw.writeByte('\n');
-                    try bw.print(
+                    try writer.writeByte('\n');
+                    try writer.print(
                         \\segname {s}
                         \\vmaddr {x}
                         \\vmsize {x}
@@ -909,8 +901,8 @@ const MachODumper = struct {
                     });
 
                     for (lc.getSections()) |sect| {
-                        try bw.writeByte('\n');
-                        try bw.print(
+                        try writer.writeByte('\n');
+                        try writer.print(
                             \\sectname {s}
                             \\addr {x}
                             \\size {x}
@@ -932,8 +924,8 @@ const MachODumper = struct {
                 .REEXPORT_DYLIB,
                 => {
                     const dylib = lc.cast(macho.dylib_command).?;
-                    try bw.writeByte('\n');
-                    try bw.print(
+                    try writer.writeByte('\n');
+                    try writer.print(
                         \\name {s}
                         \\timestamp {d}
                         \\current version {x}
@@ -948,16 +940,16 @@ const MachODumper = struct {
 
                 .MAIN => {
                     const main = lc.cast(macho.entry_point_command).?;
-                    try bw.writeByte('\n');
-                    try bw.print(
+                    try writer.writeByte('\n');
+                    try writer.print(
                         \\entryoff {x}
                         \\stacksize {x}
                     , .{ main.entryoff, main.stacksize });
                 },
 
                 .RPATH => {
-                    try bw.writeByte('\n');
-                    try bw.print(
+                    try writer.writeByte('\n');
+                    try writer.print(
                         \\path {s}
                     , .{
                         lc.getRpathPathName(),
@@ -966,8 +958,8 @@ const MachODumper = struct {
 
                 .UUID => {
                     const uuid = lc.cast(macho.uuid_command).?;
-                    try bw.writeByte('\n');
-                    try bw.print("uuid {x}", .{&uuid.uuid});
+                    try writer.writeByte('\n');
+                    try writer.print("uuid {x}", .{&uuid.uuid});
                 },
 
                 .DATA_IN_CODE,
@@ -975,8 +967,8 @@ const MachODumper = struct {
                 .CODE_SIGNATURE,
                 => {
                     const llc = lc.cast(macho.linkedit_data_command).?;
-                    try bw.writeByte('\n');
-                    try bw.print(
+                    try writer.writeByte('\n');
+                    try writer.print(
                         \\dataoff {x}
                         \\datasize {x}
                     , .{ llc.dataoff, llc.datasize });
@@ -984,8 +976,8 @@ const MachODumper = struct {
 
                 .DYLD_INFO_ONLY => {
                     const dlc = lc.cast(macho.dyld_info_command).?;
-                    try bw.writeByte('\n');
-                    try bw.print(
+                    try writer.writeByte('\n');
+                    try writer.print(
                         \\rebaseoff {x}
                         \\rebasesize {x}
                         \\bindoff {x}
@@ -1012,8 +1004,8 @@ const MachODumper = struct {
 
                 .SYMTAB => {
                     const slc = lc.cast(macho.symtab_command).?;
-                    try bw.writeByte('\n');
-                    try bw.print(
+                    try writer.writeByte('\n');
+                    try writer.print(
                         \\symoff {x}
                         \\nsyms {x}
                         \\stroff {x}
@@ -1028,8 +1020,8 @@ const MachODumper = struct {
 
                 .DYSYMTAB => {
                     const dlc = lc.cast(macho.dysymtab_command).?;
-                    try bw.writeByte('\n');
-                    try bw.print(
+                    try writer.writeByte('\n');
+                    try writer.print(
                         \\ilocalsym {x}
                         \\nlocalsym {x}
                         \\iextdefsym {x}
@@ -1052,8 +1044,8 @@ const MachODumper = struct {
 
                 .BUILD_VERSION => {
                     const blc = lc.cast(macho.build_version_command).?;
-                    try bw.writeByte('\n');
-                    try bw.print(
+                    try writer.writeByte('\n');
+                    try writer.print(
                         \\platform {s}
                         \\minos {d}.{d}.{d}
                         \\sdk {d}.{d}.{d}
@@ -1069,12 +1061,12 @@ const MachODumper = struct {
                         blc.ntools,
                     });
                     for (lc.getBuildVersionTools()) |tool| {
-                        try bw.writeByte('\n');
+                        try writer.writeByte('\n');
                         switch (tool.tool) {
-                            .CLANG, .SWIFT, .LD, .LLD, .ZIG => try bw.print("tool {s}\n", .{@tagName(tool.tool)}),
-                            else => |x| try bw.print("tool {d}\n", .{@intFromEnum(x)}),
+                            .CLANG, .SWIFT, .LD, .LLD, .ZIG => try writer.print("tool {s}\n", .{@tagName(tool.tool)}),
+                            else => |x| try writer.print("tool {d}\n", .{@intFromEnum(x)}),
                         }
-                        try bw.print(
+                        try writer.print(
                             \\version {d}.{d}.{d}
                         , .{
                             tool.version >> 16,
@@ -1090,8 +1082,8 @@ const MachODumper = struct {
                 .VERSION_MIN_TVOS,
                 => {
                     const vlc = lc.cast(macho.version_min_command).?;
-                    try bw.writeByte('\n');
-                    try bw.print(
+                    try writer.writeByte('\n');
+                    try writer.print(
                         \\version {d}.{d}.{d}
                         \\sdk {d}.{d}.{d}
                     , .{
@@ -1943,58 +1935,58 @@ const ElfDumper = struct {
             try bw.print("entry {x}\n", .{ctx.hdr.e_entry});
         }
 
-        fn dumpPhdrs(ctx: ObjectContext, bw: *Writer) !void {
+        fn dumpPhdrs(ctx: ObjectContext, writer: *Writer) !void {
             if (ctx.phdrs.len == 0) return;
 
-            try bw.writeAll("program headers\n");
+            try writer.writeAll("program headers\n");
 
             for (ctx.phdrs, 0..) |phdr, phndx| {
-                try bw.print("phdr {d}\n", .{phndx});
-                try bw.print("type {f}\n", .{fmtPhType(phdr.p_type)});
-                try bw.print("vaddr {x}\n", .{phdr.p_vaddr});
-                try bw.print("paddr {x}\n", .{phdr.p_paddr});
-                try bw.print("offset {x}\n", .{phdr.p_offset});
-                try bw.print("memsz {x}\n", .{phdr.p_memsz});
-                try bw.print("filesz {x}\n", .{phdr.p_filesz});
-                try bw.print("align {x}\n", .{phdr.p_align});
+                try writer.print("phdr {d}\n", .{phndx});
+                try writer.print("type {f}\n", .{fmtPhType(phdr.p_type)});
+                try writer.print("vaddr {x}\n", .{phdr.p_vaddr});
+                try writer.print("paddr {x}\n", .{phdr.p_paddr});
+                try writer.print("offset {x}\n", .{phdr.p_offset});
+                try writer.print("memsz {x}\n", .{phdr.p_memsz});
+                try writer.print("filesz {x}\n", .{phdr.p_filesz});
+                try writer.print("align {x}\n", .{phdr.p_align});
 
                 {
                     const flags = phdr.p_flags;
-                    try bw.writeAll("flags");
-                    if (flags > 0) try bw.writeByte(' ');
+                    try writer.writeAll("flags");
+                    if (flags > 0) try writer.writeByte(' ');
                     if (flags & elf.PF_R != 0) {
-                        try bw.writeByte('R');
+                        try writer.writeByte('R');
                     }
                     if (flags & elf.PF_W != 0) {
-                        try bw.writeByte('W');
+                        try writer.writeByte('W');
                     }
                     if (flags & elf.PF_X != 0) {
-                        try bw.writeByte('E');
+                        try writer.writeByte('E');
                     }
                     if (flags & elf.PF_MASKOS != 0) {
-                        try bw.writeAll("OS");
+                        try writer.writeAll("OS");
                     }
                     if (flags & elf.PF_MASKPROC != 0) {
-                        try bw.writeAll("PROC");
+                        try writer.writeAll("PROC");
                     }
-                    try bw.writeByte('\n');
+                    try writer.writeByte('\n');
                 }
             }
         }
 
-        fn dumpShdrs(ctx: ObjectContext, bw: *Writer) !void {
+        fn dumpShdrs(ctx: ObjectContext, writer: *Writer) !void {
             if (ctx.shdrs.len == 0) return;
 
-            try bw.writeAll("section headers\n");
+            try writer.writeAll("section headers\n");
 
             for (ctx.shdrs, 0..) |shdr, shndx| {
-                try bw.print("shdr {d}\n", .{shndx});
-                try bw.print("name {s}\n", .{ctx.getSectionName(shndx)});
-                try bw.print("type {f}\n", .{fmtShType(shdr.sh_type)});
-                try bw.print("addr {x}\n", .{shdr.sh_addr});
-                try bw.print("offset {x}\n", .{shdr.sh_offset});
-                try bw.print("size {x}\n", .{shdr.sh_size});
-                try bw.print("addralign {x}\n", .{shdr.sh_addralign});
+                try writer.print("shdr {d}\n", .{shndx});
+                try writer.print("name {s}\n", .{ctx.getSectionName(shndx)});
+                try writer.print("type {f}\n", .{fmtShType(shdr.sh_type)});
+                try writer.print("addr {x}\n", .{shdr.sh_addr});
+                try writer.print("offset {x}\n", .{shdr.sh_offset});
+                try writer.print("size {x}\n", .{shdr.sh_size});
+                try writer.print("addralign {x}\n", .{shdr.sh_addralign});
                 // TODO dump formatted sh_flags
             }
         }
@@ -2263,16 +2255,11 @@ const ElfDumper = struct {
         return str[0..std.mem.indexOfScalar(u8, str, 0).?];
     }
 
-    fn fmtShType(sh_type: u32) std.fmt.Formatter(formatShType) {
+    fn fmtShType(sh_type: u32) std.fmt.Formatter(u32, formatShType) {
         return .{ .data = sh_type };
     }
 
-    fn formatShType(
-        sh_type: u32,
-        bw: *Writer,
-        comptime unused_fmt_string: []const u8,
-    ) !void {
-        _ = unused_fmt_string;
+    fn formatShType(sh_type: u32, writer: *Writer) Writer.Error!void {
         const name = switch (sh_type) {
             elf.SHT_NULL => "NULL",
             elf.SHT_PROGBITS => "PROGBITS",
@@ -2298,26 +2285,21 @@ const ElfDumper = struct {
             elf.SHT_GNU_VERNEED => "VERNEED",
             elf.SHT_GNU_VERSYM => "VERSYM",
             else => if (elf.SHT_LOOS <= sh_type and sh_type < elf.SHT_HIOS) {
-                return try bw.print("LOOS+0x{x}", .{sh_type - elf.SHT_LOOS});
+                return try writer.print("LOOS+0x{x}", .{sh_type - elf.SHT_LOOS});
             } else if (elf.SHT_LOPROC <= sh_type and sh_type < elf.SHT_HIPROC) {
-                return try bw.print("LOPROC+0x{x}", .{sh_type - elf.SHT_LOPROC});
+                return try writer.print("LOPROC+0x{x}", .{sh_type - elf.SHT_LOPROC});
             } else if (elf.SHT_LOUSER <= sh_type and sh_type < elf.SHT_HIUSER) {
-                return try bw.print("LOUSER+0x{x}", .{sh_type - elf.SHT_LOUSER});
+                return try writer.print("LOUSER+0x{x}", .{sh_type - elf.SHT_LOUSER});
             } else "UNKNOWN",
         };
-        try bw.writeAll(name);
+        try writer.writeAll(name);
     }
 
-    fn fmtPhType(ph_type: u32) std.fmt.Formatter(formatPhType) {
+    fn fmtPhType(ph_type: u32) std.fmt.Formatter(u32, formatPhType) {
         return .{ .data = ph_type };
     }
 
-    fn formatPhType(
-        ph_type: u32,
-        bw: *Writer,
-        comptime unused_fmt_string: []const u8,
-    ) !void {
-        _ = unused_fmt_string;
+    fn formatPhType(ph_type: u32, writer: *Writer) Writer.Error!void {
         const p_type = switch (ph_type) {
             elf.PT_NULL => "NULL",
             elf.PT_LOAD => "LOAD",
@@ -2332,12 +2314,12 @@ const ElfDumper = struct {
             elf.PT_GNU_STACK => "GNU_STACK",
             elf.PT_GNU_RELRO => "GNU_RELRO",
             else => if (elf.PT_LOOS <= ph_type and ph_type < elf.PT_HIOS) {
-                return try bw.print("LOOS+0x{x}", .{ph_type - elf.PT_LOOS});
+                return try writer.print("LOOS+0x{x}", .{ph_type - elf.PT_LOOS});
             } else if (elf.PT_LOPROC <= ph_type and ph_type < elf.PT_HIPROC) {
-                return try bw.print("LOPROC+0x{x}", .{ph_type - elf.PT_LOPROC});
+                return try writer.print("LOPROC+0x{x}", .{ph_type - elf.PT_LOPROC});
             } else "UNKNOWN",
         };
-        try bw.writeAll(p_type);
+        try writer.writeAll(p_type);
     }
 };
 

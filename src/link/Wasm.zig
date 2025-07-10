@@ -32,7 +32,7 @@ const Writer = std.io.Writer;
 
 const Mir = @import("../arch/wasm/Mir.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
-const abi = @import("../arch/wasm/abi.zig");
+const abi = @import("../codegen/wasm/abi.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
 const InternPool = @import("../InternPool.zig");
@@ -2125,26 +2125,25 @@ pub const FunctionType = extern struct {
         wasm: *const Wasm,
         ft: FunctionType,
 
-        pub fn format(self: Formatter, bw: *Writer, comptime format_string: []const u8) Writer.Error!void {
-            comptime assert(format_string.len == 0);
+        pub fn format(self: Formatter, writer: *std.io.Writer) std.io.Writer.Error!void {
             const params = self.ft.params.slice(self.wasm);
             const returns = self.ft.returns.slice(self.wasm);
 
-            try bw.writeByte('(');
+            try writer.writeByte('(');
             for (params, 0..) |param, i| {
-                try bw.print("{s}", .{@tagName(param)});
+                try writer.print("{s}", .{@tagName(param)});
                 if (i + 1 != params.len) {
-                    try bw.writeAll(", ");
+                    try writer.writeAll(", ");
                 }
             }
-            try bw.writeAll(") -> ");
+            try writer.writeAll(") -> ");
             if (returns.len == 0) {
-                try bw.writeAll("nil");
+                try writer.writeAll("nil");
             } else {
                 for (returns, 0..) |return_ty, i| {
-                    try bw.print("{s}", .{@tagName(return_ty)});
+                    try writer.print("{s}", .{@tagName(return_ty)});
                     if (i + 1 != returns.len) {
-                        try bw.writeAll(", ");
+                        try writer.writeAll(", ");
                     }
                 }
             }
@@ -2905,9 +2904,8 @@ pub const Feature = packed struct(u8) {
         @"=",
     };
 
-    pub fn format(feature: Feature, bw: *Writer, comptime fmt: []const u8) Writer.Error!void {
-        _ = fmt;
-        try bw.print("{s} {s}", .{ @tagName(feature.prefix), @tagName(feature.tag) });
+    pub fn format(feature: Feature, writer: *std.io.Writer) std.io.Writer.Error!void {
+        try writer.print("{s} {s}", .{ @tagName(feature.prefix), @tagName(feature.tag) });
     }
 
     pub fn lessThan(_: void, a: Feature, b: Feature) bool {
@@ -3299,7 +3297,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
         .variable => |variable| .{ variable.init, variable.owner_nav },
         else => .{ nav.status.fully_resolved.val, nav_index },
     };
-    //log.debug("updateNav {} {d}", .{ nav.fqn.fmt(ip), chased_nav_index });
+    //log.debug("updateNav {f} {d}", .{ nav.fqn.fmt(ip), chased_nav_index });
     assert(!wasm.imports.contains(chased_nav_index));
 
     if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {

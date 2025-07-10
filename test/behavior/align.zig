@@ -425,30 +425,6 @@ test "struct field explicit alignment" {
     try expect(@intFromPtr(&node.massive_byte) % 64 == 0);
 }
 
-test "align(@alignOf(T)) T does not force resolution of T" {
-    if (true) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        const A = struct {
-            a: *align(@alignOf(A)) A,
-        };
-        fn doTheTest() void {
-            suspend {
-                resume @frame();
-            }
-            _ = bar(@Frame(doTheTest));
-        }
-        fn bar(comptime T: type) *align(@alignOf(T)) T {
-            ok = true;
-            return undefined;
-        }
-
-        var ok = false;
-    };
-    _ = async S.doTheTest();
-    try expect(S.ok);
-}
-
 test "align(N) on functions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO

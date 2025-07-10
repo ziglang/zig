@@ -707,7 +707,14 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
     const comp = emit.bin_file.comp;
     const gpa = comp.gpa;
     const start_offset: u32 = @intCast(emit.code.items.len);
-    try lowered_inst.encode(emit.code.writer(gpa), .{});
+    {
+        var aw: std.io.Writer.Allocating = .fromArrayList(gpa, emit.code);
+        defer emit.code.* = aw.toArrayList();
+        lowered_inst.encode(&aw.writer, .{}) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+            else => |e| return e,
+        };
+    }
     const end_offset: u32 = @intCast(emit.code.items.len);
     for (reloc_info) |reloc| switch (reloc.target.type) {
         .inst => {

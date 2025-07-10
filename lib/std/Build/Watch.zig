@@ -659,7 +659,7 @@ const Os = switch (builtin.os.tag) {
                                 path.root_dir.handle.fd
                             else
                                 posix.openat(path.root_dir.handle.fd, path.sub_path, dir_open_flags, 0) catch |err| {
-                                    fatal("failed to open directory {}: {s}", .{ path, @errorName(err) });
+                                    fatal("failed to open directory {f}: {s}", .{ path, @errorName(err) });
                                 };
                             // Empirically the dir has to stay open or else no events are triggered.
                             errdefer if (!skip_open_dir) posix.close(dir_fd);

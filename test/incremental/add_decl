@@ -6,7 +6,7 @@
 #file=main.zig
 const std = @import("std");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(foo);
+    try std.fs.File.stdout().writeAll(foo);
 }
 const foo = "good morning\n";
 #expect_stdout="good morning\n"
@@ -15,7 +15,7 @@ const foo = "good morning\n";
 #file=main.zig
 const std = @import("std");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(foo);
+    try std.fs.File.stdout().writeAll(foo);
 }
 const foo = "good morning\n";
 const bar = "good evening\n";
@@ -25,7 +25,7 @@ const bar = "good evening\n";
 #file=main.zig
 const std = @import("std");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(bar);
+    try std.fs.File.stdout().writeAll(bar);
 }
 const foo = "good morning\n";
 const bar = "good evening\n";
@@ -35,17 +35,17 @@ const bar = "good evening\n";
 #file=main.zig
 const std = @import("std");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(qux);
+    try std.fs.File.stdout().writeAll(qux);
 }
 const foo = "good morning\n";
 const bar = "good evening\n";
-#expect_error=main.zig:3:37: error: use of undeclared identifier 'qux'
+#expect_error=main.zig:3:39: error: use of undeclared identifier 'qux'
 
 #update=add missing declaration
 #file=main.zig
 const std = @import("std");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(qux);
+    try std.fs.File.stdout().writeAll(qux);
 }
 const foo = "good morning\n";
 const bar = "good evening\n";
@@ -56,7 +56,7 @@ const qux = "good night\n";
 #file=main.zig
 const std = @import("std");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(qux);
+    try std.fs.File.stdout().writeAll(qux);
 }
 const qux = "good night\n";
 #expect_stdout="good night\n"
