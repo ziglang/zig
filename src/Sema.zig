@@ -13572,8 +13572,8 @@ fn zirShl(
     const maybe_rhs_val = try sema.resolveValueResolveLazy(rhs);
 
     if (maybe_rhs_val) |rhs_val| {
-        if (rhs_val.isUndef(zcu)) {
-            return pt.undefRef(sema.typeOf(lhs));
+        if (rhs_val.anyScalarIsUndef(zcu)) {
+            return sema.failWithUseOfUndef(block, rhs_src);
         }
         // If rhs is 0, return lhs without doing any calculations.
         if (try rhs_val.compareAllWithZeroSema(.eq, pt)) {
@@ -13621,7 +13621,9 @@ fn zirShl(
     }
 
     const runtime_src = if (maybe_lhs_val) |lhs_val| rs: {
-        if (lhs_val.isUndef(zcu)) return pt.undefRef(lhs_ty);
+        if (lhs_val.anyScalarIsUndef(zcu)) {
+            return sema.failWithUseOfUndef(block, lhs_src);
+        }
         const rhs_val = maybe_rhs_val orelse {
             if (scalar_ty.zigTypeTag(zcu) == .comptime_int) {
                 return sema.fail(block, src, "LHS of shift must be a fixed-width integer type, or RHS must be comptime-known", .{});
@@ -13753,8 +13755,10 @@ fn zirShr(
     const maybe_rhs_val = try sema.resolveValueResolveLazy(rhs);
 
     const runtime_src = if (maybe_rhs_val) |rhs_val| rs: {
-        if (rhs_val.isUndef(zcu)) {
-            return pt.undefRef(lhs_ty);
+        switch (air_tag) {
+            .shr => if (rhs_val.isUndefDeep(zcu)) return pt.undefRef(lhs_ty),
+            .shr_exact => if (rhs_val.anyScalarIsUndef(zcu)) return sema.failWithUseOfUndef(block, rhs_src),
+            else => unreachable,
         }
         // If rhs is 0, return lhs without doing any calculations.
         if (try rhs_val.compareAllWithZeroSema(.eq, pt)) {
@@ -13766,6 +13770,7 @@ fn zirShr(
                 var i: usize = 0;
                 while (i < rhs_ty.vectorLen(zcu)) : (i += 1) {
                     const rhs_elem = try rhs_val.elemValue(pt, i);
+                    if (rhs_elem.isUndef(zcu)) continue;
                     if (rhs_elem.compareHetero(.gte, bit_value, zcu)) {
                         return sema.fail(block, rhs_src, "shift amount '{f}' at index '{d}' is too large for operand type '{f}'", .{
                             rhs_elem.fmtValueSema(pt, sema),
@@ -13785,6 +13790,7 @@ fn zirShr(
             var i: usize = 0;
             while (i < rhs_ty.vectorLen(zcu)) : (i += 1) {
                 const rhs_elem = try rhs_val.elemValue(pt, i);
+                if (rhs_elem.isUndef(zcu)) continue;
                 if (rhs_elem.compareHetero(.lt, try pt.intValue(rhs_ty.childType(zcu), 0), zcu)) {
                     return sema.fail(block, rhs_src, "shift by negative amount '{f}' at index '{d}'", .{
                         rhs_elem.fmtValueSema(pt, sema),
@@ -13798,15 +13804,17 @@ fn zirShr(
             });
         }
         if (maybe_lhs_val) |lhs_val| {
-            if (lhs_val.isUndef(zcu)) {
-                return pt.undefRef(lhs_ty);
-            }
-            if (air_tag == .shr_exact) {
-                // Detect if any ones would be shifted out.
-                const truncated = try lhs_val.intTruncBitsAsValue(lhs_ty, sema.arena, .unsigned, rhs_val, pt);
-                if (!(try truncated.compareAllWithZeroSema(.eq, pt))) {
-                    return sema.fail(block, src, "exact shift shifted out 1 bits", .{});
-                }
+            switch (air_tag) {
+                .shr => if (lhs_val.isUndefDeep(zcu)) return pt.undefRef(lhs_ty),
+                .shr_exact => {
+                    if (lhs_val.anyScalarIsUndef(zcu)) return sema.failWithUseOfUndef(block, lhs_src);
+                    // Detect if any ones would be shifted out.
+                    const truncated = try lhs_val.intTruncBitsAsValue(lhs_ty, sema.arena, .unsigned, rhs_val, pt);
+                    if (!(try truncated.compareAllWithZeroSema(.eq, pt))) {
+                        return sema.fail(block, src, "exact shift shifted out 1 bits", .{});
+                    }
+                },
+                else => unreachable,
             }
             const val = try lhs_val.shr(rhs_val, lhs_ty, sema.arena, pt);
             return Air.internedToRef(val.toIntern());
