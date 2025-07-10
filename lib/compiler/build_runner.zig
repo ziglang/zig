@@ -254,7 +254,7 @@ pub fn main() !void {
                 builder.verbose_llvm_ir = "-";
             } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
                 builder.verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
-            } else if (mem.eql(u8, arg, "--verbose-llvm-bc=")) {
+            } else if (mem.startsWith(u8, arg, "--verbose-llvm-bc=")) {
                 builder.verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
             } else if (mem.eql(u8, arg, "--verbose-cimport")) {
                 builder.verbose_cimport = true;
