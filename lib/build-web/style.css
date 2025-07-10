@@ -1,0 +1,240 @@
+body {
+  font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
+  color: #000000;
+  padding: 1em 10%;
+}
+ul.no-marker {
+  list-style-type: none;
+  padding-left: 0;
+}
+hr {
+  margin: 2em 0;
+}
+.hidden {
+  display: none;
+}
+.empty-cell {
+  background: #ccc;
+}
+table.time-stats > tbody > tr > th {
+  text-align: left;
+}
+table.time-stats > tbody > tr > td {
+  text-align: right;
+}
+details > summary {
+  cursor: pointer;
+  font-size: 1.5em;
+}
+.tooltip {
+  text-decoration: underline;
+  cursor: help;
+}
+.tooltip-content {
+  border-radius: 6px;
+  display: none;
+  position: absolute;
+  background: #fff;
+  border: 1px solid black;
+  max-width: 500px;
+  padding: 1em;
+  text-align: left;
+  font-weight: normal;
+  pointer-events: none;
+}
+.tooltip:hover > .tooltip-content {
+  display: block;
+}
+table {
+  margin: 1.0em auto 1.5em 0;
+  border-collapse: collapse;
+}
+th, td {
+  padding: 0.5em 1em 0.5em 1em;
+  border: 1px solid;
+  border-color: black;
+}
+a, button {
+  color: #2A6286;
+}
+button {
+  background: #eee;
+  cursor: pointer;
+  border: none;
+  border-radius: 3px;
+  padding: 0.2em 0.5em;
+}
+button.big-btn {
+  font-size: 1.3em;
+}
+button.linkish {
+  background: none;
+  text-decoration: underline;
+  padding: 0;
+}
+button:disabled {
+  color: #888;
+  cursor: not-allowed;
+}
+pre {
+  font-family: "Source Code Pro", monospace;
+  font-size: 1em;
+  background-color: #F5F5F5;
+  padding: 1em;
+  margin: 0;
+  overflow-x: auto;
+}
+:not(pre) > code {
+  white-space: break-spaces;
+}
+code {
+  font-family: "Source Code Pro", monospace;
+  font-size: 0.9em;
+}
+code a {
+  color: #000000;
+}
+kbd {
+  color: #000;
+  background-color: #fafbfc;
+  border-color: #d1d5da;
+  border-bottom-color: #c6cbd1;
+  box-shadow-color: #c6cbd1;
+  display: inline-block;
+  padding: 0.3em 0.2em;
+  font: 1.2em monospace;
+  line-height: 0.8em;
+  vertical-align: middle;
+  border: solid 1px;
+  border-radius: 3px;
+  box-shadow: inset 0 -1px 0;
+  cursor: default;
+}
+.status-running { color: #181; }
+.status-idle    { color: #444; }
+.step-success { color: #181; }
+.step-failure { color: #d11; }
+.step-wip::before {
+  content: '';
+  position: absolute;
+  margin-left: -1.5em;
+  width: 1em;
+  text-align: center;
+  animation-name: spinner;
+  animation-duration: 0.5s;
+  animation-iteration-count: infinite;
+  animation-timing-function: step-start;
+}
+@keyframes spinner {
+  0%   { content: '|'; }
+  25%  { content: '/'; }
+  50%  { content: '-'; }
+  75%  { content: '\\'; }
+  100% { content: '|'; }
+}
+
+.l {
+  display: inline-block;
+  background: red;
+  width: 1em;
+  height: 1em;
+  border-radius: 1em;
+}
+.c {
+  background-color: green;
+}
+
+.tok-kw {
+    color: #333;
+    font-weight: bold;
+}
+.tok-str {
+    color: #d14;
+}
+.tok-builtin {
+    color: #0086b3;
+}
+.tok-comment {
+    color: #777;
+    font-style: italic;
+}
+.tok-fn {
+    color: #900;
+    font-weight: bold;
+}
+.tok-null {
+    color: #008080;
+}
+.tok-number {
+    color: #008080;
+}
+.tok-type {
+    color: #458;
+    font-weight: bold;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background-color: #111;
+    color: #ddd;
+  }
+  pre {
+    background-color: #222;
+  }
+  a, button {
+    color: #88f;
+  }
+  button {
+    background: #333;
+  }
+  button:disabled {
+    color: #555;
+  }
+  code a {
+    color: #eee;
+  }
+  th, td {
+    border-color: white;
+  }
+  .empty-cell {
+    background: #000;
+  }
+  .tooltip-content {
+    background: #060606;
+    border-color: white;
+  }
+  .status-running { color: #90ee90; }
+  .status-idle    { color: #bbb; }
+  .step-success   { color: #90ee90; }
+  .step-failure   { color: #f66; }
+  .l {
+    background-color: red;
+  }
+  .c {
+    background-color: green;
+  }
+  .tok-kw {
+      color: #eee;
+  }
+  .tok-str {
+      color: #2e5;
+  }
+  .tok-builtin {
+      color: #ff894c;
+  }
+  .tok-comment {
+      color: #aa7;
+  }
+  .tok-fn {
+      color: #B1A0F8;
+  }
+  .tok-null {
+      color: #ff8080;
+  }
+  .tok-number {
+      color: #ff8080;
+  }
+  .tok-type {
+      color: #68f;
+  }
+}

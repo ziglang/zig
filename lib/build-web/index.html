@@ -1,0 +1,202 @@
+<!doctype html>
+
+<meta charset="utf-8">
+<title>Zig Build System</title>
+<link rel="stylesheet" href="style.css">
+<!-- Highly compressed 32x32 Zig logo -->
+<link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABSklEQVRYw8WWXbLDIAiFP5xuURYpi+Q+VDvJTYxaY8pLJ52EA5zDj/AD8wRABCw8DeyJBDiAKMiDGaecNYCKYgCvh4EBjPgGh0UVqAB/MEU3D57efDRMiRhWddprCljRAECPCE0Uw4iz4Jn3tP2zFYAB6on4/8NBM1Es+9kl0aKgaMRnwHPpT5MIDb6YzLzp57wNIyIC7iCCdijeL3gv78jZe6cVENn/drRbXbxl4lXSmB3FtbY0iNrjIEwMm6u2VFFjWQCN0qtov6+wANxG/IV7eR8DHw6gzft4NuEXvA8HcDfv31SgyvsMeDUA90/WTd47bsCdv8PUrWzDyw02uIYv13ktgOVr+IqCouila7gWgNYuly/BfVSEdsP5Vdqyiz7pPC40C+p2e21bL5/dByGtAD6eZPuzeznwjoIN748BfyqwmVDyJHCxPwLSkjUkraEXAAAAAElFTkSuQmCC">
+
+<!-- Templates, to be cloned into shadow DOMs by JavaScript -->
+
+<template id="timeReportEntryTemplate">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="time_report.css">
+  <details>
+    <summary><slot name="step-name"></slot></summary>
+    <div id="genericReport">
+      <div class="stats">
+        Time: <slot name="stat-total-time"></slot><br>
+      </div>
+    </div>
+    <div id="compileReport">
+      <div class="stats">
+        Files Discovered: <slot name="stat-reachable-files"></slot><br>
+        Files Analyzed: <slot name="stat-imported-files"></slot><br>
+        Generic Instances Analyzed: <slot name="stat-generic-instances"></slot><br>
+        Inline Calls Analyzed: <slot name="stat-inline-calls"></slot><br>
+        Compilation Time: <slot name="stat-compilation-time"></slot><br>
+      </div>
+      <table class="time-stats">
+        <thead>
+          <tr>
+            <th scope="col">Pipeline Component</th>
+            <th scope="col" class="tooltip">CPU Time
+              <span class="tooltip-content">Sum across all threads of the time spent in this pipeline component</span>
+            </th>
+            <th scope="col" class="tooltip">Real Time
+              <span class="tooltip-content">Wall-clock time elapsed between the start and end of this compilation phase</span>
+            </th>
+            <th scope="col">Compilation Phase</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row" class="tooltip">Parsing
+              <span class="tooltip-content"><code>tokenize</code> converts a file of Zig source code into a sequence of tokens, which are then processed by <code>Parse</code> into an Abstract Syntax Tree (AST).</span>
+            </th>
+            <td><slot name="cpu-time-parse"></slot></td>
+            <td rowspan="2"><slot name="real-time-files"></slot></td>
+            <th scope="row" rowspan="2" class="tooltip">File Lower
+              <span class="tooltip-content">Tokenization, parsing, and lowering of Zig source files to a high-level IR.<br><br>Starting from module roots, every file theoretically accessible through a chain of <code>@import</code> calls is processed. Individual source files are processed serially, but different files are processed in parallel by a thread pool.<br><br>The results of this phase of compilation are cached on disk per source file, meaning the time spent here is typically only relevant to "clean" builds.</span>
+            </th>
+          </tr>
+          <tr>
+            <th scope="row" class="tooltip">AST Lowering
+              <span class="tooltip-content"><code>AstGen</code> converts a file's AST into a high-level SSA IR named Zig Intermediate Representation (ZIR). The resulting ZIR code is cached on disk to avoid, for instance, re-lowering all source files in the Zig standard library each time the compiler is invoked.</span>
+            </th>
+            <td><slot name="cpu-time-astgen"></slot></td>
+          </tr>
+          <tr>
+            <th scope="row" class="tooltip">Semantic Analysis
+              <span class="tooltip-content"><code>Sema</code> interprets ZIR to perform type checking, compile-time code execution, and type resolution, collectively termed "semantic analysis". When a runtime function body is analyzed, it emits Analyzed Intermediate Representation (AIR) code to be sent to the next pipeline component. Semantic analysis is currently entirely single-threaded.</span>
+            </th>
+            <td><slot name="cpu-time-sema"></slot></td>
+            <td rowspan="3"><slot name="real-time-decls"></slot></td>
+            <th scope="row" rowspan="3" class="tooltip">Declaration Lower
+              <span class="tooltip-content">Semantic analysis, code generation, and linking, at the granularity of individual declarations (as opposed to whole source files).<br><br>These components are run in parallel with one another. Semantic analysis is almost always the bottleneck, as it is complex and currently can only run single-threaded.<br><br>This phase completes when a work queue empties, but semantic analysis may add work by one declaration referencing another.<br><br>This is the main phase of compilation, typically taking significantly longer than File Lower (even in a clean build).</span>
+            </th>
+          </tr>
+          <tr>
+            <th scope="row" class="tooltip">Code Generation
+              <span class="tooltip-content"><code>CodeGen</code> converts AIR from <code>Sema</code> into machine instructions in the form of Machine Intermediate Representation (MIR). This work is usually highly parallel, since in most cases, arbitrarily many functions can be run through <code>CodeGen</code> simultaneously.</span>
+            </th>
+            <td><slot name="cpu-time-codegen"></slot></td>
+          </tr>
+          <tr>
+            <th scope="row" class="tooltip">Linking
+              <span class="tooltip-content"><code>link</code> converts MIR from <code>CodeGen</code>, as well as global constants and variables from <code>Sema</code>, and places them in the output binary. MIR is converted to a finished sequence of real instruction bytes.<br><br>When using the LLVM backend, most of this work is instead deferred to the "LLVM Emit" phase.</span>
+            </th>
+            <td><slot name="cpu-time-link"></slot></td>
+          </tr>
+          <tr class="llvm-only">
+            <th class="empty-cell"></th>
+            <td class="empty-cell"></td>
+            <td><slot name="real-time-llvm-emit"></slot></td>
+            <th scope="row" class="tooltip">LLVM Emit
+              <span class="tooltip-content"><b>Only applicable when using the LLVM backend.</b><br><br>Conversion of generated LLVM bitcode to an object file, including any optimization passes.<br><br>When using LLVM, this phase of compilation is typically the slowest by a significant margin. Unfortunately, the Zig compiler implementation has essentially no control over it.</span>
+            </th>
+          </tr>
+          <tr>
+            <th class="empty-cell"></th>
+            <td class="empty-cell"></td>
+            <td><slot name="real-time-link-flush"></slot></td>
+            <th scope="row" class="tooltip">Linker Flush
+              <span class="tooltip-content">Finalizing the emitted binary, and ensuring it is fully written to disk.<br><br>When using LLD, this phase represents the entire linker invocation. Otherwise, the amount of work performed here is dependent on details of Zig's linker implementation for the particular output format, but typically aims to be fairly minimal.</span>
+            </th>
+          </tr>
+        </tbody>
+      </table>
+      <details class="section">
+        <summary>Files</summary>
+        <table class="time-stats">
+          <thead>
+            <tr>
+              <th scope="col">File</th>
+              <th scope="col">Semantic Analysis</th>
+              <th scope="col">Code Generation</th>
+              <th scope="col">Linking</th>
+            </tr>
+          </thead>
+          <!-- HTML does not allow placing a 'slot' inside of a 'tbody' for backwards-compatibility
+            reasons, so we unfortunately must template on the `id` here. -->
+          <tbody id="fileTableBody"></tbody>
+        </table>
+      </details>
+      <details class="section">
+        <summary>Declarations</summary>
+        <table class="time-stats">
+          <thead>
+            <tr>
+              <th scope="col">File</th>
+              <th scope="col">Declaration</th>
+              <th scope="col" class="tooltip">Analysis Count
+                <span class="tooltip-content">The number of times the compiler analyzed some part of this declaration. If this is a function, <code>inline</code> and <code>comptime</code> calls to it are <i>not</i> included here. Typically, this value is approximately equal to the number of instances of a generic declaration.</span>
+              </th>
+              <th scope="col">Semantic Analysis</th>
+              <th scope="col">Code Generation</th>
+              <th scope="col">Linking</th>
+            </tr>
+          </thead>
+          <!-- HTML does not allow placing a 'slot' inside of a 'tbody' for backwards-compatibility
+            reasons, so we unfortunately must template on the `id` here. -->
+          <tbody id="declTableBody"></tbody>
+        </table>
+      </details>
+      <details class="section llvm-only">
+        <summary>LLVM Pass Timings</summary>
+        <div><slot name="llvm-pass-timings"></slot></div>
+      </details>
+    </div>
+  </details>
+</template>
+
+<template id="fuzzEntryTemplate">
+  <link rel="stylesheet" href="style.css">
+  <ul>
+    <li>Total Runs: <slot name="stat-total-runs"></slot></li>
+    <li>Unique Runs: <slot name="stat-unique-runs"></slot></li>
+    <li>Speed: <slot name="stat-speed"></slot> runs/sec</li>
+    <li>Coverage: <slot name="stat-coverage"></slot></li>
+  </ul>
+  <!-- I have observed issues in Firefox clicking frequently-updating slotted links, so the entry
+    point list is handled separately since it rarely changes. -->
+  <ul id="entryPointList" class="no-marker"></ul>
+  <div id="source" class="hidden">
+    <h2>Source Code</h2>
+    <pre><code id="sourceText"></code></pre>
+  </div>
+</template>
+
+<!-- The actual body: fairly minimal, content populated by JavaScript -->
+
+<p id="connectionStatus">Loading JavaScript...</p>
+<p class="hidden" id="firefoxWebSocketBullshitExplainer">
+If you are using Firefox and <code>zig build --listen</code> is definitely running, you may be experiencing an unreasonably aggressive exponential
+backoff for WebSocket connection attempts, which is enabled by default and can block connection attempts for up to a minute. To disable this limit,
+open <code>about:config</code> and set the <code>network.websocket.delay-failed-reconnects</code> option to <code>false</code>.
+</p>
+<main class="hidden">
+  <h1>Zig Build System</h1>
+
+  <p><span id="summaryStatus"></span> | <span id="summaryStepCount"></span> steps</p>
+  <button class="big-btn" id="buttonRebuild" disabled>Rebuild</button>
+
+  <ul class="no-marker" id="stepList"></ul>
+
+  <hr>
+
+  <div id="timeReport" class="hidden">
+    <h1>Time Report</h1>
+    <div id="timeReportList"></div>
+    <hr>
+  </div>
+
+  <div id="fuzz" class="hidden">
+    <h1>Fuzzer</h1>
+    <p id="fuzzStatus"></p>
+    <div id="fuzzEntries"></div>
+    <hr>
+  </div>
+
+  <h1>Help</h1>
+  <p>This is the Zig Build System web interface. It allows live interaction with the build system.</p>
+  <p>The following <code>zig build</code> flags can expose extra features of this interface:</p>
+  <ul>
+    <li><code>--time-report</code>: collect and show statistics about the time taken to evaluate a build graph</li>
+    <li><code>--fuzz</code>: enable the fuzzer for any Zig test binaries in the build graph (experimental)</li>
+  </ul>
+</main>
+
+<!-- JavaScript at the very end -->
+
+<script src="main.js"></script>

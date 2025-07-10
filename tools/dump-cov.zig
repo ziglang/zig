@@ -5,7 +5,7 @@ const std = @import("std");
 const fatal = std.process.fatal;
 const Path = std.Build.Cache.Path;
 const assert = std.debug.assert;
-const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
+const SeenPcsHeader = std.Build.abi.fuzz.SeenPcsHeader;
 
 pub fn main() !void {
     var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;

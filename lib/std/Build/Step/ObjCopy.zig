@@ -236,7 +236,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     try argv.appendSlice(&.{ full_src_path, full_dest_path });
 
     try argv.append("--listen=-");
-    _ = try step.evalZigProcess(argv.items, prog_node, false);
+    _ = try step.evalZigProcess(argv.items, prog_node, false, options.web_server, options.gpa);
 
     objcopy.output_file.path = full_dest_path;
     if (objcopy.output_file_debug) |*file| file.path = full_dest_path_debug;
