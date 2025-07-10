@@ -615,7 +615,8 @@ pub fn Serializer(Writer: type) type {
 
         /// Serialize an integer.
         pub fn int(self: *Self, val: anytype) Writer.Error!void {
-            try std.fmt.formatInt(val, 10, .lower, .{}, self.writer);
+            //try self.writer.printInt(val, 10, .lower, .{});
+            try std.fmt.format(self.writer, "{d}", .{val});
         }
 
         /// Serialize a float.
@@ -645,7 +646,7 @@ pub fn Serializer(Writer: type) type {
         ///
         /// Escapes the identifier if necessary.
         pub fn ident(self: *Self, name: []const u8) Writer.Error!void {
-            try self.writer.print(".{p_}", .{std.zig.fmtId(name)});
+            try self.writer.print(".{f}", .{std.zig.fmtIdPU(name)});
         }
 
         /// Serialize `val` as a Unicode codepoint.
@@ -658,7 +659,7 @@ pub fn Serializer(Writer: type) type {
             var buf: [8]u8 = undefined;
             const len = std.unicode.utf8Encode(val, &buf) catch return error.InvalidCodepoint;
             const str = buf[0..len];
-            try std.fmt.format(self.writer, "'{'}'", .{std.zig.fmtEscapes(str)});
+            try std.fmt.format(self.writer, "'{f}'", .{std.zig.fmtChar(str)});
         }
 
         /// Like `value`, but always serializes `val` as a tuple.
@@ -716,7 +717,7 @@ pub fn Serializer(Writer: type) type {
 
         /// Like `value`, but always serializes `val` as a string.
         pub fn string(self: *Self, val: []const u8) Writer.Error!void {
-            try std.fmt.format(self.writer, "\"{}\"", .{std.zig.fmtEscapes(val)});
+            try std.fmt.format(self.writer, "\"{f}\"", .{std.zig.fmtString(val)});
         }
 
         /// Options for formatting multiline strings.

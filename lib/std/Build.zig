@@ -284,7 +284,7 @@ pub fn create(
         .h_dir = undefined,
         .dest_dir = graph.env_map.get("DESTDIR"),
         .install_tls = .{
-            .step = Step.init(.{
+            .step = .init(.{
                 .id = TopLevelStep.base_id,
                 .name = "install",
                 .owner = b,
@@ -292,7 +292,7 @@ pub fn create(
             .description = "Copy build artifacts to prefix path",
         },
         .uninstall_tls = .{
-            .step = Step.init(.{
+            .step = .init(.{
                 .id = TopLevelStep.base_id,
                 .name = "uninstall",
                 .owner = b,
@@ -342,7 +342,7 @@ fn createChildOnly(
         .graph = parent.graph,
         .allocator = allocator,
         .install_tls = .{
-            .step = Step.init(.{
+            .step = .init(.{
                 .id = TopLevelStep.base_id,
                 .name = "install",
                 .owner = child,
@@ -350,7 +350,7 @@ fn createChildOnly(
             .description = "Copy build artifacts to prefix path",
         },
         .uninstall_tls = .{
-            .step = Step.init(.{
+            .step = .init(.{
                 .id = TopLevelStep.base_id,
                 .name = "uninstall",
                 .owner = child,
@@ -1525,7 +1525,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
 pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
     const step_info = b.allocator.create(TopLevelStep) catch @panic("OOM");
     step_info.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = TopLevelStep.base_id,
             .name = name,
             .owner = b,
@@ -1745,7 +1745,7 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
             return true;
         },
         .lazy_path, .lazy_path_list => {
-            log.warn("the lazy path value type isn't added from the CLI, but somehow '{s}' is a .{}", .{ name, std.zig.fmtId(@tagName(gop.value_ptr.value)) });
+            log.warn("the lazy path value type isn't added from the CLI, but somehow '{s}' is a .{f}", .{ name, std.zig.fmtId(@tagName(gop.value_ptr.value)) });
             return true;
         },
     }
@@ -1824,13 +1824,13 @@ pub fn validateUserInputDidItFail(b: *Build) bool {
     return b.invalid_user_input;
 }
 
-fn allocPrintCmd(ally: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) error{OutOfMemory}![]u8 {
-    var buf = ArrayList(u8).init(ally);
-    if (opt_cwd) |cwd| try buf.writer().print("cd {s} && ", .{cwd});
+fn allocPrintCmd(gpa: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) error{OutOfMemory}![]u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    if (opt_cwd) |cwd| try buf.print(gpa, "cd {s} && ", .{cwd});
     for (argv) |arg| {
-        try buf.writer().print("{s} ", .{arg});
+        try buf.print(gpa, "{s} ", .{arg});
     }
-    return buf.toOwnedSlice();
+    return buf.toOwnedSlice(gpa);
 }
 
 fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
@@ -2059,7 +2059,7 @@ pub fn runAllowFail(
     try Step.handleVerbose2(b, null, child.env_map, argv);
     try child.spawn();
 
-    const stdout = child.stdout.?.reader().readAllAlloc(b.allocator, max_output_size) catch {
+    const stdout = child.stdout.?.deprecatedReader().readAllAlloc(b.allocator, max_output_size) catch {
         return error.ReadFailure;
     };
     errdefer b.allocator.free(stdout);
@@ -2466,10 +2466,9 @@ pub const GeneratedFile = struct {
 
     pub fn getPath2(gen: GeneratedFile, src_builder: *Build, asking_step: ?*Step) []const u8 {
         return gen.path orelse {
-            std.debug.lockStdErr();
-            const stderr = std.io.getStdErr();
-            dumpBadGetPathHelp(gen.step, stderr, src_builder, asking_step) catch {};
-            std.debug.unlockStdErr();
+            const w = debug.lockStderrWriter(&.{});
+            dumpBadGetPathHelp(gen.step, w, .detect(.stderr()), src_builder, asking_step) catch {};
+            debug.unlockStderrWriter();
             @panic("misconfigured build script");
         };
     }
@@ -2676,10 +2675,9 @@ pub const LazyPath = union(enum) {
                 var file_path: Cache.Path = .{
                     .root_dir = Cache.Directory.cwd(),
                     .sub_path = gen.file.path orelse {
-                        std.debug.lockStdErr();
-                        const stderr = std.io.getStdErr();
-                        dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
-                        std.debug.unlockStdErr();
+                        const w = debug.lockStderrWriter(&.{});
+                        dumpBadGetPathHelp(gen.file.step, w, .detect(.stderr()), src_builder, asking_step) catch {};
+                        debug.unlockStderrWriter();
                         @panic("misconfigured build script");
                     },
                 };
@@ -2766,44 +2764,42 @@ fn dumpBadDirnameHelp(
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
-    debug.lockStdErr();
-    defer debug.unlockStdErr();
+    const w = debug.lockStderrWriter(&.{});
+    defer debug.unlockStderrWriter();
 
-    const stderr = io.getStdErr();
-    const w = stderr.writer();
     try w.print(msg, args);
 
-    const tty_config = std.io.tty.detectConfig(stderr);
+    const tty_config = std.io.tty.detectConfig(.stderr());
 
     if (fail_step) |s| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writeAll("    The step was created by this stack trace:\n");
+        try w.writeAll("    The step was created by this stack trace:\n");
         tty_config.setColor(w, .reset) catch {};
 
-        s.dump(stderr);
+        s.dump(w, tty_config);
     }
 
     if (asking_step) |as| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        try w.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
         tty_config.setColor(w, .reset) catch {};
 
-        as.dump(stderr);
+        as.dump(w, tty_config);
     }
 
     tty_config.setColor(w, .red) catch {};
-    try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
+    try w.writeAll("    Hope that helps. Proceeding to panic.\n");
     tty_config.setColor(w, .reset) catch {};
 }
 
 /// In this function the stderr mutex has already been locked.
 pub fn dumpBadGetPathHelp(
     s: *Step,
-    stderr: fs.File,
+    w: *std.io.Writer,
+    tty_config: std.io.tty.Config,
     src_builder: *Build,
     asking_step: ?*Step,
 ) anyerror!void {
-    const w = stderr.writer();
     try w.print(
         \\getPath() was called on a GeneratedFile that wasn't built yet.
         \\  source package path: {s}
@@ -2814,21 +2810,20 @@ pub fn dumpBadGetPathHelp(
         s.name,
     });
 
-    const tty_config = std.io.tty.detectConfig(stderr);
     tty_config.setColor(w, .red) catch {};
-    try stderr.writeAll("    The step was created by this stack trace:\n");
+    try w.writeAll("    The step was created by this stack trace:\n");
     tty_config.setColor(w, .reset) catch {};
 
-    s.dump(stderr);
+    s.dump(w, tty_config);
     if (asking_step) |as| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        try w.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
         tty_config.setColor(w, .reset) catch {};
 
-        as.dump(stderr);
+        as.dump(w, tty_config);
     }
     tty_config.setColor(w, .red) catch {};
-    try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
+    try w.writeAll("    Hope that helps. Proceeding to panic.\n");
     tty_config.setColor(w, .reset) catch {};
 }
 
@@ -2864,11 +2859,6 @@ pub fn makeTempPath(b: *Build) []const u8 {
         });
     };
     return result_path;
-}
-
-/// Deprecated; use `std.fmt.hex` instead.
-pub fn hex64(x: u64) [16]u8 {
-    return std.fmt.hex(x);
 }
 
 /// A pair of target query and fully resolved target.

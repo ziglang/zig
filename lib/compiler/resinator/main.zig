@@ -22,14 +22,14 @@ pub fn main() !void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const stderr = std.io.getStdErr();
+    const stderr = std.fs.File.stderr();
     const stderr_config = std.io.tty.detectConfig(stderr);
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
     if (args.len < 2) {
-        try renderErrorMessage(stderr.writer(), stderr_config, .err, "expected zig lib dir as first argument", .{});
+        try renderErrorMessage(std.debug.lockStderrWriter(&.{}), stderr_config, .err, "expected zig lib dir as first argument", .{});
         std.process.exit(1);
     }
     const zig_lib_dir = args[1];
@@ -44,7 +44,7 @@ pub fn main() !void {
     var error_handler: ErrorHandler = switch (zig_integration) {
         true => .{
             .server = .{
-                .out = std.io.getStdOut(),
+                .out = std.fs.File.stdout(),
                 .in = undefined, // won't be receiving messages
                 .receive_fifo = undefined, // won't be receiving messages
             },
@@ -81,15 +81,15 @@ pub fn main() !void {
     defer options.deinit();
 
     if (options.print_help_and_exit) {
-        const stdout = std.io.getStdOut();
-        try cli.writeUsage(stdout.writer(), "zig rc");
+        const stdout = std.fs.File.stdout();
+        try cli.writeUsage(stdout.deprecatedWriter(), "zig rc");
         return;
     }
 
     // Don't allow verbose when integrating with Zig via stdout
     options.verbose = false;
 
-    const stdout_writer = std.io.getStdOut().writer();
+    const stdout_writer = std.fs.File.stdout().deprecatedWriter();
     if (options.verbose) {
         try options.dumpVerbose(stdout_writer);
         try stdout_writer.writeByte('\n');
@@ -290,7 +290,7 @@ pub fn main() !void {
                     };
                     defer depfile.close();
 
-                    const depfile_writer = depfile.writer();
+                    const depfile_writer = depfile.deprecatedWriter();
                     var depfile_buffered_writer = std.io.bufferedWriter(depfile_writer);
                     switch (options.depfile_fmt) {
                         .json => {
@@ -343,7 +343,7 @@ pub fn main() !void {
         switch (err) {
             error.DuplicateResource => {
                 const duplicate_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
-                try error_handler.emitMessage(allocator, .err, "duplicate resource [id: {}, type: {}, language: {}]", .{
+                try error_handler.emitMessage(allocator, .err, "duplicate resource [id: {f}, type: {f}, language: {f}]", .{
                     duplicate_resource.name_value,
                     fmtResourceType(duplicate_resource.type_value),
                     duplicate_resource.language,
@@ -352,7 +352,7 @@ pub fn main() !void {
             error.ResourceDataTooLong => {
                 const overflow_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
                 try error_handler.emitMessage(allocator, .err, "resource has a data length that is too large to be written into a coff section", .{});
-                try error_handler.emitMessage(allocator, .note, "the resource with the invalid size is [id: {}, type: {}, language: {}]", .{
+                try error_handler.emitMessage(allocator, .note, "the resource with the invalid size is [id: {f}, type: {f}, language: {f}]", .{
                     overflow_resource.name_value,
                     fmtResourceType(overflow_resource.type_value),
                     overflow_resource.language,
@@ -361,7 +361,7 @@ pub fn main() !void {
             error.TotalResourceDataTooLong => {
                 const overflow_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
                 try error_handler.emitMessage(allocator, .err, "total resource data exceeds the maximum of the coff 'size of raw data' field", .{});
-                try error_handler.emitMessage(allocator, .note, "size overflow occurred when attempting to write this resource: [id: {}, type: {}, language: {}]", .{
+                try error_handler.emitMessage(allocator, .note, "size overflow occurred when attempting to write this resource: [id: {f}, type: {f}, language: {f}]", .{
                     overflow_resource.name_value,
                     fmtResourceType(overflow_resource.type_value),
                     overflow_resource.language,
@@ -471,7 +471,7 @@ const IoStream = struct {
             allocator: std.mem.Allocator,
         };
         pub const WriteError = std.mem.Allocator.Error || std.fs.File.WriteError;
-        pub const Writer = std.io.Writer(WriterContext, WriteError, write);
+        pub const Writer = std.io.GenericWriter(WriterContext, WriteError, write);
 
         pub fn write(ctx: WriterContext, bytes: []const u8) WriteError!usize {
             switch (ctx.self.*) {
@@ -645,7 +645,9 @@ const ErrorHandler = union(enum) {
             },
             .tty => {
                 // extra newline to separate this line from the aro errors
-                try renderErrorMessage(std.io.getStdErr().writer(), self.tty, .err, "{s}\n", .{fail_msg});
+                const stderr = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                try renderErrorMessage(stderr, self.tty, .err, "{s}\n", .{fail_msg});
                 aro.Diagnostics.render(comp, self.tty);
             },
         }
@@ -690,7 +692,9 @@ const ErrorHandler = union(enum) {
                 try server.serveErrorBundle(error_bundle);
             },
             .tty => {
-                try renderErrorMessage(std.io.getStdErr().writer(), self.tty, msg_type, format, args);
+                const stderr = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                try renderErrorMessage(stderr, self.tty, msg_type, format, args);
             },
         }
     }

@@ -618,7 +618,7 @@ pub fn getNavVAddr(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    log.debug("getNavVAddr {}({d})", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("getNavVAddr {f}({d})", .{ nav.fqn.fmt(ip), nav_index });
     const sym_index = if (nav.getExtern(ip)) |@"extern"| try self.getGlobalSymbol(
         macho_file,
         nav.name.toSlice(ip),
@@ -943,7 +943,7 @@ fn updateNavCode(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    log.debug("updateNavCode {} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("updateNavCode {f} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
 
     const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const required_alignment = switch (pt.navAlignment(nav_index)) {
@@ -959,7 +959,7 @@ fn updateNavCode(
     sym.out_n_sect = sect_index;
     atom.out_n_sect = sect_index;
 
-    const sym_name = try std.fmt.allocPrintZ(gpa, "_{s}", .{nav.fqn.toSlice(ip)});
+    const sym_name = try std.fmt.allocPrintSentinel(gpa, "_{s}", .{nav.fqn.toSlice(ip)}, 0);
     defer gpa.free(sym_name);
     sym.name = try self.addString(gpa, sym_name);
     atom.setAlive(true);
@@ -981,7 +981,7 @@ fn updateNavCode(
         if (need_realloc) {
             atom.grow(macho_file) catch |err|
                 return macho_file.base.cgFail(nav_index, "failed to grow atom: {s}", .{@errorName(err)});
-            log.debug("growing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), old_vaddr, atom.value });
+            log.debug("growing {f} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), old_vaddr, atom.value });
             if (old_vaddr != atom.value) {
                 sym.value = 0;
                 nlist.n_value = 0;
@@ -1023,7 +1023,7 @@ fn updateTlv(
     const ip = &pt.zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    log.debug("updateTlv {} (0x{x})", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("updateTlv {f} (0x{x})", .{ nav.fqn.fmt(ip), nav_index });
 
     // 1. Lower TLV initializer
     const init_sym_index = try self.createTlvInitializer(
@@ -1351,7 +1351,7 @@ fn updateLazySymbol(
     defer code_buffer.deinit(gpa);
 
     const name_str = blk: {
-        const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
+        const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{f}", .{
             @tagName(lazy_sym.kind),
             Type.fromInterned(lazy_sym.ty).fmt(pt),
         });
@@ -1430,7 +1430,7 @@ pub fn deleteExport(
     } orelse return;
     const nlist_index = metadata.@"export"(self, name.toSlice(&zcu.intern_pool)) orelse return;
 
-    log.debug("deleting export '{}'", .{name.fmt(&zcu.intern_pool)});
+    log.debug("deleting export '{f}'", .{name.fmt(&zcu.intern_pool)});
 
     const nlist = &self.symtab.items(.nlist)[nlist_index.*];
     self.symtab.items(.size)[nlist_index.*] = 0;
@@ -1678,62 +1678,48 @@ pub fn asFile(self: *ZigObject) File {
     return .{ .zig_object = self };
 }
 
-pub fn fmtSymtab(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(Format, Format.symtab) {
     return .{ .data = .{
         .self = self,
         .macho_file = macho_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     self: *ZigObject,
     macho_file: *MachO,
-};
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    try writer.writeAll("  symbols\n");
-    const self = ctx.self;
-    const macho_file = ctx.macho_file;
-    for (self.symbols.items, 0..) |sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        if (ref.getFile(macho_file) == null) {
-            // TODO any better way of handling this?
-            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
-        } else {
-            try writer.print("    {}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+    fn symtab(f: Format, w: *Writer) Writer.Error!void {
+        try w.writeAll("  symbols\n");
+        const self = f.self;
+        const macho_file = f.macho_file;
+        for (self.symbols.items, 0..) |sym, i| {
+            const ref = self.getSymbolRef(@intCast(i), macho_file);
+            if (ref.getFile(macho_file) == null) {
+                // TODO any better way of handling this?
+                try w.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+            } else {
+                try w.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            }
         }
     }
-}
 
-pub fn fmtAtoms(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(formatAtoms) {
+    fn atoms(f: Format, w: *Writer) Writer.Error!void {
+        const self = f.self;
+        const macho_file = f.macho_file;
+        try w.writeAll("  atoms\n");
+        for (self.getAtoms()) |atom_index| {
+            const atom = self.getAtom(atom_index) orelse continue;
+            try w.print("    {f}\n", .{atom.fmt(macho_file)});
+        }
+    }
+};
+
+pub fn fmtAtoms(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(Format, Format.atoms) {
     return .{ .data = .{
         .self = self,
         .macho_file = macho_file,
     } };
-}
-
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const self = ctx.self;
-    const macho_file = ctx.macho_file;
-    try writer.writeAll("  atoms\n");
-    for (self.getAtoms()) |atom_index| {
-        const atom = self.getAtom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom.fmt(macho_file)});
-    }
 }
 
 const AvMetadata = struct {
@@ -1797,6 +1783,7 @@ const mem = std.mem;
 const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
+const Writer = std.io.Writer;
 
 const Allocator = std.mem.Allocator;
 const Archive = @import("Archive.zig");

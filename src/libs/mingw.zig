@@ -306,7 +306,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     if (comp.verbose_cc) print: {
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
-        const stderr = std.io.getStdErr().writer();
+        const stderr = std.fs.File.stderr().deprecatedWriter();
         nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
         nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
         nosuspend stderr.print("output path: {s}\n", .{def_final_path}) catch break :print;
@@ -326,7 +326,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     for (aro_comp.diagnostics.list.items) |diagnostic| {
         if (diagnostic.kind == .@"fatal error" or diagnostic.kind == .@"error") {
-            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
+            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.fs.File.stderr()));
             return error.AroPreprocessorFailed;
         }
     }
@@ -335,7 +335,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         // new scope to ensure definition file is written before passing the path to WriteImportLibrary
         const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
-        try pp.prettyPrintTokens(def_final_file.writer(), .result_only);
+        try pp.prettyPrintTokens(def_final_file.deprecatedWriter(), .result_only);
     }
 
     const lib_final_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename });

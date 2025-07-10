@@ -374,7 +374,8 @@
       <p>
       Most of the time, it is more appropriate to write to stderr rather than stdout, and
       whether or not the message is successfully written to the stream is irrelevant.
-      For this common case, there is a simpler API:
+      Also, formatted printing often comes in handy. For this common case,
+      there is a simpler API:
       </p>
       {#code|hello_again.zig#}
 

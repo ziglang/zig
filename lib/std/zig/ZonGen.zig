@@ -756,13 +756,7 @@ fn lowerStrLitError(
     raw_string: []const u8,
     offset: u32,
 ) Allocator.Error!void {
-    return ZonGen.addErrorTokOff(
-        zg,
-        token,
-        @intCast(offset + err.offset()),
-        "{}",
-        .{err.fmt(raw_string)},
-    );
+    return ZonGen.addErrorTokOff(zg, token, @intCast(offset + err.offset()), "{f}", .{err.fmt(raw_string)});
 }
 
 fn lowerNumberError(zg: *ZonGen, err: std.zig.number_literal.Error, token: Ast.TokenIndex, bytes: []const u8) Allocator.Error!void {

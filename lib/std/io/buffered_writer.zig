@@ -10,7 +10,7 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
         end: usize = 0,
 
         pub const Error = WriterType.Error;
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.GenericWriter(*Self, Error, write);
 
         const Self = @This();
 

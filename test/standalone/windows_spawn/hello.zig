@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    const stdout = &stdout_writer.interface;
     try stdout.writeAll("hello from exe\n");
 }

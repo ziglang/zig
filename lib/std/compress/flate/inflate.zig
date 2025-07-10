@@ -341,7 +341,7 @@ pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comp
 
         // Reader interface
 
-        pub const Reader = std.io.Reader(*Self, Error, read);
+        pub const Reader = std.io.GenericReader(*Self, Error, read);
 
         /// Returns the number of bytes read. It may be less than buffer.len.
         /// If the number of bytes read is 0, it means end of stream.

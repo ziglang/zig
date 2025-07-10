@@ -654,9 +654,10 @@ const log = std.log.scoped(.link_dyld_info);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
-const trace = @import("../../../tracy.zig").trace;
-
 const Allocator = mem.Allocator;
+const Writer = std.io.Writer;
+
+const trace = @import("../../../tracy.zig").trace;
 const File = @import("../file.zig").File;
 const MachO = @import("../../MachO.zig");
 const Rebase = @This();

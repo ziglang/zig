@@ -279,7 +279,7 @@ pub fn build(b: *std.Build) !void {
 
                 const ancestor_ver = try std.SemanticVersion.parse(tagged_ancestor);
                 if (zig_version.order(ancestor_ver) != .gt) {
-                    std.debug.print("Zig version '{}' must be greater than tagged ancestor '{}'\n", .{ zig_version, ancestor_ver });
+                    std.debug.print("Zig version '{f}' must be greater than tagged ancestor '{f}'\n", .{ zig_version, ancestor_ver });
                     std.process.exit(1);
                 }
 
@@ -1449,7 +1449,7 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
     }
 
     var dir = b.build_root.handle.openDir("doc/langref", .{ .iterate = true }) catch |err| {
-        std.debug.panic("unable to open '{}doc/langref' directory: {s}", .{
+        std.debug.panic("unable to open '{f}doc/langref' directory: {s}", .{
             b.build_root, @errorName(err),
         });
     };
@@ -1470,7 +1470,7 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
             // in a temporary directory
             "--cache-root", b.cache_root.path orelse ".",
         });
-        cmd.addArgs(&.{ "--zig-lib-dir", b.fmt("{}", .{b.graph.zig_lib_directory}) });
+        cmd.addArgs(&.{ "--zig-lib-dir", b.fmt("{f}", .{b.graph.zig_lib_directory}) });
         cmd.addArgs(&.{"-i"});
         cmd.addFileArg(b.path(b.fmt("doc/langref/{s}", .{entry.name})));
 

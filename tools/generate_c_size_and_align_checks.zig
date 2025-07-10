@@ -42,20 +42,23 @@ pub fn main() !void {
     const query = try std.Target.Query.parse(.{ .arch_os_abi = args[1] });
     const target = try std.zig.system.resolveTargetQuery(query);
 
-    const stdout = std.io.getStdOut().writer();
+    var buffer: [2000]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&buffer);
+    const w = &stdout_writer.interface;
     inline for (@typeInfo(std.Target.CType).@"enum".fields) |field| {
         const c_type: std.Target.CType = @enumFromInt(field.value);
-        try stdout.print("_Static_assert(sizeof({0s}) == {1d}, \"sizeof({0s}) == {1d}\");\n", .{
+        try w.print("_Static_assert(sizeof({0s}) == {1d}, \"sizeof({0s}) == {1d}\");\n", .{
             cName(c_type),
             target.cTypeByteSize(c_type),
         });
-        try stdout.print("_Static_assert(_Alignof({0s}) == {1d}, \"_Alignof({0s}) == {1d}\");\n", .{
+        try w.print("_Static_assert(_Alignof({0s}) == {1d}, \"_Alignof({0s}) == {1d}\");\n", .{
             cName(c_type),
             target.cTypeAlignment(c_type),
         });
-        try stdout.print("_Static_assert(__alignof({0s}) == {1d}, \"__alignof({0s}) == {1d}\");\n\n", .{
+        try w.print("_Static_assert(__alignof({0s}) == {1d}, \"__alignof({0s}) == {1d}\");\n\n", .{
             cName(c_type),
             target.cTypePreferredAlignment(c_type),
         });
     }
+    try w.flush();
 }

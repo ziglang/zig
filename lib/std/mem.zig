@@ -1714,7 +1714,7 @@ pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) 
             }
         },
     }
-    return @as(ReturnType, @truncate(result));
+    return @truncate(result);
 }
 
 test readVarInt {
@@ -2196,7 +2196,9 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                 }
             }
         },
-        else => @compileError("byteSwapAllFields expects a struct or array as the first argument"),
+        else => {
+            ptr.* = @byteSwap(ptr.*);
+        },
     }
 }
 

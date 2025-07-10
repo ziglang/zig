@@ -803,7 +803,7 @@ fn AegisMac(comptime T: type) type {
         }
 
         pub const Error = error{};
-        pub const Writer = std.io.Writer(*Mac, Error, write);
+        pub const Writer = std.io.GenericWriter(*Mac, Error, write);
 
         fn write(self: *Mac, bytes: []const u8) Error!usize {
             self.update(bytes);

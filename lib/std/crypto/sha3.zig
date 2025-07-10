@@ -82,7 +82,7 @@ pub fn Keccak(comptime f: u11, comptime output_bits: u11, comptime default_delim
         }
 
         pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const Writer = std.io.GenericWriter(*Self, Error, write);
 
         fn write(self: *Self, bytes: []const u8) Error!usize {
             self.update(bytes);
@@ -193,7 +193,7 @@ fn ShakeLike(comptime security_level: u11, comptime default_delim: u8, comptime 
         }
 
         pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const Writer = std.io.GenericWriter(*Self, Error, write);
 
         fn write(self: *Self, bytes: []const u8) Error!usize {
             self.update(bytes);
@@ -286,7 +286,7 @@ fn CShakeLike(comptime security_level: u11, comptime default_delim: u8, comptime
         }
 
         pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const Writer = std.io.GenericWriter(*Self, Error, write);
 
         fn write(self: *Self, bytes: []const u8) Error!usize {
             self.update(bytes);
@@ -392,7 +392,7 @@ fn KMacLike(comptime security_level: u11, comptime default_delim: u8, comptime r
         }
 
         pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const Writer = std.io.GenericWriter(*Self, Error, write);
 
         fn write(self: *Self, bytes: []const u8) Error!usize {
             self.update(bytes);
@@ -484,7 +484,7 @@ fn TupleHashLike(comptime security_level: u11, comptime default_delim: u8, compt
         }
 
         pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const Writer = std.io.GenericWriter(*Self, Error, write);
 
         fn write(self: *Self, bytes: []const u8) Error!usize {
             self.update(bytes);

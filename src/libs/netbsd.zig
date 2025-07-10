@@ -442,13 +442,13 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             .lt => continue,
             .gt => {
                 // TODO Expose via compile error mechanism instead of log.
-                log.warn("invalid target NetBSD libc version: {}", .{target_version});
+                log.warn("invalid target NetBSD libc version: {f}", .{target_version});
                 return error.InvalidTargetLibCVersion;
             },
         }
     } else blk: {
         const latest_index = metadata.all_versions.len - 1;
-        log.warn("zig cannot build new NetBSD libc version {}; providing instead {}", .{
+        log.warn("zig cannot build new NetBSD libc version {f}; providing instead {f}", .{
             target_version, metadata.all_versions[latest_index],
         });
         break :blk latest_index;

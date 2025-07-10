@@ -110,10 +110,6 @@ const cases = [_]Case{
     //    .src_path = "issue_9693/main.zig",
     //},
     .{
-        .src_path = "brace_expansion.zig",
-        .is_test = true,
-    },
-    .{
         .src_path = "issue_7030.zig",
         .target = .{
             .cpu_arch = .wasm32,

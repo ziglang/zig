@@ -1,3 +1,9 @@
+const std = @import("std");
+const mem = std.mem;
+const print = std.debug.print;
+const io = std.io;
+const maxInt = std.math.maxInt;
+
 test "zig fmt: remove extra whitespace at start and end of file with comment between" {
     try testTransform(
         \\
@@ -2738,11 +2744,11 @@ test "zig fmt: preserve spacing" {
         \\const std = @import("std");
         \\
         \\pub fn main() !void {
-        \\    var stdout_file = std.io.getStdOut;
-        \\    var stdout_file = std.io.getStdOut;
+        \\    var stdout_file = std.lol.abcd;
+        \\    var stdout_file = std.lol.abcd;
         \\
-        \\    var stdout_file = std.io.getStdOut;
-        \\    var stdout_file = std.io.getStdOut;
+        \\    var stdout_file = std.lol.abcd;
+        \\    var stdout_file = std.lol.abcd;
         \\}
         \\
     );
@@ -6315,16 +6321,10 @@ test "ampersand" {
     , &.{});
 }
 
-const std = @import("std");
-const mem = std.mem;
-const print = std.debug.print;
-const io = std.io;
-const maxInt = std.math.maxInt;
-
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *bool) ![]u8 {
-    const stderr = io.getStdErr().writer();
+    const stderr = std.fs.File.stderr().deprecatedWriter();
 
     var tree = try std.zig.Ast.parse(allocator, source, .zig);
     defer tree.deinit(allocator);

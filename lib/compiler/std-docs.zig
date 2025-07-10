@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 const Cache = std.Build.Cache;
 
 fn usage() noreturn {
-    io.getStdOut().writeAll(
+    std.fs.File.stdout().writeAll(
         \\Usage: zig std [options]
         \\
         \\Options:
@@ -63,7 +63,7 @@ pub fn main() !void {
     var http_server = try address.listen(.{});
     const port = http_server.listen_address.in.getPort();
     const url_with_newline = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/\n", .{port});
-    std.io.getStdOut().writeAll(url_with_newline) catch {};
+    std.fs.File.stdout().writeAll(url_with_newline) catch {};
     if (should_open_browser) {
         openBrowserTab(gpa, url_with_newline[0 .. url_with_newline.len - 1 :'\n']) catch |err| {
             std.log.err("unable to open browser: {s}", .{@errorName(err)});

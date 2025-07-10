@@ -11,7 +11,7 @@ const special_exponent = 0x7fffffff;
 pub const min_buffer_size = 53;
 
 /// Returns the minimum buffer size needed to print every float of a specific type and format.
-pub fn bufferSize(comptime mode: Format, comptime T: type) comptime_int {
+pub fn bufferSize(comptime mode: Mode, comptime T: type) comptime_int {
     comptime std.debug.assert(@typeInfo(T) == .float);
     return switch (mode) {
         .scientific => 53,
@@ -27,17 +27,17 @@ pub fn bufferSize(comptime mode: Format, comptime T: type) comptime_int {
     };
 }
 
-pub const FormatError = error{
+pub const Error = error{
     BufferTooSmall,
 };
 
-pub const Format = enum {
+pub const Mode = enum {
     scientific,
     decimal,
 };
 
-pub const FormatOptions = struct {
-    mode: Format = .scientific,
+pub const Options = struct {
+    mode: Mode = .scientific,
     precision: ?usize = null,
 };
 
@@ -52,11 +52,11 @@ pub const FormatOptions = struct {
 ///
 /// When printing full precision decimals, use `bufferSize` to get the required space. It is
 /// recommended to bound decimal output with a fixed precision to reduce the required buffer size.
-pub fn formatFloat(buf: []u8, v_: anytype, options: FormatOptions) FormatError![]const u8 {
-    const v = switch (@TypeOf(v_)) {
+pub fn render(buf: []u8, value: anytype, options: Options) Error![]const u8 {
+    const v = switch (@TypeOf(value)) {
         // comptime_float internally is a f128; this preserves precision.
-        comptime_float => @as(f128, v_),
-        else => v_,
+        comptime_float => @as(f128, value),
+        else => value,
     };
 
     const T = @TypeOf(v);
@@ -192,7 +192,7 @@ fn round(comptime T: type, f: FloatDecimal(T), mode: RoundMode, precision: usize
 /// will not fit.
 ///
 /// It is recommended to bound decimal formatting with an exact precision.
-pub fn formatScientific(comptime T: type, buf: []u8, f_: FloatDecimal(T), precision: ?usize) FormatError![]const u8 {
+pub fn formatScientific(comptime T: type, buf: []u8, f_: FloatDecimal(T), precision: ?usize) Error![]const u8 {
     std.debug.assert(buf.len >= min_buffer_size);
     var f = f_;
 
@@ -263,7 +263,7 @@ pub fn formatScientific(comptime T: type, buf: []u8, f_: FloatDecimal(T), precis
 /// The buffer provided must be greater than `min_buffer_size` bytes in length. If no precision is
 /// specified, this may still return an error. If precision is specified, `2 + precision` bytes will
 /// always be written.
-pub fn formatDecimal(comptime T: type, buf: []u8, f_: FloatDecimal(T), precision: ?usize) FormatError![]const u8 {
+pub fn formatDecimal(comptime T: type, buf: []u8, f_: FloatDecimal(T), precision: ?usize) Error![]const u8 {
     std.debug.assert(buf.len >= min_buffer_size);
     var f = f_;
 
@@ -1520,7 +1520,7 @@ fn check(comptime T: type, value: T, comptime expected: []const u8) !void {
 
     var buf: [6000]u8 = undefined;
     const value_bits: I = @bitCast(value);
-    const s = try formatFloat(&buf, value, .{});
+    const s = try render(&buf, value, .{});
     try std.testing.expectEqualStrings(expected, s);
 
     if (T == f80 and builtin.target.os.tag == .windows and builtin.target.cpu.arch == .x86_64) return;

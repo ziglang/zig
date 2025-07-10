@@ -973,7 +973,7 @@ const Entry = struct {
                 else
                     .main;
                 if (sec.getUnit(ty_unit) == unit and unit.getEntry(other_entry) == entry)
-                    log.err("missing Type({}({d}))", .{
+                    log.err("missing Type({f}({d}))", .{
                         Type.fromInterned(ty).fmt(.{ .tid = .main, .zcu = zcu }),
                         @intFromEnum(ty),
                     });
@@ -981,7 +981,7 @@ const Entry = struct {
             for (dwarf.navs.keys(), dwarf.navs.values()) |nav, other_entry| {
                 const nav_unit = dwarf.getUnit(zcu.fileByIndex(ip.getNav(nav).srcInst(ip).resolveFile(ip)).mod.?) catch unreachable;
                 if (sec.getUnit(nav_unit) == unit and unit.getEntry(other_entry) == entry)
-                    log.err("missing Nav({}({d}))", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) });
+                    log.err("missing Nav({f}({d}))", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) });
             }
         }
         @panic("missing dwarf relocation target");
@@ -1957,7 +1957,7 @@ pub const WipNav = struct {
             .{ .debug_output = .{ .dwarf = wip_nav } },
         );
         if (old_len + bytes != wip_nav.debug_info.items.len) {
-            std.debug.print("{} [{}]: {} != {}\n", .{ ty.fmt(wip_nav.pt), ty.toIntern(), bytes, wip_nav.debug_info.items.len - old_len });
+            std.debug.print("{f} [{}]: {} != {}\n", .{ ty.fmt(wip_nav.pt), ty.toIntern(), bytes, wip_nav.debug_info.items.len - old_len });
             unreachable;
         }
     }
@@ -2427,7 +2427,7 @@ fn initWipNavInner(
     const inst_info = nav.srcInst(ip).resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
     const decl = file.zir.?.getDeclaration(inst_info.inst);
-    log.debug("initWipNav({s}:{d}:{d} %{d} = {})", .{
+    log.debug("initWipNav({s}:{d}:{d} %{d} = {f})", .{
         file.sub_file_path,
         decl.src_line + 1,
         decl.src_column + 1,
@@ -2632,7 +2632,7 @@ pub fn finishWipNavFunc(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
     assert(wip_nav.func != .none);
-    log.debug("finishWipNavFunc({})", .{nav.fqn.fmt(ip)});
+    log.debug("finishWipNavFunc({f})", .{nav.fqn.fmt(ip)});
 
     {
         const external_relocs = &dwarf.debug_aranges.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs;
@@ -2733,7 +2733,7 @@ pub fn finishWipNav(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    log.debug("finishWipNav({})", .{nav.fqn.fmt(ip)});
+    log.debug("finishWipNav({f})", .{nav.fqn.fmt(ip)});
 
     try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
     if (wip_nav.debug_line.items.len > 0) {
@@ -2765,7 +2765,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
     const inst_info = nav.srcInst(ip).resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
     const decl = file.zir.?.getDeclaration(inst_info.inst);
-    log.debug("updateComptimeNav({s}:{d}:{d} %{d} = {})", .{
+    log.debug("updateComptimeNav({s}:{d}:{d} %{d} = {f})", .{
         file.sub_file_path,
         decl.src_line + 1,
         decl.src_column + 1,
@@ -3215,7 +3215,7 @@ fn updateLazyType(
     const ty: Type = .fromInterned(type_index);
     switch (type_index) {
         .generic_poison_type => log.debug("updateLazyType({s})", .{"anytype"}),
-        else => log.debug("updateLazyType({})", .{ty.fmt(pt)}),
+        else => log.debug("updateLazyType({f})", .{ty.fmt(pt)}),
     }
 
     var wip_nav: WipNav = .{
@@ -3243,7 +3243,7 @@ fn updateLazyType(
     const diw = wip_nav.debug_info.writer(dwarf.gpa);
     const name = switch (type_index) {
         .generic_poison_type => "",
-        else => try std.fmt.allocPrint(dwarf.gpa, "{}", .{ty.fmt(pt)}),
+        else => try std.fmt.allocPrint(dwarf.gpa, "{f}", .{ty.fmt(pt)}),
     };
     defer dwarf.gpa.free(name);
 
@@ -3718,7 +3718,7 @@ fn updateLazyValue(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     assert(ip.typeOf(value_index) != .type_type);
-    log.debug("updateLazyValue(@as({}, {}))", .{
+    log.debug("updateLazyValue(@as({f}, {f}))", .{
         Value.fromInterned(value_index).typeOf(zcu).fmt(pt),
         Value.fromInterned(value_index).fmtValue(pt),
     });
@@ -4110,7 +4110,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
     const ip = &zcu.intern_pool;
     const ty: Type = .fromInterned(type_index);
     const ty_src_loc = ty.srcLoc(zcu);
-    log.debug("updateContainerType({})", .{ty.fmt(pt)});
+    log.debug("updateContainerType({f})", .{ty.fmt(pt)});
 
     const inst_info = ty.typeDeclInst(zcu).?.resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
@@ -4239,7 +4239,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
         };
         defer wip_nav.deinit();
         const diw = wip_nav.debug_info.writer(dwarf.gpa);
-        const name = try std.fmt.allocPrint(dwarf.gpa, "{}", .{ty.fmt(pt)});
+        const name = try std.fmt.allocPrint(dwarf.gpa, "{f}", .{ty.fmt(pt)});
         defer dwarf.gpa.free(name);
 
         switch (ip.indexToKey(type_index)) {

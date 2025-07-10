@@ -44,7 +44,7 @@ pub fn main() !void {
     while (args_it.next()) |arg| {
         if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                try std.io.getStdOut().writeAll(usage);
+                try std.fs.File.stdout().writeAll(usage);
                 process.exit(0);
             } else if (mem.eql(u8, arg, "-i")) {
                 opt_input = args_it.next() orelse fatal("expected parameter after -i", .{});
@@ -85,7 +85,7 @@ pub fn main() !void {
     var out_file = try fs.cwd().createFile(output_path, .{});
     defer out_file.close();
 
-    var bw = std.io.bufferedWriter(out_file.writer());
+    var bw = std.io.bufferedWriter(out_file.deprecatedWriter());
     const out = bw.writer();
 
     try printSourceBlock(arena, out, source, fs.path.basename(input_path));

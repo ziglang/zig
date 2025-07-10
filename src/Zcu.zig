@@ -15,6 +15,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Ast = std.zig.Ast;
+const Writer = std.io.Writer;
 
 const Zcu = @This();
 const Compilation = @import("Compilation.zig");
@@ -858,7 +859,7 @@ pub const Namespace = struct {
             try ns.fileScope(zcu).renderFullyQualifiedDebugName(writer);
             break :sep ':';
         };
-        if (name != .empty) try writer.print("{c}{}", .{ sep, name.fmt(&zcu.intern_pool) });
+        if (name != .empty) try writer.print("{c}{f}", .{ sep, name.fmt(&zcu.intern_pool) });
     }
 
     pub fn internFullyQualifiedName(
@@ -870,7 +871,7 @@ pub const Namespace = struct {
     ) !InternPool.NullTerminatedString {
         const ns_name = Type.fromInterned(ns.owner_type).containerTypeName(ip);
         if (name == .empty) return ns_name;
-        return ip.getOrPutStringFmt(gpa, tid, "{}.{}", .{ ns_name.fmt(ip), name.fmt(ip) }, .no_embedded_nulls);
+        return ip.getOrPutStringFmt(gpa, tid, "{f}.{f}", .{ ns_name.fmt(ip), name.fmt(ip) }, .no_embedded_nulls);
     }
 };
 
@@ -1039,12 +1040,12 @@ pub const File = struct {
         if (stat.size > std.math.maxInt(u32))
             return error.FileTooBig;
 
-        const source = try gpa.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
+        const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
         errdefer gpa.free(source);
 
-        const amt = try f.readAll(source);
-        if (amt != stat.size)
-            return error.UnexpectedEndOfFile;
+        var file_reader = f.reader(&.{});
+        file_reader.size = stat.size;
+        try file_reader.interface.readSliceAll(source);
 
         // Here we do not modify stat fields because this function is the one
         // used for error reporting. We need to keep the stat fields stale so that
@@ -1097,11 +1098,10 @@ pub const File = struct {
         const gpa = pt.zcu.gpa;
         const ip = &pt.zcu.intern_pool;
         const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
-        const slice = try strings.addManyAsSlice(file.fullyQualifiedNameLen());
-        var fbs = std.io.fixedBufferStream(slice[0]);
-        file.renderFullyQualifiedName(fbs.writer()) catch unreachable;
-        assert(fbs.pos == slice[0].len);
-        return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(slice[0].len), .no_embedded_nulls);
+        var w: Writer = .fixed((try strings.addManyAsSlice(file.fullyQualifiedNameLen()))[0]);
+        file.renderFullyQualifiedName(&w) catch unreachable;
+        assert(w.end == w.buffer.len);
+        return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(w.end), .no_embedded_nulls);
     }
 
     pub const Index = InternPool.FileIndex;
@@ -1112,7 +1112,7 @@ pub const File = struct {
         eb: *std.zig.ErrorBundle.Wip,
     ) !std.zig.ErrorBundle.SourceLocationIndex {
         return eb.addSourceLocation(.{
-            .src_path = try eb.printString("{}", .{file.path.fmt(zcu.comp)}),
+            .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = 0,
             .span_main = 0,
             .span_end = 0,
@@ -1133,7 +1133,7 @@ pub const File = struct {
         const end = start + tree.tokenSlice(tok).len;
         const loc = std.zig.findLineColumn(source.bytes, start);
         return eb.addSourceLocation(.{
-            .src_path = try eb.printString("{}", .{file.path.fmt(zcu.comp)}),
+            .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = start,
             .span_main = start,
             .span_end = @intCast(end),
@@ -1190,13 +1190,8 @@ pub const ErrorMsg = struct {
         gpa.destroy(err_msg);
     }
 
-    pub fn init(
-        gpa: Allocator,
-        src_loc: LazySrcLoc,
-        comptime format: []const u8,
-        args: anytype,
-    ) !ErrorMsg {
-        return ErrorMsg{
+    pub fn init(gpa: Allocator, src_loc: LazySrcLoc, comptime format: []const u8, args: anytype) !ErrorMsg {
+        return .{
             .src_loc = src_loc,
             .msg = try std.fmt.allocPrint(gpa, format, args),
         };
@@ -2811,10 +2806,18 @@ comptime {
 }
 
 pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
-    return loadZirCacheBody(gpa, try cache_file.reader().readStruct(Zir.Header), cache_file);
+    var buffer: [2000]u8 = undefined;
+    var file_reader = cache_file.reader(&buffer);
+    return result: {
+        const header = file_reader.interface.takeStruct(Zir.Header) catch |err| break :result err;
+        break :result loadZirCacheBody(gpa, header.*, &file_reader.interface);
+    } catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        else => |e| return e,
+    };
 }
 
-pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File) !Zir {
+pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *std.io.Reader) !Zir {
     var instructions: std.MultiArrayList(Zir.Inst) = .{};
     errdefer instructions.deinit(gpa);
 
@@ -2837,34 +2840,16 @@ pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.F
         undefined;
     defer if (data_has_safety_tag) gpa.free(safety_buffer);
 
-    const data_ptr = if (data_has_safety_tag)
-        @as([*]u8, @ptrCast(safety_buffer.ptr))
-    else
-        @as([*]u8, @ptrCast(zir.instructions.items(.data).ptr));
-
-    var iovecs = [_]std.posix.iovec{
-        .{
-            .base = @as([*]u8, @ptrCast(zir.instructions.items(.tag).ptr)),
-            .len = header.instructions_len,
-        },
-        .{
-            .base = data_ptr,
-            .len = header.instructions_len * 8,
-        },
-        .{
-            .base = zir.string_bytes.ptr,
-            .len = header.string_bytes_len,
-        },
-        .{
-            .base = @as([*]u8, @ptrCast(zir.extra.ptr)),
-            .len = header.extra_len * 4,
-        },
+    var vecs = [_][]u8{
+        @ptrCast(zir.instructions.items(.tag)),
+        if (data_has_safety_tag)
+            @ptrCast(safety_buffer)
+        else
+            @ptrCast(zir.instructions.items(.data)),
+        zir.string_bytes,
+        @ptrCast(zir.extra),
     };
-    const amt_read = try cache_file.readvAll(&iovecs);
-    const amt_expected = zir.instructions.len * 9 +
-        zir.string_bytes.len +
-        zir.extra.len * 4;
-    if (amt_read != amt_expected) return error.UnexpectedFileSize;
+    try cache_br.readVecAll(&vecs);
     if (data_has_safety_tag) {
         const tags = zir.instructions.items(.tag);
         for (zir.instructions.items(.data), 0..) |*data, i| {
@@ -2876,7 +2861,6 @@ pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.F
             };
         }
     }
-
     return zir;
 }
 
@@ -2886,14 +2870,6 @@ pub fn saveZirCache(gpa: Allocator, cache_file: std.fs.File, stat: std.fs.File.S
     else
         undefined;
     defer if (data_has_safety_tag) gpa.free(safety_buffer);
-
-    const data_ptr: [*]const u8 = if (data_has_safety_tag)
-        if (zir.instructions.len == 0)
-            undefined
-        else
-            @ptrCast(safety_buffer.ptr)
-    else
-        @ptrCast(zir.instructions.items(.data).ptr);
 
     if (data_has_safety_tag) {
         // The `Data` union has a safety tag but in the file format we store it without.
@@ -2912,29 +2888,20 @@ pub fn saveZirCache(gpa: Allocator, cache_file: std.fs.File, stat: std.fs.File.S
         .stat_inode = stat.inode,
         .stat_mtime = stat.mtime,
     };
-    var iovecs: [5]std.posix.iovec_const = .{
-        .{
-            .base = @ptrCast(&header),
-            .len = @sizeOf(Zir.Header),
-        },
-        .{
-            .base = @ptrCast(zir.instructions.items(.tag).ptr),
-            .len = zir.instructions.len,
-        },
-        .{
-            .base = data_ptr,
-            .len = zir.instructions.len * 8,
-        },
-        .{
-            .base = zir.string_bytes.ptr,
-            .len = zir.string_bytes.len,
-        },
-        .{
-            .base = @ptrCast(zir.extra.ptr),
-            .len = zir.extra.len * 4,
-        },
+    var vecs = [_][]const u8{
+        @ptrCast((&header)[0..1]),
+        @ptrCast(zir.instructions.items(.tag)),
+        if (data_has_safety_tag)
+            @ptrCast(safety_buffer)
+        else
+            @ptrCast(zir.instructions.items(.data)),
+        zir.string_bytes,
+        @ptrCast(zir.extra),
     };
-    try cache_file.writevAll(&iovecs);
+    var cache_fw = cache_file.writer(&.{});
+    cache_fw.interface.writeVecAll(&vecs) catch |err| switch (err) {
+        error.WriteFailed => return cache_fw.err.?,
+    };
 }
 
 pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir) std.fs.File.WriteError!void {
@@ -2950,48 +2917,24 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
         .stat_inode = stat.inode,
         .stat_mtime = stat.mtime,
     };
-    var iovecs: [9]std.posix.iovec_const = .{
-        .{
-            .base = @ptrCast(&header),
-            .len = @sizeOf(Zoir.Header),
-        },
-        .{
-            .base = @ptrCast(zoir.nodes.items(.tag)),
-            .len = zoir.nodes.len * @sizeOf(Zoir.Node.Repr.Tag),
-        },
-        .{
-            .base = @ptrCast(zoir.nodes.items(.data)),
-            .len = zoir.nodes.len * 4,
-        },
-        .{
-            .base = @ptrCast(zoir.nodes.items(.ast_node)),
-            .len = zoir.nodes.len * 4,
-        },
-        .{
-            .base = @ptrCast(zoir.extra),
-            .len = zoir.extra.len * 4,
-        },
-        .{
-            .base = @ptrCast(zoir.limbs),
-            .len = zoir.limbs.len * @sizeOf(std.math.big.Limb),
-        },
-        .{
-            .base = zoir.string_bytes.ptr,
-            .len = zoir.string_bytes.len,
-        },
-        .{
-            .base = @ptrCast(zoir.compile_errors),
-            .len = zoir.compile_errors.len * @sizeOf(Zoir.CompileError),
-        },
-        .{
-            .base = @ptrCast(zoir.error_notes),
-            .len = zoir.error_notes.len * @sizeOf(Zoir.CompileError.Note),
-        },
+    var vecs = [_][]const u8{
+        @ptrCast((&header)[0..1]),
+        @ptrCast(zoir.nodes.items(.tag)),
+        @ptrCast(zoir.nodes.items(.data)),
+        @ptrCast(zoir.nodes.items(.ast_node)),
+        @ptrCast(zoir.extra),
+        @ptrCast(zoir.limbs),
+        zoir.string_bytes,
+        @ptrCast(zoir.compile_errors),
+        @ptrCast(zoir.error_notes),
     };
-    try cache_file.writevAll(&iovecs);
+    var cache_fw = cache_file.writer(&.{});
+    cache_fw.interface.writeVecAll(&vecs) catch |err| switch (err) {
+        error.WriteFailed => return cache_fw.err.?,
+    };
 }
 
-pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_file: std.fs.File) !Zoir {
+pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_br: *std.io.Reader) !Zoir {
     var zoir: Zoir = .{
         .nodes = .empty,
         .extra = &.{},
@@ -3017,49 +2960,17 @@ pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_file: std.fs
     zoir.compile_errors = try gpa.alloc(Zoir.CompileError, header.compile_errors_len);
     zoir.error_notes = try gpa.alloc(Zoir.CompileError.Note, header.error_notes_len);
 
-    var iovecs: [8]std.posix.iovec = .{
-        .{
-            .base = @ptrCast(zoir.nodes.items(.tag)),
-            .len = header.nodes_len * @sizeOf(Zoir.Node.Repr.Tag),
-        },
-        .{
-            .base = @ptrCast(zoir.nodes.items(.data)),
-            .len = header.nodes_len * 4,
-        },
-        .{
-            .base = @ptrCast(zoir.nodes.items(.ast_node)),
-            .len = header.nodes_len * 4,
-        },
-        .{
-            .base = @ptrCast(zoir.extra),
-            .len = header.extra_len * 4,
-        },
-        .{
-            .base = @ptrCast(zoir.limbs),
-            .len = header.limbs_len * @sizeOf(std.math.big.Limb),
-        },
-        .{
-            .base = zoir.string_bytes.ptr,
-            .len = header.string_bytes_len,
-        },
-        .{
-            .base = @ptrCast(zoir.compile_errors),
-            .len = header.compile_errors_len * @sizeOf(Zoir.CompileError),
-        },
-        .{
-            .base = @ptrCast(zoir.error_notes),
-            .len = header.error_notes_len * @sizeOf(Zoir.CompileError.Note),
-        },
+    var vecs = [_][]u8{
+        @ptrCast(zoir.nodes.items(.tag)),
+        @ptrCast(zoir.nodes.items(.data)),
+        @ptrCast(zoir.nodes.items(.ast_node)),
+        @ptrCast(zoir.extra),
+        @ptrCast(zoir.limbs),
+        zoir.string_bytes,
+        @ptrCast(zoir.compile_errors),
+        @ptrCast(zoir.error_notes),
     };
-
-    const bytes_expected = expected: {
-        var n: usize = 0;
-        for (iovecs) |v| n += v.len;
-        break :expected n;
-    };
-
-    const bytes_read = try cache_file.readvAll(&iovecs);
-    if (bytes_read != bytes_expected) return error.UnexpectedFileSize;
+    try cache_br.readVecAll(&vecs);
     return zoir;
 }
 
@@ -3071,7 +2982,7 @@ pub fn markDependeeOutdated(
     marked_po: enum { not_marked_po, marked_po },
     dependee: InternPool.Dependee,
 ) !void {
-    log.debug("outdated dependee: {}", .{zcu.fmtDependee(dependee)});
+    log.debug("outdated dependee: {f}", .{zcu.fmtDependee(dependee)});
     var it = zcu.intern_pool.dependencyIterator(dependee);
     while (it.next()) |depender| {
         if (zcu.outdated.getPtr(depender)) |po_dep_count| {
@@ -3079,9 +2990,9 @@ pub fn markDependeeOutdated(
                 .not_marked_po => {},
                 .marked_po => {
                     po_dep_count.* -= 1;
-                    log.debug("outdated {} => already outdated {} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), po_dep_count.* });
+                    log.debug("outdated {f} => already outdated {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), po_dep_count.* });
                     if (po_dep_count.* == 0) {
-                        log.debug("outdated ready: {}", .{zcu.fmtAnalUnit(depender)});
+                        log.debug("outdated ready: {f}", .{zcu.fmtAnalUnit(depender)});
                         try zcu.outdated_ready.put(zcu.gpa, depender, {});
                     }
                 },
@@ -3102,9 +3013,9 @@ pub fn markDependeeOutdated(
             depender,
             new_po_dep_count,
         );
-        log.debug("outdated {} => new outdated {} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), new_po_dep_count });
+        log.debug("outdated {f} => new outdated {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), new_po_dep_count });
         if (new_po_dep_count == 0) {
-            log.debug("outdated ready: {}", .{zcu.fmtAnalUnit(depender)});
+            log.debug("outdated ready: {f}", .{zcu.fmtAnalUnit(depender)});
             try zcu.outdated_ready.put(zcu.gpa, depender, {});
         }
         // If this is a Decl and was not previously PO, we must recursively
@@ -3117,16 +3028,16 @@ pub fn markDependeeOutdated(
 }
 
 pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
-    log.debug("up-to-date dependee: {}", .{zcu.fmtDependee(dependee)});
+    log.debug("up-to-date dependee: {f}", .{zcu.fmtDependee(dependee)});
     var it = zcu.intern_pool.dependencyIterator(dependee);
     while (it.next()) |depender| {
         if (zcu.outdated.getPtr(depender)) |po_dep_count| {
             // This depender is already outdated, but it now has one
             // less PO dependency!
             po_dep_count.* -= 1;
-            log.debug("up-to-date {} => {} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), po_dep_count.* });
+            log.debug("up-to-date {f} => {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), po_dep_count.* });
             if (po_dep_count.* == 0) {
-                log.debug("outdated ready: {}", .{zcu.fmtAnalUnit(depender)});
+                log.debug("outdated ready: {f}", .{zcu.fmtAnalUnit(depender)});
                 try zcu.outdated_ready.put(zcu.gpa, depender, {});
             }
             continue;
@@ -3140,11 +3051,11 @@ pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
         };
         if (ptr.* > 1) {
             ptr.* -= 1;
-            log.debug("up-to-date {} => {} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), ptr.* });
+            log.debug("up-to-date {f} => {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender), ptr.* });
             continue;
         }
 
-        log.debug("up-to-date {} => {} po_deps=0 (up-to-date)", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender) });
+        log.debug("up-to-date {f} => {f} po_deps=0 (up-to-date)", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(depender) });
 
         // This dependency is no longer PO, i.e. is known to be up-to-date.
         assert(zcu.potentially_outdated.swapRemove(depender));
@@ -3173,7 +3084,7 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
         .func => |func_index| .{ .interned = func_index }, // IES
         .memoized_state => |stage| .{ .memoized_state = stage },
     };
-    log.debug("potentially outdated dependee: {}", .{zcu.fmtDependee(dependee)});
+    log.debug("potentially outdated dependee: {f}", .{zcu.fmtDependee(dependee)});
     var it = ip.dependencyIterator(dependee);
     while (it.next()) |po| {
         if (zcu.outdated.getPtr(po)) |po_dep_count| {
@@ -3183,17 +3094,17 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
                 _ = zcu.outdated_ready.swapRemove(po);
             }
             po_dep_count.* += 1;
-            log.debug("po {} => {} [outdated] po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po), po_dep_count.* });
+            log.debug("po {f} => {f} [outdated] po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po), po_dep_count.* });
             continue;
         }
         if (zcu.potentially_outdated.getPtr(po)) |n| {
             // There is now one more PO dependency.
             n.* += 1;
-            log.debug("po {} => {} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po), n.* });
+            log.debug("po {f} => {f} po_deps={}", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po), n.* });
             continue;
         }
         try zcu.potentially_outdated.putNoClobber(zcu.gpa, po, 1);
-        log.debug("po {} => {} po_deps=1", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po) });
+        log.debug("po {f} => {f} po_deps=1", .{ zcu.fmtDependee(dependee), zcu.fmtAnalUnit(po) });
         // This AnalUnit was not already PO, so we must recursively mark its dependers as also PO.
         try zcu.markTransitiveDependersPotentiallyOutdated(po);
     }
@@ -3222,7 +3133,7 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
 
     if (zcu.outdated_ready.count() > 0) {
         const unit = zcu.outdated_ready.keys()[0];
-        log.debug("findOutdatedToAnalyze: trivial {}", .{zcu.fmtAnalUnit(unit)});
+        log.debug("findOutdatedToAnalyze: trivial {f}", .{zcu.fmtAnalUnit(unit)});
         return unit;
     }
 
@@ -3273,7 +3184,7 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
         }
     }
 
-    log.debug("findOutdatedToAnalyze: heuristic returned '{}' ({d} dependers)", .{
+    log.debug("findOutdatedToAnalyze: heuristic returned '{f}' ({d} dependers)", .{
         zcu.fmtAnalUnit(chosen_unit.?),
         chosen_unit_dependers,
     });
@@ -4072,7 +3983,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             const referencer = kv.value;
             try checked_types.putNoClobber(gpa, ty, {});
 
-            log.debug("handle type '{}'", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)});
+            log.debug("handle type '{f}'", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)});
 
             // If this type undergoes type resolution, the corresponding `AnalUnit` is automatically referenced.
             const has_resolution: bool = switch (ip.indexToKey(ty)) {
@@ -4108,7 +4019,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 // `comptime` decls are always analyzed.
                 const unit: AnalUnit = .wrap(.{ .@"comptime" = cu });
                 if (!result.contains(unit)) {
-                    log.debug("type '{}': ref comptime %{}", .{
+                    log.debug("type '{f}': ref comptime %{}", .{
                         Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                         @intFromEnum(ip.getComptimeUnit(cu).zir_index.resolve(ip) orelse continue),
                     });
@@ -4139,7 +4050,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                     },
                 };
                 if (want_analysis) {
-                    log.debug("type '{}': ref test %{}", .{
+                    log.debug("type '{f}': ref test %{}", .{
                         Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                         @intFromEnum(inst_info.inst),
                     });
@@ -4158,7 +4069,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
                     if (!result.contains(unit)) {
-                        log.debug("type '{}': ref named %{}", .{
+                        log.debug("type '{f}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                             @intFromEnum(inst_info.inst),
                         });
@@ -4174,7 +4085,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
                     if (!result.contains(unit)) {
-                        log.debug("type '{}': ref named %{}", .{
+                        log.debug("type '{f}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                             @intFromEnum(inst_info.inst),
                         });
@@ -4199,7 +4110,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 try unit_queue.put(gpa, other, kv.value); // same reference location
             }
 
-            log.debug("handle unit '{}'", .{zcu.fmtAnalUnit(unit)});
+            log.debug("handle unit '{f}'", .{zcu.fmtAnalUnit(unit)});
 
             if (zcu.reference_table.get(unit)) |first_ref_idx| {
                 assert(first_ref_idx != std.math.maxInt(u32));
@@ -4207,7 +4118,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 while (ref_idx != std.math.maxInt(u32)) {
                     const ref = zcu.all_references.items[ref_idx];
                     if (!result.contains(ref.referenced)) {
-                        log.debug("unit '{}': ref unit '{}'", .{
+                        log.debug("unit '{f}': ref unit '{f}'", .{
                             zcu.fmtAnalUnit(unit),
                             zcu.fmtAnalUnit(ref.referenced),
                         });
@@ -4226,7 +4137,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 while (ref_idx != std.math.maxInt(u32)) {
                     const ref = zcu.all_type_references.items[ref_idx];
                     if (!checked_types.contains(ref.referenced)) {
-                        log.debug("unit '{}': ref type '{}'", .{
+                        log.debug("unit '{f}': ref type '{f}'", .{
                             zcu.fmtAnalUnit(unit),
                             Type.fromInterned(ref.referenced).containerTypeName(ip).fmt(ip),
                         });
@@ -4307,15 +4218,19 @@ pub fn navFileScope(zcu: *Zcu, nav: InternPool.Nav.Index) *File {
     return zcu.fileByIndex(zcu.navFileScopeIndex(nav));
 }
 
-pub fn fmtAnalUnit(zcu: *Zcu, unit: AnalUnit) std.fmt.Formatter(formatAnalUnit) {
+pub fn fmtAnalUnit(zcu: *Zcu, unit: AnalUnit) std.fmt.Formatter(FormatAnalUnit, formatAnalUnit) {
     return .{ .data = .{ .unit = unit, .zcu = zcu } };
 }
-pub fn fmtDependee(zcu: *Zcu, d: InternPool.Dependee) std.fmt.Formatter(formatDependee) {
+pub fn fmtDependee(zcu: *Zcu, d: InternPool.Dependee) std.fmt.Formatter(FormatDependee, formatDependee) {
     return .{ .data = .{ .dependee = d, .zcu = zcu } };
 }
 
-fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-    _ = .{ fmt, options };
+const FormatAnalUnit = struct {
+    unit: AnalUnit,
+    zcu: *Zcu,
+};
+
+fn formatAnalUnit(data: FormatAnalUnit, writer: *std.io.Writer) std.io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.unit.unwrap()) {
@@ -4323,23 +4238,25 @@ fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, comptime fmt: []co
             const cu = ip.getComptimeUnit(cu_id);
             if (cu.zir_index.resolveFull(ip)) |resolved| {
                 const file_path = zcu.fileByIndex(resolved.file).path;
-                return writer.print("comptime(inst=('{}', %{}) [{}])", .{ file_path.fmt(zcu.comp), @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
+                return writer.print("comptime(inst=('{f}', %{}) [{}])", .{ file_path.fmt(zcu.comp), @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
             } else {
                 return writer.print("comptime(inst=<lost> [{}])", .{@intFromEnum(cu_id)});
             }
         },
-        .nav_val => |nav| return writer.print("nav_val('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
-        .nav_ty => |nav| return writer.print("nav_ty('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
-        .type => |ty| return writer.print("ty('{}' [{}])", .{ Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @intFromEnum(ty) }),
+        .nav_val => |nav| return writer.print("nav_val('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
+        .nav_ty => |nav| return writer.print("nav_ty('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
+        .type => |ty| return writer.print("ty('{f}' [{}])", .{ Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @intFromEnum(ty) }),
         .func => |func| {
             const nav = zcu.funcInfo(func).owner_nav;
-            return writer.print("func('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(func) });
+            return writer.print("func('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(func) });
         },
         .memoized_state => return writer.writeAll("memoized_state"),
     }
 }
-fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-    _ = .{ fmt, options };
+
+const FormatDependee = struct { dependee: InternPool.Dependee, zcu: *Zcu };
+
+fn formatDependee(data: FormatDependee, writer: *std.io.Writer) std.io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.dependee) {
@@ -4348,42 +4265,42 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
                 return writer.writeAll("inst(<lost>)");
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return writer.print("inst('{}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
+            return writer.print("inst('{f}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
         },
         .nav_val => |nav| {
             const fqn = ip.getNav(nav).fqn;
-            return writer.print("nav_val('{}')", .{fqn.fmt(ip)});
+            return writer.print("nav_val('{f}')", .{fqn.fmt(ip)});
         },
         .nav_ty => |nav| {
             const fqn = ip.getNav(nav).fqn;
-            return writer.print("nav_ty('{}')", .{fqn.fmt(ip)});
+            return writer.print("nav_ty('{f}')", .{fqn.fmt(ip)});
         },
         .interned => |ip_index| switch (ip.indexToKey(ip_index)) {
-            .struct_type, .union_type, .enum_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
-            .func => |f| return writer.print("ies('{}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
+            .struct_type, .union_type, .enum_type => return writer.print("type('{f}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
+            .func => |f| return writer.print("ies('{f}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
             else => unreachable,
         },
         .zon_file => |file| {
             const file_path = zcu.fileByIndex(file).path;
-            return writer.print("zon_file('{}')", .{file_path.fmt(zcu.comp)});
+            return writer.print("zon_file('{f}')", .{file_path.fmt(zcu.comp)});
         },
         .embed_file => |ef_idx| {
             const ef = ef_idx.get(zcu);
-            return writer.print("embed_file('{}')", .{ef.path.fmt(zcu.comp)});
+            return writer.print("embed_file('{f}')", .{ef.path.fmt(zcu.comp)});
         },
         .namespace => |ti| {
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("namespace(<lost>)");
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return writer.print("namespace('{}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
+            return writer.print("namespace('{f}', %{d})", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst) });
         },
         .namespace_name => |k| {
             const info = k.namespace.resolveFull(ip) orelse {
-                return writer.print("namespace(<lost>, '{}')", .{k.name.fmt(ip)});
+                return writer.print("namespace(<lost>, '{f}')", .{k.name.fmt(ip)});
             };
             const file_path = zcu.fileByIndex(info.file).path;
-            return writer.print("namespace('{}', %{d}, '{}')", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst), k.name.fmt(ip) });
+            return writer.print("namespace('{f}', %{d}, '{f}')", .{ file_path.fmt(zcu.comp), @intFromEnum(info.inst), k.name.fmt(ip) });
         },
         .memoized_state => return writer.writeAll("memoized_state"),
     }

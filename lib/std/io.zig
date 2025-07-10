@@ -14,54 +14,80 @@ const File = std.fs.File;
 const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
 
-fn getStdOutHandle() posix.fd_t {
-    if (is_windows) {
-        return windows.peb().ProcessParameters.hStdOutput;
+pub const Limit = enum(usize) {
+    nothing = 0,
+    unlimited = std.math.maxInt(usize),
+    _,
+
+    /// `std.math.maxInt(usize)` is interpreted to mean `.unlimited`.
+    pub fn limited(n: usize) Limit {
+        return @enumFromInt(n);
     }
 
-    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdOutHandle")) {
-        return root.os.io.getStdOutHandle();
+    /// Any value grater than `std.math.maxInt(usize)` is interpreted to mean
+    /// `.unlimited`.
+    pub fn limited64(n: u64) Limit {
+        return @enumFromInt(@min(n, std.math.maxInt(usize)));
     }
 
-    return posix.STDOUT_FILENO;
-}
-
-pub fn getStdOut() File {
-    return .{ .handle = getStdOutHandle() };
-}
-
-fn getStdErrHandle() posix.fd_t {
-    if (is_windows) {
-        return windows.peb().ProcessParameters.hStdError;
+    pub fn countVec(data: []const []const u8) Limit {
+        var total: usize = 0;
+        for (data) |d| total += d.len;
+        return .limited(total);
     }
 
-    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdErrHandle")) {
-        return root.os.io.getStdErrHandle();
+    pub fn min(a: Limit, b: Limit) Limit {
+        return @enumFromInt(@min(@intFromEnum(a), @intFromEnum(b)));
     }
 
-    return posix.STDERR_FILENO;
-}
-
-pub fn getStdErr() File {
-    return .{ .handle = getStdErrHandle() };
-}
-
-fn getStdInHandle() posix.fd_t {
-    if (is_windows) {
-        return windows.peb().ProcessParameters.hStdInput;
+    pub fn minInt(l: Limit, n: usize) usize {
+        return @min(n, @intFromEnum(l));
     }
 
-    if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdInHandle")) {
-        return root.os.io.getStdInHandle();
+    pub fn minInt64(l: Limit, n: u64) usize {
+        return @min(n, @intFromEnum(l));
     }
 
-    return posix.STDIN_FILENO;
-}
+    pub fn slice(l: Limit, s: []u8) []u8 {
+        return s[0..l.minInt(s.len)];
+    }
 
-pub fn getStdIn() File {
-    return .{ .handle = getStdInHandle() };
-}
+    pub fn sliceConst(l: Limit, s: []const u8) []const u8 {
+        return s[0..l.minInt(s.len)];
+    }
 
+    pub fn toInt(l: Limit) ?usize {
+        return switch (l) {
+            else => @intFromEnum(l),
+            .unlimited => null,
+        };
+    }
+
+    /// Reduces a slice to account for the limit, leaving room for one extra
+    /// byte above the limit, allowing for the use case of differentiating
+    /// between end-of-stream and reaching the limit.
+    pub fn slice1(l: Limit, non_empty_buffer: []u8) []u8 {
+        assert(non_empty_buffer.len >= 1);
+        return non_empty_buffer[0..@min(@intFromEnum(l) +| 1, non_empty_buffer.len)];
+    }
+
+    pub fn nonzero(l: Limit) bool {
+        return @intFromEnum(l) > 0;
+    }
+
+    /// Return a new limit reduced by `amount` or return `null` indicating
+    /// limit would be exceeded.
+    pub fn subtract(l: Limit, amount: usize) ?Limit {
+        if (l == .unlimited) return .unlimited;
+        if (amount > @intFromEnum(l)) return null;
+        return @enumFromInt(@intFromEnum(l) - amount);
+    }
+};
+
+pub const Reader = @import("io/Reader.zig");
+pub const Writer = @import("io/Writer.zig");
+
+/// Deprecated in favor of `Reader`.
 pub fn GenericReader(
     comptime Context: type,
     comptime ReadError: type,
@@ -289,6 +315,7 @@ pub fn GenericReader(
     };
 }
 
+/// Deprecated in favor of `Writer`.
 pub fn GenericWriter(
     comptime Context: type,
     comptime WriteError: type,
@@ -347,18 +374,39 @@ pub fn GenericWriter(
             const ptr: *const Context = @alignCast(@ptrCast(context));
             return writeFn(ptr.*, bytes);
         }
+
+        /// Helper for bridging to the new `Writer` API while upgrading.
+        pub fn adaptToNewApi(self: *const Self) Adapter {
+            return .{
+                .derp_writer = self.*,
+                .new_interface = .{
+                    .buffer = &.{},
+                    .vtable = &.{ .drain = Adapter.drain },
+                },
+            };
+        }
+
+        pub const Adapter = struct {
+            derp_writer: Self,
+            new_interface: Writer,
+            err: ?Error = null,
+
+            fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
+                _ = splat;
+                const a: *@This() = @fieldParentPtr("new_interface", w);
+                return a.derp_writer.write(data[0]) catch |err| {
+                    a.err = err;
+                    return error.WriteFailed;
+                };
+            }
+        };
     };
 }
 
-/// Deprecated; consider switching to `AnyReader` or use `GenericReader`
-/// to use previous API.
-pub const Reader = GenericReader;
-/// Deprecated; consider switching to `AnyWriter` or use `GenericWriter`
-/// to use previous API.
-pub const Writer = GenericWriter;
-
-pub const AnyReader = @import("io/Reader.zig");
-pub const AnyWriter = @import("io/Writer.zig");
+/// Deprecated in favor of `Reader`.
+pub const AnyReader = @import("io/DeprecatedReader.zig");
+/// Deprecated in favor of `Writer`.
+pub const AnyWriter = @import("io/DeprecatedWriter.zig");
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 
@@ -407,7 +455,7 @@ pub const tty = @import("io/tty.zig");
 /// A Writer that doesn't write to anything.
 pub const null_writer: NullWriter = .{ .context = {} };
 
-pub const NullWriter = Writer(void, error{}, dummyWrite);
+pub const NullWriter = GenericWriter(void, error{}, dummyWrite);
 fn dummyWrite(context: void, data: []const u8) error{}!usize {
     _ = context;
     return data.len;
@@ -819,8 +867,8 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 }
 
 test {
-    _ = AnyReader;
-    _ = AnyWriter;
+    _ = Reader;
+    _ = Writer;
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");

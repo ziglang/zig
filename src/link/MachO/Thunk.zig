@@ -61,47 +61,27 @@ pub fn writeSymtab(thunk: Thunk, macho_file: *MachO, ctx: anytype) void {
     }
 }
 
-pub fn format(
-    thunk: Thunk,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = thunk;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format Thunk directly");
-}
-
-pub fn fmt(thunk: Thunk, macho_file: *MachO) std.fmt.Formatter(format2) {
+pub fn fmt(thunk: Thunk, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
     return .{ .data = .{
         .thunk = thunk,
         .macho_file = macho_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     thunk: Thunk,
     macho_file: *MachO,
-};
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
-    const thunk = ctx.thunk;
-    const macho_file = ctx.macho_file;
-    try writer.print("@{x} : size({x})\n", .{ thunk.value, thunk.size() });
-    for (thunk.symbols.keys()) |ref| {
-        const sym = ref.getSymbol(macho_file).?;
-        try writer.print("  {} : {s} : @{x}\n", .{ ref, sym.getName(macho_file), sym.value });
+    fn default(f: Format, w: *Writer) Writer.Error!void {
+        const thunk = f.thunk;
+        const macho_file = f.macho_file;
+        try w.print("@{x} : size({x})\n", .{ thunk.value, thunk.size() });
+        for (thunk.symbols.keys()) |ref| {
+            const sym = ref.getSymbol(macho_file).?;
+            try w.print("  {f} : {s} : @{x}\n", .{ ref, sym.getName(macho_file), sym.value });
+        }
     }
-}
+};
 
 const trampoline_size = 3 * @sizeOf(u32);
 
@@ -115,6 +95,7 @@ const math = std.math;
 const mem = std.mem;
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
+const Writer = std.io.Writer;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");

@@ -2,6 +2,18 @@
 //! This is not a general-purpose cache. It is designed to be fast and simple,
 //! not to withstand attacks using specially-crafted input.
 
+const Cache = @This();
+const std = @import("std");
+const builtin = @import("builtin");
+const crypto = std.crypto;
+const fs = std.fs;
+const assert = std.debug.assert;
+const testing = std.testing;
+const mem = std.mem;
+const fmt = std.fmt;
+const Allocator = std.mem.Allocator;
+const log = std.log.scoped(.cache);
+
 gpa: Allocator,
 manifest_dir: fs.Dir,
 hash: HashHelper = .{},
@@ -20,18 +32,6 @@ prefixes_len: usize = 0,
 pub const Path = @import("Cache/Path.zig");
 pub const Directory = @import("Cache/Directory.zig");
 pub const DepTokenizer = @import("Cache/DepTokenizer.zig");
-
-const Cache = @This();
-const std = @import("std");
-const builtin = @import("builtin");
-const crypto = std.crypto;
-const fs = std.fs;
-const assert = std.debug.assert;
-const testing = std.testing;
-const mem = std.mem;
-const fmt = std.fmt;
-const Allocator = std.mem.Allocator;
-const log = std.log.scoped(.cache);
 
 pub fn addPrefix(cache: *Cache, directory: Directory) void {
     cache.prefixes_buffer[cache.prefixes_len] = directory;
@@ -68,7 +68,7 @@ const PrefixedPath = struct {
 
 fn findPrefix(cache: *const Cache, file_path: []const u8) !PrefixedPath {
     const gpa = cache.gpa;
-    const resolved_path = try fs.path.resolve(gpa, &[_][]const u8{file_path});
+    const resolved_path = try fs.path.resolve(gpa, &.{file_path});
     errdefer gpa.free(resolved_path);
     return findPrefixResolved(cache, resolved_path);
 }
@@ -132,7 +132,7 @@ pub const Hasher = crypto.auth.siphash.SipHash128(1, 3);
 /// Initial state with random bytes, that can be copied.
 /// Refresh this with new random bytes when the manifest
 /// format is modified in a non-backwards-compatible way.
-pub const hasher_init: Hasher = Hasher.init(&[_]u8{
+pub const hasher_init: Hasher = Hasher.init(&.{
     0x33, 0x52, 0xa2, 0x84,
     0xcf, 0x17, 0x56, 0x57,
     0x01, 0xbb, 0xcd, 0xe4,
@@ -286,11 +286,8 @@ pub const HashHelper = struct {
 
 pub fn binToHex(bin_digest: BinDigest) HexDigest {
     var out_digest: HexDigest = undefined;
-    _ = fmt.bufPrint(
-        &out_digest,
-        "{s}",
-        .{fmt.fmtSliceHexLower(&bin_digest)},
-    ) catch unreachable;
+    var w: std.io.Writer = .fixed(&out_digest);
+    w.printHex(&bin_digest, .lower) catch unreachable;
     return out_digest;
 }
 
@@ -337,7 +334,6 @@ pub const Manifest = struct {
         manifest_create: fs.File.OpenError,
         manifest_read: fs.File.ReadError,
         manifest_lock: fs.File.LockError,
-        manifest_seek: fs.File.SeekError,
         file_open: FileOp,
         file_stat: FileOp,
         file_read: FileOp,
@@ -611,12 +607,6 @@ pub const Manifest = struct {
                     var file = self.files.pop().?;
                     file.key.deinit(self.cache.gpa);
                 }
-                // Also, seek the file back to the start.
-                self.manifest_file.?.seekTo(0) catch |err| {
-                    self.diagnostic = .{ .manifest_seek = err };
-                    return error.CacheCheckFailed;
-                };
-
                 switch (try self.hitWithCurrentLock()) {
                     .hit => break :hit,
                     .miss => |m| break :digests m.file_digests_populated,
@@ -661,9 +651,8 @@ pub const Manifest = struct {
         return true;
     }
 
-    /// Assumes that `self.hash.hasher` has been updated only with the original digest, that
-    /// `self.files` contains only the original input files, and that `self.manifest_file.?` is
-    /// seeked to the start of the file.
+    /// Assumes that `self.hash.hasher` has been updated only with the original digest and that
+    /// `self.files` contains only the original input files.
     fn hitWithCurrentLock(self: *Manifest) HitError!union(enum) {
         hit,
         miss: struct {
@@ -672,12 +661,13 @@ pub const Manifest = struct {
     } {
         const gpa = self.cache.gpa;
         const input_file_count = self.files.entries.len;
-
-        const file_contents = self.manifest_file.?.reader().readAllAlloc(gpa, manifest_file_size_max) catch |err| switch (err) {
+        var manifest_reader = self.manifest_file.?.reader(&.{}); // Reads positionally from zero.
+        const limit: std.io.Limit = .limited(manifest_file_size_max);
+        const file_contents = manifest_reader.interface.allocRemaining(gpa, limit) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.StreamTooLong => return error.OutOfMemory,
-            else => |e| {
-                self.diagnostic = .{ .manifest_read = e };
+            error.ReadFailed => {
+                self.diagnostic = .{ .manifest_read = manifest_reader.err.? };
                 return error.CacheCheckFailed;
             },
         };
@@ -1063,14 +1053,17 @@ pub const Manifest = struct {
     }
 
     fn addDepFileMaybePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
-        const dep_file_contents = try dir.readFileAlloc(self.cache.gpa, dep_file_basename, manifest_file_size_max);
-        defer self.cache.gpa.free(dep_file_contents);
+        const gpa = self.cache.gpa;
+        const dep_file_contents = try dir.readFileAlloc(gpa, dep_file_basename, manifest_file_size_max);
+        defer gpa.free(dep_file_contents);
 
-        var error_buf = std.ArrayList(u8).init(self.cache.gpa);
-        defer error_buf.deinit();
+        var error_buf: std.ArrayListUnmanaged(u8) = .empty;
+        defer error_buf.deinit(gpa);
+
+        var resolve_buf: std.ArrayListUnmanaged(u8) = .empty;
+        defer resolve_buf.deinit(gpa);
 
         var it: DepTokenizer = .{ .bytes = dep_file_contents };
-
         while (it.next()) |token| {
             switch (token) {
                 // We don't care about targets, we only want the prereqs
@@ -1080,16 +1073,14 @@ pub const Manifest = struct {
                     _ = try self.addFile(file_path, null);
                 } else try self.addFilePost(file_path),
                 .prereq_must_resolve => {
-                    var resolve_buf = std.ArrayList(u8).init(self.cache.gpa);
-                    defer resolve_buf.deinit();
-
-                    try token.resolve(resolve_buf.writer());
+                    resolve_buf.clearRetainingCapacity();
+                    try token.resolve(gpa, &resolve_buf);
                     if (self.manifest_file == null) {
                         _ = try self.addFile(resolve_buf.items, null);
                     } else try self.addFilePost(resolve_buf.items);
                 },
                 else => |err| {
-                    try err.printError(error_buf.writer());
+                    try err.printError(gpa, &error_buf);
                     log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
                     return error.InvalidDepFile;
                 },
@@ -1127,29 +1118,32 @@ pub const Manifest = struct {
         if (self.manifest_dirty) {
             self.manifest_dirty = false;
 
-            var contents = std.ArrayList(u8).init(self.cache.gpa);
-            defer contents.deinit();
-
-            const writer = contents.writer();
-            try writer.writeAll(manifest_header ++ "\n");
-            for (self.files.keys()) |file| {
-                try writer.print("{d} {d} {d} {} {d} {s}\n", .{
-                    file.stat.size,
-                    file.stat.inode,
-                    file.stat.mtime,
-                    fmt.fmtSliceHexLower(&file.bin_digest),
-                    file.prefixed_path.prefix,
-                    file.prefixed_path.sub_path,
-                });
-            }
-
-            try manifest_file.setEndPos(contents.items.len);
-            try manifest_file.pwriteAll(contents.items, 0);
+            var buffer: [4000]u8 = undefined;
+            var fw = manifest_file.writer(&buffer);
+            writeDirtyManifestToStream(self, &fw) catch |err| switch (err) {
+                error.WriteFailed => return fw.err.?,
+                else => |e| return e,
+            };
         }
 
         if (self.want_shared_lock) {
             try self.downgradeToSharedLock();
         }
+    }
+
+    fn writeDirtyManifestToStream(self: *Manifest, fw: *fs.File.Writer) !void {
+        try fw.interface.writeAll(manifest_header ++ "\n");
+        for (self.files.keys()) |file| {
+            try fw.interface.print("{d} {d} {d} {x} {d} {s}\n", .{
+                file.stat.size,
+                file.stat.inode,
+                file.stat.mtime,
+                &file.bin_digest,
+                file.prefixed_path.prefix,
+                file.prefixed_path.sub_path,
+            });
+        }
+        try fw.end();
     }
 
     fn downgradeToSharedLock(self: *Manifest) !void {

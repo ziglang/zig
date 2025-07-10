@@ -385,10 +385,8 @@ test "general client/server API coverage" {
         fn handleRequest(request: *http.Server.Request, listen_port: u16) !void {
             const log = std.log.scoped(.server);
 
-            log.info("{} {s} {s}", .{
-                request.head.method,
-                @tagName(request.head.version),
-                request.head.target,
+            log.info("{f} {s} {s}", .{
+                request.head.method, @tagName(request.head.version), request.head.target,
             });
 
             const gpa = std.testing.allocator;

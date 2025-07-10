@@ -121,15 +121,13 @@ pub fn eql(a: Type, b: Type, zcu: *const Zcu) bool {
     return a.toIntern() == b.toIntern();
 }
 
-pub fn format(ty: Type, comptime unused_fmt_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+pub fn format(ty: Type, writer: *std.io.Writer) !void {
     _ = ty;
-    _ = unused_fmt_string;
-    _ = options;
     _ = writer;
     @compileError("do not format types directly; use either ty.fmtDebug() or ty.fmt()");
 }
 
-pub const Formatter = std.fmt.Formatter(format2);
+pub const Formatter = std.fmt.Formatter(Format, Format.default);
 
 pub fn fmt(ty: Type, pt: Zcu.PerThread) Formatter {
     return .{ .data = .{
@@ -138,42 +136,28 @@ pub fn fmt(ty: Type, pt: Zcu.PerThread) Formatter {
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     ty: Type,
     pt: Zcu.PerThread,
+
+    fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        return print(f.ty, writer, f.pt);
+    }
 };
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_format_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    comptime assert(unused_format_string.len == 0);
-    _ = options;
-    return print(ctx.ty, writer, ctx.pt);
-}
-
-pub fn fmtDebug(ty: Type) std.fmt.Formatter(dump) {
+pub fn fmtDebug(ty: Type) std.fmt.Formatter(Type, dump) {
     return .{ .data = ty };
 }
 
 /// This is a debug function. In order to print types in a meaningful way
 /// we also need access to the module.
-pub fn dump(
-    start_type: Type,
-    comptime unused_format_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    _ = options;
-    comptime assert(unused_format_string.len == 0);
+pub fn dump(start_type: Type, writer: *std.io.Writer) std.io.Writer.Error!void {
     return writer.print("{any}", .{start_type.ip_index});
 }
 
 /// Prints a name suitable for `@typeName`.
 /// TODO: take an `opt_sema` to pass to `fmtValue` when printing sentinels.
-pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error!void {
+pub fn print(ty: Type, writer: *std.io.Writer, pt: Zcu.PerThread) std.io.Writer.Error!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
@@ -190,8 +174,8 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
 
             if (info.sentinel != .none) switch (info.flags.size) {
                 .one, .c => unreachable,
-                .many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
-                .slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
+                .many => try writer.print("[*:{f}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
+                .slice => try writer.print("[:{f}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
             } else switch (info.flags.size) {
                 .one => try writer.writeAll("*"),
                 .many => try writer.writeAll("[*]"),
@@ -235,7 +219,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                 try writer.print("[{d}]", .{array_type.len});
                 try print(Type.fromInterned(array_type.child), writer, pt);
             } else {
-                try writer.print("[{d}:{}]", .{
+                try writer.print("[{d}:{f}]", .{
                     array_type.len,
                     Value.fromInterned(array_type.sentinel).fmtValue(pt),
                 });
@@ -265,7 +249,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
         },
         .inferred_error_set_type => |func_index| {
             const func_nav = ip.getNav(zcu.funcInfo(func_index).owner_nav);
-            try writer.print("@typeInfo(@typeInfo(@TypeOf({})).@\"fn\".return_type.?).error_union.error_set", .{
+            try writer.print("@typeInfo(@typeInfo(@TypeOf({f})).@\"fn\".return_type.?).error_union.error_set", .{
                 func_nav.fqn.fmt(ip),
             });
         },
@@ -274,7 +258,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             try writer.writeAll("error{");
             for (names.get(ip), 0..) |name, i| {
                 if (i != 0) try writer.writeByte(',');
-                try writer.print("{}", .{name.fmt(ip)});
+                try writer.print("{f}", .{name.fmt(ip)});
             }
             try writer.writeAll("}");
         },
@@ -317,7 +301,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
         },
         .struct_type => {
             const name = ip.loadStructType(ty.toIntern()).name;
-            try writer.print("{}", .{name.fmt(ip)});
+            try writer.print("{f}", .{name.fmt(ip)});
         },
         .tuple_type => |tuple| {
             if (tuple.types.len == 0) {
@@ -328,22 +312,22 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                 try writer.writeAll(if (i == 0) " " else ", ");
                 if (val != .none) try writer.writeAll("comptime ");
                 try print(Type.fromInterned(field_ty), writer, pt);
-                if (val != .none) try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(pt)});
+                if (val != .none) try writer.print(" = {f}", .{Value.fromInterned(val).fmtValue(pt)});
             }
             try writer.writeAll(" }");
         },
 
         .union_type => {
             const name = ip.loadUnionType(ty.toIntern()).name;
-            try writer.print("{}", .{name.fmt(ip)});
+            try writer.print("{f}", .{name.fmt(ip)});
         },
         .opaque_type => {
             const name = ip.loadOpaqueType(ty.toIntern()).name;
-            try writer.print("{}", .{name.fmt(ip)});
+            try writer.print("{f}", .{name.fmt(ip)});
         },
         .enum_type => {
             const name = ip.loadEnumType(ty.toIntern()).name;
-            try writer.print("{}", .{name.fmt(ip)});
+            try writer.print("{f}", .{name.fmt(ip)});
         },
         .func_type => |fn_info| {
             if (fn_info.is_noinline) {
@@ -382,7 +366,9 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                     }
                 }
                 switch (fn_info.cc) {
-                    .auto, .async, .naked, .@"inline" => try writer.print("callconv(.{}) ", .{std.zig.fmtId(@tagName(fn_info.cc))}),
+                    .auto, .async, .naked, .@"inline" => try writer.print("callconv(.{f}) ", .{
+                        std.zig.fmtId(@tagName(fn_info.cc)),
+                    }),
                     else => try writer.print("callconv({any}) ", .{fn_info.cc}),
                 }
             }

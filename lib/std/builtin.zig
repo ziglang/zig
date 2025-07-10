@@ -34,24 +34,16 @@ pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
 
-    pub fn format(
-        self: StackTrace,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-
+    pub fn format(self: StackTrace, writer: *std.io.Writer) std.io.Writer.Error!void {
         // TODO: re-evaluate whether to use format() methods at all.
         // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
         // where it tries to call detectTTYConfig here.
         if (builtin.os.tag == .freestanding) return;
 
-        _ = options;
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
             return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
-        const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
+        const tty_config = std.io.tty.detectConfig(std.fs.File.stderr());
         try writer.writeAll("\n");
         std.debug.writeStackTrace(self, writer, debug_info, tty_config) catch |err| {
             try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});

@@ -918,14 +918,16 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        .{
-            .target = std.Target.Query.parse(.{
-                .arch_os_abi = "riscv64-linux-none",
-                .cpu_features = "baseline+v+zbb",
-            }) catch unreachable,
-            .use_llvm = false,
-            .use_lld = false,
-        },
+        // TODO implement codegen airFieldParentPtr
+        // TODO implement airMemmove for riscv64
+        //.{
+        //    .target = std.Target.Query.parse(.{
+        //        .arch_os_abi = "riscv64-linux-none",
+        //        .cpu_features = "baseline+v+zbb",
+        //    }) catch unreachable,
+        //    .use_llvm = false,
+        //    .use_lld = false,
+        //},
         .{
             .target = .{
                 .cpu_arch = .riscv64,
@@ -2753,7 +2755,7 @@ pub fn addIncrementalTests(b: *std.Build, test_step: *Step) !void {
 
         run.addArg(b.graph.zig_exe);
         run.addFileArg(b.path("test/incremental/").path(b, entry.path));
-        run.addArgs(&.{ "--zig-lib-dir", b.fmt("{}", .{b.graph.zig_lib_directory}) });
+        run.addArgs(&.{ "--zig-lib-dir", b.fmt("{f}", .{b.graph.zig_lib_directory}) });
 
         run.addCheck(.{ .expect_term = .{ .Exited = 0 } });
 
