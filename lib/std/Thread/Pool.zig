@@ -330,8 +330,8 @@ pub fn io(pool: *Pool) Io {
     return .{
         .userdata = pool,
         .vtable = &.{
-            .@"async" = @"async",
-            .@"await" = @"await",
+            .async = async,
+            .await = await,
             .go = go,
             .cancel = cancel,
             .cancelRequested = cancelRequested,
@@ -444,7 +444,7 @@ const AsyncClosure = struct {
     }
 };
 
-fn @"async"(
+fn async(
     userdata: ?*anyopaque,
     result: []u8,
     result_alignment: std.mem.Alignment,
@@ -560,7 +560,7 @@ fn go(
     pool.cond.signal();
 }
 
-fn @"await"(
+fn await(
     userdata: ?*anyopaque,
     any_future: *std.Io.AnyFuture,
     result: []u8,
