@@ -332,7 +332,7 @@ pub fn io(pool: *Pool) Io {
         .vtable = &.{
             .async = async,
             .await = await,
-            .go = go,
+            .asyncDetached = asyncDetached,
             .cancel = cancel,
             .cancelRequested = cancelRequested,
             .select = select,
@@ -521,7 +521,7 @@ const DetachedClosure = struct {
     }
 };
 
-fn go(
+fn asyncDetached(
     userdata: ?*anyopaque,
     context: []const u8,
     context_alignment: std.mem.Alignment,
