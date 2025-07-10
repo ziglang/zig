@@ -162,28 +162,20 @@ pub fn writeSplat(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     const buffer = w.buffer;
     const count = countSplat(data, splat);
     if (w.end + count > buffer.len) return w.vtable.drain(w, data, splat);
-    for (data) |bytes| {
+    for (data[0 .. data.len - 1]) |bytes| {
         @memcpy(buffer[w.end..][0..bytes.len], bytes);
         w.end += bytes.len;
     }
     const pattern = data[data.len - 1];
-    if (splat == 0) {
-        @branchHint(.unlikely);
-        w.end -= pattern.len;
-        return count;
-    }
-    const remaining_splat = splat - 1;
     switch (pattern.len) {
         0 => {},
         1 => {
-            @memset(buffer[w.end..][0..remaining_splat], pattern[0]);
-            w.end += remaining_splat;
+            @memset(buffer[w.end..][0..splat], pattern[0]);
+            w.end += splat;
         },
-        else => {
-            const new_end = w.end + pattern.len * remaining_splat;
-            while (w.end < new_end) : (w.end += pattern.len) {
-                @memcpy(buffer[w.end..][0..pattern.len], pattern);
-            }
+        else => for (0..splat) |_| {
+            @memcpy(buffer[w.end..][0..pattern.len], pattern);
+            w.end += pattern.len;
         },
     }
     return count;
@@ -2116,6 +2108,13 @@ test "fixed output" {
 
     try testing.expectError(error.WriteFailed, w.writeAll("Hello world!"));
     try testing.expect(std.mem.eql(u8, w.buffered(), "Hello worl"));
+}
+
+test "writeSplat 0 len splat larger than capacity" {
+    var buf: [8]u8 = undefined;
+    var w: std.io.Writer = .fixed(&buf);
+    const n = try w.writeSplat(&.{"something that overflows buf"}, 0);
+    try testing.expectEqual(0, n);
 }
 
 pub fn failingDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
