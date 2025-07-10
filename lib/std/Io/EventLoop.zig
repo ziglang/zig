@@ -80,7 +80,7 @@ const Fiber = struct {
     );
 
     fn allocate(el: *EventLoop) error{OutOfMemory}!*Fiber {
-        return @ptrCast(try el.gpa.alignedAlloc(u8, @alignOf(Fiber), allocation_size));
+        return @ptrCast(try el.gpa.alignedAlloc(u8, .of(Fiber), allocation_size));
     }
 
     fn allocatedSlice(f: *Fiber) []align(@alignOf(Fiber)) u8 {
@@ -138,8 +138,8 @@ pub fn io(el: *EventLoop) Io {
     return .{
         .userdata = el,
         .vtable = &.{
-            .@"async" = @"async",
-            .@"await" = @"await",
+            .async = async,
+            .await = await,
             .go = go,
             .select = select,
             .cancel = cancel,
@@ -166,7 +166,7 @@ pub fn io(el: *EventLoop) Io {
 pub fn init(el: *EventLoop, gpa: Allocator) !void {
     const threads_size = @max(std.Thread.getCpuCount() catch 1, 1) * @sizeOf(Thread);
     const idle_stack_end_offset = std.mem.alignForward(usize, threads_size + idle_stack_size, std.heap.page_size_max);
-    const allocated_slice = try gpa.alignedAlloc(u8, @alignOf(Thread), idle_stack_end_offset);
+    const allocated_slice = try gpa.alignedAlloc(u8, .of(Thread), idle_stack_end_offset);
     errdefer gpa.free(allocated_slice);
     el.* = .{
         .gpa = gpa,
@@ -697,7 +697,7 @@ const AsyncClosure = struct {
     }
 };
 
-fn @"async"(
+fn async(
     userdata: ?*anyopaque,
     result: []u8,
     result_alignment: Alignment,
@@ -835,7 +835,7 @@ fn go(
     event_loop.schedule(current_thread, .{ .head = fiber, .tail = fiber });
 }
 
-fn @"await"(
+fn await(
     userdata: ?*anyopaque,
     any_future: *std.Io.AnyFuture,
     result: []u8,
@@ -916,7 +916,7 @@ fn cancel(
             .resv = 0,
         };
     };
-    @"await"(userdata, any_future, result, result_alignment);
+    await(userdata, any_future, result, result_alignment);
 }
 
 fn cancelRequested(userdata: ?*anyopaque) bool {
