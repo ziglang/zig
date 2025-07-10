@@ -1499,7 +1499,7 @@ pub fn HashMapUnmanaged(
 
         /// This function is used in the debugger pretty formatters in tools/ to fetch the
         /// header type to facilitate fancy debug printing for this type.
-        fn dbHelper(self: *Self, hdr: *Header, entry: *Entry) void {
+        pub fn dbHelper(self: *Self, hdr: *Header, entry: *Entry) void {
             _ = self;
             _ = hdr;
             _ = entry;

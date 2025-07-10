@@ -4730,7 +4730,7 @@ pub const Index = enum(u32) {
 
     /// This function is used in the debugger pretty formatters in tools/ to fetch the
     /// Tag to encoding mapping to facilitate fancy debug printing for this type.
-    fn dbHelper(self: *Index, tag_to_encoding_map: *struct {
+    pub fn dbHelper(self: *Index, tag_to_encoding_map: *struct {
         const DataIsIndex = struct { data: Index };
         const DataIsExtraIndexOfEnumExplicit = struct {
             const @"data.fields_len" = opaque {};
