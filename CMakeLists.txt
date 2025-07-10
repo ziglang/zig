@@ -387,6 +387,18 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Build.zig
     lib/std/Build/Cache.zig
     lib/std/Build/Cache/DepTokenizer.zig
+    lib/std/Io.zig
+    lib/std/Io/Reader.zig
+    lib/std/Io/Writer.zig
+    lib/std/Io/buffered_atomic_file.zig
+    lib/std/Io/buffered_writer.zig
+    lib/std/Io/change_detection_stream.zig
+    lib/std/Io/counting_reader.zig
+    lib/std/Io/counting_writer.zig
+    lib/std/Io/find_byte_writer.zig
+    lib/std/Io/fixed_buffer_stream.zig
+    lib/std/Io/limited_reader.zig
+    lib/std/Io/seekable_stream.zig
     lib/std/Progress.zig
     lib/std/Random.zig
     lib/std/Target.zig
@@ -449,18 +461,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/hash_map.zig
     lib/std/heap.zig
     lib/std/heap/arena_allocator.zig
-    lib/std/io.zig
-    lib/std/io/Reader.zig
-    lib/std/io/Writer.zig
-    lib/std/io/buffered_atomic_file.zig
-    lib/std/io/buffered_writer.zig
-    lib/std/io/change_detection_stream.zig
-    lib/std/io/counting_reader.zig
-    lib/std/io/counting_writer.zig
-    lib/std/io/find_byte_writer.zig
-    lib/std/io/fixed_buffer_stream.zig
-    lib/std/io/limited_reader.zig
-    lib/std/io/seekable_stream.zig
     lib/std/json.zig
     lib/std/json/stringify.zig
     lib/std/leb128.zig
