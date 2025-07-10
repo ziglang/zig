@@ -211,14 +211,35 @@ pub fn writeSplatHeader(
     var vecs: [8][]const u8 = undefined; // Arbitrarily chosen size.
     var i: usize = 1;
     vecs[0] = header;
-    for (data) |buf| {
+    for (data[0 .. data.len - 1]) |buf| {
         if (buf.len == 0) continue;
         vecs[i] = buf;
         i += 1;
         if (vecs.len - i == 0) break;
     }
-    const new_splat = if (vecs[i - 1].ptr == data[data.len - 1].ptr) splat else 1;
+    const pattern = data[data.len - 1];
+    const new_splat = s: {
+        if (pattern.len == 0 or vecs.len - i == 0) break :s 1;
+        vecs[i] = pattern;
+        i += 1;
+        break :s splat;
+    };
     return w.vtable.drain(w, vecs[0..i], new_splat);
+}
+
+test "writeSplatHeader splatting avoids buffer aliasing temptation" {
+    const initial_buf = try testing.allocator.alloc(u8, 8);
+    var aw: std.io.Writer.Allocating = .initOwnedSlice(testing.allocator, initial_buf);
+    defer aw.deinit();
+    // This test assumes 8 vector buffer in this function.
+    const n = try aw.writer.writeSplatHeader("header which is longer than buf ", &.{
+        "1", "2", "3", "4", "5", "6", "foo", "bar", "foo",
+    }, 3);
+    try testing.expectEqual(41, n);
+    try testing.expectEqualStrings(
+        "header which is longer than buf 123456foo",
+        aw.writer.buffered(),
+    );
 }
 
 /// Equivalent to `writeSplatHeader` but writes at most `limit` bytes.
@@ -2037,8 +2058,8 @@ test "printFloat with comptime_float" {
     var buf: [20]u8 = undefined;
     var w: Writer = .fixed(&buf);
     try w.printFloat(@as(comptime_float, 1.0), std.fmt.Options.toNumber(.{}, .scientific, .lower));
-    try std.testing.expectEqualStrings(w.buffered(), "1e0");
-    try std.testing.expectFmt("1", "{}", .{1.0});
+    try testing.expectEqualStrings(w.buffered(), "1e0");
+    try testing.expectFmt("1", "{}", .{1.0});
 }
 
 fn testPrintIntCase(expected: []const u8, value: anytype, base: u8, case: std.fmt.Case, options: std.fmt.Options) !void {
@@ -2065,12 +2086,12 @@ test printByteSize {
 
 test "bytes.hex" {
     const some_bytes = "\xCA\xFE\xBA\xBE";
-    try std.testing.expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
-    try std.testing.expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
-    try std.testing.expectFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
-    try std.testing.expectFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
+    try testing.expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{some_bytes});
+    try testing.expectFmt("uppercase: CAFEBABE\n", "uppercase: {X}\n", .{some_bytes});
+    try testing.expectFmt("uppercase: CAFE\n", "uppercase: {X}\n", .{some_bytes[0..2]});
+    try testing.expectFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
     const bytes_with_zeros = "\x00\x0E\xBA\xBE";
-    try std.testing.expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
+    try testing.expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
 }
 
 test fixed {
@@ -2479,7 +2500,7 @@ pub const Allocating = struct {
     }
 
     test Allocating {
-        var a: Allocating = .init(std.testing.allocator);
+        var a: Allocating = .init(testing.allocator);
         defer a.deinit();
         const w = &a.writer;
 
