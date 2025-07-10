@@ -114,7 +114,10 @@ pub const FileError = error{
 /// Writes to `buffer` and returns `error.WriteFailed` when it is full.
 pub fn fixed(buffer: []u8) Writer {
     return .{
-        .vtable = &.{ .drain = fixedDrain },
+        .vtable = &.{
+            .drain = fixedDrain,
+            .flush = noopFlush,
+        },
         .buffer = buffer,
     };
 }
@@ -242,6 +245,15 @@ pub fn defaultFlush(w: *Writer) Error!void {
 /// Does nothing.
 pub fn noopFlush(w: *Writer) Error!void {
     _ = w;
+}
+
+test "fixed buffer flush" {
+    var buffer: [1]u8 = undefined;
+    var writer: std.io.Writer = .fixed(&buffer);
+
+    try writer.writeByte(10);
+    try writer.flush();
+    try testing.expectEqual(10, buffer[0]);
 }
 
 /// Calls `VTable.drain` but hides the last `preserve_length` bytes from the
