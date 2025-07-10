@@ -794,12 +794,23 @@ pub fn writeStruct(w: *Writer, value: anytype) Error!void {
 /// comptime-known and matches host endianness.
 /// TODO: make sure this value is not a reference type
 pub inline fn writeStructEndian(w: *Writer, value: anytype, endian: std.builtin.Endian) Error!void {
-    if (native_endian == endian) {
-        return w.writeStruct(value);
-    } else {
-        var copy = value;
-        std.mem.byteSwapAllFields(@TypeOf(value), &copy);
-        return w.writeStruct(copy);
+    switch (@typeInfo(@TypeOf(value))) {
+        .@"struct" => |info| switch (info.layout) {
+            .auto => @compileError("ill-defined memory layout"),
+            .@"extern" => {
+                if (native_endian == endian) {
+                    return w.writeStruct(value);
+                } else {
+                    var copy = value;
+                    std.mem.byteSwapAllFields(@TypeOf(value), &copy);
+                    return w.writeStruct(copy);
+                }
+            },
+            .@"packed" => {
+                return writeInt(w, info.backing_integer.?, @bitCast(value), endian);
+            },
+        },
+        else => @compileError("not a struct"),
     }
 }
 
