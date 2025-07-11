@@ -7089,6 +7089,20 @@ pub fn tcsetpgrp(handle: fd_t, pgrp: pid_t) TermioSetPgrpError!void {
     }
 }
 
+pub const SetSidError = error{
+    /// The calling process is already a process group leader, or the process group ID of a process other than the calling process matches the process ID of the calling process.
+    PermissionDenied,
+} || UnexpectedError;
+
+pub fn setsid() SetSidError!pid_t {
+    const rc = system.setsid();
+    switch (errno(rc)) {
+        .SUCCESS => return rc,
+        .PERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) !fd_t {
     const rc = system.signalfd(fd, mask, flags);
     switch (errno(rc)) {
