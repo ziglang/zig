@@ -66,7 +66,7 @@ pub fn print(
         .func_type,
         .error_set_type,
         .inferred_error_set_type,
-        => try Type.print(val.toType(), writer, pt),
+        => try Type.print(val.toType(), writer, pt, null),
         .undef => try writer.writeAll("undefined"),
         .simple_value => |simple_value| switch (simple_value) {
             .void => try writer.writeAll("{}"),
