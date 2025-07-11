@@ -245,6 +245,7 @@ pub fn appendRemaining(
     list: *std.ArrayListAlignedUnmanaged(u8, alignment),
     limit: Limit,
 ) LimitedAllocError!void {
+    assert(r.buffer.len != 0); // Needed to detect limit exceeded without losing data.
     const buffer = r.buffer;
     const buffer_contents = buffer[r.seek..r.end];
     const copy_len = limit.minInt(buffer_contents.len);
@@ -1657,11 +1658,12 @@ test "readAlloc when the backing reader provides one byte at a time" {
         }
     };
     const str = "This is a test";
+    var tiny_buffer: [1]u8 = undefined;
     var one_byte_stream: OneByteReader = .{
         .str = str,
         .i = 0,
         .reader = .{
-            .buffer = &.{},
+            .buffer = &tiny_buffer,
             .vtable = &.{ .stream = OneByteReader.stream },
             .seek = 0,
             .end = 0,
