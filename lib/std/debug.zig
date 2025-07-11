@@ -168,7 +168,7 @@ pub const runtime_safety = switch (builtin.mode) {
     .ReleaseFast, .ReleaseSmall => false,
 };
 
-pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
+pub const sys_can_stack_trace = switch (native_arch) {
     // Observed to go into an infinite loop.
     // TODO: Make this work.
     .mips,
@@ -437,7 +437,7 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext, stderr: *Writer) void {
             // The caveat is that RtlCaptureStackBackTrace does not include the KiUserExceptionDispatcher frame,
             // which is where the IP in `context` points to, so it can't be used as start_addr.
             // Instead, start_addr is recovered from the stack.
-            const start_addr = if (builtin.cpu.arch == .x86) @as(*const usize, @ptrFromInt(context.getRegs().bp + 4)).* else null;
+            const start_addr = if (native_arch == .x86) @as(*const usize, @ptrFromInt(context.getRegs().bp + 4)).* else null;
             writeStackTraceWindows(stderr, debug_info, tty_config, context, start_addr) catch return;
             return;
         }
@@ -757,27 +757,29 @@ pub fn writeStackTrace(
     }
 }
 
-pub const UnwindError = if (have_ucontext)
+pub const UnwindError = if (StackIterator.supports_unwinding)
     @typeInfo(@typeInfo(@TypeOf(StackIterator.next_unwind)).@"fn".return_type.?).error_union.error_set
 else
-    void;
+    error{};
 
 pub const StackIterator = struct {
     // Skip every frame before this address is found.
     first_address: ?usize,
     // Last known value of the frame pointer register.
     fp: usize,
-    ma: MemoryAccessor = MemoryAccessor.init,
+    ma: MemoryAccessor = .init,
 
     // When SelfInfo and a register context is available, this iterator can unwind
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer),
     // using DWARF and MachO unwind info.
-    unwind_state: if (have_ucontext) ?struct {
+    unwind_state: ?if (supports_unwinding) struct {
         debug_info: *SelfInfo,
         dwarf_context: SelfInfo.UnwindContext,
         last_error: ?UnwindError = null,
         failed: bool = false,
-    } else void = if (have_ucontext) null else {},
+    } else noreturn = null,
+
+    const supports_unwinding = have_ucontext and SelfInfo.supports_unwinding;
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
         if (native_arch.isSPARC()) {
@@ -801,33 +803,31 @@ pub const StackIterator = struct {
     }
 
     pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *posix.ucontext_t) !StackIterator {
-        // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
-        // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
-        if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
-            return init(first_address, @truncate(context.mcontext.ss.fp));
-
-        if (SelfInfo.supports_unwinding) {
-            var iterator = init(first_address, null);
-            iterator.unwind_state = .{
-                .debug_info = debug_info,
-                .dwarf_context = try SelfInfo.UnwindContext.init(debug_info.allocator, context),
-            };
-            return iterator;
-        }
-
-        return init(first_address, null);
+        var iterator = init(first_address, if (native_os == .linux) switch (native_arch) {
+            else => null,
+            .aarch64 => context.mcontext.regs[29],
+            .x86_64 => context.mcontext.gregs[std.os.linux.REG.RBP],
+        } else if (native_os.isDarwin()) switch (native_arch) {
+            else => null,
+            .aarch64 => @truncate(context.mcontext.ss.fp),
+            .x86_64 => @truncate(context.mcontext.ss.rbp),
+        } else null);
+        if (supports_unwinding) iterator.unwind_state = .{
+            .debug_info = debug_info,
+            .dwarf_context = try SelfInfo.UnwindContext.init(debug_info.allocator, context),
+        };
+        return iterator;
     }
 
     pub fn deinit(it: *StackIterator) void {
         it.ma.deinit();
-        if (have_ucontext and it.unwind_state != null) it.unwind_state.?.dwarf_context.deinit();
+        if (it.unwind_state) |*unwind_state| unwind_state.dwarf_context.deinit();
     }
 
     pub fn getLastError(it: *StackIterator) ?struct {
         err: UnwindError,
         address: usize,
     } {
-        if (!have_ucontext) return null;
         if (it.unwind_state) |*unwind_state| {
             if (unwind_state.last_error) |err| {
                 unwind_state.last_error = null;
@@ -841,7 +841,7 @@ pub const StackIterator = struct {
         return null;
     }
 
-    // Offset of the saved BP wrt the frame pointer.
+    // Positive offset of the saved BP from the frame pointer.
     const fp_offset = if (native_arch.isRISCV())
         // On RISC-V the frame pointer points to the top of the saved register
         // area, on pretty much every other architecture it points to the stack
@@ -859,11 +859,12 @@ pub const StackIterator = struct {
     else
         0;
 
-    // Positive offset of the saved PC wrt the frame pointer.
-    const pc_offset = if (native_arch == .powerpc64le)
-        2 * @sizeOf(usize)
-    else
-        @sizeOf(usize);
+    // Positive offset of the saved PC from the frame pointer.
+    // Ignore native abi because that doesn't generally affect the frame record layout.
+    const pc_offset = @divExact(std.Target.ptrBitWidth_arch_abi(native_arch, .none), 8) * switch (native_arch) {
+        else => 1,
+        .powerpc64le => 2,
+    };
 
     pub fn next(it: *StackIterator) ?usize {
         var address = it.next_internal() orelse return null;
@@ -916,36 +917,30 @@ pub const StackIterator = struct {
     }
 
     fn next_internal(it: *StackIterator) ?usize {
-        if (have_ucontext) {
-            if (it.unwind_state) |*unwind_state| {
-                if (!unwind_state.failed) {
-                    if (unwind_state.dwarf_context.pc == 0) return null;
-                    defer it.fp = unwind_state.dwarf_context.getFp() catch 0;
-                    if (it.next_unwind()) |return_address| {
-                        return return_address;
-                    } else |err| {
-                        unwind_state.last_error = err;
-                        unwind_state.failed = true;
+        if (it.unwind_state) |*unwind_state| {
+            if (!unwind_state.failed) {
+                if (unwind_state.dwarf_context.pc == 0) return null;
+                defer it.fp = unwind_state.dwarf_context.getFp() catch 0;
+                if (it.next_unwind()) |return_address| {
+                    return return_address;
+                } else |err| {
+                    unwind_state.last_error = err;
+                    unwind_state.failed = true;
 
-                        // Fall back to fp-based unwinding on the first failure.
-                        // We can't attempt it again for other modules higher in the
-                        // stack because the full register state won't have been unwound.
-                    }
+                    // Fall back to fp-based unwinding on the first failure.
+                    // We can't attempt it again for other modules higher in the
+                    // stack because the full register state won't have been unwound.
                 }
             }
         }
 
         if (builtin.omit_frame_pointer) return null;
 
-        const fp = if (comptime native_arch.isSPARC())
-            // On SPARC the offset is positive. (!)
-            math.add(usize, it.fp, fp_offset) catch return null
-        else
-            math.sub(usize, it.fp, fp_offset) catch return null;
+        const fp = math.add(usize, it.fp, fp_offset) catch return null;
 
         // Sanity check.
         if (fp == 0 or !mem.isAligned(fp, @alignOf(usize))) return null;
-        const new_fp = math.add(usize, it.ma.load(usize, fp) orelse return null, fp_bias) catch
+        const new_fp = math.add(usize, @as(*const usize, @ptrFromInt(fp)).*, fp_bias) catch
             return null;
 
         // Sanity check: the stack grows down thus all the parent frames must be
@@ -953,9 +948,7 @@ pub const StackIterator = struct {
         // A zero frame pointer often signals this is the last frame, that case
         // is gracefully handled by the next call to next_internal.
         if (new_fp != 0 and new_fp < it.fp) return null;
-        const new_pc = it.ma.load(usize, math.add(usize, fp, pc_offset) catch return null) orelse
-            return null;
-
+        const new_pc = @as(*const usize, @ptrFromInt(math.add(usize, fp, pc_offset) catch return null)).*;
         it.fp = new_fp;
 
         return new_pc;
@@ -995,7 +988,7 @@ pub fn writeCurrentStackTrace(
 }
 
 pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const windows.CONTEXT) usize {
-    if (builtin.cpu.arch == .x86) {
+    if (native_arch == .x86) {
         // RtlVirtualUnwind doesn't exist on x86
         return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @as(**anyopaque, @ptrCast(addresses.ptr)), null);
     }
@@ -1085,7 +1078,6 @@ fn printUnknownSource(debug_info: *SelfInfo, writer: *Writer, address: usize, tt
 }
 
 fn printLastUnwindError(it: *StackIterator, debug_info: *SelfInfo, writer: *Writer, tty_config: io.tty.Config) void {
-    if (!have_ucontext) return;
     if (it.getLastError()) |unwind_error| {
         printUnwindError(debug_info, writer, unwind_error.address, unwind_error.err, tty_config) catch {};
     }
@@ -1509,7 +1501,7 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque)
             // Some kernels don't align `ctx_ptr` properly. Handle this defensively.
             const ctx: *align(1) posix.ucontext_t = @ptrCast(ctx_ptr);
             var new_ctx: posix.ucontext_t = ctx.*;
-            if (builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64) {
+            if (builtin.os.tag.isDarwin() and native_arch == .aarch64) {
                 // The kernel incorrectly writes the contents of `__mcontext_data` right after `mcontext`,
                 // rather than after the 8 bytes of padding that are supposed to sit between the two. Copy the
                 // contents to the right place so that the `mcontext` pointer will be correct after the
