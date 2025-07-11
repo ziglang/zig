@@ -2440,9 +2440,26 @@ fn failWithErrorSetCodeMissing(
     src_err_set_ty: Type,
 ) CompileError {
     const pt = sema.pt;
-    return sema.fail(block, src, "expected type '{f}', found type '{f}'", .{
-        dest_err_set_ty.fmt(pt), src_err_set_ty.fmt(pt),
+
+    var cmp = try Type.Comparison.init(&.{
+        src_err_set_ty,
+        dest_err_set_ty,
+    }, pt);
+    defer cmp.deinit(pt.zcu.gpa);
+
+    const msg = try sema.errMsg(src, "expected type '{f}', found type '{f}'", .{
+        cmp.fmtType(dest_err_set_ty, pt),
+        cmp.fmtType(src_err_set_ty, pt),
     });
+    errdefer msg.destroy(sema.gpa);
+
+    var placeholders_iter = cmp.iterPlaceholders();
+    while (placeholders_iter.next()) |kv| {
+        const placeholder, const ty = kv;
+        try sema.errNote(src, msg, "{f} = {f}", .{ placeholder, ty.fmt(pt) });
+    }
+
+    return sema.failWithOwnedErrorMsg(block, msg);
 }
 
 pub fn failWithIntegerOverflow(sema: *Sema, block: *Block, src: LazySrcLoc, int_ty: Type, val: Value, vector_index: ?usize) CompileError {
@@ -29078,8 +29095,20 @@ fn coerceExtra(
     }
 
     const msg = msg: {
-        const msg = try sema.errMsg(inst_src, "expected type '{f}', found '{f}'", .{ dest_ty.fmt(pt), inst_ty.fmt(pt) });
+        var cmp = try Type.Comparison.init(&.{ inst_ty, dest_ty }, pt);
+        defer cmp.deinit(pt.zcu.gpa);
+
+        const msg = try sema.errMsg(inst_src, "expected type '{f}', found '{f}'", .{
+            cmp.fmtType(dest_ty, sema.pt),
+            cmp.fmtType(inst_ty, sema.pt),
+        });
         errdefer msg.destroy(sema.gpa);
+
+        var placeholders_iter = cmp.iterPlaceholders();
+        while (placeholders_iter.next()) |kv| {
+            const placeholder, const ty = kv;
+            try sema.errNote(inst_src, msg, "{f} = {f}", .{ placeholder, ty.fmt(pt) });
+        }
 
         if (!can_coerce_to) {
             try sema.errNote(inst_src, msg, "cannot coerce to '{f}'", .{dest_ty.fmt(pt)});
