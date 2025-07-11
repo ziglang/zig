@@ -55,14 +55,15 @@ fn runThread(ids: *IncrementalDebugServer) void {
     const conn = server.accept() catch @panic("IncrementalDebugServer: failed to accept");
     defer conn.stream.close();
 
+    var stream_reader = conn.stream.reader(&cmd_buf);
+
     while (ids.running.load(.monotonic)) {
         conn.stream.writeAll("zig> ") catch @panic("IncrementalDebugServer: failed to write");
-        var fbs = std.io.fixedBufferStream(&cmd_buf);
-        conn.stream.reader().streamUntilDelimiter(fbs.writer(), '\n', cmd_buf.len) catch |err| switch (err) {
+        const untrimmed = stream_reader.interface().takeSentinel('\n') catch |err| switch (err) {
             error.EndOfStream => break,
             else => @panic("IncrementalDebugServer: failed to read command"),
         };
-        const cmd_and_arg = std.mem.trim(u8, fbs.getWritten(), " \t\r\n");
+        const cmd_and_arg = std.mem.trim(u8, untrimmed, " \t\r\n");
         const cmd: []const u8, const arg: []const u8 = if (std.mem.indexOfScalar(u8, cmd_and_arg, ' ')) |i|
             .{ cmd_and_arg[0..i], cmd_and_arg[i + 1 ..] }
         else
