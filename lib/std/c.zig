@@ -4110,7 +4110,7 @@ pub const msghdr_const = switch (native_os) {
         /// scatter/gather array
         iov: [*]const iovec_const,
         /// # elements in iov
-        iovlen: i32,
+        iovlen: u32,
         /// ancillary data
         control: ?*const anyopaque,
         /// ancillary data buffer len
@@ -4122,7 +4122,7 @@ pub const msghdr_const = switch (native_os) {
         name: ?*const anyopaque,
         namelen: socklen_t,
         iov: [*]const iovec,
-        iovlen: c_int,
+        iovlen: c_uint,
         control: ?*const anyopaque,
         controllen: socklen_t,
         flags: c_int,

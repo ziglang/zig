@@ -2125,7 +2125,7 @@ pub const Stream = struct {
                 return .{ .handle = w.file_writer.file.handle };
             }
 
-            fn addBuf(v: []posix.iovec_const, i: *usize, bytes: []const u8) void {
+            fn addBuf(v: []posix.iovec_const, i: *@FieldType(posix.msghdr_const, "iovlen"), bytes: []const u8) void {
                 // OS checks ptr addr before length so zero length vectors must be omitted.
                 if (bytes.len == 0) return;
                 if (v.len - i.* == 0) return;
