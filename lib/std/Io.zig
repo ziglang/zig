@@ -1016,6 +1016,18 @@ pub const Dir = struct {
 pub const File = struct {
     handle: Handle,
 
+    pub fn stdout() File {
+        return .{ .handle = if (is_windows) windows.peb().ProcessParameters.hStdOutput else posix.STDOUT_FILENO };
+    }
+
+    pub fn stderr() File {
+        return .{ .handle = if (is_windows) windows.peb().ProcessParameters.hStdError else posix.STDERR_FILENO };
+    }
+
+    pub fn stdin() File {
+        return .{ .handle = if (is_windows) windows.peb().ProcessParameters.hStdInput else posix.STDIN_FILENO };
+    }
+
     pub const Handle = std.posix.fd_t;
 
     pub const OpenFlags = fs.File.OpenFlags;
