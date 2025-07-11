@@ -36,7 +36,7 @@ pub var next_mmap_addr_hint: ?[*]align(page_size_min) u8 = null;
 
 /// comptime-known minimum page size of the target.
 ///
-/// All pointers from `mmap` or `VirtualAlloc` are aligned to at least
+/// All pointers from `mmap` or `NtAllocateVirtualMemory` are aligned to at least
 /// `page_size_min`, but their actual alignment may be bigger.
 ///
 /// This value can be overridden via `std.options.page_size_min`.
@@ -674,7 +674,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     defer allocator.free(slice);
 
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
-    // On Windows, VirtualAlloc returns addresses aligned to a 64K boundary,
+    // On Windows, NtAllocateVirtualMemory returns addresses aligned to a 64K boundary,
     // which is 16 pages, hence the 32. This test may require to increase
     // the size of the allocations feeding the `allocator` parameter if they
     // fail, because of this high over-alignment we want to have.
