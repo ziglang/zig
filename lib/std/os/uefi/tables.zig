@@ -90,20 +90,15 @@ pub const MemoryType = enum(u32) {
         return @truncate(as_int - vendor_start);
     }
 
-    pub fn format(
-        memtype: MemoryType,
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    pub fn format(self: MemoryType, w: *std.io.Writer) std.io.WriteError!void {
         if (memtype.toOem()) |oemval|
-            try writer.print("OEM({X})", .{oemval})
+            try w.print("OEM({X})", .{oemval})
         else if (memtype.toVendor()) |vendorval|
-            try writer.print("Vendor({X})", .{vendorval})
+            try w.print("Vendor({X})", .{vendorval})
         else if (std.enums.tagName(MemoryType, memtype)) |name|
-            try writer.print("{s}", .{name})
+            try w.print("{s}", .{name})
         else
-            try writer.print("INVALID({X})", .{@intFromEnum(memtype)});
+            try w.print("INVALID({X})", .{@intFromEnum(memtype)});
     }
 };
 
