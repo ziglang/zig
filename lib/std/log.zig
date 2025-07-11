@@ -137,8 +137,11 @@ pub fn defaultLogEnabled(comptime message_level: Level) bool {
     return comptime logEnabled(message_level, default_log_scope);
 }
 
-/// The default implementation for the log function, custom log functions may
+/// The default implementation for the log function. Custom log functions may
 /// forward log messages to this function.
+///
+/// Uses a 64-byte buffer for formatted printing which is flushed before this
+/// function returns.
 pub fn defaultLog(
     comptime message_level: Level,
     comptime scope: @Type(.enum_literal),
@@ -147,16 +150,10 @@ pub fn defaultLog(
 ) void {
     const level_txt = comptime message_level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-    const stderr = std.fs.File.stderr().deprecatedWriter();
-    var bw = std.io.bufferedWriter(stderr);
-    const writer = bw.writer();
-
-    std.debug.lockStdErr();
-    defer std.debug.unlockStdErr();
-    nosuspend {
-        writer.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
-        bw.flush() catch return;
-    }
+    var buffer: [64]u8 = undefined;
+    const stderr = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
+    nosuspend stderr.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
 }
 
 /// Returns a scoped logging namespace that logs all messages using the scope
