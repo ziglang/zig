@@ -312,6 +312,32 @@ pub fn GenericReader(
             const ptr: *const Context = @alignCast(@ptrCast(context));
             return readFn(ptr.*, buffer);
         }
+
+        /// Helper for bridging to the new `Reader` API while upgrading.
+        pub fn adaptToNewApi(self: *const Self) Adapter {
+            return .{
+                .derp_reader = self.*,
+                .new_interface = .{
+                    .buffer = &.{},
+                    .vtable = &.{ .stream = Adapter.stream },
+                },
+            };
+        }
+
+        pub const Adapter = struct {
+            derp_reader: Self,
+            new_interface: Reader,
+            err: ?Error = null,
+
+            fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
+                const a: *@This() = @fieldParentPtr("new_interface", r);
+                const buf = limit.slice(try w.writableSliceGreedy(1));
+                return a.derp_reader.read(buf) catch |err| {
+                    a.err = err;
+                    return error.ReadFailed;
+                };
+            }
+        };
     };
 }
 
