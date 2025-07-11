@@ -387,6 +387,7 @@ const AsyncClosure = struct {
             .acquire,
         )) |cancel_tid| {
             assert(cancel_tid == canceling_tid);
+            closure.reset_event.set();
             return;
         }
         current_closure = closure;
