@@ -361,7 +361,7 @@ const Writer = struct {
     }
 
     fn writeType(w: *Writer, s: *std.Io.Writer, ty: Type) !void {
-        return ty.print(s, w.pt);
+        return ty.print(s, w.pt, null);
     }
 
     fn writeTy(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
