@@ -99,7 +99,7 @@ pub const ShortError = error{
 
 pub const failing: Reader = .{
     .vtable = &.{
-        .read = failingStream,
+        .stream = failingStream,
         .discard = failingDiscard,
     },
     .buffer = &.{},
