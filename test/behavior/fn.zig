@@ -153,9 +153,9 @@ test "extern struct with stdcallcc fn pointer" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = extern struct {
-        ptr: *const fn () callconv(if (builtin.target.cpu.arch == .x86) .Stdcall else .c) i32,
+        ptr: *const fn () callconv(if (builtin.target.cpu.arch == .x86) .{ .x86_stdcall = .{} } else .c) i32,
 
-        fn foo() callconv(if (builtin.target.cpu.arch == .x86) .Stdcall else .c) i32 {
+        fn foo() callconv(if (builtin.target.cpu.arch == .x86) .{ .x86_stdcall = .{} } else .c) i32 {
             return 1234;
         }
     };
@@ -170,8 +170,8 @@ fn fComplexCallconvRet(x: u32) callconv(blk: {
     const s: struct { n: u32 } = .{ .n = nComplexCallconv };
     break :blk switch (s.n) {
         0 => .c,
-        1 => .Inline,
-        else => .Unspecified,
+        1 => .@"inline",
+        else => .auto,
     };
 }) struct { x: u32 } {
     return .{ .x = x * x };

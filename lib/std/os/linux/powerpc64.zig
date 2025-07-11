@@ -22,7 +22,7 @@ pub fn syscall0(number: SYS) usize {
         \\ 1:
         : [ret] "={r3}" (-> usize),
         : [number] "{r0}" (@intFromEnum(number)),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -35,7 +35,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={r3}" (-> usize),
         : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -49,7 +49,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
           [arg2] "{r4}" (arg2),
-        : "memory", "cr0", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -64,7 +64,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{r3}" (arg1),
           [arg2] "{r4}" (arg2),
           [arg3] "{r5}" (arg3),
-        : "memory", "cr0", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -80,7 +80,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{r4}" (arg2),
           [arg3] "{r5}" (arg3),
           [arg4] "{r6}" (arg4),
-        : "memory", "cr0", "r7", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -97,7 +97,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{r5}" (arg3),
           [arg4] "{r6}" (arg4),
           [arg5] "{r7}" (arg5),
-        : "memory", "cr0", "r8", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -123,7 +123,7 @@ pub fn syscall6(
           [arg4] "{r6}" (arg4),
           [arg5] "{r7}" (arg5),
           [arg6] "{r8}" (arg6),
-        : "memory", "cr0", "r9", "r10", "r11", "r12"
+        : "memory", "cr0", "r0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
     );
 }
 
@@ -231,26 +231,6 @@ pub const Flock = extern struct {
     len: off_t,
     pid: pid_t,
     __unused: [4]u8,
-};
-
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: usize,
-    control: ?*anyopaque,
-    controllen: usize,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: usize,
-    control: ?*const anyopaque,
-    controllen: usize,
-    flags: i32,
 };
 
 pub const blksize_t = i64;

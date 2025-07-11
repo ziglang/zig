@@ -8,7 +8,8 @@ pub fn main() !void {
     try foo(0x1300);
 }
 fn foo(x: u16) !void {
-    try std.io.getStdOut().writer().print("0x{x}\n", .{x << 4});
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print("0x{x}\n", .{x << 4});
 }
 const std = @import("std");
 #expect_stdout="0x3000\n"
@@ -18,7 +19,8 @@ pub fn main() !void {
     try foo(0x1300);
 }
 fn foo(x: u16) !void {
-    try std.io.getStdOut().writer().print("0x{x}\n", .{x >> 4});
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print("0x{x}\n", .{x >> 4});
 }
 const std = @import("std");
 #expect_stdout="0x130\n"

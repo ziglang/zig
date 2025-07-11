@@ -50,7 +50,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
             OutOfMemory,
         };
 
-        pub const Reader = std.io.Reader(*Self, Error, read);
+        pub const Reader = std.io.GenericReader(*Self, Error, read);
 
         pub fn init(source: ReaderType, options: DecompressorOptions) Self {
             return .{

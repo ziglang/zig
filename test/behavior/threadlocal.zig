@@ -9,6 +9,7 @@ test "thread local variable" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt == .coff) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .macos) {
         // Fails due to register hazards.

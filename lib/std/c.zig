@@ -5598,6 +5598,7 @@ pub const MSG = switch (native_os) {
     .linux => linux.MSG,
     .emscripten => emscripten.MSG,
     .windows => ws2_32.MSG,
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => darwin.MSG,
     .haiku => struct {
         pub const OOB = 0x0001;
         pub const PEEK = 0x0002;
@@ -10411,7 +10412,10 @@ pub const sigfillset = switch (native_os) {
 };
 
 pub const sigaddset = private.sigaddset;
-pub const sigemptyset = private.sigemptyset;
+pub const sigemptyset = switch (native_os) {
+    .netbsd => private.__sigemptyset14,
+    else => private.sigemptyset,
+};
 pub const sigdelset = private.sigdelset;
 pub const sigismember = private.sigismember;
 
@@ -11267,6 +11271,7 @@ const private = struct {
     extern "c" fn __msync13(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn __nanosleep50(rqtp: *const timespec, rmtp: ?*timespec) c_int;
     extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
+    extern "c" fn __sigemptyset14(set: ?*sigset_t) c_int;
     extern "c" fn __sigfillset14(set: ?*sigset_t) c_int;
     extern "c" fn __sigprocmask14(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn __socket30(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;

@@ -803,9 +803,9 @@ pub fn initRelaSections(self: *ZigObject, elf_file: *Elf) !void {
         const out_shndx = atom_ptr.output_section_index;
         const out_shdr = elf_file.sections.items(.shdr)[out_shndx];
         if (out_shdr.sh_type == elf.SHT_NOBITS) continue;
-        const rela_sect_name = try std.fmt.allocPrintZ(gpa, ".rela{s}", .{
+        const rela_sect_name = try std.fmt.allocPrintSentinel(gpa, ".rela{s}", .{
             elf_file.getShString(out_shdr.sh_name),
-        });
+        }, 0);
         defer gpa.free(rela_sect_name);
         _ = elf_file.sectionByName(rela_sect_name) orelse
             try elf_file.addRelaShdr(try elf_file.insertShString(rela_sect_name), out_shndx);
@@ -824,9 +824,9 @@ pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
         const out_shndx = atom_ptr.output_section_index;
         const out_shdr = elf_file.sections.items(.shdr)[out_shndx];
         if (out_shdr.sh_type == elf.SHT_NOBITS) continue;
-        const rela_sect_name = try std.fmt.allocPrintZ(gpa, ".rela{s}", .{
+        const rela_sect_name = try std.fmt.allocPrintSentinel(gpa, ".rela{s}", .{
             elf_file.getShString(out_shdr.sh_name),
-        });
+        }, 0);
         defer gpa.free(rela_sect_name);
         const out_rela_shndx = elf_file.sectionByName(rela_sect_name).?;
         const out_rela_shdr = &elf_file.sections.items(.shdr)[out_rela_shndx];
@@ -925,7 +925,7 @@ pub fn getNavVAddr(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    log.debug("getNavVAddr {}({d})", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("getNavVAddr {f}({d})", .{ nav.fqn.fmt(ip), nav_index });
     const this_sym_index = if (nav.getExtern(ip)) |@"extern"| try self.getGlobalSymbol(
         elf_file,
         nav.name.toSlice(ip),
@@ -1268,7 +1268,7 @@ fn updateNavCode(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    log.debug("updateNavCode {}({d})", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("updateNavCode {f}({d})", .{ nav.fqn.fmt(ip), nav_index });
 
     const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
     const required_alignment = switch (pt.navAlignment(nav_index)) {
@@ -1302,7 +1302,7 @@ fn updateNavCode(
             self.allocateAtom(atom_ptr, true, elf_file) catch |err|
                 return elf_file.base.cgFail(nav_index, "failed to allocate atom: {s}", .{@errorName(err)});
 
-            log.debug("growing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), old_vaddr, atom_ptr.value });
+            log.debug("growing {f} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), old_vaddr, atom_ptr.value });
             if (old_vaddr != atom_ptr.value) {
                 sym.value = 0;
                 esym.st_value = 0;
@@ -1347,7 +1347,7 @@ fn updateNavCode(
         const file_offset = atom_ptr.offset(elf_file);
         elf_file.base.file.?.pwriteAll(code, file_offset) catch |err|
             return elf_file.base.cgFail(nav_index, "failed to write to output file: {s}", .{@errorName(err)});
-        log.debug("writing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), file_offset, file_offset + code.len });
+        log.debug("writing {f} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), file_offset, file_offset + code.len });
     }
 }
 
@@ -1365,7 +1365,7 @@ fn updateTlv(
     const gpa = zcu.gpa;
     const nav = ip.getNav(nav_index);
 
-    log.debug("updateTlv {}({d})", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("updateTlv {f}({d})", .{ nav.fqn.fmt(ip), nav_index });
 
     const required_alignment = pt.navAlignment(nav_index);
 
@@ -1424,7 +1424,7 @@ pub fn updateFunc(
     const gpa = elf_file.base.comp.gpa;
     const func = zcu.funcInfo(func_index);
 
-    log.debug("updateFunc {}({d})", .{ ip.getNav(func.owner_nav).fqn.fmt(ip), func.owner_nav });
+    log.debug("updateFunc {f}({d})", .{ ip.getNav(func.owner_nav).fqn.fmt(ip), func.owner_nav });
 
     const sym_index = try self.getOrCreateMetadataForNav(zcu, func.owner_nav);
     self.atom(self.symbol(sym_index).ref.index).?.freeRelocs(self);
@@ -1447,7 +1447,7 @@ pub fn updateFunc(
     const code = code_buffer.items;
 
     const shndx = try self.getNavShdrIndex(elf_file, zcu, func.owner_nav, sym_index, code);
-    log.debug("setting shdr({x},{s}) for {}", .{
+    log.debug("setting shdr({x},{s}) for {f}", .{
         shndx,
         elf_file.getShString(elf_file.sections.items(.shdr)[shndx].sh_name),
         ip.getNav(func.owner_nav).fqn.fmt(ip),
@@ -1529,7 +1529,7 @@ pub fn updateNav(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    log.debug("updateNav {}({d})", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("updateNav {f}({d})", .{ nav.fqn.fmt(ip), nav_index });
 
     const nav_init = switch (ip.indexToKey(nav.status.fully_resolved.val)) {
         .func => .none,
@@ -1576,7 +1576,7 @@ pub fn updateNav(
         const code = code_buffer.items;
 
         const shndx = try self.getNavShdrIndex(elf_file, zcu, nav_index, sym_index, code);
-        log.debug("setting shdr({x},{s}) for {}", .{
+        log.debug("setting shdr({x},{s}) for {f}", .{
             shndx,
             elf_file.getShString(elf_file.sections.items(.shdr)[shndx].sh_name),
             nav.fqn.fmt(ip),
@@ -1622,7 +1622,7 @@ fn updateLazySymbol(
     defer code_buffer.deinit(gpa);
 
     const name_str_index = blk: {
-        const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
+        const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{f}", .{
             @tagName(sym.kind),
             Type.fromInterned(sym.ty).fmt(pt),
         });
@@ -1941,7 +1941,7 @@ pub fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, requires_padding: bool, e
         .requires_padding = requires_padding,
     });
     atom_ptr.value = @intCast(alloc_res.value);
-    log.debug("allocated {s} at {x}\n  placement {?}", .{
+    log.debug("allocated {s} at {x}\n  placement {f}", .{
         atom_ptr.name(elf_file),
         atom_ptr.offset(elf_file),
         alloc_res.placement,
@@ -1986,7 +1986,7 @@ pub fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, requires_padding: bool, e
         atom_ptr.next_atom_ref = .{ .index = 0, .file = 0 };
     }
 
-    log.debug("  prev {?}, next {?}", .{ atom_ptr.prev_atom_ref, atom_ptr.next_atom_ref });
+    log.debug("  prev {f}, next {f}", .{ atom_ptr.prev_atom_ref, atom_ptr.next_atom_ref });
 }
 
 pub fn resetShdrIndexes(self: *ZigObject, backlinks: []const u32) void {
@@ -2195,60 +2195,46 @@ pub fn setSymbolExtra(self: *ZigObject, index: u32, extra: Symbol.Extra) void {
     }
 }
 
-pub fn fmtSymtab(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
-    return .{ .data = .{
-        .self = self,
-        .elf_file = elf_file,
-    } };
-}
-
-const FormatContext = struct {
+const Format = struct {
     self: *ZigObject,
     elf_file: *Elf,
+
+    fn symtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const self = f.self;
+        const elf_file = f.elf_file;
+        try writer.writeAll("  locals\n");
+        for (self.local_symbols.items) |index| {
+            const local = self.symbols.items[index];
+            try writer.print("    {f}\n", .{local.fmt(elf_file)});
+        }
+        try writer.writeAll("  globals\n");
+        for (f.self.global_symbols.items) |index| {
+            const global = self.symbols.items[index];
+            try writer.print("    {f}\n", .{global.fmt(elf_file)});
+        }
+    }
+
+    fn atoms(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        try writer.writeAll("  atoms\n");
+        for (f.self.atoms_indexes.items) |atom_index| {
+            const atom_ptr = f.self.atom(atom_index) orelse continue;
+            try writer.print("    {f}\n", .{atom_ptr.fmt(f.elf_file)});
+        }
+    }
 };
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const self = ctx.self;
-    const elf_file = ctx.elf_file;
-    try writer.writeAll("  locals\n");
-    for (self.local_symbols.items) |index| {
-        const local = self.symbols.items[index];
-        try writer.print("    {}\n", .{local.fmt(elf_file)});
-    }
-    try writer.writeAll("  globals\n");
-    for (ctx.self.global_symbols.items) |index| {
-        const global = self.symbols.items[index];
-        try writer.print("    {}\n", .{global.fmt(elf_file)});
-    }
-}
-
-pub fn fmtAtoms(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(formatAtoms) {
+pub fn fmtSymtab(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
     return .{ .data = .{
         .self = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    try writer.writeAll("  atoms\n");
-    for (ctx.self.atoms_indexes.items) |atom_index| {
-        const atom_ptr = ctx.self.atom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom_ptr.fmt(ctx.elf_file)});
-    }
+pub fn fmtAtoms(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(Format, Format.atoms) {
+    return .{ .data = .{
+        .self = self,
+        .elf_file = elf_file,
+    } };
 }
 
 const ElfSym = struct {
@@ -2285,7 +2271,7 @@ fn checkNavAllocated(pt: Zcu.PerThread, index: InternPool.Nav.Index, meta: AvMet
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(index);
-        log.err("NAV {}({d}) assigned symbol {d} but not allocated!", .{
+        log.err("NAV {f}({d}) assigned symbol {d} but not allocated!", .{
             nav.fqn.fmt(ip),
             index,
             meta.symbol_index,
@@ -2298,7 +2284,7 @@ fn checkUavAllocated(pt: Zcu.PerThread, index: InternPool.Index, meta: AvMetadat
         const zcu = pt.zcu;
         const uav = Value.fromInterned(index);
         const ty = uav.typeOf(zcu);
-        log.err("UAV {}({d}) assigned symbol {d} but not allocated!", .{
+        log.err("UAV {f}({d}) assigned symbol {d} but not allocated!", .{
             ty.fmt(pt),
             index,
             meta.symbol_index,

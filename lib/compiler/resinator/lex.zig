@@ -237,7 +237,9 @@ pub const Lexer = struct {
     }
 
     pub fn dump(self: *Self, token: *const Token) void {
-        std.debug.print("{s}:{d}: {s}\n", .{ @tagName(token.id), token.line_number, std.fmt.fmtSliceEscapeLower(token.slice(self.buffer)) });
+        std.debug.print("{s}:{d}: {f}\n", .{
+            @tagName(token.id), token.line_number, std.ascii.hexEscape(token.slice(self.buffer), .lower),
+        });
     }
 
     pub const LexMethod = enum {

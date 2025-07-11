@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const config_header = b.addConfigHeader(
-        .{ .style = .{ .autoconf = b.path("config.h.in") } },
+        .{ .style = .{ .autoconf_undef = b.path("config.h.in") } },
         .{
             .SOME_NO = null,
             .SOME_TRUE = true,

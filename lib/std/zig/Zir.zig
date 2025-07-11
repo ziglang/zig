@@ -899,8 +899,6 @@ pub const Inst = struct {
         type_name,
         /// Implement builtin `@Frame`. Uses `un_node`.
         frame_type,
-        /// Implement builtin `@frameSize`. Uses `un_node`.
-        frame_size,
 
         /// Implements the `@intFromFloat` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
@@ -1044,7 +1042,6 @@ pub const Inst = struct {
 
         /// Implements `resume` syntax. Uses `un_node` field.
         @"resume",
-        @"await",
 
         /// A defer statement.
         /// Uses the `defer` union field.
@@ -1241,7 +1238,6 @@ pub const Inst = struct {
                 .tag_name,
                 .type_name,
                 .frame_type,
-                .frame_size,
                 .int_from_float,
                 .float_from_int,
                 .ptr_from_int,
@@ -1279,7 +1275,6 @@ pub const Inst = struct {
                 .min,
                 .c_import,
                 .@"resume",
-                .@"await",
                 .ret_err_value_code,
                 .extended,
                 .ret_ptr,
@@ -1526,7 +1521,6 @@ pub const Inst = struct {
                 .tag_name,
                 .type_name,
                 .frame_type,
-                .frame_size,
                 .int_from_float,
                 .float_from_int,
                 .ptr_from_int,
@@ -1560,7 +1554,6 @@ pub const Inst = struct {
                 .min,
                 .c_import,
                 .@"resume",
-                .@"await",
                 .ret_err_value_code,
                 .@"break",
                 .break_inline,
@@ -1791,7 +1784,6 @@ pub const Inst = struct {
                 .tag_name = .un_node,
                 .type_name = .un_node,
                 .frame_type = .un_node,
-                .frame_size = .un_node,
 
                 .int_from_float = .pl_node,
                 .float_from_int = .pl_node,
@@ -1852,7 +1844,6 @@ pub const Inst = struct {
                 .make_ptr_const = .un_node,
 
                 .@"resume" = .un_node,
-                .@"await" = .un_node,
 
                 .@"defer" = .@"defer",
                 .defer_err_code = .defer_err_code,
@@ -2016,8 +2007,6 @@ pub const Inst = struct {
         /// Implements the `@errorCast` builtin.
         /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         error_cast,
-        /// `operand` is payload index to `UnNode`.
-        await_nosuspend,
         /// Implements `@breakpoint`.
         /// `operand` is `src_node: Ast.Node.Offset`.
         breakpoint,
@@ -2038,9 +2027,6 @@ pub const Inst = struct {
         /// `operand` is payload index to `Reify`.
         /// `small` contains `NameStrategy`.
         reify,
-        /// Implements the `@asyncCall` builtin.
-        /// `operand` is payload index to `AsyncCall`.
-        builtin_async_call,
         /// Implements the `@cmpxchgStrong` and `@cmpxchgWeak` builtins.
         /// `small` 0=>weak 1=>strong
         /// `operand` is payload index to `Cmpxchg`.
@@ -2689,7 +2675,6 @@ pub const Inst = struct {
                 @"test",
                 decltest,
                 @"comptime",
-                @"usingnamespace",
                 @"const",
                 @"var",
             };
@@ -2706,7 +2691,7 @@ pub const Inst = struct {
             src_column: u32,
 
             kind: Kind,
-            /// Always `.empty` for `kind` of `unnamed_test`, `.@"comptime"`, `.@"usingnamespace"`.
+            /// Always `.empty` for `kind` of `unnamed_test`, `.@"comptime"`
             name: NullTerminatedString,
             /// Always `false` for `kind` of `unnamed_test`, `.@"test"`, `.decltest`, `.@"comptime"`.
             is_pub: bool,
@@ -2736,9 +2721,6 @@ pub const Inst = struct {
                 @"test",
                 decltest,
                 @"comptime",
-
-                @"usingnamespace",
-                pub_usingnamespace,
 
                 const_simple,
                 const_typed,
@@ -2776,8 +2758,6 @@ pub const Inst = struct {
                     return switch (id) {
                         .unnamed_test,
                         .@"comptime",
-                        .@"usingnamespace",
-                        .pub_usingnamespace,
                         => false,
                         else => true,
                     };
@@ -2802,8 +2782,6 @@ pub const Inst = struct {
                         .@"test",
                         .decltest,
                         .@"comptime",
-                        .@"usingnamespace",
-                        .pub_usingnamespace,
                         => false, // these constructs are untyped
                         .const_simple,
                         .pub_const_simple,
@@ -2835,8 +2813,6 @@ pub const Inst = struct {
                         .@"test",
                         .decltest,
                         .@"comptime",
-                        .@"usingnamespace",
-                        .pub_usingnamespace,
                         => false, // these constructs are untyped
                         .const_simple,
                         .const_typed,
@@ -2879,7 +2855,6 @@ pub const Inst = struct {
                         .@"test" => .@"test",
                         .decltest => .decltest,
                         .@"comptime" => .@"comptime",
-                        .@"usingnamespace", .pub_usingnamespace => .@"usingnamespace",
                         .const_simple,
                         .const_typed,
                         .@"const",
@@ -2913,7 +2888,6 @@ pub const Inst = struct {
 
                 pub fn isPub(id: Id) bool {
                     return switch (id) {
-                        .pub_usingnamespace,
                         .pub_const_simple,
                         .pub_const_typed,
                         .pub_const,
@@ -2949,8 +2923,7 @@ pub const Inst = struct {
 
         pub const Name = enum(u32) {
             @"comptime" = std.math.maxInt(u32),
-            @"usingnamespace" = std.math.maxInt(u32) - 1,
-            unnamed_test = std.math.maxInt(u32) - 2,
+            unnamed_test = std.math.maxInt(u32) - 1,
             /// Other values are `NullTerminatedString` values, i.e. index into
             /// `string_bytes`. If the byte referenced is 0, the decl is a named
             /// test, and the actual name begins at the following byte.
@@ -2958,13 +2931,13 @@ pub const Inst = struct {
 
             pub fn isNamedTest(name: Name, zir: Zir) bool {
                 return switch (name) {
-                    .@"comptime", .@"usingnamespace", .unnamed_test => false,
+                    .@"comptime", .unnamed_test => false,
                     _ => zir.string_bytes[@intFromEnum(name)] == 0,
                 };
             }
             pub fn toString(name: Name, zir: Zir) ?NullTerminatedString {
                 switch (name) {
-                    .@"comptime", .@"usingnamespace", .unnamed_test => return null,
+                    .@"comptime", .unnamed_test => return null,
                     _ => {},
                 }
                 const idx: u32 = @intFromEnum(name);
@@ -3771,14 +3744,6 @@ pub const Inst = struct {
         b: Ref,
     };
 
-    pub const AsyncCall = struct {
-        node: Ast.Node.Offset,
-        frame_buffer: Ref,
-        result_ptr: Ref,
-        fn_ptr: Ref,
-        args: Ref,
-    };
-
     /// Trailing: inst: Index // for every body_len
     pub const Param = struct {
         /// Null-terminated string index.
@@ -4297,7 +4262,6 @@ fn findTrackableInner(
         .tag_name,
         .type_name,
         .frame_type,
-        .frame_size,
         .int_from_float,
         .float_from_int,
         .ptr_from_int,
@@ -4337,7 +4301,6 @@ fn findTrackableInner(
         .resolve_inferred_alloc,
         .make_ptr_const,
         .@"resume",
-        .@"await",
         .save_err_ret_index,
         .restore_err_ret_index_unconditional,
         .restore_err_ret_index_fn_entry,
@@ -4380,14 +4343,12 @@ fn findTrackableInner(
                 .prefetch,
                 .set_float_mode,
                 .error_cast,
-                .await_nosuspend,
                 .breakpoint,
                 .disable_instrumentation,
                 .disable_intrinsics,
                 .select,
                 .int_from_error,
                 .error_from_int,
-                .builtin_async_call,
                 .cmpxchg,
                 .c_va_arg,
                 .c_va_copy,

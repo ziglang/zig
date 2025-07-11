@@ -27,8 +27,8 @@ fn testArgv(expected_args: []const [*:0]const u16) !void {
         wtf8_buf.clearRetainingCapacity();
         try std.unicode.wtf16LeToWtf8ArrayList(&wtf8_buf, std.mem.span(expected_arg));
         if (!std.mem.eql(u8, wtf8_buf.items, arg_wtf8)) {
-            std.debug.print("{}: expected: \"{}\"\n", .{ i, std.zig.fmtEscapes(wtf8_buf.items) });
-            std.debug.print("{}:   actual: \"{}\"\n", .{ i, std.zig.fmtEscapes(arg_wtf8) });
+            std.debug.print("{}: expected: \"{f}\"\n", .{ i, std.zig.fmtString(wtf8_buf.items) });
+            std.debug.print("{}:   actual: \"{f}\"\n", .{ i, std.zig.fmtString(arg_wtf8) });
             eql = false;
         }
     }
@@ -36,22 +36,22 @@ fn testArgv(expected_args: []const [*:0]const u16) !void {
         for (expected_args[min_len..], min_len..) |arg, i| {
             wtf8_buf.clearRetainingCapacity();
             try std.unicode.wtf16LeToWtf8ArrayList(&wtf8_buf, std.mem.span(arg));
-            std.debug.print("{}: expected: \"{}\"\n", .{ i, std.zig.fmtEscapes(wtf8_buf.items) });
+            std.debug.print("{}: expected: \"{f}\"\n", .{ i, std.zig.fmtString(wtf8_buf.items) });
         }
         for (args[min_len..], min_len..) |arg, i| {
-            std.debug.print("{}:   actual: \"{}\"\n", .{ i, std.zig.fmtEscapes(arg) });
+            std.debug.print("{}:   actual: \"{f}\"\n", .{ i, std.zig.fmtString(arg) });
         }
         const peb = std.os.windows.peb();
         const lpCmdLine: [*:0]u16 = @ptrCast(peb.ProcessParameters.CommandLine.Buffer);
         wtf8_buf.clearRetainingCapacity();
         try std.unicode.wtf16LeToWtf8ArrayList(&wtf8_buf, std.mem.span(lpCmdLine));
-        std.debug.print("command line: \"{}\"\n", .{std.zig.fmtEscapes(wtf8_buf.items)});
+        std.debug.print("command line: \"{f}\"\n", .{std.zig.fmtString(wtf8_buf.items)});
         std.debug.print("expected argv:\n", .{});
         std.debug.print("&.{{\n", .{});
         for (expected_args) |arg| {
             wtf8_buf.clearRetainingCapacity();
             try std.unicode.wtf16LeToWtf8ArrayList(&wtf8_buf, std.mem.span(arg));
-            std.debug.print("    \"{}\",\n", .{std.zig.fmtEscapes(wtf8_buf.items)});
+            std.debug.print("    \"{f}\",\n", .{std.zig.fmtString(wtf8_buf.items)});
         }
         std.debug.print("}}\n", .{});
         return error.ArgvMismatch;

@@ -17,7 +17,7 @@ const Compilation = @import("../../Compilation.zig");
 const link = @import("../../link.zig");
 const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
-const abi = @import("abi.zig");
+const abi = @import("../../codegen/wasm/abi.zig");
 const Alignment = InternPool.Alignment;
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
@@ -1463,7 +1463,7 @@ fn allocStack(cg: *CodeGen, ty: Type) !WValue {
     }
 
     const abi_size = std.math.cast(u32, ty.abiSize(zcu)) orelse {
-        return cg.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
+        return cg.fail("Type {f} with ABI size of {d} exceeds stack frame size", .{
             ty.fmt(pt), ty.abiSize(zcu),
         });
     };
@@ -1497,7 +1497,7 @@ fn allocStackPtr(cg: *CodeGen, inst: Air.Inst.Index) !WValue {
 
     const abi_alignment = ptr_ty.ptrAlignment(zcu);
     const abi_size = std.math.cast(u32, pointee_ty.abiSize(zcu)) orelse {
-        return cg.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
+        return cg.fail("Type {f} with ABI size of {d} exceeds stack frame size", .{
             pointee_ty.fmt(pt), pointee_ty.abiSize(zcu),
         });
     };
@@ -1959,7 +1959,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .wasm_memory_size => cg.airWasmMemorySize(inst),
         .wasm_memory_grow => cg.airWasmMemoryGrow(inst),
 
-        .memcpy => cg.airMemcpy(inst),
+        .memcpy, .memmove => cg.airMemcpy(inst),
 
         .ret_addr => cg.airRetAddr(inst),
         .tag_name => cg.airTagName(inst),
@@ -1983,7 +1983,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .c_va_copy,
         .c_va_end,
         .c_va_start,
-        .memmove,
         => |tag| return cg.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
         .atomic_load => cg.airAtomicLoad(inst),
@@ -2046,7 +2045,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
         try cg.genInst(inst);
 
         if (std.debug.runtime_safety and cg.air_bookkeeping < old_bookkeeping_value + 1) {
-            std.debug.panic("Missing call to `finishAir` in AIR instruction %{d} ('{}')", .{
+            std.debug.panic("Missing call to `finishAir` in AIR instruction %{d} ('{t}')", .{
                 inst,
                 cg.air.instructions.items(.tag)[@intFromEnum(inst)],
             });
@@ -2404,10 +2403,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
             try cg.memcpy(lhs, rhs, .{ .imm32 = @as(u32, @intCast(ty.abiSize(zcu))) });
         },
         else => if (abi_size > 8) {
-            return cg.fail("TODO: `store` for type `{}` with abisize `{d}`", .{
-                ty.fmt(pt),
-                abi_size,
-            });
+            return cg.fail("TODO: `store` for type `{f}` with abisize `{d}`", .{ ty.fmt(pt), abi_size });
         },
     }
     try cg.emitWValue(lhs);
@@ -2596,10 +2592,7 @@ fn binOp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WV
         if (ty.zigTypeTag(zcu) == .int) {
             return cg.binOpBigInt(lhs, rhs, ty, op);
         } else {
-            return cg.fail(
-                "TODO: Implement binary operation for type: {}",
-                .{ty.fmt(pt)},
-            );
+            return cg.fail("TODO: Implement binary operation for type: {f}", .{ty.fmt(pt)});
         }
     }
 
@@ -2817,7 +2810,7 @@ fn airAbs(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     switch (scalar_ty.zigTypeTag(zcu)) {
         .int => if (ty.zigTypeTag(zcu) == .vector) {
-            return cg.fail("TODO implement airAbs for {}", .{ty.fmt(pt)});
+            return cg.fail("TODO implement airAbs for {f}", .{ty.fmt(pt)});
         } else {
             const int_bits = ty.intInfo(zcu).bits;
             const wasm_bits = toWasmBits(int_bits) orelse {
@@ -3244,7 +3237,7 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             return .{ .imm32 = @intFromBool(!val.isNull(zcu)) };
         },
         .aggregate => switch (ip.indexToKey(ty.ip_index)) {
-            .array_type => return cg.fail("Wasm TODO: LowerConstant for {}", .{ty.fmt(pt)}),
+            .array_type => return cg.fail("Wasm TODO: LowerConstant for {f}", .{ty.fmt(pt)}),
             .vector_type => {
                 assert(determineSimdStoreStrategy(ty, zcu, cg.target) == .direct);
                 var buf: [16]u8 = undefined;
@@ -3332,7 +3325,7 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
             },
             else => unreachable,
         },
-        else => return cg.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty.zigTypeTag(zcu)}),
+        else => return cg.fail("Wasm TODO: emitUndefined for type: {t}\n", .{ty.zigTypeTag(zcu)}),
     }
 }
 
@@ -3608,7 +3601,7 @@ fn airNot(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         } else {
             const int_info = operand_ty.intInfo(zcu);
             const wasm_bits = toWasmBits(int_info.bits) orelse {
-                return cg.fail("TODO: Implement binary NOT for {}", .{operand_ty.fmt(pt)});
+                return cg.fail("TODO: Implement binary NOT for {f}", .{operand_ty.fmt(pt)});
             };
 
             switch (wasm_bits) {
@@ -3874,7 +3867,7 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         },
         else => result: {
             const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, zcu)) orelse {
-                return cg.fail("Field type '{}' too big to fit into stack frame", .{field_ty.fmt(pt)});
+                return cg.fail("Field type '{f}' too big to fit into stack frame", .{field_ty.fmt(pt)});
             };
             if (isByRef(field_ty, zcu, cg.target)) {
                 switch (operand) {
@@ -3981,7 +3974,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
         var width_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
         width_bigint.sub(max_bigint, min_bigint);
         width_bigint.addScalar(width_bigint.toConst(), 1);
-        break :width width_bigint.toConst().to(u32) catch null;
+        break :width width_bigint.toConst().toInt(u32) catch null;
     };
 
     try cg.startBlock(.block, .empty); // whole switch block start
@@ -4022,7 +4015,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
                 const val_bigint = val.toBigInt(&val_space, zcu);
                 var index_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
                 index_bigint.sub(val_bigint, min_bigint);
-                branch_list[index_bigint.toConst().to(u32) catch unreachable] = case.idx;
+                branch_list[index_bigint.toConst().toInt(u32) catch unreachable] = case.idx;
             }
             for (case.ranges) |range| {
                 var low_space: Value.BigIntSpace = undefined;
@@ -4031,9 +4024,9 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
                 const high_bigint = Value.fromInterned(range[1].toInterned().?).toBigInt(&high_space, zcu);
                 var index_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
                 index_bigint.sub(low_bigint, min_bigint);
-                const start = index_bigint.toConst().to(u32) catch unreachable;
+                const start = index_bigint.toConst().toInt(u32) catch unreachable;
                 index_bigint.sub(high_bigint, min_bigint);
-                const end = (index_bigint.toConst().to(u32) catch unreachable) + 1;
+                const end = (index_bigint.toConst().toInt(u32) catch unreachable) + 1;
                 @memset(branch_list[start..end], case.idx);
             }
         }
@@ -4360,7 +4353,7 @@ fn isNull(cg: *CodeGen, operand: WValue, optional_ty: Type, opcode: std.wasm.Opc
         // a pointer to the stack value
         if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             const offset = std.math.cast(u32, payload_ty.abiSize(zcu)) orelse {
-                return cg.fail("Optional type {} too big to fit into stack frame", .{optional_ty.fmt(pt)});
+                return cg.fail("Optional type {f} too big to fit into stack frame", .{optional_ty.fmt(pt)});
             };
             try cg.addMemArg(.i32_load8_u, .{ .offset = operand.offset() + offset, .alignment = 1 });
         }
@@ -4430,7 +4423,7 @@ fn airOptionalPayloadPtrSet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void 
     }
 
     const offset = std.math.cast(u32, payload_ty.abiSize(zcu)) orelse {
-        return cg.fail("Optional type {} too big to fit into stack frame", .{opt_ty.fmt(pt)});
+        return cg.fail("Optional type {f} too big to fit into stack frame", .{opt_ty.fmt(pt)});
     };
 
     try cg.emitWValue(operand);
@@ -4462,7 +4455,7 @@ fn airWrapOptional(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result cg.reuseOperand(ty_op.operand, operand);
         }
         const offset = std.math.cast(u32, payload_ty.abiSize(zcu)) orelse {
-            return cg.fail("Optional type {} too big to fit into stack frame", .{op_ty.fmt(pt)});
+            return cg.fail("Optional type {f} too big to fit into stack frame", .{op_ty.fmt(pt)});
         };
 
         // Create optional type, set the non-null bit, and store the operand inside the optional type
@@ -6196,7 +6189,7 @@ fn airMulWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         _ = try cg.load(overflow_ret, Type.i32, 0);
         try cg.addLocal(.local_set, overflow_bit.local.value);
         break :blk res;
-    } else return cg.fail("TODO: @mulWithOverflow for {}", .{ty.fmt(pt)});
+    } else return cg.fail("TODO: @mulWithOverflow for {f}", .{ty.fmt(pt)});
     var bin_op_local = try mul.toLocal(cg, ty);
     defer bin_op_local.free(cg);
 
@@ -6749,7 +6742,7 @@ fn airMod(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const add = try cg.binOp(rem, rhs, ty, .add);
             break :result try cg.binOp(add, rhs, ty, .rem);
         }
-        return cg.fail("TODO: @mod for {}", .{ty.fmt(pt)});
+        return cg.fail("TODO: @mod for {f}", .{ty.fmt(pt)});
     };
 
     return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
@@ -6767,7 +6760,7 @@ fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const lhs = try cg.resolveInst(bin_op.lhs);
     const rhs = try cg.resolveInst(bin_op.rhs);
     const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: mul_sat for {}", .{ty.fmt(pt)});
+        return cg.fail("TODO: mul_sat for {f}", .{ty.fmt(pt)});
     };
 
     switch (wasm_bits) {
@@ -6804,7 +6797,7 @@ fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         },
         64 => {
             if (!(int_info.bits == 64 and int_info.signedness == .signed)) {
-                return cg.fail("TODO: mul_sat for {}", .{ty.fmt(pt)});
+                return cg.fail("TODO: mul_sat for {f}", .{ty.fmt(pt)});
             }
             const overflow_ret = try cg.allocStack(Type.i32);
             _ = try cg.callIntrinsic(
@@ -6822,7 +6815,7 @@ fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         },
         128 => {
             if (!(int_info.bits == 128 and int_info.signedness == .signed)) {
-                return cg.fail("TODO: mul_sat for {}", .{ty.fmt(pt)});
+                return cg.fail("TODO: mul_sat for {f}", .{ty.fmt(pt)});
             }
             const overflow_ret = try cg.allocStack(Type.i32);
             const ret = try cg.callIntrinsic(

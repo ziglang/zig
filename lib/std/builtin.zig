@@ -34,24 +34,16 @@ pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
 
-    pub fn format(
-        self: StackTrace,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-
+    pub fn format(self: StackTrace, writer: *std.io.Writer) std.io.Writer.Error!void {
         // TODO: re-evaluate whether to use format() methods at all.
         // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
         // where it tries to call detectTTYConfig here.
         if (builtin.os.tag == .freestanding) return;
 
-        _ = options;
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
             return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
-        const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
+        const tty_config = std.io.tty.detectConfig(std.fs.File.stderr());
         try writer.writeAll("\n");
         std.debug.writeStackTrace(self, writer, debug_info, tty_config) catch |err| {
             try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
@@ -162,9 +154,6 @@ pub const OptimizeMode = enum {
     ReleaseSmall,
 };
 
-/// Deprecated; use OptimizeMode.
-pub const Mode = OptimizeMode;
-
 /// The calling convention of a function defines how arguments and return values are passed, as well
 /// as any other requirements which callers and callees must respect, such as register preservation
 /// and stack alignment.
@@ -193,53 +182,6 @@ pub const CallingConvention = union(enum(u8)) {
         else => unreachable,
     };
 
-    /// Deprecated; use `.auto`.
-    pub const Unspecified: CallingConvention = .auto;
-    /// Deprecated; use `.c`.
-    pub const C: CallingConvention = .c;
-    /// Deprecated; use `.naked`.
-    pub const Naked: CallingConvention = .naked;
-    /// Deprecated; use `.@"async"`.
-    pub const Async: CallingConvention = .@"async";
-    /// Deprecated; use `.@"inline"`.
-    pub const Inline: CallingConvention = .@"inline";
-    /// Deprecated; use `.x86_64_interrupt`, `.x86_interrupt`, or `.avr_interrupt`.
-    pub const Interrupt: CallingConvention = switch (builtin.target.cpu.arch) {
-        .x86_64 => .{ .x86_64_interrupt = .{} },
-        .x86 => .{ .x86_interrupt = .{} },
-        .avr => .avr_interrupt,
-        else => unreachable,
-    };
-    /// Deprecated; use `.avr_signal`.
-    pub const Signal: CallingConvention = .avr_signal;
-    /// Deprecated; use `.x86_stdcall`.
-    pub const Stdcall: CallingConvention = .{ .x86_stdcall = .{} };
-    /// Deprecated; use `.x86_fastcall`.
-    pub const Fastcall: CallingConvention = .{ .x86_fastcall = .{} };
-    /// Deprecated; use `.x86_64_vectorcall`, `.x86_vectorcall`, or `aarch64_vfabi`.
-    pub const Vectorcall: CallingConvention = switch (builtin.target.cpu.arch) {
-        .x86_64 => .{ .x86_64_vectorcall = .{} },
-        .x86 => .{ .x86_vectorcall = .{} },
-        .aarch64, .aarch64_be => .{ .aarch64_vfabi = .{} },
-        else => unreachable,
-    };
-    /// Deprecated; use `.x86_thiscall`.
-    pub const Thiscall: CallingConvention = .{ .x86_thiscall = .{} };
-    /// Deprecated; use `.arm_aapcs`.
-    pub const AAPCS: CallingConvention = .{ .arm_aapcs = .{} };
-    /// Deprecated; use `.arm_aapcs_vfp`.
-    pub const AAPCSVFP: CallingConvention = .{ .arm_aapcs_vfp = .{} };
-    /// Deprecated; use `.x86_64_sysv`.
-    pub const SysV: CallingConvention = .{ .x86_64_sysv = .{} };
-    /// Deprecated; use `.x86_64_win`.
-    pub const Win64: CallingConvention = .{ .x86_64_win = .{} };
-    /// Deprecated; use `.kernel`.
-    pub const Kernel: CallingConvention = .kernel;
-    /// Deprecated; use `.spirv_fragment`.
-    pub const Fragment: CallingConvention = .spirv_fragment;
-    /// Deprecated; use `.spirv_vertex`.
-    pub const Vertex: CallingConvention = .spirv_vertex;
-
     /// The default Zig calling convention when neither `export` nor `inline` is specified.
     /// This calling convention makes no guarantees about stack alignment, registers, etc.
     /// It can only be used within this Zig compilation unit.
@@ -248,7 +190,7 @@ pub const CallingConvention = union(enum(u8)) {
     /// The calling convention of a function that can be called with `async` syntax. An `async` call
     /// of a runtime-known function must target a function with this calling convention.
     /// Comptime-known functions with other calling conventions may be coerced to this one.
-    @"async",
+    async,
 
     /// Functions with this calling convention have no prologue or epilogue, making the function
     /// uncallable in regular Zig code. This can be useful when integrating with assembly.
@@ -851,7 +793,7 @@ pub const LinkMode = enum {
 pub const UnwindTables = enum {
     none,
     sync,
-    @"async",
+    async,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -866,32 +808,23 @@ pub const WasiExecModel = enum {
 pub const CallModifier = enum {
     /// Equivalent to function call syntax.
     auto,
-
-    /// Equivalent to async keyword used with function call syntax.
-    async_kw,
-
     /// Prevents tail call optimization. This guarantees that the return
     /// address will point to the callsite, as opposed to the callsite's
     /// callsite. If the call is otherwise required to be tail-called
     /// or inlined, a compile error is emitted instead.
     never_tail,
-
     /// Guarantees that the call will not be inlined. If the call is
     /// otherwise required to be inlined, a compile error is emitted instead.
     never_inline,
-
     /// Asserts that the function call will not suspend. This allows a
     /// non-async function to call an async function.
-    no_async,
-
+    no_suspend,
     /// Guarantees that the call will be generated with tail call optimization.
     /// If this is not possible, a compile error is emitted instead.
     always_tail,
-
     /// Guarantees that the call will be inlined at the callsite.
     /// If this is not possible, a compile error is emitted instead.
     always_inline,
-
     /// Evaluates the call at compile-time. If the call cannot be completed at
     /// compile-time, a compile error is emitted instead.
     compile_time,
@@ -1136,10 +1069,6 @@ pub const TestFn = struct {
     func: *const fn () anyerror!void,
 };
 
-/// Deprecated, use the `Panic` namespace instead.
-/// To be deleted after 0.14.0 is released.
-pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
-
 /// This namespace is used by the Zig compiler to emit various kinds of safety
 /// panics. These can be overridden by making a public `panic` namespace in the
 /// root source file.
@@ -1154,9 +1083,6 @@ pub const panic: type = p: {
             }.panic);
         }
         break :p root.panic;
-    }
-    if (@hasDecl(root, "Panic")) {
-        break :p root.Panic; // Deprecated; use `panic` instead.
     }
     break :p switch (builtin.zig_backend) {
         .stage2_powerpc,

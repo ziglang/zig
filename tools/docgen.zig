@@ -10,7 +10,7 @@ const mem = std.mem;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const getExternalExecutor = std.zig.system.getExternalExecutor;
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
@@ -43,8 +43,7 @@ pub fn main() !void {
     while (args_it.next()) |arg| {
         if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                const stdout = io.getStdOut().writer();
-                try stdout.writeAll(usage);
+                try fs.File.stdout().writeAll(usage);
                 process.exit(0);
             } else if (mem.eql(u8, arg, "--code-dir")) {
                 if (args_it.next()) |param| {
@@ -76,9 +75,9 @@ pub fn main() !void {
     var code_dir = try fs.cwd().openDir(code_dir_path, .{});
     defer code_dir.close();
 
-    const input_file_bytes = try in_file.reader().readAllAlloc(arena, max_doc_file_size);
+    const input_file_bytes = try in_file.deprecatedReader().readAllAlloc(arena, max_doc_file_size);
 
-    var buffered_writer = io.bufferedWriter(out_file.writer());
+    var buffered_writer = io.bufferedWriter(out_file.deprecatedWriter());
 
     var tokenizer = Tokenizer.init(input_path, input_file_bytes);
     var toc = try genToc(arena, &tokenizer);
@@ -426,7 +425,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         try toc.writeByte('\n');
                         try toc.writeByteNTimes(' ', header_stack_size * 4);
                         if (last_columns) |n| {
-                            try toc.print("<ul style=\"columns: {}\">\n", .{n});
+                            try toc.print("<ul style=\"columns: {d}\">\n", .{n});
                         } else {
                             try toc.writeAll("<ul>\n");
                         }
@@ -710,8 +709,6 @@ fn tokenizeAndPrintRaw(
             .keyword_align,
             .keyword_and,
             .keyword_asm,
-            .keyword_async,
-            .keyword_await,
             .keyword_break,
             .keyword_catch,
             .keyword_comptime,
@@ -748,7 +745,6 @@ fn tokenizeAndPrintRaw(
             .keyword_try,
             .keyword_union,
             .keyword_unreachable,
-            .keyword_usingnamespace,
             .keyword_var,
             .keyword_volatile,
             .keyword_allowzero,

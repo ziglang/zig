@@ -1004,12 +1004,12 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
     const file: File = .{ .handle = fd };
-    file.writer().writeInt(u64, @intCast(value), .little) catch return error.SystemResources;
+    file.deprecatedWriter().writeInt(u64, @intCast(value), .little) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
     const file: File = .{ .handle = fd };
-    return @intCast(file.reader().readInt(u64, .little) catch return error.SystemResources);
+    return @intCast(file.deprecatedReader().readInt(u64, .little) catch return error.SystemResources);
 }
 
 const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);

@@ -8,9 +8,6 @@ const posix = std.posix;
 
 pub const epoch = @import("time/epoch.zig");
 
-/// Deprecated: moved to std.Thread.sleep
-pub const sleep = std.Thread.sleep;
-
 /// Get a calendar timestamp, in seconds, relative to UTC 1970-01-01.
 /// Precision of timing depends on the hardware and operating system.
 /// The return value is signed because it is possible to have a date that is

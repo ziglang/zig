@@ -41,7 +41,8 @@ pub const panic = struct {
     pub const noreturnReturned = no_panic.noreturnReturned;
 };
 fn myPanic(msg: []const u8, _: ?usize) noreturn {
-    std.io.getStdOut().writer().print("panic message: {s}\n", .{msg}) catch {};
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    stdout_writer.interface.print("panic message: {s}\n", .{msg}) catch {};
     std.process.exit(0);
 }
 const std = @import("std");
@@ -87,7 +88,8 @@ pub const panic = struct {
     pub const noreturnReturned = no_panic.noreturnReturned;
 };
 fn myPanic(msg: []const u8, _: ?usize) noreturn {
-    std.io.getStdOut().writer().print("new panic message: {s}\n", .{msg}) catch {};
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    stdout_writer.interface.print("new panic message: {s}\n", .{msg}) catch {};
     std.process.exit(0);
 }
 const std = @import("std");
@@ -133,7 +135,8 @@ pub const panic = struct {
     pub const noreturnReturned = no_panic.noreturnReturned;
 };
 fn myPanicNew(msg: []const u8, _: ?usize) noreturn {
-    std.io.getStdOut().writer().print("third panic message: {s}\n", .{msg}) catch {};
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    stdout_writer.interface.print("third panic message: {s}\n", .{msg}) catch {};
     std.process.exit(0);
 }
 const std = @import("std");
