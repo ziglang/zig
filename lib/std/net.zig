@@ -1923,7 +1923,7 @@ pub const Stream = struct {
             }
 
             fn stream(io_r: *io.Reader, io_w: *io.Writer, limit: io.Limit) io.Reader.StreamError!usize {
-                const r: *Reader = @fieldParentPtr("interface_state", io_r);
+                const r: *Reader = @alignCast(@fieldParentPtr("interface_state", io_r));
                 var iovecs: [max_buffers_len]windows.ws2_32.WSABUF = undefined;
                 const bufs = try io_w.writableVectorWsa(&iovecs, limit);
                 assert(bufs[0].len != 0);
@@ -2030,7 +2030,7 @@ pub const Stream = struct {
             }
 
             fn drain(io_w: *io.Writer, data: []const []const u8, splat: usize) io.Writer.Error!usize {
-                const w: *Writer = @fieldParentPtr("interface", io_w);
+                const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const buffered = io_w.buffered();
                 comptime assert(native_os == .windows);
                 var iovecs: [max_buffers_len]windows.ws2_32.WSABUF = undefined;
@@ -2134,7 +2134,7 @@ pub const Stream = struct {
             }
 
             fn drain(io_w: *io.Writer, data: []const []const u8, splat: usize) io.Writer.Error!usize {
-                const w: *Writer = @fieldParentPtr("interface", io_w);
+                const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const buffered = io_w.buffered();
                 var iovecs: [max_buffers_len]posix.iovec_const = undefined;
                 var msg: posix.msghdr_const = .{
@@ -2186,7 +2186,7 @@ pub const Stream = struct {
             }
 
             fn sendFile(io_w: *io.Writer, file_reader: *File.Reader, limit: io.Limit) io.Writer.FileError!usize {
-                const w: *Writer = @fieldParentPtr("interface", io_w);
+                const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const n = try w.file_writer.interface.sendFileHeader(io_w.buffered(), file_reader, limit);
                 return io_w.consume(n);
             }
