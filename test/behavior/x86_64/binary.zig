@@ -5473,8 +5473,6 @@ inline fn shlSaturate(comptime Type: type, lhs: Type, rhs: Type) Type {
         // workaround https://github.com/ziglang/zig/issues/23139
         return lhs <<| @min(@abs(rhs), splat(ChangeScalar(Type, u64), imax(u64)));
     }
-    // workaround https://github.com/ziglang/zig/issues/23033
-    @setRuntimeSafety(false);
     return lhs <<| @abs(rhs);
 }
 test shlSaturate {

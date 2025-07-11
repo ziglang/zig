@@ -14134,7 +14134,7 @@ fn zirShl(
     try sema.requireRuntimeBlock(block, src, runtime_src);
     if (block.wantSafety()) {
         const bit_count = scalar_ty.intInfo(zcu).bits;
-        if (!std.math.isPowerOfTwo(bit_count)) {
+        if (air_tag != .shl_sat and !std.math.isPowerOfTwo(bit_count)) {
             const bit_count_val = try pt.intValue(scalar_rhs_ty, bit_count);
             const ok = if (rhs_ty.zigTypeTag(zcu) == .vector) ok: {
                 const bit_count_inst = Air.internedToRef((try sema.splat(rhs_ty, bit_count_val)).toIntern());
