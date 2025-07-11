@@ -330,7 +330,7 @@ pub fn GenericReader(
             err: ?Error = null,
 
             fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
-                const a: *@This() = @fieldParentPtr("new_interface", r);
+                const a: *@This() = @alignCast(@fieldParentPtr("new_interface", r));
                 const buf = limit.slice(try w.writableSliceGreedy(1));
                 return a.derp_reader.read(buf) catch |err| {
                     a.err = err;
@@ -419,7 +419,7 @@ pub fn GenericWriter(
 
             fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
                 _ = splat;
-                const a: *@This() = @fieldParentPtr("new_interface", w);
+                const a: *@This() = @alignCast(@fieldParentPtr("new_interface", w));
                 return a.derp_writer.write(data[0]) catch |err| {
                     a.err = err;
                     return error.WriteFailed;
