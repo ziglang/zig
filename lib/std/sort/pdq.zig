@@ -44,7 +44,7 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
     // slices of up to this length get sorted using insertion sort.
     const max_insertion = 24;
     // number of allowed imbalanced partitions before switching to heap sort.
-    const max_limit = std.math.floorPowerOfTwo(usize, b - a) + 1;
+    const max_limit = math.log2_int(usize, b - a) + 1;
 
     // set upper bound on stack memory usage.
     const Range = struct { a: usize, b: usize, limit: usize };
