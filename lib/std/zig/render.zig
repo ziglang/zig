@@ -3203,6 +3203,12 @@ fn rowSize(tree: Ast, exprs: []const Ast.Node.Index, rtoken: Ast.TokenIndex) usi
         const maybe_comma = rtoken - 1;
         if (tree.tokenTag(maybe_comma) == .comma)
             return 1;
+
+        // Check if the first expression contains a switch statement
+        // If it does, we want to put it on its own line
+        if (containsComplexExpression(tree, exprs[0]))
+            return 1;
+
         return exprs.len; // no newlines
     }
 
@@ -3211,12 +3217,38 @@ fn rowSize(tree: Ast, exprs: []const Ast.Node.Index, rtoken: Ast.TokenIndex) usi
         if (i + 1 < exprs.len) {
             const expr_last_token = tree.lastToken(expr) + 1;
             if (!tree.tokensOnSameLine(expr_last_token, tree.firstToken(exprs[i + 1]))) return count;
+
+            // If this expression contains a complex expression like a switch,
+            // we want to start a new row after it
+            if (containsComplexExpression(tree, expr))
+                return count;
+
             count += 1;
         } else {
             return count;
         }
     }
     unreachable;
+}
+
+// Helper function to check if a node contains a complex expression like a switch
+fn containsComplexExpression(tree: Ast, node: Ast.Node.Index) bool {
+    const tag = tree.nodeTag(node);
+    return switch (tag) {
+        .@"switch" => true,
+
+        // For struct initializations, check if any of their fields contain a switch
+        .struct_init_one, .struct_init_one_comma, .struct_init_dot_two, .struct_init_dot_two_comma, .struct_init_dot, .struct_init_dot_comma, .struct_init, .struct_init_comma => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const struct_init = tree.fullStructInit(&buf, node).?;
+            for (struct_init.ast.fields) |field| {
+                if (containsComplexExpression(tree, field)) return true;
+            }
+            return false;
+        },
+
+        else => false,
+    };
 }
 
 /// Automatically inserts indentation of written data by keeping
