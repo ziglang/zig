@@ -152,8 +152,8 @@ pub const RuntimeServices = extern struct {
 
         switch (self._getTime(&time, &capabilities)) {
             .success => return .{ time, capabilities },
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -161,8 +161,8 @@ pub const RuntimeServices = extern struct {
     pub fn setTime(self: *RuntimeServices, time: *const Time) SetTimeError!void {
         switch (self._setTime(time)) {
             .success => {},
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -183,8 +183,8 @@ pub const RuntimeServices = extern struct {
             &result.time,
         )) {
             .success => return result,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -203,9 +203,9 @@ pub const RuntimeServices = extern struct {
             if (set == .enabled) set.enabled else null,
         )) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -221,9 +221,9 @@ pub const RuntimeServices = extern struct {
             @ptrCast(map.ptr),
         )) {
             .success => {},
-            .unsupported => return Error.Unsupported,
-            .no_mapping => return Error.NoMapping,
-            .not_found => return Error.NotFound,
+            .unsupported => return error.Unsupported,
+            .no_mapping => return error.NoMapping,
+            .not_found => return error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -238,8 +238,8 @@ pub const RuntimeServices = extern struct {
         switch (self._convertPointer(disposition, @ptrCast(&pointer))) {
             .success => return pointer,
             .not_found => return null,
-            .invalid_parameter => return Error.InvalidParameter,
-            .unsupported => return Error.Unsupported,
+            .invalid_parameter => return error.InvalidParameter,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -262,8 +262,8 @@ pub const RuntimeServices = extern struct {
         )) {
             .buffer_too_small => return .{ size, attrs },
             .not_found => return null,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -288,9 +288,9 @@ pub const RuntimeServices = extern struct {
         )) {
             .success => return .{ buffer[0..len], attrs },
             .not_found => return null,
-            .buffer_too_small => return Error.BufferTooSmall,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .buffer_too_small => return error.BufferTooSmall,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -322,13 +322,13 @@ pub const RuntimeServices = extern struct {
             data.ptr,
         )) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
-            .device_error => return Error.DeviceError,
-            .write_protected => return Error.WriteProtected,
-            .security_violation => return Error.SecurityViolation,
-            .not_found => return Error.NotFound,
-            .unsupported => return Error.Unsupported,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
+            .device_error => return error.DeviceError,
+            .write_protected => return error.WriteProtected,
+            .security_violation => return error.SecurityViolation,
+            .not_found => return error.NotFound,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -337,8 +337,8 @@ pub const RuntimeServices = extern struct {
         var cnt: u32 = undefined;
         switch (self._getNextHighMonotonicCount(&cnt)) {
             .success => return cnt,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -368,10 +368,10 @@ pub const RuntimeServices = extern struct {
             scatter_gather_list,
         )) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .device_error => return Error.DeviceError,
-            .unsupported => return Error.Unsupported,
-            .out_of_resources => return Error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .unsupported => return error.Unsupported,
+            .out_of_resources => return error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -390,8 +390,8 @@ pub const RuntimeServices = extern struct {
             &reset_type,
         )) {
             .success => return .{ max_capsule_size, reset_type },
-            .unsupported => return Error.Unsupported,
-            .out_of_resources => return Error.OutOfResources,
+            .unsupported => return error.Unsupported,
+            .out_of_resources => return error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -410,8 +410,8 @@ pub const RuntimeServices = extern struct {
             &res.max_variable_size,
         )) {
             .success => return res,
-            .invalid_parameter => return Error.InvalidParameter,
-            .unsupported => return Error.Unsupported,
+            .invalid_parameter => return error.InvalidParameter,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -504,8 +504,8 @@ pub const RuntimeServices = extern struct {
             )) {
                 .buffer_too_small => return len,
                 .not_found => return null,
-                .device_error => return Error.DeviceError,
-                .unsupported => return Error.Unsupported,
+                .device_error => return error.DeviceError,
+                .unsupported => return error.Unsupported,
                 else => |status| return uefi.unexpectedStatus(status),
             }
         }
@@ -523,9 +523,9 @@ pub const RuntimeServices = extern struct {
             )) {
                 .success => return self.buffer[0 .. len - 1 :0],
                 .not_found => return null,
-                .buffer_too_small => return Error.BufferTooSmall,
-                .device_error => return Error.DeviceError,
-                .unsupported => return Error.Unsupported,
+                .buffer_too_small => return error.BufferTooSmall,
+                .device_error => return error.DeviceError,
+                .unsupported => return error.Unsupported,
                 else => |status| return uefi.unexpectedStatus(status),
             }
         }

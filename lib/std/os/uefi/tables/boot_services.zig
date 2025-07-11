@@ -274,6 +274,10 @@ pub const BootServices = extern struct {
         SecurityViolation,
     };
 
+    pub const ExitError = uefi.UnexpectedError || error{
+        InvalidParameter,
+    };
+
     pub const ExitBootServicesError = uefi.UnexpectedError || error{
         InvalidParameter,
     };
@@ -374,8 +378,8 @@ pub const BootServices = extern struct {
         pages: usize,
     ) AllocatePagesError![]align(4096) Page {
         var ptr: [*]align(4096) Page = switch (location) {
-            .allocate_any_pages => undefined,
-            .allocate_address, .allocate_max_address => |ptr| ptr,
+            .any => undefined,
+            .address, .max_address => |ptr| ptr,
         };
 
         switch (self._allocatePages(
@@ -385,9 +389,9 @@ pub const BootServices = extern struct {
             &ptr,
         )) {
             .success => return ptr[0..pages],
-            .out_of_resources => return Error.OutOfResources,
-            .invalid_parameter => return Error.InvalidParameter,
-            .not_found => return Error.NotFound,
+            .out_of_resources => return error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
+            .not_found => return error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -395,8 +399,8 @@ pub const BootServices = extern struct {
     pub fn freePages(self: *BootServices, pages: []align(4096) Page) FreePagesError!void {
         switch (self._freePages(pages.ptr, pages.len)) {
             .success => {},
-            .not_found => return Error.NotFound,
-            .invalid_parameter => return Error.InvalidParameter,
+            .not_found => return error.NotFound,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -438,8 +442,8 @@ pub const BootServices = extern struct {
                 info.len = @divExact(info.len, info.descriptor_size);
                 return .{ .info = info, .ptr = buffer.ptr };
             },
-            .buffer_too_small => return Error.BufferTooSmall,
-            .invalid_parameter => return Error.InvalidParameter,
+            .buffer_too_small => return error.BufferTooSmall,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -456,8 +460,8 @@ pub const BootServices = extern struct {
 
         switch (self._allocatePool(pool_type, size, &ptr)) {
             .success => return ptr[0..size],
-            .out_of_resources => return Error.OutOfResources,
-            .invalid_parameter => return Error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -465,7 +469,7 @@ pub const BootServices = extern struct {
     pub fn freePool(self: *BootServices, ptr: [*]align(8) u8) FreePoolError!void {
         switch (self._freePool(ptr)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -480,13 +484,13 @@ pub const BootServices = extern struct {
         switch (self._createEvent(
             @bitCast(event_type),
             notify_opts.tpl,
-            notify_opts.func,
-            notify_opts.ctx,
+            notify_opts.function,
+            notify_opts.context,
             &evt,
         )) {
             .success => return evt,
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -494,7 +498,7 @@ pub const BootServices = extern struct {
     /// Cancels any previous time trigger setting for the event, and sets a new
     /// trigger timer for the event.
     ///
-    /// Returns `Error.InvalidParameter` if the event is not a timer event.
+    /// Returns `error.InvalidParameter` if the event is not a timer event.
     pub fn setTimer(
         self: *BootServices,
         event: Event,
@@ -503,7 +507,7 @@ pub const BootServices = extern struct {
     ) SetTimerError!void {
         switch (self._setTimer(event, @"type", trigger_time)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -516,8 +520,8 @@ pub const BootServices = extern struct {
         var idx: usize = undefined;
         switch (self._waitForEvent(events.len, events.ptr, &idx)) {
             .success => return .{ &events[idx], idx },
-            .invalid_parameter => return Error.InvalidParameter,
-            .unsupported => return Error.Unsupported,
+            .invalid_parameter => return error.InvalidParameter,
+            .unsupported => return error.Unsupported,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -551,7 +555,7 @@ pub const BootServices = extern struct {
     /// The underlying function is equivalent to this pseudo-code:
     /// ```
     /// if (event.type.signal)
-    ///     return Error.InvalidParameter;
+    ///     return error.InvalidParameter;
     ///
     /// if (event.signaled) {
     ///     event.signaled = false;
@@ -572,7 +576,7 @@ pub const BootServices = extern struct {
         switch (self._checkEvent(event)) {
             .success => return true,
             .not_ready => return false,
-            .invalid_parameter => return Error.InvalidParameter,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -618,9 +622,9 @@ pub const BootServices = extern struct {
             new,
         )) {
             .success => {},
-            .not_found => return Error.NotFound,
-            .access_denied => return Error.AccessDenied,
-            .invalid_parameter => return Error.InvalidParameter,
+            .not_found => return error.NotFound,
+            .access_denied => return error.AccessDenied,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -660,9 +664,9 @@ pub const BootServices = extern struct {
             handle,
             .{ .by_handle_protocol = .{ .agent = uefi.handle } },
         ) catch |err| switch (err) {
-            OpenProtocolError.AlreadyStarted => return uefi.unexpectedStatus(.already_started),
-            OpenProtocolError.AccessDenied => return uefi.unexpectedStatus(.access_denied),
-            OpenProtocolError.InvalidParameter => return uefi.unexpectedStatus(.invalid_parameter),
+            error.AlreadyStarted => return uefi.unexpectedStatus(.already_started),
+            error.AccessDenied => return uefi.unexpectedStatus(.access_denied),
+            error.InvalidParameter => return uefi.unexpectedStatus(.invalid_parameter),
             else => return @errorCast(err),
         };
     }
@@ -682,8 +686,8 @@ pub const BootServices = extern struct {
             &registration,
         )) {
             .success => return registration,
-            .out_of_resources => return Error.OutOfResources,
-            .invalid_parameter => return Error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -699,7 +703,7 @@ pub const BootServices = extern struct {
             null,
         )) {
             .success => return @divExact(len, @sizeOf(Handle)),
-            .out_of_resources => return Error.OutOfResources,
+            .out_of_resources => return error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -720,8 +724,8 @@ pub const BootServices = extern struct {
         )) {
             .success => return buffer[0..@divExact(len, @sizeOf(Handle))],
             .not_found => return buffer[0..0],
-            .buffer_too_small => return Error.BufferTooSmall,
-            .invalid_parameter => return Error.InvalidParameter,
+            .buffer_too_small => return error.BufferTooSmall,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -745,7 +749,7 @@ pub const BootServices = extern struct {
         )) {
             .success => return .{ dev_path, device.? },
             .not_found => return null,
-            .invalid_parameter => return Error.InvalidParameter,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -760,8 +764,8 @@ pub const BootServices = extern struct {
             table,
         )) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -775,9 +779,9 @@ pub const BootServices = extern struct {
             null,
         )) {
             .success => {},
-            .not_found => return Error.NotFound,
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
+            .not_found => return error.NotFound,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -804,14 +808,14 @@ pub const BootServices = extern struct {
             &handle,
         )) {
             .success => return handle,
-            .not_found => return Error.NotFound,
-            .invalid_parameter => return Error.InvalidParameter,
-            .unsupported => return Error.Unsupported,
-            .out_of_resources => return Error.OutOfResources,
-            .load_error => return Error.LoadError,
-            .device_error => return Error.DeviceError,
-            .access_denied => return Error.AccessDenied,
-            .security_violation => return Error.SecurityViolation,
+            .not_found => return error.NotFound,
+            .invalid_parameter => return error.InvalidParameter,
+            .unsupported => return error.Unsupported,
+            .out_of_resources => return error.OutOfResources,
+            .load_error => return error.LoadError,
+            .device_error => return error.DeviceError,
+            .access_denied => return error.AccessDenied,
+            .security_violation => return error.SecurityViolation,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -825,8 +829,8 @@ pub const BootServices = extern struct {
             &exit_data_size,
             &exit_data,
         )) {
-            .invalid_parameter => return Error.InvalidParameter,
-            .security_violation => return Error.SecurityViolation,
+            .invalid_parameter => return error.InvalidParameter,
+            .security_violation => return error.SecurityViolation,
             else => |exit_code| exit_code,
         };
 
@@ -845,10 +849,6 @@ pub const BootServices = extern struct {
             .data = exit_data[description.len + 1 .. exit_data_size],
         };
     }
-
-    pub const ExitError = uefi.UnexpectedError || error{
-        InvalidParameter,
-    };
 
     /// `message` must be allocated using `allocatePool`.
     pub fn exit(
@@ -902,7 +902,7 @@ pub const BootServices = extern struct {
     ) ExitBootServicesError!void {
         switch (self._exitBootServices(image, map_key)) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -913,8 +913,8 @@ pub const BootServices = extern struct {
     ) GetNextMonotonicCountError!void {
         switch (self._getNextMonotonicCount(count)) {
             .success => {},
-            .device_error => return Error.DeviceError,
-            .invalid_parameter => return Error.InvalidParameter,
+            .device_error => return error.DeviceError,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -939,9 +939,9 @@ pub const BootServices = extern struct {
             if (data) |d| d.ptr else null,
         )) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .unsupported => return Error.Unsupported,
-            .device_error => return Error.DeviceError,
+            .invalid_parameter => return error.InvalidParameter,
+            .unsupported => return error.Unsupported,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -961,9 +961,9 @@ pub const BootServices = extern struct {
             recursive,
         )) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .not_found => return Error.NotFound,
-            .security_violation => return Error.SecurityViolation,
+            .invalid_parameter => return error.InvalidParameter,
+            .not_found => return error.NotFound,
+            .security_violation => return error.SecurityViolation,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -980,9 +980,9 @@ pub const BootServices = extern struct {
             child,
         )) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
-            .device_error => return Error.DeviceError,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
+            .device_error => return error.DeviceError,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -1016,9 +1016,9 @@ pub const BootServices = extern struct {
             std.meta.activeTag(attributes),
         )) {
             .success => return if (attributes == .test_protocol) null else ptr,
-            .unsupported => return if (attributes == .test_protocol) Error.Unsupported else null,
-            .access_denied => return Error.AccessDenied,
-            .already_started => return Error.AlreadyStarted,
+            .unsupported => return if (attributes == .test_protocol) error.Unsupported else null,
+            .access_denied => return error.AccessDenied,
+            .already_started => return error.AlreadyStarted,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -1040,8 +1040,8 @@ pub const BootServices = extern struct {
             controller,
         )) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
-            .not_found => return Error.NotFound,
+            .invalid_parameter => return error.InvalidParameter,
+            .not_found => return error.NotFound,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -1062,7 +1062,7 @@ pub const BootServices = extern struct {
         )) {
             .success => return entries[0..len],
             .not_found => return null,
-            .out_of_resources => return Error.OutOfResources,
+            .out_of_resources => return error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -1080,8 +1080,8 @@ pub const BootServices = extern struct {
             &len,
         )) {
             .success => return guids[0..len],
-            .invalid_parameter => return Error.InvalidParameter,
-            .out_of_resources => return Error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
+            .out_of_resources => return error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -1101,9 +1101,9 @@ pub const BootServices = extern struct {
             &handles,
         )) {
             .success => return handles[0..len],
-            .invalid_parameter => return Error.InvalidParameter,
+            .invalid_parameter => return error.InvalidParameter,
             .not_found => return null,
-            .out_of_resources => return Error.OutOfResources,
+            .out_of_resources => return error.OutOfResources,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -1122,7 +1122,7 @@ pub const BootServices = extern struct {
         )) {
             .success => return interface,
             .not_found => return null,
-            .invalid_parameter => return Error.InvalidParameter,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -1162,9 +1162,9 @@ pub const BootServices = extern struct {
             args_tuple,
         )) {
             .success => return hdl.?,
-            .already_started => return Error.AlreadyStarted,
-            .out_of_resources => return Error.OutOfResources,
-            .invalid_parameter => return Error.InvalidParameter,
+            .already_started => return error.AlreadyStarted,
+            .out_of_resources => return error.OutOfResources,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -1182,7 +1182,7 @@ pub const BootServices = extern struct {
             args_tuple,
         )) {
             .success => {},
-            .invalid_parameter => return Error.InvalidParameter,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -1194,7 +1194,7 @@ pub const BootServices = extern struct {
         var value: u32 = undefined;
         switch (self._calculateCrc32(data.ptr, data.len, &value)) {
             .success => return value,
-            .invalid_parameter => return Error.InvalidParameter,
+            .invalid_parameter => return error.InvalidParameter,
             else => |status| return uefi.unexpectedStatus(status),
         }
     }
@@ -1203,8 +1203,8 @@ pub const BootServices = extern struct {
 
     pub const NotifyOpts = struct {
         tpl: TaskPriorityLevel = .application,
-        func: ?*const fn (Event, ?*anyopaque) callconv(cc) void = null,
-        ctx: ?*anyopaque = null,
+        function: ?*const fn (Event, ?*anyopaque) callconv(cc) void = null,
+        context: ?*anyopaque = null,
     };
 
     pub const TaskPriorityLevel = enum(usize) {
@@ -1260,12 +1260,12 @@ fn protocolInterfaces(
 }
 
 fn ProtocolInterfaces(HandleType: type, Interfaces: type) type {
-    const Interfaces_type_info = @typeInfo(Interfaces);
-    if (Interfaces_type_info != .@"struct" or !Interfaces_type_info.@"struct".is_tuple)
+    const interfaces_type_info = @typeInfo(Interfaces);
+    if (interfaces_type_info != .@"struct" or !interfaces_type_info.@"struct".is_tuple)
         @compileError("expected tuple of protocol interfaces, got " ++ @typeName(Interfaces));
-    const Interfaces_info = Interfaces_type_info.@"struct";
+    const interfaces_info = interfaces_type_info.@"struct";
 
-    var tuple_types: [Interfaces_info.fields.len * 2 + 1]type = undefined;
+    var tuple_types: [interfaces_info.fields.len * 2 + 1]type = undefined;
     tuple_types[0] = HandleType;
     var idx = 1;
     while (idx < tuple_types.len) : (idx += 2) {

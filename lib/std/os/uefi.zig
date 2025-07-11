@@ -93,6 +93,10 @@ pub const IpAddress = extern union {
 
 /// GUIDs are align(8) unless otherwise specified.
 pub const Guid = extern struct {
+    comptime {
+        std.debug.assert(std.mem.Alignment.of(Guid) == .@"8");
+    }
+
     time_low: u32 align(8),
     time_mid: u16,
     time_high_and_version: u16,

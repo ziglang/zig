@@ -22,11 +22,11 @@ pub const TimerDelay = enum(u32) {
 };
 
 pub const MemoryType = enum(u32) {
-    pub const OemValue = math.IntFittingRange(
+    pub const Oem = math.IntFittingRange(
         0,
         @intFromEnum(MemoryType.oem_end) - @intFromEnum(MemoryType.oem_start),
     );
-    pub const VendorValue = math.IntFittingRange(
+    pub const Vendor = math.IntFittingRange(
         0,
         @intFromEnum(MemoryType.vendor_end) - @intFromEnum(MemoryType.vendor_start),
     );
@@ -64,12 +64,12 @@ pub const MemoryType = enum(u32) {
     vendor_end = 0xFFFFFFFF,
     _,
 
-    pub fn oem(value: OemValue) MemoryType {
+    pub fn fromOem(value: Oem) MemoryType {
         const oem_start = @intFromEnum(MemoryType.oem_start);
         return @enumFromInt(oem_start + value);
     }
 
-    pub fn getOem(memtype: MemoryType) ?OemValue {
+    pub fn toOem(memtype: MemoryType) ?Oem {
         const as_int = @intFromEnum(memtype);
         const oem_start = @intFromEnum(MemoryType.oem_start);
         if (as_int < oem_start) return null;
@@ -77,12 +77,12 @@ pub const MemoryType = enum(u32) {
         return @truncate(as_int - oem_start);
     }
 
-    pub fn vendor(value: VendorValue) MemoryType {
+    pub fn fromVendor(value: Vendor) MemoryType {
         const vendor_start = @intFromEnum(MemoryType.vendor_start);
         return @enumFromInt(vendor_start + value);
     }
 
-    pub fn getVendor(memtype: MemoryType) ?VendorValue {
+    pub fn toVendor(memtype: MemoryType) ?Vendor {
         const as_int = @intFromEnum(memtype);
         const vendor_start = @intFromEnum(MemoryType.vendor_start);
         if (as_int < @intFromEnum(MemoryType.vendor_end)) return null;
@@ -96,9 +96,9 @@ pub const MemoryType = enum(u32) {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        if (memtype.getOem()) |oemval|
+        if (memtype.toOem()) |oemval|
             try writer.print("OEM({X})", .{oemval})
-        else if (memtype.getVendor()) |vendorval|
+        else if (memtype.toVendor()) |vendorval|
             try writer.print("Vendor({X})", .{vendorval})
         else if (std.enums.tagName(MemoryType, memtype)) |name|
             try writer.print("{s}", .{name})
@@ -204,6 +204,15 @@ pub const OpenProtocolAttributes = enum(u32) {
     by_driver = @bitCast(Bits{ .by_driver = true }),
     by_driver_exclusive = @bitCast(Bits{ .by_driver = true, .exclusive = true }),
     exclusive = @bitCast(Bits{ .exclusive = true }),
+    _,
+
+    pub fn fromBits(bits: Bits) OpenProtocolAttributes {
+        return @bitCast(bits);
+    }
+
+    pub fn toBits(self: OpenProtocolAttributes) Bits {
+        return @bitCast(self);
+    }
 };
 
 pub const OpenProtocolArgs = union(OpenProtocolAttributes) {
@@ -252,19 +261,19 @@ pub const ProtocolInformationEntry = extern struct {
 };
 
 pub const InterfaceType = enum(u32) {
-    efi_native_interface,
+    native,
 };
 
 pub const AllocateLocation = union(AllocateType) {
-    allocate_any_pages,
-    allocate_max_address: [*]align(4096) uefi.Page,
-    allocate_address: [*]align(4096) uefi.Page,
+    any,
+    max_address: [*]align(4096) uefi.Page,
+    address: [*]align(4096) uefi.Page,
 };
 
 pub const AllocateType = enum(u32) {
-    allocate_any_pages,
-    allocate_max_address,
-    allocate_address,
+    any,
+    max_address,
+    address,
 };
 
 pub const PhysicalAddress = u64;
