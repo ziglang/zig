@@ -117,7 +117,7 @@ stack_size: u32 = 0,
 /// However, local variables or the usage of `incoming_stack_alignment` in a `CallingConvention` can overwrite this default.
 stack_alignment: Alignment = .@"16",
 
-// For each individual Wasm valtype we store a seperate free list which
+// For each individual Wasm valtype we store a separate free list which
 // allows us to re-use locals that are no longer used. e.g. a temporary local.
 /// A list of indexes which represents a local of valtype `i32`.
 /// It is illegal to store a non-i32 valtype in this list.

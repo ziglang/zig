@@ -1774,8 +1774,8 @@ fn transLocalExternStmt(c: *Context, scope: *Scope, var_decl: *const clang.VarDe
         .is_const = is_const,
         .is_extern = true,
         .is_export = false,
-        .is_threadlocal = var_decl.getTLSKind() != .None, // TODO: Neccessary?
-        .linksection_string = null, // TODO: Neccessary?
+        .is_threadlocal = var_decl.getTLSKind() != .None, // TODO: Necessary?
+        .linksection_string = null, // TODO: Necessary?
         .alignment = ClangAlignment.forVar(c, var_decl).zigAlignment(),
         .name = extern_var_name,
         .type = type_node,

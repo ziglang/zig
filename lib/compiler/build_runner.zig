@@ -485,7 +485,7 @@ pub fn main() !void {
         // until the buffer is empty. Then wait for a debounce interval, resetting
         // if any more events come in. After the debounce interval has passed,
         // trigger a rebuild on all steps with modified inputs, as well as their
-        // recursive dependants.
+        // recursive dependents.
         var caption_buf: [std.Progress.Node.max_name_len]u8 = undefined;
         const caption = std.fmt.bufPrint(&caption_buf, "watching {d} directories, {d} processes", .{
             w.dir_table.entries.len, countSubProcesses(run.step_stack.keys()),
@@ -632,7 +632,7 @@ fn runStepNames(
 
         // Here we spawn the initial set of tasks with a nice heuristic -
         // dependency order. Each worker when it finishes a step will then
-        // check whether it should run any dependants.
+        // check whether it should run any dependents.
         const steps_slice = step_stack.keys();
         for (0..steps_slice.len) |i| {
             const step = steps_slice[steps_slice.len - i - 1];
@@ -1008,14 +1008,14 @@ fn printTreeStep(
 }
 
 /// Traverse the dependency graph depth-first and make it undirected by having
-/// steps know their dependants (they only know dependencies at start).
+/// steps know their dependents (they only know dependencies at start).
 /// Along the way, check that there is no dependency loop, and record the steps
 /// in traversal order in `step_stack`.
 /// Each step has its dependencies traversed in random order, this accomplishes
 /// two things:
 /// - `step_stack` will be in randomized-depth-first order, so the build runner
 ///   spawns steps in a random (but optimized) order
-/// - each step's `dependants` list is also filled in a random order, so that
+/// - each step's `dependents` list is also filled in a random order, so that
 ///   when it finishes executing in `workerMakeOneStep`, it spawns next steps
 ///   to run in random order
 fn constructGraphAndCheckForDependencyLoop(
@@ -1041,7 +1041,7 @@ fn constructGraphAndCheckForDependencyLoop(
 
             for (deps) |dep| {
                 try step_stack.put(b.allocator, dep, {});
-                try dep.dependants.append(b.allocator, s);
+                try dep.dependents.append(b.allocator, s);
                 constructGraphAndCheckForDependencyLoop(b, dep, step_stack, rand) catch |err| {
                     if (err == error.DependencyLoopDetected) {
                         std.debug.print("  {s}\n", .{s.name});
@@ -1154,8 +1154,8 @@ fn workerMakeOneStep(
             error.MakeSkipped => @atomicStore(Step.State, &s.state, .skipped, .seq_cst),
         }
 
-        // Successful completion of a step, so we queue up its dependants as well.
-        for (s.dependants.items) |dep| {
+        // Successful completion of a step, so we queue up its dependents as well.
+        for (s.dependents.items) |dep| {
             thread_pool.spawnWg(wg, workerMakeOneStep, .{
                 wg, b, dep, prog_node, run,
             });
@@ -1206,8 +1206,8 @@ pub fn printErrorMessages(
     var step_stack: std.ArrayListUnmanaged(*Step) = .empty;
     defer step_stack.deinit(gpa);
     try step_stack.append(gpa, failing_step);
-    while (step_stack.items[step_stack.items.len - 1].dependants.items.len != 0) {
-        try step_stack.append(gpa, step_stack.items[step_stack.items.len - 1].dependants.items[0]);
+    while (step_stack.items[step_stack.items.len - 1].dependents.items.len != 0) {
+        try step_stack.append(gpa, step_stack.items[step_stack.items.len - 1].dependents.items[0]);
     }
 
     // Now, `step_stack` has the subtree that we want to print, in reverse order.

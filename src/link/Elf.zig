@@ -2764,7 +2764,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
     }
 
     // Next, calculate segment covers by scanning all alloc sections.
-    // If a section matches segment flags with the preceeding section,
+    // If a section matches segment flags with the preceding section,
     // we put it in the same segment. Otherwise, we create a new cover.
     // This algorithm is simple but suboptimal in terms of space re-use:
     // normally we would also take into account any gaps in allocated

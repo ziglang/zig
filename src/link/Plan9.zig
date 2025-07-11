@@ -48,7 +48,7 @@ path_arena: std.heap.ArenaAllocator,
 
 /// maps a file scope to a hash map of decl to codegen output
 /// this is useful for line debuginfo, since it makes sense to sort by file
-/// The debugger looks for the first file (aout.Sym.Type.z) preceeding the text symbol
+/// The debugger looks for the first file (aout.Sym.Type.z) preceding the text symbol
 /// of the function to know what file it came from.
 /// If we group the decls by file, it makes it really easy to do this (put the symbol in the correct place)
 fn_nav_table: std.AutoArrayHashMapUnmanaged(

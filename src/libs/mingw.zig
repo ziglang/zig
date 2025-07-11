@@ -407,7 +407,7 @@ fn findDef(
     const s = path.sep_str;
 
     {
-        // Try the archtecture-specific path first.
+        // Try the architecture-specific path first.
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "{s}" ++ s ++ "{s}.def";
         if (zig_lib_directory.path) |p| {
             try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_path, lib_name });
