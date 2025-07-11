@@ -453,6 +453,30 @@ test "select descending" {
     }
 }
 
+test "select fuzz testing" {
+    const asc_i32 = sort.asc(i32);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+    const test_case_count = 10;
+
+    inline for (select_funcs) |selectFn| {
+        for (0..test_case_count) |_| {
+            const array_size = random.intRangeLessThan(usize, 1, 1000);
+            const array = try testing.allocator.alloc(i32, array_size);
+            defer testing.allocator.free(array);
+            // populate with random data
+            for (array) |*item| {
+                item.* = random.intRangeLessThan(i32, 0, 100);
+            }
+            const n = random.intRangeLessThan(usize, 0, array_size);
+            selectFn(i32, array, n, {}, asc_i32);
+            const n_val = array[n];
+            sort.pdq(i32, array, {}, asc_i32);
+            try testing.expectEqual(n_val, array[n]);
+        }
+    }
+}
+
 test "median odd length" {
     var items = [_]i32{ 1, 3, 2, 5, 4 }; // sorted: 1, 2, 3, 4, 5 -> median 3
     const m = median(i32, &items, {}, sort.asc(i32));
@@ -466,7 +490,7 @@ test "median even length" {
 }
 
 test "median even length negative" {
-    var items = [_]i32{ -1, -3, -2, -5, -4, -6 }; // sorted: 1, 2, 3, 4, 5, 6 -> median (3+4)/2 = 3.5
+    var items = [_]i32{ -1, -3, -2, -5, -4, -6 }; // sorted: -6, -5, -4, -3, -2, -1 -> median (-4 + -3)/2 = -3.5
     const m = median(i32, &items, {}, sort.asc(i32));
     try testing.expectEqual(-3, m);
 }
