@@ -11,90 +11,11 @@ const page_size_min = std.heap.page_size_min;
 
 const MemoryAccessor = @This();
 
-var cached_pid: posix.pid_t = -1;
-
-mem: switch (native_os) {
-    .linux => File,
-    else => void,
-},
-
-pub const init: MemoryAccessor = .{
-    .mem = switch (native_os) {
-        .linux => .{ .handle = -1 },
-        else => {},
-    },
-};
-
-pub fn deinit(ma: *MemoryAccessor) void {
-    switch (native_os) {
-        .linux => switch (ma.mem.handle) {
-            -2, -1 => {},
-            else => ma.mem.close(),
-        },
-        else => {},
-    }
-    ma.* = undefined;
-}
-
-fn read(ma: *MemoryAccessor, address: usize, buf: []u8) bool {
-    switch (native_os) {
-        .linux => linux: switch (ma.mem.handle) {
-            -2 => break :linux,
-            -1 => {
-                const linux = std.os.linux;
-                const pid = switch (@atomicLoad(posix.pid_t, &cached_pid, .monotonic)) {
-                    -1 => pid: {
-                        const pid = linux.getpid();
-                        @atomicStore(posix.pid_t, &cached_pid, pid, .monotonic);
-                        break :pid pid;
-                    },
-                    else => |pid| pid,
-                };
-                const bytes_read = linux.process_vm_readv(
-                    pid,
-                    &.{.{ .base = buf.ptr, .len = buf.len }},
-                    &.{.{ .base = @ptrFromInt(address), .len = buf.len }},
-                    0,
-                );
-                switch (linux.E.init(bytes_read)) {
-                    .SUCCESS => return bytes_read == buf.len,
-                    .FAULT => return false,
-                    .INVAL => unreachable, // EINVAL is returned when flags to process_vm_readv is non-zero
-                    .SRCH => {
-                        // process with pid does not exist, but it should be our pid, so we'll try again.
-                        // This can happen after a call to fork() without a corresponding exec()
-                        const newpid = linux.getpid();
-                        std.debug.assert(newpid != pid);
-                        @atomicStore(posix.pid_t, &cached_pid, newpid, .monotonic);
-                        continue :linux -1;
-                    },
-                    .PERM => {}, // Known to happen in containers.
-                    .NOMEM => {},
-                    .NOSYS => {}, // QEMU is known not to implement this syscall.
-                    else => unreachable, // unexpected
-                }
-                var path_buf: [
-                    std.fmt.count("/proc/{d}/mem", .{std.math.minInt(posix.pid_t)})
-                ]u8 = undefined;
-                const path = std.fmt.bufPrint(&path_buf, "/proc/{d}/mem", .{pid}) catch
-                    unreachable;
-                ma.mem = std.fs.openFileAbsolute(path, .{}) catch {
-                    ma.mem.handle = -2;
-                    break :linux;
-                };
-            },
-            else => return (ma.mem.pread(buf, address) catch return false) == buf.len,
-        },
-        else => {},
-    }
-    if (!isValidMemory(address)) return false;
-    @memcpy(buf, @as([*]const u8, @ptrFromInt(address)));
-    return true;
-}
-
-pub fn load(ma: *MemoryAccessor, comptime Type: type, address: usize) ?Type {
+pub fn load(comptime Type: type, address: usize) ?Type {
+    if (!isValidMemory(address)) return null;
     var result: Type = undefined;
-    return if (ma.read(address, std.mem.asBytes(&result))) result else null;
+    @memcpy(std.mem.asBytes(&result), @as([*]const u8, @ptrFromInt(address)));
+    return result;
 }
 
 pub fn isValidMemory(address: usize) bool {

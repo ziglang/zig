@@ -38,12 +38,8 @@ pub fn readInt(fbr: *FixedBufferReader, comptime T: type) Error!T {
     return std.mem.readInt(T, fbr.buf[fbr.pos..][0..size], fbr.endian);
 }
 
-pub fn readIntChecked(
-    fbr: *FixedBufferReader,
-    comptime T: type,
-    ma: *MemoryAccessor,
-) Error!T {
-    if (ma.load(T, @intFromPtr(fbr.buf[fbr.pos..].ptr)) == null)
+pub fn readIntChecked(fbr: *FixedBufferReader, comptime T: type) Error!T {
+    if (MemoryAccessor.load(T, @intFromPtr(fbr.buf[fbr.pos..].ptr)) == null)
         return error.InvalidBuffer;
 
     return fbr.readInt(T);
@@ -64,14 +60,10 @@ pub fn readAddress(fbr: *FixedBufferReader, format: std.dwarf.Format) Error!u64 
     };
 }
 
-pub fn readAddressChecked(
-    fbr: *FixedBufferReader,
-    format: std.dwarf.Format,
-    ma: *MemoryAccessor,
-) Error!u64 {
+pub fn readAddressChecked(fbr: *FixedBufferReader, format: std.dwarf.Format) Error!u64 {
     return switch (format) {
-        .@"32" => try fbr.readIntChecked(u32, ma),
-        .@"64" => try fbr.readIntChecked(u64, ma),
+        .@"32" => try fbr.readIntChecked(u32),
+        .@"64" => try fbr.readIntChecked(u64),
     };
 }
 
