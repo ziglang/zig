@@ -2645,7 +2645,13 @@ pub fn analyzeAsAlign(
     src: LazySrcLoc,
     air_ref: Air.Inst.Ref,
 ) !Alignment {
-    const alignment_big = try sema.analyzeAsInt(block, src, air_ref, align_ty, .{ .simple = .@"align" });
+    const alignment_big = try sema.analyzeAsInt(
+        block,
+        src,
+        air_ref,
+        align_ty,
+        .{ .simple = .@"align" },
+    );
     return sema.validateAlign(block, src, alignment_big);
 }
 
@@ -19258,7 +19264,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const abi_align: Alignment = if (inst_data.flags.has_align) blk: {
         const ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_i]);
         extra_i += 1;
-        const coerced = try sema.coerce(block, .u32, try sema.resolveInst(ref), align_src);
+        const coerced = try sema.coerce(block, align_ty, try sema.resolveInst(ref), align_src);
         const val = try sema.resolveConstDefinedValue(block, align_src, coerced, .{ .simple = .@"align" });
         // Check if this happens to be the lazy alignment of our element type, in
         // which case we can make this 0 without resolving it.
@@ -20784,15 +20790,11 @@ fn zirReify(
                 try ip.getOrPutString(gpa, pt.tid, "sentinel_ptr", .no_embedded_nulls),
             ).?);
 
-            if (!try sema.intFitsInType(alignment_val, .u32, null)) {
-                return sema.fail(block, src, "alignment must fit in 'u32'", .{});
+            if (!try sema.intFitsInType(alignment_val, align_ty, null)) {
+                return sema.fail(block, src, "alignment must fit in '{f}'", .{align_ty.fmt(pt)});
             }
-
             const alignment_val_int = try alignment_val.toUnsignedIntSema(pt);
-            if (alignment_val_int > 0 and !math.isPowerOfTwo(alignment_val_int)) {
-                return sema.fail(block, src, "alignment value '{d}' is not a power of two or zero", .{alignment_val_int});
-            }
-            const abi_align = Alignment.fromByteUnits(alignment_val_int);
+            const abi_align = try sema.validateAlign(block, src, alignment_val_int);
 
             const elem_ty = child_val.toType();
             if (abi_align != .none) {
@@ -21466,11 +21468,7 @@ fn reifyUnion(
             field_ty.* = field_type_val.toIntern();
             if (any_aligns) {
                 const byte_align = try (try field_info.fieldValue(pt, 2)).toUnsignedIntSema(pt);
-                if (byte_align > 0 and !math.isPowerOfTwo(byte_align)) {
-                    // TODO: better source location
-                    return sema.fail(block, src, "alignment value '{d}' is not a power of two or zero", .{byte_align});
-                }
-                field_aligns[field_idx] = Alignment.fromByteUnits(byte_align);
+                field_aligns[field_idx] = try sema.validateAlign(block, src, byte_align);
             }
         }
 
@@ -21511,11 +21509,7 @@ fn reifyUnion(
             field_ty.* = field_type_val.toIntern();
             if (any_aligns) {
                 const byte_align = try (try field_info.fieldValue(pt, 2)).toUnsignedIntSema(pt);
-                if (byte_align > 0 and !math.isPowerOfTwo(byte_align)) {
-                    // TODO: better source location
-                    return sema.fail(block, src, "alignment value '{d}' is not a power of two or zero", .{byte_align});
-                }
-                field_aligns[field_idx] = Alignment.fromByteUnits(byte_align);
+                field_aligns[field_idx] = try sema.validateAlign(block, src, byte_align);
             }
         }
 
@@ -21751,7 +21745,10 @@ fn reifyStruct(
         if (field_is_comptime) any_comptime_fields = true;
         if (field_default_value != .none) any_default_inits = true;
         switch (try field_alignment_val.orderAgainstZeroSema(pt)) {
-            .eq => {},
+            .eq => if (layout != .@"packed") {
+                // this is an invalid case, however we want to error after this loop
+                any_aligned_fields = true;
+            },
             .gt => any_aligned_fields = true,
             .lt => unreachable,
         }
@@ -21811,18 +21808,17 @@ fn reifyStruct(
         }
 
         if (any_aligned_fields) {
-            if (!try sema.intFitsInType(field_alignment_val, .u32, null)) {
-                return sema.fail(block, src, "alignment must fit in 'u32'", .{});
+            if (!try sema.intFitsInType(field_alignment_val, align_ty, null)) {
+                return sema.fail(block, src, "alignment must fit in '{f}'", .{align_ty.fmt(pt)});
             }
-
             const byte_align = try field_alignment_val.toUnsignedIntSema(pt);
             if (byte_align == 0) {
                 if (layout != .@"packed") {
-                    struct_type.field_aligns.get(ip)[field_idx] = .none;
+                    return sema.fail(block, src, "alignment can only be 0 on packed struct fields", .{});
                 }
             } else {
                 if (layout == .@"packed") return sema.fail(block, src, "alignment in a packed struct field must be set to 0", .{});
-                if (!math.isPowerOfTwo(byte_align)) return sema.fail(block, src, "alignment value '{d}' is not a power of two or zero", .{byte_align});
+                if (!math.isPowerOfTwo(byte_align)) return sema.fail(block, src, "alignment value '{d}' is not a power of two", .{byte_align});
                 struct_type.field_aligns.get(ip)[field_idx] = Alignment.fromNonzeroByteUnits(byte_align);
             }
         }
