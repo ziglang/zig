@@ -1,8 +1,8 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const builtin = @import("builtin");
 
 test "compile time recursion" {
     try expect(some_data.len == 21);
@@ -862,7 +862,7 @@ test "comptime assign int to optional int" {
         var x: ?i32 = null;
         x = 2;
         x.? *= 10;
-        try expectEqual(20, x.?);
+        try expect(20 == x.?);
     }
 }
 
@@ -1688,9 +1688,9 @@ test "@inComptime" {
             return @inComptime();
         }
     };
-    try expectEqual(false, @inComptime());
-    try expectEqual(false, S.inComptime());
-    try expectEqual(true, comptime S.inComptime());
+    try expect(false == @inComptime());
+    try expect(false == S.inComptime());
+    try expect(true == comptime S.inComptime());
 }
 
 // comptime partial array assign
