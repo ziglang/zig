@@ -872,6 +872,10 @@ test "@addWithOverflow" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
+    try testAddWithOverflow(u8, 42, 0, 42, 0);
+    try testAddWithOverflow(i8, 42, 0, 42, 0);
+    try testAddWithOverflow(i8, -42, 0, -42, 0);
+
     try testAddWithOverflow(u8, 250, 100, 94, 1);
     try testAddWithOverflow(u8, 100, 150, 250, 0);
 
@@ -1117,6 +1121,11 @@ test "@subWithOverflow" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+
+    try testSubWithOverflow(u8, 42, 0, 42, 0);
+    try testSubWithOverflow(i8, 42, 0, 42, 0);
+    try testSubWithOverflow(i8, -42, 0, -42, 0);
 
     try testSubWithOverflow(u8, 1, 2, 255, 1);
     try testSubWithOverflow(u8, 1, 1, 0, 0);
