@@ -393,6 +393,32 @@ pub fn writableVectorPosix(w: *Writer, buffer: []std.posix.iovec, limit: Limit) 
     return buffer[0..i];
 }
 
+pub fn writableVectorWsa(
+    w: *Writer,
+    buffer: []std.os.windows.ws2_32.WSABUF,
+    limit: Limit,
+) Error![]std.os.windows.ws2_32.WSABUF {
+    var it = try writableVectorIterator(w);
+    var i: usize = 0;
+    var remaining = limit;
+    while (it.next()) |full_buffer| {
+        if (!remaining.nonzero()) break;
+        if (buffer.len - i == 0) break;
+        const buf = remaining.slice(full_buffer);
+        if (buf.len == 0) continue;
+        if (std.math.cast(u32, buf.len)) |len| {
+            buffer[i] = .{ .buf = buf.ptr, .len = len };
+            i += 1;
+            remaining = remaining.subtract(len).?;
+            continue;
+        }
+        buffer[i] = .{ .buf = buf.ptr, .len = std.math.maxInt(u32) };
+        i += 1;
+        break;
+    }
+    return buffer[0..i];
+}
+
 pub fn ensureUnusedCapacity(w: *Writer, n: usize) Error!void {
     _ = try writableSliceGreedy(w, n);
 }
