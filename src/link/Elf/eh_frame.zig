@@ -288,6 +288,7 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
         .x86_64 => try x86_64.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
         .aarch64 => try aarch64.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
         .riscv64 => try riscv.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
+        .loongarch64, .loongarch32 => try loongarch.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
         else => return error.UnsupportedCpuArch,
     }
 }
@@ -559,6 +560,19 @@ const riscv = struct {
         switch (r_type) {
             .NONE => {},
             .@"32_PCREL" => std.mem.writeInt(i32, data[0..4], @as(i32, @intCast(target - source)), .little),
+            else => try reportInvalidReloc(rec, elf_file, rel),
+        }
+    }
+};
+
+const loongarch = struct {
+    fn resolveReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela, source: i64, target: i64, data: []u8) !void {
+        const r_type: elf.R_LARCH = @enumFromInt(rel.r_type());
+        _ = source;
+        _ = target;
+        _ = data;
+        switch (r_type) {
+            .NONE => {},
             else => try reportInvalidReloc(rec, elf_file, rel),
         }
     }

@@ -73,11 +73,26 @@ const riscv64_relocs = Table(11, elf.R_RISCV, .{
     .{ .tlsdesc, .TLSDESC },
 });
 
+const loongarch64_relocs = Table(11, elf.R_LARCH, .{
+    .{ .none, .NONE },
+    .{ .abs, .@"64" },
+    .{ .copy, .COPY },
+    .{ .rel, .RELATIVE },
+    .{ .irel, .IRELATIVE },
+    .{ .glob_dat, .@"64" },
+    .{ .jump_slot, .JUMP_SLOT },
+    .{ .dtpmod, .TLS_DTPMOD64 },
+    .{ .dtpoff, .TLS_DTPREL64 },
+    .{ .tpoff, .TLS_TPREL64 },
+    .{ .tlsdesc, .TLS_DESC64 },
+});
+
 pub fn decode(r_type: u32, cpu_arch: std.Target.Cpu.Arch) ?Kind {
     return switch (cpu_arch) {
         .x86_64 => x86_64_relocs.decode(r_type),
         .aarch64 => aarch64_relocs.decode(r_type),
         .riscv64 => riscv64_relocs.decode(r_type),
+        .loongarch64 => loongarch64_relocs.decode(r_type),
         else => @panic("TODO unhandled cpu arch"),
     };
 }
@@ -87,6 +102,7 @@ pub fn encode(comptime kind: Kind, cpu_arch: std.Target.Cpu.Arch) u32 {
         .x86_64 => x86_64_relocs.encode(kind),
         .aarch64 => aarch64_relocs.encode(kind),
         .riscv64 => riscv64_relocs.encode(kind),
+        .loongarch64 => loongarch64_relocs.encode(kind),
         else => @panic("TODO unhandled cpu arch"),
     };
 }
@@ -100,6 +116,10 @@ pub const dwarf = struct {
             }),
             .riscv64 => @intFromEnum(switch (format) {
                 .@"32" => elf.R_RISCV.@"32",
+                .@"64" => .@"64",
+            }),
+            .loongarch64, .loongarch32 => @intFromEnum(switch (format) {
+                .@"32" => elf.R_LARCH.@"32",
                 .@"64" => .@"64",
             }),
             else => @panic("TODO unhandled cpu arch"),
@@ -122,6 +142,14 @@ pub const dwarf = struct {
                 .debug_frame => .PC32,
             })),
             .riscv64 => @intFromEnum(@as(elf.R_RISCV, switch (source_section) {
+                else => switch (address_size) {
+                    .@"32" => .@"32",
+                    .@"64" => .@"64",
+                    else => unreachable,
+                },
+                .debug_frame => unreachable,
+            })),
+            .loongarch64, .loongarch32 => @intFromEnum(@as(elf.R_LARCH, switch (source_section) {
                 else => switch (address_size) {
                     .@"32" => .@"32",
                     .@"64" => .@"64",
@@ -154,6 +182,7 @@ fn formatRelocType(ctx: FormatRelocTypeCtx, writer: *std.io.Writer) std.io.Write
         .x86_64 => try writer.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),
         .aarch64 => try writer.print("R_AARCH64_{s}", .{@tagName(@as(elf.R_AARCH64, @enumFromInt(r_type)))}),
         .riscv64 => try writer.print("R_RISCV_{s}", .{@tagName(@as(elf.R_RISCV, @enumFromInt(r_type)))}),
+        .loongarch64, .loongarch32 => try writer.print("R_LARCH_{s}", .{@tagName(@as(elf.R_LARCH, @enumFromInt(r_type)))}),
         else => unreachable,
     }
 }

@@ -995,11 +995,7 @@ const FormatAirData = struct {
     inst: Air.Inst.Index,
 };
 fn formatAir(data: FormatAirData, writer: *std.io.Writer) std.io.Writer.Error!void {
-    // Not acceptable implementation because it ignores `writer`:
-    //data.func.air.dumpInst(data.inst, data.func.pt, data.func.liveness);
-    _ = data;
-    _ = writer;
-    @panic("unimplemented");
+    return data.func.air.writeInst(writer, data.inst, data.func.pt, data.func.liveness);
 }
 fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(FormatAirData, formatAir) {
     return .{ .data = .{ .func = func, .inst = inst } };
