@@ -173,6 +173,7 @@ cache: struct {
     extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, IdRef) = .empty,
     decorations: std.AutoHashMapUnmanaged(struct { IdRef, spec.Decoration }, void) = .empty,
     builtins: std.AutoHashMapUnmanaged(struct { IdRef, spec.BuiltIn }, Decl.Index) = .empty,
+    const_strings: std.StringHashMapUnmanaged(IdRef) = .empty,
 
     bool_const: [2]?IdRef = .{ null, null },
 } = .{},
@@ -231,6 +232,7 @@ pub fn deinit(self: *Module) void {
     self.cache.extended_instruction_set.deinit(self.gpa);
     self.cache.decorations.deinit(self.gpa);
     self.cache.builtins.deinit(self.gpa);
+    self.cache.const_strings.deinit(self.gpa);
 
     self.decls.deinit(self.gpa);
     self.decl_deps.deinit(self.gpa);
@@ -504,6 +506,47 @@ pub fn resolveString(self: *Module, string: []const u8) !IdRef {
     });
 
     return id;
+}
+
+pub fn constStringGlobal(self: *Module, str: []const u8) !IdRef {
+    if (self.cache.const_strings.get(str)) |id| return id;
+
+    const u8_ty = try self.intType(.unsigned, 8);
+    const len = str.len + 1;
+    const len_id = try self.constant(try self.intType(.unsigned, 32), .{ .uint32 = @intCast(len) });
+    const arr_ty = try self.arrayType(len_id, u8_ty);
+
+    const char_ids = try self.gpa.alloc(IdRef, len);
+    defer self.gpa.free(char_ids);
+    for (str, 0..) |c, i| {
+        char_ids[i] = try self.constant(u8_ty, .{ .uint32 = c });
+    }
+    char_ids[str.len] = try self.constant(u8_ty, .{ .uint32 = 0 });
+
+    const const_arr_id = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpConstantComposite, .{
+        .id_result_type = arr_ty,
+        .id_result = const_arr_id,
+        .constituents = char_ids,
+    });
+
+    const ptr_ty = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpTypePointer, .{
+        .id_result = ptr_ty,
+        .storage_class = .UniformConstant,
+        .type = arr_ty,
+    });
+
+    const var_id = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpVariable, .{
+        .id_result_type = ptr_ty,
+        .id_result = var_id,
+        .storage_class = .UniformConstant,
+        .initializer = const_arr_id,
+    });
+
+    try self.cache.const_strings.put(self.gpa, try self.arena.allocator().dupe(u8, str), var_id);
+    return var_id;
 }
 
 pub fn structType(self: *Module, result_id: IdResult, types: []const IdRef, maybe_names: ?[]const []const u8) !void {
