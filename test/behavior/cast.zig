@@ -1,4 +1,3 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
@@ -6,6 +5,8 @@ const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
+const builtin = @import("builtin");
+
 const native_endian = builtin.target.cpu.arch.endian();
 
 test "int to ptr cast" {
@@ -1738,8 +1739,8 @@ test "peer type resolution: float and comptime-known fixed-width integer" {
 
     const T = @TypeOf(r1);
 
-    try expectEqual(@as(T, 100.0), r1);
-    try expectEqual(@as(T, 1.234), r2);
+    try expect(@as(T, 100.0) == r1);
+    try expect(@as(T, 1.234) == r2);
 }
 
 test "peer type resolution: same array type with sentinel" {
@@ -1879,8 +1880,8 @@ test "peer type resolution: C pointer and @TypeOf(null)" {
 
     const T = @TypeOf(r1);
 
-    try expectEqual(@as(T, 0x1000), r1);
-    try expectEqual(@as(T, null), r2);
+    try expect(@as(T, 0x1000) == r1);
+    try expect(@as(T, null) == r2);
 }
 
 test "peer type resolution: three-way resolution combines error set and optional" {
@@ -1969,8 +1970,8 @@ test "peer type resolution: optional fixed-width int and comptime_int" {
 
     const T = @TypeOf(r1);
 
-    try expectEqual(@as(T, 42), r1);
-    try expectEqual(@as(T, 50), r2);
+    try expect(@as(T, 42) == r1);
+    try expect(@as(T, 50) == r2);
 }
 
 test "peer type resolution: array and tuple" {
@@ -2224,11 +2225,11 @@ test "peer type resolution: tuples with comptime fields" {
     const r1 = if (t) a else b;
     const r2 = if (t) b else a;
 
-    try expectEqual(@as(u32, 1), r1[0]);
-    try expectEqual(@as(i16, 2), r1[1]);
+    try expect(@as(u32, 1) == r1[0]);
+    try expect(@as(i16, 2) == r1[1]);
 
-    try expectEqual(@as(u32, 3), r2[0]);
-    try expectEqual(@as(i16, 4), r2[1]);
+    try expect(@as(u32, 3) == r2[0]);
+    try expect(@as(i16, 4) == r2[1]);
 }
 
 test "peer type resolution: C pointer and many pointer" {
@@ -2626,7 +2627,7 @@ test "numeric coercions with undefined" {
     var to: f32 = from;
     to = @floatFromInt(from);
     to = 42.0;
-    try expectEqual(@as(f32, 42.0), to);
+    try expect(@as(f32, 42.0) == to);
 }
 
 test "15-bit int to float" {
@@ -2711,7 +2712,7 @@ test "bitcast vector" {
 
     const zerox32: u8x32 = [_]u8{0} ** 32;
     const bigsum: u32x8 = @bitCast(zerox32);
-    try std.testing.expectEqual(0, @reduce(.Add, bigsum));
+    try std.testing.expect(0 == @reduce(.Add, bigsum));
 }
 
 test "peer type resolution: slice of sentinel-terminated array" {

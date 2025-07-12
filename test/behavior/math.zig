@@ -1,4 +1,3 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
@@ -8,6 +7,7 @@ const maxInt = std.math.maxInt;
 const minInt = std.math.minInt;
 const mem = std.mem;
 const math = std.math;
+const builtin = @import("builtin");
 
 test "assignment operators" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -698,7 +698,7 @@ test "negation wrapping" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    try expectEqual(@as(u1, 1), negateWrap(u1, 1));
+    try expect(@as(u1, 1) == negateWrap(u1, 1));
 }
 
 fn negateWrap(comptime T: type, x: T) T {
@@ -1403,14 +1403,14 @@ test "shift left/right on u0 operand" {
             var x: u0 = 0;
             var y: u0 = 0;
             _ = .{ &x, &y };
-            try expectEqual(@as(u0, 0), x << 0);
-            try expectEqual(@as(u0, 0), x >> 0);
-            try expectEqual(@as(u0, 0), x << y);
-            try expectEqual(@as(u0, 0), x >> y);
-            try expectEqual(@as(u0, 0), @shlExact(x, 0));
-            try expectEqual(@as(u0, 0), @shrExact(x, 0));
-            try expectEqual(@as(u0, 0), @shlExact(x, y));
-            try expectEqual(@as(u0, 0), @shrExact(x, y));
+            try expect(@as(u0, 0) == x << 0);
+            try expect(@as(u0, 0) == x >> 0);
+            try expect(@as(u0, 0) == x << y);
+            try expect(@as(u0, 0) == x >> y);
+            try expect(@as(u0, 0) == @shlExact(x, 0));
+            try expect(@as(u0, 0) == @shrExact(x, 0));
+            try expect(@as(u0, 0) == @shlExact(x, y));
+            try expect(@as(u0, 0) == @shrExact(x, y));
         }
     };
     try S.doTheTest();
@@ -1778,7 +1778,7 @@ test "@clz works on both vector and scalar inputs" {
     _ = &y;
     const a = @clz(x);
     const b = @clz(y);
-    try std.testing.expectEqual(@as(u6, 31), a);
+    try std.testing.expect(@as(u6, 31) == a);
     try std.testing.expectEqual([_]u6{ 31, 31, 31, 31 }, b);
 }
 

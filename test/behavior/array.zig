@@ -1,10 +1,10 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const mem = std.mem;
 const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
+const builtin = @import("builtin");
 
 test "array to slice" {
     const a: u32 align(4) = 3;
@@ -1054,10 +1054,10 @@ test "@splat array with sentinel" {
         fn doTheTest(comptime T: type, x: T, comptime s: T) !void {
             const arr: [10:s]T = @splat(x);
             for (arr) |elem| {
-                try expectEqual(x, elem);
+                try expect(x == elem);
             }
             const ptr: [*]const T = &arr;
-            try expectEqual(s, ptr[10]); // sentinel correct
+            try expect(s == ptr[10]); // sentinel correct
         }
     };
 

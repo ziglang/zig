@@ -1,10 +1,10 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
+const builtin = @import("builtin");
 
 test "passing an optional integer as a parameter" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -619,7 +619,7 @@ test "cast slice to const slice nested in error union and optional" {
 test "variable of optional of noreturn" {
     var null_opv: ?noreturn = null;
     _ = &null_opv;
-    try std.testing.expectEqual(@as(?noreturn, null), null_opv);
+    try std.testing.expect(@as(?noreturn, null) == null_opv);
 }
 
 test "copied optional doesn't alias source" {
@@ -658,7 +658,7 @@ test "result location initialization of optional with OPV payload" {
 
     var c: ?S = .{ .x = 0 };
     _ = &c;
-    try expectEqual(0, (c orelse return error.TestFailed).x);
+    try expect(0 == (c orelse return error.TestFailed).x);
 }
 
 test "global comptime only optional" {

@@ -1,8 +1,7 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
+const builtin = @import("builtin");
 
 test "super basic invocations" {
     const foo = struct {
@@ -434,8 +433,8 @@ test "method call as parameter type" {
             return u64;
         }
     };
-    try expectEqual(@as(u64, 123), S.foo(S{}, 123));
-    try expectEqual(@as(u64, 500), S.foo(S{}, 500));
+    try expect(@as(u64, 123) == S.foo(S{}, 123));
+    try expect(@as(u64, 500) == S.foo(S{}, 500));
 }
 
 test "non-anytype generic parameters provide result type" {
@@ -445,11 +444,11 @@ test "non-anytype generic parameters provide result type" {
 
     const S = struct {
         fn f(comptime T: type, y: T) !void {
-            try expectEqual(@as(T, 123), y);
+            try expect(@as(T, 123) == y);
         }
 
         fn g(x: anytype, y: @TypeOf(x)) !void {
-            try expectEqual(@as(@TypeOf(x), 0x222), y);
+            try expect(@as(@TypeOf(x), 0x222) == y);
         }
     };
 
@@ -612,10 +611,10 @@ test "call with union with zero sized field is not memorized incorrectly" {
         }
     };
     const s1 = U.S(U{ .T = u32 }).tag();
-    try std.testing.expectEqual(u32, s1);
+    try std.testing.expect(u32 == s1);
 
     const s2 = U.S(U{ .T = u64 }).tag();
-    try std.testing.expectEqual(u64, s2);
+    try std.testing.expect(u64 == s2);
 }
 
 test "function call with cast to anyopaque pointer" {
