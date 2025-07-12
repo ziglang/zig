@@ -1605,12 +1605,10 @@ pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
     assert(needle.len > 0);
     var i: usize = 0;
     var found: usize = 0;
-
     while (indexOfPos(T, haystack, i, needle)) |idx| {
         i = idx + needle.len;
         found += 1;
     }
-
     return found;
 }
 
@@ -1626,6 +1624,47 @@ test count {
     try testing.expect(count(u8, "foofoofoo", "foo") == 3);
     try testing.expect(count(u8, "fffffff", "ff") == 3);
     try testing.expect(count(u8, "owowowu", "owowu") == 1);
+}
+
+/// Returns the number of needles inside the haystack
+pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
+    var i: usize = 0;
+    var found: usize = 0;
+    while (indexOfScalarPos(T, haystack, i, needle)) |idx| {
+        i = idx + 1;
+        found += 1;
+    }
+    return found;
+}
+
+test countScalar {
+    try testing.expect(countScalar(u8, "", 'h') == 0);
+    try testing.expect(countScalar(u8, "h", 'h') == 1);
+    try testing.expect(countScalar(u8, "hh", 'h') == 2);
+    try testing.expect(countScalar(u8, "fffffff", 'f') == 7);
+    try testing.expect(countScalar(u8, "owowowu", 'w') == 3);
+}
+
+/// Returns the number of any of the needles inside the haystack
+pub fn countAny(comptime T: type, haystack: []const T, needle: []const T) usize {
+    assert(needle.len > 0);
+    var i: usize = 0;
+    var found: usize = 0;
+    while (indexOfAnyPos(T, haystack, i, needle)) |idx| {
+        i = idx + 1;
+        found += 1;
+    }
+    return found;
+}
+
+test countAny {
+    try testing.expect(countAny(u8, "", "h") == 0);
+    try testing.expect(countAny(u8, "h", "h") == 1);
+    try testing.expect(countAny(u8, "hh", "h") == 2);
+    try testing.expect(countAny(u8, "fffffff", "f") == 7);
+    try testing.expect(countAny(u8, "owowowu", "wo") == 6);
+    try testing.expect(countAny(u8, "foofoofoo", "foo") == 9);
+    try testing.expect(countAny(u8, "foobarfoo", "bar") == 3);
 }
 
 /// Returns true if the haystack contains expected_count or more needles
