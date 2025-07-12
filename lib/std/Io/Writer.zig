@@ -2176,7 +2176,9 @@ pub const Discarding = struct {
         d.count += w.end;
         w.end = 0;
         if (file_reader.getSize()) |size| {
-            const n = limit.minInt64(size - file_reader.pos);
+            const remaining = size - file_reader.pos;
+            const n = limit.minInt64(remaining);
+            if (remaining == 0 and limit != .nothing) return error.EndOfStream;
             file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
             w.end = 0;
             d.count += n;
@@ -2476,10 +2478,7 @@ pub const Allocating = struct {
         const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
         list.ensureUnusedCapacity(gpa, limit.minInt64(additional)) catch return error.WriteFailed;
         const dest = limit.slice(list.unusedCapacitySlice());
-        const n = file_reader.read(dest) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
-            error.EndOfStream => 0,
-        };
+        const n = try file_reader.read(dest);
         list.items.len += n;
         return n;
     }
