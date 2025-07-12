@@ -20029,7 +20029,7 @@ fn structInitAnon(
         return sema.addConstantMaybeRef(struct_val, is_ref);
     };
 
-    try sema.requireRuntimeBlock(block, LazySrcLoc.unneeded, block.src(.{ .init_elem = .{
+    try sema.requireRuntimeBlock(block, src, block.src(.{ .init_elem = .{
         .init_node_offset = src.offset.node_offset.x,
         .elem_index = @intCast(runtime_index),
     } }));
@@ -20177,7 +20177,7 @@ fn zirArrayInit(
         return sema.addConstantMaybeRef(result_val.toIntern(), is_ref);
     };
 
-    try sema.requireRuntimeBlock(block, LazySrcLoc.unneeded, block.src(.{ .init_elem = .{
+    try sema.requireRuntimeBlock(block, src, block.src(.{ .init_elem = .{
         .init_node_offset = src.offset.node_offset.x,
         .elem_index = runtime_index,
     } }));
