@@ -168,6 +168,7 @@ fn canSerializeTypeInner(
         .vector => |vector| canSerializeTypeInner(vector.child, visited, false),
 
         .@"struct" => |@"struct"| {
+            if (std.meta.hasFn(T, "zonStringify")) return true;
             for (visited) |V| if (T == V) return true;
             const new_visited = visited ++ .{T};
             for (@"struct".fields) |field| {
@@ -176,6 +177,7 @@ fn canSerializeTypeInner(
             return true;
         },
         .@"union" => |@"union"| {
+            if (std.meta.hasFn(T, "zonStringify")) return true;
             for (visited) |V| if (T == V) return true;
             const new_visited = visited ++ .{T};
             if (@"union".tag_type == null) return false;
@@ -542,6 +544,9 @@ pub fn Serializer(Writer: type) type {
                     }
                     try container.end();
                 } else {
+                    if (std.meta.hasFn(@TypeOf(val), "zonStringify")) {
+                        return val.zonStringify(self, options);
+                    }
                     // Decide which fields to emit
                     const fields, const skipped: [@"struct".fields.len]bool = if (options.emit_default_optional_fields) b: {
                         break :b .{ @"struct".fields.len, @splat(false) };
@@ -578,6 +583,9 @@ pub fn Serializer(Writer: type) type {
                 },
                 .@"union" => |@"union"| {
                     comptime assert(@"union".tag_type != null);
+                    if (std.meta.hasFn(@TypeOf(val), "zonStringify")) {
+                        return val.zonStringify(self, options);
+                    }
                     switch (val) {
                         inline else => |pl, tag| if (@TypeOf(pl) == void)
                             try self.writer.print(".{s}", .{@tagName(tag)})
