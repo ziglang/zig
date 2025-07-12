@@ -46,7 +46,7 @@ pub fn stringify(
     value: anytype,
     options: StringifyOptions,
     out_stream: anytype,
-) @TypeOf(out_stream).Error!void {
+) WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth).Error!void {
     var jw = writeStream(out_stream, options);
     defer jw.deinit();
     try jw.write(value);
@@ -61,7 +61,7 @@ pub fn stringifyMaxDepth(
     options: StringifyOptions,
     out_stream: anytype,
     comptime max_depth: ?usize,
-) @TypeOf(out_stream).Error!void {
+) WriteStream(@TypeOf(out_stream), .checked_to_arbitrary_depth).Error!void {
     var jw = writeStreamMaxDepth(out_stream, options, max_depth);
     try jw.write(value);
 }
@@ -88,7 +88,7 @@ pub fn stringifyAlloc(
     allocator: Allocator,
     value: anytype,
     options: StringifyOptions,
-) error{OutOfMemory}![]u8 {
+) error{ OutOfMemory, InvalidInput }![]u8 {
     var list = std.ArrayList(u8).init(allocator);
     errdefer list.deinit();
     try stringifyArbitraryDepth(allocator, value, options, list.writer());
@@ -195,8 +195,8 @@ pub fn WriteStream(
 
         pub const Stream = OutStream;
         pub const Error = switch (safety_checks) {
-            .checked_to_arbitrary_depth => Stream.Error || error{OutOfMemory},
-            .checked_to_fixed_depth, .assumed_correct => Stream.Error,
+            .checked_to_arbitrary_depth => Stream.Error || error{ OutOfMemory, InvalidInput },
+            .checked_to_fixed_depth, .assumed_correct => Stream.Error || error{InvalidInput},
         };
 
         options: StringifyOptions,
@@ -468,6 +468,7 @@ pub fn WriteStream(
         ///  * Zig `i32`, `u64`, etc. -> JSON number or string.
         ///      * When option `emit_nonportable_numbers_as_strings` is true, if the value is outside the range `+-1<<53` (the precise integer range of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
         ///  * Zig floats -> JSON number or string.
+        ///      * If the value is NaN or infinity, an error is returned.
         ///      * If the value cannot be precisely represented by an f64, it is rendered as a JSON string. Otherwise, it is rendered as JSON number.
         ///  * Zig `[]const u8`, `[]u8`, `*[N]u8`, `@Vector(N, u8)`, and similar -> JSON string.
         ///      * See `StringifyOptions.emit_strings_as_arrays`.
@@ -508,7 +509,22 @@ pub fn WriteStream(
                 .comptime_int => {
                     return self.write(@as(std.math.IntFittingRange(value, value), value));
                 },
-                .float, .comptime_float => {
+                .comptime_float => {
+                    if (@as(f64, @floatCast(value)) == value) {
+                        try self.valueStart();
+                        try self.stream.print("{}", .{@as(f64, @floatCast(value))});
+                        self.valueDone();
+                        return;
+                    }
+                    try self.valueStart();
+                    try self.stream.print("\"{}\"", .{value});
+                    self.valueDone();
+                    return;
+                },
+                .float => {
+                    if (std.math.isInf(value) or std.math.isNan(value)) {
+                        return error.InvalidInput;
+                    }
                     if (@as(f64, @floatCast(value)) == value) {
                         try self.valueStart();
                         try self.stream.print("{}", .{@as(f64, @floatCast(value))});
