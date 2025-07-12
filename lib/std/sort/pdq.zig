@@ -41,6 +41,7 @@ const Hint = enum {
 /// which each take 2 `usize` parameters indicating the index of an item.
 /// Sorts in ascending order with respect to `lessThan`.
 pub fn pdqContext(a: usize, b: usize, context: anytype) void {
+    if (a == b) return;
     // slices of up to this length get sorted using insertion sort.
     const max_insertion = 24;
     // number of allowed imbalanced partitions before switching to heap sort.
