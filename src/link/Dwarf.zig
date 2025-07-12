@@ -1907,7 +1907,12 @@ pub const WipNav = struct {
         const ty = value.typeOf(zcu);
         if (std.debug.runtime_safety) assert(ty.comptimeOnly(zcu) and try ty.onePossibleValue(wip_nav.pt) == null);
         if (ty.toIntern() == .type_type) return wip_nav.getTypeEntry(value.toType());
-        if (ip.isFunctionType(ty.toIntern()) and !value.isUndef(zcu)) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
+        if (ip.isFunctionType(ty.toIntern()) and !value.isUndef(zcu))
+            return wip_nav.getNavEntry(switch (ip.indexToKey(value.toIntern())) {
+                .func => |func| func.owner_nav,
+                .@"extern" => |@"extern"| @"extern".owner_nav,
+                else => unreachable,
+            });
         const gop = try wip_nav.dwarf.values.getOrPut(wip_nav.dwarf.gpa, value.toIntern());
         const unit: Unit.Index = .main;
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
@@ -2426,23 +2431,50 @@ fn initWipNavInner(
     const nav = ip.getNav(nav_index);
     const inst_info = nav.srcInst(ip).resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
-    const decl = file.zir.?.getDeclaration(inst_info.inst);
+    const real_decl = file.zir.?.getDeclaration(inst_info.inst);
     log.debug("initWipNav({s}:{d}:{d} %{d} = {f})", .{
         file.sub_file_path,
-        decl.src_line + 1,
-        decl.src_column + 1,
+        real_decl.src_line + 1,
+        real_decl.src_column + 1,
         @intFromEnum(inst_info.inst),
         nav.fqn.fmt(ip),
     });
 
     const nav_val = zcu.navValue(nav_index);
     const nav_key = ip.indexToKey(nav_val.toIntern());
-    switch (nav_key) {
-        // Ignore @extern
-        .@"extern" => |@"extern"| if (decl.linkage != .@"extern" or
-            !@"extern".name.eqlSlice(file.zir.?.nullTerminatedString(decl.name), ip)) return null,
-        else => {},
-    }
+    const decl, const is_func, const is_extern = switch (nav_key) {
+        .@"extern" => |@"extern"| blk: {
+            const is_func = ip.isFunctionType(@"extern".ty);
+            break :blk .{
+                // Fake a decl with correct info for @extern as declaration is just the containing declaration right now.
+                // Source location is still incorrect
+                if (real_decl.linkage != .@"extern" or
+                    !@"extern".name.eqlSlice(file.zir.?.nullTerminatedString(real_decl.name), ip))
+                    Zir.Inst.Declaration.Unwrapped{
+                        .src_node = real_decl.src_node,
+                        .src_line = real_decl.src_line,
+                        .src_column = real_decl.src_column,
+                        .kind = if (@"extern".is_const) .@"const" else .@"var",
+                        .name = .empty,
+                        .is_pub = false,
+                        .is_threadlocal = @"extern".is_threadlocal,
+                        .linkage = .@"extern",
+                        .lib_name = .empty,
+                        .type_body = null,
+                        .align_body = null,
+                        .linksection_body = null,
+                        .addrspace_body = null,
+                        .value_body = null,
+                    }
+                else
+                    real_decl,
+                is_func,
+                true,
+            };
+        },
+        .func => .{ real_decl, true, false },
+        else => .{ real_decl, false, false },
+    };
 
     const mod = file.mod.?;
     const unit = try dwarf.getUnit(mod);
@@ -2476,48 +2508,21 @@ fn initWipNavInner(
     };
     errdefer wip_nav.deinit();
 
-    switch (nav_key) {
-        else => {
-            const diw = wip_nav.debug_info.writer(dwarf.gpa);
-            try wip_nav.declCommon(.{
-                .decl = .decl_var,
-                .generic_decl = .generic_decl_var,
-                .decl_instance = .decl_instance_var,
-            }, &nav, inst_info.file, &decl);
-            try wip_nav.strp(nav.fqn.toSlice(ip));
-            const ty: Type = nav_val.typeOf(zcu);
-            const addr: Loc = .{ .addr_reloc = sym_index };
-            const loc: Loc = if (decl.is_threadlocal) .{ .form_tls_address = &addr } else addr;
-            switch (decl.kind) {
-                .unnamed_test, .@"test", .decltest, .@"comptime" => unreachable,
-                .@"const" => {
-                    const const_ty_reloc_index = try wip_nav.refForward();
-                    try wip_nav.infoExprLoc(loc);
-                    try uleb128(diw, nav.status.fully_resolved.alignment.toByteUnits() orelse
-                        ty.abiAlignment(zcu).toByteUnits().?);
-                    try diw.writeByte(@intFromBool(decl.linkage != .normal));
-                    wip_nav.finishForward(const_ty_reloc_index);
-                    try wip_nav.abbrevCode(.is_const);
-                    try wip_nav.refType(ty);
-                },
-                .@"var" => {
-                    try wip_nav.refType(ty);
-                    try wip_nav.infoExprLoc(loc);
-                    try uleb128(diw, nav.status.fully_resolved.alignment.toByteUnits() orelse
-                        ty.abiAlignment(zcu).toByteUnits().?);
-                    try diw.writeByte(@intFromBool(decl.linkage != .normal));
-                },
-            }
-        },
-        .func => |func| if (func.owner_nav != nav_index) {
+    if (is_func) {
+        const owner_nav, const ty = switch (nav_key) {
+            .func => |func| .{ func.owner_nav, func.ty },
+            .@"extern" => |@"extern"| .{ @"extern".owner_nav, @"extern".ty },
+            else => unreachable,
+        };
+        if (owner_nav != nav_index) {
             try wip_nav.declCommon(.{
                 .decl = .decl_alias,
                 .generic_decl = .generic_decl_const,
                 .decl_instance = .decl_instance_alias,
             }, &nav, inst_info.file, &decl);
-            try wip_nav.refNav(func.owner_nav);
+            try wip_nav.refNav(owner_nav);
         } else {
-            const func_type = ip.indexToKey(func.ty).func_type;
+            const func_type = ip.indexToKey(ty).func_type;
             wip_nav.func = nav_val.toIntern();
             wip_nav.func_sym_index = sym_index;
             wip_nav.blocks = .empty;
@@ -2581,42 +2586,76 @@ fn initWipNavInner(
             try diw.writeByte(@intFromBool(decl.linkage != .normal));
             try diw.writeByte(@intFromBool(func_type.return_type == .noreturn_type));
 
-            const dlw = wip_nav.debug_line.writer(dwarf.gpa);
-            try dlw.writeByte(DW.LNS.extended_op);
-            if (dwarf.incremental()) {
-                try uleb128(dlw, 1 + dwarf.sectionOffsetBytes());
-                try dlw.writeByte(DW.LNE.ZIG_set_decl);
-                try dwarf.debug_line.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).cross_section_relocs.append(dwarf.gpa, .{
-                    .source_off = @intCast(wip_nav.debug_line.items.len),
-                    .target_sec = .debug_info,
-                    .target_unit = wip_nav.unit,
-                    .target_entry = wip_nav.entry.toOptional(),
-                });
-                try dlw.writeByteNTimes(0, dwarf.sectionOffsetBytes());
+            if (!is_extern) {
+                const func = nav_key.func;
+                const dlw = wip_nav.debug_line.writer(dwarf.gpa);
+                try dlw.writeByte(DW.LNS.extended_op);
+                if (dwarf.incremental()) {
+                    try uleb128(dlw, 1 + dwarf.sectionOffsetBytes());
+                    try dlw.writeByte(DW.LNE.ZIG_set_decl);
+                    try dwarf.debug_line.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).cross_section_relocs.append(dwarf.gpa, .{
+                        .source_off = @intCast(wip_nav.debug_line.items.len),
+                        .target_sec = .debug_info,
+                        .target_unit = wip_nav.unit,
+                        .target_entry = wip_nav.entry.toOptional(),
+                    });
+                    try dlw.writeByteNTimes(0, dwarf.sectionOffsetBytes());
 
-                try dlw.writeByte(DW.LNS.set_column);
-                try uleb128(dlw, func.lbrace_column + 1);
+                    try dlw.writeByte(DW.LNS.set_column);
+                    try uleb128(dlw, func.lbrace_column + 1);
 
-                try wip_nav.advancePCAndLine(func.lbrace_line, 0);
-            } else {
-                try uleb128(dlw, 1 + @intFromEnum(dwarf.address_size));
-                try dlw.writeByte(DW.LNE.set_address);
-                try dwarf.debug_line.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs.append(dwarf.gpa, .{
-                    .source_off = @intCast(wip_nav.debug_line.items.len),
-                    .target_sym = sym_index,
-                });
-                try dlw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
+                    try wip_nav.advancePCAndLine(func.lbrace_line, 0);
+                } else {
+                    try uleb128(dlw, 1 + @intFromEnum(dwarf.address_size));
+                    try dlw.writeByte(DW.LNE.set_address);
+                    try dwarf.debug_line.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs.append(dwarf.gpa, .{
+                        .source_off = @intCast(wip_nav.debug_line.items.len),
+                        .target_sym = sym_index,
+                    });
+                    try dlw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
 
-                const file_gop = try dwarf.getModInfo(unit).files.getOrPut(dwarf.gpa, inst_info.file);
-                try dlw.writeByte(DW.LNS.set_file);
-                try uleb128(dlw, file_gop.index);
+                    const file_gop = try dwarf.getModInfo(unit).files.getOrPut(dwarf.gpa, inst_info.file);
+                    try dlw.writeByte(DW.LNS.set_file);
+                    try uleb128(dlw, file_gop.index);
 
-                try dlw.writeByte(DW.LNS.set_column);
-                try uleb128(dlw, func.lbrace_column + 1);
+                    try dlw.writeByte(DW.LNS.set_column);
+                    try uleb128(dlw, func.lbrace_column + 1);
 
-                try wip_nav.advancePCAndLine(@intCast(decl.src_line + func.lbrace_line), 0);
+                    try wip_nav.advancePCAndLine(@intCast(decl.src_line + func.lbrace_line), 0);
+                }
             }
-        },
+        }
+    } else {
+        const diw = wip_nav.debug_info.writer(dwarf.gpa);
+        try wip_nav.declCommon(.{
+            .decl = .decl_var,
+            .generic_decl = .generic_decl_var,
+            .decl_instance = .decl_instance_var,
+        }, &nav, inst_info.file, &decl);
+        try wip_nav.strp(nav.fqn.toSlice(ip));
+        const ty: Type = nav_val.typeOf(zcu);
+        const addr: Loc = .{ .addr_reloc = sym_index };
+        const loc: Loc = if (decl.is_threadlocal) .{ .form_tls_address = &addr } else addr;
+        switch (decl.kind) {
+            .unnamed_test, .@"test", .decltest, .@"comptime" => unreachable,
+            .@"const" => {
+                const const_ty_reloc_index = try wip_nav.refForward();
+                try wip_nav.infoExprLoc(loc);
+                try uleb128(diw, nav.status.fully_resolved.alignment.toByteUnits() orelse
+                    ty.abiAlignment(zcu).toByteUnits().?);
+                try diw.writeByte(@intFromBool(decl.linkage != .normal));
+                wip_nav.finishForward(const_ty_reloc_index);
+                try wip_nav.abbrevCode(.is_const);
+                try wip_nav.refType(ty);
+            },
+            .@"var" => {
+                try wip_nav.refType(ty);
+                try wip_nav.infoExprLoc(loc);
+                try uleb128(diw, nav.status.fully_resolved.alignment.toByteUnits() orelse
+                    ty.abiAlignment(zcu).toByteUnits().?);
+                try diw.writeByte(@intFromBool(decl.linkage != .normal));
+            },
+        }
     }
     return wip_nav;
 }
