@@ -86,15 +86,15 @@ pub fn nthElementContext(n: usize, a: usize, b: usize, context: anytype) void {
         }
         depth_limit -= 1;
         var pivot: usize = 0;
-        _ = sort.utils.chosePivot(left, right, &pivot, context);
+        _ = sort.chosePivot(left, right, &pivot, context);
         // if the chosen pivot is equal to the predecessor, then it's the smallest element in the
         // slice. Partition the slice into elements equal to and elements greater than the pivot.
         // This case is usually hit when the slice contains many duplicate elements.
         if (left > a and !context.lessThan(left - 1, pivot)) {
-            left = sort.utils.partitionEqual(left, right, pivot, context);
+            left = sort.partitionEqual(left, right, pivot, context);
             continue;
         }
-        _ = sort.utils.partition(left, right, &pivot, context);
+        _ = sort.partition(left, right, &pivot, context);
         const target = a + n;
         if (pivot == target) {
             break;
@@ -162,7 +162,7 @@ pub fn heapSelectContext(n: usize, a: usize, b: usize, context: anytype) void {
     var i = a + (b - a) / 2;
     while (i > a) {
         i -= 1;
-        sort.utils.siftDown(a, i, b, context);
+        sort.siftDown(a, i, b, context);
     }
 
     var heap_end = b;
@@ -170,7 +170,7 @@ pub fn heapSelectContext(n: usize, a: usize, b: usize, context: anytype) void {
     while (i < n_largest - 1) : (i += 1) {
         heap_end -= 1;
         context.swap(a, heap_end);
-        sort.utils.siftDown(a, a, heap_end, context);
+        sort.siftDown(a, a, heap_end, context);
     }
 
     // After the loop, the root of the heap (at index `a`) is the nth smallest element.

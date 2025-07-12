@@ -74,7 +74,7 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
 
             // choose a pivot and try guessing whether the slice is already sorted.
             var pivot: usize = 0;
-            var hint = sort.utils.chosePivot(range.a, range.b, &pivot, context);
+            var hint = sort.chosePivot(range.a, range.b, &pivot, context);
 
             if (hint == .decreasing) {
                 // The maximum number of swaps was performed, so items are likely
@@ -96,13 +96,13 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
             // slice. Partition the slice into elements equal to and elements greater than the pivot.
             // This case is usually hit when the slice contains many duplicate elements.
             if (range.a > a and !context.lessThan(range.a - 1, pivot)) {
-                range.a = sort.utils.partitionEqual(range.a, range.b, pivot, context);
+                range.a = sort.partitionEqual(range.a, range.b, pivot, context);
                 continue;
             }
 
             // partition the slice.
             var mid = pivot;
-            was_partitioned = sort.utils.partition(range.a, range.b, &mid, context);
+            was_partitioned = sort.partition(range.a, range.b, &mid, context);
 
             const left_len = mid - range.a;
             const right_len = range.b - mid;
