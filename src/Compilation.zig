@@ -6317,6 +6317,9 @@ pub fn addCCArgs(
         try argv.append("-fno-caret-diagnostics");
     }
 
+    try argv.appendSlice(comp.global_cc_argv);
+    try argv.appendSlice(mod.cc_argv);
+
     // We never want clang to invoke the system assembler for anything. So we would want
     // this option always enabled. However, it only matters for some targets. To avoid
     // "unused parameter" warnings, and to keep CLI spam to a minimum, we only put this
@@ -6795,9 +6798,6 @@ pub fn addCCArgs(
         },
         else => {},
     }
-
-    try argv.appendSlice(comp.global_cc_argv);
-    try argv.appendSlice(mod.cc_argv);
 }
 
 fn failCObj(
