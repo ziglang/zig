@@ -886,6 +886,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         // TODO: this is a workaround for llvm/llvm-project#68409
         // Zig tracking issue: #16876
         .frame_address => return true,
+        .EnumLiteral => return false,
         // These builtins take a single argument with a known result type, but do not consume their
         // result pointer.
         .size_of,
@@ -899,7 +900,10 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .embed_file,
         .error_name,
         .set_runtime_safety,
-        .Type,
+        .Enum,
+        .Pointer,
+        .Struct,
+        .Union,
         .c_undef,
         .c_include,
         .wasm_memory_size,
@@ -1062,6 +1066,11 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
             _ = try astrl.expr(args[1], block, ResultInfo.none);
             _ = try astrl.expr(args[2], block, ResultInfo.none);
             _ = try astrl.expr(args[3], block, ResultInfo.none);
+            return false;
+        },
+        .Int => {
+            _ = try astrl.expr(args[0], block, ResultInfo.type_only);
+            _ = try astrl.expr(args[1], block, ResultInfo.type_only);
             return false;
         },
         .Vector => {

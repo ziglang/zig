@@ -1,7 +1,7 @@
 export fn entry() void {
-    _ = @Type(@typeInfo(struct {
+    _ = @Struct(@typeInfo(struct {
         pub const foo = 1;
-    }));
+    }).@"struct");
 }
 
 // error

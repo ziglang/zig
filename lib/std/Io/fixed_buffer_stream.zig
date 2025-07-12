@@ -126,7 +126,7 @@ fn Slice(comptime T: type) type {
                 else => @compileError("invalid type given to fixedBufferStream"),
             }
             new_ptr_info.size = .slice;
-            return @Type(.{ .pointer = new_ptr_info });
+            return @Pointer(new_ptr_info);
         },
         else => @compileError("invalid type given to fixedBufferStream"),
     }

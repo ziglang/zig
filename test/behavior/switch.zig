@@ -849,7 +849,8 @@ test "switch capture peer type resolution" {
 
 test "switch capture peer type resolution for in-memory coercible payloads" {
     const T1 = c_int;
-    const T2 = @Type(@typeInfo(T1));
+    const t1_info = @typeInfo(T1).int;
+    const T2 = @Int(t1_info.signedness, t1_info.bits);
 
     comptime assert(T1 != T2);
 
@@ -869,7 +870,8 @@ test "switch capture peer type resolution for in-memory coercible payloads" {
 
 test "switch pointer capture peer type resolution" {
     const T1 = c_int;
-    const T2 = @Type(@typeInfo(T1));
+    const t1_info = @typeInfo(T1).int;
+    const T2 = @Int(t1_info.signedness, t1_info.bits);
 
     comptime assert(T1 != T2);
 

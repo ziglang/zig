@@ -43,12 +43,12 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
             .alignment = if (@sizeOf(Data) > 0) @alignOf(Data) else 0,
         };
     }
-    return @Type(.{ .@"struct" = .{
+    return @Struct(.{
         .layout = .auto,
         .fields = &struct_fields,
         .decls = &.{},
         .is_tuple = false,
-    } });
+    });
 }
 
 /// Looks up the supplied fields in the given enum type.
