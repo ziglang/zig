@@ -737,39 +737,52 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderToken(r, lbrace, .none);
                 try renderIdentifier(r, lbrace + 1, .none, .eagerly_unquote); // identifier
                 return renderToken(r, rbrace, space);
-            } else if (tree.tokenTag(rbrace - 1) == .comma) {
-                // There is a trailing comma so render each member on a new line.
-                try ais.pushIndent(.normal);
-                try renderToken(r, lbrace, .newline);
-                var i = lbrace + 1;
-                while (i < rbrace) : (i += 1) {
-                    if (i > lbrace + 1) try renderExtraNewlineToken(r, i);
-                    switch (tree.tokenTag(i)) {
-                        .doc_comment => try renderToken(r, i, .newline),
-                        .identifier => {
-                            try ais.pushSpace(.comma);
-                            try renderIdentifier(r, i, .comma, .eagerly_unquote);
-                            ais.popSpace();
-                        },
-                        .comma => {},
-                        else => unreachable,
-                    }
-                }
-                ais.popIndent();
-                return renderToken(r, rbrace, space);
             } else {
-                // There is no trailing comma so render everything on one line.
-                try renderToken(r, lbrace, .space);
-                var i = lbrace + 1;
-                while (i < rbrace) : (i += 1) {
-                    switch (tree.tokenTag(i)) {
-                        .doc_comment => unreachable, // TODO
-                        .identifier => try renderIdentifier(r, i, .comma_space, .eagerly_unquote),
-                        .comma => {},
-                        else => unreachable,
+                // If there is a trailing comma, comment, or document comment, then render each
+                // item on its own line.
+                const multi_line = tree.tokenTag(rbrace - 1) == .comma or
+                    hasComment(tree, lbrace, rbrace) or
+                    blk: {
+                        var i = lbrace + 1;
+                        break :blk while (i < rbrace) : (i += 1) {
+                            if (tree.tokenTag(i) == .doc_comment)
+                                break true;
+                        } else false;
+                    };
+
+                if (multi_line) {
+                    // There is a trailing comma so render each member on a new line.
+                    try ais.pushIndent(.normal);
+                    try renderToken(r, lbrace, .newline);
+                    var i = lbrace + 1;
+                    while (i < rbrace) : (i += 1) {
+                        if (i > lbrace + 1) try renderExtraNewlineToken(r, i);
+                        switch (tree.tokenTag(i)) {
+                            .doc_comment => try renderToken(r, i, .newline),
+                            .identifier => {
+                                try ais.pushSpace(.comma);
+                                try renderIdentifier(r, i, .comma, .eagerly_unquote);
+                                ais.popSpace();
+                            },
+                            .comma => {},
+                            else => unreachable,
+                        }
                     }
+                    ais.popIndent();
+                    return renderToken(r, rbrace, space);
+                } else {
+                    // There is no trailing comma so render everything on one line.
+                    try renderToken(r, lbrace, .space);
+                    var i = lbrace + 1;
+                    while (i < rbrace) : (i += 1) {
+                        switch (tree.tokenTag(i)) {
+                            .identifier => try renderIdentifier(r, i, .comma_space, .eagerly_unquote),
+                            .comma => {},
+                            else => unreachable,
+                        }
+                    }
+                    return renderToken(r, rbrace, space);
                 }
-                return renderToken(r, rbrace, space);
             }
         },
 
@@ -2788,7 +2801,7 @@ fn renderIdentifier(r: *Render, token_index: Ast.TokenIndex, space: Space, quote
                     },
                     .failure => return renderQuotedIdentifier(r, token_index, space, false),
                 }
-                contents_i += esc_offset;
+                contents_i = esc_offset;
                 continue;
             },
             else => return renderQuotedIdentifier(r, token_index, space, false),
