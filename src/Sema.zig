@@ -14030,7 +14030,7 @@ fn zirShl(
 
     if (maybe_rhs_val) |rhs_val| {
         if (rhs_val.isUndef(zcu)) {
-            return pt.undefRef(sema.typeOf(lhs));
+            return pt.undefRef(lhs_ty);
         }
         // If rhs is 0, return lhs without doing any calculations.
         if (try rhs_val.compareAllWithZeroSema(.eq, pt)) {
@@ -14042,6 +14042,7 @@ fn zirShl(
                 var i: usize = 0;
                 while (i < rhs_ty.vectorLen(zcu)) : (i += 1) {
                     const rhs_elem = try rhs_val.elemValue(pt, i);
+                    if (rhs_elem.isUndef(zcu)) continue;
                     if (rhs_elem.compareHetero(.gte, bit_value, zcu)) {
                         return sema.fail(block, rhs_src, "shift amount '{f}' at index '{d}' is too large for operand type '{f}'", .{
                             rhs_elem.fmtValueSema(pt, sema),
@@ -14059,14 +14060,22 @@ fn zirShl(
         }
         if (rhs_ty.zigTypeTag(zcu) == .vector) {
             var i: usize = 0;
+            var undef_count: usize = 0;
             while (i < rhs_ty.vectorLen(zcu)) : (i += 1) {
                 const rhs_elem = try rhs_val.elemValue(pt, i);
+                if (rhs_elem.isUndef(zcu)) {
+                    undef_count += 1;
+                    continue;
+                }
                 if (rhs_elem.compareHetero(.lt, try pt.intValue(scalar_rhs_ty, 0), zcu)) {
                     return sema.fail(block, rhs_src, "shift by negative amount '{f}' at index '{d}'", .{
                         rhs_elem.fmtValueSema(pt, sema),
                         i,
                     });
                 }
+            }
+            if (undef_count == rhs_ty.vectorLen(zcu)) {
+                return pt.undefRef(lhs_ty);
             }
         } else if (rhs_val.compareHetero(.lt, try pt.intValue(rhs_ty, 0), zcu)) {
             return sema.fail(block, rhs_src, "shift by negative amount '{f}'", .{
@@ -14117,10 +14126,16 @@ fn zirShl(
             )).toIntern();
             const rhs_len = rhs_ty.vectorLen(zcu);
             const rhs_elems = try sema.arena.alloc(InternPool.Index, rhs_len);
-            for (rhs_elems, 0..) |*rhs_elem, i| rhs_elem.* = (try pt.intValue(
-                rt_rhs_scalar_ty,
-                @min(try (try rhs_val.elemValue(pt, i)).getUnsignedIntSema(pt) orelse bit_count, bit_count),
-            )).toIntern();
+            for (rhs_elems, 0..) |*rhs_elem, i| {
+                const elem_val = try rhs_val.elemValue(pt, i);
+                const min_val = if (elem_val.isUndef(zcu))
+                    bit_count
+                else if (try elem_val.getUnsignedIntSema(pt)) |uint|
+                    @min(uint, bit_count)
+                else
+                    bit_count;
+                rhs_elem.* = (try pt.intValue(rt_rhs_scalar_ty, min_val)).toIntern();
+            }
             break :rt_rhs try pt.intern(.{ .aggregate = .{
                 .ty = (try pt.vectorType(.{
                     .len = rhs_len,
@@ -14223,6 +14238,7 @@ fn zirShr(
                 var i: usize = 0;
                 while (i < rhs_ty.vectorLen(zcu)) : (i += 1) {
                     const rhs_elem = try rhs_val.elemValue(pt, i);
+                    if (rhs_elem.isUndef(zcu)) continue;
                     if (rhs_elem.compareHetero(.gte, bit_value, zcu)) {
                         return sema.fail(block, rhs_src, "shift amount '{f}' at index '{d}' is too large for operand type '{f}'", .{
                             rhs_elem.fmtValueSema(pt, sema),
@@ -14240,14 +14256,22 @@ fn zirShr(
         }
         if (rhs_ty.zigTypeTag(zcu) == .vector) {
             var i: usize = 0;
+            var undef_count: usize = 0;
             while (i < rhs_ty.vectorLen(zcu)) : (i += 1) {
                 const rhs_elem = try rhs_val.elemValue(pt, i);
+                if (rhs_elem.isUndef(zcu)) {
+                    undef_count += 1;
+                    continue;
+                }
                 if (rhs_elem.compareHetero(.lt, try pt.intValue(rhs_ty.childType(zcu), 0), zcu)) {
                     return sema.fail(block, rhs_src, "shift by negative amount '{f}' at index '{d}'", .{
                         rhs_elem.fmtValueSema(pt, sema),
                         i,
                     });
                 }
+            }
+            if (undef_count == rhs_ty.vectorLen(zcu)) {
+                return pt.undefRef(lhs_ty);
             }
         } else if (rhs_val.compareHetero(.lt, try pt.intValue(rhs_ty, 0), zcu)) {
             return sema.fail(block, rhs_src, "shift by negative amount '{f}'", .{
