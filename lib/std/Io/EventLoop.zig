@@ -192,14 +192,22 @@ pub fn init(el: *EventLoop, gpa: Allocator) !void {
     };
     const main_thread = &el.threads.allocated[0];
     Thread.self = main_thread;
-    const idle_stack_end: [*]usize = @alignCast(@ptrCast(allocated_slice[idle_stack_end_offset..].ptr));
+    const idle_stack_end: [*]align(16) usize = @alignCast(@ptrCast(allocated_slice[idle_stack_end_offset..].ptr));
     (idle_stack_end - 1)[0..1].* = .{@intFromPtr(el)};
     main_thread.* = .{
         .thread = undefined,
-        .idle_context = .{
-            .rsp = @intFromPtr(idle_stack_end - 1),
-            .rbp = 0,
-            .rip = @intFromPtr(&mainIdleEntry),
+        .idle_context = switch (builtin.cpu.arch) {
+            .aarch64 => .{
+                .sp = @intFromPtr(idle_stack_end),
+                .fp = 0,
+                .pc = @intFromPtr(&mainIdleEntry),
+            },
+            .x86_64 => .{
+                .rsp = @intFromPtr(idle_stack_end - 1),
+                .rbp = 0,
+                .rip = @intFromPtr(&mainIdleEntry),
+            },
+            else => @compileError("unimplemented architecture"),
         },
         .current_context = &main_fiber.context,
         .ready_queue = null,
@@ -606,6 +614,11 @@ const SwitchMessage = struct {
 };
 
 const Context = switch (builtin.cpu.arch) {
+    .aarch64 => extern struct {
+        sp: u64,
+        fp: u64,
+        pc: u64,
+    },
     .x86_64 => extern struct {
         rsp: u64,
         rbp: u64,
@@ -616,6 +629,102 @@ const Context = switch (builtin.cpu.arch) {
 
 inline fn contextSwitch(message: *const SwitchMessage) *const SwitchMessage {
     return @fieldParentPtr("contexts", switch (builtin.cpu.arch) {
+        .aarch64 => asm volatile (
+            \\ ldp x0, x2, [x1]
+            \\ ldr x3, [x2, #16]
+            \\ mov x4, sp
+            \\ stp x4, fp, [x0]
+            \\ adr x5, 0f
+            \\ ldp x4, fp, [x2]
+            \\ str x5, [x0, #16]
+            \\ mov sp, x4
+            \\ br x3
+            \\0:
+            : [received_message] "={x1}" (-> *const @FieldType(SwitchMessage, "contexts")),
+            : [message_to_send] "{x1}" (&message.contexts),
+            : .{
+              .x1 = true,
+              .x2 = true,
+              .x3 = true,
+              .x4 = true,
+              .x5 = true,
+              .x6 = true,
+              .x7 = true,
+              .x8 = true,
+              .x9 = true,
+              .x10 = true,
+              .x11 = true,
+              .x12 = true,
+              .x13 = true,
+              .x14 = true,
+              .x15 = true,
+              .x16 = true,
+              .x17 = true,
+              .x18 = true,
+              .x19 = true,
+              .x20 = true,
+              .x21 = true,
+              .x22 = true,
+              .x23 = true,
+              .x24 = true,
+              .x25 = true,
+              .x26 = true,
+              .x27 = true,
+              .x28 = true,
+              .x30 = true,
+              .z0 = true,
+              .z1 = true,
+              .z2 = true,
+              .z3 = true,
+              .z4 = true,
+              .z5 = true,
+              .z6 = true,
+              .z7 = true,
+              .z8 = true,
+              .z9 = true,
+              .z10 = true,
+              .z11 = true,
+              .z12 = true,
+              .z13 = true,
+              .z14 = true,
+              .z15 = true,
+              .z16 = true,
+              .z17 = true,
+              .z18 = true,
+              .z19 = true,
+              .z20 = true,
+              .z21 = true,
+              .z22 = true,
+              .z23 = true,
+              .z24 = true,
+              .z25 = true,
+              .z26 = true,
+              .z27 = true,
+              .z28 = true,
+              .z29 = true,
+              .z30 = true,
+              .z31 = true,
+              .p0 = true,
+              .p1 = true,
+              .p2 = true,
+              .p3 = true,
+              .p4 = true,
+              .p5 = true,
+              .p6 = true,
+              .p7 = true,
+              .p8 = true,
+              .p9 = true,
+              .p10 = true,
+              .p11 = true,
+              .p12 = true,
+              .p13 = true,
+              .p14 = true,
+              .p15 = true,
+              .fpcr = true,
+              .fpsr = true,
+              .ffr = true,
+              .memory = true,
+            }),
         .x86_64 => asm volatile (
             \\ movq 0(%%rsi), %%rax
             \\ movq 8(%%rsi), %%rcx
@@ -629,15 +738,67 @@ inline fn contextSwitch(message: *const SwitchMessage) *const SwitchMessage {
             \\0:
             : [received_message] "={rsi}" (-> *const @FieldType(SwitchMessage, "contexts")),
             : [message_to_send] "{rsi}" (&message.contexts),
-            : "rax", "rcx", "rdx", "rbx", "rdi", //
-            "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", //
-            "mm0", "mm1", "mm2", "mm3", "mm4", "mm5", "mm6", "mm7", //
-            "zmm0", "zmm1", "zmm2", "zmm3", "zmm4", "zmm5", "zmm6", "zmm7", //
-            "zmm8", "zmm9", "zmm10", "zmm11", "zmm12", "zmm13", "zmm14", "zmm15", //
-            "zmm16", "zmm17", "zmm18", "zmm19", "zmm20", "zmm21", "zmm22", "zmm23", //
-            "zmm24", "zmm25", "zmm26", "zmm27", "zmm28", "zmm29", "zmm30", "zmm31", //
-            "fpsr", "fpcr", "mxcsr", "rflags", "dirflag", "memory"
-        ),
+            : .{
+              .rax = true,
+              .rcx = true,
+              .rdx = true,
+              .rbx = true,
+              .rsi = true,
+              .r8 = true,
+              .r9 = true,
+              .r10 = true,
+              .r11 = true,
+              .r12 = true,
+              .r13 = true,
+              .r14 = true,
+              .r15 = true,
+              .mm0 = true,
+              .mm1 = true,
+              .mm2 = true,
+              .mm3 = true,
+              .mm4 = true,
+              .mm5 = true,
+              .mm6 = true,
+              .mm7 = true,
+              .zmm0 = true,
+              .zmm1 = true,
+              .zmm2 = true,
+              .zmm3 = true,
+              .zmm4 = true,
+              .zmm5 = true,
+              .zmm6 = true,
+              .zmm7 = true,
+              .zmm8 = true,
+              .zmm9 = true,
+              .zmm10 = true,
+              .zmm11 = true,
+              .zmm12 = true,
+              .zmm13 = true,
+              .zmm14 = true,
+              .zmm15 = true,
+              .zmm16 = true,
+              .zmm17 = true,
+              .zmm18 = true,
+              .zmm19 = true,
+              .zmm20 = true,
+              .zmm21 = true,
+              .zmm22 = true,
+              .zmm23 = true,
+              .zmm24 = true,
+              .zmm25 = true,
+              .zmm26 = true,
+              .zmm27 = true,
+              .zmm28 = true,
+              .zmm29 = true,
+              .zmm30 = true,
+              .zmm31 = true,
+              .fpsr = true,
+              .fpcr = true,
+              .mxcsr = true,
+              .rflags = true,
+              .dirflag = true,
+              .memory = true,
+            }),
         else => |arch| @compileError("unimplemented architecture: " ++ @tagName(arch)),
     });
 }
@@ -650,6 +811,12 @@ fn mainIdleEntry() callconv(.naked) void {
             :
             : [mainIdle] "X" (&mainIdle),
         ),
+        .aarch64 => asm volatile (
+            \\ ldr x0, [sp, #-8]
+            \\ b %[mainIdle]
+            :
+            : [mainIdle] "X" (&mainIdle),
+        ),
         else => |arch| @compileError("unimplemented architecture: " ++ @tagName(arch)),
     }
 }
@@ -659,6 +826,11 @@ fn fiberEntry() callconv(.naked) void {
         .x86_64 => asm volatile (
             \\ leaq 8(%%rsp), %%rdi
             \\ jmpq *(%%rsp)
+        ),
+        .aarch64 => asm volatile (
+            \\ mov x0, sp
+            \\ ldr x2, [sp, #-8]
+            \\ br x2
         ),
         else => |arch| @compileError("unimplemented architecture: " ++ @tagName(arch)),
     }
@@ -718,7 +890,7 @@ fn async(
     std.log.debug("allocated {*}", .{fiber});
 
     const closure: *AsyncClosure = .fromFiber(fiber);
-    const stack_end: [*]usize = @alignCast(@ptrCast(closure));
+    const stack_end: [*]align(16) usize = @alignCast(@ptrCast(closure));
     (stack_end - 1)[0..1].* = .{@intFromPtr(&AsyncClosure.call)};
     fiber.* = .{
         .required_align = {},
@@ -727,6 +899,11 @@ fn async(
                 .rsp = @intFromPtr(stack_end - 1),
                 .rbp = 0,
                 .rip = @intFromPtr(&fiberEntry),
+            },
+            .aarch64 => .{
+                .sp = @intFromPtr(stack_end),
+                .fp = 0,
+                .pc = @intFromPtr(&fiberEntry),
             },
             else => |arch| @compileError("unimplemented architecture: " ++ @tagName(arch)),
         },
@@ -796,7 +973,7 @@ fn asyncDetached(
     const closure: *DetachedClosure = @ptrFromInt(Fiber.max_context_align.max(.of(DetachedClosure)).backward(
         @intFromPtr(fiber.allocatedEnd()) - Fiber.max_context_size,
     ) - @sizeOf(DetachedClosure));
-    const stack_end: [*]usize = @alignCast(@ptrCast(closure));
+    const stack_end: [*]align(16) usize = @alignCast(@ptrCast(closure));
     (stack_end - 1)[0..1].* = .{@intFromPtr(&DetachedClosure.call)};
     fiber.* = .{
         .required_align = {},
@@ -805,6 +982,11 @@ fn asyncDetached(
                 .rsp = @intFromPtr(stack_end - 1),
                 .rbp = 0,
                 .rip = @intFromPtr(&fiberEntry),
+            },
+            .aarch64 => .{
+                .sp = @intFromPtr(stack_end),
+                .fp = 0,
+                .pc = @intFromPtr(&fiberEntry),
             },
             else => |arch| @compileError("unimplemented architecture: " ++ @tagName(arch)),
         },
