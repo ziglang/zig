@@ -475,3 +475,37 @@ fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const 
         }
     }
 }
+
+test "fuzz compress decompress match" {
+    try std.testing.fuzz({}, fuzzTestCompressDecompress, .{});
+}
+
+fn fuzzTestCompressDecompress(_: void, input: []const u8) anyerror!void {
+    // The first byte of the input holds the compression level
+    if (input.len == 0) return;
+    const level: deflate.Level = switch (input[0] % 9) {
+        0 => .fast,
+        1 => .level_4,
+        2 => .level_5,
+        3 => .default,
+        4 => .level_6,
+        5 => .level_7,
+        6 => .level_8,
+        7 => .best,
+        8 => .level_9,
+        else => unreachable,
+    };
+    const bytes = input[1..];
+    if (bytes.len > 4096) return;
+    var in_fbs = std.io.fixedBufferStream(bytes);
+
+    var compress_buf: [4096]u8 = undefined;
+    var c_fbs = std.io.fixedBufferStream(&compress_buf);
+    compress(in_fbs.reader(), c_fbs.writer(), .{ .level = level }) catch return;
+    c_fbs.reset();
+
+    var decompress_buf: [4096]u8 = undefined;
+    var d_fbs = std.io.fixedBufferStream(&decompress_buf);
+    try decompress(c_fbs.reader(), d_fbs.writer());
+    try std.testing.expectEqualSlices(u8, bytes, d_fbs.getWritten());
+}

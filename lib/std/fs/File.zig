@@ -1369,7 +1369,7 @@ pub const Reader = struct {
                 r.pos = offset;
             },
             .streaming, .streaming_reading => {
-                if (offset >= r.pos) return Reader.seekBy(r, offset - r.pos);
+                if (offset >= r.pos) return Reader.seekBy(r, @intCast(offset - r.pos));
                 if (r.seek_err) |err| return err;
                 posix.lseek_SET(r.file.handle, offset) catch |err| {
                     r.seek_err = err;
