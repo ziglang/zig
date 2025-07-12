@@ -94,7 +94,7 @@ pub fn nthElementContext(n: usize, a: usize, b: usize, context: anytype) void {
             left = sort.utils.partitionEqual(left, right, pivot, context);
             continue;
         }
-        sort.utils.partition(left, right, &pivot, context);
+        _ = sort.utils.partition(left, right, &pivot, context);
         const target = a + n;
         if (pivot == target) {
             break;
