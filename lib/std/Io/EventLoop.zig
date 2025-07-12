@@ -606,6 +606,11 @@ const SwitchMessage = struct {
 };
 
 const Context = switch (builtin.cpu.arch) {
+    .aarch64 => extern struct {
+        sp: u64,
+        fp: u64,
+        pc: u64,
+    },
     .x86_64 => extern struct {
         rsp: u64,
         rbp: u64,
@@ -616,9 +621,34 @@ const Context = switch (builtin.cpu.arch) {
 
 inline fn contextSwitch(message: *const SwitchMessage) *const SwitchMessage {
     return @fieldParentPtr("contexts", switch (builtin.cpu.arch) {
+        .aarch64 => asm volatile (
+            \\ ldp x1, x2, [x0]
+            \\ ldr x3, [x2, #16]
+            \\ mov x4, sp
+            \\ stp x4, fp, [x1]
+            \\ adr x5, 0f
+            \\ ldp x4, fp, [x2]
+            \\ str x5, [x1, #16]
+            \\ mov sp, x4
+            \\ br x3
+            \\0:
+            : [received_message] "={x0}" (-> *const @FieldType(SwitchMessage, "contexts")),
+            : [message_to_send] "{x0}" (&message.contexts),
+            : "x1", "x2", "x3", "x4", "x5", "x6", "x7", //
+            "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", //
+            "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23", //
+            "x24", "x25", "x26", "x27", "x28", "x30", //
+            "z0", "z1", "z2", "z3", "z4", "z5", "z6", "z7", //
+            "z8", "z9", "z10", "z11", "z12", "z13", "z14", "z15", //
+            "z16", "z17", "z18", "z19", "z20", "z21", "z22", "z23", //
+            "z24", "z25", "z26", "z27", "z28", "z29", "z30", "z31", //
+            "p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", //
+            "p8", "p9", "p10", "p11", "p12", "p13", "p14", "p15", //
+            "fpcr", "fpsr", "ffr", "cc", "memory"
+        ),
         .x86_64 => asm volatile (
-            \\ movq 0(%%rsi), %%rax
-            \\ movq 8(%%rsi), %%rcx
+            \\ movq 0(%%rdi), %%rax
+            \\ movq 8(%%rdi), %%rcx
             \\ leaq 0f(%%rip), %%rdx
             \\ movq %%rsp, 0(%%rax)
             \\ movq %%rbp, 8(%%rax)
@@ -627,9 +657,9 @@ inline fn contextSwitch(message: *const SwitchMessage) *const SwitchMessage {
             \\ movq 8(%%rcx), %%rbp
             \\ jmpq *16(%%rcx)
             \\0:
-            : [received_message] "={rsi}" (-> *const @FieldType(SwitchMessage, "contexts")),
-            : [message_to_send] "{rsi}" (&message.contexts),
-            : "rax", "rcx", "rdx", "rbx", "rdi", //
+            : [received_message] "={rdi}" (-> *const @FieldType(SwitchMessage, "contexts")),
+            : [message_to_send] "{rdi}" (&message.contexts),
+            : "rax", "rcx", "rdx", "rbx", "rsi", //
             "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", //
             "mm0", "mm1", "mm2", "mm3", "mm4", "mm5", "mm6", "mm7", //
             "zmm0", "zmm1", "zmm2", "zmm3", "zmm4", "zmm5", "zmm6", "zmm7", //
