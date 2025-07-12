@@ -9043,8 +9043,26 @@ pub const perf_event_attr = extern struct {
         write_backward: bool = false,
         /// include namespaces data
         namespaces: bool = false,
+        /// include ksymbol events
+        ksymbol: bool = false,
+        /// include BPF events
+        bpf_event: bool = false,
+        /// generate AUX records instead of events
+        aux_output: bool = false,
+        /// include cgroup events
+        cgroup: bool = false,
+        /// include text poke events
+        text_poke: bool = false,
+        /// use build ID in mmap2 events
+        build_id: bool = false,
+        /// children only inherit if cloned with CLONE_THREAD
+        inherit_thread: bool = false,
+        /// event is removed from task on exec
+        remove_on_exec: bool = false,
+        /// send synchronous SIGTRAP on event
+        sigtrap: bool = false,
 
-        __reserved_1: u35 = 0,
+        __reserved_1: u26 = 0,
     } = .{},
     /// wakeup every n events, or
     /// bytes before wakeup
@@ -9087,6 +9105,102 @@ pub const perf_event_attr = extern struct {
     sample_max_stack: u16 = 0,
     /// Align to u64
     __reserved_2: u16 = 0,
+
+    aux_sample_size: u32 = 0,
+    aux_action: packed struct {
+        /// start AUX area tracing paused
+        start_paused: bool = false,
+        /// on overflow, pause AUX area tracing
+        pause: bool = false,
+        /// on overflow, resume AUX area tracing
+        @"resume": bool = false,
+
+        __reserved_3: u29 = 0,
+    } = .{},
+
+    /// User provided data if sigtrap == true
+    sig_data: u64 = 0,
+
+    /// Extension of config2
+    config3: u64 = 0,
+};
+
+pub const perf_event_header = extern struct {
+    /// Event type: sample/mmap/fork/etc.
+    type: u32,
+    /// Additional informations on the event: kernel/user/hypervisor/etc.
+    miscs: u16,
+    /// Size of the following record
+    size: u16,
+};
+
+pub const perf_event_mmap_page = extern struct {
+    /// Version number of this struct
+    version: u32,
+    /// Lowest version this is compatible with
+    compt_version: u32,
+    /// Seqlock for synchronization
+    lock: u32,
+    /// Hardware counter identifier
+    index: u32,
+    /// Add to hardware counter value
+    offset: i64,
+    /// Time the event was active
+    time_enabled: u64,
+    /// Time the event was running
+    time_running: u64,
+    capabilities: packed struct {
+        /// If kernel version < 3.12
+        /// this rapresents both user_rdpmc and user_time (user_rdpmc | user_time)
+        /// otherwise deprecated.
+        bit0: bool,
+        /// Set if bit0 is deprecated
+        bit0_is_deprecated: bool,
+        /// Hardware support for userspace read of performance counters
+        user_rdpmc: bool,
+        /// Hardware support for a constant non stop timestamp counter (Eg. TSC on x86)
+        user_time: bool,
+        /// The time_zero field is used
+        user_time_zero: bool,
+        /// The time_{cycle,mask} fields are used
+        user_time_short: bool,
+        ____res: u58,
+    },
+    /// If capabilities.user_rdpmc
+    /// this field reports the bit-width of the value read with rdpmc() or equivalent
+    pcm_width: u16,
+    /// If capabilities.user_time the following fields can be used to compute the time
+    /// delta since time_enabled (in ns) using RDTSC or similar
+    time_shift: u16,
+    time_mult: u32,
+    time_offset: u64,
+    /// If capabilities.user_time_zero the hardware clock can be calculated from
+    /// sample timestamps
+    time_zero: u64,
+    /// Header size
+    size: u32,
+    __reserved_1: u32,
+    /// The following fields are used to compute the timestamp when the hardware clock
+    /// is less than 64bit wide
+    time_cycles: u64,
+    time_mask: u64,
+    __reserved: [116 * 8]u8,
+    /// Head in the data section
+    data_head: u64,
+    /// Userspace written tail
+    data_tail: u64,
+    /// Where the buffer starts
+    data_offset: u64,
+    /// Data buffer size
+    data_size: u64,
+    // if aux is used, head in the data section
+    aux_head: u64,
+    // if aux is used, userspace written tail
+    aux_tail: u64,
+    // if aux is used, where the buffer starts
+    aux_offset: u64,
+    // if aux is used, data buffer size
+    aux_size: u64,
 };
 
 pub const PERF = struct {
@@ -9198,6 +9312,50 @@ pub const PERF = struct {
             pub const NO_CYCLES = 1 << 15;
             pub const TYPE_SAVE = 1 << 16;
             pub const MAX = 1 << 17;
+        };
+    };
+
+    pub const RECORD = struct {
+        pub const MMAP = 1;
+        pub const LOST = 2;
+        pub const COMM = 3;
+        pub const EXIT = 4;
+        pub const THROTTLE = 5;
+        pub const UNTHROTTLE = 6;
+        pub const FORK = 7;
+        pub const READ = 8;
+        pub const SAMPLE = 9;
+        pub const MMAP2 = 10;
+        pub const AUX = 11;
+        pub const ITRACE_START = 12;
+        pub const LOST_SAMPLES = 13;
+        pub const SWITCH = 14;
+        pub const SWITCH_CPU_WIDE = 15;
+        pub const NAMESPACES = 16;
+        pub const KSYMBOL = 17;
+        pub const BPF_EVENT = 18;
+        pub const CGROUP = 19;
+        pub const TEXT_POKE = 20;
+        pub const AUX_OUTPUT_HW_ID = 21;
+        pub const MAX = 22;
+
+        pub const MISC = struct {
+            pub const CPUMODE_MASK = 7 << 0;
+            pub const CPUMODE_UNKNOWN = 0 << 0;
+            pub const KERNEL = 1 << 0;
+            pub const USER = 2 << 0;
+            pub const HYPERVISOR = 3 << 0;
+            pub const GUEST_KERNEL = 4 << 0;
+            pub const GUEST_USER = 5 << 0;
+            pub const PROC_MAP_PARSE_TIMEOUT = 1 << 12;
+            pub const MMAP_DATA = 1 << 13;
+            pub const COMM_EXEC = 1 << 13;
+            pub const FORK_EXEC = 1 << 13;
+            pub const SWITCH_OUT = 1 << 13;
+            pub const EXACT_IP = 1 << 14;
+            pub const SWITCH_OUT_PREEMPT = 1 << 14;
+            pub const MMAP_BUILD_ID = 1 << 14;
+            pub const EXT_RESERVED = 1 << 15;
         };
     };
 
