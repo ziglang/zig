@@ -7241,19 +7241,20 @@ pub const FuncGen = struct {
         const o = self.ng.object;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Asm, ty_pl.payload);
-        const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
-        const clobbers_len: u31 = @truncate(extra.data.flags);
+        const is_volatile = extra.data.flags.is_volatile;
+        const outputs_len = extra.data.flags.outputs_len;
+        const gpa = self.gpa;
         var extra_i: usize = extra.end;
 
-        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.outputs_len]);
+        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..outputs_len]);
         extra_i += outputs.len;
         const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
         var llvm_constraints: std.ArrayListUnmanaged(u8) = .empty;
-        defer llvm_constraints.deinit(self.gpa);
+        defer llvm_constraints.deinit(gpa);
 
-        var arena_allocator = std.heap.ArenaAllocator.init(self.gpa);
+        var arena_allocator = std.heap.ArenaAllocator.init(gpa);
         defer arena_allocator.deinit();
         const arena = arena_allocator.allocator();
 
@@ -7290,7 +7291,7 @@ pub const FuncGen = struct {
             // for the string, we still use the next u32 for the null terminator.
             extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-            try llvm_constraints.ensureUnusedCapacity(self.gpa, constraint.len + 3);
+            try llvm_constraints.ensureUnusedCapacity(gpa, constraint.len + 3);
             if (total_i != 0) {
                 llvm_constraints.appendAssumeCapacity(',');
             }
@@ -7399,7 +7400,7 @@ pub const FuncGen = struct {
                 }
             }
 
-            try llvm_constraints.ensureUnusedCapacity(self.gpa, constraint.len + 1);
+            try llvm_constraints.ensureUnusedCapacity(gpa, constraint.len + 1);
             if (total_i != 0) {
                 llvm_constraints.appendAssumeCapacity(',');
             }
@@ -7456,7 +7457,7 @@ pub const FuncGen = struct {
                 llvm_param_types[llvm_param_i] = llvm_elem_ty;
             }
 
-            try llvm_constraints.print(self.gpa, ",{d}", .{output_index});
+            try llvm_constraints.print(gpa, ",{d}", .{output_index});
 
             // In the case of indirect inputs, LLVM requires the callsite to have
             // an elementtype(<ty>) attribute.
@@ -7466,24 +7467,41 @@ pub const FuncGen = struct {
             total_i += 1;
         }
 
-        {
-            var clobber_i: u32 = 0;
-            while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
-                // This equation accounts for the fact that even if we have exactly 4 bytes
-                // for the string, we still use the next u32 for the null terminator.
-                extra_i += clobber.len / 4 + 1;
+        const ip = &zcu.intern_pool;
+        const aggregate = ip.indexToKey(extra.data.clobbers).aggregate;
+        const struct_type: Type = .fromInterned(aggregate.ty);
+        switch (aggregate.storage) {
+            .elems => |elems| for (elems, 0..) |elem, i| {
+                switch (elem) {
+                    .bool_true => {
+                        const name = struct_type.structFieldName(i, zcu).toSlice(ip).?;
+                        try llvm_constraints.ensureUnusedCapacity(gpa, name.len + 4);
+                        if (total_i != 0) llvm_constraints.appendAssumeCapacity(',');
+                        llvm_constraints.appendSliceAssumeCapacity("~{");
+                        llvm_constraints.appendSliceAssumeCapacity(name);
+                        llvm_constraints.appendSliceAssumeCapacity("}");
 
-                try llvm_constraints.ensureUnusedCapacity(self.gpa, clobber.len + 4);
-                if (total_i != 0) {
-                    llvm_constraints.appendAssumeCapacity(',');
+                        total_i += 1;
+                    },
+                    .bool_false => continue,
+                    else => unreachable,
                 }
-                llvm_constraints.appendSliceAssumeCapacity("~{");
-                llvm_constraints.appendSliceAssumeCapacity(clobber);
-                llvm_constraints.appendSliceAssumeCapacity("}");
+            },
+            .repeated_elem => |elem| switch (elem) {
+                .bool_true => for (0..struct_type.structFieldCount(zcu)) |i| {
+                    const name = struct_type.structFieldName(i, zcu).toSlice(ip).?;
+                    try llvm_constraints.ensureUnusedCapacity(gpa, name.len + 4);
+                    if (total_i != 0) llvm_constraints.appendAssumeCapacity(',');
+                    llvm_constraints.appendSliceAssumeCapacity("~{");
+                    llvm_constraints.appendSliceAssumeCapacity(name);
+                    llvm_constraints.appendSliceAssumeCapacity("}");
 
-                total_i += 1;
-            }
+                    total_i += 1;
+                },
+                .bool_false => {},
+                else => unreachable,
+            },
+            .bytes => @panic("TODO"),
         }
 
         // We have finished scanning through all inputs/outputs, so the number of
@@ -7497,13 +7515,13 @@ pub const FuncGen = struct {
         // to be buggy and regress often.
         switch (target.cpu.arch) {
             .x86_64, .x86 => {
-                if (total_i != 0) try llvm_constraints.append(self.gpa, ',');
-                try llvm_constraints.appendSlice(self.gpa, "~{dirflag},~{fpsr},~{flags}");
+                if (total_i != 0) try llvm_constraints.append(gpa, ',');
+                try llvm_constraints.appendSlice(gpa, "~{dirflag},~{fpsr},~{flags}");
                 total_i += 3;
             },
             .mips, .mipsel, .mips64, .mips64el => {
-                if (total_i != 0) try llvm_constraints.append(self.gpa, ',');
-                try llvm_constraints.appendSlice(self.gpa, "~{$1}");
+                if (total_i != 0) try llvm_constraints.append(gpa, ',');
+                try llvm_constraints.appendSlice(gpa, "~{$1}");
                 total_i += 1;
             },
             else => {},
@@ -7512,7 +7530,7 @@ pub const FuncGen = struct {
         const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
         // hackety hacks until stage2 has proper inline asm in the frontend.
-        var rendered_template = std.ArrayList(u8).init(self.gpa);
+        var rendered_template = std.ArrayList(u8).init(gpa);
         defer rendered_template.deinit();
 
         const State = enum { start, percent, input, modifier };
