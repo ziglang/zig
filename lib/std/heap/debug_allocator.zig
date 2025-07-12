@@ -291,7 +291,7 @@ pub fn DebugAllocator(comptime config: Config) type {
 
             fn usedBits(bucket: *BucketHeader, index: usize) *usize {
                 const ptr: [*]u8 = @ptrCast(bucket);
-                const bits: [*]usize = @alignCast(@ptrCast(ptr + @sizeOf(BucketHeader)));
+                const bits: [*]usize = @ptrCast(@alignCast(ptr + @sizeOf(BucketHeader)));
                 return &bits[index];
             }
 

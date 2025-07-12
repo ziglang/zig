@@ -6,7 +6,7 @@ export fn b() void {
     _ = @constCast(@volatileCast(123));
 }
 export fn c() void {
-    const x: ?*f32 = @constCast(@ptrCast(@addrSpaceCast(@volatileCast(p))));
+    const x: ?*f32 = @ptrCast(@addrSpaceCast(@constCast(@volatileCast(p))));
     _ = x;
 }
 

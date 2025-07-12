@@ -780,7 +780,57 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         => {
             var buf: [2]Ast.Node.Index = undefined;
             const params = tree.builtinCallParams(&buf, node).?;
-            return renderBuiltinCall(r, tree.nodeMainToken(node), params, space);
+            var builtin_token = tree.nodeMainToken(node);
+
+            if (params.len == 1) canonicalize: {
+                const CastKind = enum {
+                    ptr,
+                    @"align",
+                    addrSpace,
+                    @"const",
+                    @"volatile",
+                };
+                const kind = blk: {
+                    const slice = tree.tokenSlice(builtin_token);
+                    if (!mem.endsWith(u8, slice, "Cast")) break :canonicalize;
+                    const end = slice.len - "Cast".len;
+                    break :blk meta.stringToEnum(CastKind, slice[1..end]) orelse break :canonicalize;
+                };
+
+                var cast_map = std.EnumMap(CastKind, Ast.TokenIndex).init(.{});
+                cast_map.put(kind, builtin_token);
+
+                var casts_before: usize = 0;
+                if (builtin_token >= 2) {
+                    var prev_builtin_token = builtin_token - 2;
+                    while (tree.tokenTag(prev_builtin_token) == .builtin) : (prev_builtin_token -= 2) {
+                        const slice = tree.tokenSlice(prev_builtin_token);
+                        if (!mem.endsWith(u8, slice, "Cast")) break;
+                        const end = slice.len - "Cast".len;
+                        const prev_kind = meta.stringToEnum(CastKind, slice[1..end]) orelse break;
+                        if (cast_map.contains(prev_kind)) break :canonicalize;
+                        cast_map.put(prev_kind, prev_builtin_token);
+                        casts_before += 1;
+                    }
+                }
+
+                var next_builtin_token = builtin_token + 2;
+                while (tree.tokenTag(next_builtin_token) == .builtin) : (next_builtin_token += 2) {
+                    const slice = tree.tokenSlice(next_builtin_token);
+                    if (!mem.endsWith(u8, slice, "Cast")) break;
+                    const end = slice.len - "Cast".len;
+                    const next_kind = meta.stringToEnum(CastKind, slice[1..end]) orelse break;
+                    if (cast_map.contains(next_kind)) break :canonicalize;
+                    cast_map.put(next_kind, next_builtin_token);
+                }
+
+                var it = cast_map.iterator();
+                builtin_token = it.next().?.value.*;
+                while (casts_before > 0) : (casts_before -= 1) {
+                    builtin_token = it.next().?.value.*;
+                }
+            }
+            return renderBuiltinCall(r, builtin_token, params, space);
         },
 
         .fn_proto_simple,
