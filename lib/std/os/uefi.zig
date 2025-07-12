@@ -24,8 +24,50 @@ pub var handle: Handle = undefined;
 /// A pointer to the EFI System Table that is passed to the EFI image's entry point.
 pub var system_table: *tables.SystemTable = undefined;
 
+/// UEFI's memory interfaces exclusively act on 4096-byte pages.
+pub const Page = [4096]u8;
+
 /// A handle to an event structure.
 pub const Event = *opaque {};
+
+pub const EventRegistration = *const opaque {};
+
+pub const EventType = packed struct(u32) {
+    lo_context: u8 = 0,
+    /// If an event of this type is not already in the signaled state, then
+    /// the event’s NotificationFunction will be queued at the event’s NotifyTpl
+    /// whenever the event is being waited on via EFI_BOOT_SERVICES.WaitForEvent()
+    /// or EFI_BOOT_SERVICES.CheckEvent() .
+    wait: bool = false,
+    /// The event’s NotifyFunction is queued whenever the event is signaled.
+    signal: bool = false,
+    hi_context: u20 = 0,
+    /// The event is allocated from runtime memory. If an event is to be signaled
+    /// after the call to EFI_BOOT_SERVICES.ExitBootServices() the event’s data
+    /// structure and notification function need to be allocated from runtime
+    /// memory.
+    runtime: bool = false,
+    timer: bool = false,
+
+    /// This event should not be combined with any other event types. This event
+    /// type is functionally equivalent to the EFI_EVENT_GROUP_EXIT_BOOT_SERVICES
+    /// event group.
+    pub const signal_exit_boot_services: EventType = .{
+        .signal = true,
+        .lo_context = 1,
+    };
+
+    /// The event is to be notified by the system when SetVirtualAddressMap()
+    /// is performed. This event type is a composite of EVT_NOTIFY_SIGNAL,
+    /// EVT_RUNTIME, and EVT_RUNTIME_CONTEXT and should not be combined with
+    /// any other event types.
+    pub const signal_virtual_address_change: EventType = .{
+        .runtime = true,
+        .hi_context = 0x20000,
+        .signal = true,
+        .lo_context = 2,
+    };
+};
 
 /// The calling convention used for all external functions part of the UEFI API.
 pub const cc: std.builtin.CallingConvention = switch (@import("builtin").target.cpu.arch) {
@@ -52,7 +94,11 @@ pub const IpAddress = extern union {
 
 /// GUIDs are align(8) unless otherwise specified.
 pub const Guid = extern struct {
-    time_low: u32,
+    comptime {
+        std.debug.assert(std.mem.Alignment.of(Guid) == .@"8");
+    }
+
+    time_low: u32 align(8),
     time_mid: u16,
     time_high_and_version: u16,
     clock_seq_high_and_reserved: u8,
@@ -60,7 +106,7 @@ pub const Guid = extern struct {
     node: [6]u8,
 
     /// Format GUID into hexadecimal lowercase xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx format
-    pub fn format(self: @This(), writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Guid, writer: *std.io.Writer) std.io.Writer.Error!void {
         const time_low = @byteSwap(self.time_low);
         const time_mid = @byteSwap(self.time_mid);
         const time_high_and_version = @byteSwap(self.time_high_and_version);
@@ -75,7 +121,7 @@ pub const Guid = extern struct {
         });
     }
 
-    pub fn eql(a: std.os.uefi.Guid, b: std.os.uefi.Guid) bool {
+    pub fn eql(a: Guid, b: Guid) bool {
         return a.time_low == b.time_low and
             a.time_mid == b.time_mid and
             a.time_high_and_version == b.time_high_and_version and
