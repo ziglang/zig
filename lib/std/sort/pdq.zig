@@ -29,12 +29,6 @@ pub fn pdq(
     pdqContext(0, items.len, Context{ .items = items, .sub_ctx = context });
 }
 
-const Hint = enum {
-    increasing,
-    decreasing,
-    unknown,
-};
-
 /// Unstable in-place sort. O(n) best case, O(n*log(n)) worst case and average case.
 /// O(log(n)) memory (no allocator required).
 /// `context` must have methods `swap` and `lessThan`,
@@ -80,7 +74,7 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
 
             // choose a pivot and try guessing whether the slice is already sorted.
             var pivot: usize = 0;
-            var hint = chosePivot(range.a, range.b, &pivot, context);
+            var hint = sort.utils.chosePivot(range.a, range.b, &pivot, context);
 
             if (hint == .decreasing) {
                 // The maximum number of swaps was performed, so items are likely
@@ -102,13 +96,13 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
             // slice. Partition the slice into elements equal to and elements greater than the pivot.
             // This case is usually hit when the slice contains many duplicate elements.
             if (range.a > a and !context.lessThan(range.a - 1, pivot)) {
-                range.a = partitionEqual(range.a, range.b, pivot, context);
+                range.a = sort.utils.partitionEqual(range.a, range.b, pivot, context);
                 continue;
             }
 
             // partition the slice.
             var mid = pivot;
-            was_partitioned = partition(range.a, range.b, &mid, context);
+            was_partitioned = sort.utils.partition(range.a, range.b, &mid, context);
 
             const left_len = mid - range.a;
             const right_len = range.b - mid;
@@ -129,74 +123,6 @@ pub fn pdqContext(a: usize, b: usize, context: anytype) void {
         top = math.sub(usize, top, 1) catch break;
         range = stack[top];
     }
-}
-
-/// partitions `items[a..b]` into elements smaller than `items[pivot]`,
-/// followed by elements greater than or equal to `items[pivot]`.
-///
-/// sets the new pivot.
-/// returns `true` if already partitioned.
-fn partition(a: usize, b: usize, pivot: *usize, context: anytype) bool {
-    // move pivot to the first place
-    context.swap(a, pivot.*);
-
-    var i = a + 1;
-    var j = b - 1;
-
-    while (i <= j and context.lessThan(i, a)) i += 1;
-    while (i <= j and !context.lessThan(j, a)) j -= 1;
-
-    // check if items are already partitioned (no item to swap)
-    if (i > j) {
-        // put pivot back to the middle
-        context.swap(j, a);
-        pivot.* = j;
-        return true;
-    }
-
-    context.swap(i, j);
-    i += 1;
-    j -= 1;
-
-    while (true) {
-        while (i <= j and context.lessThan(i, a)) i += 1;
-        while (i <= j and !context.lessThan(j, a)) j -= 1;
-        if (i > j) break;
-
-        context.swap(i, j);
-        i += 1;
-        j -= 1;
-    }
-
-    // TODO: Enable the BlockQuicksort optimization
-
-    context.swap(j, a);
-    pivot.* = j;
-    return false;
-}
-
-/// partitions items into elements equal to `items[pivot]`
-/// followed by elements greater than `items[pivot]`.
-///
-/// it assumed that `items[a..b]` does not contain elements smaller than the `items[pivot]`.
-fn partitionEqual(a: usize, b: usize, pivot: usize, context: anytype) usize {
-    // move pivot to the first place
-    context.swap(a, pivot);
-
-    var i = a + 1;
-    var j = b - 1;
-
-    while (true) {
-        while (i <= j and !context.lessThan(a, i)) i += 1;
-        while (i <= j and context.lessThan(a, j)) j -= 1;
-        if (i > j) break;
-
-        context.swap(i, j);
-        i += 1;
-        j -= 1;
-    }
-
-    return i;
 }
 
 /// partially sorts a slice by shifting several out-of-order elements around.
@@ -265,57 +191,6 @@ fn breakPatterns(a: usize, b: usize, context: anytype) void {
         var other = @as(usize, @intCast(rand & (modulus - 1)));
         if (other >= len) other -= len;
         context.swap(i, a + other);
-    }
-}
-
-/// chooses a pivot in `items[a..b]`.
-/// swaps likely_sorted when `items[a..b]` seems to be already sorted.
-fn chosePivot(a: usize, b: usize, pivot: *usize, context: anytype) Hint {
-    // minimum length for using the Tukey's ninther method
-    const shortest_ninther = 50;
-    // max_swaps is the maximum number of swaps allowed in this function
-    const max_swaps = 4 * 3;
-
-    const len = b - a;
-    const i = a + len / 4 * 1;
-    const j = a + len / 4 * 2;
-    const k = a + len / 4 * 3;
-    var swaps: usize = 0;
-
-    if (len >= 8) {
-        if (len >= shortest_ninther) {
-            // find medians in the neighborhoods of `i`, `j` and `k`
-            sort3(i - 1, i, i + 1, &swaps, context);
-            sort3(j - 1, j, j + 1, &swaps, context);
-            sort3(k - 1, k, k + 1, &swaps, context);
-        }
-
-        // find the median among `i`, `j` and `k` and stores it in `j`
-        sort3(i, j, k, &swaps, context);
-    }
-
-    pivot.* = j;
-    return switch (swaps) {
-        0 => .increasing,
-        max_swaps => .decreasing,
-        else => .unknown,
-    };
-}
-
-fn sort3(a: usize, b: usize, c: usize, swaps: *usize, context: anytype) void {
-    if (context.lessThan(b, a)) {
-        swaps.* += 1;
-        context.swap(b, a);
-    }
-
-    if (context.lessThan(c, b)) {
-        swaps.* += 1;
-        context.swap(c, b);
-    }
-
-    if (context.lessThan(b, a)) {
-        swaps.* += 1;
-        context.swap(b, a);
     }
 }
 

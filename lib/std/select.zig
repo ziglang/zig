@@ -86,15 +86,15 @@ pub fn nthElementContext(n: usize, a: usize, b: usize, context: anytype) void {
         }
         depth_limit -= 1;
         var pivot: usize = 0;
-        chosePivot(left, right, &pivot, context);
+        _ = sort.utils.chosePivot(left, right, &pivot, context);
         // if the chosen pivot is equal to the predecessor, then it's the smallest element in the
         // slice. Partition the slice into elements equal to and elements greater than the pivot.
         // This case is usually hit when the slice contains many duplicate elements.
         if (left > a and !context.lessThan(left - 1, pivot)) {
-            left = partitionEqual(left, right, pivot, context);
+            left = sort.utils.partitionEqual(left, right, pivot, context);
             continue;
         }
-        partition(left, right, &pivot, context);
+        sort.utils.partition(left, right, &pivot, context);
         const target = a + n;
         if (pivot == target) {
             break;
@@ -162,7 +162,7 @@ pub fn heapSelectContext(n: usize, a: usize, b: usize, context: anytype) void {
     var i = a + (b - a) / 2;
     while (i > a) {
         i -= 1;
-        siftDown(a, i, b, context);
+        sort.utils.siftDown(a, i, b, context);
     }
 
     var heap_end = b;
@@ -170,7 +170,7 @@ pub fn heapSelectContext(n: usize, a: usize, b: usize, context: anytype) void {
     while (i < n_largest - 1) : (i += 1) {
         heap_end -= 1;
         context.swap(a, heap_end);
-        siftDown(a, a, heap_end, context);
+        sort.utils.siftDown(a, a, heap_end, context);
     }
 
     // After the loop, the root of the heap (at index `a`) is the nth smallest element.
@@ -212,120 +212,6 @@ pub fn median(
         .float => (lower_median + upper_median) / 2,
         else => @compileError("Unsupported type for median: " ++ @typeName(T)),
     };
-}
-
-/// partitions `items[a..b]` into elements smaller than `items[pivot]`,
-/// followed by elements greater than or equal to `items[pivot]`.
-///
-/// sets the new pivot.
-fn partition(a: usize, b: usize, pivot: *usize, context: anytype) void {
-    // move pivot to the first place
-    context.swap(a, pivot.*);
-    var i = a + 1;
-    var j = b - 1;
-    while (true) {
-        while (i <= j and context.lessThan(i, a)) i += 1;
-        while (i <= j and !context.lessThan(j, a)) j -= 1;
-        if (i > j) break;
-        context.swap(i, j);
-        i += 1;
-        j -= 1;
-    }
-    context.swap(j, a);
-    pivot.* = j;
-}
-
-/// partitions items into elements equal to `items[pivot]`
-/// followed by elements greater than `items[pivot]`.
-///
-/// it assumed that `items[a..b]` does not contain elements smaller than the `items[pivot]`.
-fn partitionEqual(a: usize, b: usize, pivot: usize, context: anytype) usize {
-    // move pivot to the first place
-    context.swap(a, pivot);
-
-    var i = a + 1;
-    var j = b - 1;
-
-    while (true) {
-        while (i <= j and !context.lessThan(a, i)) i += 1;
-        while (i <= j and context.lessThan(a, j)) j -= 1;
-        if (i > j) break;
-
-        context.swap(i, j);
-        i += 1;
-        j -= 1;
-    }
-
-    return i;
-}
-
-/// chooses a pivot in `items[a..b]`.
-/// It's modeled directly after the `chosePivot` function in `std.sort`.
-fn chosePivot(a: usize, b: usize, pivot: *usize, context: anytype) void {
-    // minimum length for using the Tukey's ninther method
-    const shortest_ninther = 50;
-    const len = b - a;
-    const i = a + len / 4 * 1;
-    const j = a + len / 4 * 2;
-    const k = a + len / 4 * 3;
-
-    if (len >= 8) {
-        if (len >= shortest_ninther) {
-            // find medians in the neighborhoods of `i`, `j` and `k`
-            sort3(i - 1, i, i + 1, context);
-            sort3(j - 1, j, j + 1, context);
-            sort3(k - 1, k, k + 1, context);
-        }
-
-        // find the median among `i`, `j` and `k` and stores it in `j`
-        sort3(i, j, k, context);
-    }
-
-    pivot.* = j;
-}
-
-fn sort3(a: usize, b: usize, c: usize, context: anytype) void {
-    if (context.lessThan(b, a)) {
-        context.swap(b, a);
-    }
-
-    if (context.lessThan(c, b)) {
-        context.swap(c, b);
-    }
-
-    if (context.lessThan(b, a)) {
-        context.swap(b, a);
-    }
-}
-
-fn siftDown(a: usize, target: usize, b: usize, context: anytype) void {
-    var cur = target;
-    while (true) {
-        // When we don't overflow from the multiply below, the following expression equals (2*cur) - (2*a) + a + 1
-        // The `+ a + 1` is safe because:
-        //  for `a > 0` then `2a >= a + 1`.
-        //  for `a = 0`, the expression equals `2*cur+1`. `2*cur` is an even number, therefore adding 1 is safe.
-        var child = (math.mul(usize, cur - a, 2) catch break) + a + 1;
-
-        // stop if we overshot the boundary
-        if (!(child < b)) break;
-
-        // `next_child` is at most `b`, therefore no overflow is possible
-        const next_child = child + 1;
-
-        // store the greater child in `child`
-        if (next_child < b and context.lessThan(child, next_child)) {
-            child = next_child;
-        }
-
-        // stop if the Heap invariant holds at `cur`.
-        if (context.lessThan(child, cur)) break;
-
-        // swap `cur` with the greater child,
-        // move one step down, and continue sifting.
-        context.swap(child, cur);
-        cur = child;
-    }
 }
 
 // Tests
@@ -401,7 +287,7 @@ test "select" {
             const mid = slice.len / 2;
             @memcpy(slice, case[0]);
             selectFn(u8, slice, mid, {}, asc_u8);
-            try testing.expectEqual(slice[mid], case[1][mid]);
+            try testing.expectEqual(case[1][mid], slice[mid]);
         }
 
         for (i32cases) |case| {
@@ -410,7 +296,7 @@ test "select" {
             const mid = slice.len / 2;
             @memcpy(slice, case[0]);
             selectFn(i32, slice, mid, {}, asc_i32);
-            try testing.expectEqual(slice[mid], case[1][mid]);
+            try testing.expectEqual(case[1][mid], slice[mid]);
         }
     }
 }
@@ -448,14 +334,46 @@ test "select descending" {
             const mid = slice.len / 2;
             @memcpy(slice, case[0]);
             selectFn(i32, slice, mid, {}, desc_i32);
-            try testing.expectEqual(slice[mid], case[1][mid]);
+            try testing.expectEqual(case[1][mid], slice[mid]);
+        }
+    }
+}
+
+test "select with context in the middle of a slice" {
+    const Context = struct {
+        items: []i32,
+
+        pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+            return ctx.items[a] < ctx.items[b];
+        }
+
+        pub fn swap(ctx: @This(), a: usize, b: usize) void {
+            return mem.swap(i32, &ctx.items[a], &ctx.items[b]);
+        }
+    };
+
+    const i32case = &[_]i32{ 0, 1, 8, 3, 6, 5, 4, 2, 9, 7, 10, 55, 32, 39, 58, 21, 88, 43, 22, 59 };
+
+    const ranges = [_]struct { start: usize, end: usize, n: usize, expected: i32 }{
+        .{ .start = 10, .end = 20, .n = 1, .expected = 21 },
+        .{ .start = 1, .end = 11, .n = 2, .expected = 3 },
+        .{ .start = 3, .end = 7, .n = 3, .expected = 6 },
+    };
+
+    inline for (context_select_funcs) |selectFn| {
+        for (ranges) |range| {
+            var buf: [20]i32 = undefined;
+            const slice = buf[0..i32case.len];
+            @memcpy(slice, i32case);
+            selectFn(range.n, range.start, range.end, Context{ .items = slice });
+            try testing.expectEqual(range.expected, slice[range.start + range.n]);
         }
     }
 }
 
 test "select fuzz testing" {
     const asc_i32 = sort.asc(i32);
-    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    var prng = std.Random.DefaultPrng.init(testing.random_seed);
     const random = prng.random();
     const test_case_count = 10;
 
@@ -472,7 +390,7 @@ test "select fuzz testing" {
             selectFn(i32, array, n, {}, asc_i32);
             const n_val = array[n];
             sort.pdq(i32, array, {}, asc_i32);
-            try testing.expectEqual(n_val, array[n]);
+            try testing.expectEqual(array[n], n_val);
         }
     }
 }
