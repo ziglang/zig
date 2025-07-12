@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
 const testing = @import("std").testing;
+const builtin = @import("builtin");
 
 fn retAddr() usize {
     return @returnAddress();
@@ -12,5 +12,5 @@ test "return address" {
 
     _ = retAddr();
     // TODO: #14938
-    try testing.expectEqual(0, comptime retAddr());
+    try testing.expect(0 == comptime retAddr());
 }
