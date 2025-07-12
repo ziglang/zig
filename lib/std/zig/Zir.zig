@@ -1939,11 +1939,6 @@ pub const Inst = struct {
         /// `operand` is payload index to `BinNode`.
         builtin_extern,
         /// Inline assembly.
-        /// `small`:
-        ///  * 0b00000000_000XXXXX - `outputs_len`.
-        ///  * 0b000000XX_XXX00000 - `inputs_len`.
-        ///  * 0b0XXXXX00_00000000 - `clobbers_len`.
-        ///  * 0bX0000000_00000000 - is volatile
         /// `operand` is payload index to `Asm`.
         @"asm",
         /// Same as `asm` except the assembly template is not a string literal but a comptime
@@ -2495,7 +2490,6 @@ pub const Inst = struct {
     /// Trailing:
     /// 0. Output for every outputs_len
     /// 1. Input for every inputs_len
-    /// 2. clobber: NullTerminatedString // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
         src_node: Ast.Node.Offset,
         // null-terminated string index
@@ -2505,6 +2499,13 @@ pub const Inst = struct {
         ///   0b1 - operand is a type; asm expression has the output as the result.
         /// 0b0X is the first output, 0bX0 is the second, etc.
         output_type_bits: u32,
+        clobbers: Ref,
+
+        pub const Small = packed struct(u16) {
+            is_volatile: bool,
+            outputs_len: u7,
+            inputs_len: u8,
+        };
 
         pub const Output = struct {
             /// index into string_bytes (null terminated)
@@ -3482,6 +3483,7 @@ pub const Inst = struct {
         extern_options,
         type_info,
         branch_hint,
+        clobbers,
         // Values
         calling_convention_c,
         calling_convention_inline,

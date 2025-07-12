@@ -873,10 +873,10 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Asm, ty_pl.payload);
-    const is_volatile = (extra.data.flags & 0x80000000) != 0;
-    const clobbers_len: u31 = @truncate(extra.data.flags);
+    const is_volatile = extra.data.flags.is_volatile;
+    const outputs_len = extra.data.flags.outputs_len;
     var extra_i: usize = extra.end;
-    const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + extra.data.outputs_len]);
+    const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + outputs_len]);
     extra_i += outputs.len;
     const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + extra.data.inputs_len]);
     extra_i += inputs.len;
@@ -921,17 +921,8 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             try self.genSetReg(self.typeOf(input), reg, arg_mcv);
         }
 
-        {
-            var clobber_i: u32 = 0;
-            while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
-                // This equation accounts for the fact that even if we have exactly 4 bytes
-                // for the string, we still use the next u32 for the null terminator.
-                extra_i += clobber.len / 4 + 1;
-
-                // TODO honor these
-            }
-        }
+        // TODO honor the clobbers
+        _ = extra.data.clobbers;
 
         const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
