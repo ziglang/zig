@@ -433,7 +433,9 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?mem.Alignment) ty
 
         /// Invalidates all element pointers.
         pub fn clearAndFree(self: *Self) void {
-            self.allocator.free(self.allocatedSlice());
+            if (@sizeOf(T) > 0) {
+                self.allocator.free(self.allocatedSlice());
+            }
             self.items.len = 0;
             self.capacity = 0;
         }
