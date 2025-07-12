@@ -1026,7 +1026,9 @@ pub const CObject = struct {
 
             pub fn destroy(bundle: *Bundle, gpa: Allocator) void {
                 for (bundle.file_names.values()) |file_name| gpa.free(file_name);
+                bundle.file_names.deinit(gpa);
                 for (bundle.category_names.values()) |category_name| gpa.free(category_name);
+                bundle.category_names.deinit(gpa);
                 for (bundle.diags) |*diag| diag.deinit(gpa);
                 gpa.free(bundle.diags);
                 gpa.destroy(bundle);
