@@ -1885,6 +1885,7 @@ pub fn asmSimple(tree: Ast, node: Node.Index) full.Asm {
         .template = template,
         .items = &.{},
         .rparen = rparen,
+        .clobbers = .none,
     });
 }
 
@@ -1896,6 +1897,7 @@ pub fn asmFull(tree: Ast, node: Node.Index) full.Asm {
         .asm_token = tree.nodeMainToken(node),
         .template = template,
         .items = items,
+        .clobbers = extra.clobbers,
         .rparen = extra.rparen,
     });
 }
@@ -2198,7 +2200,6 @@ fn fullAsmComponents(tree: Ast, info: full.Asm.Components) full.Asm {
         .volatile_token = null,
         .inputs = &.{},
         .outputs = &.{},
-        .first_clobber = null,
     };
     if (tree.tokenTag(info.asm_token + 1) == .keyword_volatile) {
         result.volatile_token = info.asm_token + 1;
@@ -2212,43 +2213,6 @@ fn fullAsmComponents(tree: Ast, info: full.Asm.Components) full.Asm {
 
     result.outputs = info.items[0..outputs_end];
     result.inputs = info.items[outputs_end..];
-
-    if (info.items.len == 0) {
-        // asm ("foo" ::: "a", "b");
-        const template_token = tree.lastToken(info.template);
-        if (tree.tokenTag(template_token + 1) == .colon and
-            tree.tokenTag(template_token + 2) == .colon and
-            tree.tokenTag(template_token + 3) == .colon and
-            tree.tokenTag(template_token + 4) == .string_literal)
-        {
-            result.first_clobber = template_token + 4;
-        }
-    } else if (result.inputs.len != 0) {
-        // asm ("foo" :: [_] "" (y) : "a", "b");
-        const last_input = result.inputs[result.inputs.len - 1];
-        const rparen = tree.lastToken(last_input);
-        var i = rparen + 1;
-        // Allow a (useless) comma right after the closing parenthesis.
-        if (tree.tokenTag(i) == .comma) i = i + 1;
-        if (tree.tokenTag(i) == .colon and
-            tree.tokenTag(i + 1) == .string_literal)
-        {
-            result.first_clobber = i + 1;
-        }
-    } else {
-        // asm ("foo" : [_] "" (x) :: "a", "b");
-        const last_output = result.outputs[result.outputs.len - 1];
-        const rparen = tree.lastToken(last_output);
-        var i = rparen + 1;
-        // Allow a (useless) comma right after the closing parenthesis.
-        if (tree.tokenTag(i) == .comma) i = i + 1;
-        if (tree.tokenTag(i) == .colon and
-            tree.tokenTag(i + 1) == .colon and
-            tree.tokenTag(i + 2) == .string_literal)
-        {
-            result.first_clobber = i + 2;
-        }
-    }
 
     return result;
 }
@@ -2829,7 +2793,6 @@ pub const full = struct {
     pub const Asm = struct {
         ast: Components,
         volatile_token: ?TokenIndex,
-        first_clobber: ?TokenIndex,
         outputs: []const Node.Index,
         inputs: []const Node.Index,
 
@@ -2837,6 +2800,7 @@ pub const full = struct {
             asm_token: TokenIndex,
             template: Node.Index,
             items: []const Node.Index,
+            clobbers: Node.OptionalIndex,
             rparen: TokenIndex,
         };
     };
@@ -3833,15 +3797,14 @@ pub const Node = struct {
         /// Same as `block` except there is known to be a trailing comma before
         /// the final rbrace.
         block_semicolon,
-        /// `asm(lhs)`.
+        /// `asm(a)`.
         ///
-        /// rhs is a `Token.Index` to the `)` token.
         /// The `main_token` field is the `asm` token.
         asm_simple,
-        /// `asm(lhs, a)`.
+        /// `asm(a, b)`.
         ///
         /// The `data` field is a `.node_and_extra`:
-        ///   1. a `Node.Index` to lhs.
+        ///   1. a `Node.Index` to a.
         ///   2. a `ExtraIndex` to `Asm`.
         ///
         /// The `main_token` field is the `asm` token.
@@ -4017,6 +3980,7 @@ pub const Node = struct {
     pub const Asm = struct {
         items_start: ExtraIndex,
         items_end: ExtraIndex,
+        clobbers: OptionalIndex,
         /// Needed to make lastToken() work.
         rparen: TokenIndex,
     };

@@ -416,8 +416,9 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
                 // Luckily, we only care about the inputs and outputs, so we don't have to do
                 // the whole null-terminated string dance.
-                const outputs: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end..][0..extra.data.outputs_len]);
-                const inputs: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end + extra.data.outputs_len ..][0..extra.data.inputs_len]);
+                const outputs_len = extra.data.flags.outputs_len;
+                const outputs: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end..][0..outputs_len]);
+                const inputs: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end + outputs_len ..][0..extra.data.inputs_len]);
                 for (outputs) |output| if (output != .none and !checkRef(output, zcu)) return false;
                 for (inputs) |input| if (input != .none and !checkRef(input, zcu)) return false;
             },

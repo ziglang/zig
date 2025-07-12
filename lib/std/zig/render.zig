@@ -2382,41 +2382,23 @@ fn renderAsm(
 
     if (asm_node.ast.items.len == 0) {
         try ais.forcePushIndent(.normal);
-        if (asm_node.first_clobber) |first_clobber| {
-            // asm ("foo" ::: "a", "b")
-            // asm ("foo" ::: "a", "b",)
+        if (asm_node.ast.clobbers.unwrap()) |clobbers| {
+            // asm ("foo" ::: clobbers)
             try renderExpression(r, asm_node.ast.template, .space);
             // Render the three colons.
+            const first_clobber = tree.firstToken(clobbers);
             try renderToken(r, first_clobber - 3, .none);
             try renderToken(r, first_clobber - 2, .none);
             try renderToken(r, first_clobber - 1, .space);
-
-            var tok_i = first_clobber;
-            while (true) : (tok_i += 1) {
-                try renderToken(r, tok_i, .none);
-                tok_i += 1;
-                switch (tree.tokenTag(tok_i)) {
-                    .r_paren => {
-                        ais.popIndent();
-                        return renderToken(r, tok_i, space);
-                    },
-                    .comma => {
-                        if (tree.tokenTag(tok_i + 1) == .r_paren) {
-                            ais.popIndent();
-                            return renderToken(r, tok_i + 1, space);
-                        } else {
-                            try renderToken(r, tok_i, .space);
-                        }
-                    },
-                    else => unreachable,
-                }
-            }
-        } else {
-            // asm ("foo")
-            try renderExpression(r, asm_node.ast.template, .none);
+            try renderExpression(r, clobbers, .none);
             ais.popIndent();
             return renderToken(r, asm_node.ast.rparen, space); // rparen
         }
+
+        // asm ("foo")
+        try renderExpression(r, asm_node.ast.template, .none);
+        ais.popIndent();
+        return renderToken(r, asm_node.ast.rparen, space); // rparen
     }
 
     try ais.forcePushIndent(.normal);
@@ -2439,7 +2421,7 @@ fn renderAsm(
                 const comma = tree.firstToken(next_asm_output) - 1;
                 try renderToken(r, comma, .newline); // ,
                 try renderExtraNewlineToken(r, tree.firstToken(next_asm_output));
-            } else if (asm_node.inputs.len == 0 and asm_node.first_clobber == null) {
+            } else if (asm_node.inputs.len == 0 and asm_node.ast.clobbers == .none) {
                 try ais.pushSpace(.comma);
                 try renderAsmOutput(r, asm_output, .comma);
                 ais.popSpace();
@@ -2475,7 +2457,7 @@ fn renderAsm(
                 const first_token = tree.firstToken(next_asm_input);
                 try renderToken(r, first_token - 1, .newline); // ,
                 try renderExtraNewlineToken(r, first_token);
-            } else if (asm_node.first_clobber == null) {
+            } else if (asm_node.ast.clobbers == .none) {
                 try ais.pushSpace(.comma);
                 try renderAsmInput(r, asm_input, .comma);
                 ais.popSpace();
@@ -2499,34 +2481,10 @@ fn renderAsm(
     };
 
     try renderToken(r, colon3, .space); // :
-    const first_clobber = asm_node.first_clobber.?;
-    var tok_i = first_clobber;
-    while (true) {
-        switch (tree.tokenTag(tok_i + 1)) {
-            .r_paren => {
-                ais.setIndentDelta(indent_delta);
-                try renderToken(r, tok_i, .newline);
-                ais.popIndent();
-                return renderToken(r, tok_i + 1, space);
-            },
-            .comma => {
-                switch (tree.tokenTag(tok_i + 2)) {
-                    .r_paren => {
-                        ais.setIndentDelta(indent_delta);
-                        try renderToken(r, tok_i, .newline);
-                        ais.popIndent();
-                        return renderToken(r, tok_i + 2, space);
-                    },
-                    else => {
-                        try renderToken(r, tok_i, .none);
-                        try renderToken(r, tok_i + 1, .space);
-                        tok_i += 2;
-                    },
-                }
-            },
-            else => unreachable,
-        }
-    }
+    const clobbers = asm_node.ast.clobbers.unwrap().?;
+    try renderExpression(r, clobbers, .none);
+    ais.popIndent();
+    return renderToken(r, asm_node.ast.rparen, space); // rparen
 }
 
 fn renderCall(
