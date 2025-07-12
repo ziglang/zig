@@ -9785,6 +9785,8 @@ fn finishFunc(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const gpa = sema.gpa;
+    const target = zcu.getTarget();
+    const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
 
     const return_type: Type = if (opt_func_index == .none or ret_poison)
         bare_return_type
@@ -9911,7 +9913,7 @@ fn finishFunc(
         }),
     }
 
-    if (!is_generic and sema.wantErrorReturnTracing(return_type)) {
+    if (backend == .stage2_llvm and !is_generic and sema.wantErrorReturnTracing(return_type)) {
         // Make sure that StackTrace's fields are resolved so that the backend can
         // lower this fn type.
         const unresolved_stack_trace_ty = try sema.getBuiltinType(block.nodeOffset(.zero), .StackTrace);
