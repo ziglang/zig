@@ -1079,7 +1079,9 @@ fn runCommand(
     var interp_argv = std.ArrayList([]const u8).init(b.allocator);
     defer interp_argv.deinit();
 
-    const result = spawnChildAndCollect(run, argv, has_side_effects, prog_node, fuzz_context) catch |err| term: {
+    var env_map = run.env_map orelse &b.graph.env_map;
+
+    const result = spawnChildAndCollect(run, argv, env_map, has_side_effects, prog_node, fuzz_context) catch |err| term: {
         // InvalidExe: cpu arch mismatch
         // FileNotFound: can happen with a wrong dynamic linker path
         if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
@@ -1112,6 +1114,15 @@ fn runCommand(
                     if (b.enable_wine) {
                         try interp_argv.append(bin_name);
                         try interp_argv.appendSlice(argv);
+
+                        // Wine's excessive stderr logging is only situationally helpful. Disable it by default, but
+                        // allow the user to override it (e.g. with `WINEDEBUG=err+all`) if desired.
+                        if (env_map.get("WINEDEBUG") == null) {
+                            // We don't own `env_map` at this point, so turn it into a copy before modifying it.
+                            env_map = arena.create(EnvMap) catch @panic("OOM");
+                            env_map.hash_map = try env_map.hash_map.cloneWithAllocator(arena);
+                            try env_map.put("WINEDEBUG", "-all");
+                        }
                     } else {
                         return failForeign(run, "-fwine", argv[0], exe);
                     }
@@ -1207,7 +1218,7 @@ fn runCommand(
 
             try Step.handleVerbose2(step.owner, cwd, run.env_map, interp_argv.items);
 
-            break :term spawnChildAndCollect(run, interp_argv.items, has_side_effects, prog_node, fuzz_context) catch |e| {
+            break :term spawnChildAndCollect(run, interp_argv.items, env_map, has_side_effects, prog_node, fuzz_context) catch |e| {
                 if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
 
                 return step.fail("unable to spawn interpreter {s}: {s}", .{
@@ -1390,6 +1401,7 @@ const ChildProcResult = struct {
 fn spawnChildAndCollect(
     run: *Run,
     argv: []const []const u8,
+    env_map: *EnvMap,
     has_side_effects: bool,
     prog_node: std.Progress.Node,
     fuzz_context: ?FuzzContext,
@@ -1406,7 +1418,7 @@ fn spawnChildAndCollect(
     if (run.cwd) |lazy_cwd| {
         child.cwd = lazy_cwd.getPath2(b, &run.step);
     }
-    child.env_map = run.env_map orelse &b.graph.env_map;
+    child.env_map = env_map;
     child.request_resource_usage_statistics = true;
 
     child.stdin_behavior = switch (run.stdio) {
