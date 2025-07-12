@@ -169,8 +169,6 @@ test "Saturating Shift Left" {
 
     const S = struct {
         fn shlSat(x: anytype, y: std.math.Log2Int(@TypeOf(x))) @TypeOf(x) {
-            // workaround https://github.com/ziglang/zig/issues/23033
-            @setRuntimeSafety(false);
             return x <<| y;
         }
 
