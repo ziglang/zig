@@ -91,14 +91,14 @@ pub const MemoryType = enum(u32) {
     }
 
     pub fn format(self: MemoryType, w: *std.io.Writer) std.io.WriteError!void {
-        if (memtype.toOem()) |oemval|
+        if (self.toOem()) |oemval|
             try w.print("OEM({X})", .{oemval})
-        else if (memtype.toVendor()) |vendorval|
+        else if (self.toVendor()) |vendorval|
             try w.print("Vendor({X})", .{vendorval})
-        else if (std.enums.tagName(MemoryType, memtype)) |name|
+        else if (std.enums.tagName(MemoryType, self)) |name|
             try w.print("{s}", .{name})
         else
-            try w.print("INVALID({X})", .{@intFromEnum(memtype)});
+            try w.print("INVALID({X})", .{@intFromEnum(self)});
     }
 };
 
