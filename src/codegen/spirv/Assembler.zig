@@ -7,8 +7,7 @@ const assert = std.debug.assert;
 const spec = @import("spec.zig");
 const Opcode = spec.Opcode;
 const Word = spec.Word;
-const IdRef = spec.IdRef;
-const IdResult = spec.IdResult;
+const Id = spec.Id;
 const StorageClass = spec.StorageClass;
 
 const SpvModule = @import("Module.zig");
@@ -127,10 +126,10 @@ const AsmValue = union(enum) {
     unresolved_forward_reference,
 
     /// This result-value is a normal result produced by a different instruction.
-    value: IdRef,
+    value: Id,
 
     /// This result-value represents a type registered into the module's type system.
-    ty: IdRef,
+    ty: Id,
 
     /// This is a pre-supplied constant integer value.
     constant: u32,
@@ -141,7 +140,7 @@ const AsmValue = union(enum) {
     /// Retrieve the result-id of this AsmValue. Asserts that this AsmValue
     /// is of a variant that allows the result to be obtained (not an unresolved
     /// forward declaration, not in the process of being declared, etc).
-    pub fn resultId(self: AsmValue) IdRef {
+    pub fn resultId(self: AsmValue) Id {
         return switch (self) {
             .just_declared,
             .unresolved_forward_reference,
@@ -314,7 +313,7 @@ fn processInstruction(self: *Assembler) !void {
             return;
         },
         else => switch (self.inst.opcode.class()) {
-            .TypeDeclaration => try self.processTypeInstruction(),
+            .type_declaration => try self.processTypeInstruction(),
             else => (try self.processGenericInstruction()) orelse return,
         },
     };
@@ -392,7 +391,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             break :blk result_id;
         },
         .OpTypeStruct => blk: {
-            const ids = try self.gpa.alloc(IdRef, operands[1..].len);
+            const ids = try self.gpa.alloc(Id, operands[1..].len);
             defer self.gpa.free(ids);
             for (operands[1..], ids) |op, *id| id.* = try self.resolveRefId(op.ref_id);
             const result_id = self.spv.allocId();
@@ -429,7 +428,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             const param_operands = operands[2..];
             const return_type = try self.resolveRefId(operands[1].ref_id);
 
-            const param_types = try self.spv.gpa.alloc(IdRef, param_operands.len);
+            const param_types = try self.spv.gpa.alloc(Id, param_operands.len);
             defer self.spv.gpa.free(param_types);
             for (param_types, param_operands) |*param, operand| {
                 param.* = try self.resolveRefId(operand.ref_id);
@@ -457,17 +456,17 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
     const operands = self.inst.operands.items;
     var maybe_spv_decl_index: ?SpvModule.Decl.Index = null;
     const section = switch (self.inst.opcode.class()) {
-        .ConstantCreation => &self.spv.sections.types_globals_constants,
-        .Annotation => &self.spv.sections.annotations,
-        .TypeDeclaration => unreachable, // Handled elsewhere.
+        .constant_creation => &self.spv.sections.types_globals_constants,
+        .annotation => &self.spv.sections.annotations,
+        .type_declaration => unreachable, // Handled elsewhere.
         else => switch (self.inst.opcode) {
             .OpEntryPoint => unreachable,
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
             .OpVariable => section: {
                 const storage_class: spec.StorageClass = @enumFromInt(operands[2].value);
-                if (storage_class == .Function) break :section &self.func.prologue;
+                if (storage_class == .function) break :section &self.func.prologue;
                 maybe_spv_decl_index = try self.spv.allocDecl(.global);
-                if (self.spv.version.minor < 4 and storage_class != .Input and storage_class != .Output) {
+                if (self.spv.version.minor < 4 and storage_class != .input and storage_class != .output) {
                     // Before version 1.4, the interface’s storage classes are limited to the Input and Output
                     break :section &self.spv.sections.types_globals_constants;
                 }
@@ -481,7 +480,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
         },
     };
 
-    var maybe_result_id: ?IdResult = null;
+    var maybe_result_id: ?Id = null;
     const first_word = section.instructions.items.len;
     // At this point we're not quite sure how many operands this instruction is going to have,
     // so insert 0 and patch up the actual opcode word later.
@@ -504,12 +503,12 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
                 else
                     self.spv.allocId();
                 try section.ensureUnusedCapacity(self.spv.gpa, 1);
-                section.writeOperand(IdResult, maybe_result_id.?);
+                section.writeOperand(Id, maybe_result_id.?);
             },
             .ref_id => |index| {
                 const result = try self.resolveRef(index);
                 try section.ensureUnusedCapacity(self.spv.gpa, 1);
-                section.writeOperand(spec.IdRef, result.resultId());
+                section.writeOperand(spec.Id, result.resultId());
             },
             .string => |offset| {
                 const text = std.mem.sliceTo(self.inst.string_bytes.items[offset..], 0);
@@ -558,7 +557,7 @@ fn resolveRef(self: *Assembler, ref: AsmValue.Ref) !AsmValue {
     }
 }
 
-fn resolveRefId(self: *Assembler, ref: AsmValue.Ref) !IdRef {
+fn resolveRefId(self: *Assembler, ref: AsmValue.Ref) !Id {
     const value = try self.resolveRef(ref);
     return value.resultId();
 }
@@ -600,7 +599,7 @@ fn parseInstruction(self: *Assembler) !void {
     const expected_operands = inst.operands;
     // This is a loop because the result-id is not always the first operand.
     const requires_lhs_result = for (expected_operands) |op| {
-        if (op.kind == .IdResult) break true;
+        if (op.kind == .id_result) break true;
     } else false;
 
     if (requires_lhs_result and maybe_lhs_result == null) {
@@ -614,7 +613,7 @@ fn parseInstruction(self: *Assembler) !void {
     }
 
     for (expected_operands) |operand| {
-        if (operand.kind == .IdResult) {
+        if (operand.kind == .id_result) {
             try self.inst.operands.append(self.gpa, .{ .result_id = maybe_lhs_result.? });
             continue;
         }
@@ -646,11 +645,11 @@ fn parseOperand(self: *Assembler, kind: spec.OperandKind) Error!void {
         .value_enum => try self.parseValueEnum(kind),
         .id => try self.parseRefId(),
         else => switch (kind) {
-            .LiteralInteger => try self.parseLiteralInteger(),
-            .LiteralString => try self.parseString(),
-            .LiteralContextDependentNumber => try self.parseContextDependentNumber(),
-            .LiteralExtInstInteger => try self.parseLiteralExtInstInteger(),
-            .PairIdRefIdRef => try self.parsePhiSource(),
+            .literal_integer => try self.parseLiteralInteger(),
+            .literal_string => try self.parseString(),
+            .literal_context_dependent_number => try self.parseContextDependentNumber(),
+            .literal_ext_inst_integer => try self.parseLiteralExtInstInteger(),
+            .pair_id_ref_id_ref => try self.parsePhiSource(),
             else => return self.todo("parse operand of type {s}", .{@tagName(kind)}),
         },
     }

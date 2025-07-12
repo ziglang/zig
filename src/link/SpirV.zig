@@ -42,7 +42,7 @@ const Value = @import("../Value.zig");
 const SpvModule = @import("../codegen/spirv/Module.zig");
 const Section = @import("../codegen/spirv/Section.zig");
 const spec = @import("../codegen/spirv/spec.zig");
-const IdResult = spec.IdResult;
+const Id = spec.Id;
 const Word = spec.Word;
 
 const BinaryModule = @import("SpirV/BinaryModule.zig");
@@ -144,15 +144,15 @@ pub fn updateExports(
         const cc = Type.fromInterned(nav_ty).fnCallingConvention(zcu);
         const exec_model: spec.ExecutionModel = switch (target.os.tag) {
             .vulkan, .opengl => switch (cc) {
-                .spirv_vertex => .Vertex,
-                .spirv_fragment => .Fragment,
-                .spirv_kernel => .GLCompute,
+                .spirv_vertex => .vertex,
+                .spirv_fragment => .fragment,
+                .spirv_kernel => .gl_compute,
                 // TODO: We should integrate with the Linkage capability and export this function
                 .spirv_device => return,
                 else => unreachable,
             },
             .opencl => switch (cc) {
-                .spirv_kernel => .Kernel,
+                .spirv_kernel => .kernel,
                 // TODO: We should integrate with the Linkage capability and export this function
                 .spirv_device => return,
                 else => unreachable,
