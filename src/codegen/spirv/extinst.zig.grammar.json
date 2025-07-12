@@ -1,13 +1,11 @@
 {
-    "version": 0,
-    "revision": 0,
-    "instructions": [
-        {
-            "opname": "InvocationGlobal",
-            "opcode": 0,
-            "operands": [
-                { "kind": "IdRef", "name": "initializer function" }
-            ]
-        }
-    ]
+  "version": 0,
+  "revision": 0,
+  "instructions": [
+    {
+      "opname": "InvocationGlobal",
+      "opcode": 0,
+      "operands": [{ "kind": "IdRef", "name": "initializer function" }]
+    }
+  ]
 }
