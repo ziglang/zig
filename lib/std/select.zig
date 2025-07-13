@@ -159,7 +159,7 @@ pub fn heapSelectContext(n: usize, a: usize, b: usize, context: anytype) void {
     assert(n < len);
     const n_largest = len - n;
     // build the heap in linear time.
-    var i = a + (b - a) / 2;
+    var i = a + len / 2;
     while (i > a) {
         i -= 1;
         sort.siftDown(a, i, b, context);
@@ -173,17 +173,15 @@ pub fn heapSelectContext(n: usize, a: usize, b: usize, context: anytype) void {
         sort.siftDown(a, a, heap_end, context);
     }
 
-    // After the loop, the root of the heap (at index `a`) is the nth smallest element.
+    // After the loop, the root (at index `a`) is the n-th smallest element (0-indexed).
     // We swap it into the correct position `a + n`.
-    if (len > 0) {
-        context.swap(a, a + n);
-    }
+    context.swap(a, a + n);
 }
 
 /// Calculates the median of a slice using the nthElement function.
 /// For slices with an odd number of elements, it returns the middle element.
 /// For slices with an even number of elements, it returns the mean of the two central elements.
-/// The result from integer types is rounded towards zero, while for floating-point types it is the exact mean.
+/// The result from integer types is floor divided.
 /// This function modifies the order of elements in the slice.
 pub fn median(
     comptime T: type,
@@ -208,8 +206,8 @@ pub fn median(
         }
     }
     return switch (@typeInfo(T)) {
-        .int => @divTrunc((lower_median + upper_median), 2),
-        .float => (lower_median + upper_median) / 2,
+        .int => (lower_median & upper_median) + ((lower_median ^ upper_median) >> 1),
+        .float => lower_median / 2 + upper_median / 2,
         else => @compileError("Unsupported type for median: " ++ @typeName(T)),
     };
 }
@@ -410,7 +408,7 @@ test "median even length" {
 test "median even length negative" {
     var items = [_]i32{ -1, -3, -2, -5, -4, -6 }; // sorted: -6, -5, -4, -3, -2, -1 -> median (-4 + -3)/2 = -3.5
     const m = median(i32, &items, {}, sort.asc(i32));
-    try testing.expectEqual(-3, m);
+    try testing.expectEqual(-4, m);
 }
 
 test "median odd length float" {
@@ -423,4 +421,31 @@ test "median even length float" {
     var items = [_]f32{ 1.1, 3.3, 2.2, 5.5, 4.4, 6.6 }; // sorted: 1.1, 2.2, 3.3, 4.4, 5.5, 6.6 -> median (3.3+4.4)/2 = 3.85
     const m = median(f32, &items, {}, sort.asc(f32));
     try testing.expectApproxEqRel(3.85, m, 0.00001);
+}
+
+test "median overflow i8" {
+    const asc = sort.asc(i8);
+    const fill_values = [_]i8{ 127, -128 };
+    for (fill_values) |fill| {
+        var items = [_]i8{fill} ** 4;
+        const m = median(i8, &items, {}, asc);
+        try testing.expectEqual(fill, m);
+    }
+}
+
+test "median overflow f32" {
+    const asc = sort.asc(f32);
+    const fill_values = [_]f32{ math.floatMax(f32), math.floatMin(f32) };
+    for (fill_values) |fill| {
+        var items = [_]f32{fill} ** 4;
+        const m = median(f32, &items, {}, asc);
+        try testing.expectEqual(fill, m);
+    }
+}
+
+test "median mixed min max i8" {
+    const asc = sort.asc(i8);
+    var items = [_]i8{ -128, 127, 127, -128 };
+    const m = median(i8, &items, {}, asc);
+    try testing.expectEqual(@as(i8, -1), m);
 }
