@@ -19,6 +19,7 @@ const File = std.fs.File;
 // first release to support them.
 pub const has_unix_sockets = switch (native_os) {
     .windows => builtin.os.version_range.windows.isAtLeast(.win10_rs4) orelse false,
+    .wasi => false,
     else => true,
 };
 
@@ -1397,6 +1398,10 @@ fn parseHosts(
 }
 
 test parseHosts {
+    if (builtin.os.tag == .wasi) {
+        // TODO parsing addresses should not have OS dependencies
+        return error.SkipZigTest;
+    }
     var reader: std.io.Reader = .fixed(
         \\127.0.0.1 localhost
         \\::1 localhost
