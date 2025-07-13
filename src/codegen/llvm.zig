@@ -1754,11 +1754,6 @@ pub const Object = struct {
         }
     }
 
-    pub fn freeDecl(self: *Object, decl_index: InternPool.DeclIndex) void {
-        const global = self.decl_map.get(decl_index) orelse return;
-        global.delete(&self.builder);
-    }
-
     fn getDebugFile(o: *Object, pt: Zcu.PerThread, file_index: Zcu.File.Index) Allocator.Error!Builder.Metadata {
         const gpa = o.gpa;
         const gop = try o.debug_file_map.getOrPut(gpa, file_index);
@@ -2596,9 +2591,8 @@ pub const Object = struct {
                 }
 
                 if (fn_info.cc == .auto and zcu.comp.config.any_error_tracing) {
-                    const stack_trace_ty = zcu.builtin_decl_values.get(.StackTrace);
-                    const ptr_ty = try pt.ptrType(.{ .child = stack_trace_ty });
-                    debug_param_types.appendAssumeCapacity(try o.lowerDebugType(pt, ptr_ty));
+                    // Stack trace pointer.
+                    debug_param_types.appendAssumeCapacity(try o.lowerDebugType(pt, .fromInterned(.ptr_usize_type)));
                 }
 
                 for (0..fn_info.param_types.len) |i| {
@@ -12899,26 +12893,6 @@ fn compilerRtIntBits(bits: u16) u16 {
         }
     }
     return bits;
-}
-
-fn getStackTraceType(pt: Zcu.PerThread) Allocator.Error!Type {
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-
-    const std_file_index = zcu.module_roots.get(zcu.std_mod).?.unwrap().?;
-    const builtin_str = try ip.getOrPutString(zcu.gpa, pt.tid, "builtin", .no_embedded_nulls);
-    const std_file_root_type = Type.fromInterned(zcu.fileRootType(std_file_index));
-    const std_namespace = ip.namespacePtr(std_file_root_type.getNamespaceIndex(zcu));
-    const builtin_nav = std_namespace.pub_decls.getKeyAdapted(builtin_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }).?;
-
-    const stack_trace_str = try ip.getOrPutString(zcu.gpa, pt.tid, "StackTrace", .no_embedded_nulls);
-    // buffer is only used for int_type, `builtin` is a struct.
-    const builtin_ty = zcu.navValue(builtin_nav).toType();
-    const builtin_namespace = zcu.namespacePtr(builtin_ty.getNamespaceIndex(zcu));
-    const stack_trace_nav = builtin_namespace.pub_decls.getKeyAdapted(stack_trace_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }).?;
-
-    // Sema should have ensured that StackTrace was analyzed.
-    return zcu.navValue(stack_trace_nav).toType();
 }
 
 fn buildAllocaInner(
