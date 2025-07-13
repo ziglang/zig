@@ -6317,6 +6317,30 @@ pub fn addCCArgs(
 ) !void {
     const target = &mod.resolved_target.result;
 
+    var user_isystem_paths: std.ArrayList([]const u8) = .init(arena);
+    var other_cc_argv: std.ArrayList([]const u8) = .init(arena);
+
+    var isystem_path_next = false;
+    for ([_][]const []const u8{ comp.global_cc_argv, mod.cc_argv }) |cc_argv| {
+        for (cc_argv) |arg| {
+            if (isystem_path_next) {
+                try user_isystem_paths.append(arg);
+                isystem_path_next = false;
+                continue;
+            }
+            const isystem_flag = "-isystem";
+            if (mem.eql(u8, arg, isystem_flag)) {
+                isystem_path_next = true;
+                continue;
+            }
+            if (mem.startsWith(u8, arg, isystem_flag)) {
+                try user_isystem_paths.append(arg[isystem_flag.len..]);
+                continue;
+            }
+            try other_cc_argv.append(arg);
+        }
+    }
+
     // As of Clang 16.x, it will by default read extra flags from /etc/clang.
     // I'm sure the person who implemented this means well, but they have a lot
     // to learn about abstractions and where the appropriate boundaries between
@@ -6529,6 +6553,12 @@ pub fn addCCArgs(
                         (min_ver.major * 100_000_000) + (min_ver.minor * 1_000_000),
                     }));
                 }
+            }
+
+            // User provided isystem paths come first in clang.
+            for (user_isystem_paths.items) |path| {
+                try argv.append("-isystem");
+                try argv.append(path);
             }
 
             if (comp.config.link_libcpp) {
@@ -6811,8 +6841,145 @@ pub fn addCCArgs(
         else => {},
     }
 
-    try argv.appendSlice(comp.global_cc_argv);
-    try argv.appendSlice(mod.cc_argv);
+    try argv.appendSlice(other_cc_argv.items);
+}
+
+test "addCCArgs() puts user provided `-isystem` paths before native paths" {
+    const expected_isys_path_order: []const []const u8 = &.{ "/user_provided/isystem/dir/", "/module/isystem/dir1/", "/module/isystem/dir2/", "/native/isystem/dir/" };
+    var expected_isys_path_queue: std.fifo.LinearFifo([]const u8, .{ .Static = expected_isys_path_order.len }) = .init();
+    try expected_isys_path_queue.write(expected_isys_path_order);
+    var alloc: std.heap.DebugAllocator(.{}) = .init;
+    var arena = std.heap.ArenaAllocator.init(alloc.allocator());
+
+    const resolved_target: Package.Module.ResolvedTarget = .{
+        .is_native_os = true,
+        .is_explicit_dynamic_linker = false,
+        .is_native_abi = true,
+        .result = .{
+            .abi = .musl,
+            .cpu = .{
+                .arch = .x86_64,
+                .features = .empty,
+                .model = Target.Cpu.Model.baseline(.x86_64, .{
+                    .tag = .linux,
+                    .version_range = .{ .none = {} },
+                }),
+            },
+            .os = .{
+                .tag = .linux,
+                .version_range = .default(.x86_64, .linux, .musl),
+            },
+            .ofmt = .c,
+        },
+    };
+    const conf = try Compilation.Config.resolve(.{
+        .emit_bin = true,
+        .have_zcu = false,
+        .is_test = true,
+        .output_mode = .Exe,
+        .resolved_target = resolved_target,
+    });
+
+    const cwd = try std.fs.cwd().realpathAlloc(arena.allocator(), ".");
+    const global_cache = try introspect.resolveGlobalCacheDir(arena.allocator());
+    const global_cache_handle = try std.fs.openDirAbsolute(global_cache, .{ .access_sub_paths = true });
+    const local_cache = (try introspect.resolveSuitableLocalCacheDir(arena.allocator(), cwd)).?;
+    const local_cache_handle = try std.fs.openDirAbsolute(local_cache, .{ .access_sub_paths = true });
+    var thread_pool: std.Thread.Pool = undefined;
+    try thread_pool.init(.{ .allocator = arena.allocator() });
+
+    const mod = try Package.Module.create(arena.allocator(), .{
+        .paths = .{
+            .root = .{
+                .root = .none,
+                .sub_path = cwd,
+            },
+            .root_src_path = "src",
+        },
+        .cc_argv = &.{ "-isystem", "/module/isystem/dir1/", "-isystem/module/isystem/dir2/" },
+        .fully_qualified_name = "mod",
+        .parent = null,
+        .global = conf,
+        .inherited = .{ .resolved_target = resolved_target },
+    });
+
+    const compilation = try Compilation.create(
+        alloc.allocator(),
+        arena.allocator(),
+        .{
+            .dirs = .{
+                .cwd = cwd,
+                .global_cache = .{ .path = global_cache, .handle = global_cache_handle },
+                .local_cache = .{ .path = local_cache, .handle = local_cache_handle },
+                .zig_lib = try introspect.findZigLibDir(arena.allocator()),
+            },
+            .cache_mode = .whole,
+            .config = conf,
+            .thread_pool = &thread_pool,
+            .root_mod = mod,
+            .root_name = "mod",
+            .emit_bin = .yes_cache,
+            .native_system_include_paths = &.{"/native/isystem/dir/"},
+            .global_cc_argv = &.{ "-isystem", "/user_provided/isystem/dir/" },
+        },
+    );
+
+    var argv: std.ArrayList([]const u8) = .init(arena.allocator());
+
+    try compilation.addCCArgs(arena.allocator(), &argv, .c, null, mod);
+
+    var isys_paths_result: std.ArrayList([]const u8) = .init(arena.allocator());
+
+    const isys_paths_in_order = check_path_order: {
+        var isystem_path_up_next = false;
+        for (argv.items) |arg| {
+            if (mem.eql(u8, arg, "-isystem")) {
+                isystem_path_up_next = true;
+                continue;
+            }
+            if (isystem_path_up_next) {
+                try isys_paths_result.append(arg);
+                if (mem.eql(u8, arg, expected_isys_path_queue.peekItem(0))) {
+                    expected_isys_path_queue.discard(1);
+                    if (expected_isys_path_queue.readableLength() == 0) {
+                        break :check_path_order true;
+                    }
+                }
+            }
+            isystem_path_up_next = false;
+        }
+        break :check_path_order false;
+    };
+
+    std.testing.expect(isys_paths_in_order) catch |e| {
+        var result_str: std.ArrayList(u8) = .init(arena.allocator());
+        var result_writer = result_str.writer();
+        var expect_str: std.ArrayList(u8) = .init(arena.allocator());
+        var expect_writer = expect_str.writer();
+
+        for (isys_paths_result.items, 0..) |path, index| {
+            _ = try result_writer.write(path);
+            if (index < isys_paths_result.items.len - 1)
+                _ = try result_writer.write(", ");
+        }
+        for (expected_isys_path_order, 0..) |path, index| {
+            _ = try expect_writer.write(path);
+            if (index < expected_isys_path_order.len - 1)
+                _ = try expect_writer.write(", ");
+        }
+        std.log.err(
+            \\Expected isystem paths were not found in the correct order.
+            \\
+            \\Expected:
+            \\  [{s}]
+            \\
+            \\Result:
+            \\  [{s}]
+            \\
+            \\Note: Expected and Result do not need to match 1:1, all items in expected just need to be found in result in the same order.
+        , .{ expect_str.items, result_str.items });
+        return e;
+    };
 }
 
 fn failCObj(
