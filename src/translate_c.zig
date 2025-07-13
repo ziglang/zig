@@ -572,6 +572,12 @@ fn visitVarDecl(c: *Context, var_decl: *const clang.VarDecl, mangled_name: ?[]co
     if (c.global_scope.sym_table.contains(var_name))
         return; // Avoid processing this decl twice
 
+    // Skip this declaration if a proper definition exists
+    if (!var_decl.isThisDeclarationADefinition()) {
+        if (var_decl.getDefinition()) |def|
+            return visitVarDecl(c, def, mangled_name);
+    }
+
     const is_pub = mangled_name == null;
     const is_threadlocal = var_decl.getTLSKind() != .None;
     const scope = &c.global_scope.base;

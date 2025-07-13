@@ -3310,6 +3310,16 @@ bool ZigClangVarDecl_isStaticLocal(const struct ZigClangVarDecl *self) {
     return casted->isStaticLocal();
 }
 
+bool ZigClangVarDecl_isThisDeclarationADefinition(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return casted->isThisDeclarationADefinition();
+}
+
+const ZigClangVarDecl *ZigClangVarDecl_getDefinition(const struct ZigClangVarDecl *self) {
+    auto casted = reinterpret_cast<const clang::VarDecl *>(self);
+    return reinterpret_cast<const ZigClangVarDecl *>(casted->getDefinition());
+}
+
 enum ZigClangBuiltinTypeKind ZigClangBuiltinType_getKind(const struct ZigClangBuiltinType *self) {
     auto casted = reinterpret_cast<const clang::BuiltinType *>(self);
     return (ZigClangBuiltinTypeKind)casted->getKind();

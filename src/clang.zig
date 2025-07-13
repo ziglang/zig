@@ -1050,6 +1050,12 @@ pub const VarDecl = opaque {
 
     pub const isStaticLocal = ZigClangVarDecl_isStaticLocal;
     extern fn ZigClangVarDecl_isStaticLocal(*const VarDecl) bool;
+
+    pub const isThisDeclarationADefinition = ZigClangVarDecl_isThisDeclarationADefinition;
+    extern fn ZigClangVarDecl_isThisDeclarationADefinition(*const VarDecl) bool;
+
+    pub const getDefinition = ZigClangVarDecl_getDefinition;
+    extern fn ZigClangVarDecl_getDefinition(*const VarDecl) ?*const VarDecl;
 };
 
 pub const VectorType = opaque {
