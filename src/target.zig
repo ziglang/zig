@@ -868,10 +868,16 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             else => false,
         },
         .separate_thread => switch (backend) {
+            // Supports a separate thread but does not support N separate
+            // threads because they would all just be locking the same mutex to
+            // protect Builder.
             .stage2_llvm => false,
-            .stage2_c, .stage2_wasm, .stage2_x86_64 => true,
-            // TODO: most self-hosted backends should be able to support this without too much work.
-            else => false,
+            // Same problem. Frontend needs to allow this backend to run in the
+            // linker thread.
+            .stage2_spirv => false,
+            // Please do not make any more exceptions. Backends must support
+            // being run in a separate thread from now on.
+            else => true,
         },
     };
 }
