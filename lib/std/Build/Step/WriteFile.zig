@@ -236,7 +236,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                         try step.addDirectoryWatchInputFromPath(entry_path);
                     }
                 },
-                .file => {
+                .file, .sym_link => {
                     const entry_path = try src_dir_path.join(arena, entry.path);
                     _ = try man.addFilePath(entry_path, null);
                 },
@@ -330,7 +330,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             const dest_path = b.pathJoin(&.{ dest_dirname, entry.path });
             switch (entry.kind) {
                 .directory => try cache_dir.makePath(dest_path),
-                .file => {
+                .file, .sym_link => {
                     const prev_status = fs.Dir.updateFile(
                         src_entry_path.root_dir.handle,
                         src_entry_path.sub_path,
