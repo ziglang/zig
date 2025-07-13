@@ -7,6 +7,6 @@ export fn foo() void {
 
 // error
 //
-// :5:16: error: expected type 'coerce_anon_struct.T', found 'coerce_anon_struct.A'
+// :5:16: error: expected type 'tmp.T', found 'tmp.A'
 // :1:11: note: struct declared here
 // :2:11: note: struct declared here

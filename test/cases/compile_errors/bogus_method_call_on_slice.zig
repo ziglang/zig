@@ -22,5 +22,5 @@ pub export fn entry2() void {
 //
 // :4:6: error: no field or member function named 'copy' in '[]const u8'
 // :12:8: error: no field or member function named 'bar' in '@TypeOf(.{})'
-// :18:6: error: no field or member function named 'bar' in 'bogus_method_call_on_slice.S'
+// :18:6: error: no field or member function named 'bar' in 'tmp.S'
 // :15:11: note: struct declared here
