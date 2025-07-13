@@ -370,13 +370,7 @@ pub fn addDirectoryArg(run: *Run, lazy_directory: std.Build.LazyPath) void {
 }
 
 pub fn addPrefixedDirectoryArg(run: *Run, prefix: []const u8, lazy_directory: std.Build.LazyPath) void {
-    const b = run.step.owner;
-    run.argv.append(b.allocator, .{ .decorated_directory = .{
-        .prefix = b.dupe(prefix),
-        .lazy_path = lazy_directory.dupe(b),
-        .suffix = "",
-    } }) catch @panic("OOM");
-    lazy_directory.addStepDependencies(&run.step);
+    run.addDecoratedDirectoryArg(prefix, lazy_directory, "");
 }
 
 pub fn addDecoratedDirectoryArg(
@@ -678,6 +672,8 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     var argv_list = std.ArrayList([]const u8).init(arena);
     var output_placeholders = std.ArrayList(IndexedOutput).init(arena);
 
+    step.clearWatchInputs();
+
     var man = b.graph.cache.obtain();
     defer man.deinit();
 
@@ -721,12 +717,35 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 try argv_list.append(b.fmt("{s}{s}", .{ file.prefix, run.convertPathArg(file_path) }));
                 man.hash.addBytes(file.prefix);
                 _ = try man.addFilePath(file_path, null);
+                try step.addWatchInput(file.lazy_path);
             },
             .decorated_directory => |dd| {
                 const file_path = dd.lazy_path.getPath3(b, step);
                 const resolved_arg = b.fmt("{s}{s}{s}", .{ dd.prefix, run.convertPathArg(file_path), dd.suffix });
                 try argv_list.append(resolved_arg);
+
                 man.hash.addBytes(resolved_arg);
+
+                const need_derived_inputs = try step.addDirectoryWatchInput(dd.lazy_path);
+
+                var dir = file_path.root_dir.handle.openDir(file_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
+                    return step.fail("unable to open directory '{f}': {s}", .{
+                        file_path, @errorName(err),
+                    });
+                };
+
+                var it = try dir.walk(b.allocator);
+                defer it.deinit();
+                while (try it.next()) |entry| {
+                    const entry_path = try file_path.join(arena, entry.path);
+                    switch (entry.kind) {
+                        .directory => if (need_derived_inputs) {
+                            try step.addDirectoryWatchInputFromPath(entry_path);
+                        },
+                        .file, .sym_link => _ = try man.addFilePath(entry_path, null),
+                        else => {},
+                    }
+                }
             },
             .artifact => |pa| {
                 const artifact = pa.artifact;
@@ -767,6 +786,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         .lazy_path => |lazy_path| {
             const file_path = lazy_path.getPath2(b, step);
             _ = try man.addFile(file_path, null);
+            try step.addWatchInput(lazy_path);
         },
         .none => {},
     }
@@ -783,6 +803,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     for (run.file_inputs.items) |lazy_path| {
         _ = try man.addFile(lazy_path.getPath2(b, step), null);
+        try step.addWatchInput(lazy_path);
     }
 
     if (run.cwd) |cwd| {
@@ -790,7 +811,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         _ = man.hash.addBytes(try cwd_path.toString(arena));
     }
 
-    if (!has_side_effects and try step.cacheHitAndWatch(&man)) {
+    if (!has_side_effects and try step.cacheHit(&man)) {
         // cache hit, skip running command
         const digest = man.final();
 
@@ -847,7 +868,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         }
 
         try runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node, null);
-        if (!has_side_effects) try step.writeManifestAndWatch(&man);
+        if (!has_side_effects) try step.writeManifest(&man);
         return;
     };
 
@@ -926,7 +947,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         };
     }
 
-    if (!has_side_effects) try step.writeManifestAndWatch(&man);
+    if (!has_side_effects) try step.writeManifest(&man);
 
     try populateGeneratedPaths(
         arena,
