@@ -21,6 +21,12 @@ fn AesGcm(comptime Aes: anytype) type {
 
         const zeros = [_]u8{0} ** 16;
 
+        /// `c`: The ciphertext buffer to write the encrypted data to.
+        /// `tag`: The authentication tag buffer to write the computed tag to.
+        /// `m`: The plaintext message to encrypt.
+        /// `ad`: The associated data to authenticate.
+        /// `npub`: The nonce to use for encryption.
+        /// `key`: The encryption key.
         pub fn encrypt(c: []u8, tag: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, key: [key_length]u8) void {
             debug.assert(c.len == m.len);
             debug.assert(m.len <= 16 * ((1 << 32) - 2));
