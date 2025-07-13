@@ -34,7 +34,7 @@ fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
         .stage2_arm => .arm_backend,
         .stage2_c => .c_backend,
         .stage2_llvm => .llvm_backend,
-        .stage2_powerpc => .powerpc_backend,
+        .stage2_powerpc => unreachable,
         .stage2_riscv64 => .riscv64_backend,
         .stage2_sparc64 => .sparc64_backend,
         .stage2_spirv => .spirv_backend,
@@ -48,11 +48,11 @@ fn devFeatureForBackend(backend: std.builtin.CompilerBackend) dev.Feature {
 fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
     return switch (backend) {
         .other, .stage1 => unreachable,
-        .stage2_aarch64 => @import("arch/aarch64/CodeGen.zig"),
-        .stage2_arm => @import("arch/arm/CodeGen.zig"),
+        .stage2_aarch64 => unreachable,
+        .stage2_arm => unreachable,
         .stage2_c => @import("codegen/c.zig"),
         .stage2_llvm => @import("codegen/llvm.zig"),
-        .stage2_powerpc => @import("arch/powerpc/CodeGen.zig"),
+        .stage2_powerpc => unreachable,
         .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
         .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
         .stage2_spirv => @import("codegen/spirv.zig"),
@@ -70,14 +70,11 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
         inline .stage2_llvm,
         .stage2_c,
         .stage2_wasm,
-        .stage2_arm,
         .stage2_x86_64,
-        .stage2_aarch64,
         .stage2_x86,
         .stage2_riscv64,
         .stage2_sparc64,
         .stage2_spirv,
-        .stage2_powerpc,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
             return importBackend(backend).legalizeFeatures(target);
@@ -89,9 +86,6 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
 /// MIR from codegen to the linker *regardless* of which backend is in use. So, we use this: a
 /// union of all MIR types. The active tag is known from the backend in use; see `AnyMir.tag`.
 pub const AnyMir = union {
-    aarch64: @import("arch/aarch64/Mir.zig"),
-    arm: @import("arch/arm/Mir.zig"),
-    powerpc: noreturn, //@import("arch/powerpc/Mir.zig"),
     riscv64: @import("arch/riscv64/Mir.zig"),
     sparc64: @import("arch/sparc64/Mir.zig"),
     x86_64: @import("arch/x86_64/Mir.zig"),
@@ -102,7 +96,6 @@ pub const AnyMir = union {
         return switch (backend) {
             .stage2_aarch64 => "aarch64",
             .stage2_arm => "arm",
-            .stage2_powerpc => "powerpc",
             .stage2_riscv64 => "riscv64",
             .stage2_sparc64 => "sparc64",
             .stage2_x86_64 => "x86_64",
@@ -117,10 +110,7 @@ pub const AnyMir = union {
         const backend = target_util.zigBackend(&zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
         switch (backend) {
             else => unreachable,
-            inline .stage2_aarch64,
-            .stage2_arm,
-            .stage2_powerpc,
-            .stage2_riscv64,
+            inline .stage2_riscv64,
             .stage2_sparc64,
             .stage2_x86_64,
             .stage2_wasm,
@@ -148,10 +138,7 @@ pub fn generateFunction(
     const target = &zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
     switch (target_util.zigBackend(target, false)) {
         else => unreachable,
-        inline .stage2_aarch64,
-        .stage2_arm,
-        .stage2_powerpc,
-        .stage2_riscv64,
+        inline .stage2_riscv64,
         .stage2_sparc64,
         .stage2_x86_64,
         .stage2_wasm,
@@ -186,10 +173,7 @@ pub fn emitFunction(
     const target = &zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
     switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
-        inline .stage2_aarch64,
-        .stage2_arm,
-        .stage2_powerpc,
-        .stage2_riscv64,
+        inline .stage2_riscv64,
         .stage2_sparc64,
         .stage2_x86_64,
         => |backend| {
@@ -215,10 +199,7 @@ pub fn generateLazyFunction(
         zcu.getTarget();
     switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
-        inline .stage2_powerpc,
-        .stage2_riscv64,
-        .stage2_x86_64,
-        => |backend| {
+        inline .stage2_riscv64, .stage2_x86_64 => |backend| {
             dev.check(devFeatureForBackend(backend));
             return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
         },
@@ -256,7 +237,7 @@ pub fn generateLazySymbol(
     const target = &comp.root_mod.resolved_target.result;
     const endian = target.cpu.arch.endian();
 
-    log.debug("generateLazySymbol: kind = {s}, ty = {}", .{
+    log.debug("generateLazySymbol: kind = {s}, ty = {f}", .{
         @tagName(lazy_sym.kind),
         Type.fromInterned(lazy_sym.ty).fmt(pt),
     });
@@ -296,7 +277,7 @@ pub fn generateLazySymbol(
             code.appendAssumeCapacity(0);
         }
     } else {
-        return zcu.codegenFailType(lazy_sym.ty, "TODO implement generateLazySymbol for {s} {}", .{
+        return zcu.codegenFailType(lazy_sym.ty, "TODO implement generateLazySymbol for {s} {f}", .{
             @tagName(lazy_sym.kind), Type.fromInterned(lazy_sym.ty).fmt(pt),
         });
     }
@@ -329,7 +310,7 @@ pub fn generateSymbol(
     const target = zcu.getTarget();
     const endian = target.cpu.arch.endian();
 
-    log.debug("generateSymbol: val = {}", .{val.fmtValue(pt)});
+    log.debug("generateSymbol: val = {f}", .{val.fmtValue(pt)});
 
     if (val.isUndefDeep(zcu)) {
         const abi_size = math.cast(usize, ty.abiSize(zcu)) orelse return error.Overflow;
@@ -786,7 +767,7 @@ fn lowerUavRef(
     const uav_ty = Type.fromInterned(ip.typeOf(uav_val));
     const is_fn_body = uav_ty.zigTypeTag(zcu) == .@"fn";
 
-    log.debug("lowerUavRef: ty = {}", .{uav_ty.fmt(pt)});
+    log.debug("lowerUavRef: ty = {f}", .{uav_ty.fmt(pt)});
     try code.ensureUnusedCapacity(gpa, ptr_width_bytes);
 
     if (!is_fn_body and !uav_ty.hasRuntimeBits(zcu)) {
@@ -932,7 +913,7 @@ pub fn genNavRef(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    log.debug("genNavRef({})", .{nav.fqn.fmt(ip)});
+    log.debug("genNavRef({f})", .{nav.fqn.fmt(ip)});
 
     const lib_name, const linkage, const is_threadlocal = if (nav.getExtern(ip)) |e|
         .{ e.lib_name, e.linkage, e.is_threadlocal and zcu.comp.config.any_non_single_threaded }
@@ -1084,7 +1065,7 @@ pub fn lowerValue(pt: Zcu.PerThread, val: Value, target: *const std.Target) Allo
     const ip = &zcu.intern_pool;
     const ty = val.typeOf(zcu);
 
-    log.debug("lowerValue(@as({}, {}))", .{ ty.fmt(pt), val.fmtValue(pt) });
+    log.debug("lowerValue(@as({f}, {f}))", .{ ty.fmt(pt), val.fmtValue(pt) });
 
     if (val.isUndef(zcu)) return .undef;
 

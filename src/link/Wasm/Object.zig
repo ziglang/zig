@@ -856,7 +856,7 @@ pub fn parse(
                 start_function = @enumFromInt(functions_start + index);
             },
             .element => {
-                log.warn("unimplemented: element section in {} {?s}", .{ path, archive_member_name });
+                log.warn("unimplemented: element section in {f} {?s}", .{ path, archive_member_name });
                 pos = section_end;
             },
             .code => {
@@ -984,10 +984,10 @@ pub fn parse(
                 if (gop.value_ptr.type != fn_ty_index) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("symbol '{s}' mismatching function signatures", .{name.slice(wasm)});
-                    gop.value_ptr.source_location.addNote(&err, "imported as {} here", .{
+                    gop.value_ptr.source_location.addNote(&err, "imported as {f} here", .{
                         gop.value_ptr.type.fmt(wasm),
                     });
-                    source_location.addNote(&err, "imported as {} here", .{fn_ty_index.fmt(wasm)});
+                    source_location.addNote(&err, "imported as {f} here", .{fn_ty_index.fmt(wasm)});
                     continue;
                 }
                 if (gop.value_ptr.module_name != ptr.module_name.toOptional()) {
@@ -1155,11 +1155,11 @@ pub fn parse(
                 if (gop.value_ptr.type != ptr.type_index) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("function signature mismatch: {s}", .{name.slice(wasm)});
-                    gop.value_ptr.source_location.addNote(&err, "exported as {} here", .{
+                    gop.value_ptr.source_location.addNote(&err, "exported as {f} here", .{
                         ptr.type_index.fmt(wasm),
                     });
                     const word = if (gop.value_ptr.resolution == .unresolved) "imported" else "exported";
-                    source_location.addNote(&err, "{s} as {} here", .{ word, gop.value_ptr.type.fmt(wasm) });
+                    source_location.addNote(&err, "{s} as {f} here", .{ word, gop.value_ptr.type.fmt(wasm) });
                     continue;
                 }
                 if (gop.value_ptr.resolution == .unresolved or gop.value_ptr.flags.binding == .weak) {
@@ -1176,8 +1176,8 @@ pub fn parse(
                 }
                 var err = try diags.addErrorWithNotes(2);
                 try err.addMsg("symbol collision: {s}", .{name.slice(wasm)});
-                gop.value_ptr.source_location.addNote(&err, "exported as {} here", .{ptr.type_index.fmt(wasm)});
-                source_location.addNote(&err, "exported as {} here", .{gop.value_ptr.type.fmt(wasm)});
+                gop.value_ptr.source_location.addNote(&err, "exported as {f} here", .{ptr.type_index.fmt(wasm)});
+                source_location.addNote(&err, "exported as {f} here", .{gop.value_ptr.type.fmt(wasm)});
                 continue;
             } else {
                 gop.value_ptr.* = .{

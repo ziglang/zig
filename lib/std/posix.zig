@@ -651,7 +651,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
     }
 
     const file: fs.File = .{ .handle = fd };
-    const stream = file.reader();
+    const stream = file.deprecatedReader();
     stream.readNoEof(buf) catch return error.Unexpected;
 }
 
@@ -772,12 +772,12 @@ pub fn exit(status: u8) noreturn {
     if (native_os == .uefi) {
         const uefi = std.os.uefi;
         // exit() is only available if exitBootServices() has not been called yet.
-        // This call to exit should not fail, so we don't care about its return value.
+        // This call to exit should not fail, so we catch-ignore errors.
         if (uefi.system_table.boot_services) |bs| {
-            _ = bs.exit(uefi.handle, @enumFromInt(status), 0, null);
+            bs.exit(uefi.handle, @enumFromInt(status), null) catch {};
         }
         // If we can't exit, reboot the system instead.
-        uefi.system_table.runtime_services.resetSystem(.reset_cold, @enumFromInt(status), 0, null);
+        uefi.system_table.runtime_services.resetSystem(.cold, @enumFromInt(status), null);
     }
     system.exit(status);
 }
@@ -3936,6 +3936,7 @@ pub fn accept(
                     .WSANOTINITIALISED => unreachable, // not initialized WSA
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
                     .WSAEFAULT => unreachable,
+                    .WSAENOTSOCK => return error.FileDescriptorNotASocket,
                     .WSAEINVAL => return error.SocketNotListening,
                     .WSAEMFILE => return error.ProcessFdQuotaExceeded,
                     .WSAENETDOWN => return error.NetworkSubsystemFailed,
@@ -4335,7 +4336,7 @@ pub const GetSockOptError = error{
 } || UnexpectedError;
 
 pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
-    var len: socklen_t = undefined;
+    var len: socklen_t = @intCast(opt.len);
     switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
         .SUCCESS => {
             std.debug.assert(len == opt.len);
@@ -6087,6 +6088,9 @@ pub const SendError = error{
 
     /// The local network interface used to reach the destination is down.
     NetworkSubsystemFailed,
+
+    /// The destination address is not listening.
+    ConnectionRefused,
 } || UnexpectedError;
 
 pub const SendMsgError = SendError || error{
@@ -6318,7 +6322,6 @@ pub fn send(
         error.AddressNotAvailable => unreachable,
         error.SocketNotConnected => unreachable,
         error.UnreachableAddress => unreachable,
-        error.ConnectionRefused => unreachable,
         else => |e| return e,
     };
 }

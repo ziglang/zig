@@ -10,42 +10,7 @@ pub const CrtFile = enum {
     crt1_reactor_o,
     crt1_command_o,
     libc_a,
-    libdl_a,
-    libwasi_emulated_process_clocks_a,
-    libwasi_emulated_getpid_a,
-    libwasi_emulated_mman_a,
-    libwasi_emulated_signal_a,
 };
-
-pub fn getEmulatedLibCrtFile(lib_name: []const u8) ?CrtFile {
-    if (mem.eql(u8, lib_name, "dl")) {
-        return .libdl_a;
-    }
-    if (mem.eql(u8, lib_name, "wasi-emulated-process-clocks")) {
-        return .libwasi_emulated_process_clocks_a;
-    }
-    if (mem.eql(u8, lib_name, "wasi-emulated-getpid")) {
-        return .libwasi_emulated_getpid_a;
-    }
-    if (mem.eql(u8, lib_name, "wasi-emulated-mman")) {
-        return .libwasi_emulated_mman_a;
-    }
-    if (mem.eql(u8, lib_name, "wasi-emulated-signal")) {
-        return .libwasi_emulated_signal_a;
-    }
-    return null;
-}
-
-pub fn emulatedLibCRFileLibName(crt_file: CrtFile) []const u8 {
-    return switch (crt_file) {
-        .libdl_a => "libdl.a",
-        .libwasi_emulated_process_clocks_a => "libwasi-emulated-process-clocks.a",
-        .libwasi_emulated_getpid_a => "libwasi-emulated-getpid.a",
-        .libwasi_emulated_mman_a => "libwasi-emulated-mman.a",
-        .libwasi_emulated_signal_a => "libwasi-emulated-signal.a",
-        else => unreachable,
-    };
-}
 
 pub fn execModelCrtFile(wasi_exec_model: std.builtin.WasiExecModel) CrtFile {
     return switch (wasi_exec_model) {
@@ -157,114 +122,115 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 }
             }
 
-            try comp.build_crt_file("c", .Lib, .@"wasi libc.a", prog_node, libc_sources.items, .{});
-        },
-
-        .libdl_a => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-            try addLibcBottomHalfIncludes(comp, arena, &args);
-
-            var emu_dl_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
-            for (emulated_dl_src_files) |file_path| {
-                try emu_dl_sources.append(.{
-                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                });
-            }
-            try comp.build_crt_file("dl", .Lib, .@"wasi libdl.a", prog_node, emu_dl_sources.items, .{});
-        },
-
-        .libwasi_emulated_process_clocks_a => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-            try addLibcBottomHalfIncludes(comp, arena, &args);
-
-            var emu_clocks_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
-            for (emulated_process_clocks_src_files) |file_path| {
-                try emu_clocks_sources.append(.{
-                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                });
-            }
-            try comp.build_crt_file("wasi-emulated-process-clocks", .Lib, .@"libwasi-emulated-process-clocks.a", prog_node, emu_clocks_sources.items, .{});
-        },
-        .libwasi_emulated_getpid_a => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-            try addLibcBottomHalfIncludes(comp, arena, &args);
-
-            var emu_getpid_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
-            for (emulated_getpid_src_files) |file_path| {
-                try emu_getpid_sources.append(.{
-                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                });
-            }
-            try comp.build_crt_file("wasi-emulated-getpid", .Lib, .@"libwasi-emulated-getpid.a", prog_node, emu_getpid_sources.items, .{});
-        },
-        .libwasi_emulated_mman_a => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-            try addLibcBottomHalfIncludes(comp, arena, &args);
-
-            var emu_mman_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
-            for (emulated_mman_src_files) |file_path| {
-                try emu_mman_sources.append(.{
-                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                });
-            }
-            try comp.build_crt_file("wasi-emulated-mman", .Lib, .@"libwasi-emulated-mman.a", prog_node, emu_mman_sources.items, .{});
-        },
-        .libwasi_emulated_signal_a => {
-            var emu_signal_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
-
             {
+                // Compile libdl.
                 var args = std.ArrayList([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
+                try addLibcBottomHalfIncludes(comp, arena, &args);
+
+                for (emulated_dl_src_files) |file_path| {
+                    try libc_sources.append(.{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                            "libc", try sanitize(arena, file_path),
+                        }),
+                        .extra_flags = args.items,
+                        .owner = undefined,
+                    });
+                }
+            }
+
+            {
+                // Compile libwasi-emulated-process-clocks.
+                var args = std.ArrayList([]const u8).init(arena);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
+                try args.appendSlice(&.{
+                    "-I",
+                    try comp.dirs.zig_lib.join(arena, &.{
+                        "libc",
+                        "wasi",
+                        "libc-bottom-half",
+                        "cloudlibc",
+                        "src",
+                    }),
+                });
+
+                for (emulated_process_clocks_src_files) |file_path| {
+                    try libc_sources.append(.{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                            "libc", try sanitize(arena, file_path),
+                        }),
+                        .extra_flags = args.items,
+                        .owner = undefined,
+                    });
+                }
+            }
+
+            {
+                // Compile libwasi-emulated-getpid.
+                var args = std.ArrayList([]const u8).init(arena);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
+                try addLibcBottomHalfIncludes(comp, arena, &args);
+
+                for (emulated_getpid_src_files) |file_path| {
+                    try libc_sources.append(.{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                            "libc", try sanitize(arena, file_path),
+                        }),
+                        .extra_flags = args.items,
+                        .owner = undefined,
+                    });
+                }
+            }
+
+            {
+                // Compile libwasi-emulated-mman.
+                var args = std.ArrayList([]const u8).init(arena);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
+                try addLibcBottomHalfIncludes(comp, arena, &args);
+
+                for (emulated_mman_src_files) |file_path| {
+                    try libc_sources.append(.{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                            "libc", try sanitize(arena, file_path),
+                        }),
+                        .extra_flags = args.items,
+                        .owner = undefined,
+                    });
+                }
+            }
+
+            {
+                // Compile libwasi-emulated-signal.
+                var bottom_args = std.ArrayList([]const u8).init(arena);
+                try addCCArgs(comp, arena, &bottom_args, .{ .want_O3 = true });
 
                 for (emulated_signal_bottom_half_src_files) |file_path| {
-                    try emu_signal_sources.append(.{
+                    try libc_sources.append(.{
                         .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", try sanitize(arena, file_path),
                         }),
-                        .extra_flags = args.items,
+                        .extra_flags = bottom_args.items,
                         .owner = undefined,
                     });
                 }
-            }
 
-            {
-                var args = std.ArrayList([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-                try addLibcTopHalfIncludes(comp, arena, &args);
-                try args.append("-D_WASI_EMULATED_SIGNAL");
+                var top_args = std.ArrayList([]const u8).init(arena);
+                try addCCArgs(comp, arena, &top_args, .{ .want_O3 = true });
+                try addLibcTopHalfIncludes(comp, arena, &top_args);
+                try top_args.append("-D_WASI_EMULATED_SIGNAL");
 
                 for (emulated_signal_top_half_src_files) |file_path| {
-                    try emu_signal_sources.append(.{
+                    try libc_sources.append(.{
                         .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", try sanitize(arena, file_path),
                         }),
-                        .extra_flags = args.items,
+                        .extra_flags = top_args.items,
                         .owner = undefined,
                     });
                 }
             }
 
-            try comp.build_crt_file("wasi-emulated-signal", .Lib, .@"libwasi-emulated-signal.a", prog_node, emu_signal_sources.items, .{});
+            try comp.build_crt_file("c", .Lib, .@"wasi libc.a", prog_node, libc_sources.items, .{});
         },
     }
 }
@@ -754,7 +720,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/fdiml.c",
     "musl/src/math/finite.c",
     "musl/src/math/finitef.c",
-    "musl/src/math/floorl.c",
     "musl/src/math/fma.c",
     "musl/src/math/fmaf.c",
     "musl/src/math/fmaxl.c",

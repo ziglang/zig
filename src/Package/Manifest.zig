@@ -401,7 +401,7 @@ const Parse = struct {
                 return fail(p, main_token, "name must be a valid bare zig identifier (hint: switch from string to enum literal)", .{});
 
             if (name.len > max_name_len)
-                return fail(p, main_token, "name '{}' exceeds max length of {d}", .{
+                return fail(p, main_token, "name '{f}' exceeds max length of {d}", .{
                     std.zig.fmtId(name), max_name_len,
                 });
 
@@ -416,7 +416,7 @@ const Parse = struct {
             return fail(p, main_token, "name must be a valid bare zig identifier", .{});
 
         if (ident_name.len > max_name_len)
-            return fail(p, main_token, "name '{}' exceeds max length of {d}", .{
+            return fail(p, main_token, "name '{f}' exceeds max length of {d}", .{
                 std.zig.fmtId(ident_name), max_name_len,
             });
 

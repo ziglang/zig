@@ -409,6 +409,7 @@ test "struct field explicit alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // flaky
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     const S = struct {
         const Node = struct {
@@ -422,30 +423,6 @@ test "struct field explicit alignment" {
     try expect(node.massive_byte == 100);
     comptime assert(@TypeOf(&node.massive_byte) == *align(64) u8);
     try expect(@intFromPtr(&node.massive_byte) % 64 == 0);
-}
-
-test "align(@alignOf(T)) T does not force resolution of T" {
-    if (true) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        const A = struct {
-            a: *align(@alignOf(A)) A,
-        };
-        fn doTheTest() void {
-            suspend {
-                resume @frame();
-            }
-            _ = bar(@Frame(doTheTest));
-        }
-        fn bar(comptime T: type) *align(@alignOf(T)) T {
-            ok = true;
-            return undefined;
-        }
-
-        var ok = false;
-    };
-    _ = async S.doTheTest();
-    try expect(S.ok);
 }
 
 test "align(N) on functions" {
@@ -532,6 +509,7 @@ test "alignment of zero-bit types is respected" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     const S = struct { arr: [0]usize = .{} };
 

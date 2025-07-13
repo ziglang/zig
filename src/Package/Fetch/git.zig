@@ -119,15 +119,8 @@ pub const Oid = union(Format) {
         } else error.InvalidOid;
     }
 
-    pub fn format(
-        oid: Oid,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        _ = fmt;
-        _ = options;
-        try writer.print("{}", .{std.fmt.fmtSliceHexLower(oid.slice())});
+    pub fn format(oid: Oid, writer: *std.io.Writer) std.io.Writer.Error!void {
+        try writer.print("{x}", .{oid.slice()});
     }
 
     pub fn slice(oid: *const Oid) []const u8 {
@@ -353,7 +346,7 @@ const Odb = struct {
     fn init(allocator: Allocator, format: Oid.Format, pack_file: std.fs.File, index_file: std.fs.File) !Odb {
         try pack_file.seekTo(0);
         try index_file.seekTo(0);
-        const index_header = try IndexHeader.read(index_file.reader());
+        const index_header = try IndexHeader.read(index_file.deprecatedReader());
         return .{
             .format = format,
             .pack_file = pack_file,
@@ -377,7 +370,7 @@ const Odb = struct {
         const base_object = while (true) {
             if (odb.cache.get(base_offset)) |base_object| break base_object;
 
-            base_header = try EntryHeader.read(odb.format, odb.pack_file.reader());
+            base_header = try EntryHeader.read(odb.format, odb.pack_file.deprecatedReader());
             switch (base_header) {
                 .ofs_delta => |ofs_delta| {
                     try delta_offsets.append(odb.allocator, base_offset);
@@ -390,7 +383,7 @@ const Odb = struct {
                     base_offset = try odb.pack_file.getPos();
                 },
                 else => {
-                    const base_data = try readObjectRaw(odb.allocator, odb.pack_file.reader(), base_header.uncompressedLength());
+                    const base_data = try readObjectRaw(odb.allocator, odb.pack_file.deprecatedReader(), base_header.uncompressedLength());
                     errdefer odb.allocator.free(base_data);
                     const base_object: Object = .{ .type = base_header.objectType(), .data = base_data };
                     try odb.cache.put(odb.allocator, base_offset, base_object);
@@ -420,7 +413,7 @@ const Odb = struct {
         const found_index = while (start_index < end_index) {
             const mid_index = start_index + (end_index - start_index) / 2;
             try odb.index_file.seekTo(IndexHeader.size + mid_index * oid_length);
-            const mid_oid = try Oid.readBytes(odb.format, odb.index_file.reader());
+            const mid_oid = try Oid.readBytes(odb.format, odb.index_file.deprecatedReader());
             switch (mem.order(u8, mid_oid.slice(), oid.slice())) {
                 .lt => start_index = mid_index + 1,
                 .gt => end_index = mid_index,
@@ -431,12 +424,12 @@ const Odb = struct {
         const n_objects = odb.index_header.fan_out_table[255];
         const offset_values_start = IndexHeader.size + n_objects * (oid_length + 4);
         try odb.index_file.seekTo(offset_values_start + found_index * 4);
-        const l1_offset: packed struct { value: u31, big: bool } = @bitCast(try odb.index_file.reader().readInt(u32, .big));
+        const l1_offset: packed struct { value: u31, big: bool } = @bitCast(try odb.index_file.deprecatedReader().readInt(u32, .big));
         const pack_offset = pack_offset: {
             if (l1_offset.big) {
                 const l2_offset_values_start = offset_values_start + n_objects * 4;
                 try odb.index_file.seekTo(l2_offset_values_start + l1_offset.value * 4);
-                break :pack_offset try odb.index_file.reader().readInt(u64, .big);
+                break :pack_offset try odb.index_file.deprecatedReader().readInt(u64, .big);
             } else {
                 break :pack_offset l1_offset.value;
             }
@@ -669,13 +662,21 @@ pub const Session = struct {
         fn init(allocator: Allocator, uri: std.Uri) !Location {
             const scheme = try allocator.dupe(u8, uri.scheme);
             errdefer allocator.free(scheme);
-            const user = if (uri.user) |user| try std.fmt.allocPrint(allocator, "{user}", .{user}) else null;
+            const user = if (uri.user) |user| try std.fmt.allocPrint(allocator, "{f}", .{
+                std.fmt.alt(user, .formatUser),
+            }) else null;
             errdefer if (user) |s| allocator.free(s);
-            const password = if (uri.password) |password| try std.fmt.allocPrint(allocator, "{password}", .{password}) else null;
+            const password = if (uri.password) |password| try std.fmt.allocPrint(allocator, "{f}", .{
+                std.fmt.alt(password, .formatPassword),
+            }) else null;
             errdefer if (password) |s| allocator.free(s);
-            const host = if (uri.host) |host| try std.fmt.allocPrint(allocator, "{host}", .{host}) else null;
+            const host = if (uri.host) |host| try std.fmt.allocPrint(allocator, "{f}", .{
+                std.fmt.alt(host, .formatHost),
+            }) else null;
             errdefer if (host) |s| allocator.free(s);
-            const path = try std.fmt.allocPrint(allocator, "{path}", .{uri.path});
+            const path = try std.fmt.allocPrint(allocator, "{f}", .{
+                std.fmt.alt(uri.path, .formatPath),
+            });
             errdefer allocator.free(path);
             // The query and fragment are not used as part of the base server URI.
             return .{
@@ -706,7 +707,9 @@ pub const Session = struct {
     fn getCapabilities(session: *Session, http_headers_buffer: []u8) !CapabilityIterator {
         var info_refs_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{session.location.uri.path});
+            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{f}", .{
+                std.fmt.alt(session.location.uri.path, .formatPath),
+            });
             defer session.allocator.free(session_uri_path);
             info_refs_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "info/refs" }) };
         }
@@ -730,7 +733,9 @@ pub const Session = struct {
         if (request.response.status != .ok) return error.ProtocolError;
         const any_redirects_occurred = request.redirect_behavior.remaining() < max_redirects;
         if (any_redirects_occurred) {
-            const request_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{request.uri.path});
+            const request_uri_path = try std.fmt.allocPrint(session.allocator, "{f}", .{
+                std.fmt.alt(request.uri.path, .formatPath),
+            });
             defer session.allocator.free(request_uri_path);
             if (!mem.endsWith(u8, request_uri_path, "/info/refs")) return error.UnparseableRedirect;
             var new_uri = request.uri;
@@ -817,7 +822,9 @@ pub const Session = struct {
     pub fn listRefs(session: Session, options: ListRefsOptions) !RefIterator {
         var upload_pack_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{session.location.uri.path});
+            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{f}", .{
+                std.fmt.alt(session.location.uri.path, .formatPath),
+            });
             defer session.allocator.free(session_uri_path);
             upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
         }
@@ -932,7 +939,9 @@ pub const Session = struct {
     ) !FetchStream {
         var upload_pack_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{path}", .{session.location.uri.path});
+            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{f}", .{
+                std.fmt.alt(session.location.uri.path, .formatPath),
+            });
             defer session.allocator.free(session_uri_path);
             upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
         }
@@ -1026,7 +1035,7 @@ pub const Session = struct {
             ProtocolError,
             UnexpectedPacket,
         };
-        pub const Reader = std.io.Reader(*FetchStream, ReadError, read);
+        pub const Reader = std.io.GenericReader(*FetchStream, ReadError, read);
 
         const StreamCode = enum(u8) {
             pack_data = 1,
@@ -1320,7 +1329,7 @@ fn indexPackFirstPass(
     index_entries: *std.AutoHashMapUnmanaged(Oid, IndexEntry),
     pending_deltas: *std.ArrayListUnmanaged(IndexEntry),
 ) !Oid {
-    var pack_buffered_reader = std.io.bufferedReader(pack.reader());
+    var pack_buffered_reader = std.io.bufferedReader(pack.deprecatedReader());
     var pack_counting_reader = std.io.countingReader(pack_buffered_reader.reader());
     var pack_hashed_reader = std.compress.hashedReader(pack_counting_reader.reader(), Oid.Hasher.init(format));
     const pack_reader = pack_hashed_reader.reader();
@@ -1400,7 +1409,7 @@ fn indexPackHashDelta(
         if (cache.get(base_offset)) |base_object| break base_object;
 
         try pack.seekTo(base_offset);
-        base_header = try EntryHeader.read(format, pack.reader());
+        base_header = try EntryHeader.read(format, pack.deprecatedReader());
         switch (base_header) {
             .ofs_delta => |ofs_delta| {
                 try delta_offsets.append(allocator, base_offset);
@@ -1411,7 +1420,7 @@ fn indexPackHashDelta(
                 base_offset = (index_entries.get(ref_delta.base_object) orelse return null).offset;
             },
             else => {
-                const base_data = try readObjectRaw(allocator, pack.reader(), base_header.uncompressedLength());
+                const base_data = try readObjectRaw(allocator, pack.deprecatedReader(), base_header.uncompressedLength());
                 errdefer allocator.free(base_data);
                 const base_object: Object = .{ .type = base_header.objectType(), .data = base_data };
                 try cache.put(allocator, base_offset, base_object);
@@ -1448,8 +1457,8 @@ fn resolveDeltaChain(
 
         const delta_offset = delta_offsets[i];
         try pack.seekTo(delta_offset);
-        const delta_header = try EntryHeader.read(format, pack.reader());
-        const delta_data = try readObjectRaw(allocator, pack.reader(), delta_header.uncompressedLength());
+        const delta_header = try EntryHeader.read(format, pack.deprecatedReader());
+        const delta_data = try readObjectRaw(allocator, pack.deprecatedReader(), delta_header.uncompressedLength());
         defer allocator.free(delta_data);
         var delta_stream = std.io.fixedBufferStream(delta_data);
         const delta_reader = delta_stream.reader();
@@ -1561,7 +1570,7 @@ fn runRepositoryTest(comptime format: Oid.Format, head_commit: []const u8) !void
 
     var index_file = try git_dir.dir.createFile("testrepo.idx", .{ .read = true });
     defer index_file.close();
-    try indexPack(testing.allocator, format, pack_file, index_file.writer());
+    try indexPack(testing.allocator, format, pack_file, index_file.deprecatedWriter());
 
     // Arbitrary size limit on files read while checking the repository contents
     // (all files in the test repo are known to be smaller than this)
@@ -1678,7 +1687,7 @@ pub fn main() !void {
     std.debug.print("Starting index...\n", .{});
     var index_file = try git_dir.createFile("idx", .{ .read = true });
     defer index_file.close();
-    var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
+    var index_buffered_writer = std.io.bufferedWriter(index_file.deprecatedWriter());
     try indexPack(allocator, format, pack_file, index_buffered_writer.writer());
     try index_buffered_writer.flush();
     try index_file.sync();

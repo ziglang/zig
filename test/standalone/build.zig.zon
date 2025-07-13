@@ -48,9 +48,6 @@
         .pkg_import = .{
             .path = "pkg_import",
         },
-        .use_alias = .{
-            .path = "use_alias",
-        },
         .install_raw_hex = .{
             .path = "install_raw_hex",
         },

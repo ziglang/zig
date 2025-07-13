@@ -58,7 +58,7 @@ pub fn sleep(nanoseconds: u64) void {
         const boot_services = std.os.uefi.system_table.boot_services.?;
         const us_from_ns = nanoseconds / std.time.ns_per_us;
         const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
-        _ = boot_services.stall(us);
+        boot_services.stall(us) catch unreachable;
         return;
     }
 
@@ -167,7 +167,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             const file = try std.fs.cwd().openFile(path, .{ .mode = .write_only });
             defer file.close();
 
-            try file.writer().writeAll(name);
+            try file.deprecatedWriter().writeAll(name);
             return;
         },
         .windows => {
@@ -281,7 +281,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             const file = try std.fs.cwd().openFile(path, .{});
             defer file.close();
 
-            const data_len = try file.reader().readAll(buffer_ptr[0 .. max_name_len + 1]);
+            const data_len = try file.deprecatedReader().readAll(buffer_ptr[0 .. max_name_len + 1]);
 
             return if (data_len >= 1) buffer[0 .. data_len - 1] else null;
         },
@@ -1163,7 +1163,7 @@ const LinuxThreadImpl = struct {
 
     fn getCurrentId() Id {
         return tls_thread_id orelse {
-            const tid = @as(u32, @bitCast(linux.gettid()));
+            const tid: u32 = @bitCast(linux.gettid());
             tls_thread_id = tid;
             return tid;
         };

@@ -53,7 +53,7 @@ fn deinitFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const file = zcu.fileByIndex(file_index);
-    log.debug("deinit File {}", .{file.path.fmt(zcu.comp)});
+    log.debug("deinit File {f}", .{file.path.fmt(zcu.comp)});
     file.path.deinit(gpa);
     file.unload(gpa);
     if (file.prev_zir) |prev_zir| {
@@ -117,7 +117,7 @@ pub fn updateFile(
     var lock: std.fs.File.Lock = switch (file.status) {
         .never_loaded, .retryable_failure => lock: {
             // First, load the cached ZIR code, if any.
-            log.debug("AstGen checking cache: {} (local={}, digest={s})", .{
+            log.debug("AstGen checking cache: {f} (local={}, digest={s})", .{
                 file.path.fmt(comp), want_local_cache, &hex_digest,
             });
 
@@ -130,11 +130,11 @@ pub fn updateFile(
                 stat.inode == file.stat.inode;
 
             if (unchanged_metadata) {
-                log.debug("unmodified metadata of file: {}", .{file.path.fmt(comp)});
+                log.debug("unmodified metadata of file: {f}", .{file.path.fmt(comp)});
                 return;
             }
 
-            log.debug("metadata changed: {}", .{file.path.fmt(comp)});
+            log.debug("metadata changed: {f}", .{file.path.fmt(comp)});
 
             break :lock .exclusive;
         },
@@ -190,7 +190,7 @@ pub fn updateFile(
                 // failure was a race, or ENOENT, indicating deletion of the
                 // directory of our open handle.
                 if (builtin.os.tag != .macos) {
-                    std.process.fatal("cache directory '{}' unexpectedly removed during compiler execution", .{
+                    std.process.fatal("cache directory '{f}' unexpectedly removed during compiler execution", .{
                         cache_directory,
                     });
                 }
@@ -202,7 +202,7 @@ pub fn updateFile(
                 }) catch |excl_err| switch (excl_err) {
                     error.PathAlreadyExists => continue,
                     error.FileNotFound => {
-                        std.process.fatal("cache directory '{}' unexpectedly removed during compiler execution", .{
+                        std.process.fatal("cache directory '{f}' unexpectedly removed during compiler execution", .{
                             cache_directory,
                         });
                     },
@@ -221,12 +221,12 @@ pub fn updateFile(
         };
         switch (result) {
             .success => {
-                log.debug("AstGen cached success: {}", .{file.path.fmt(comp)});
+                log.debug("AstGen cached success: {f}", .{file.path.fmt(comp)});
                 break false;
             },
             .invalid => {},
-            .truncated => log.warn("unexpected EOF reading cached ZIR for {}", .{file.path.fmt(comp)}),
-            .stale => log.debug("AstGen cache stale: {}", .{file.path.fmt(comp)}),
+            .truncated => log.warn("unexpected EOF reading cached ZIR for {f}", .{file.path.fmt(comp)}),
+            .stale => log.debug("AstGen cache stale: {f}", .{file.path.fmt(comp)}),
         }
 
         // If we already have the exclusive lock then it is our job to update.
@@ -249,11 +249,14 @@ pub fn updateFile(
         if (stat.size > std.math.maxInt(u32))
             return error.FileTooBig;
 
-        const source = try gpa.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
+        const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
         defer if (file.source == null) gpa.free(source);
-        const amt = try source_file.readAll(source);
-        if (amt != stat.size)
-            return error.UnexpectedEndOfFile;
+        var source_fr = source_file.reader(&.{});
+        source_fr.size = stat.size;
+        source_fr.interface.readSliceAll(source) catch |err| switch (err) {
+            error.ReadFailed => return source_fr.err.?,
+            error.EndOfStream => return error.UnexpectedEndOfFile,
+        };
 
         file.source = source;
 
@@ -265,7 +268,7 @@ pub fn updateFile(
                 file.zir = try AstGen.generate(gpa, file.tree.?);
                 Zcu.saveZirCache(gpa, cache_file, stat, file.zir.?) catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
-                    else => log.warn("unable to write cached ZIR code for {} to {}{s}: {s}", .{
+                    else => log.warn("unable to write cached ZIR code for {f} to {f}{s}: {s}", .{
                         file.path.fmt(comp), cache_directory, &hex_digest, @errorName(err),
                     }),
                 };
@@ -273,14 +276,14 @@ pub fn updateFile(
             .zon => {
                 file.zoir = try ZonGen.generate(gpa, file.tree.?, .{});
                 Zcu.saveZoirCache(cache_file, stat, file.zoir.?) catch |err| {
-                    log.warn("unable to write cached ZOIR code for {} to {}{s}: {s}", .{
+                    log.warn("unable to write cached ZOIR code for {f} to {f}{s}: {s}", .{
                         file.path.fmt(comp), cache_directory, &hex_digest, @errorName(err),
                     });
                 };
             },
         }
 
-        log.debug("AstGen fresh success: {}", .{file.path.fmt(comp)});
+        log.debug("AstGen fresh success: {f}", .{file.path.fmt(comp)});
     }
 
     file.stat = .{
@@ -340,13 +343,19 @@ fn loadZirZoirCache(
         .zon => Zoir.Header,
     };
 
+    var buffer: [2000]u8 = undefined;
+    var cache_fr = cache_file.reader(&buffer);
+    cache_fr.size = stat.size;
+    const cache_br = &cache_fr.interface;
+
     // First we read the header to determine the lengths of arrays.
-    const header = cache_file.reader().readStruct(Header) catch |err| switch (err) {
+    const header = (cache_br.takeStruct(Header) catch |err| switch (err) {
+        error.ReadFailed => return cache_fr.err.?,
         // This can happen if Zig bails out of this function between creating
         // the cached file and writing it.
         error.EndOfStream => return .invalid,
         else => |e| return e,
-    };
+    }).*;
 
     const unchanged_metadata =
         stat.size == header.stat_size and
@@ -358,17 +367,15 @@ fn loadZirZoirCache(
     }
 
     switch (mode) {
-        .zig => {
-            file.zir = Zcu.loadZirCacheBody(gpa, header, cache_file) catch |err| switch (err) {
-                error.UnexpectedFileSize => return .truncated,
-                else => |e| return e,
-            };
+        .zig => file.zir = Zcu.loadZirCacheBody(gpa, header, cache_br) catch |err| switch (err) {
+            error.ReadFailed => return cache_fr.err.?,
+            error.EndOfStream => return .truncated,
+            else => |e| return e,
         },
-        .zon => {
-            file.zoir = Zcu.loadZoirCacheBody(gpa, header, cache_file) catch |err| switch (err) {
-                error.UnexpectedFileSize => return .truncated,
-                else => |e| return e,
-            };
+        .zon => file.zoir = Zcu.loadZoirCacheBody(gpa, header, cache_br) catch |err| switch (err) {
+            error.ReadFailed => return cache_fr.err.?,
+            error.EndOfStream => return .truncated,
+            else => |e| return e,
         },
     }
 
@@ -477,11 +484,8 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
                     if (std.zig.srcHashEql(old_hash, new_hash)) {
                         break :hash_changed;
                     }
-                    log.debug("hash for (%{d} -> %{d}) changed: {} -> {}", .{
-                        old_inst,
-                        new_inst,
-                        std.fmt.fmtSliceHexLower(&old_hash),
-                        std.fmt.fmtSliceHexLower(&new_hash),
+                    log.debug("hash for (%{d} -> %{d}) changed: {x} -> {x}", .{
+                        old_inst, new_inst, &old_hash, &new_hash,
                     });
                 }
                 // The source hash associated with this instruction changed - invalidate relevant dependencies.
@@ -649,7 +653,7 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
                 // If this unit caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, unit, {});
-                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(unit)});
+                log.debug("mark transitive analysis failure for {f}", .{zcu.fmtAnalUnit(unit)});
             }
             break :res .{ !prev_failed, true };
         },
@@ -754,7 +758,7 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
 
     const anal_unit: AnalUnit = .wrap(.{ .@"comptime" = cu_id });
 
-    log.debug("ensureComptimeUnitUpToDate {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("ensureComptimeUnitUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     assert(!zcu.analysis_in_progress.contains(anal_unit));
 
@@ -805,7 +809,7 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
                 // If this unit caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
-                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(anal_unit)});
+                log.debug("mark transitive analysis failure for {f}", .{zcu.fmtAnalUnit(anal_unit)});
             }
             return error.AnalysisFail;
         },
@@ -835,7 +839,7 @@ fn analyzeComptimeUnit(pt: Zcu.PerThread, cu_id: InternPool.ComptimeUnit.Id) Zcu
     const anal_unit: AnalUnit = .wrap(.{ .@"comptime" = cu_id });
     const comptime_unit = ip.getComptimeUnit(cu_id);
 
-    log.debug("analyzeComptimeUnit {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("analyzeComptimeUnit {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     const inst_resolved = comptime_unit.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_resolved.file);
@@ -881,7 +885,7 @@ fn analyzeComptimeUnit(pt: Zcu.PerThread, cu_id: InternPool.ComptimeUnit.Id) Zcu
             .r = .{ .simple = .comptime_keyword },
         } },
         .src_base_inst = comptime_unit.zir_index,
-        .type_name_ctx = try ip.getOrPutStringFmt(gpa, pt.tid, "{}.comptime", .{
+        .type_name_ctx = try ip.getOrPutStringFmt(gpa, pt.tid, "{f}.comptime", .{
             Type.fromInterned(zcu.namespacePtr(comptime_unit.namespace).owner_type).containerTypeName(ip).fmt(ip),
         }, .no_embedded_nulls),
     };
@@ -933,7 +937,7 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
     const anal_unit: AnalUnit = .wrap(.{ .nav_val = nav_id });
     const nav = ip.getNav(nav_id);
 
-    log.debug("ensureNavValUpToDate {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("ensureNavValUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     // Determine whether or not this `Nav`'s value is outdated. This also includes checking if the
     // status is `.unresolved`, which indicates that the value is outdated because it has *never*
@@ -991,7 +995,7 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
                 // If this unit caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
-                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(anal_unit)});
+                log.debug("mark transitive analysis failure for {f}", .{zcu.fmtAnalUnit(anal_unit)});
             }
             break :res .{ !prev_failed, true };
         },
@@ -1062,7 +1066,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     const anal_unit: AnalUnit = .wrap(.{ .nav_val = nav_id });
     const old_nav = ip.getNav(nav_id);
 
-    log.debug("analyzeNavVal {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("analyzeNavVal {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     const inst_resolved = old_nav.analysis.?.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_resolved.file);
@@ -1111,7 +1115,6 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     defer block.instructions.deinit(gpa);
 
     const zir_decl = zir.getDeclaration(inst_resolved.inst);
-    assert(old_nav.is_usingnamespace == (zir_decl.kind == .@"usingnamespace"));
 
     const ty_src = block.src(.{ .node_offset_var_decl_ty = .zero });
     const init_src = block.src(.{ .node_offset_var_decl_init = .zero });
@@ -1160,7 +1163,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
             assert(nav_ty.zigTypeTag(zcu) == .@"fn");
             break :is_const true;
         },
-        .@"usingnamespace", .@"const" => true,
+        .@"const" => true,
         .@"var" => {
             try sema.validateVarType(
                 &block,
@@ -1239,26 +1242,6 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     // This resolves the type of the resolved value, not that value itself. If `nav_val` is a struct type,
     // this resolves the type `type` (which needs no resolution), not the struct itself.
     try nav_ty.resolveLayout(pt);
-
-    // TODO: this is jank. If #20663 is rejected, let's think about how to better model `usingnamespace`.
-    if (zir_decl.kind == .@"usingnamespace") {
-        if (nav_ty.toIntern() != .type_type) {
-            return sema.fail(&block, ty_src, "expected type, found {}", .{nav_ty.fmt(pt)});
-        }
-        if (nav_val.toType().getNamespace(zcu) == .none) {
-            return sema.fail(&block, ty_src, "type {} has no namespace", .{nav_val.toType().fmt(pt)});
-        }
-        ip.resolveNavValue(nav_id, .{
-            .val = nav_val.toIntern(),
-            .is_const = is_const,
-            .alignment = .none,
-            .@"linksection" = .none,
-            .@"addrspace" = .generic,
-        });
-        // TODO: usingnamespace cannot participate in incremental compilation
-        assert(zcu.analysis_in_progress.swapRemove(anal_unit));
-        return .{ .val_changed = true };
-    }
 
     const queue_linker_work, const is_owned_fn = switch (ip.indexToKey(nav_val.toIntern())) {
         .func => |f| .{ true, f.owner_nav == nav_id }, // note that this lets function aliases reach codegen
@@ -1342,7 +1325,7 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
     const anal_unit: AnalUnit = .wrap(.{ .nav_ty = nav_id });
     const nav = ip.getNav(nav_id);
 
-    log.debug("ensureNavTypeUpToDate {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("ensureNavTypeUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     const type_resolved_by_value: bool = from_val: {
         const analysis = nav.analysis orelse break :from_val false;
@@ -1412,7 +1395,7 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
                 // If this unit caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
-                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(anal_unit)});
+                log.debug("mark transitive analysis failure for {f}", .{zcu.fmtAnalUnit(anal_unit)});
             }
             break :res .{ !prev_failed, true };
         },
@@ -1454,7 +1437,7 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     const anal_unit: AnalUnit = .wrap(.{ .nav_ty = nav_id });
     const old_nav = ip.getNav(nav_id);
 
-    log.debug("analyzeNavType {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("analyzeNavType {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     const inst_resolved = old_nav.analysis.?.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_resolved.file);
@@ -1464,7 +1447,6 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     defer _ = zcu.analysis_in_progress.swapRemove(anal_unit);
 
     const zir_decl = zir.getDeclaration(inst_resolved.inst);
-    assert(old_nav.is_usingnamespace == (zir_decl.kind == .@"usingnamespace"));
     const type_body = zir_decl.type_body.?;
 
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
@@ -1527,7 +1509,7 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
 
     const is_const = switch (zir_decl.kind) {
         .@"comptime" => unreachable,
-        .unnamed_test, .@"test", .decltest, .@"usingnamespace", .@"const" => true,
+        .unnamed_test, .@"test", .decltest, .@"const" => true,
         .@"var" => false,
     };
 
@@ -1585,7 +1567,7 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
     const func_index = ip.unwrapCoercedFunc(maybe_coerced_func_index);
     const anal_unit: AnalUnit = .wrap(.{ .func = func_index });
 
-    log.debug("ensureFuncBodyUpToDate {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("ensureFuncBodyUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     const func = zcu.funcInfo(maybe_coerced_func_index);
 
@@ -1629,7 +1611,7 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
                 // If this function caused the error, it would have an entry in `failed_analysis`.
                 // Since it does not, this must be a transitive failure.
                 try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
-                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(anal_unit)});
+                log.debug("mark transitive analysis failure for {f}", .{zcu.fmtAnalUnit(anal_unit)});
             }
             // We consider the IES to be outdated if the function previously succeeded analysis; in this case,
             // we need to re-analyze dependants to ensure they hit a transitive error here, rather than reporting
@@ -1699,7 +1681,7 @@ fn analyzeFuncBody(
     else
         .none;
 
-    log.debug("analyze and generate fn body {}", .{zcu.fmtAnalUnit(anal_unit)});
+    log.debug("analyze and generate fn body {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
     var air = try pt.analyzeFnBodyInner(func_index);
     errdefer air.deinit(gpa);
@@ -2321,7 +2303,7 @@ pub fn updateBuiltinModule(pt: Zcu.PerThread, opts: Builtin) Allocator.Error!voi
 
     Builtin.updateFileOnDisk(file, comp) catch |err| comp.setMiscFailure(
         .write_builtin_zig,
-        "unable to write '{}': {s}",
+        "unable to write '{f}': {s}",
         .{ file.path.fmt(comp), @errorName(err) },
     );
 }
@@ -2436,8 +2418,12 @@ fn updateEmbedFileInner(
         const old_len = strings.mutate.len;
         errdefer strings.shrinkRetainingCapacity(old_len);
         const bytes = (try strings.addManyAsSlice(size_plus_one))[0];
-        const actual_read = try file.readAll(bytes[0..size]);
-        if (actual_read != size) return error.UnexpectedEof;
+        var fr = file.reader(&.{});
+        fr.size = stat.size;
+        fr.interface.readSliceAll(bytes[0..size]) catch |err| switch (err) {
+            error.ReadFailed => return fr.err.?,
+            error.EndOfStream => return error.UnexpectedEof,
+        };
         bytes[size] = 0;
         break :str try ip.getOrPutTrailingString(gpa, tid, @intCast(bytes.len), .maybe_embedded_nulls);
     };
@@ -2541,7 +2527,6 @@ pub fn scanNamespace(
 
     try existing_by_inst.ensureTotalCapacity(gpa, @intCast(
         namespace.pub_decls.count() + namespace.priv_decls.count() +
-            namespace.pub_usingnamespace.items.len + namespace.priv_usingnamespace.items.len +
             namespace.comptime_decls.items.len +
             namespace.test_decls.items.len,
     ));
@@ -2551,14 +2536,6 @@ pub fn scanNamespace(
         existing_by_inst.putAssumeCapacityNoClobber(zir_index, .wrap(.{ .nav_val = nav }));
     }
     for (namespace.priv_decls.keys()) |nav| {
-        const zir_index = ip.getNav(nav).analysis.?.zir_index;
-        existing_by_inst.putAssumeCapacityNoClobber(zir_index, .wrap(.{ .nav_val = nav }));
-    }
-    for (namespace.pub_usingnamespace.items) |nav| {
-        const zir_index = ip.getNav(nav).analysis.?.zir_index;
-        existing_by_inst.putAssumeCapacityNoClobber(zir_index, .wrap(.{ .nav_val = nav }));
-    }
-    for (namespace.priv_usingnamespace.items) |nav| {
         const zir_index = ip.getNav(nav).analysis.?.zir_index;
         existing_by_inst.putAssumeCapacityNoClobber(zir_index, .wrap(.{ .nav_val = nav }));
     }
@@ -2578,8 +2555,6 @@ pub fn scanNamespace(
 
     namespace.pub_decls.clearRetainingCapacity();
     namespace.priv_decls.clearRetainingCapacity();
-    namespace.pub_usingnamespace.clearRetainingCapacity();
-    namespace.priv_usingnamespace.clearRetainingCapacity();
     namespace.comptime_decls.clearRetainingCapacity();
     namespace.test_decls.clearRetainingCapacity();
 
@@ -2607,7 +2582,6 @@ const ScanDeclIter = struct {
     /// Decl scanning is run in two passes, so that we can detect when a generated
     /// name would clash with an explicit name and use a different one.
     pass: enum { named, unnamed },
-    usingnamespace_index: usize = 0,
     unnamed_test_index: usize = 0,
 
     fn avoidNameConflict(iter: *ScanDeclIter, comptime fmt: []const u8, args: anytype) !InternPool.NullTerminatedString {
@@ -2618,7 +2592,7 @@ const ScanDeclIter = struct {
         var gop = try iter.seen_decls.getOrPut(gpa, name);
         var next_suffix: u32 = 0;
         while (gop.found_existing) {
-            name = try ip.getOrPutStringFmt(gpa, pt.tid, "{}_{d}", .{ name.fmt(ip), next_suffix }, .no_embedded_nulls);
+            name = try ip.getOrPutStringFmt(gpa, pt.tid, "{f}_{d}", .{ name.fmt(ip), next_suffix }, .no_embedded_nulls);
             gop = try iter.seen_decls.getOrPut(gpa, name);
             next_suffix += 1;
         }
@@ -2645,12 +2619,6 @@ const ScanDeclIter = struct {
             .@"comptime" => name: {
                 if (iter.pass != .unnamed) return;
                 break :name .none;
-            },
-            .@"usingnamespace" => name: {
-                if (iter.pass != .unnamed) return;
-                const i = iter.usingnamespace_index;
-                iter.usingnamespace_index += 1;
-                break :name (try iter.avoidNameConflict("usingnamespace_{d}", .{i})).toOptional();
             },
             .unnamed_test => name: {
                 if (iter.pass != .unnamed) return;
@@ -2710,7 +2678,7 @@ const ScanDeclIter = struct {
                 const name = maybe_name.unwrap().?;
                 const fqn = try namespace.internFullyQualifiedName(ip, gpa, pt.tid, name);
                 const nav = if (existing_unit) |eu| eu.unwrap().nav_val else nav: {
-                    const nav = try ip.createDeclNav(gpa, pt.tid, name, fqn, tracked_inst, namespace_index, decl.kind == .@"usingnamespace");
+                    const nav = try ip.createDeclNav(gpa, pt.tid, name, fqn, tracked_inst, namespace_index);
                     if (zcu.comp.debugIncremental()) try zcu.incremental_debug_state.newNav(zcu, nav);
                     break :nav nav;
                 };
@@ -2722,17 +2690,6 @@ const ScanDeclIter = struct {
 
                 const want_analysis = switch (decl.kind) {
                     .@"comptime" => unreachable,
-                    .@"usingnamespace" => a: {
-                        if (comp.incremental) {
-                            @panic("'usingnamespace' is not supported by incremental compilation");
-                        }
-                        if (decl.is_pub) {
-                            try namespace.pub_usingnamespace.append(gpa, nav);
-                        } else {
-                            try namespace.priv_usingnamespace.append(gpa, nav);
-                        }
-                        break :a true;
-                    },
                     .unnamed_test, .@"test", .decltest => a: {
                         const is_named = decl.kind != .unnamed_test;
                         try namespace.test_decls.append(gpa, nav);
@@ -2767,7 +2724,7 @@ const ScanDeclIter = struct {
 
         if (existing_unit == null and (want_analysis or decl.linkage == .@"export")) {
             log.debug(
-                "scanDecl queue analyze_comptime_unit file='{s}' unit={}",
+                "scanDecl queue analyze_comptime_unit file='{s}' unit={f}",
                 .{ namespace.fileScope(zcu).sub_file_path, zcu.fmtAnalUnit(unit) },
             );
             try comp.queueJob(.{ .analyze_comptime_unit = unit });
@@ -3185,7 +3142,7 @@ fn processExportsInner(
         if (gop.found_existing) {
             new_export.status = .failed_retryable;
             try zcu.failed_exports.ensureUnusedCapacity(gpa, 1);
-            const msg = try Zcu.ErrorMsg.create(gpa, new_export.src, "exported symbol collision: {}", .{
+            const msg = try Zcu.ErrorMsg.create(gpa, new_export.src, "exported symbol collision: {f}", .{
                 new_export.opts.name.fmt(ip),
             });
             errdefer msg.destroy(gpa);
@@ -4427,12 +4384,11 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
     defer liveness.deinit(gpa);
 
     if (build_options.enable_debug_extensions and comp.verbose_air) {
-        std.debug.lockStdErr();
-        defer std.debug.unlockStdErr();
-        const stderr = std.io.getStdErr().writer();
-        stderr.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)}) catch {};
+        const stderr = std.debug.lockStderrWriter(&.{});
+        defer std.debug.unlockStderrWriter();
+        stderr.print("# Begin Function AIR: {f}:\n", .{fqn.fmt(ip)}) catch {};
         air.write(stderr, pt, liveness);
-        stderr.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)}) catch {};
+        stderr.print("# End Function AIR: {f}\n\n", .{fqn.fmt(ip)}) catch {};
     }
 
     if (std.debug.runtime_safety) {

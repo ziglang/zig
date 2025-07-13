@@ -69,8 +69,8 @@ fn mainServer() !void {
     @disableInstrumentation();
     var server = try std.zig.Server.init(.{
         .gpa = fba.allocator(),
-        .in = std.io.getStdIn(),
-        .out = std.io.getStdOut(),
+        .in = .stdin(),
+        .out = .stdout(),
         .zig_version = builtin.zig_version_string,
     });
     defer server.deinit();
@@ -191,7 +191,7 @@ fn mainTerminal() void {
         .root_name = "Test",
         .estimated_total_items = test_fn_list.len,
     });
-    const have_tty = std.io.getStdErr().isTty();
+    const have_tty = std.fs.File.stderr().isTty();
 
     var async_frame_buffer: []align(builtin.target.stackAlignment()) u8 = undefined;
     // TODO this is on the next line (using `undefined` above) because otherwise zig incorrectly
@@ -292,6 +292,7 @@ pub fn mainSimple() anyerror!void {
     };
     // is the backend capable of using std.fmt.format to print a summary at the end?
     const print_summary = switch (builtin.zig_backend) {
+        .stage2_riscv64 => true,
         else => false,
     };
 
@@ -300,7 +301,7 @@ pub fn mainSimple() anyerror!void {
     var failed: u64 = 0;
 
     // we don't want to bring in File and Writer if the backend doesn't support it
-    const stderr = if (comptime enable_print) std.io.getStdErr() else {};
+    const stderr = if (comptime enable_print) std.fs.File.stderr() else {};
 
     for (builtin.test_functions) |test_fn| {
         if (test_fn.func()) |_| {
@@ -309,7 +310,7 @@ pub fn mainSimple() anyerror!void {
                 stderr.writeAll("... ") catch {};
                 stderr.writeAll("PASS\n") catch {};
             }
-        } else |err| if (enable_print) {
+        } else |err| {
             if (enable_print) {
                 stderr.writeAll(test_fn.name) catch {};
                 stderr.writeAll("... ") catch {};
@@ -327,7 +328,7 @@ pub fn mainSimple() anyerror!void {
         passed += 1;
     }
     if (enable_print and print_summary) {
-        stderr.writer().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
+        stderr.deprecatedWriter().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
     }
     if (failed != 0) std.process.exit(1);
 }

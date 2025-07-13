@@ -100,7 +100,6 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
 
     switch (tree.nodeTag(node)) {
         .root => unreachable,
-        .@"usingnamespace" => unreachable,
         .test_decl => unreachable,
         .container_field_init => unreachable,
         .container_field_align => unreachable,
@@ -204,12 +203,8 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         .@"return",
         .if_simple,
         .@"if",
@@ -226,7 +221,6 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         .switch_comma,
         .@"nosuspend",
         .@"suspend",
-        .@"await",
         .@"resume",
         .@"try",
         .unreachable_literal,
@@ -762,13 +756,7 @@ fn lowerStrLitError(
     raw_string: []const u8,
     offset: u32,
 ) Allocator.Error!void {
-    return ZonGen.addErrorTokOff(
-        zg,
-        token,
-        @intCast(offset + err.offset()),
-        "{}",
-        .{err.fmt(raw_string)},
-    );
+    return ZonGen.addErrorTokOff(zg, token, @intCast(offset + err.offset()), "{f}", .{err.fmt(raw_string)});
 }
 
 fn lowerNumberError(zg: *ZonGen, err: std.zig.number_literal.Error, token: Ast.TokenIndex, bytes: []const u8) Allocator.Error!void {

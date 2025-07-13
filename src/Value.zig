@@ -15,31 +15,23 @@ const Value = @This();
 
 ip_index: InternPool.Index,
 
-pub fn format(val: Value, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+pub fn format(val: Value, writer: *std.io.Writer) !void {
     _ = val;
-    _ = fmt;
-    _ = options;
     _ = writer;
     @compileError("do not use format values directly; use either fmtDebug or fmtValue");
 }
 
 /// This is a debug function. In order to print values in a meaningful way
 /// we also need access to the type.
-pub fn dump(
-    start_val: Value,
-    comptime fmt: []const u8,
-    _: std.fmt.FormatOptions,
-    out_stream: anytype,
-) !void {
-    comptime assert(fmt.len == 0);
-    try out_stream.print("(interned: {})", .{start_val.toIntern()});
+pub fn dump(start_val: Value, w: std.io.Writer) std.io.Writer.Error!void {
+    try w.print("(interned: {})", .{start_val.toIntern()});
 }
 
-pub fn fmtDebug(val: Value) std.fmt.Formatter(dump) {
+pub fn fmtDebug(val: Value) std.fmt.Formatter(Value, dump) {
     return .{ .data = val };
 }
 
-pub fn fmtValue(val: Value, pt: Zcu.PerThread) std.fmt.Formatter(print_value.format) {
+pub fn fmtValue(val: Value, pt: Zcu.PerThread) std.fmt.Formatter(print_value.FormatContext, print_value.format) {
     return .{ .data = .{
         .val = val,
         .pt = pt,
@@ -48,7 +40,7 @@ pub fn fmtValue(val: Value, pt: Zcu.PerThread) std.fmt.Formatter(print_value.for
     } };
 }
 
-pub fn fmtValueSema(val: Value, pt: Zcu.PerThread, sema: *Sema) std.fmt.Formatter(print_value.formatSema) {
+pub fn fmtValueSema(val: Value, pt: Zcu.PerThread, sema: *Sema) std.fmt.Formatter(print_value.FormatContext, print_value.formatSema) {
     return .{ .data = .{
         .val = val,
         .pt = pt,
@@ -57,7 +49,7 @@ pub fn fmtValueSema(val: Value, pt: Zcu.PerThread, sema: *Sema) std.fmt.Formatte
     } };
 }
 
-pub fn fmtValueSemaFull(ctx: print_value.FormatContext) std.fmt.Formatter(print_value.formatSema) {
+pub fn fmtValueSemaFull(ctx: print_value.FormatContext) std.fmt.Formatter(print_value.FormatContext, print_value.formatSema) {
     return .{ .data = ctx };
 }
 

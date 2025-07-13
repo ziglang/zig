@@ -200,18 +200,6 @@ pub fn nonSimdCall3(func: fn (usize, usize, usize, usize) usize, a1: usize, a2: 
     return doClientRequestExpr(0, .ClientCall3, @intFromPtr(func), a1, a2, a3, 0);
 }
 
-/// Deprecated: use `nonSimdCall0`
-pub const nonSIMDCall0 = nonSimdCall0;
-
-/// Deprecated: use `nonSimdCall1`
-pub const nonSIMDCall1 = nonSimdCall1;
-
-/// Deprecated: use `nonSimdCall2`
-pub const nonSIMDCall2 = nonSimdCall2;
-
-/// Deprecated: use `nonSimdCall3`
-pub const nonSIMDCall3 = nonSimdCall3;
-
 /// Counts the number of errors that have been recorded by a tool.  Nb:
 /// the tool must record the errors with VG_(maybe_record_error)() or
 /// VG_(unique_error)() for them to be counted.

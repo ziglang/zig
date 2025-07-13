@@ -76,9 +76,11 @@ const RiscvCpuinfoImpl = struct {
 
     const cpu_names = .{
         .{ "sifive,u54", &Target.riscv.cpu.sifive_u54 },
+        .{ "sifive,u54-mc", &Target.riscv.cpu.sifive_u54 },
         .{ "sifive,u7", &Target.riscv.cpu.sifive_7_series },
         .{ "sifive,u74", &Target.riscv.cpu.sifive_u74 },
         .{ "sifive,u74-mc", &Target.riscv.cpu.sifive_u74 },
+        .{ "spacemit,x60", &Target.riscv.cpu.spacemit_x60 },
     };
 
     fn line_hook(self: *RiscvCpuinfoImpl, key: []const u8, value: []const u8) !bool {
@@ -389,7 +391,7 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     const current_arch = builtin.cpu.arch;
     switch (current_arch) {
         .arm, .armeb, .thumb, .thumbeb => {
-            return ArmCpuinfoParser.parse(current_arch, f.reader()) catch null;
+            return ArmCpuinfoParser.parse(current_arch, f.deprecatedReader()) catch null;
         },
         .aarch64, .aarch64_be => {
             const registers = [12]u64{
@@ -411,13 +413,13 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
             return core;
         },
         .sparc64 => {
-            return SparcCpuinfoParser.parse(current_arch, f.reader()) catch null;
+            return SparcCpuinfoParser.parse(current_arch, f.deprecatedReader()) catch null;
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
-            return PowerpcCpuinfoParser.parse(current_arch, f.reader()) catch null;
+            return PowerpcCpuinfoParser.parse(current_arch, f.deprecatedReader()) catch null;
         },
         .riscv64, .riscv32 => {
-            return RiscvCpuinfoParser.parse(current_arch, f.reader()) catch null;
+            return RiscvCpuinfoParser.parse(current_arch, f.deprecatedReader()) catch null;
         },
         else => {},
     }

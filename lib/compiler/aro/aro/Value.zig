@@ -961,7 +961,7 @@ pub fn print(v: Value, ty: Type, comp: *const Compilation, w: anytype) @TypeOf(w
     switch (key) {
         .null => return w.writeAll("nullptr_t"),
         .int => |repr| switch (repr) {
-            inline else => |x| return w.print("{d}", .{x}),
+            inline .u64, .i64, .big_int => |x| return w.print("{d}", .{x}),
         },
         .float => |repr| switch (repr) {
             .f16 => |x| return w.print("{d}", .{@round(@as(f64, @floatCast(x)) * 1000) / 1000}),
@@ -982,7 +982,7 @@ pub fn printString(bytes: []const u8, ty: Type, comp: *const Compilation, w: any
     const without_null = bytes[0 .. bytes.len - @intFromEnum(size)];
     try w.writeByte('"');
     switch (size) {
-        .@"1" => try w.print("{}", .{std.zig.fmtEscapes(without_null)}),
+        .@"1" => try w.print("{f}", .{std.zig.fmtString(without_null)}),
         .@"2" => {
             var items: [2]u16 = undefined;
             var i: usize = 0;

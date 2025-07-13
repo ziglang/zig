@@ -412,6 +412,7 @@ test "generic struct as parameter type" {
 
 test "slice as parameter type" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn internComptimeString(comptime str: []const u8) *const []const u8 {

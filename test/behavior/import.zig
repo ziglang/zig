@@ -18,16 +18,6 @@ test "importing the same thing gives the same import" {
     try expect(@import("std") == @import("std"));
 }
 
-test "import in non-toplevel scope" {
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    const S = struct {
-        usingnamespace @import("import/a_namespace.zig");
-    };
-    try expect(@as(i32, 1234) == S.foo());
-}
-
 test "import empty file" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;

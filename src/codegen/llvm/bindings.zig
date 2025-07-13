@@ -79,6 +79,7 @@ pub const TargetMachine = opaque {
         data_sections: bool,
         float_abi: FloatABI,
         abi_name: ?[*:0]const u8,
+        emulated_tls: bool,
     ) *TargetMachine;
 
     pub const dispose = LLVMDisposeTargetMachine;
@@ -92,6 +93,7 @@ pub const TargetMachine = opaque {
         sancov: bool,
         lto: LtoPhase,
         allow_fast_isel: bool,
+        allow_machine_outliner: bool,
         asm_filename: ?[*:0]const u8,
         bin_filename: ?[*:0]const u8,
         llvm_ir_filename: ?[*:0]const u8,

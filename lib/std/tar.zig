@@ -348,7 +348,7 @@ pub fn Iterator(comptime ReaderType: type) type {
             unread_bytes: *u64,
             parent_reader: ReaderType,
 
-            pub const Reader = std.io.Reader(File, ReaderType.Error, File.read);
+            pub const Reader = std.io.GenericReader(File, ReaderType.Error, File.read);
 
             pub fn reader(self: File) Reader {
                 return .{ .context = self };

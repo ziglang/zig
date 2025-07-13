@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const native_arch = builtin.cpu.arch;
 const expect = std.testing.expect;
 
-const WINAPI: std.builtin.CallingConvention = if (native_arch == .x86) .Stdcall else .C;
+const WINAPI: std.builtin.CallingConvention = if (native_arch == .x86) .{ .x86_stdcall = .{} } else .c;
 extern "kernel32" fn ExitProcess(exit_code: c_uint) callconv(WINAPI) noreturn;
 
 test "foo" {

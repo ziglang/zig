@@ -746,7 +746,9 @@ pub const Inst = struct {
         /// Dest slice may have any alignment; source pointer may have any alignment.
         /// The two memory regions must not overlap.
         /// Result type is always void.
+        ///
         /// Uses the `bin_op` field. LHS is the dest slice. RHS is the source pointer.
+        ///
         /// If the length is compile-time known (due to the destination or
         /// source being a pointer-to-array), then it is guaranteed to be
         /// greater than zero.
@@ -758,7 +760,9 @@ pub const Inst = struct {
         /// Dest slice may have any alignment; source pointer may have any alignment.
         /// The two memory regions may overlap.
         /// Result type is always void.
+        ///
         /// Uses the `bin_op` field. LHS is the dest slice. RHS is the source pointer.
+        ///
         /// If the length is compile-time known (due to the destination or
         /// source being a pointer-to-array), then it is guaranteed to be
         /// greater than zero.
@@ -957,18 +961,13 @@ pub const Inst = struct {
             return index.unwrap().target;
         }
 
-        pub fn format(
-            index: Index,
-            comptime _: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
-            try writer.writeByte('%');
+        pub fn format(index: Index, w: *std.io.Writer) std.io.Writer.Error!void {
+            try w.writeByte('%');
             switch (index.unwrap()) {
                 .ref => {},
-                .target => try writer.writeByte('t'),
+                .target => try w.writeByte('t'),
             }
-            try writer.print("{d}", .{@as(u31, @truncate(@intFromEnum(index)))});
+            try w.print("{d}", .{@as(u31, @truncate(@intFromEnum(index)))});
         }
     };
 
@@ -1140,6 +1139,20 @@ pub const Inst = struct {
 
         pub fn toType(ref: Ref) Type {
             return .fromInterned(ref.toInterned().?);
+        }
+
+        pub fn fromIntern(ip_index: InternPool.Index) Ref {
+            return switch (ip_index) {
+                .none => .none,
+                else => {
+                    assert(@intFromEnum(ip_index) >> 31 == 0);
+                    return @enumFromInt(@as(u31, @intCast(@intFromEnum(ip_index))));
+                },
+            };
+        }
+
+        pub fn fromValue(v: Value) Ref {
+            return .fromIntern(v.toIntern());
         }
     };
 
@@ -1754,13 +1767,7 @@ pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
 }
 
 pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
-    return switch (ip_index) {
-        .none => .none,
-        else => {
-            assert(@intFromEnum(ip_index) >> 31 == 0);
-            return @enumFromInt(@as(u31, @intCast(@intFromEnum(ip_index))));
-        },
-    };
+    return .fromIntern(ip_index);
 }
 
 /// Returns `null` if runtime-known.

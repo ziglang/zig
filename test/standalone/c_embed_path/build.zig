@@ -8,8 +8,10 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "test",
-        .target = b.graph.host,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
     exe.addCSourceFile(.{
         .file = b.path("test.c"),

@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 const Cache = std.Build.Cache;
 
 fn usage() noreturn {
-    io.getStdOut().writeAll(
+    std.fs.File.stdout().writeAll(
         \\Usage: zig std [options]
         \\
         \\Options:
@@ -63,7 +63,7 @@ pub fn main() !void {
     var http_server = try address.listen(.{});
     const port = http_server.listen_address.in.getPort();
     const url_with_newline = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/\n", .{port});
-    std.io.getStdOut().writeAll(url_with_newline) catch {};
+    std.fs.File.stdout().writeAll(url_with_newline) catch {};
     if (should_open_browser) {
         openBrowserTab(gpa, url_with_newline[0 .. url_with_newline.len - 1 :'\n']) catch |err| {
             std.log.err("unable to open browser: {s}", .{@errorName(err)});
@@ -236,10 +236,10 @@ fn serveWasm(
     const wasm_base_path = try buildWasmBinary(arena, context, optimize_mode);
     const bin_name = try std.zig.binNameAlloc(arena, .{
         .root_name = autodoc_root_name,
-        .target = std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
+        .target = &(std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
             .arch_os_abi = autodoc_arch_os_abi,
             .cpu_features = autodoc_cpu_features,
-        }) catch unreachable) catch unreachable,
+        }) catch unreachable) catch unreachable),
         .output_mode = .Exe,
     });
     // std.http.Server does not have a sendfile API yet.

@@ -44,14 +44,7 @@ pub const Error = union(enum) {
         raw_string: []const u8,
     };
 
-    fn formatMessage(
-        self: FormatMessage,
-        comptime f: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = f;
-        _ = options;
+    fn formatMessage(self: FormatMessage, writer: *std.io.Writer) std.io.Writer.Error!void {
         switch (self.err) {
             .invalid_escape_character => |bad_index| try writer.print(
                 "invalid escape character: '{c}'",
@@ -93,7 +86,7 @@ pub const Error = union(enum) {
         }
     }
 
-    pub fn fmt(self: @This(), raw_string: []const u8) std.fmt.Formatter(formatMessage) {
+    pub fn fmt(self: @This(), raw_string: []const u8) std.fmt.Formatter(FormatMessage, formatMessage) {
         return .{ .data = .{
             .err = self,
             .raw_string = raw_string,
@@ -322,7 +315,7 @@ test parseCharLiteral {
     );
 }
 
-/// Parses `bytes` as a Zig string literal and writes the result to the std.io.Writer type.
+/// Parses `bytes` as a Zig string literal and writes the result to the `std.io.GenericWriter` type.
 /// Asserts `bytes` has '"' at beginning and end.
 pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result {
     assert(bytes.len >= 2 and bytes[0] == '"' and bytes[bytes.len - 1] == '"');
