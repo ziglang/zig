@@ -104,7 +104,7 @@ fn State128X(comptime degree: u7) type {
             return state;
         }
 
-        inline fn update(state: *State, d1: AesBlockVec, d2: AesBlockVec) void {
+        fn update(state: *State, d1: AesBlockVec, d2: AesBlockVec) void {
             const blocks = &state.blocks;
             const tmp = blocks[7];
             comptime var i: usize = 7;
@@ -413,7 +413,7 @@ fn State256X(comptime degree: u7) type {
             return state;
         }
 
-        inline fn update(state: *State, d: AesBlockVec) void {
+        fn update(state: *State, d: AesBlockVec) void {
             const blocks = &state.blocks;
             const tmp = blocks[5].encrypt(blocks[0]);
             comptime var i: usize = 5;
