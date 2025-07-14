@@ -10519,6 +10519,7 @@ pub const futex = switch (native_os) {
 pub extern "c" var environ: [*:null]?[*:0]u8;
 
 pub extern "c" fn fopen(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
+pub extern "c" fn freopen(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8, noalias stream: *FILE) ?*FILE;
 pub extern "c" fn fclose(stream: *FILE) c_int;
 pub extern "c" fn fwrite(noalias ptr: [*]const u8, size_of_type: usize, item_count: usize, noalias stream: *FILE) usize;
 pub extern "c" fn fread(noalias ptr: [*]u8, size_of_type: usize, item_count: usize, noalias stream: *FILE) usize;
@@ -10818,6 +10819,34 @@ pub const pthread_t = switch (native_os) {
     else => *opaque {},
 };
 pub const FILE = opaque {};
+
+// NetBSD, OpenBSD, and Solaris definitions could be created, but the stdio
+// streams on these are stored in an extern array of FILE objects, so we'd need
+// precise definitions of the size of "struct FILE" for various arches and
+// versions to get the correct offsets...
+pub fn stdin() *FILE {
+    return switch (native_os) {
+        .linux, .serenity, .haiku => private.stdin,
+        .freebsd, .dragonfly, .macos, .ios, .tvos, .watchos, .visionos => private.__stdinp,
+        else => @compileError("stdio streams unsupported on this platform"),
+    };
+}
+
+pub fn stdout() *FILE {
+    return switch (native_os) {
+        .linux, .serenity, .haiku => private.stdout,
+        .freebsd, .dragonfly, .macos, .ios, .tvos, .watchos, .visionos => private.__stdoutp,
+        else => @compileError("stdio streams unsupported on this platform"),
+    };
+}
+
+pub fn stderr() *FILE {
+    return switch (native_os) {
+        .linux, .serenity, .haiku => private.stderr,
+        .freebsd, .dragonfly, .macos, .ios, .tvos, .watchos, .visionos => private.__stderrp,
+        else => @compileError("stdio streams unsupported on this platform"),
+    };
+}
 
 pub extern "c" fn dlopen(path: ?[*:0]const u8, mode: RTLD) ?*anyopaque;
 pub extern "c" fn dlclose(handle: *anyopaque) c_int;
@@ -11319,6 +11348,16 @@ const private = struct {
 
     extern "c" fn __libc_current_sigrtmin() c_int;
     extern "c" fn __libc_current_sigrtmax() c_int;
+
+    // Linux, Serenity, Haiku
+    extern "c" var stdin: *FILE;
+    extern "c" var stdout: *FILE;
+    extern "c" var stderr: *FILE;
+
+    // FreeBSD, Dragonfly, Darwin
+    extern "c" var __stdinp: *FILE;
+    extern "c" var __stdoutp: *FILE;
+    extern "c" var __stderrp: *FILE;
 
     // Don't forget to add another clown when an OS picks yet another unique
     // symbol name for errno location!
