@@ -2188,7 +2188,7 @@ pub const Discarding = struct {
     pub fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
         const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
         const slice = data[0 .. data.len - 1];
-        const pattern = data[slice.len..];
+        const pattern = data[slice.len];
         var written: usize = pattern.len * splat;
         for (slice) |bytes| written += bytes.len;
         d.count += w.end + written;
