@@ -25,16 +25,17 @@ git fetch --tags
 export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
 export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 
-mkdir build-debug
-cd build-debug
+mkdir build-releasesafe
+cd build-releasesafe
 
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
 
 cmake .. \
-  -DCMAKE_INSTALL_PREFIX="stage3-debug" \
+  -DCMAKE_INSTALL_PREFIX="stage3-releasesafe" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
-  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DZIG_RELEASE_SAFE=ON \
   -DZIG_TARGET_TRIPLE="$TARGET" \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
@@ -49,7 +50,7 @@ unset CXX
 ninja install
 
 # No -fqemu and -fwasmtime here as they're covered by the x86_64-linux scripts.
-stage3-debug/bin/zig build test docs \
+stage3-releasesafe/bin/zig build test docs \
   --maxrss 34359738368 \
   -Dstatic-llvm \
   -Dskip-non-native \
@@ -57,13 +58,19 @@ stage3-debug/bin/zig build test docs \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib"
 
-stage3-debug/bin/zig build \
-  --prefix stage4-debug \
+# Ensure that stage3 and stage4 are byte-for-byte identical.
+stage3-releasesafe/bin/zig build \
+  --prefix stage4-releasesafe \
   -Denable-llvm \
   -Dno-lib \
+  -Doptimize=ReleaseSafe \
+  -Dstrip \
   -Dtarget=$TARGET \
   -Dcpu=$MCPU \
   -Duse-zig-libcxx \
-  -Dversion-string="$(stage3-debug/bin/zig version)"
+  -Dversion-string="$(stage3-releasesafe/bin/zig version)"
 
-stage4-debug/bin/zig test ../test/behavior.zig
+# diff returns an error code if the files differ.
+echo "If the following command fails, it means nondeterminism has been"
+echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
+diff stage3-releasesafe/bin/zig stage4-releasesafe/bin/zig
