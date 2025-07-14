@@ -10818,16 +10818,83 @@ pub const pthread_t = switch (native_os) {
     .serenity => c_int,
     else => *opaque {},
 };
-pub const FILE = opaque {};
 
-// NetBSD, OpenBSD, and Solaris definitions could be created, but the stdio
-// streams on these are stored in an extern array of FILE objects, so we'd need
-// precise definitions of the size of "struct FILE" for various arches and
-// versions to get the correct offsets...
+// Most OSes define the stdio stream externs as individual pointers, but a few
+// use an array of FILE objects, requiring us to know the correct sizes:
+pub const FILE = switch (native_os) {
+    // https://github.com/NetBSD/src/blob/f64856e518031b6f08d512a193f18b17abf4710f/include/stdio.h#L113
+    .netbsd => extern struct {
+        const __sbuf = extern struct {
+            _base: [*c]u8,
+            _size: c_int,
+        };
+        _p: [*c]u8,
+        _r: c_int,
+        _w: c_int,
+        _flags: c_ushort,
+        _file: c_short,
+        _bf: __sbuf,
+        _lbfsize: c_int,
+        _cookie: ?*anyopaque,
+        _close: ?*const fn (?*anyopaque) callconv(.c) c_int,
+        _read: ?*const fn (?*anyopaque, ?*anyopaque, usize) callconv(.c) isize,
+        _seek: ?*const fn (?*anyopaque, usize, c_int) callconv(.c) i64,
+        _write: ?*const fn (?*anyopaque, ?*const anyopaque, usize) callconv(.c) isize,
+        _ext: __sbuf,
+        _up: [*c]u8,
+        _ur: c_int,
+        _ubuf: [3]u8,
+        _nbuf: [1]u8,
+        _flush: ?*const fn (?*anyopaque) callconv(.c) c_int,
+        _lb_unused: [@sizeOf(__sbuf) - @sizeOf(?*anyopaque)]u8,
+        _blksize: c_int,
+        _offset: i64,
+    },
+    // https://github.com/openbsd/src/blob/bcac9d59b1c709715ee9a9d1aa6246381ce113ff/include/stdio.h#L99
+    .openbsd => extern struct {
+        const __sbuf = extern struct {
+            _base: [*c]u8,
+            _size: c_int,
+        };
+        _p: [*c]u8,
+        _r: c_int,
+        _w: c_int,
+        _flags: c_ushort,
+        _file: c_short,
+        _bf: __sbuf,
+        _lbfsize: c_int,
+        _cookie: ?*anyopaque,
+        _close: ?*const fn (?*anyopaque) callconv(.c) c_int,
+        _read: ?*const fn (?*anyopaque, [*c]c_char, c_int) callconv(.c) c_int,
+        _seek: ?*const fn (?*anyopaque, usize, c_int) callconv(.c) i64,
+        _write: ?*const fn (?*anyopaque, [*c]const c_char, c_int) callconv(.c) c_int,
+        _ext: __sbuf,
+        _up: [*c]u8,
+        _ur: c_int,
+        _ubuf: [3]u8,
+        _nbuf: [1]u8,
+        _lb: __sbuf,
+        _blksize: c_int,
+        _offset: i64,
+    },
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/stand/lib/sa/stdio.h#L59
+    // https://github.com/illumos/illumos-gate/blob/cf6b69f7736453e339b08dc1a3cd2de9cca5faad/usr/src/stand/lib/sa/stdio.h#L59
+    .solaris, .illumos => extern struct {
+        _flag: u8,
+        _file: c_int,
+        _len: isize,
+        _offset: isize,
+        _name: [256]c_char,
+    },
+    else => opaque {},
+};
+
 pub fn stdin() *FILE {
     return switch (native_os) {
         .linux, .serenity, .haiku => private.stdin,
         .freebsd, .dragonfly, .macos, .ios, .tvos, .watchos, .visionos => private.__stdinp,
+        .netbsd, .openbsd => &private.__sF[0],
+        .solaris, .illumos => &private.__iob[0],
         else => @compileError("stdio streams unsupported on this platform"),
     };
 }
@@ -10836,6 +10903,8 @@ pub fn stdout() *FILE {
     return switch (native_os) {
         .linux, .serenity, .haiku => private.stdout,
         .freebsd, .dragonfly, .macos, .ios, .tvos, .watchos, .visionos => private.__stdoutp,
+        .netbsd, .openbsd => &private.__sF[1],
+        .solaris, .illumos => &private.__iob[1],
         else => @compileError("stdio streams unsupported on this platform"),
     };
 }
@@ -10844,6 +10913,8 @@ pub fn stderr() *FILE {
     return switch (native_os) {
         .linux, .serenity, .haiku => private.stderr,
         .freebsd, .dragonfly, .macos, .ios, .tvos, .watchos, .visionos => private.__stderrp,
+        .netbsd, .openbsd => &private.__sF[2],
+        .solaris, .illumos => &private.__iob[2],
         else => @compileError("stdio streams unsupported on this platform"),
     };
 }
@@ -11358,6 +11429,18 @@ const private = struct {
     extern "c" var __stdinp: *FILE;
     extern "c" var __stdoutp: *FILE;
     extern "c" var __stderrp: *FILE;
+
+    // NetBSD, OpenBSD
+    extern "c" var __sF: switch (native_os) {
+        .netbsd, .openbsd => [3]FILE,
+        else => void,
+    };
+
+    // Solaris, Illumos
+    extern "c" var __iob: switch (native_os) {
+        .solaris, .illumos => [3]FILE,
+        else => void,
+    };
 
     // Don't forget to add another clown when an OS picks yet another unique
     // symbol name for errno location!
