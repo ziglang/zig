@@ -50,6 +50,22 @@ jobs:
         uses: actions/checkout@v4
       - name: Build and Test
         run: sh ci/aarch64-linux-release.sh
+  riscv64-linux-debug:
+    timeout-minutes: 900
+    runs-on: [self-hosted, Linux, riscv64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: sh ci/riscv64-linux-debug.sh
+  riscv64-linux-release:
+    timeout-minutes: 780
+    runs-on: [self-hosted, Linux, riscv64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: sh ci/riscv64-linux-release.sh
   x86_64-macos-release:
     runs-on: "macos-13"
     env:

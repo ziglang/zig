@@ -10808,6 +10808,7 @@ pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
 
 pub extern "c" fn getpid() pid_t;
 pub extern "c" fn getppid() pid_t;
+pub extern "c" fn setsid() pid_t;
 
 /// These are implementation defined but share identical values in at least musl and glibc:
 /// - https://git.musl-libc.org/cgit/musl/tree/include/locale.h?id=ab31e9d6a0fa7c5c408856c89df2dfb12c344039#n18

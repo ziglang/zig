@@ -1000,6 +1000,18 @@ pub fn fill(r: *Reader, n: usize) Error!void {
         @branchHint(.likely);
         return;
     }
+    return fillUnbuffered(r, n);
+}
+
+/// This internal function is separated from `fill` to encourage optimizers to inline `fill`, hence
+/// propagating its `@branchHint` to usage sites. If these functions are combined, `fill` is large
+/// enough that LLVM is reluctant to inline it, forcing usages of APIs like `takeInt` to go through
+/// an expensive runtime function call just to figure out that the data is, in fact, already in the
+/// buffer.
+///
+/// Missing this optimization can result in wall-clock time for the most affected benchmarks
+/// increasing by a factor of 5 or more.
+fn fillUnbuffered(r: *Reader, n: usize) Error!void {
     if (r.seek + n <= r.buffer.len) while (true) {
         const end_cap = r.buffer[r.end..];
         var writer: Writer = .fixed(end_cap);

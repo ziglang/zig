@@ -386,7 +386,7 @@ test "issue #4532: no index out of bounds" {
 
 /// Sets a slice to zeroes.
 /// Prevents the store from being optimized out.
-pub inline fn secureZero(comptime T: type, s: []volatile T) void {
+pub fn secureZero(comptime T: type, s: []volatile T) void {
     @memset(s, 0);
 }
 

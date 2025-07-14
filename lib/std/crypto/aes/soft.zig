@@ -14,7 +14,7 @@ pub const Block = struct {
     repr: Repr align(16),
 
     /// Convert a byte sequence into an internal representation.
-    pub inline fn fromBytes(bytes: *const [16]u8) Block {
+    pub fn fromBytes(bytes: *const [16]u8) Block {
         const s0 = mem.readInt(u32, bytes[0..4], .little);
         const s1 = mem.readInt(u32, bytes[4..8], .little);
         const s2 = mem.readInt(u32, bytes[8..12], .little);
@@ -23,7 +23,7 @@ pub const Block = struct {
     }
 
     /// Convert the internal representation of a block into a byte sequence.
-    pub inline fn toBytes(block: Block) [16]u8 {
+    pub fn toBytes(block: Block) [16]u8 {
         var bytes: [16]u8 = undefined;
         mem.writeInt(u32, bytes[0..4], block.repr[0], .little);
         mem.writeInt(u32, bytes[4..8], block.repr[1], .little);
@@ -33,7 +33,7 @@ pub const Block = struct {
     }
 
     /// XOR the block with a byte sequence.
-    pub inline fn xorBytes(block: Block, bytes: *const [16]u8) [16]u8 {
+    pub fn xorBytes(block: Block, bytes: *const [16]u8) [16]u8 {
         const block_bytes = block.toBytes();
         var x: [16]u8 = undefined;
         comptime var i: usize = 0;
@@ -44,7 +44,7 @@ pub const Block = struct {
     }
 
     /// Encrypt a block with a round key.
-    pub inline fn encrypt(block: Block, round_key: Block) Block {
+    pub fn encrypt(block: Block, round_key: Block) Block {
         const s0 = block.repr[0];
         const s1 = block.repr[1];
         const s2 = block.repr[2];
@@ -69,7 +69,7 @@ pub const Block = struct {
     }
 
     /// Encrypt a block with a round key *WITHOUT ANY PROTECTION AGAINST SIDE CHANNELS*
-    pub inline fn encryptUnprotected(block: Block, round_key: Block) Block {
+    pub fn encryptUnprotected(block: Block, round_key: Block) Block {
         const s0 = block.repr[0];
         const s1 = block.repr[1];
         const s2 = block.repr[2];
@@ -114,7 +114,7 @@ pub const Block = struct {
     }
 
     /// Encrypt a block with the last round key.
-    pub inline fn encryptLast(block: Block, round_key: Block) Block {
+    pub fn encryptLast(block: Block, round_key: Block) Block {
         const s0 = block.repr[0];
         const s1 = block.repr[1];
         const s2 = block.repr[2];
@@ -140,7 +140,7 @@ pub const Block = struct {
     }
 
     /// Decrypt a block with a round key.
-    pub inline fn decrypt(block: Block, round_key: Block) Block {
+    pub fn decrypt(block: Block, round_key: Block) Block {
         const s0 = block.repr[0];
         const s1 = block.repr[1];
         const s2 = block.repr[2];
@@ -165,7 +165,7 @@ pub const Block = struct {
     }
 
     /// Decrypt a block with a round key *WITHOUT ANY PROTECTION AGAINST SIDE CHANNELS*
-    pub inline fn decryptUnprotected(block: Block, round_key: Block) Block {
+    pub fn decryptUnprotected(block: Block, round_key: Block) Block {
         const s0 = block.repr[0];
         const s1 = block.repr[1];
         const s2 = block.repr[2];
@@ -210,7 +210,7 @@ pub const Block = struct {
     }
 
     /// Decrypt a block with the last round key.
-    pub inline fn decryptLast(block: Block, round_key: Block) Block {
+    pub fn decryptLast(block: Block, round_key: Block) Block {
         const s0 = block.repr[0];
         const s1 = block.repr[1];
         const s2 = block.repr[2];
@@ -236,7 +236,7 @@ pub const Block = struct {
     }
 
     /// Apply the bitwise XOR operation to the content of two blocks.
-    pub inline fn xorBlocks(block1: Block, block2: Block) Block {
+    pub fn xorBlocks(block1: Block, block2: Block) Block {
         var x: Repr = undefined;
         comptime var i = 0;
         inline while (i < 4) : (i += 1) {
@@ -246,7 +246,7 @@ pub const Block = struct {
     }
 
     /// Apply the bitwise AND operation to the content of two blocks.
-    pub inline fn andBlocks(block1: Block, block2: Block) Block {
+    pub fn andBlocks(block1: Block, block2: Block) Block {
         var x: Repr = undefined;
         comptime var i = 0;
         inline while (i < 4) : (i += 1) {
@@ -256,7 +256,7 @@ pub const Block = struct {
     }
 
     /// Apply the bitwise OR operation to the content of two blocks.
-    pub inline fn orBlocks(block1: Block, block2: Block) Block {
+    pub fn orBlocks(block1: Block, block2: Block) Block {
         var x: Repr = undefined;
         comptime var i = 0;
         inline while (i < 4) : (i += 1) {
@@ -353,7 +353,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         pub const block_length: usize = blocks_count * 16;
 
         /// Convert a byte sequence into an internal representation.
-        pub inline fn fromBytes(bytes: *const [blocks_count * 16]u8) Self {
+        pub fn fromBytes(bytes: *const [blocks_count * 16]u8) Self {
             var out: Self = undefined;
             for (0..native_words) |i| {
                 out.repr[i] = Block.fromBytes(bytes[i * native_word_size ..][0..native_word_size]);
@@ -362,7 +362,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// Convert the internal representation of a block vector into a byte sequence.
-        pub inline fn toBytes(block_vec: Self) [blocks_count * 16]u8 {
+        pub fn toBytes(block_vec: Self) [blocks_count * 16]u8 {
             var out: [blocks_count * 16]u8 = undefined;
             for (0..native_words) |i| {
                 out[i * native_word_size ..][0..native_word_size].* = block_vec.repr[i].toBytes();
@@ -371,7 +371,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// XOR the block vector with a byte sequence.
-        pub inline fn xorBytes(block_vec: Self, bytes: *const [blocks_count * 16]u8) [32]u8 {
+        pub fn xorBytes(block_vec: Self, bytes: *const [blocks_count * 16]u8) [32]u8 {
             var out: Self = undefined;
             for (0..native_words) |i| {
                 out.repr[i] = block_vec.repr[i].xorBytes(bytes[i * native_word_size ..][0..native_word_size]);
@@ -380,7 +380,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// Apply the forward AES operation to the block vector with a vector of round keys.
-        pub inline fn encrypt(block_vec: Self, round_key_vec: Self) Self {
+        pub fn encrypt(block_vec: Self, round_key_vec: Self) Self {
             var out: Self = undefined;
             for (0..native_words) |i| {
                 out.repr[i] = block_vec.repr[i].encrypt(round_key_vec.repr[i]);
@@ -389,7 +389,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// Apply the forward AES operation to the block vector with a vector of last round keys.
-        pub inline fn encryptLast(block_vec: Self, round_key_vec: Self) Self {
+        pub fn encryptLast(block_vec: Self, round_key_vec: Self) Self {
             var out: Self = undefined;
             for (0..native_words) |i| {
                 out.repr[i] = block_vec.repr[i].encryptLast(round_key_vec.repr[i]);
@@ -398,7 +398,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// Apply the inverse AES operation to the block vector with a vector of round keys.
-        pub inline fn decrypt(block_vec: Self, inv_round_key_vec: Self) Self {
+        pub fn decrypt(block_vec: Self, inv_round_key_vec: Self) Self {
             var out: Self = undefined;
             for (0..native_words) |i| {
                 out.repr[i] = block_vec.repr[i].decrypt(inv_round_key_vec.repr[i]);
@@ -407,7 +407,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// Apply the inverse AES operation to the block vector with a vector of last round keys.
-        pub inline fn decryptLast(block_vec: Self, inv_round_key_vec: Self) Self {
+        pub fn decryptLast(block_vec: Self, inv_round_key_vec: Self) Self {
             var out: Self = undefined;
             for (0..native_words) |i| {
                 out.repr[i] = block_vec.repr[i].decryptLast(inv_round_key_vec.repr[i]);
@@ -416,7 +416,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// Apply the bitwise XOR operation to the content of two block vectors.
-        pub inline fn xorBlocks(block_vec1: Self, block_vec2: Self) Self {
+        pub fn xorBlocks(block_vec1: Self, block_vec2: Self) Self {
             var out: Self = undefined;
             for (0..native_words) |i| {
                 out.repr[i] = block_vec1.repr[i].xorBlocks(block_vec2.repr[i]);
@@ -425,7 +425,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// Apply the bitwise AND operation to the content of two block vectors.
-        pub inline fn andBlocks(block_vec1: Self, block_vec2: Self) Self {
+        pub fn andBlocks(block_vec1: Self, block_vec2: Self) Self {
             var out: Self = undefined;
             for (0..native_words) |i| {
                 out.repr[i] = block_vec1.repr[i].andBlocks(block_vec2.repr[i]);
@@ -434,7 +434,7 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
         }
 
         /// Apply the bitwise OR operation to the content of two block vectors.
-        pub inline fn orBlocks(block_vec1: Self, block_vec2: Block) Self {
+        pub fn orBlocks(block_vec1: Self, block_vec2: Block) Self {
             var out: Self = undefined;
             for (0..native_words) |i| {
                 out.repr[i] = block_vec1.repr[i].orBlocks(block_vec2.repr[i]);
