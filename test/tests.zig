@@ -104,12 +104,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .aarch64,
                 .os_tag = .freebsd,
-                // Remove this when we bump our baseline to 14.0.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 14,
-                    .minor = 0,
-                    .patch = 0,
-                } },
                 .abi = .none,
             },
             .link_libc = true,
@@ -119,12 +113,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .arm,
                 .os_tag = .freebsd,
-                // Remove this when we bump our baseline to 14.0.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 14,
-                    .minor = 0,
-                    .patch = 0,
-                } },
                 .abi = .eabihf,
             },
             .link_libc = true,
@@ -136,12 +124,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .powerpc64,
                 .os_tag = .freebsd,
-                // Remove this when we bump our baseline to 14.0.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 14,
-                    .minor = 0,
-                    .patch = 0,
-                } },
                 .abi = .none,
             },
             .link_libc = true,
@@ -151,12 +133,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .powerpc64le,
                 .os_tag = .freebsd,
-                // Remove this when we bump our baseline to 14.0.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 14,
-                    .minor = 0,
-                    .patch = 0,
-                } },
                 .abi = .none,
             },
             .link_libc = true,
@@ -166,12 +142,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .riscv64,
                 .os_tag = .freebsd,
-                // Remove this when we bump our baseline to 14.0.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 14,
-                    .minor = 0,
-                    .patch = 0,
-                } },
                 .abi = .none,
             },
             .link_libc = true,
@@ -181,12 +151,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .freebsd,
-                // Remove this when we bump our baseline to 14.0.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 14,
-                    .minor = 0,
-                    .patch = 0,
-                } },
                 .abi = .none,
             },
             .link_libc = true,
@@ -1236,12 +1200,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .aarch64,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .none,
             },
             .link_libc = true,
@@ -1251,12 +1209,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .aarch64_be,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .none,
             },
             .link_libc = true,
@@ -1266,12 +1218,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .arm,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .eabi,
             },
             .link_libc = true,
@@ -1280,12 +1226,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .arm,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .eabihf,
             },
             .link_libc = true,
@@ -1295,12 +1235,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .armeb,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .eabi,
             },
             .link_libc = true,
@@ -1309,12 +1243,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .armeb,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .eabihf,
             },
             .link_libc = true,
@@ -1324,12 +1252,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .eabi,
             },
             .link_libc = true,
@@ -1338,12 +1260,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .eabihf,
             },
             .link_libc = true,
@@ -1353,12 +1269,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mipsel,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .eabi,
             },
             .link_libc = true,
@@ -1367,12 +1277,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mipsel,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .eabihf,
             },
             .link_libc = true,
@@ -1382,12 +1286,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .powerpc,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .eabi,
             },
             .link_libc = true,
@@ -1396,12 +1294,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .powerpc,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .eabihf,
             },
             .link_libc = true,
@@ -1411,12 +1303,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .x86,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .none,
             },
             .link_libc = true,
@@ -1426,12 +1312,6 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .netbsd,
-                // Remove this when we bump our baseline to 10.1.0.
-                .os_version_min = .{ .semver = .{
-                    .major = 10,
-                    .minor = 1,
-                    .patch = 0,
-                } },
                 .abi = .none,
             },
             .link_libc = true,
