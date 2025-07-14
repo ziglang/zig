@@ -822,11 +822,11 @@ test "EnumMap iterator for one field" {
 
     var a = std.EnumMap(Enum0, u32).initFull(123);
     var it0 = a.iterator();
-    try testing.expectEqual(it0.next().?.key, Enum0.x);
+    try testing.expect(it0.next().?.key == Enum0.x);
 
     var b = std.EnumMap(Enum1, u32).initFull(123);
     var it1 = b.iterator();
-    try testing.expectEqual(it1.next().?.key, Enum1.x);
+    try testing.expect(it1.next().?.key == Enum1.x);
 }
 
 /// A multiset of enum elements up to a count of usize. Backed
@@ -1335,11 +1335,11 @@ test "EnumArray iterator for one field" {
 
     var a = std.EnumArray(Enum0, u32).initFill(123);
     var it0 = a.iterator();
-    try testing.expectEqual(it0.next().?.key, Enum0.x);
+    try testing.expect(it0.next().?.key == Enum0.x);
 
     var b = std.EnumArray(Enum1, u32).initFill(123);
     var it1 = b.iterator();
-    try testing.expectEqual(it1.next().?.key, Enum1.x);
+    try testing.expect(it1.next().?.key == Enum1.x);
 }
 
 pub fn EnumIndexer(comptime E: type) type {

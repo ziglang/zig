@@ -391,8 +391,8 @@ test "Type.Enum" {
             } });
             const s0: struct { E } = .{.foo};
             const s1: struct { k: E } = .{ .k = .foo };
-            try testing.expectEqual(.foo, s0[0]);
-            try testing.expectEqual(.foo, s1.k);
+            try testing.expect(.foo == s0[0]);
+            try testing.expect(.foo == s1.k);
         }
 
         { // meta.FieldEnum() with single field
