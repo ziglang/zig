@@ -5625,6 +5625,43 @@ pub const MSG = switch (native_os) {
         pub const NOSIGNAL = 0x80;
         pub const EOR = 0x100;
     },
+    .freebsd => struct {
+        pub const OOB = 0x00000001;
+        pub const PEEK = 0x00000002;
+        pub const DONTROUTE = 0x00000004;
+        pub const EOR = 0x00000008;
+        pub const TRUNC = 0x00000010;
+        pub const CTRUNC = 0x00000020;
+        pub const WAITALL = 0x00000040;
+        pub const DONTWAIT = 0x00000080;
+        pub const EOF = 0x00000100;
+        pub const NOTIFICATION = 0x00002000;
+        pub const NBIO = 0x00004000;
+        pub const COMPAT = 0x00008000;
+        pub const SOCALLBCK = 0x00010000;
+        pub const NOSIGNAL = 0x00020000;
+        pub const CMSG_CLOEXEC = 0x00040000;
+        pub const WAITFORONE = 0x00080000;
+        pub const MORETOCOME = 0x00100000;
+        pub const TLSAPPDATA = 0x00200000;
+    },
+    .netbsd => struct {
+        pub const OOB = 0x0001;
+        pub const PEEK = 0x0002;
+        pub const DONTROUTE = 0x0004;
+        pub const EOR = 0x0008;
+        pub const TRUNC = 0x0010;
+        pub const CTRUNC = 0x0020;
+        pub const WAITALL = 0x0040;
+        pub const DONTWAIT = 0x0080;
+        pub const BCAST = 0x0100;
+        pub const MCAST = 0x0200;
+        pub const NOSIGNAL = 0x0400;
+        pub const CMSG_CLOEXEC = 0x0800;
+        pub const NBIO = 0x1000;
+        pub const WAITFORONE = 0x2000;
+        pub const NOTIFICATION = 0x4000;
+    },
     else => void,
 };
 pub const SOCK = switch (native_os) {
