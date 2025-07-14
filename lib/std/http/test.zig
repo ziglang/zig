@@ -135,7 +135,8 @@ test "HTTP server handles a chunked transfer coding request" {
     const gpa = std.testing.allocator;
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
     defer stream.close();
-    try stream.writeAll(request_bytes);
+    var stream_writer = stream.writer(&.{});
+    try stream_writer.interface.writeAll(request_bytes);
 
     const expected_response =
         "HTTP/1.1 200 OK\r\n" ++
@@ -144,7 +145,9 @@ test "HTTP server handles a chunked transfer coding request" {
         "content-type: text/plain\r\n" ++
         "\r\n" ++
         "message from server!\n";
-    const response = try stream.reader().readAllAlloc(gpa, expected_response.len);
+    var tiny_buffer: [1]u8 = undefined; // allows allocRemaining to detect limit exceeded
+    var stream_reader = stream.reader(&tiny_buffer);
+    const response = try stream_reader.interface().allocRemaining(gpa, .limited(expected_response.len));
     defer gpa.free(response);
     try expectEqualStrings(expected_response, response);
 }
@@ -276,9 +279,12 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
     const gpa = std.testing.allocator;
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
     defer stream.close();
-    try stream.writeAll(request_bytes);
+    var stream_writer = stream.writer(&.{});
+    try stream_writer.interface.writeAll(request_bytes);
 
-    const response = try stream.reader().readAllAlloc(gpa, 8192);
+    var tiny_buffer: [1]u8 = undefined; // allows allocRemaining to detect limit exceeded
+    var stream_reader = stream.reader(&tiny_buffer);
+    const response = try stream_reader.interface().allocRemaining(gpa, .limited(8192));
     defer gpa.free(response);
 
     var expected_response = std.ArrayList(u8).init(gpa);
@@ -339,9 +345,12 @@ test "receiving arbitrary http headers from the client" {
     const gpa = std.testing.allocator;
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
     defer stream.close();
-    try stream.writeAll(request_bytes);
+    var stream_writer = stream.writer(&.{});
+    try stream_writer.interface.writeAll(request_bytes);
 
-    const response = try stream.reader().readAllAlloc(gpa, 8192);
+    var tiny_buffer: [1]u8 = undefined; // allows allocRemaining to detect limit exceeded
+    var stream_reader = stream.reader(&tiny_buffer);
+    const response = try stream_reader.interface().allocRemaining(gpa, .limited(8192));
     defer gpa.free(response);
 
     var expected_response = std.ArrayList(u8).init(gpa);
