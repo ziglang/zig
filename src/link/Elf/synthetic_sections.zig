@@ -659,6 +659,7 @@ pub const PltSection = struct {
         return switch (cpu_arch) {
             .x86_64 => 32,
             .aarch64 => 8 * @sizeOf(u32),
+            .loongarch64 => 8 * @sizeOf(u32),
             else => @panic("TODO implement preambleSize for this cpu arch"),
         };
     }
@@ -667,6 +668,7 @@ pub const PltSection = struct {
         return switch (cpu_arch) {
             .x86_64 => 16,
             .aarch64 => 4 * @sizeOf(u32),
+            .loongarch64 => 4 * @sizeOf(u32),
             else => @panic("TODO implement entrySize for this cpu arch"),
         };
     }
@@ -676,6 +678,7 @@ pub const PltSection = struct {
         switch (cpu_arch) {
             .x86_64 => try x86_64.write(plt, elf_file, writer),
             .aarch64 => try aarch64.write(plt, elf_file, writer),
+            .loongarch64 => try loongarch64.write(plt, elf_file, writer),
             else => return error.UnsupportedCpuArch,
         }
     }
@@ -859,6 +862,53 @@ pub const PltSection = struct {
         const Instruction = aarch64_util.Instruction;
         const Register = aarch64_util.Register;
     };
+
+    const loongarch64 = struct {
+        fn write(plt: PltSection, elf_file: *Elf, writer: anytype) !void {
+            {
+                const shdrs = elf_file.sections.items(.shdr);
+                const plt_addr = shdrs[elf_file.section_indexes.plt.?].sh_addr;
+                const got_plt_addr = shdrs[elf_file.section_indexes.got_plt.?].sh_addr;
+
+                // .got.plt[2]
+                // TODO: relax if possible
+                const preamble = &[_]Lir.Inst{
+                    .{ .opcode = .pcaddu12i, .data = .{ .DSj20 = .{ .t2, la_utils.hi20(got_plt_addr, plt_addr) } } },
+                    .{ .opcode = .sub_d, .data = .{ .DJK = .{ .t1, .t1, .r3 } } },
+                    .{ .opcode = .ld_d, .data = .{ .DJSk12 = .{ .t3, .t2, la_utils.lo12(got_plt_addr, plt_addr) } } },
+                    .{ .opcode = .addi_d, .data = .{ .DJSk12 = .{ .t1, .t1, -44 } } },
+                    .{ .opcode = .addi_d, .data = .{ .DJSk12 = .{ .t0, .t2, la_utils.lo12(got_plt_addr, plt_addr) } } },
+                    .{ .opcode = .srli_d, .data = .{ .DJUk6 = .{ .t1, .t1, 1 } } },
+                    .{ .opcode = .ld_d, .data = .{ .DJSk12 = .{ .t0, .t0, 8 } } },
+                    .{ .opcode = .jirl, .data = .{ .DJSk16 = .{ .zero, .t3, 0 } } },
+                };
+                comptime assert(preamble.len == 8);
+                for (preamble) |inst| {
+                    try writer.writeInt(u32, inst.encode(), .little);
+                }
+            }
+
+            for (plt.symbols.items) |ref| {
+                const sym = elf_file.symbol(ref).?;
+                const target_addr: u64 = @intCast(sym.gotPltAddress(elf_file));
+                const pc: u64 = @intCast(sym.pltAddress(elf_file));
+
+                const insts = &[_]Lir.Inst{
+                    .{ .opcode = .pcaddu12i, .data = .{ .DSj20 = .{ .t3, la_utils.hi20(target_addr, pc) } } },
+                    .{ .opcode = .ld_d, .data = .{ .DJSk12 = .{ .t3, .t3, la_utils.lo12(target_addr, pc) } } },
+                    .{ .opcode = .jirl, .data = .{ .DJSk16 = .{ .t1, .t3, 0 } } },
+                    .{ .opcode = .@"break", .data = .{ .Ud15 = .{0} } },
+                };
+                comptime assert(insts.len == 4);
+                for (insts) |inst| {
+                    try writer.writeInt(u32, inst.encode(), .little);
+                }
+            }
+        }
+
+        const la_utils = @import("../../arch/loongarch/utils.zig");
+        const Lir = @import("../../arch/loongarch/Lir.zig");
+    };
 };
 
 pub const GotPltSection = struct {
@@ -916,6 +966,7 @@ pub const PltGotSection = struct {
         return switch (cpu_arch) {
             .x86_64 => 16,
             .aarch64 => 4 * @sizeOf(u32),
+            .loongarch64 => 4 * @sizeOf(u32),
             else => @panic("TODO implement PltGotSection.entrySize for this arch"),
         };
     }
@@ -925,6 +976,7 @@ pub const PltGotSection = struct {
         switch (cpu_arch) {
             .x86_64 => try x86_64.write(plt_got, elf_file, writer),
             .aarch64 => try aarch64.write(plt_got, elf_file, writer),
+            .loongarch64 => try loongarch64.write(plt_got, elf_file, writer),
             else => return error.UnsupportedCpuArch,
         }
     }
@@ -997,6 +1049,30 @@ pub const PltGotSection = struct {
         const aarch64_util = @import("../aarch64.zig");
         const Instruction = aarch64_util.Instruction;
         const Register = aarch64_util.Register;
+    };
+
+    const loongarch64 = struct {
+        fn write(plt_got: PltGotSection, elf_file: *Elf, writer: anytype) !void {
+            for (plt_got.symbols.items) |ref| {
+                const sym = elf_file.symbol(ref).?;
+                const target_addr: u64 = @intCast(sym.gotAddress(elf_file));
+                const pc: u64 = @intCast(sym.pltGotAddress(elf_file));
+
+                const insts = &[_]Lir.Inst{
+                    .{ .opcode = .pcaddu12i, .data = .{ .DSj20 = .{ .t3, la_utils.hi20(target_addr, pc) } } },
+                    .{ .opcode = .ld_d, .data = .{ .DJSk12 = .{ .t3, .t3, la_utils.lo12(target_addr, pc) } } },
+                    .{ .opcode = .jirl, .data = .{ .DJSk16 = .{ .t1, .t3, 0 } } },
+                    .{ .opcode = .@"break", .data = .{ .Ud15 = .{0} } },
+                };
+                comptime assert(insts.len == 4);
+                for (insts) |inst| {
+                    try writer.writeInt(u32, inst.encode(), .little);
+                }
+            }
+        }
+
+        const la_utils = @import("../../arch/loongarch/utils.zig");
+        const Lir = @import("../../arch/loongarch/Lir.zig");
     };
 };
 

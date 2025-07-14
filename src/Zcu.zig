@@ -4473,6 +4473,10 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
             .spirv_fragment, .spirv_vertex => target.os.tag == .vulkan,
             else => false,
         },
+        .stage2_loongarch => switch (cc) {
+            .loongarch64_lp64 => true,
+            else => false,
+        },
     };
     if (!backend_ok) return .{ .bad_backend = backend };
     return .ok;
