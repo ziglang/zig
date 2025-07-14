@@ -2446,12 +2446,14 @@ pub const Allocating = struct {
 
     pub fn toOwnedSlice(a: *Allocating) error{OutOfMemory}![]u8 {
         var list = a.toArrayList();
+        defer a.setArrayList(list);
         return list.toOwnedSlice(a.allocator);
     }
 
     pub fn toOwnedSliceSentinel(a: *Allocating, comptime sentinel: u8) error{OutOfMemory}![:sentinel]u8 {
         const gpa = a.allocator;
         var list = toArrayList(a);
+        defer a.setArrayList(list);
         return list.toOwnedSliceSentinel(gpa, sentinel);
     }
 
