@@ -280,21 +280,25 @@ test "select" {
 
     inline for (select_funcs) |selectFn| {
         for (u8cases) |case| {
+            const len = case[0].len;
             var buf: [20]u8 = undefined;
-            const slice = buf[0..case[0].len];
-            const mid = slice.len / 2;
-            @memcpy(slice, case[0]);
-            selectFn(u8, slice, mid, {}, asc_u8);
-            try testing.expectEqual(case[1][mid], slice[mid]);
+            for (0..len) |n| {
+                const slice = buf[0..len];
+                @memcpy(slice, case[0]);
+                selectFn(u8, slice, n, {}, asc_u8);
+                try testing.expectEqualStrings(case[1][n .. n + 1], slice[n .. n + 1]);
+            }
         }
 
         for (i32cases) |case| {
+            const len = case[0].len;
             var buf: [20]i32 = undefined;
-            const slice = buf[0..case[0].len];
-            const mid = slice.len / 2;
-            @memcpy(slice, case[0]);
-            selectFn(i32, slice, mid, {}, asc_i32);
-            try testing.expectEqual(case[1][mid], slice[mid]);
+            for (0..len) |n| {
+                const slice = buf[0..len];
+                @memcpy(slice, case[0]);
+                selectFn(i32, slice, n, {}, asc_i32);
+                try testing.expectEqual(case[1][n], slice[n]);
+            }
         }
     }
 }
@@ -445,7 +449,7 @@ test "median overflow f32" {
 
 test "median mixed min max i8" {
     const asc = sort.asc(i8);
-    var items = [_]i8{ -128, 127, 127, -128 };
+    var items = [_]i8{ -128, 127, 127, -128 }; // sorted: -128, -128, 127, 127 -> median (-128+127)/2 = -0.5
     const m = median(i8, &items, {}, asc);
     try testing.expectEqual(@as(i8, -1), m);
 }
