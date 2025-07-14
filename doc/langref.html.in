@@ -1149,6 +1149,7 @@ a += b{#endsyntax#}</pre></td>
             <ul>
               <li>{#link|Integers#}</li>
               <li>{#link|Floats#}</li>
+              <li>{#link|Pointers#}</li>
             </ul>
           </td>
           <td>
@@ -1156,6 +1157,7 @@ a += b{#endsyntax#}</pre></td>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
               <li>See also {#link|@addWithOverflow#}.</li>
+              <li>{#syntax#}[*]T + int{#endsyntax#} is supported.</li>
             </ul>
           </td>
           <td>
@@ -1208,6 +1210,7 @@ a -= b{#endsyntax#}</pre></td>
             <ul>
               <li>{#link|Integers#}</li>
               <li>{#link|Floats#}</li>
+              <li>{#link|Pointers#}</li>
             </ul>
           </td>
           <td>
@@ -1215,6 +1218,8 @@ a -= b{#endsyntax#}</pre></td>
               <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
               <li>See also {#link|@subWithOverflow#}.</li>
+              <li>{#syntax#}[*]T - int{#endsyntax#} is supported.</li>
+              <li>{#syntax#}[*]T - [*]T{#endsyntax#} and {#syntax#}*T - *T{#endsyntax#} are supported.</li>
             </ul>
           </td>
           <td>
