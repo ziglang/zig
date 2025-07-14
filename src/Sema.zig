@@ -9705,7 +9705,6 @@ fn funcCommon(
             func_inst,
             cc_src,
             is_noinline,
-            is_generic,
         );
     }
 
@@ -9745,7 +9744,6 @@ fn funcCommon(
             func_inst,
             cc_src,
             is_noinline,
-            is_generic,
         );
     }
 
@@ -9762,7 +9760,6 @@ fn funcCommon(
         func_inst,
         cc_src,
         is_noinline,
-        is_generic,
     );
 }
 
@@ -9779,7 +9776,6 @@ fn finishFunc(
     func_inst: Zir.Inst.Index,
     cc_src: LazySrcLoc,
     is_noinline: bool,
-    is_generic: bool,
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -9909,13 +9905,6 @@ fn finishFunc(
             @tagName(cc_resolved),
             @tagName(bad_backend),
         }),
-    }
-
-    if (!is_generic and sema.wantErrorReturnTracing(return_type)) {
-        // Make sure that StackTrace's fields are resolved so that the backend can
-        // lower this fn type.
-        const unresolved_stack_trace_ty = try sema.getBuiltinType(block.nodeOffset(.zero), .StackTrace);
-        try unresolved_stack_trace_ty.resolveFields(pt);
     }
 
     return Air.internedToRef(if (opt_func_index != .none) opt_func_index else func_ty);
