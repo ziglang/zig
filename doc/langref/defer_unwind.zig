@@ -2,7 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 const print = std.debug.print;
 
-test "defer unwinding" {
+pub fn main() void {
     print("\n", .{});
 
     defer {
@@ -19,4 +19,4 @@ test "defer unwinding" {
     }
 }
 
-// test
+// exe=succeed
