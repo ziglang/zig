@@ -37,12 +37,12 @@ const Coff = struct {
                 .Exe => switch (target.cpu.arch) {
                     .aarch64, .x86_64 => 0x140000000,
                     .thumb, .x86 => 0x400000,
-                    else => unreachable,
+                    else => return error.UnsupportedCoffArchitecture,
                 },
                 .Lib => switch (target.cpu.arch) {
                     .aarch64, .x86_64 => 0x180000000,
                     .thumb, .x86 => 0x10000000,
-                    else => unreachable,
+                    else => return error.UnsupportedCoffArchitecture,
                 },
                 .Obj => 0,
             },
@@ -294,7 +294,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
         break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
     } else null;
 
-    log.debug("zcu_obj_path={?}", .{zcu_obj_path});
+    log.debug("zcu_obj_path={?f}", .{zcu_obj_path});
 
     const compiler_rt_path: ?Cache.Path = if (comp.compiler_rt_strat == .obj)
         comp.compiler_rt_obj.?.full_object_path
@@ -437,7 +437,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
             try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb_basename}));
         }
         if (comp.version) |version| {
-            try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
+            try argv.append(try allocPrint(arena, "-VERSION:{d}.{d}", .{ version.major, version.minor }));
         }
 
         if (target_util.llvmMachineAbi(target)) |mabi| {
@@ -507,7 +507,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
 
         if (comp.emit_implib) |raw_emit_path| {
             const path = try comp.resolveEmitPathFlush(arena, .temp, raw_emit_path);
-            try argv.append(try allocPrint(arena, "-IMPLIB:{}", .{path}));
+            try argv.append(try allocPrint(arena, "-IMPLIB:{f}", .{path}));
         }
 
         if (comp.config.link_libc) {
@@ -533,7 +533,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
             },
             .object, .archive => |obj| {
                 if (obj.must_link) {
-                    argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{}", .{@as(Cache.Path, obj.path)}));
+                    argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{f}", .{@as(Cache.Path, obj.path)}));
                 } else {
                     argv.appendAssumeCapacity(try obj.path.toString(arena));
                 }
@@ -933,9 +933,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             .fast, .uuid, .sha1, .md5 => try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
                 @tagName(base.build_id),
             })),
-            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
-                std.fmt.fmtSliceHexLower(hs.toSlice()),
-            })),
+            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{x}", .{hs.toSlice()})),
         }
 
         try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{elf.image_base}));
@@ -1218,7 +1216,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
                             if (target.os.versionRange().gnuLibCVersion().?.order(rem_in) != .lt) continue;
                         }
 
-                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                        const lib_path = try std.fmt.allocPrint(arena, "{f}{c}lib{s}.so.{d}", .{
                             comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                         });
                         try argv.append(lib_path);
@@ -1231,14 +1229,14 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
                     }));
                 } else if (target.isFreeBSDLibC()) {
                     for (freebsd.libs) |lib| {
-                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                        const lib_path = try std.fmt.allocPrint(arena, "{f}{c}lib{s}.so.{d}", .{
                             comp.freebsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                         });
                         try argv.append(lib_path);
                     }
                 } else if (target.isNetBSDLibC()) {
                     for (netbsd.libs) |lib| {
-                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                        const lib_path = try std.fmt.allocPrint(arena, "{f}{c}lib{s}.so.{d}", .{
                             comp.netbsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                         });
                         try argv.append(lib_path);
@@ -1511,9 +1509,7 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
             .fast, .uuid, .sha1 => try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
                 @tagName(base.build_id),
             })),
-            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
-                std.fmt.fmtSliceHexLower(hs.toSlice()),
-            })),
+            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{x}", .{hs.toSlice()})),
             .md5 => {},
         }
 
@@ -1539,13 +1535,6 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
 
         if (comp.config.link_libc and is_exe_or_dyn_lib) {
             if (target.os.tag == .wasi) {
-                for (comp.wasi_emulated_libs) |crt_file| {
-                    try argv.append(try comp.crtFileAsString(
-                        arena,
-                        wasi_libc.emulatedLibCRFileLibName(crt_file),
-                    ));
-                }
-
                 try argv.append(try comp.crtFileAsString(
                     arena,
                     wasi_libc.execModelCrtFileFullName(comp.config.wasi_exec_model),
@@ -1660,7 +1649,7 @@ fn spawnLld(
         child.stderr_behavior = .Pipe;
 
         child.spawn() catch |err| break :term err;
-        stderr = try child.stderr.?.reader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
+        stderr = try child.stderr.?.deprecatedReader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
         break :term child.wait();
     }) catch |first_err| term: {
         const err = switch (first_err) {
@@ -1674,7 +1663,7 @@ fn spawnLld(
                     log.warn("failed to delete response file {s}: {s}", .{ rsp_path, @errorName(err) });
                 {
                     defer rsp_file.close();
-                    var rsp_buf = std.io.bufferedWriter(rsp_file.writer());
+                    var rsp_buf = std.io.bufferedWriter(rsp_file.deprecatedWriter());
                     const rsp_writer = rsp_buf.writer();
                     for (argv[2..]) |arg| {
                         try rsp_writer.writeByte('"');
@@ -1708,7 +1697,7 @@ fn spawnLld(
                     rsp_child.stderr_behavior = .Pipe;
 
                     rsp_child.spawn() catch |err| break :err err;
-                    stderr = try rsp_child.stderr.?.reader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
+                    stderr = try rsp_child.stderr.?.deprecatedReader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
                     break :term rsp_child.wait() catch |err| break :err err;
                 }
             },

@@ -991,6 +991,7 @@ test "0 sized struct" {
 test "struct with many fields" {
     const ManyFields = struct {
         fn Type(count: comptime_int) type {
+            @setEvalBranchQuota(50000);
             var fields: [count]std.builtin.Type.StructField = undefined;
             for (0..count) |i| {
                 fields[i] = .{

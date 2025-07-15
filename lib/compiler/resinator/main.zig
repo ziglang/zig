@@ -22,14 +22,14 @@ pub fn main() !void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const stderr = std.io.getStdErr();
+    const stderr = std.fs.File.stderr();
     const stderr_config = std.io.tty.detectConfig(stderr);
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
     if (args.len < 2) {
-        try renderErrorMessage(stderr.writer(), stderr_config, .err, "expected zig lib dir as first argument", .{});
+        try renderErrorMessage(std.debug.lockStderrWriter(&.{}), stderr_config, .err, "expected zig lib dir as first argument", .{});
         std.process.exit(1);
     }
     const zig_lib_dir = args[1];
@@ -44,7 +44,7 @@ pub fn main() !void {
     var error_handler: ErrorHandler = switch (zig_integration) {
         true => .{
             .server = .{
-                .out = std.io.getStdOut(),
+                .out = std.fs.File.stdout(),
                 .in = undefined, // won't be receiving messages
                 .receive_fifo = undefined, // won't be receiving messages
             },
@@ -81,15 +81,15 @@ pub fn main() !void {
     defer options.deinit();
 
     if (options.print_help_and_exit) {
-        const stdout = std.io.getStdOut();
-        try cli.writeUsage(stdout.writer(), "zig rc");
+        const stdout = std.fs.File.stdout();
+        try cli.writeUsage(stdout.deprecatedWriter(), "zig rc");
         return;
     }
 
     // Don't allow verbose when integrating with Zig via stdout
     options.verbose = false;
 
-    const stdout_writer = std.io.getStdOut().writer();
+    const stdout_writer = std.fs.File.stdout().deprecatedWriter();
     if (options.verbose) {
         try options.dumpVerbose(stdout_writer);
         try stdout_writer.writeByte('\n');
@@ -104,24 +104,15 @@ pub fn main() !void {
     }
     const maybe_dependencies_list: ?*std.ArrayList([]const u8) = if (options.depfile_path != null) &dependencies_list else null;
 
-    const include_paths = getIncludePaths(arena, options.auto_includes, zig_lib_dir) catch |err| switch (err) {
-        error.OutOfMemory => |e| return e,
-        else => |e| {
-            switch (e) {
-                error.MsvcIncludesNotFound => {
-                    try error_handler.emitMessage(allocator, .err, "MSVC include paths could not be automatically detected", .{});
-                },
-                error.MingwIncludesNotFound => {
-                    try error_handler.emitMessage(allocator, .err, "MinGW include paths could not be automatically detected", .{});
-                },
-            }
-            try error_handler.emitMessage(allocator, .note, "to disable auto includes, use the option /:auto-includes none", .{});
-            std.process.exit(1);
-        },
+    var include_paths = LazyIncludePaths{
+        .arena = arena,
+        .auto_includes_option = options.auto_includes,
+        .zig_lib_dir = zig_lib_dir,
+        .target_machine_type = options.coff_options.target,
     };
 
     const full_input = full_input: {
-        if (options.preprocess != .no) {
+        if (options.input_format == .rc and options.preprocess != .no) {
             var preprocessed_buf = std.ArrayList(u8).init(allocator);
             errdefer preprocessed_buf.deinit();
 
@@ -138,7 +129,8 @@ pub fn main() !void {
             defer argv.deinit();
 
             try argv.append("arocc"); // dummy command name
-            try preprocess.appendAroArgs(aro_arena, &argv, options, include_paths);
+            const resolved_include_paths = try include_paths.get(&error_handler);
+            try preprocess.appendAroArgs(aro_arena, &argv, options, resolved_include_paths);
             try argv.append(switch (options.input_source) {
                 .stdio => "-",
                 .filename => |filename| filename,
@@ -264,7 +256,7 @@ pub fn main() !void {
                     .dependencies_list = maybe_dependencies_list,
                     .ignore_include_env_var = options.ignore_include_env_var,
                     .extra_include_paths = options.extra_include_paths.items,
-                    .system_include_paths = include_paths,
+                    .system_include_paths = try include_paths.get(&error_handler),
                     .default_language_id = options.default_language_id,
                     .default_code_page = default_code_page,
                     .disjoint_code_page = has_disjoint_code_page,
@@ -298,7 +290,7 @@ pub fn main() !void {
                     };
                     defer depfile.close();
 
-                    const depfile_writer = depfile.writer();
+                    const depfile_writer = depfile.deprecatedWriter();
                     var depfile_buffered_writer = std.io.bufferedWriter(depfile_writer);
                     switch (options.depfile_fmt) {
                         .json => {
@@ -351,7 +343,7 @@ pub fn main() !void {
         switch (err) {
             error.DuplicateResource => {
                 const duplicate_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
-                try error_handler.emitMessage(allocator, .err, "duplicate resource [id: {}, type: {}, language: {}]", .{
+                try error_handler.emitMessage(allocator, .err, "duplicate resource [id: {f}, type: {f}, language: {f}]", .{
                     duplicate_resource.name_value,
                     fmtResourceType(duplicate_resource.type_value),
                     duplicate_resource.language,
@@ -360,7 +352,7 @@ pub fn main() !void {
             error.ResourceDataTooLong => {
                 const overflow_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
                 try error_handler.emitMessage(allocator, .err, "resource has a data length that is too large to be written into a coff section", .{});
-                try error_handler.emitMessage(allocator, .note, "the resource with the invalid size is [id: {}, type: {}, language: {}]", .{
+                try error_handler.emitMessage(allocator, .note, "the resource with the invalid size is [id: {f}, type: {f}, language: {f}]", .{
                     overflow_resource.name_value,
                     fmtResourceType(overflow_resource.type_value),
                     overflow_resource.language,
@@ -369,7 +361,7 @@ pub fn main() !void {
             error.TotalResourceDataTooLong => {
                 const overflow_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
                 try error_handler.emitMessage(allocator, .err, "total resource data exceeds the maximum of the coff 'size of raw data' field", .{});
-                try error_handler.emitMessage(allocator, .note, "size overflow occurred when attempting to write this resource: [id: {}, type: {}, language: {}]", .{
+                try error_handler.emitMessage(allocator, .note, "size overflow occurred when attempting to write this resource: [id: {f}, type: {f}, language: {f}]", .{
                     overflow_resource.name_value,
                     fmtResourceType(overflow_resource.type_value),
                     overflow_resource.language,
@@ -479,7 +471,7 @@ const IoStream = struct {
             allocator: std.mem.Allocator,
         };
         pub const WriteError = std.mem.Allocator.Error || std.fs.File.WriteError;
-        pub const Writer = std.io.Writer(WriterContext, WriteError, write);
+        pub const Writer = std.io.GenericWriter(WriterContext, WriteError, write);
 
         pub fn write(ctx: WriterContext, bytes: []const u8) WriteError!usize {
             switch (ctx.self.*) {
@@ -498,21 +490,71 @@ const IoStream = struct {
     };
 };
 
-fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.AutoIncludes, zig_lib_dir: []const u8) ![]const []const u8 {
+const LazyIncludePaths = struct {
+    arena: std.mem.Allocator,
+    auto_includes_option: cli.Options.AutoIncludes,
+    zig_lib_dir: []const u8,
+    target_machine_type: std.coff.MachineType,
+    resolved_include_paths: ?[]const []const u8 = null,
+
+    pub fn get(self: *LazyIncludePaths, error_handler: *ErrorHandler) ![]const []const u8 {
+        if (self.resolved_include_paths) |include_paths|
+            return include_paths;
+
+        return getIncludePaths(self.arena, self.auto_includes_option, self.zig_lib_dir, self.target_machine_type) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            else => |e| {
+                switch (e) {
+                    error.UnsupportedAutoIncludesMachineType => {
+                        try error_handler.emitMessage(self.arena, .err, "automatic include path detection is not supported for target '{s}'", .{@tagName(self.target_machine_type)});
+                    },
+                    error.MsvcIncludesNotFound => {
+                        try error_handler.emitMessage(self.arena, .err, "MSVC include paths could not be automatically detected", .{});
+                    },
+                    error.MingwIncludesNotFound => {
+                        try error_handler.emitMessage(self.arena, .err, "MinGW include paths could not be automatically detected", .{});
+                    },
+                }
+                try error_handler.emitMessage(self.arena, .note, "to disable auto includes, use the option /:auto-includes none", .{});
+                std.process.exit(1);
+            },
+        };
+    }
+};
+
+fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.AutoIncludes, zig_lib_dir: []const u8, target_machine_type: std.coff.MachineType) ![]const []const u8 {
+    if (auto_includes_option == .none) return &[_][]const u8{};
+
+    const includes_arch: std.Target.Cpu.Arch = switch (target_machine_type) {
+        .X64 => .x86_64,
+        .I386 => .x86,
+        .ARMNT => .thumb,
+        .ARM64 => .aarch64,
+        .ARM64EC => .aarch64,
+        .ARM64X => .aarch64,
+        .IA64, .EBC => {
+            return error.UnsupportedAutoIncludesMachineType;
+        },
+        // The above cases are exhaustive of all the `MachineType`s supported (see supported_targets in cvtres.zig)
+        // This is enforced by the argument parser in cli.zig.
+        else => unreachable,
+    };
+
     var includes = auto_includes_option;
     if (builtin.target.os.tag != .windows) {
         switch (includes) {
+            .none => unreachable,
             // MSVC can't be found when the host isn't Windows, so short-circuit.
             .msvc => return error.MsvcIncludesNotFound,
             // Skip straight to gnu since we won't be able to detect MSVC on non-Windows hosts.
             .any => includes = .gnu,
-            .none, .gnu => {},
+            .gnu => {},
         }
     }
 
     while (true) {
         switch (includes) {
-            .none => return &[_][]const u8{},
+            .none => unreachable,
             .any, .msvc => {
                 // MSVC is only detectable on Windows targets. This unreachable is to signify
                 // that .any and .msvc should be dealt with on non-Windows targets before this point,
@@ -521,6 +563,7 @@ fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.A
 
                 const target_query: std.Target.Query = .{
                     .os_tag = .windows,
+                    .cpu_arch = includes_arch,
                     .abi = .msvc,
                 };
                 const target = std.zig.resolveTargetQueryOrFatal(target_query);
@@ -546,6 +589,7 @@ fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.A
             .gnu => {
                 const target_query: std.Target.Query = .{
                     .os_tag = .windows,
+                    .cpu_arch = includes_arch,
                     .abi = .gnu,
                 };
                 const target = std.zig.resolveTargetQueryOrFatal(target_query);
@@ -601,7 +645,9 @@ const ErrorHandler = union(enum) {
             },
             .tty => {
                 // extra newline to separate this line from the aro errors
-                try renderErrorMessage(std.io.getStdErr().writer(), self.tty, .err, "{s}\n", .{fail_msg});
+                const stderr = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                try renderErrorMessage(stderr, self.tty, .err, "{s}\n", .{fail_msg});
                 aro.Diagnostics.render(comp, self.tty);
             },
         }
@@ -646,7 +692,9 @@ const ErrorHandler = union(enum) {
                 try server.serveErrorBundle(error_bundle);
             },
             .tty => {
-                try renderErrorMessage(std.io.getStdErr().writer(), self.tty, msg_type, format, args);
+                const stderr = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                try renderErrorMessage(stderr, self.tty, msg_type, format, args);
             },
         }
     }

@@ -588,11 +588,11 @@ pub fn hmac(comptime Hmac: type, message: []const u8, key: [Hmac.key_length]u8) 
     return result;
 }
 
-pub inline fn extension(et: ExtensionType, bytes: anytype) [2 + 2 + bytes.len]u8 {
+pub fn extension(et: ExtensionType, bytes: anytype) [2 + 2 + bytes.len]u8 {
     return int(u16, @intFromEnum(et)) ++ array(u16, u8, bytes);
 }
 
-pub inline fn array(
+pub fn array(
     comptime Len: type,
     comptime Elem: type,
     elems: anytype,
@@ -617,7 +617,7 @@ pub inline fn array(
     return arr;
 }
 
-pub inline fn int(comptime Int: type, val: Int) [@divExact(@bitSizeOf(Int), 8)]u8 {
+pub fn int(comptime Int: type, val: Int) [@divExact(@bitSizeOf(Int), 8)]u8 {
     var arr: [@divExact(@bitSizeOf(Int), 8)]u8 = undefined;
     std.mem.writeInt(Int, &arr, val, .big);
     return arr;

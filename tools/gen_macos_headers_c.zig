@@ -1,5 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const info = std.log.info;
+const fatal = std.process.fatal;
 
 const Allocator = std.mem.Allocator;
 
@@ -12,19 +14,6 @@ const usage =
     \\General Options:
     \\-h, --help                    Print this help and exit
 ;
-
-fn info(comptime format: []const u8, args: anytype) void {
-    const msg = std.fmt.allocPrint(gpa, "info: " ++ format ++ "\n", args) catch return;
-    std.io.getStdOut().writeAll(msg) catch {};
-}
-
-fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    ret: {
-        const msg = std.fmt.allocPrint(gpa, "fatal: " ++ format ++ "\n", args) catch break :ret;
-        std.io.getStdErr().writeAll(msg) catch {};
-    }
-    std.process.exit(1);
-}
 
 pub fn main() anyerror!void {
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
@@ -58,16 +47,19 @@ pub fn main() anyerror!void {
 
     std.mem.sort([]const u8, paths.items, {}, SortFn.lessThan);
 
-    const stdout = std.io.getStdOut().writer();
-    try stdout.writeAll("#define _XOPEN_SOURCE\n");
+    var buffer: [2000]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&buffer);
+    const w = &stdout_writer.interface;
+    try w.writeAll("#define _XOPEN_SOURCE\n");
     for (paths.items) |path| {
-        try stdout.print("#include <{s}>\n", .{path});
+        try w.print("#include <{s}>\n", .{path});
     }
-    try stdout.writeAll(
+    try w.writeAll(
         \\int main(int argc, char **argv) {
         \\    return 0;
         \\}
     );
+    try w.flush();
 }
 
 fn findHeaders(

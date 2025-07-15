@@ -247,26 +247,6 @@ pub const Flock = extern struct {
     pid: pid_t,
 };
 
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: usize,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: usize,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    flags: i32,
-};
-
 pub const blksize_t = i32;
 pub const nlink_t = u32;
 pub const time_t = isize;

@@ -280,34 +280,34 @@ pub const base64 = struct {
         return DecoderWithIgnore{ .ignored_chars = ignored_chars };
     }
 
-    inline fn eq(x: u8, y: u8) u8 {
+    fn eq(x: u8, y: u8) u8 {
         return ~@as(u8, @truncate((0 -% (@as(u16, x) ^ @as(u16, y))) >> 8));
     }
 
-    inline fn gt(x: u8, y: u8) u8 {
+    fn gt(x: u8, y: u8) u8 {
         return @truncate((@as(u16, y) -% @as(u16, x)) >> 8);
     }
 
-    inline fn ge(x: u8, y: u8) u8 {
+    fn ge(x: u8, y: u8) u8 {
         return ~gt(y, x);
     }
 
-    inline fn lt(x: u8, y: u8) u8 {
+    fn lt(x: u8, y: u8) u8 {
         return gt(y, x);
     }
 
-    inline fn le(x: u8, y: u8) u8 {
+    fn le(x: u8, y: u8) u8 {
         return ge(y, x);
     }
 
-    inline fn charFromByte(x: u8, comptime urlsafe: bool) u8 {
+    fn charFromByte(x: u8, comptime urlsafe: bool) u8 {
         return (lt(x, 26) & (x +% 'A')) |
             (ge(x, 26) & lt(x, 52) & (x +% 'a' -% 26)) |
             (ge(x, 52) & lt(x, 62) & (x +% '0' -% 52)) |
             (eq(x, 62) & '+') | (eq(x, 63) & if (urlsafe) '_' else '/');
     }
 
-    inline fn byteFromChar(c: u8, comptime urlsafe: bool) u8 {
+    fn byteFromChar(c: u8, comptime urlsafe: bool) u8 {
         const x =
             (ge(c, 'A') & le(c, 'Z') & (c -% 'A')) |
             (ge(c, 'a') & le(c, 'z') & (c -% 'a' +% 26)) |

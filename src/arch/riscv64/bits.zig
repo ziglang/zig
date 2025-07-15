@@ -255,23 +255,6 @@ pub const FrameIndex = enum(u32) {
     pub fn isNamed(fi: FrameIndex) bool {
         return @intFromEnum(fi) < named_count;
     }
-
-    pub fn format(
-        fi: FrameIndex,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        try writer.writeAll("FrameIndex");
-        if (fi.isNamed()) {
-            try writer.writeByte('.');
-            try writer.writeAll(@tagName(fi));
-        } else {
-            try writer.writeByte('(');
-            try std.fmt.formatType(@intFromEnum(fi), fmt, options, writer, 0);
-            try writer.writeByte(')');
-        }
-    }
 };
 
 /// A linker symbol not yet allocated in VM.

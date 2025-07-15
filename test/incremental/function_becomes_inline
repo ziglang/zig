@@ -7,7 +7,7 @@ pub fn main() !void {
     try foo();
 }
 fn foo() !void {
-    try std.io.getStdOut().writer().writeAll("Hello, World!\n");
+    try std.fs.File.stdout().writeAll("Hello, World!\n");
 }
 const std = @import("std");
 #expect_stdout="Hello, World!\n"
@@ -18,7 +18,7 @@ pub fn main() !void {
     try foo();
 }
 inline fn foo() !void {
-    try std.io.getStdOut().writer().writeAll("Hello, World!\n");
+    try std.fs.File.stdout().writeAll("Hello, World!\n");
 }
 const std = @import("std");
 #expect_stdout="Hello, World!\n"
@@ -29,7 +29,7 @@ pub fn main() !void {
     try foo();
 }
 inline fn foo() !void {
-    try std.io.getStdOut().writer().writeAll("Hello, `inline` World!\n");
+    try std.fs.File.stdout().writeAll("Hello, `inline` World!\n");
 }
 const std = @import("std");
 #expect_stdout="Hello, `inline` World!\n"

@@ -37,7 +37,7 @@ test "basic invocations" {
     comptime {
         // comptime calls with supported modifiers
         try expect(@call(.auto, foo, .{2}) == 1234);
-        try expect(@call(.no_async, foo, .{3}) == 1234);
+        try expect(@call(.no_suspend, foo, .{3}) == 1234);
         try expect(@call(.always_tail, foo, .{4}) == 1234);
         try expect(@call(.always_inline, foo, .{5}) == 1234);
     }
@@ -45,7 +45,7 @@ test "basic invocations" {
     const result = @call(.compile_time, foo, .{6}) == 1234;
     comptime assert(result);
     // runtime calls of comptime-known function
-    try expect(@call(.no_async, foo, .{7}) == 1234);
+    try expect(@call(.no_suspend, foo, .{7}) == 1234);
     try expect(@call(.never_tail, foo, .{8}) == 1234);
     try expect(@call(.never_inline, foo, .{9}) == 1234);
     // CBE does not support attributes on runtime functions
@@ -53,7 +53,7 @@ test "basic invocations" {
         // runtime calls of non comptime-known function
         var alias_foo = &foo;
         _ = &alias_foo;
-        try expect(@call(.no_async, alias_foo, .{10}) == 1234);
+        try expect(@call(.no_suspend, alias_foo, .{10}) == 1234);
         try expect(@call(.never_tail, alias_foo, .{11}) == 1234);
         try expect(@call(.never_inline, alias_foo, .{12}) == 1234);
     }
@@ -505,29 +505,6 @@ test "call inline fn through pointer" {
     };
     const f = &S.foo;
     try f(123);
-}
-
-test "call coerced function" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    const T = struct {
-        x: f64,
-        const T = @This();
-        usingnamespace Implement(1);
-        const F = fn (comptime f64) type;
-        const Implement: F = opaque {
-            fn implementer(comptime val: anytype) type {
-                return opaque {
-                    fn incr(self: T) T {
-                        return .{ .x = self.x + val };
-                    }
-                };
-            }
-        }.implementer;
-    };
-
-    const a = T{ .x = 3 };
-    try std.testing.expect(a.incr().x == 4);
 }
 
 test "call function in comptime field" {

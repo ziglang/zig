@@ -50,6 +50,10 @@ pub fn build(b: *std.Build) void {
                 });
                 if (case.link_libc) exe.root_module.link_libc = true;
 
+                if (resolved_target.result.os.tag == .windows) {
+                    exe.root_module.linkSystemLibrary("advapi32", .{});
+                }
+
                 _ = exe.getEmittedBin();
 
                 step.dependOn(&exe.step);
@@ -65,6 +69,10 @@ pub fn build(b: *std.Build) void {
                     }),
                 });
                 if (case.link_libc) exe.root_module.link_libc = true;
+
+                if (resolved_target.result.os.tag == .windows) {
+                    exe.root_module.linkSystemLibrary("advapi32", .{});
+                }
 
                 const run = b.addRunArtifact(exe);
                 step.dependOn(&run.step);
@@ -101,10 +109,6 @@ const cases = [_]Case{
     //.{
     //    .src_path = "issue_9693/main.zig",
     //},
-    .{
-        .src_path = "brace_expansion.zig",
-        .is_test = true,
-    },
     .{
         .src_path = "issue_7030.zig",
         .target = .{

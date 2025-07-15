@@ -374,7 +374,8 @@
       <p>
       Most of the time, it is more appropriate to write to stderr rather than stdout, and
       whether or not the message is successfully written to the stream is irrelevant.
-      For this common case, there is a simpler API:
+      Also, formatted printing often comes in handy. For this common case,
+      there is a simpler API:
       </p>
       {#code|hello_again.zig#}
 
@@ -3842,37 +3843,6 @@ void do_a_thing(struct Foo *foo) {
       {#header_close#}
       {#header_close#}
 
-      {#header_open|usingnamespace#}
-      <p>
-      {#syntax#}usingnamespace{#endsyntax#} is a declaration that mixes all the public
-      declarations of the operand, which must be a {#link|struct#}, {#link|union#}, {#link|enum#},
-      or {#link|opaque#}, into the namespace:
-      </p>
-      {#code|test_usingnamespace.zig#}
-
-      <p>
-      {#syntax#}usingnamespace{#endsyntax#} has an important use case when organizing the public
-      API of a file or package. For example, one might have <code class="file">c.zig</code> with all of the
-      {#link|C imports|Import from C Header File#}:
-      </p>
-      {#syntax_block|zig|c.zig#}
-pub usingnamespace @cImport({
-    @cInclude("epoxy/gl.h");
-    @cInclude("GLFW/glfw3.h");
-    @cDefine("STBI_ONLY_PNG", "");
-    @cDefine("STBI_NO_STDIO", "");
-    @cInclude("stb_image.h");
-});
-      {#end_syntax_block#}
-      <p>
-      The above example demonstrates using {#syntax#}pub{#endsyntax#} to qualify the
-      {#syntax#}usingnamespace{#endsyntax#} additionally makes the imported declarations
-      {#syntax#}pub{#endsyntax#}. This can be used to forward declarations, giving precise control
-      over what declarations a given file exposes.
-      </p>
-      {#header_close#}
-
-
       {#header_open|comptime#}
       <p>
       Zig places importance on the concept of whether an expression is known at compile-time.
@@ -4279,16 +4249,9 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       {#header_close#}
 
       {#header_open|Async Functions#}
-      <p>Async functions regressed with the release of 0.11.0. Their future in
-      the Zig language is unclear due to multiple unsolved problems:</p>
-      <ul>
-        <li>LLVM's lack of ability to optimize them.</li>
-        <li>Third-party debuggers' lack of ability to debug them.</li>
-        <li><a href="https://github.com/ziglang/zig/issues/5913">The cancellation problem</a>.</li>
-        <li>Async function pointers preventing the stack size from being known.</li>
-      </ul>
-      <p>These problems are surmountable, but it will take time. The Zig team
-      is currently focused on other priorities.</p>
+      <p>Async functions regressed with the release of 0.11.0. The current plan is to
+      reintroduce them as a lower level primitive that powers I/O implementations.</p>
+      <p>Tracking issue: <a href="https://github.com/ziglang/zig/issues/23446">Proposal: stackless coroutines as low-level primitives</a></p>
       {#header_close#}
 
       {#header_open|Builtin Functions|2col#}
@@ -6552,7 +6515,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       <ul>
         <li>If a call to {#syntax#}@import{#endsyntax#} is analyzed, the file being imported is analyzed.</li>
-        <li>If a type (including a file) is analyzed, all {#syntax#}comptime{#endsyntax#}, {#syntax#}usingnamespace{#endsyntax#}, and {#syntax#}export{#endsyntax#} declarations within it are analyzed.</li>
+        <li>If a type (including a file) is analyzed, all {#syntax#}comptime{#endsyntax#} and {#syntax#}export{#endsyntax#} declarations within it are analyzed.</li>
         <li>If a type (including a file) is analyzed, and the compilation is for a {#link|test|Zig Test#}, and the module the type is within is the root module of the compilation, then all {#syntax#}test{#endsyntax#} declarations within it are also analyzed.</li>
         <li>If a reference to a named declaration (i.e. a usage of it) is analyzed, the declaration being referenced is analyzed. Declarations are order-independent, so this reference may be above or below the declaration being referenced, or even in another file entirely.</li>
       </ul>
@@ -7374,29 +7337,6 @@ fn readU32Be() u32 {}
         </tr>
         <tr>
           <th scope="row">
-            <pre>{#syntax#}async{#endsyntax#}</pre>
-          </th>
-          <td>
-            {#syntax#}async{#endsyntax#} can be used before a function call to get a pointer to the function's frame when it suspends.
-            <ul>
-              <li>See also {#link|Async Functions#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
-            <pre>{#syntax#}await{#endsyntax#}</pre>
-          </th>
-          <td>
-            {#syntax#}await{#endsyntax#} can be used to suspend the current function until the frame provided after the {#syntax#}await{#endsyntax#} completes.
-            {#syntax#}await{#endsyntax#} copies the value returned from the target function's frame to the caller.
-            <ul>
-              <li>See also {#link|Async Functions#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
             <pre>{#syntax#}break{#endsyntax#}</pre>
           </th>
           <td>
@@ -7814,18 +7754,6 @@ fn readU32Be() u32 {}
         </tr>
         <tr>
           <th scope="row">
-            <pre>{#syntax#}usingnamespace{#endsyntax#}</pre>
-          </th>
-          <td>
-            {#syntax#}usingnamespace{#endsyntax#} is a top-level declaration that imports all the public declarations of the operand,
-            which must be a struct, union, or enum, into the current scope.
-            <ul>
-              <li>See also {#link|usingnamespace#}</li>
-            </ul>
-          </td>
-        </tr>
-        <tr>
-          <th scope="row">
             <pre>{#syntax#}var{#endsyntax#}</pre>
           </th>
           <td>
@@ -7893,7 +7821,6 @@ ComptimeDecl <- KEYWORD_comptime Block
 Decl
     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? GlobalVarDecl
-     / KEYWORD_usingnamespace Expr SEMICOLON
 
 FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpace? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
 
@@ -8006,8 +7933,7 @@ TypeExpr <- PrefixTypeOp* ErrorUnionExpr
 ErrorUnionExpr <- SuffixExpr (EXCLAMATIONMARK TypeExpr)?
 
 SuffixExpr
-    <- KEYWORD_async PrimaryTypeExpr SuffixOp* FnCallArguments
-     / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
+    <- PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 
 PrimaryTypeExpr
     <- BUILTINIDENTIFIER FnCallArguments
@@ -8183,7 +8109,6 @@ PrefixOp
      / MINUSPERCENT
      / AMPERSAND
      / KEYWORD_try
-     / KEYWORD_await
 
 PrefixTypeOp
     <- QUESTIONMARK
@@ -8404,8 +8329,6 @@ KEYWORD_and         <- 'and'         end_of_word
 KEYWORD_anyframe    <- 'anyframe'    end_of_word
 KEYWORD_anytype     <- 'anytype'     end_of_word
 KEYWORD_asm         <- 'asm'         end_of_word
-KEYWORD_async       <- 'async'       end_of_word
-KEYWORD_await       <- 'await'       end_of_word
 KEYWORD_break       <- 'break'       end_of_word
 KEYWORD_callconv    <- 'callconv'    end_of_word
 KEYWORD_catch       <- 'catch'       end_of_word
@@ -8442,14 +8365,13 @@ KEYWORD_threadlocal <- 'threadlocal' end_of_word
 KEYWORD_try         <- 'try'         end_of_word
 KEYWORD_union       <- 'union'       end_of_word
 KEYWORD_unreachable <- 'unreachable' end_of_word
-KEYWORD_usingnamespace <- 'usingnamespace' end_of_word
 KEYWORD_var         <- 'var'         end_of_word
 KEYWORD_volatile    <- 'volatile'    end_of_word
 KEYWORD_while       <- 'while'       end_of_word
 
 keyword <- KEYWORD_addrspace / KEYWORD_align / KEYWORD_allowzero / KEYWORD_and
-         / KEYWORD_anyframe / KEYWORD_anytype / KEYWORD_asm / KEYWORD_async
-         / KEYWORD_await / KEYWORD_break / KEYWORD_callconv / KEYWORD_catch
+         / KEYWORD_anyframe / KEYWORD_anytype / KEYWORD_asm
+         / KEYWORD_break / KEYWORD_callconv / KEYWORD_catch
          / KEYWORD_comptime / KEYWORD_const / KEYWORD_continue / KEYWORD_defer
          / KEYWORD_else / KEYWORD_enum / KEYWORD_errdefer / KEYWORD_error / KEYWORD_export
          / KEYWORD_extern / KEYWORD_fn / KEYWORD_for / KEYWORD_if
@@ -8458,7 +8380,7 @@ keyword <- KEYWORD_addrspace / KEYWORD_align / KEYWORD_allowzero / KEYWORD_and
          / KEYWORD_pub / KEYWORD_resume / KEYWORD_return / KEYWORD_linksection
          / KEYWORD_struct / KEYWORD_suspend / KEYWORD_switch / KEYWORD_test
          / KEYWORD_threadlocal / KEYWORD_try / KEYWORD_union / KEYWORD_unreachable
-         / KEYWORD_usingnamespace / KEYWORD_var / KEYWORD_volatile / KEYWORD_while
+         / KEYWORD_var / KEYWORD_volatile / KEYWORD_while
       {#end_syntax_block#}
       {#header_close#}
       {#header_open|Zen#}

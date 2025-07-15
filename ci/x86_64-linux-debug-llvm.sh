@@ -12,7 +12,7 @@ CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.15.0-dev.233+7c85dc460"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v29.0.0-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-9.2.0-rc1/bin:$HOME/local/bin:$PATH"
+export PATH="$HOME/deps/wasmtime-v29.0.0-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-10.0.2/bin:$HOME/local/bin:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.

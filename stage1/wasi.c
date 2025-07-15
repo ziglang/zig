@@ -520,12 +520,15 @@ uint32_t wasi_snapshot_preview1_fd_read(uint32_t fd, uint32_t iovs, uint32_t iov
         default: panic("unimplemented: fd_read special file");
     }
 
+    if (fds[fd].stream == NULL) {
+        store32_align2(res_size_ptr, 0);
+        return wasi_errno_success;
+    }
+
     size_t size = 0;
     for (uint32_t i = 0; i < iovs_len; i += 1) {
         uint32_t len = load32_align2(&iovs_ptr[i].len);
-        size_t read_size = 0;
-        if (fds[fd].stream != NULL)
-            read_size = fread(&m[load32_align2(&iovs_ptr[i].ptr)], 1, len, fds[fd].stream);
+        size_t read_size = fread(&m[load32_align2(&iovs_ptr[i].ptr)], 1, len, fds[fd].stream);
         size += read_size;
         if (read_size < len) break;
     }
@@ -633,8 +636,10 @@ uint32_t wasi_snapshot_preview1_fd_pwrite(uint32_t fd, uint32_t iovs, uint32_t i
     }
 
     fpos_t pos;
-    if (fgetpos(fds[fd].stream, &pos) < 0) return wasi_errno_io;
-    if (fseek(fds[fd].stream, offset, SEEK_SET) < 0) return wasi_errno_io;
+    if (fds[fd].stream != NULL) {
+        if (fgetpos(fds[fd].stream, &pos) < 0) return wasi_errno_io;
+        if (fseek(fds[fd].stream, offset, SEEK_SET) < 0) return wasi_errno_io;
+    }
 
     size_t size = 0;
     for (uint32_t i = 0; i < iovs_len; i += 1) {
@@ -648,7 +653,9 @@ uint32_t wasi_snapshot_preview1_fd_pwrite(uint32_t fd, uint32_t iovs, uint32_t i
         if (written_size < len) break;
     }
 
-    if (fsetpos(fds[fd].stream, &pos) < 0) return wasi_errno_io;
+    if (fds[fd].stream != NULL) {
+        if (fsetpos(fds[fd].stream, &pos) < 0) return wasi_errno_io;
+    }
 
     if (size > 0) {
         time_t now = time(NULL);
@@ -962,6 +969,11 @@ uint32_t wasi_snapshot_preview1_fd_pread(uint32_t fd, uint32_t iovs, uint32_t io
         case wasi_filetype_regular_file: break;
         case wasi_filetype_directory: return wasi_errno_inval;
         default: panic("unimplemented: fd_pread special file");
+    }
+
+    if (fds[fd].stream == NULL) {
+        store32_align2(res_size_ptr, 0);
+        return wasi_errno_success;
     }
 
     fpos_t pos;

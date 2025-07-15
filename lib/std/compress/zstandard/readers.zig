@@ -4,7 +4,7 @@ pub const ReversedByteReader = struct {
     remaining_bytes: usize,
     bytes: []const u8,
 
-    const Reader = std.io.Reader(*ReversedByteReader, error{}, readFn);
+    const Reader = std.io.GenericReader(*ReversedByteReader, error{}, readFn);
 
     pub fn init(bytes: []const u8) ReversedByteReader {
         return .{

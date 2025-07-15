@@ -146,14 +146,11 @@ pub fn joinZ(allocator: Allocator, paths: []const []const u8) ![:0]u8 {
     return out[0 .. out.len - 1 :0];
 }
 
-pub fn fmtJoin(paths: []const []const u8) std.fmt.Formatter(formatJoin) {
+pub fn fmtJoin(paths: []const []const u8) std.fmt.Formatter([]const []const u8, formatJoin) {
     return .{ .data = paths };
 }
 
-fn formatJoin(paths: []const []const u8, comptime fmt: []const u8, options: std.fmt.FormatOptions, w: anytype) !void {
-    _ = fmt;
-    _ = options;
-
+fn formatJoin(paths: []const []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
     const first_path_idx = for (paths, 0..) |p, idx| {
         if (p.len != 0) break idx;
     } else return;
@@ -230,8 +227,8 @@ test join {
         try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\", "b\\", "c" }, "c:\\a\\b\\c", zero);
 
         try testJoinMaybeZWindows(
-            &[_][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig" },
-            "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig",
+            &[_][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "ab.zig" },
+            "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\ab.zig",
             zero,
         );
 
@@ -255,8 +252,8 @@ test join {
         try testJoinMaybeZPosix(&[_][]const u8{ "/a/", "b/", "c" }, "/a/b/c", zero);
 
         try testJoinMaybeZPosix(
-            &[_][]const u8{ "/home/andy/dev/zig/build/lib/zig/std", "io.zig" },
-            "/home/andy/dev/zig/build/lib/zig/std/io.zig",
+            &[_][]const u8{ "/home/andy/dev/zig/build/lib/zig/std", "ab.zig" },
+            "/home/andy/dev/zig/build/lib/zig/std/ab.zig",
             zero,
         );
 

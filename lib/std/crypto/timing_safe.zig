@@ -265,7 +265,7 @@ test classify {
 
     // Comparing secret data must be done in constant time. The result
     // is going to be considered as secret as well.
-    var res = std.crypto.utils.timingSafeEql([32]u8, out, secret);
+    var res = std.crypto.timing_safe.eql([32]u8, out, secret);
 
     // If we want to make a conditional jump based on a secret,
     // it has to be declassified.

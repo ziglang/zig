@@ -61,7 +61,7 @@ const CompressVectorized = struct {
     const Lane = @Vector(4, u32);
     const Rows = [4]Lane;
 
-    inline fn g(comptime even: bool, rows: *Rows, m: Lane) void {
+    fn g(comptime even: bool, rows: *Rows, m: Lane) void {
         rows[0] +%= rows[1] +% m;
         rows[3] ^= rows[0];
         rows[3] = math.rotr(Lane, rows[3], if (even) 8 else 16);
@@ -70,13 +70,13 @@ const CompressVectorized = struct {
         rows[1] = math.rotr(Lane, rows[1], if (even) 7 else 12);
     }
 
-    inline fn diagonalize(rows: *Rows) void {
+    fn diagonalize(rows: *Rows) void {
         rows[0] = @shuffle(u32, rows[0], undefined, [_]i32{ 3, 0, 1, 2 });
         rows[3] = @shuffle(u32, rows[3], undefined, [_]i32{ 2, 3, 0, 1 });
         rows[2] = @shuffle(u32, rows[2], undefined, [_]i32{ 1, 2, 3, 0 });
     }
 
-    inline fn undiagonalize(rows: *Rows) void {
+    fn undiagonalize(rows: *Rows) void {
         rows[0] = @shuffle(u32, rows[0], undefined, [_]i32{ 1, 2, 3, 0 });
         rows[3] = @shuffle(u32, rows[3], undefined, [_]i32{ 2, 3, 0, 1 });
         rows[2] = @shuffle(u32, rows[2], undefined, [_]i32{ 3, 0, 1, 2 });
@@ -476,7 +476,7 @@ pub const Blake3 = struct {
     }
 
     pub const Error = error{};
-    pub const Writer = std.io.Writer(*Blake3, Error, write);
+    pub const Writer = std.io.GenericWriter(*Blake3, Error, write);
 
     fn write(self: *Blake3, bytes: []const u8) Error!usize {
         self.update(bytes);

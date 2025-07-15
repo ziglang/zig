@@ -670,7 +670,7 @@ test "reified function type params initialized with field pointer" {
         };
         const Bar = @Type(.{
             .@"fn" = .{
-                .calling_convention = .Unspecified,
+                .calling_convention = .auto,
                 .is_generic = false,
                 .is_var_args = false,
                 .return_type = void,

@@ -219,7 +219,7 @@ pub const AllocWhen = enum { alloc_if_needed, alloc_always };
 /// This limit can be specified by calling `nextAllocMax()` instead of `nextAlloc()`.
 pub const default_max_value_len = 4 * 1024 * 1024;
 
-/// Connects a `std.io.Reader` to a `std.json.Scanner`.
+/// Connects a `std.io.GenericReader` to a `std.json.Scanner`.
 /// All `next*()` methods here handle `error.BufferUnderrun` from `std.json.Scanner`, and then read from the reader.
 pub fn Reader(comptime buffer_size: usize, comptime ReaderType: type) type {
     return struct {

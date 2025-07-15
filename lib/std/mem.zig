@@ -1714,7 +1714,7 @@ pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) 
             }
         },
     }
-    return @as(ReturnType, @truncate(result));
+    return @truncate(result);
 }
 
 test readVarInt {
@@ -2196,7 +2196,9 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                 }
             }
         },
-        else => @compileError("byteSwapAllFields expects a struct or array as the first argument"),
+        else => {
+            ptr.* = @byteSwap(ptr.*);
+        },
     }
 }
 
@@ -2255,8 +2257,6 @@ test byteSwapAllFields {
         .f5 = @as(f32, @bitCast(@as(u32, 0x0028d445))),
     }, k);
 }
-
-pub const tokenize = @compileError("deprecated; use tokenizeAny, tokenizeSequence, or tokenizeScalar");
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// any of the items in `delimiters`.
@@ -2456,8 +2456,6 @@ test "tokenize (reset)" {
     }
 }
 
-pub const split = @compileError("deprecated; use splitSequence, splitAny, or splitScalar");
-
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by the byte sequence in `delimiter`.
 ///
@@ -2656,8 +2654,6 @@ test "split (reset)" {
         try testing.expect(it.next() == null);
     }
 }
-
-pub const splitBackwards = @compileError("deprecated; use splitBackwardsSequence, splitBackwardsAny, or splitBackwardsScalar");
 
 /// Returns an iterator that iterates backwards over the slices of `buffer` that
 /// are separated by the sequence in `delimiter`.

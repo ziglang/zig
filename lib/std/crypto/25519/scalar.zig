@@ -50,7 +50,7 @@ pub fn reduce64(s: [64]u8) CompressedScalar {
 
 /// Perform the X25519 "clamping" operation.
 /// The scalar is then guaranteed to be a multiple of the cofactor.
-pub inline fn clamp(s: *CompressedScalar) void {
+pub fn clamp(s: *CompressedScalar) void {
     s[0] &= 248;
     s[31] = (s[31] & 127) | 64;
 }
@@ -514,7 +514,7 @@ pub const Scalar = struct {
     }
 
     /// Square a scalar `n` times
-    inline fn sqn(x: Scalar, comptime n: comptime_int) Scalar {
+    fn sqn(x: Scalar, comptime n: comptime_int) Scalar {
         var i: usize = 0;
         var t = x;
         while (i < n) : (i += 1) {
@@ -850,10 +850,10 @@ test "scalar25519" {
     var y = x.toBytes();
     try rejectNonCanonical(y);
     var buf: [128]u8 = undefined;
-    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&y)}), "1E979B917937F3DE71D18077F961F6CEFF01030405060708010203040506070F");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&y}), "1E979B917937F3DE71D18077F961F6CEFF01030405060708010203040506070F");
 
     const reduced = reduce(field_order_s);
-    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&reduced)}), "0000000000000000000000000000000000000000000000000000000000000000");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&reduced}), "0000000000000000000000000000000000000000000000000000000000000000");
 }
 
 test "non-canonical scalar25519" {
@@ -867,7 +867,7 @@ test "mulAdd overflow check" {
     const c: [32]u8 = [_]u8{0xff} ** 32;
     const x = mulAdd(a, b, c);
     var buf: [128]u8 = undefined;
-    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&x)}), "D14DF91389432C25AD60FF9791B9FD1D67BEF517D273ECCE3D9A307C1B419903");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&x}), "D14DF91389432C25AD60FF9791B9FD1D67BEF517D273ECCE3D9A307C1B419903");
 }
 
 test "scalar field inversion" {

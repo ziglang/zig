@@ -170,7 +170,7 @@ fn serveFile(
     // We load the file with every request so that the user can make changes to the file
     // and refresh the HTML page without restarting this server.
     const file_contents = ws.zig_lib_directory.handle.readFileAlloc(gpa, name, 10 * 1024 * 1024) catch |err| {
-        log.err("failed to read '{}{s}': {s}", .{ ws.zig_lib_directory, name, @errorName(err) });
+        log.err("failed to read '{f}{s}': {s}", .{ ws.zig_lib_directory, name, @errorName(err) });
         return error.AlreadyReported;
     };
     defer gpa.free(file_contents);
@@ -251,10 +251,10 @@ fn buildWasmBinary(
         "-fsingle-threaded", //
         "--dep", "Walk", //
         "--dep", "html_render", //
-        try std.fmt.allocPrint(arena, "-Mroot={}", .{main_src_path}), //
-        try std.fmt.allocPrint(arena, "-MWalk={}", .{walk_src_path}), //
+        try std.fmt.allocPrint(arena, "-Mroot={f}", .{main_src_path}), //
+        try std.fmt.allocPrint(arena, "-MWalk={f}", .{walk_src_path}), //
         "--dep", "Walk", //
-        try std.fmt.allocPrint(arena, "-Mhtml_render={}", .{html_render_src_path}), //
+        try std.fmt.allocPrint(arena, "-Mhtml_render={f}", .{html_render_src_path}), //
         "--listen=-",
     });
 
@@ -526,7 +526,7 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
 
     for (deduped_paths) |joined_path| {
         var file = joined_path.root_dir.handle.openFile(joined_path.sub_path, .{}) catch |err| {
-            log.err("failed to open {}: {s}", .{ joined_path, @errorName(err) });
+            log.err("failed to open {f}: {s}", .{ joined_path, @errorName(err) });
             continue;
         };
         defer file.close();
@@ -604,7 +604,7 @@ fn prepareTables(
 
     const rebuilt_exe_path = run_step.rebuilt_executable.?;
     var debug_info = std.debug.Info.load(gpa, rebuilt_exe_path, &gop.value_ptr.coverage) catch |err| {
-        log.err("step '{s}': failed to load debug information for '{}': {s}", .{
+        log.err("step '{s}': failed to load debug information for '{f}': {s}", .{
             run_step.step.name, rebuilt_exe_path, @errorName(err),
         });
         return error.AlreadyReported;
@@ -616,7 +616,7 @@ fn prepareTables(
         .sub_path = "v/" ++ std.fmt.hex(coverage_id),
     };
     var coverage_file = coverage_file_path.root_dir.handle.openFile(coverage_file_path.sub_path, .{}) catch |err| {
-        log.err("step '{s}': failed to load coverage file '{}': {s}", .{
+        log.err("step '{s}': failed to load coverage file '{f}': {s}", .{
             run_step.step.name, coverage_file_path, @errorName(err),
         });
         return error.AlreadyReported;
@@ -624,7 +624,7 @@ fn prepareTables(
     defer coverage_file.close();
 
     const file_size = coverage_file.getEndPos() catch |err| {
-        log.err("unable to check len of coverage file '{}': {s}", .{ coverage_file_path, @errorName(err) });
+        log.err("unable to check len of coverage file '{f}': {s}", .{ coverage_file_path, @errorName(err) });
         return error.AlreadyReported;
     };
 
@@ -636,7 +636,7 @@ fn prepareTables(
         coverage_file.handle,
         0,
     ) catch |err| {
-        log.err("failed to map coverage file '{}': {s}", .{ coverage_file_path, @errorName(err) });
+        log.err("failed to map coverage file '{f}': {s}", .{ coverage_file_path, @errorName(err) });
         return error.AlreadyReported;
     };
     gop.value_ptr.mapped_memory = mapped_memory;

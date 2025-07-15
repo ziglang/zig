@@ -387,6 +387,18 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Build.zig
     lib/std/Build/Cache.zig
     lib/std/Build/Cache/DepTokenizer.zig
+    lib/std/Io.zig
+    lib/std/Io/Reader.zig
+    lib/std/Io/Writer.zig
+    lib/std/Io/buffered_atomic_file.zig
+    lib/std/Io/buffered_writer.zig
+    lib/std/Io/change_detection_stream.zig
+    lib/std/Io/counting_reader.zig
+    lib/std/Io/counting_writer.zig
+    lib/std/Io/find_byte_writer.zig
+    lib/std/Io/fixed_buffer_stream.zig
+    lib/std/Io/limited_reader.zig
+    lib/std/Io/seekable_stream.zig
     lib/std/Progress.zig
     lib/std/Random.zig
     lib/std/Target.zig
@@ -436,7 +448,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/elf.zig
     lib/std/fifo.zig
     lib/std/fmt.zig
-    lib/std/fmt/format_float.zig
     lib/std/fmt/parse_float.zig
     lib/std/fs.zig
     lib/std/fs/AtomicFile.zig
@@ -450,18 +461,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/hash_map.zig
     lib/std/heap.zig
     lib/std/heap/arena_allocator.zig
-    lib/std/io.zig
-    lib/std/io/Reader.zig
-    lib/std/io/Writer.zig
-    lib/std/io/buffered_atomic_file.zig
-    lib/std/io/buffered_writer.zig
-    lib/std/io/change_detection_stream.zig
-    lib/std/io/counting_reader.zig
-    lib/std/io/counting_writer.zig
-    lib/std/io/find_byte_writer.zig
-    lib/std/io/fixed_buffer_stream.zig
-    lib/std/io/limited_reader.zig
-    lib/std/io/seekable_stream.zig
     lib/std/json.zig
     lib/std/json/stringify.zig
     lib/std/leb128.zig
@@ -549,45 +548,6 @@ set(ZIG_STAGE2_SOURCES
     src/Value.zig
     src/Zcu.zig
     src/Zcu/PerThread.zig
-    src/arch/aarch64/CodeGen.zig
-    src/arch/aarch64/Emit.zig
-    src/arch/aarch64/Mir.zig
-    src/arch/aarch64/abi.zig
-    src/arch/aarch64/bits.zig
-    src/arch/arm/CodeGen.zig
-    src/arch/arm/Emit.zig
-    src/arch/arm/Mir.zig
-    src/arch/arm/abi.zig
-    src/arch/arm/bits.zig
-    src/arch/powerpc/CodeGen.zig
-    src/arch/riscv64/abi.zig
-    src/arch/riscv64/bits.zig
-    src/arch/riscv64/CodeGen.zig
-    src/arch/riscv64/Emit.zig
-    src/arch/riscv64/encoding.zig
-    src/arch/riscv64/Lower.zig
-    src/arch/riscv64/Mir.zig
-    src/arch/riscv64/mnem.zig
-    src/arch/sparc64/CodeGen.zig
-    src/arch/sparc64/Emit.zig
-    src/arch/sparc64/Mir.zig
-    src/arch/sparc64/abi.zig
-    src/arch/sparc64/bits.zig
-    src/arch/wasm/CodeGen.zig
-    src/arch/wasm/Emit.zig
-    src/arch/wasm/Mir.zig
-    src/arch/wasm/abi.zig
-    src/arch/x86/bits.zig
-    src/arch/x86_64/CodeGen.zig
-    src/arch/x86_64/Disassembler.zig
-    src/arch/x86_64/Emit.zig
-    src/arch/x86_64/Encoding.zig
-    src/arch/x86_64/Lower.zig
-    src/arch/x86_64/Mir.zig
-    src/arch/x86_64/abi.zig
-    src/arch/x86_64/bits.zig
-    src/arch/x86_64/encoder.zig
-    src/arch/x86_64/encodings.zon
     src/clang.zig
     src/clang_options.zig
     src/clang_options_data.zig

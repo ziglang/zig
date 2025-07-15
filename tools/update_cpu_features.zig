@@ -2082,8 +2082,8 @@ fn processOneTarget(job: Job) void {
 }
 
 fn usageAndExit(arg0: []const u8, code: u8) noreturn {
-    const stderr = std.io.getStdErr();
-    stderr.writer().print(
+    const stderr = std.debug.lockStderrWriter(&.{});
+    stderr.print(
         \\Usage: {s} /path/to/llvm-tblgen /path/git/llvm-project /path/git/zig [zig_name filter]
         \\
         \\Updates lib/std/target/<target>.zig from llvm/lib/Target/<Target>/<Target>.td .

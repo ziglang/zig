@@ -2028,6 +2028,14 @@ pub const Mutable = struct {
     pub fn normalize(r: *Mutable, length: usize) void {
         r.len = llnormalize(r.limbs[0..length]);
     }
+
+    pub fn format(self: Mutable, w: *std.io.Writer) std.io.Writer.Error!void {
+        return formatNumber(self, w, .{});
+    }
+
+    pub fn formatNumber(self: Const, w: *std.io.Writer, n: std.fmt.Number) std.io.Writer.Error!void {
+        return self.toConst().formatNumber(w, n);
+    }
 };
 
 /// A arbitrary-precision big integer, with a fixed set of immutable limbs.
@@ -2214,9 +2222,6 @@ pub const Const = struct {
         TargetTooSmall,
     };
 
-    /// Deprecated; use `toInt`.
-    pub const to = toInt;
-
     /// Convert `self` to `Int`.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
@@ -2317,50 +2322,25 @@ pub const Const = struct {
         return .{ normalized_res.reconstruct(if (self.positive) .positive else .negative), exactness };
     }
 
-    /// To allow `std.fmt.format` to work with this type.
     /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn format(
-        self: Const,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        _ = options;
-        comptime var base = 10;
-        comptime var case: std.fmt.Case = .lower;
-
-        if (fmt.len == 0 or comptime mem.eql(u8, fmt, "d")) {
-            base = 10;
-            case = .lower;
-        } else if (comptime mem.eql(u8, fmt, "b")) {
-            base = 2;
-            case = .lower;
-        } else if (comptime mem.eql(u8, fmt, "x")) {
-            base = 16;
-            case = .lower;
-        } else if (comptime mem.eql(u8, fmt, "X")) {
-            base = 16;
-            case = .upper;
-        } else {
-            std.fmt.invalidFmtError(fmt, self);
-        }
-
+    pub fn formatNumber(self: Const, w: *std.io.Writer, number: std.fmt.Number) std.io.Writer.Error!void {
         const available_len = 64;
         if (self.limbs.len > available_len)
-            return out_stream.writeAll("(BigInt)");
+            return w.writeAll("(BigInt)");
 
-        var limbs: [calcToStringLimbsBufferLen(available_len, base)]Limb = undefined;
+        var limbs: [calcToStringLimbsBufferLen(available_len, 10)]Limb = undefined;
 
         const biggest: Const = .{
             .limbs = &([1]Limb{comptime math.maxInt(Limb)} ** available_len),
             .positive = false,
         };
-        var buf: [biggest.sizeInBaseUpperBound(base)]u8 = undefined;
-        const len = self.toString(&buf, base, case, &limbs);
-        return out_stream.writeAll(buf[0..len]);
+        var buf: [biggest.sizeInBaseUpperBound(2)]u8 = undefined;
+        const base: u8 = number.mode.base() orelse @panic("TODO print big int in scientific form");
+        const len = self.toString(&buf, base, number.case, &limbs);
+        return w.writeAll(buf[0..len]);
     }
 
     /// Converts self to a string in the requested base.
@@ -2872,9 +2852,6 @@ pub const Managed = struct {
 
     pub const ConvertError = Const.ConvertError;
 
-    /// Deprecated; use `toInt`.
-    pub const to = toInt;
-
     /// Convert `self` to `Int`.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
@@ -2930,17 +2907,16 @@ pub const Managed = struct {
     }
 
     /// To allow `std.fmt.format` to work with `Managed`.
+    pub fn format(self: Managed, w: *std.io.Writer) std.io.Writer.Error!void {
+        return formatNumber(self, w, .{});
+    }
+
     /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn format(
-        self: Managed,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        out_stream: anytype,
-    ) !void {
-        return self.toConst().format(fmt, options, out_stream);
+    pub fn formatNumber(self: Managed, w: *std.io.Writer, n: std.fmt.Number) std.io.Writer.Error!void {
+        return self.toConst().formatNumber(w, n);
     }
 
     /// Returns math.Order.lt, math.Order.eq, math.Order.gt if |a| < |b|, |a| ==

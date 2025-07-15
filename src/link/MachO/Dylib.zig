@@ -61,7 +61,7 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
     const file = macho_file.getFileHandle(self.file_handle);
     const offset = self.offset;
 
-    log.debug("parsing dylib from binary: {}", .{@as(Path, self.path)});
+    log.debug("parsing dylib from binary: {f}", .{@as(Path, self.path)});
 
     var header_buffer: [@sizeOf(macho.mach_header_64)]u8 = undefined;
     {
@@ -140,7 +140,7 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
 
     if (self.platform) |platform| {
         if (!macho_file.platform.eqlTarget(platform)) {
-            try macho_file.reportParseError2(self.index, "invalid platform: {}", .{
+            try macho_file.reportParseError2(self.index, "invalid platform: {f}", .{
                 platform.fmtTarget(macho_file.getTarget().cpu.arch),
             });
             return error.InvalidTarget;
@@ -148,7 +148,7 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
         // TODO: this can cause the CI to fail so I'm commenting this check out so that
         // I can work out the rest of the changes first
         // if (macho_file.platform.version.order(platform.version) == .lt) {
-        //     try macho_file.reportParseError2(self.index, "object file built for newer platform: {}: {} < {}", .{
+        //     try macho_file.reportParseError2(self.index, "object file built for newer platform: {f}: {f} < {f}", .{
         //         macho_file.platform.fmtTarget(macho_file.getTarget().cpu.arch),
         //         macho_file.platform.version,
         //         platform.version,
@@ -267,7 +267,7 @@ fn parseTbd(self: *Dylib, macho_file: *MachO) !void {
 
     const gpa = macho_file.base.comp.gpa;
 
-    log.debug("parsing dylib from stub: {}", .{self.path});
+    log.debug("parsing dylib from stub: {f}", .{self.path});
 
     const file = macho_file.getFileHandle(self.file_handle);
     var lib_stub = LibStub.loadFromFile(gpa, file) catch |err| {
@@ -691,52 +691,32 @@ pub fn setSymbolExtra(self: *Dylib, index: u32, extra: Symbol.Extra) void {
     }
 }
 
-pub fn format(
-    self: *Dylib,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = self;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format dylib directly");
-}
-
-pub fn fmtSymtab(self: *Dylib, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *Dylib, macho_file: *MachO) std.fmt.Formatter(Format, Format.symtab) {
     return .{ .data = .{
         .dylib = self,
         .macho_file = macho_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     dylib: *Dylib,
     macho_file: *MachO,
-};
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const dylib = ctx.dylib;
-    const macho_file = ctx.macho_file;
-    try writer.writeAll("  globals\n");
-    for (dylib.symbols.items, 0..) |sym, i| {
-        const ref = dylib.getSymbolRef(@intCast(i), macho_file);
-        if (ref.getFile(macho_file) == null) {
-            // TODO any better way of handling this?
-            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
-        } else {
-            try writer.print("    {}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+    fn symtab(f: Format, w: *Writer) Writer.Error!void {
+        const dylib = f.dylib;
+        const macho_file = f.macho_file;
+        try w.writeAll("  globals\n");
+        for (dylib.symbols.items, 0..) |sym, i| {
+            const ref = dylib.getSymbolRef(@intCast(i), macho_file);
+            if (ref.getFile(macho_file) == null) {
+                // TODO any better way of handling this?
+                try w.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+            } else {
+                try w.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            }
         }
     }
-}
+};
 
 pub const TargetMatcher = struct {
     allocator: Allocator,
@@ -948,19 +928,17 @@ const Export = struct {
     };
 };
 
+const std = @import("std");
 const assert = std.debug.assert;
-const fat = @import("fat.zig");
 const fs = std.fs;
 const fmt = std.fmt;
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
-const tapi = @import("../tapi.zig");
-const trace = @import("../../tracy.zig").trace;
-const std = @import("std");
 const Allocator = mem.Allocator;
 const Path = std.Build.Cache.Path;
+const Writer = std.io.Writer;
 
 const Dylib = @This();
 const File = @import("file.zig").File;
@@ -969,3 +947,6 @@ const LoadCommandIterator = macho.LoadCommandIterator;
 const MachO = @import("../MachO.zig");
 const Symbol = @import("Symbol.zig");
 const Tbd = tapi.Tbd;
+const fat = @import("fat.zig");
+const tapi = @import("../tapi.zig");
+const trace = @import("../../tracy.zig").trace;

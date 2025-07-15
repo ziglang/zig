@@ -37,9 +37,11 @@ pub const InstructionPrintingClass = struct {
 pub const Instruction = struct {
     opname: []const u8,
     class: ?[]const u8 = null, // Note: Only available in the core registry.
+    aliases: [][]const u8 = &[_][]const u8{},
     opcode: u32,
     operands: []Operand = &[_]Operand{},
     capabilities: [][]const u8 = &[_][]const u8{},
+    provisional: bool = false,
     // DebugModuleINTEL has this...
     capability: ?[]const u8 = null,
     extensions: [][]const u8 = &[_][]const u8{},
@@ -81,6 +83,7 @@ pub const OperandKind = struct {
 
 pub const Enumerant = struct {
     enumerant: []const u8,
+    aliases: [][]const u8 = &[_][]const u8{},
     value: union(enum) {
         bitflag: []const u8, // Hexadecimal representation of the value
         int: u31,
@@ -100,6 +103,7 @@ pub const Enumerant = struct {
         pub const jsonStringify = @compileError("not supported");
     },
     capabilities: [][]const u8 = &[_][]const u8{},
+    provisional: bool = false,
     /// Valid for .ValueEnum and .BitEnum
     extensions: [][]const u8 = &[_][]const u8{},
     /// `quantifier` will always be `null`.

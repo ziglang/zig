@@ -7,7 +7,7 @@ const Allocator = std.mem.Allocator;
 const File = std.fs.File;
 const assert = std.debug.assert;
 
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
 const Server = std.zig.Server;
 
 pub fn main() !void {
@@ -54,7 +54,7 @@ fn cmdObjCopy(
                 fatal("unexpected positional argument: '{s}'", .{arg});
             }
         } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-            return std.io.getStdOut().writeAll(usage);
+            return std.fs.File.stdout().writeAll(usage);
         } else if (mem.eql(u8, arg, "-O") or mem.eql(u8, arg, "--output-target")) {
             i += 1;
             if (i >= args.len) fatal("expected another argument after '{s}'", .{arg});
@@ -227,8 +227,8 @@ fn cmdObjCopy(
     if (listen) {
         var server = try Server.init(.{
             .gpa = gpa,
-            .in = std.io.getStdIn(),
-            .out = std.io.getStdOut(),
+            .in = .stdin(),
+            .out = .stdout(),
             .zig_version = builtin.zig_version_string,
         });
         defer server.deinit();
@@ -635,11 +635,11 @@ const HexWriter = struct {
             const payload_bytes = self.getPayloadBytes();
             assert(payload_bytes.len <= MAX_PAYLOAD_LEN);
 
-            const line = try std.fmt.bufPrint(&outbuf, ":{0X:0>2}{1X:0>4}{2X:0>2}{3s}{4X:0>2}" ++ linesep, .{
+            const line = try std.fmt.bufPrint(&outbuf, ":{0X:0>2}{1X:0>4}{2X:0>2}{3X}{4X:0>2}" ++ linesep, .{
                 @as(u8, @intCast(payload_bytes.len)),
                 self.address,
                 @intFromEnum(self.payload),
-                std.fmt.fmtSliceHexUpper(payload_bytes),
+                payload_bytes,
                 self.checksum(),
             });
             try file.writeAll(line);
@@ -1495,7 +1495,7 @@ const ElfFileHelper = struct {
         if (size < prefix.len) return null;
 
         try in_file.seekTo(offset);
-        var section_reader = std.io.limitedReader(in_file.reader(), size);
+        var section_reader = std.io.limitedReader(in_file.deprecatedReader(), size);
 
         // allocate as large as decompressed data. if the compression doesn't fit, keep the data uncompressed.
         const compressed_data = try allocator.alignedAlloc(u8, .@"8", @intCast(size));

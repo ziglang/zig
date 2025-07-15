@@ -6,6 +6,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
+const Writer = std.io.Writer;
 
 const CheckObject = @This();
 
@@ -28,7 +29,7 @@ pub fn create(
     const gpa = owner.allocator;
     const check_object = gpa.create(CheckObject) catch @panic("OOM");
     check_object.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = "CheckObject",
             .owner = owner,
@@ -80,7 +81,7 @@ const Action = struct {
         const hay = mem.trim(u8, haystack, " ");
         const phrase = mem.trim(u8, act.phrase.resolve(b, step), " ");
 
-        var candidate_vars = std.ArrayList(struct { name: []const u8, value: u64 }).init(b.allocator);
+        var candidate_vars: std.ArrayList(struct { name: []const u8, value: u64 }) = .init(b.allocator);
         var hay_it = mem.tokenizeScalar(u8, hay, ' ');
         var needle_it = mem.tokenizeScalar(u8, phrase, ' ');
 
@@ -229,18 +230,11 @@ const ComputeCompareExpected = struct {
         literal: u64,
     },
 
-    pub fn format(
-        value: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, value);
-        _ = options;
-        try writer.print("{s} ", .{@tagName(value.op)});
+    pub fn format(value: ComputeCompareExpected, w: *Writer) Writer.Error!void {
+        try w.print("{t} ", .{value.op});
         switch (value.value) {
-            .variable => |name| try writer.writeAll(name),
-            .literal => |x| try writer.print("{x}", .{x}),
+            .variable => |name| try w.writeAll(name),
+            .literal => |x| try w.print("{x}", .{x}),
         }
     }
 };
@@ -565,9 +559,11 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         null,
         .of(u64),
         null,
-    ) catch |err| return step.fail("unable to read '{'}': {s}", .{ src_path, @errorName(err) });
+    ) catch |err| return step.fail("unable to read '{f}': {s}", .{
+        std.fmt.alt(src_path, .formatEscapeChar), @errorName(err),
+    });
 
-    var vars = std.StringHashMap(u64).init(gpa);
+    var vars: std.StringHashMap(u64) = .init(gpa);
     for (check_object.checks.items) |chk| {
         if (chk.kind == .compute_compare) {
             assert(chk.actions.items.len == 1);
@@ -581,7 +577,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                 return step.fail(
                     \\
                     \\========= comparison failed for action: ===========
-                    \\{s} {}
+                    \\{s} {f}
                     \\===================================================
                 , .{ act.phrase.resolve(b, step), act.expected.? });
             }
@@ -600,7 +596,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         // we either format message string with escaped codes, or not to aid debugging
         // the failed test.
         const fmtMessageString = struct {
-            fn fmtMessageString(kind: Check.Kind, msg: []const u8) std.fmt.Formatter(formatMessageString) {
+            fn fmtMessageString(kind: Check.Kind, msg: []const u8) std.fmt.Formatter(Ctx, formatMessageString) {
                 return .{ .data = .{
                     .kind = kind,
                     .msg = msg,
@@ -612,17 +608,10 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                 msg: []const u8,
             };
 
-            fn formatMessageString(
-                ctx: Ctx,
-                comptime unused_fmt_string: []const u8,
-                options: std.fmt.FormatOptions,
-                writer: anytype,
-            ) !void {
-                _ = unused_fmt_string;
-                _ = options;
+            fn formatMessageString(ctx: Ctx, w: *Writer) !void {
                 switch (ctx.kind) {
-                    .dump_section => try writer.print("{s}", .{std.fmt.fmtSliceEscapeLower(ctx.msg)}),
-                    else => try writer.writeAll(ctx.msg),
+                    .dump_section => try w.print("{f}", .{std.ascii.hexEscape(ctx.msg, .lower)}),
+                    else => try w.writeAll(ctx.msg),
                 }
             }
         }.fmtMessageString;
@@ -637,11 +626,11 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                         return step.fail(
                             \\
                             \\========= expected to find: ==========================
-                            \\{s}
+                            \\{f}
                             \\========= but parsed file does not contain it: =======
-                            \\{s}
+                            \\{f}
                             \\========= file path: =================================
-                            \\{}
+                            \\{f}
                         , .{
                             fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
                             fmtMessageString(chk.kind, output),
@@ -657,11 +646,11 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                         return step.fail(
                             \\
                             \\========= expected to find: ==========================
-                            \\*{s}*
+                            \\*{f}*
                             \\========= but parsed file does not contain it: =======
-                            \\{s}
+                            \\{f}
                             \\========= file path: =================================
-                            \\{}
+                            \\{f}
                         , .{
                             fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
                             fmtMessageString(chk.kind, output),
@@ -676,11 +665,11 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                         return step.fail(
                             \\
                             \\========= expected not to find: ===================
-                            \\{s}
+                            \\{f}
                             \\========= but parsed file does contain it: ========
-                            \\{s}
+                            \\{f}
                             \\========= file path: ==============================
-                            \\{}
+                            \\{f}
                         , .{
                             fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
                             fmtMessageString(chk.kind, output),
@@ -696,13 +685,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                         return step.fail(
                             \\
                             \\========= expected to find and extract: ==============
-                            \\{s}
+                            \\{f}
                             \\========= but parsed file does not contain it: =======
-                            \\{s}
+                            \\{f}
                             \\========= file path: ==============================
-                            \\{}
+                            \\{f}
                         , .{
-                            act.phrase.resolve(b, step),
+                            fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
                             fmtMessageString(chk.kind, output),
                             src_path,
                         });
@@ -963,7 +952,7 @@ const MachODumper = struct {
                 .UUID => {
                     const uuid = lc.cast(macho.uuid_command).?;
                     try writer.writeByte('\n');
-                    try writer.print("uuid {x}", .{std.fmt.fmtSliceHexLower(&uuid.uuid)});
+                    try writer.print("uuid {x}", .{&uuid.uuid});
                 },
 
                 .DATA_IN_CODE,
@@ -2012,7 +2001,7 @@ const ElfDumper = struct {
 
             for (ctx.phdrs, 0..) |phdr, phndx| {
                 try writer.print("phdr {d}\n", .{phndx});
-                try writer.print("type {s}\n", .{fmtPhType(phdr.p_type)});
+                try writer.print("type {f}\n", .{fmtPhType(phdr.p_type)});
                 try writer.print("vaddr {x}\n", .{phdr.p_vaddr});
                 try writer.print("paddr {x}\n", .{phdr.p_paddr});
                 try writer.print("offset {x}\n", .{phdr.p_offset});
@@ -2052,7 +2041,7 @@ const ElfDumper = struct {
             for (ctx.shdrs, 0..) |shdr, shndx| {
                 try writer.print("shdr {d}\n", .{shndx});
                 try writer.print("name {s}\n", .{ctx.getSectionName(shndx)});
-                try writer.print("type {s}\n", .{fmtShType(shdr.sh_type)});
+                try writer.print("type {f}\n", .{fmtShType(shdr.sh_type)});
                 try writer.print("addr {x}\n", .{shdr.sh_addr});
                 try writer.print("offset {x}\n", .{shdr.sh_offset});
                 try writer.print("size {x}\n", .{shdr.sh_size});
@@ -2270,7 +2259,7 @@ const ElfDumper = struct {
                     try writer.print(" {s}", .{sym_bind});
                 }
 
-                const sym_vis = @as(elf.STV, @enumFromInt(sym.st_other));
+                const sym_vis = @as(elf.STV, @enumFromInt(@as(u2, @truncate(sym.st_other))));
                 try writer.print(" {s}", .{@tagName(sym_vis)});
 
                 const sym_name = switch (sym.st_type()) {
@@ -2325,18 +2314,11 @@ const ElfDumper = struct {
         return mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + off)), 0);
     }
 
-    fn fmtShType(sh_type: u32) std.fmt.Formatter(formatShType) {
+    fn fmtShType(sh_type: u32) std.fmt.Formatter(u32, formatShType) {
         return .{ .data = sh_type };
     }
 
-    fn formatShType(
-        sh_type: u32,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn formatShType(sh_type: u32, writer: *Writer) Writer.Error!void {
         const name = switch (sh_type) {
             elf.SHT_NULL => "NULL",
             elf.SHT_PROGBITS => "PROGBITS",
@@ -2372,18 +2354,11 @@ const ElfDumper = struct {
         try writer.writeAll(name);
     }
 
-    fn fmtPhType(ph_type: u32) std.fmt.Formatter(formatPhType) {
+    fn fmtPhType(ph_type: u32) std.fmt.Formatter(u32, formatPhType) {
         return .{ .data = ph_type };
     }
 
-    fn formatPhType(
-        ph_type: u32,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn formatPhType(ph_type: u32, writer: *Writer) Writer.Error!void {
         const p_type = switch (ph_type) {
             elf.PT_NULL => "NULL",
             elf.PT_LOAD => "LOAD",

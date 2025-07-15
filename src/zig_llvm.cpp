@@ -83,7 +83,7 @@ static const bool assertions_on = false;
 LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
     LLVMCodeModel CodeModel, bool function_sections, bool data_sections, ZigLLVMFloatABI float_abi,
-    const char *abi_name)
+    const char *abi_name, bool emulated_tls)
 {
     std::optional<Reloc::Model> RM;
     switch (Reloc){
@@ -147,6 +147,10 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
 
     if (abi_name != nullptr) {
         opt.MCOptions.ABIName = abi_name;
+    }
+
+    if (emulated_tls) {
+        opt.EmulatedTLS = true;
     }
 
     TargetMachine *TM = reinterpret_cast<Target*>(T)->createTargetMachine(Triple, CPU, Features, opt, RM, CM,
@@ -259,6 +263,16 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
                               options->bin_filename? options->bin_filename : options->asm_filename);
 
     TargetMachine &target_machine = *reinterpret_cast<TargetMachine*>(targ_machine_ref);
+
+    if (options->allow_fast_isel) {
+        target_machine.setO0WantsFastISel(true);
+    } else {
+        target_machine.setFastISel(false);
+    }
+
+    if (!options->allow_machine_outliner) {
+        target_machine.setMachineOutliner(false);
+    }
 
     Module &llvm_module = *unwrap(module_ref);
 
@@ -383,12 +397,6 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
             *error_message = strdup("TargetMachine can't emit an assembly file");
             return true;
         }
-    }
-
-    if (options->allow_fast_isel) {
-        target_machine.setO0WantsFastISel(true);
-    } else {
-        target_machine.setFastISel(false);
     }
 
     // Optimization phase

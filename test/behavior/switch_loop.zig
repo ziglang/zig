@@ -216,3 +216,13 @@ test "switch loop with pointer capture" {
     try S.doTheTest();
     try comptime S.doTheTest();
 }
+
+test "unanalyzed continue with operand" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+
+    @setRuntimeSafety(false);
+    label: switch (false) {
+        false => if (false) continue :label true,
+        true => {},
+    }
+}

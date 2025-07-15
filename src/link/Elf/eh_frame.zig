@@ -47,52 +47,32 @@ pub const Fde = struct {
         return object.relocs.items[fde.rel_index..][0..fde.rel_num];
     }
 
-    pub fn format(
-        fde: Fde,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fde;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format FDEs directly");
-    }
-
-    pub fn fmt(fde: Fde, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(fde: Fde, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{
             .fde = fde,
             .elf_file = elf_file,
         } };
     }
 
-    const FdeFormatContext = struct {
+    const Format = struct {
         fde: Fde,
         elf_file: *Elf,
-    };
 
-    fn format2(
-        ctx: FdeFormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        const fde = ctx.fde;
-        const elf_file = ctx.elf_file;
-        const base_addr = fde.address(elf_file);
-        const object = elf_file.file(fde.file_index).?.object;
-        const atom_name = fde.atom(object).name(elf_file);
-        try writer.print("@{x} : size({x}) : cie({d}) : {s}", .{
-            base_addr + fde.out_offset,
-            fde.calcSize(),
-            fde.cie_index,
-            atom_name,
-        });
-        if (!fde.alive) try writer.writeAll(" : [*]");
-    }
+        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const fde = f.fde;
+            const elf_file = f.elf_file;
+            const base_addr = fde.address(elf_file);
+            const object = elf_file.file(fde.file_index).?.object;
+            const atom_name = fde.atom(object).name(elf_file);
+            try writer.print("@{x} : size({x}) : cie({d}) : {s}", .{
+                base_addr + fde.out_offset,
+                fde.calcSize(),
+                fde.cie_index,
+                atom_name,
+            });
+            if (!fde.alive) try writer.writeAll(" : [*]");
+        }
+    };
 };
 
 pub const Cie = struct {
@@ -150,48 +130,28 @@ pub const Cie = struct {
         return true;
     }
 
-    pub fn format(
-        cie: Cie,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = cie;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format CIEs directly");
-    }
-
-    pub fn fmt(cie: Cie, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(cie: Cie, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{
             .cie = cie,
             .elf_file = elf_file,
         } };
     }
 
-    const CieFormatContext = struct {
+    const Format = struct {
         cie: Cie,
         elf_file: *Elf,
-    };
 
-    fn format2(
-        ctx: CieFormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        const cie = ctx.cie;
-        const elf_file = ctx.elf_file;
-        const base_addr = cie.address(elf_file);
-        try writer.print("@{x} : size({x})", .{
-            base_addr + cie.out_offset,
-            cie.calcSize(),
-        });
-        if (!cie.alive) try writer.writeAll(" : [*]");
-    }
+        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const cie = f.cie;
+            const elf_file = f.elf_file;
+            const base_addr = cie.address(elf_file);
+            try writer.print("@{x} : size({x})", .{
+                base_addr + cie.out_offset,
+                cie.calcSize(),
+            });
+            if (!cie.alive) try writer.writeAll(" : [*]");
+        }
+    };
 };
 
 pub const Iterator = struct {
@@ -316,7 +276,7 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
     const S = math.cast(i64, sym.address(.{}, elf_file)) orelse return error.Overflow;
     const A = rel.r_addend;
 
-    relocs_log.debug("  {s}: {x}: [{x} => {x}] ({s})", .{
+    relocs_log.debug("  {f}: {x}: [{x} => {x}] ({s})", .{
         relocation.fmtRelocType(rel.r_type(), cpu_arch),
         offset,
         P,
@@ -438,7 +398,7 @@ fn emitReloc(elf_file: *Elf, r_offset: u64, sym: *const Symbol, rel: elf.Elf64_R
         },
     }
 
-    relocs_log.debug("  {s}: [{x} => {d}({s})] + {x}", .{
+    relocs_log.debug("  {f}: [{x} => {d}({s})] + {x}", .{
         relocation.fmtRelocType(r_type, cpu_arch),
         r_offset,
         r_sym,
@@ -607,11 +567,11 @@ const riscv = struct {
 fn reportInvalidReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela) !void {
     const diags = &elf_file.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(1);
-    try err.addMsg("invalid relocation type {} at offset 0x{x}", .{
+    try err.addMsg("invalid relocation type {f} at offset 0x{x}", .{
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,
     });
-    err.addNote("in {}:.eh_frame", .{elf_file.file(rec.file_index).?.fmtPath()});
+    err.addNote("in {f}:.eh_frame", .{elf_file.file(rec.file_index).?.fmtPath()});
     return error.RelocFailure;
 }
 

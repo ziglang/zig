@@ -849,7 +849,7 @@ const Context = struct {
     fn addIdentifier(c: *Context, bytes: []const u8) Allocator.Error!TokenIndex {
         if (std.zig.primitives.isPrimitive(bytes))
             return c.addTokenFmt(.identifier, "@\"{s}\"", .{bytes});
-        return c.addTokenFmt(.identifier, "{p}", .{std.zig.fmtId(bytes)});
+        return c.addTokenFmt(.identifier, "{f}", .{std.zig.fmtIdFlags(bytes, .{ .allow_primitive = true })});
     }
 
     fn listToSpan(c: *Context, list: []const NodeIndex) Allocator.Error!NodeSubRange {
@@ -1201,7 +1201,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
 
             const compile_error_tok = try c.addToken(.builtin, "@compileError");
             _ = try c.addToken(.l_paren, "(");
-            const err_msg_tok = try c.addTokenFmt(.string_literal, "\"{}\"", .{std.zig.fmtEscapes(payload.mangled)});
+            const err_msg_tok = try c.addTokenFmt(.string_literal, "\"{f}\"", .{std.zig.fmtString(payload.mangled)});
             const err_msg = try c.addNode(.{
                 .tag = .string_literal,
                 .main_token = err_msg_tok,
@@ -2116,7 +2116,7 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
     defer c.gpa.free(members);
 
     for (payload.fields, 0..) |field, i| {
-        const name_tok = try c.addTokenFmt(.identifier, "{p}", .{std.zig.fmtId(field.name)});
+        const name_tok = try c.addTokenFmt(.identifier, "{f}", .{std.zig.fmtIdFlags(field.name, .{ .allow_primitive = true })});
         _ = try c.addToken(.colon, ":");
         const type_expr = try renderNode(c, field.type);
 
@@ -2205,7 +2205,7 @@ fn renderFieldAccess(c: *Context, lhs: NodeIndex, field_name: []const u8) !NodeI
         .main_token = try c.addToken(.period, "."),
         .data = .{ .node_and_token = .{
             lhs,
-            try c.addTokenFmt(.identifier, "{p}", .{std.zig.fmtId(field_name)}),
+            try c.addTokenFmt(.identifier, "{f}", .{std.zig.fmtIdFlags(field_name, .{ .allow_primitive = true })}),
         } },
     });
 }
@@ -2681,7 +2681,7 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.l_paren, "(");
         const res = try c.addNode(.{
             .tag = .string_literal,
-            .main_token = try c.addTokenFmt(.string_literal, "\"{}\"", .{std.zig.fmtEscapes(some)}),
+            .main_token = try c.addTokenFmt(.string_literal, "\"{f}\"", .{std.zig.fmtString(some)}),
             .data = undefined,
         });
         _ = try c.addToken(.r_paren, ")");
@@ -2765,7 +2765,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.l_paren, "(");
         const res = try c.addNode(.{
             .tag = .string_literal,
-            .main_token = try c.addTokenFmt(.string_literal, "\"{}\"", .{std.zig.fmtEscapes(some)}),
+            .main_token = try c.addTokenFmt(.string_literal, "\"{f}\"", .{std.zig.fmtString(some)}),
             .data = undefined,
         });
         _ = try c.addToken(.r_paren, ")");

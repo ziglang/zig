@@ -717,9 +717,9 @@ fn render_docs(
                             try writer.writeAll("<a href=\"#");
                             _ = missing_feature_url_escape;
                             try writer.writeAll(g.link_buffer.items);
-                            try writer.print("\">{}</a>", .{markdown.fmtHtml(content)});
+                            try writer.print("\">{f}</a>", .{markdown.fmtHtml(content)});
                         } else {
-                            try writer.print("{}", .{markdown.fmtHtml(content)});
+                            try writer.print("{f}", .{markdown.fmtHtml(content)});
                         }
 
                         try writer.writeAll("</code>");

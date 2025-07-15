@@ -9,6 +9,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?comptime_int {
+    @setEvalBranchQuota(2_000);
+
     // This is guesswork, if you have better suggestions can add it or edit the current here
     const element_bit_size = @max(8, std.math.ceilPowerOfTwo(u16, @bitSizeOf(T)) catch unreachable);
     const vector_bit_size: u16 = blk: {

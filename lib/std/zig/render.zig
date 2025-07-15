@@ -262,17 +262,6 @@ fn renderMember(
             return renderToken(r, tree.lastToken(decl) + 1, space); // semicolon
         },
 
-        .@"usingnamespace" => {
-            const main_token = tree.nodeMainToken(decl);
-            const expr = tree.nodeData(decl).node;
-            if (tree.isTokenPrecededByTags(main_token, &.{.keyword_pub})) {
-                try renderToken(r, main_token - 1, .space); // pub
-            }
-            try renderToken(r, main_token, .space); // usingnamespace
-            try renderExpression(r, expr, .none);
-            return renderToken(r, tree.lastToken(expr) + 1, space); // ;
-        },
-
         .global_var_decl,
         .local_var_decl,
         .simple_var_decl,
@@ -591,7 +580,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .@"try",
         .@"resume",
-        .@"await",
         => {
             try renderToken(r, tree.nodeMainToken(node), .space);
             return renderExpression(r, tree.nodeData(node).node, space);
@@ -635,12 +623,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
             return renderCall(r, tree.fullCall(&buf, node).?, space);
@@ -882,7 +866,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
         .local_var_decl => unreachable,
         .simple_var_decl => unreachable,
         .aligned_var_decl => unreachable,
-        .@"usingnamespace" => unreachable,
         .test_decl => unreachable,
         .asm_output => unreachable,
         .asm_input => unreachable,
@@ -1581,7 +1564,7 @@ fn renderBuiltinCall(
             defer r.gpa.free(new_string);
 
             try renderToken(r, builtin_token + 1, .none); // (
-            try ais.writer().print("\"{}\"", .{std.zig.fmtEscapes(new_string)});
+            try ais.writer().print("\"{f}\"", .{std.zig.fmtString(new_string)});
             return renderToken(r, str_lit_token + 1, space); // )
         }
     }
@@ -2551,9 +2534,6 @@ fn renderCall(
     call: Ast.full.Call,
     space: Space,
 ) Error!void {
-    if (call.async_token) |async_token| {
-        try renderToken(r, async_token, .space);
-    }
     try renderExpression(r, call.ast.fn_expr, .none);
     try renderParamList(r, call.ast.lparen, call.ast.params, space);
 }
@@ -2892,7 +2872,7 @@ fn renderIdentifierContents(writer: anytype, bytes: []const u8) !void {
                     .success => |codepoint| {
                         if (codepoint <= 0x7f) {
                             const buf = [1]u8{@as(u8, @intCast(codepoint))};
-                            try std.fmt.format(writer, "{}", .{std.zig.fmtEscapes(&buf)});
+                            try std.fmt.format(writer, "{f}", .{std.zig.fmtString(&buf)});
                         } else {
                             try writer.writeAll(escape_sequence);
                         }
@@ -2904,7 +2884,7 @@ fn renderIdentifierContents(writer: anytype, bytes: []const u8) !void {
             },
             0x00...('\\' - 1), ('\\' + 1)...0x7f => {
                 const buf = [1]u8{byte};
-                try std.fmt.format(writer, "{}", .{std.zig.fmtEscapes(&buf)});
+                try std.fmt.format(writer, "{f}", .{std.zig.fmtString(&buf)});
                 pos += 1;
             },
             0x80...0xff => {
@@ -3265,7 +3245,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
     return struct {
         const Self = @This();
         pub const WriteError = UnderlyingWriter.Error;
-        pub const Writer = std.io.Writer(*Self, WriteError, write);
+        pub const Writer = std.io.GenericWriter(*Self, WriteError, write);
 
         pub const IndentType = enum {
             normal,

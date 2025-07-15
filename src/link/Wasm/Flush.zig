@@ -146,7 +146,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     const int_tag_ty = Zcu.Type.fromInterned(data.ip_index).intTagType(zcu);
                     gop.value_ptr.* = .{ .tag_name = .{
                         .symbol_name = try wasm.internStringFmt("__zig_tag_name_{d}", .{@intFromEnum(data.ip_index)}),
-                        .type_index = try wasm.internFunctionType(.Unspecified, &.{int_tag_ty.ip_index}, .slice_const_u8_sentinel_0, target),
+                        .type_index = try wasm.internFunctionType(.auto, &.{int_tag_ty.ip_index}, .slice_const_u8_sentinel_0, target),
                         .table_index = @intCast(wasm.tag_name_offs.items.len),
                     } };
                     try wasm.functions.put(gpa, .fromZcuFunc(wasm, @enumFromInt(gop.index)), {});
@@ -534,7 +534,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         wasm.memories.limits.max = @intCast(max_memory / page_size);
         wasm.memories.limits.flags.has_max = true;
         if (shared_memory) wasm.memories.limits.flags.is_shared = true;
-        log.debug("maximum memory pages: {?d}", .{wasm.memories.limits.max});
+        log.debug("maximum memory pages: {d}", .{wasm.memories.limits.max});
     }
     f.memory_layout_finished = true;
 
@@ -1035,20 +1035,14 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 var id: [16]u8 = undefined;
                 std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
                 var uuid: [36]u8 = undefined;
-                _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
-                    std.fmt.fmtSliceHexLower(id[0..4]),
-                    std.fmt.fmtSliceHexLower(id[4..6]),
-                    std.fmt.fmtSliceHexLower(id[6..8]),
-                    std.fmt.fmtSliceHexLower(id[8..10]),
-                    std.fmt.fmtSliceHexLower(id[10..]),
+                _ = try std.fmt.bufPrint(&uuid, "{x}-{x}-{x}-{x}-{x}", .{
+                    id[0..4], id[4..6], id[6..8], id[8..10], id[10..],
                 });
                 try emitBuildIdSection(gpa, binary_bytes, &uuid);
             },
             .hexstring => |hs| {
                 var buffer: [32 * 2]u8 = undefined;
-                const str = std.fmt.bufPrint(&buffer, "{s}", .{
-                    std.fmt.fmtSliceHexLower(hs.toSlice()),
-                }) catch unreachable;
+                const str = std.fmt.bufPrint(&buffer, "{x}", .{hs.toSlice()}) catch unreachable;
                 try emitBuildIdSection(gpa, binary_bytes, str);
             },
             else => |mode| {

@@ -16,7 +16,8 @@ pub fn main() !void {
         extern const bar: u32;
     };
     S.foo();
-    try std.io.getStdOut().writer().print("{}\n", .{S.bar});
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print("{}\n", .{S.bar});
 }
 const std = @import("std");
 #expect_stdout="123\n"
@@ -37,7 +38,8 @@ pub fn main() !void {
         extern const other: u32;
     };
     S.foo();
-    try std.io.getStdOut().writer().print("{} {}\n", .{ S.bar, S.other });
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print("{} {}\n", .{ S.bar, S.other });
 }
 const std = @import("std");
 #expect_error=main.zig:6:5: error: exported symbol collision: foo
@@ -59,7 +61,8 @@ pub fn main() !void {
         extern const other: u32;
     };
     S.foo();
-    try std.io.getStdOut().writer().print("{} {}\n", .{ S.bar, S.other });
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print("{} {}\n", .{ S.bar, S.other });
 }
 const std = @import("std");
 #expect_stdout="123 456\n"
@@ -83,7 +86,8 @@ pub fn main() !void {
         extern const other: u32;
     };
     S.foo();
-    try std.io.getStdOut().writer().print("{} {}\n", .{ S.bar, S.other });
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print("{} {}\n", .{ S.bar, S.other });
 }
 const std = @import("std");
 #expect_stdout="123 456\n"
@@ -128,7 +132,8 @@ pub fn main() !void {
         extern const other: u32;
     };
     S.foo();
-    try std.io.getStdOut().writer().print("{} {}\n", .{ S.bar, S.other });
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print("{} {}\n", .{ S.bar, S.other });
 }
 const std = @import("std");
 #expect_stdout="123 456\n"
@@ -152,7 +157,8 @@ pub fn main() !void {
         extern const other: u32;
     };
     S.foo();
-    try std.io.getStdOut().writer().print("{} {}\n", .{ S.bar, S.other });
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print("{} {}\n", .{ S.bar, S.other });
 }
 const std = @import("std");
 #expect_error=main.zig:5:5: error: exported symbol collision: bar

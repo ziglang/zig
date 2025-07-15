@@ -33,7 +33,7 @@ pub fn build(b: *std.Build) void {
     }
 
     // Build & run a C test case against a sampling of supported glibc versions
-    for ([_][]const u8{
+    versions: for ([_][]const u8{
         // "native-linux-gnu.2.0", // fails with a pile of missing symbols.
         "native-linux-gnu.2.2.5",
         "native-linux-gnu.2.4",
@@ -52,9 +52,14 @@ pub fn build(b: *std.Build) void {
         const glibc_ver = target.result.os.version_range.linux.glibc;
 
         // only build test if glibc version supports the architecture
-        if (target.result.cpu.arch.isAARCH64()) {
-            if (glibc_ver.order(.{ .major = 2, .minor = 17, .patch = 0 }) == .lt) {
+        for (std.zig.target.available_libcs) |libc| {
+            if (libc.arch != target.result.cpu.arch or
+                libc.os != target.result.os.tag or
+                libc.abi != target.result.abi)
                 continue;
+
+            if (libc.glibc_min) |min| {
+                if (glibc_ver.order(min) == .lt) continue :versions;
             }
         }
 
@@ -147,7 +152,7 @@ pub fn build(b: *std.Build) void {
     }
 
     // Build & run a Zig test case against a sampling of supported glibc versions
-    for ([_][]const u8{
+    versions: for ([_][]const u8{
         "native-linux-gnu.2.17", // Currently oldest supported, see #17769
         "native-linux-gnu.2.23",
         "native-linux-gnu.2.28",
@@ -160,6 +165,18 @@ pub fn build(b: *std.Build) void {
         ) catch unreachable);
 
         const glibc_ver = target.result.os.version_range.linux.glibc;
+
+        // only build test if glibc version supports the architecture
+        for (std.zig.target.available_libcs) |libc| {
+            if (libc.arch != target.result.cpu.arch or
+                libc.os != target.result.os.tag or
+                libc.abi != target.result.abi)
+                continue;
+
+            if (libc.glibc_min) |min| {
+                if (glibc_ver.order(min) == .lt) continue :versions;
+            }
+        }
 
         const exe = b.addExecutable(.{
             .name = t,

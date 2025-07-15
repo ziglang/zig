@@ -832,7 +832,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 else => unreachable,
             };
             b.cache_root.handle.makePath(output_sub_dir_path) catch |err| {
-                return step.fail("unable to make path '{}{s}': {s}", .{
+                return step.fail("unable to make path '{f}{s}': {s}", .{
                     b.cache_root, output_sub_dir_path, @errorName(err),
                 });
             };
@@ -864,7 +864,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             else => unreachable,
         };
         b.cache_root.handle.makePath(output_sub_dir_path) catch |err| {
-            return step.fail("unable to make path '{}{s}': {s}", .{
+            return step.fail("unable to make path '{f}{s}': {s}", .{
                 b.cache_root, output_sub_dir_path, @errorName(err),
             });
         };
@@ -903,21 +903,21 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         b.cache_root.handle.rename(tmp_dir_path, o_sub_path) catch |err| {
             if (err == error.PathAlreadyExists) {
                 b.cache_root.handle.deleteTree(o_sub_path) catch |del_err| {
-                    return step.fail("unable to remove dir '{}'{s}: {s}", .{
+                    return step.fail("unable to remove dir '{f}'{s}: {s}", .{
                         b.cache_root,
                         tmp_dir_path,
                         @errorName(del_err),
                     });
                 };
                 b.cache_root.handle.rename(tmp_dir_path, o_sub_path) catch |retry_err| {
-                    return step.fail("unable to rename dir '{}{s}' to '{}{s}': {s}", .{
+                    return step.fail("unable to rename dir '{f}{s}' to '{f}{s}': {s}", .{
                         b.cache_root,          tmp_dir_path,
                         b.cache_root,          o_sub_path,
                         @errorName(retry_err),
                     });
                 };
             } else {
-                return step.fail("unable to rename dir '{}{s}' to '{}{s}': {s}", .{
+                return step.fail("unable to rename dir '{f}{s}' to '{f}{s}': {s}", .{
                     b.cache_root,    tmp_dir_path,
                     b.cache_root,    o_sub_path,
                     @errorName(err),
@@ -964,7 +964,7 @@ pub fn rerunInFuzzMode(
             .artifact => |pa| {
                 const artifact = pa.artifact;
                 const file_path: []const u8 = p: {
-                    if (artifact == run.producer.?) break :p b.fmt("{}", .{run.rebuilt_executable.?});
+                    if (artifact == run.producer.?) break :p b.fmt("{f}", .{run.rebuilt_executable.?});
                     break :p artifact.installed_path orelse artifact.generated_bin.?.path.?;
                 };
                 try argv_list.append(arena, b.fmt("{s}{s}", .{
@@ -1011,24 +1011,17 @@ fn populateGeneratedPaths(
     }
 }
 
-fn formatTerm(
-    term: ?std.process.Child.Term,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = fmt;
-    _ = options;
+fn formatTerm(term: ?std.process.Child.Term, w: *std.io.Writer) std.io.Writer.Error!void {
     if (term) |t| switch (t) {
-        .Exited => |code| try writer.print("exited with code {}", .{code}),
-        .Signal => |sig| try writer.print("terminated with signal {}", .{sig}),
-        .Stopped => |sig| try writer.print("stopped with signal {}", .{sig}),
-        .Unknown => |code| try writer.print("terminated for unknown reason with code {}", .{code}),
+        .Exited => |code| try w.print("exited with code {d}", .{code}),
+        .Signal => |sig| try w.print("terminated with signal {d}", .{sig}),
+        .Stopped => |sig| try w.print("stopped with signal {d}", .{sig}),
+        .Unknown => |code| try w.print("terminated for unknown reason with code {d}", .{code}),
     } else {
-        try writer.writeAll("exited with any code");
+        try w.writeAll("exited with any code");
     }
 }
-fn fmtTerm(term: ?std.process.Child.Term) std.fmt.Formatter(formatTerm) {
+fn fmtTerm(term: ?std.process.Child.Term) std.fmt.Formatter(?std.process.Child.Term, formatTerm) {
     return .{ .data = term };
 }
 
@@ -1086,7 +1079,9 @@ fn runCommand(
     var interp_argv = std.ArrayList([]const u8).init(b.allocator);
     defer interp_argv.deinit();
 
-    const result = spawnChildAndCollect(run, argv, has_side_effects, prog_node, fuzz_context) catch |err| term: {
+    var env_map = run.env_map orelse &b.graph.env_map;
+
+    const result = spawnChildAndCollect(run, argv, env_map, has_side_effects, prog_node, fuzz_context) catch |err| term: {
         // InvalidExe: cpu arch mismatch
         // FileNotFound: can happen with a wrong dynamic linker path
         if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
@@ -1119,6 +1114,15 @@ fn runCommand(
                     if (b.enable_wine) {
                         try interp_argv.append(bin_name);
                         try interp_argv.appendSlice(argv);
+
+                        // Wine's excessive stderr logging is only situationally helpful. Disable it by default, but
+                        // allow the user to override it (e.g. with `WINEDEBUG=err+all`) if desired.
+                        if (env_map.get("WINEDEBUG") == null) {
+                            // We don't own `env_map` at this point, so turn it into a copy before modifying it.
+                            env_map = arena.create(EnvMap) catch @panic("OOM");
+                            env_map.hash_map = try env_map.hash_map.cloneWithAllocator(arena);
+                            try env_map.put("WINEDEBUG", "-all");
+                        }
                     } else {
                         return failForeign(run, "-fwine", argv[0], exe);
                     }
@@ -1214,7 +1218,7 @@ fn runCommand(
 
             try Step.handleVerbose2(step.owner, cwd, run.env_map, interp_argv.items);
 
-            break :term spawnChildAndCollect(run, interp_argv.items, has_side_effects, prog_node, fuzz_context) catch |e| {
+            break :term spawnChildAndCollect(run, interp_argv.items, env_map, has_side_effects, prog_node, fuzz_context) catch |e| {
                 if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
 
                 return step.fail("unable to spawn interpreter {s}: {s}", .{
@@ -1262,12 +1266,12 @@ fn runCommand(
             const sub_path = b.pathJoin(&output_components);
             const sub_path_dirname = fs.path.dirname(sub_path).?;
             b.cache_root.handle.makePath(sub_path_dirname) catch |err| {
-                return step.fail("unable to make path '{}{s}': {s}", .{
+                return step.fail("unable to make path '{f}{s}': {s}", .{
                     b.cache_root, sub_path_dirname, @errorName(err),
                 });
             };
             b.cache_root.handle.writeFile(.{ .sub_path = sub_path, .data = stream.bytes.? }) catch |err| {
-                return step.fail("unable to write file '{}{s}': {s}", .{
+                return step.fail("unable to write file '{f}{s}': {s}", .{
                     b.cache_root, sub_path, @errorName(err),
                 });
             };
@@ -1346,7 +1350,7 @@ fn runCommand(
             },
             .expect_term => |expected_term| {
                 if (!termMatches(expected_term, result.term)) {
-                    return step.fail("the following command {} (expected {}):\n{s}", .{
+                    return step.fail("the following command {f} (expected {f}):\n{s}", .{
                         fmtTerm(result.term),
                         fmtTerm(expected_term),
                         try Step.allocPrintCmd(arena, cwd, final_argv),
@@ -1366,7 +1370,7 @@ fn runCommand(
             };
             const expected_term: std.process.Child.Term = .{ .Exited = 0 };
             if (!termMatches(expected_term, result.term)) {
-                return step.fail("{s}the following command {} (expected {}):\n{s}", .{
+                return step.fail("{s}the following command {f} (expected {f}):\n{s}", .{
                     prefix,
                     fmtTerm(result.term),
                     fmtTerm(expected_term),
@@ -1397,6 +1401,7 @@ const ChildProcResult = struct {
 fn spawnChildAndCollect(
     run: *Run,
     argv: []const []const u8,
+    env_map: *EnvMap,
     has_side_effects: bool,
     prog_node: std.Progress.Node,
     fuzz_context: ?FuzzContext,
@@ -1413,7 +1418,7 @@ fn spawnChildAndCollect(
     if (run.cwd) |lazy_cwd| {
         child.cwd = lazy_cwd.getPath2(b, &run.step);
     }
-    child.env_map = run.env_map orelse &b.graph.env_map;
+    child.env_map = env_map;
     child.request_resource_usage_statistics = true;
 
     child.stdin_behavior = switch (run.stdio) {
@@ -1797,10 +1802,10 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
             stdout_bytes = try poller.fifo(.stdout).toOwnedSlice();
             stderr_bytes = try poller.fifo(.stderr).toOwnedSlice();
         } else {
-            stdout_bytes = try stdout.reader().readAllAlloc(arena, run.max_stdio_size);
+            stdout_bytes = try stdout.deprecatedReader().readAllAlloc(arena, run.max_stdio_size);
         }
     } else if (child.stderr) |stderr| {
-        stderr_bytes = try stderr.reader().readAllAlloc(arena, run.max_stdio_size);
+        stderr_bytes = try stderr.deprecatedReader().readAllAlloc(arena, run.max_stdio_size);
     }
 
     if (stderr_bytes) |bytes| if (bytes.len > 0) {

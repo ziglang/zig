@@ -7,7 +7,7 @@ const BinaryModule = @import("BinaryModule.zig");
 const Section = @import("../../codegen/spirv/Section.zig");
 const spec = @import("../../codegen/spirv/spec.zig");
 const Opcode = spec.Opcode;
-const ResultId = spec.IdResult;
+const ResultId = spec.Id;
 const Word = spec.Word;
 
 fn canDeduplicate(opcode: Opcode) bool {
@@ -20,9 +20,9 @@ fn canDeduplicate(opcode: Opcode) bool {
         // Debug decoration-style instructions
         .OpName, .OpMemberName => true,
         else => switch (opcode.class()) {
-            .TypeDeclaration,
-            .ConstantCreation,
-            .Annotation,
+            .type_declaration,
+            .constant_creation,
+            .annotation,
             => true,
             else => false,
         },
@@ -86,8 +86,8 @@ const ModuleInfo = struct {
             if (!canDeduplicate(inst.opcode)) continue;
 
             const result_id_index: u16 = switch (inst.opcode.class()) {
-                .TypeDeclaration, .Annotation, .Debug => 0,
-                .ConstantCreation => 1,
+                .type_declaration, .annotation, .debug => 0,
+                .constant_creation => 1,
                 else => unreachable,
             };
 
@@ -101,16 +101,16 @@ const ModuleInfo = struct {
             };
 
             switch (inst.opcode.class()) {
-                .Annotation, .Debug => {
+                .annotation, .debug => {
                     try decorations.append(arena, .{
                         .target_id = result_id,
                         .entity = entity,
                     });
                 },
-                .TypeDeclaration, .ConstantCreation => {
+                .type_declaration, .constant_creation => {
                     const entry = try entities.getOrPut(result_id);
                     if (entry.found_existing) {
-                        log.err("type or constant {} has duplicate definition", .{result_id});
+                        log.err("type or constant {f} has duplicate definition", .{result_id});
                         return error.DuplicateId;
                     }
                     entry.value_ptr.* = entity;
@@ -469,7 +469,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
         const inst_spec = parser.getInstSpec(inst.opcode).?;
 
         const maybe_result_id_offset: ?u16 = for (0..2) |i| {
-            if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .IdResult) {
+            if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .id_result) {
                 break @intCast(i);
             }
         } else null;
@@ -488,7 +488,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
         }
 
         switch (inst.opcode.class()) {
-            .Annotation, .Debug => {
+            .annotation, .debug => {
                 // For decoration-style instructions, only emit them
                 // if the target is not removed.
                 const target: ResultId = @enumFromInt(inst.operands[0]);
@@ -515,7 +515,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
                 // Debug and Annotation instructions don't need the forward pointer, and it
                 // messes up the logical layout of the module.
                 switch (inst.opcode.class()) {
-                    .TypeDeclaration, .ConstantCreation, .Memory => {},
+                    .type_declaration, .constant_creation, .memory => {},
                     else => continue,
                 }
 

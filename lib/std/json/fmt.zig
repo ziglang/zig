@@ -1,4 +1,5 @@
-const std = @import("std");
+const std = @import("../std.zig");
+const assert = std.debug.assert;
 
 const stringify = @import("stringify.zig").stringify;
 const StringifyOptions = @import("stringify.zig").StringifyOptions;
@@ -14,14 +15,7 @@ pub fn Formatter(comptime T: type) type {
         value: T,
         options: StringifyOptions,
 
-        pub fn format(
-            self: @This(),
-            comptime fmt_spec: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = fmt_spec;
-            _ = options;
+        pub fn format(self: @This(), writer: *std.io.Writer) std.io.Writer.Error!void {
             try stringify(self.value, self.options, writer);
         }
     };

@@ -64,7 +64,7 @@ pub fn cmdTargets(
         {
             var glibc_obj = try root_obj.beginTupleField("glibc", .{});
             for (glibc_abi.all_versions) |ver| {
-                const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
+                const tmp = try std.fmt.allocPrint(allocator, "{f}", .{ver});
                 defer allocator.free(tmp);
                 try glibc_obj.field(tmp, .{});
             }

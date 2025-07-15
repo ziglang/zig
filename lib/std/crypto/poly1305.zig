@@ -31,13 +31,13 @@ pub const Poly1305 = struct {
         };
     }
 
-    inline fn add(a: u64, b: u64, c: u1) struct { u64, u1 } {
+    fn add(a: u64, b: u64, c: u1) struct { u64, u1 } {
         const v1 = @addWithOverflow(a, b);
         const v2 = @addWithOverflow(v1[0], c);
         return .{ v2[0], v1[1] | v2[1] };
     }
 
-    inline fn sub(a: u64, b: u64, c: u1) struct { u64, u1 } {
+    fn sub(a: u64, b: u64, c: u1) struct { u64, u1 } {
         const v1 = @subWithOverflow(a, b);
         const v2 = @subWithOverflow(v1[0], c);
         return .{ v2[0], v1[1] | v2[1] };

@@ -38,7 +38,7 @@ pub const StringifyOptions = struct {
     emit_nonportable_numbers_as_strings: bool = false,
 };
 
-/// Writes the given value to the `std.io.Writer` stream.
+/// Writes the given value to the `std.io.GenericWriter` stream.
 /// See `WriteStream` for how the given value is serialized into JSON.
 /// The maximum nesting depth of the output JSON document is 256.
 /// See also `stringifyMaxDepth` and `stringifyArbitraryDepth`.
@@ -81,7 +81,7 @@ pub fn stringifyArbitraryDepth(
 }
 
 /// Calls `stringifyArbitraryDepth` and stores the result in dynamically allocated memory
-/// instead of taking a `std.io.Writer`.
+/// instead of taking a `std.io.GenericWriter`.
 ///
 /// Caller owns returned memory.
 pub fn stringifyAlloc(
@@ -469,7 +469,6 @@ pub fn WriteStream(
         ///      * When option `emit_nonportable_numbers_as_strings` is true, if the value is outside the range `+-1<<53` (the precise integer range of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
         ///  * Zig floats -> JSON number or string.
         ///      * If the value cannot be precisely represented by an f64, it is rendered as a JSON string. Otherwise, it is rendered as JSON number.
-        ///      * TODO: Float rendering will likely change in the future, e.g. to remove the unnecessary "e+00".
         ///  * Zig `[]const u8`, `[]u8`, `*[N]u8`, `@Vector(N, u8)`, and similar -> JSON string.
         ///      * See `StringifyOptions.emit_strings_as_arrays`.
         ///      * If the content is not valid UTF-8, rendered as an array of numbers instead.
@@ -689,7 +688,8 @@ fn outputUnicodeEscape(codepoint: u21, out_stream: anytype) !void {
         // then it may be represented as a six-character sequence: a reverse solidus, followed
         // by the lowercase letter u, followed by four hexadecimal digits that encode the character's code point.
         try out_stream.writeAll("\\u");
-        try std.fmt.formatIntValue(codepoint, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+        //try w.printInt("x", .{ .width = 4, .fill = '0' }, codepoint);
+        try std.fmt.format(out_stream, "{x:0>4}", .{codepoint});
     } else {
         assert(codepoint <= 0x10FFFF);
         // To escape an extended character that is not in the Basic Multilingual Plane,
@@ -697,9 +697,11 @@ fn outputUnicodeEscape(codepoint: u21, out_stream: anytype) !void {
         const high = @as(u16, @intCast((codepoint - 0x10000) >> 10)) + 0xD800;
         const low = @as(u16, @intCast(codepoint & 0x3FF)) + 0xDC00;
         try out_stream.writeAll("\\u");
-        try std.fmt.formatIntValue(high, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+        //try w.printInt("x", .{ .width = 4, .fill = '0' }, high);
+        try std.fmt.format(out_stream, "{x:0>4}", .{high});
         try out_stream.writeAll("\\u");
-        try std.fmt.formatIntValue(low, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+        //try w.printInt("x", .{ .width = 4, .fill = '0' }, low);
+        try std.fmt.format(out_stream, "{x:0>4}", .{low});
     }
 }
 

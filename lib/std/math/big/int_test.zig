@@ -688,7 +688,7 @@ test "string set base 36" {
     defer a.deinit();
 
     try a.setString(36, "fifvthrv1mzt79ez9");
-    try testing.expectEqual(123456789123456789123456789, try a.to(u128));
+    try testing.expectEqual(123456789123456789123456789, try a.toInt(u128));
 }
 
 test "string set bad char error" {
@@ -3813,13 +3813,10 @@ test "(BigInt) positive" {
     try a.pow(&a, 64 * @sizeOf(Limb) * 8);
     try b.sub(&a, &c);
 
-    const a_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{a});
-    defer testing.allocator.free(a_fmt);
+    try testing.expectFmt("(BigInt)", "{d}", .{a});
 
-    const b_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{b});
+    const b_fmt = try std.fmt.allocPrint(testing.allocator, "{d}", .{b});
     defer testing.allocator.free(b_fmt);
-
-    try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));
     try testing.expect(!mem.eql(u8, b_fmt, "(BigInt)"));
 }
 
@@ -3838,10 +3835,10 @@ test "(BigInt) negative" {
     a.negate();
     try b.add(&a, &c);
 
-    const a_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{a});
+    const a_fmt = try std.fmt.allocPrint(testing.allocator, "{d}", .{a});
     defer testing.allocator.free(a_fmt);
 
-    const b_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{b});
+    const b_fmt = try std.fmt.allocPrint(testing.allocator, "{d}", .{b});
     defer testing.allocator.free(b_fmt);
 
     try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));

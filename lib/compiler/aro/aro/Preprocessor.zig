@@ -811,7 +811,7 @@ fn verboseLog(pp: *Preprocessor, raw: RawToken, comptime fmt: []const u8, args: 
     const source = pp.comp.getSource(raw.source);
     const line_col = source.lineCol(.{ .id = raw.source, .line = raw.line, .byte_offset = raw.start });
 
-    const stderr = std.io.getStdErr().writer();
+    const stderr = std.fs.File.stderr().deprecatedWriter();
     var buf_writer = std.io.bufferedWriter(stderr);
     const writer = buf_writer.writer();
     defer buf_writer.flush() catch {};
@@ -3262,7 +3262,8 @@ fn printLinemarker(
         // containing the same bytes as the input regardless of encoding.
         else => {
             try w.writeAll("\\x");
-            try std.fmt.formatInt(byte, 16, .lower, .{ .width = 2, .fill = '0' }, w);
+            // TODO try w.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            try w.print("{x:0>2}", .{byte});
         },
     };
     try w.writeByte('"');

@@ -157,54 +157,34 @@ pub const Section = struct {
         }
     };
 
-    pub fn format(
-        msec: Section,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = msec;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format directly");
-    }
-
-    pub fn fmt(msec: Section, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(msec: Section, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{
             .msec = msec,
             .elf_file = elf_file,
         } };
     }
 
-    const FormatContext = struct {
+    const Format = struct {
         msec: Section,
         elf_file: *Elf,
-    };
 
-    pub fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        const msec = ctx.msec;
-        const elf_file = ctx.elf_file;
-        try writer.print("{s} : @{x} : size({x}) : align({x}) : entsize({x}) : type({x}) : flags({x})\n", .{
-            msec.name(elf_file),
-            msec.address(elf_file),
-            msec.size,
-            msec.alignment.toByteUnits() orelse 0,
-            msec.entsize,
-            msec.type,
-            msec.flags,
-        });
-        for (msec.subsections.items) |msub| {
-            try writer.print("   {}\n", .{msub.fmt(elf_file)});
+        pub fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const msec = f.msec;
+            const elf_file = f.elf_file;
+            try writer.print("{s} : @{x} : size({x}) : align({x}) : entsize({x}) : type({x}) : flags({x})\n", .{
+                msec.name(elf_file),
+                msec.address(elf_file),
+                msec.size,
+                msec.alignment.toByteUnits() orelse 0,
+                msec.entsize,
+                msec.type,
+                msec.flags,
+            });
+            for (msec.subsections.items) |msub| {
+                try writer.print("   {f}\n", .{msub.fmt(elf_file)});
+            }
         }
-    }
+    };
 
     pub const Index = u32;
 };
@@ -231,48 +211,28 @@ pub const Subsection = struct {
         return msec.bytes.items[msub.string_index..][0..msub.size];
     }
 
-    pub fn format(
-        msub: Subsection,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = msub;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format directly");
-    }
-
-    pub fn fmt(msub: Subsection, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(msub: Subsection, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{
             .msub = msub,
             .elf_file = elf_file,
         } };
     }
 
-    const FormatContext = struct {
+    const Format = struct {
         msub: Subsection,
         elf_file: *Elf,
-    };
 
-    pub fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        const msub = ctx.msub;
-        const elf_file = ctx.elf_file;
-        try writer.print("@{x} : align({x}) : size({x})", .{
-            msub.address(elf_file),
-            msub.alignment,
-            msub.size,
-        });
-        if (!msub.alive) try writer.writeAll(" : [*]");
-    }
+        pub fn default(ctx: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const msub = ctx.msub;
+            const elf_file = ctx.elf_file;
+            try writer.print("@{x} : align({x}) : size({x})", .{
+                msub.address(elf_file),
+                msub.alignment,
+                msub.size,
+            });
+            if (!msub.alive) try writer.writeAll(" : [*]");
+        }
+    };
 
     pub const Index = u32;
 };

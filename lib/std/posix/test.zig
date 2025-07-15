@@ -667,7 +667,7 @@ test "mmap" {
         const file = try tmp.dir.createFile(test_out_file, .{});
         defer file.close();
 
-        const stream = file.writer();
+        const stream = file.deprecatedWriter();
 
         var i: u32 = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
@@ -1001,6 +1001,11 @@ test "sigset_t bits" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/24380
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         var expected_sig: i32 = undefined;
         var handler_called_count: u32 = 0;
@@ -1161,7 +1166,7 @@ test "POSIX file locking with fcntl" {
         posix.exit(0);
     } else {
         // parent waits for child to get shared lock:
-        std.time.sleep(1 * std.time.ns_per_ms);
+        std.Thread.sleep(1 * std.time.ns_per_ms);
         // parent expects deadlock when attempting to upgrade the shared lock to exclusive:
         struct_flock.start = 1;
         struct_flock.type = posix.F.WRLCK;

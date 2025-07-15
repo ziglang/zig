@@ -44,8 +44,8 @@ pub fn parse(
         pos += @sizeOf(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
-            return diags.failParse(path, "invalid archive header delimiter: {s}", .{
-                std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
+            return diags.failParse(path, "invalid archive header delimiter: {f}", .{
+                std.ascii.hexEscape(&hdr.ar_fmag, .lower),
             });
         }
 
@@ -83,7 +83,7 @@ pub fn parse(
             .alive = false,
         };
 
-        log.debug("extracting object '{}' from archive '{}'", .{
+        log.debug("extracting object '{f}' from archive '{f}'", .{
             @as(Path, object.path), @as(Path, path),
         });
 
@@ -201,46 +201,26 @@ pub const ArSymtab = struct {
         }
     }
 
-    pub fn format(
-        ar: ArSymtab,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = ar;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format ar symtab directly; use fmt instead");
-    }
-
-    const FormatContext = struct {
+    const Format = struct {
         ar: ArSymtab,
         elf_file: *Elf,
+
+        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const ar = f.ar;
+            const elf_file = f.elf_file;
+            for (ar.symtab.items, 0..) |entry, i| {
+                const name = ar.strtab.getAssumeExists(entry.off);
+                const file = elf_file.file(entry.file_index).?;
+                try writer.print("  {d}: {s} in file({d})({f})\n", .{ i, name, entry.file_index, file.fmtPath() });
+            }
+        }
     };
 
-    pub fn fmt(ar: ArSymtab, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(ar: ArSymtab, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{
             .ar = ar,
             .elf_file = elf_file,
         } };
-    }
-
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        const ar = ctx.ar;
-        const elf_file = ctx.elf_file;
-        for (ar.symtab.items, 0..) |entry, i| {
-            const name = ar.strtab.getAssumeExists(entry.off);
-            const file = elf_file.file(entry.file_index).?;
-            try writer.print("  {d}: {s} in file({d})({})\n", .{ i, name, entry.file_index, file.fmtPath() });
-        }
     }
 
     const Entry = struct {
@@ -280,15 +260,8 @@ pub const ArStrtab = struct {
         try writer.writeAll(ar.buffer.items);
     }
 
-    pub fn format(
-        ar: ArStrtab,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        try writer.print("{s}", .{std.fmt.fmtSliceEscapeLower(ar.buffer.items)});
+    pub fn format(ar: ArStrtab, writer: *std.io.Writer) std.io.Writer.Error!void {
+        try writer.print("{f}", .{std.ascii.hexEscape(ar.buffer.items, .lower)});
     }
 };
 

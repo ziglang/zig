@@ -1,6 +1,7 @@
 const std = @import("std");
 const Document = @import("Document.zig");
 const Node = Document.Node;
+const assert = std.debug.assert;
 
 /// A Markdown document renderer.
 ///
@@ -41,7 +42,7 @@ pub fn Renderer(comptime Writer: type, comptime Context: type) type {
                         if (start == 1) {
                             try writer.writeAll("<ol>\n");
                         } else {
-                            try writer.print("<ol start=\"{}\">\n", .{start});
+                            try writer.print("<ol start=\"{d}\">\n", .{start});
                         }
                     } else {
                         try writer.writeAll("<ul>\n");
@@ -105,15 +106,15 @@ pub fn Renderer(comptime Writer: type, comptime Context: type) type {
                     }
                 },
                 .heading => {
-                    try writer.print("<h{}>", .{data.heading.level});
+                    try writer.print("<h{d}>", .{data.heading.level});
                     for (doc.extraChildren(data.heading.children)) |child| {
                         try r.renderFn(r, doc, child, writer);
                     }
-                    try writer.print("</h{}>\n", .{data.heading.level});
+                    try writer.print("</h{d}>\n", .{data.heading.level});
                 },
                 .code_block => {
                     const content = doc.string(data.code_block.content);
-                    try writer.print("<pre><code>{}</code></pre>\n", .{fmtHtml(content)});
+                    try writer.print("<pre><code>{f}</code></pre>\n", .{fmtHtml(content)});
                 },
                 .blockquote => {
                     try writer.writeAll("<blockquote>\n");
@@ -134,7 +135,7 @@ pub fn Renderer(comptime Writer: type, comptime Context: type) type {
                 },
                 .link => {
                     const target = doc.string(data.link.target);
-                    try writer.print("<a href=\"{}\">", .{fmtHtml(target)});
+                    try writer.print("<a href=\"{f}\">", .{fmtHtml(target)});
                     for (doc.extraChildren(data.link.children)) |child| {
                         try r.renderFn(r, doc, child, writer);
                     }
@@ -142,11 +143,11 @@ pub fn Renderer(comptime Writer: type, comptime Context: type) type {
                 },
                 .autolink => {
                     const target = doc.string(data.text.content);
-                    try writer.print("<a href=\"{0}\">{0}</a>", .{fmtHtml(target)});
+                    try writer.print("<a href=\"{0f}\">{0f}</a>", .{fmtHtml(target)});
                 },
                 .image => {
                     const target = doc.string(data.link.target);
-                    try writer.print("<img src=\"{}\" alt=\"", .{fmtHtml(target)});
+                    try writer.print("<img src=\"{f}\" alt=\"", .{fmtHtml(target)});
                     for (doc.extraChildren(data.link.children)) |child| {
                         try renderInlineNodeText(doc, child, writer);
                     }
@@ -168,11 +169,11 @@ pub fn Renderer(comptime Writer: type, comptime Context: type) type {
                 },
                 .code_span => {
                     const content = doc.string(data.text.content);
-                    try writer.print("<code>{}</code>", .{fmtHtml(content)});
+                    try writer.print("<code>{f}</code>", .{fmtHtml(content)});
                 },
                 .text => {
                     const content = doc.string(data.text.content);
-                    try writer.print("{}", .{fmtHtml(content)});
+                    try writer.print("{f}", .{fmtHtml(content)});
                 },
                 .line_break => {
                     try writer.writeAll("<br />\n");
@@ -221,7 +222,7 @@ pub fn renderInlineNodeText(
         },
         .autolink, .code_span, .text => {
             const content = doc.string(data.text.content);
-            try writer.print("{}", .{fmtHtml(content)});
+            try writer.print("{f}", .{fmtHtml(content)});
         },
         .line_break => {
             try writer.writeAll("\n");
@@ -229,18 +230,11 @@ pub fn renderInlineNodeText(
     }
 }
 
-pub fn fmtHtml(bytes: []const u8) std.fmt.Formatter(formatHtml) {
+pub fn fmtHtml(bytes: []const u8) std.fmt.Formatter([]const u8, formatHtml) {
     return .{ .data = bytes };
 }
 
-fn formatHtml(
-    bytes: []const u8,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = fmt;
-    _ = options;
+fn formatHtml(bytes: []const u8, writer: *std.io.Writer) std.io.Writer.Error!void {
     for (bytes) |b| {
         switch (b) {
             '<' => try writer.writeAll("&lt;"),

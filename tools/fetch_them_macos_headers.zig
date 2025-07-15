@@ -5,6 +5,8 @@ const mem = std.mem;
 const process = std.process;
 const assert = std.debug.assert;
 const tmpDir = std.testing.tmpDir;
+const fatal = std.process.fatal;
+const info = std.log.info;
 
 const Allocator = mem.Allocator;
 const OsTag = std.Target.Os.Tag;
@@ -244,19 +246,6 @@ const ArgsIterator = struct {
         return arg;
     }
 };
-
-fn info(comptime format: []const u8, args: anytype) void {
-    const msg = std.fmt.allocPrint(gpa, "info: " ++ format ++ "\n", args) catch return;
-    std.io.getStdOut().writeAll(msg) catch {};
-}
-
-fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    ret: {
-        const msg = std.fmt.allocPrint(gpa, "fatal: " ++ format ++ "\n", args) catch break :ret;
-        std.io.getStdErr().writeAll(msg) catch {};
-    }
-    std.process.exit(1);
-}
 
 const Version = struct {
     major: u16,
