@@ -2491,18 +2491,17 @@ pub const Allocating = struct {
 
     fn sendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) FileError!usize {
         if (File.Handle == void) return error.Unimplemented;
+        if (limit == .nothing) return 0;
         const a: *Allocating = @fieldParentPtr("writer", w);
         const gpa = a.allocator;
         var list = a.toArrayList();
         defer setArrayList(a, list);
         const pos = file_reader.pos;
         const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
+        if (additional == 0) return error.EndOfStream;
         list.ensureUnusedCapacity(gpa, limit.minInt64(additional)) catch return error.WriteFailed;
         const dest = limit.slice(list.unusedCapacitySlice());
-        const n = file_reader.read(dest) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
-            error.EndOfStream => 0,
-        };
+        const n = try file_reader.read(dest);
         list.items.len += n;
         return n;
     }
@@ -2525,7 +2524,7 @@ pub const Allocating = struct {
     }
 };
 
-test sendFile {
+test "discarding sendFile" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
@@ -2543,4 +2542,24 @@ test sendFile {
     var discarding: std.io.Writer.Discarding = .init(&w_buffer);
 
     _ = try file_reader.interface.streamRemaining(&discarding.writer);
+}
+
+test "allocating sendFile" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    var r_buffer: [256]u8 = undefined;
+    var file_writer: std.fs.File.Writer = .init(file, &r_buffer);
+    try file_writer.interface.writeByte('h');
+    try file_writer.interface.flush();
+
+    var file_reader = file_writer.moveToReader();
+    try file_reader.seekTo(0);
+
+    var allocating: std.io.Writer.Allocating = .init(std.testing.allocator);
+    defer allocating.deinit();
+
+    _ = try file_reader.interface.streamRemaining(&allocating.writer);
 }
