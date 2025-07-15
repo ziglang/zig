@@ -10895,6 +10895,7 @@ pub fn stdin() *FILE {
         .freebsd, .dragonfly, .macos, .ios, .tvos, .watchos, .visionos => private.__stdinp,
         .netbsd, .openbsd => &private.__sF[0],
         .solaris, .illumos => &private.__iob[0],
+        .windows => private.__acrt_iob_func(0),
         else => @compileError("stdio streams unsupported on this platform"),
     };
 }
@@ -10905,6 +10906,7 @@ pub fn stdout() *FILE {
         .freebsd, .dragonfly, .macos, .ios, .tvos, .watchos, .visionos => private.__stdoutp,
         .netbsd, .openbsd => &private.__sF[1],
         .solaris, .illumos => &private.__iob[1],
+        .windows => private.__acrt_iob_func(1),
         else => @compileError("stdio streams unsupported on this platform"),
     };
 }
@@ -10915,6 +10917,7 @@ pub fn stderr() *FILE {
         .freebsd, .dragonfly, .macos, .ios, .tvos, .watchos, .visionos => private.__stderrp,
         .netbsd, .openbsd => &private.__sF[2],
         .solaris, .illumos => &private.__iob[2],
+        .windows => private.__acrt_iob_func(2),
         else => @compileError("stdio streams unsupported on this platform"),
     };
 }
@@ -11441,6 +11444,9 @@ const private = struct {
         .solaris, .illumos => [3]FILE,
         else => void,
     };
+
+    // Windows stdio streams
+    extern "c" fn __acrt_iob_func(index: c_uint) *FILE;
 
     // Don't forget to add another clown when an OS picks yet another unique
     // symbol name for errno location!
