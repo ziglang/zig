@@ -796,16 +796,9 @@ pub inline fn writeInt(w: *Writer, comptime T: type, value: T, endian: std.built
     return w.writeAll(&bytes);
 }
 
-pub fn writeStruct(w: *Writer, value: anytype) Error!void {
-    // Only extern and packed structs have defined in-memory layout.
-    comptime assert(@typeInfo(@TypeOf(value)).@"struct".layout != .auto);
-    return w.writeAll(std.mem.asBytes(&value));
-}
-
 /// The function is inline to avoid the dead code in case `endian` is
 /// comptime-known and matches host endianness.
-/// TODO: make sure this value is not a reference type
-pub inline fn writeStructEndian(w: *Writer, value: anytype, endian: std.builtin.Endian) Error!void {
+pub inline fn writeStruct(w: *Writer, value: anytype, endian: std.builtin.Endian) Error!void {
     switch (@typeInfo(@TypeOf(value))) {
         .@"struct" => |info| switch (info.layout) {
             .auto => @compileError("ill-defined memory layout"),
