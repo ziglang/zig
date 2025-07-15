@@ -13041,8 +13041,10 @@ fn analyzeSwitchRuntimeBlock(
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(cases_extra.items));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(else_body));
 
+    const has_any_continues = spa.operand == .loop and child_block.label.?.merges.extra_insts.items.len > 0;
+
     return try child_block.addInst(.{
-        .tag = if (spa.operand == .loop) .loop_switch_br else .switch_br,
+        .tag = if (has_any_continues) .loop_switch_br else .switch_br,
         .data = .{ .pl_op = .{
             .operand = operand,
             .payload = payload_index,

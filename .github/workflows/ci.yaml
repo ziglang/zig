@@ -51,7 +51,8 @@ jobs:
       - name: Build and Test
         run: sh ci/aarch64-linux-release.sh
   riscv64-linux-debug:
-    timeout-minutes: 900
+    if: ${{ github.event_name == 'push' }}
+    timeout-minutes: 1020
     runs-on: [self-hosted, Linux, riscv64]
     steps:
       - name: Checkout
@@ -59,7 +60,8 @@ jobs:
       - name: Build and Test
         run: sh ci/riscv64-linux-debug.sh
   riscv64-linux-release:
-    timeout-minutes: 780
+    if: ${{ github.event_name == 'push' }}
+    timeout-minutes: 900
     runs-on: [self-hosted, Linux, riscv64]
     steps:
       - name: Checkout

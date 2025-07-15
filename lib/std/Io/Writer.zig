@@ -393,6 +393,32 @@ pub fn writableVectorPosix(w: *Writer, buffer: []std.posix.iovec, limit: Limit) 
     return buffer[0..i];
 }
 
+pub fn writableVectorWsa(
+    w: *Writer,
+    buffer: []std.os.windows.ws2_32.WSABUF,
+    limit: Limit,
+) Error![]std.os.windows.ws2_32.WSABUF {
+    var it = try writableVectorIterator(w);
+    var i: usize = 0;
+    var remaining = limit;
+    while (it.next()) |full_buffer| {
+        if (!remaining.nonzero()) break;
+        if (buffer.len - i == 0) break;
+        const buf = remaining.slice(full_buffer);
+        if (buf.len == 0) continue;
+        if (std.math.cast(u32, buf.len)) |len| {
+            buffer[i] = .{ .buf = buf.ptr, .len = len };
+            i += 1;
+            remaining = remaining.subtract(len).?;
+            continue;
+        }
+        buffer[i] = .{ .buf = buf.ptr, .len = std.math.maxInt(u32) };
+        i += 1;
+        break;
+    }
+    return buffer[0..i];
+}
+
 pub fn ensureUnusedCapacity(w: *Writer, n: usize) Error!void {
     _ = try writableSliceGreedy(w, n);
 }
@@ -2162,7 +2188,7 @@ pub const Discarding = struct {
     pub fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
         const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
         const slice = data[0 .. data.len - 1];
-        const pattern = data[slice.len..];
+        const pattern = data[slice.len];
         var written: usize = pattern.len * splat;
         for (slice) |bytes| written += bytes.len;
         d.count += w.end + written;
@@ -2420,12 +2446,14 @@ pub const Allocating = struct {
 
     pub fn toOwnedSlice(a: *Allocating) error{OutOfMemory}![]u8 {
         var list = a.toArrayList();
+        defer a.setArrayList(list);
         return list.toOwnedSlice(a.allocator);
     }
 
     pub fn toOwnedSliceSentinel(a: *Allocating, comptime sentinel: u8) error{OutOfMemory}![:sentinel]u8 {
         const gpa = a.allocator;
         var list = toArrayList(a);
+        defer a.setArrayList(list);
         return list.toOwnedSliceSentinel(gpa, sentinel);
     }
 
