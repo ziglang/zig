@@ -58,8 +58,7 @@ export fn _start() callconv(.c) noreturn {
         \\syscall
         :
         : [missed] "{edi}" (missed),
-        : "edi", "eax"
-    );
+        : .{ .edi = true, .eax = true });
 
     while (true) {} // unreached
 }

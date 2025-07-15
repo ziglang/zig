@@ -2400,6 +2400,7 @@ fn renderAsmLegacy(
             while (true) : (tok_i += 1) {
                 try ais.writer().writeAll(".@");
                 try ais.writer().writeAll(tokenSliceForRender(tree, tok_i));
+                try ais.writer().writeAll(" = true");
 
                 tok_i += 1;
                 switch (tree.tokenTag(tok_i)) {
@@ -2514,7 +2515,7 @@ fn renderAsmLegacy(
                 try ais.writer().writeAll(".@");
                 const lexeme = tokenSliceForRender(tree, tok_i);
                 try ais.writer().writeAll(lexeme);
-                try ais.writer().writeAll(" }");
+                try ais.writer().writeAll(" = true }");
                 try renderSpace(r, tok_i, lexeme.len, .newline);
                 ais.popIndent();
                 return renderToken(r, tok_i + 1, space);
@@ -2526,7 +2527,7 @@ fn renderAsmLegacy(
                         try ais.writer().writeAll(".@");
                         const lexeme = tokenSliceForRender(tree, tok_i);
                         try ais.writer().writeAll(lexeme);
-                        try ais.writer().writeAll(" }");
+                        try ais.writer().writeAll(" = true }");
                         try renderSpace(r, tok_i, lexeme.len, .newline);
                         ais.popIndent();
                         return renderToken(r, tok_i + 2, space);
@@ -2534,6 +2535,7 @@ fn renderAsmLegacy(
                     else => {
                         try ais.writer().writeAll(".@");
                         try ais.writer().writeAll(tokenSliceForRender(tree, tok_i));
+                        try ais.writer().writeAll(" = true");
                         try renderToken(r, tok_i + 1, .space);
                         tok_i += 2;
                     },

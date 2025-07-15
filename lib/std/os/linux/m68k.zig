@@ -15,8 +15,7 @@ pub fn syscall0(number: SYS) usize {
     return asm volatile ("trap #0"
         : [ret] "={d0}" (-> usize),
         : [number] "{d0}" (@intFromEnum(number)),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -24,8 +23,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={d0}" (-> usize),
         : [number] "{d0}" (@intFromEnum(number)),
           [arg1] "{d1}" (arg1),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -34,8 +32,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{d0}" (@intFromEnum(number)),
           [arg1] "{d1}" (arg1),
           [arg2] "{d2}" (arg2),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -45,8 +42,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{d1}" (arg1),
           [arg2] "{d2}" (arg2),
           [arg3] "{d3}" (arg3),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -57,8 +53,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{d2}" (arg2),
           [arg3] "{d3}" (arg3),
           [arg4] "{d4}" (arg4),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -70,8 +65,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{d3}" (arg3),
           [arg4] "{d4}" (arg4),
           [arg5] "{d5}" (arg5),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall6(
@@ -92,8 +86,7 @@ pub fn syscall6(
           [arg4] "{d4}" (arg4),
           [arg5] "{d5}" (arg5),
           [arg6] "{a0}" (arg6),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn clone() callconv(.naked) usize {
@@ -155,8 +148,7 @@ pub fn restore_rt() callconv(.naked) noreturn {
     asm volatile ("trap #0"
         :
         : [number] "{d0}" (@intFromEnum(SYS.rt_sigreturn)),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub const F = struct {

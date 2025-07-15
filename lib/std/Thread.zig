@@ -1198,8 +1198,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .x86_64 => asm volatile (
                     \\  movq $11, %%rax # SYS_munmap
                     \\  syscall
@@ -1221,8 +1220,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .aarch64, .aarch64_be => asm volatile (
                     \\  mov x8, #215 // SYS_munmap
                     \\  mov x0, %[ptr]
@@ -1234,8 +1232,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .hexagon => asm volatile (
                     \\  r6 = #215 // SYS_munmap
                     \\  r0 = %[ptr]
@@ -1247,8 +1244,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 // We set `sp` to the address of the current function as a workaround for a Linux
                 // kernel bug that caused syscalls to return EFAULT if the stack pointer is invalid.
                 // The bug was introduced in 46e12c07b3b9603c60fc1d421ff18618241cb081 and fixed in
@@ -1265,8 +1261,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .mips64, .mips64el => asm volatile (
                     \\  li $2, 5011 # SYS_munmap
                     \\  move $4, %[ptr]
@@ -1278,8 +1273,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile (
                     \\  li 0, 91 # SYS_munmap
                     \\  mr 3, %[ptr]
@@ -1292,8 +1286,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .riscv32, .riscv64 => asm volatile (
                     \\  li a7, 215 # SYS_munmap
                     \\  mv a0, %[ptr]
@@ -1305,8 +1298,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .s390x => asm volatile (
                     \\  lgr %%r2, %[ptr]
                     \\  lgr %%r3, %[len]
@@ -1316,8 +1308,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .sparc => asm volatile (
                     \\ # See sparc64 comments below.
                     \\ 1:
@@ -1338,8 +1329,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .sparc64 => asm volatile (
                     \\ # SPARCs really don't like it when active stack frames
                     \\ # is unmapped (it will result in a segfault), so we
@@ -1365,8 +1355,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .loongarch32, .loongarch64 => asm volatile (
                     \\ or      $a0, $zero, %[ptr]
                     \\ or      $a1, $zero, %[len]
@@ -1378,8 +1367,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 else => |cpu_arch| @compileError("Unsupported linux arch: " ++ @tagName(cpu_arch)),
             }
             unreachable;

@@ -785,7 +785,7 @@ pub const StackIterator = struct {
                     "flushw"
                 else
                     "ta 3" // ST_FLUSH_WINDOWS
-                ::: "memory");
+                ::: .{ .memory = true });
         }
 
         return StackIterator{

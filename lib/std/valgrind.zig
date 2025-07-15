@@ -17,8 +17,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
             : [_] "={r3}" (-> usize),
             : [_] "{r4}" (args),
               [_] "{r3}" (default),
-            : "cc", "memory"
-        ),
+            : .{ .cc = true, .memory = true }),
         .aarch64, .aarch64_be => asm volatile (
             \\ ror x12, x12, #3  ; ror x12, x12, #13
             \\ ror x12, x12, #51 ; ror x12, x12, #61
@@ -26,8 +25,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
             : [_] "={x3}" (-> usize),
             : [_] "{x4}" (args),
               [_] "{x3}" (default),
-            : "cc", "memory"
-        ),
+            : .{ .cc = true, .memory = true }),
         .mips, .mipsel => asm volatile (
             \\ srl $0,  $0,  13
             \\ srl $0,  $0,  29
@@ -37,8 +35,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
             : [_] "={$11}" (-> usize),
             : [_] "{$12}" (args),
               [_] "{$11}" (default),
-            : "memory"
-        ),
+            : .{ .memory = true }),
         .mips64, .mips64el => asm volatile (
             \\ dsll $0,  $0,  3   ; dsll $0, $0, 13
             \\ dsll $0,  $0,  29  ; dsll $0, $0, 19
@@ -46,8 +43,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
             : [_] "={$11}" (-> usize),
             : [_] "{$12}" (args),
               [_] "{$11}" (default),
-            : "memory"
-        ),
+            : .{ .memory = true }),
         .powerpc, .powerpcle => asm volatile (
             \\ rlwinm 0, 0, 3,  0, 31 ; rlwinm 0, 0, 13, 0, 31
             \\ rlwinm 0, 0, 29, 0, 31 ; rlwinm 0, 0, 19, 0, 31
@@ -55,8 +51,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
             : [_] "={r3}" (-> usize),
             : [_] "{r4}" (args),
               [_] "{r3}" (default),
-            : "cc", "memory"
-        ),
+            : .{ .cc = true, .memory = true }),
         .powerpc64, .powerpc64le => asm volatile (
             \\ rotldi 0, 0, 3  ; rotldi 0, 0, 13
             \\ rotldi 0, 0, 61 ; rotldi 0, 0, 51
@@ -64,8 +59,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
             : [_] "={r3}" (-> usize),
             : [_] "{r4}" (args),
               [_] "{r3}" (default),
-            : "cc", "memory"
-        ),
+            : .{ .cc = true, .memory = true }),
         .riscv64 => asm volatile (
             \\ .option push
             \\ .option norvc
@@ -78,8 +72,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
             : [_] "={a3}" (-> usize),
             : [_] "{a4}" (args),
               [_] "{a3}" (default),
-            : "cc", "memory"
-        ),
+            : .{ .cc = true, .memory = true }),
         .s390x => asm volatile (
             \\ lr %%r15, %%r15
             \\ lr %%r1,  %%r1
@@ -89,8 +82,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
             : [_] "={r3}" (-> usize),
             : [_] "{r2}" (args),
               [_] "{r3}" (default),
-            : "cc", "memory"
-        ),
+            : .{ .cc = true, .memory = true }),
         .x86 => asm volatile (
             \\ roll  $3,    %%edi ; roll $13, %%edi
             \\ roll  $29,   %%edi ; roll $19, %%edi
@@ -98,8 +90,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
             : [_] "={edx}" (-> usize),
             : [_] "{eax}" (args),
               [_] "{edx}" (default),
-            : "cc", "memory"
-        ),
+            : .{ .cc = true, .memory = true }),
         .x86_64 => asm volatile (
             \\ rolq  $3,    %%rdi ; rolq $13, %%rdi
             \\ rolq  $61,   %%rdi ; rolq $51, %%rdi
@@ -107,8 +98,7 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
             : [_] "={rdx}" (-> usize),
             : [_] "{rax}" (args),
               [_] "{rdx}" (default),
-            : "cc", "memory"
-        ),
+            : .{ .cc = true, .memory = true }),
         else => default,
     };
 }
