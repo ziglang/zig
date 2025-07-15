@@ -1590,6 +1590,40 @@ test readSliceShort {
     try testing.expectEqual(0, try r.readSliceShort(&buf));
 }
 
+test "readSliceShort with an oversized reader buffer" {
+    const OneByteReader = struct {
+        str: []const u8,
+        i: usize,
+        reader: Reader,
+
+        fn stream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
+            assert(@intFromEnum(limit) >= 1);
+            const self: *@This() = @fieldParentPtr("reader", r);
+            if (self.str.len - self.i == 0) return error.EndOfStream;
+            try w.writeByte(self.str[self.i]);
+            self.i += 1;
+            return 1;
+        }
+    };
+
+    var reader_buf: [15]u8 = undefined;
+    const str = "This is a test";
+    var r: OneByteReader = .{
+        .str = str,
+        .i = 0,
+        .reader = .{
+            .buffer = &reader_buf,
+            .vtable = &.{ .stream = OneByteReader.stream },
+            .seek = 0,
+            .end = 0,
+        },
+    };
+
+    var buf: [14]u8 = undefined;
+    try testing.expectEqual(14, try r.reader.readSliceShort(&buf));
+    try testing.expectEqualStrings(str, buf[0..14]);
+}
+
 test readVec {
     var r: Reader = .fixed(std.ascii.letters);
     var flat_buffer: [52]u8 = undefined;
