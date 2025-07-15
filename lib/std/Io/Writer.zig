@@ -2194,8 +2194,10 @@ pub const Discarding = struct {
         const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
         d.count += w.end;
         w.end = 0;
+        if (limit == .nothing) return 0;
         if (file_reader.getSize()) |size| {
             const n = limit.minInt64(size - file_reader.pos);
+            if (n == 0) return error.EndOfStream;
             file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
             w.end = 0;
             d.count += n;
@@ -2522,3 +2524,23 @@ pub const Allocating = struct {
         try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", a.getWritten());
     }
 };
+
+test sendFile {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    var r_buffer: [256]u8 = undefined;
+    var file_writer: std.fs.File.Writer = .init(file, &r_buffer);
+    try file_writer.interface.writeByte('h');
+    try file_writer.interface.flush();
+
+    var file_reader = file_writer.moveToReader();
+    try file_reader.seekTo(0);
+
+    var w_buffer: [256]u8 = undefined;
+    var discarding: std.io.Writer.Discarding = .init(&w_buffer);
+
+    _ = try file_reader.interface.streamRemaining(&discarding.writer);
+}
