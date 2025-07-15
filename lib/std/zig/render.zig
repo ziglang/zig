@@ -2398,8 +2398,8 @@ fn renderAsmLegacy(
 
             var tok_i = first_clobber;
             while (true) : (tok_i += 1) {
-                try ais.writer().writeAll(".@");
-                try ais.writer().writeAll(tokenSliceForRender(tree, tok_i));
+                try ais.writer().writeByte('.');
+                _ = try writeStringLiteralAsIdentifier(r, tok_i);
                 try ais.writer().writeAll(" = true");
 
                 tok_i += 1;
@@ -2411,6 +2411,7 @@ fn renderAsmLegacy(
                     },
                     .comma => {
                         if (tree.tokenTag(tok_i + 1) == .r_paren) {
+                            try ais.writer().writeAll(" }");
                             ais.popIndent();
                             return renderToken(r, tok_i + 1, space);
                         } else {
@@ -2512,11 +2513,10 @@ fn renderAsmLegacy(
         switch (tree.tokenTag(tok_i + 1)) {
             .r_paren => {
                 ais.setIndentDelta(indent_delta);
-                try ais.writer().writeAll(".@");
-                const lexeme = tokenSliceForRender(tree, tok_i);
-                try ais.writer().writeAll(lexeme);
+                try ais.writer().writeByte('.');
+                const lexeme_len = try writeStringLiteralAsIdentifier(r, tok_i);
                 try ais.writer().writeAll(" = true }");
-                try renderSpace(r, tok_i, lexeme.len, .newline);
+                try renderSpace(r, tok_i, lexeme_len, .newline);
                 ais.popIndent();
                 return renderToken(r, tok_i + 1, space);
             },
@@ -2524,17 +2524,16 @@ fn renderAsmLegacy(
                 switch (tree.tokenTag(tok_i + 2)) {
                     .r_paren => {
                         ais.setIndentDelta(indent_delta);
-                        try ais.writer().writeAll(".@");
-                        const lexeme = tokenSliceForRender(tree, tok_i);
-                        try ais.writer().writeAll(lexeme);
+                        try ais.writer().writeByte('.');
+                        const lexeme_len = try writeStringLiteralAsIdentifier(r, tok_i);
                         try ais.writer().writeAll(" = true }");
-                        try renderSpace(r, tok_i, lexeme.len, .newline);
+                        try renderSpace(r, tok_i, lexeme_len, .newline);
                         ais.popIndent();
                         return renderToken(r, tok_i + 2, space);
                     },
                     else => {
-                        try ais.writer().writeAll(".@");
-                        try ais.writer().writeAll(tokenSliceForRender(tree, tok_i));
+                        try ais.writer().writeByte('.');
+                        _ = try writeStringLiteralAsIdentifier(r, tok_i);
                         try ais.writer().writeAll(" = true");
                         try renderToken(r, tok_i + 1, .space);
                         tok_i += 2;
@@ -3230,6 +3229,22 @@ fn tokenSliceForRender(tree: Ast, token_index: Ast.TokenIndex) []const u8 {
         else => {},
     }
     return ret;
+}
+
+fn writeStringLiteralAsIdentifier(r: *Render, token_index: Ast.TokenIndex) !usize {
+    const tree = r.tree;
+    const ais = r.ais;
+    assert(tree.tokenTag(token_index) == .string_literal);
+    const lexeme = tokenSliceForRender(tree, token_index);
+    const unquoted = lexeme[1..][0 .. lexeme.len - 2];
+    if (std.zig.isValidId(unquoted)) {
+        try ais.writer().writeAll(unquoted);
+        return unquoted.len;
+    } else {
+        try ais.writer().writeByte('@');
+        try ais.writer().writeAll(lexeme);
+        return lexeme.len + 1;
+    }
 }
 
 fn hasSameLineComment(tree: Ast, token_index: Ast.TokenIndex) bool {
