@@ -31,6 +31,7 @@ pub fn build(b: *std.Build) void {
     const tools_target = b.resolveTargetQuery(.{});
     for ([_][]const u8{
         // Alphabetically sorted. No need to build `tools/spirv/grammar.zig`.
+        "../../tools/dump-cov.zig",
         "../../tools/fetch_them_macos_headers.zig",
         "../../tools/gen_macos_headers_c.zig",
         "../../tools/gen_outline_atomics.zig",
