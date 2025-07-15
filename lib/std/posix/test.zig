@@ -1001,6 +1001,11 @@ test "sigset_t bits" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/24380
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         var expected_sig: i32 = undefined;
         var handler_called_count: u32 = 0;
