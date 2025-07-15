@@ -580,25 +580,29 @@ pub fn readSliceAll(r: *Reader, buffer: []u8) Error!void {
 /// See also:
 /// * `readSliceAll`
 pub fn readSliceShort(r: *Reader, buffer: []u8) ShortError!usize {
-    const in_buffer = r.buffer[r.seek..r.end];
-    const copy_len = @min(buffer.len, in_buffer.len);
-    @memcpy(buffer[0..copy_len], in_buffer[0..copy_len]);
-    if (buffer.len - copy_len == 0) {
-        r.seek += copy_len;
-        return buffer.len;
-    }
-    var i: usize = copy_len;
+    var i: usize = empty_existing_buffered: {
+        const in_buffer = r.buffer[r.seek..r.end];
+        const copy_len = @min(buffer.len, in_buffer.len);
+        @memcpy(buffer[0..copy_len], in_buffer[0..copy_len]);
+        if (buffer.len - copy_len == 0) {
+            r.seek += copy_len;
+            return buffer.len;
+        }
+        break :empty_existing_buffered copy_len;
+    };
     r.end = 0;
-    r.seek = 0;
     while (true) {
+        r.seek = 0;
         const remaining = buffer[i..];
+        const preserve = remaining.len < r.buffer.len;
         var wrapper: Writer.VectorWrapper = .{
             .it = .{
                 .first = remaining,
                 .last = r.buffer,
             },
             .writer = .{
-                .buffer = if (remaining.len >= r.buffer.len) remaining else r.buffer,
+                // Guarantee bytes that fit in reader buffer are not discarded.
+                .buffer = if (preserve) r.buffer else remaining,
                 .vtable = Writer.VectorWrapper.vtable,
             },
         };
@@ -615,11 +619,16 @@ pub fn readSliceShort(r: *Reader, buffer: []u8) ShortError!usize {
             error.EndOfStream => return i,
             error.ReadFailed => return error.ReadFailed,
         };
+        if (!wrapper.used and preserve) {
+            const copy_len = @min(remaining.len, n);
+            @memcpy(remaining[0..copy_len], r.buffer[0..copy_len]);
+            r.seek = copy_len;
+        }
         if (n < remaining.len) {
             i += n;
             continue;
         }
-        r.end = n - remaining.len;
+        r.end = r.seek + n - remaining.len;
         return buffer.len;
     }
 }
