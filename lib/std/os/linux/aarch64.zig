@@ -18,7 +18,7 @@ pub fn syscall0(number: SYS) usize {
     return asm volatile ("svc #0"
         : [ret] "={x0}" (-> usize),
         : [number] "{x8}" (@intFromEnum(number)),
-        : .{ .memory = true, .cc = true });
+        : .{ .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -26,7 +26,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={x0}" (-> usize),
         : [number] "{x8}" (@intFromEnum(number)),
           [arg1] "{x0}" (arg1),
-        : .{ .memory = true, .cc = true });
+        : .{ .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -35,7 +35,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{x8}" (@intFromEnum(number)),
           [arg1] "{x0}" (arg1),
           [arg2] "{x1}" (arg2),
-        : .{ .memory = true, .cc = true });
+        : .{ .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -45,7 +45,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{x0}" (arg1),
           [arg2] "{x1}" (arg2),
           [arg3] "{x2}" (arg3),
-        : .{ .memory = true, .cc = true });
+        : .{ .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -56,7 +56,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{x1}" (arg2),
           [arg3] "{x2}" (arg3),
           [arg4] "{x3}" (arg4),
-        : .{ .memory = true, .cc = true });
+        : .{ .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -68,7 +68,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{x2}" (arg3),
           [arg4] "{x3}" (arg4),
           [arg5] "{x4}" (arg5),
-        : .{ .memory = true, .cc = true });
+        : .{ .memory = true });
 }
 
 pub fn syscall6(
@@ -89,7 +89,7 @@ pub fn syscall6(
           [arg4] "{x3}" (arg4),
           [arg5] "{x4}" (arg5),
           [arg6] "{x5}" (arg6),
-        : .{ .memory = true, .cc = true });
+        : .{ .memory = true });
 }
 
 pub fn clone() callconv(.naked) usize {
@@ -141,12 +141,12 @@ pub fn restore_rt() callconv(.naked) noreturn {
             \\ svc #0
             :
             : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
-            : .{ .memory = true, .cc = true }),
+            : .{ .memory = true }),
         else => asm volatile (
             \\ svc #0
             :
             : [number] "{x8}" (@intFromEnum(SYS.rt_sigreturn)),
-            : .{ .memory = true, .cc = true }),
+            : .{ .memory = true }),
     }
 }
 

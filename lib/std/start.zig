@@ -145,7 +145,7 @@ fn exit2(code: usize) noreturn {
                     :
                     : [number] "{x8}" (93),
                       [arg1] "{x0}" (code),
-                    : .{ .memory = true, .cc = true });
+                    : .{ .memory = true });
             },
             .sparc64 => {
                 asm volatile ("ta 0x6d"

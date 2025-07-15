@@ -4,6 +4,7 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         /// addresses other than those derived from input pointer provenance.
         memory: bool = false,
 
+        /// Condition codes. Subset of the bits in `eflags` and `rflags`.
         cc: bool = false,
         dirflag: bool = false,
         eflags: bool = false,
