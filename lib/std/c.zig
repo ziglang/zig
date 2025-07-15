@@ -10891,7 +10891,7 @@ pub const FILE = switch (native_os) {
 
 pub fn stdin() *FILE {
     return switch (native_os) {
-        .linux, .serenity, .haiku => private.stdin,
+        .linux, .serenity, .haiku, .wasi => private.stdin,
         .freebsd, .dragonfly, .macos, .ios, .tvos, .watchos, .visionos => private.__stdinp,
         .netbsd, .openbsd => &private.__sF[0],
         .solaris, .illumos => &private.__iob[0],
@@ -10902,7 +10902,7 @@ pub fn stdin() *FILE {
 
 pub fn stdout() *FILE {
     return switch (native_os) {
-        .linux, .serenity, .haiku => private.stdout,
+        .linux, .serenity, .haiku, .wasi => private.stdout,
         .freebsd, .dragonfly, .macos, .ios, .tvos, .watchos, .visionos => private.__stdoutp,
         .netbsd, .openbsd => &private.__sF[1],
         .solaris, .illumos => &private.__iob[1],
@@ -10913,7 +10913,7 @@ pub fn stdout() *FILE {
 
 pub fn stderr() *FILE {
     return switch (native_os) {
-        .linux, .serenity, .haiku => private.stderr,
+        .linux, .serenity, .haiku, .wasi => private.stderr,
         .freebsd, .dragonfly, .macos, .ios, .tvos, .watchos, .visionos => private.__stderrp,
         .netbsd, .openbsd => &private.__sF[2],
         .solaris, .illumos => &private.__iob[2],
@@ -11423,7 +11423,7 @@ const private = struct {
     extern "c" fn __libc_current_sigrtmin() c_int;
     extern "c" fn __libc_current_sigrtmax() c_int;
 
-    // Linux, Serenity, Haiku
+    // Linux, Serenity, Haiku, WASI
     extern "c" var stdin: *FILE;
     extern "c" var stdout: *FILE;
     extern "c" var stderr: *FILE;
