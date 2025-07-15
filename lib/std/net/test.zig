@@ -208,7 +208,8 @@ test "listen on a port, send bytes, receive bytes" {
             const socket = try net.tcpConnectToAddress(server_address);
             defer socket.close();
 
-            _ = try socket.writer().writeAll("Hello world!");
+            var stream_writer = socket.writer(&.{});
+            try stream_writer.interface.writeAll("Hello world!");
         }
     };
 
@@ -218,7 +219,8 @@ test "listen on a port, send bytes, receive bytes" {
     var client = try server.accept();
     defer client.stream.close();
     var buf: [16]u8 = undefined;
-    const n = try client.stream.reader().read(&buf);
+    var stream_reader = client.stream.reader(&.{});
+    const n = try stream_reader.interface().readSliceShort(&buf);
 
     try testing.expectEqual(@as(usize, 12), n);
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
@@ -232,10 +234,10 @@ test "listen on an in use port" {
 
     const localhost = try net.Address.parseIp("127.0.0.1", 0);
 
-    var server1 = try localhost.listen(.{ .reuse_port = true });
+    var server1 = try localhost.listen(.{ .reuse_address = true });
     defer server1.deinit();
 
-    var server2 = try server1.listen_address.listen(.{ .reuse_port = true });
+    var server2 = try server1.listen_address.listen(.{ .reuse_address = true });
     defer server2.deinit();
 }
 
@@ -299,7 +301,8 @@ test "listen on a unix socket, send bytes, receive bytes" {
             const socket = try net.connectUnixSocket(path);
             defer socket.close();
 
-            _ = try socket.writer().writeAll("Hello world!");
+            var stream_writer = socket.writer(&.{});
+            try stream_writer.interface.writeAll("Hello world!");
         }
     };
 
@@ -309,13 +312,14 @@ test "listen on a unix socket, send bytes, receive bytes" {
     var client = try server.accept();
     defer client.stream.close();
     var buf: [16]u8 = undefined;
-    const n = try client.stream.reader().read(&buf);
+    var stream_reader = client.stream.reader(&.{});
+    const n = try stream_reader.interface().readSliceShort(&buf);
 
     try testing.expectEqual(@as(usize, 12), n);
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
 }
 
-test "listen on a unix socket with reuse_port option" {
+test "listen on a unix socket with reuse_address option" {
     if (!net.has_unix_sockets) return error.SkipZigTest;
     // Windows doesn't implement reuse port option.
     if (builtin.os.tag == .windows) return error.SkipZigTest;
@@ -326,7 +330,7 @@ test "listen on a unix socket with reuse_port option" {
     const socket_addr = try net.Address.initUnix(socket_path);
     defer std.fs.cwd().deleteFile(socket_path) catch {};
 
-    var server = try socket_addr.listen(.{ .reuse_port = true });
+    var server = try socket_addr.listen(.{ .reuse_address = true });
     server.deinit();
 }
 

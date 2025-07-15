@@ -80,9 +80,8 @@ fn uint16(input: u16) u16 {
     return x;
 }
 
-/// DEPRECATED: use std.hash.int()
 /// Source: https://github.com/skeeto/hash-prospector
-pub fn uint32(input: u32) u32 {
+fn uint32(input: u32) u32 {
     var x: u32 = input;
     x = (x ^ (x >> 17)) *% 0xed5ad4bb;
     x = (x ^ (x >> 11)) *% 0xac4c1b51;

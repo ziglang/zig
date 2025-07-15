@@ -1402,9 +1402,6 @@ pub fn setAsCwd(self: Dir) !void {
     try posix.fchdir(self.fd);
 }
 
-/// Deprecated: use `OpenOptions`
-pub const OpenDirOptions = OpenOptions;
-
 pub const OpenOptions = struct {
     /// `true` means the opened directory can be used as the `Dir` parameter
     /// for functions which operate based on an open directory handle. When `false`,
@@ -2510,8 +2507,6 @@ pub fn writeFile(self: Dir, options: WriteFileOptions) WriteFileError!void {
     defer file.close();
     try file.writeAll(options.data);
 }
-
-pub const writeFile2 = @compileError("deprecated; renamed to writeFile");
 
 pub const AccessError = posix.AccessError;
 

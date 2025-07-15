@@ -1161,7 +1161,7 @@ test "POSIX file locking with fcntl" {
         posix.exit(0);
     } else {
         // parent waits for child to get shared lock:
-        std.time.sleep(1 * std.time.ns_per_ms);
+        std.Thread.sleep(1 * std.time.ns_per_ms);
         // parent expects deadlock when attempting to upgrade the shared lock to exclusive:
         struct_flock.start = 1;
         struct_flock.type = posix.F.WRLCK;

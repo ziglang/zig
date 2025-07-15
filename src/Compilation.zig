@@ -1029,7 +1029,9 @@ pub const CObject = struct {
 
             pub fn destroy(bundle: *Bundle, gpa: Allocator) void {
                 for (bundle.file_names.values()) |file_name| gpa.free(file_name);
+                bundle.file_names.deinit(gpa);
                 for (bundle.category_names.values()) |category_name| gpa.free(category_name);
+                bundle.category_names.deinit(gpa);
                 for (bundle.diags) |*diag| diag.deinit(gpa);
                 gpa.free(bundle.diags);
                 gpa.destroy(bundle);
@@ -3040,7 +3042,7 @@ fn flush(
             // If there's an output file, it wants to decide where the LLVM object goes!
             const sub_prog_node = comp.link_prog_node.start("LLVM Emit Object", 0);
             defer sub_prog_node.end();
-            try llvm_object.emit(.{
+            try llvm_object.emit(.{ .zcu = zcu, .tid = tid }, .{
                 .pre_ir_path = comp.verbose_llvm_ir,
                 .pre_bc_path = comp.verbose_llvm_bc,
 

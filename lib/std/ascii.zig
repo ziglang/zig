@@ -181,9 +181,6 @@ pub fn isAscii(c: u8) bool {
     return c < 128;
 }
 
-/// Deprecated: use `isAscii`
-pub const isASCII = isAscii;
-
 /// Uppercases the character and returns it as-is if already uppercase or not a letter.
 pub fn toUpper(c: u8) u8 {
     const mask = @as(u8, @intFromBool(isLower(c))) << 5;

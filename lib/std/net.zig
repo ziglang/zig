@@ -19,6 +19,7 @@ const File = std.fs.File;
 // first release to support them.
 pub const has_unix_sockets = switch (native_os) {
     .windows => builtin.os.version_range.windows.isAtLeast(.win10_rs4) orelse false,
+    .wasi => false,
     else => true,
 };
 
@@ -217,8 +218,6 @@ pub const Address = extern union {
         /// Sets SO_REUSEADDR and SO_REUSEPORT on POSIX.
         /// Sets SO_REUSEADDR on Windows, which is roughly equivalent.
         reuse_address: bool = false,
-        /// Deprecated. Does the same thing as reuse_address.
-        reuse_port: bool = false,
         force_nonblocking: bool = false,
     };
 
@@ -235,7 +234,7 @@ pub const Address = extern union {
         };
         errdefer s.stream.close();
 
-        if (options.reuse_address or options.reuse_port) {
+        if (options.reuse_address) {
             try posix.setsockopt(
                 sockfd,
                 posix.SOL.SOCKET,
@@ -869,7 +868,7 @@ pub fn getAddressList(gpa: Allocator, name: []const u8, port: u16) GetAddressLis
         const name_c = try gpa.dupeZ(u8, name);
         defer gpa.free(name_c);
 
-        const port_c = try std.fmt.allocPrintSentinel(gpa, "{}", .{port}, 0);
+        const port_c = try std.fmt.allocPrintSentinel(gpa, "{d}", .{port}, 0);
         defer gpa.free(port_c);
 
         const ws2_32 = windows.ws2_32;
@@ -1080,7 +1079,7 @@ fn linuxLookupName(
         }
     } else {
         try canon.resize(gpa, 0);
-        try addrs.ensureUnusedCapacity(gpa, 1);
+        try addrs.ensureUnusedCapacity(gpa, 2);
         linuxLookupNameFromNull(addrs, family, flags, port);
     }
     if (addrs.items.len == 0) return error.UnknownHostName;
@@ -1355,7 +1354,7 @@ fn parseHosts(
         const line = br.takeDelimiterExclusive('\n') catch |err| switch (err) {
             error.StreamTooLong => {
                 // Skip lines that are too long.
-                br.discardDelimiterInclusive('\n') catch |e| switch (e) {
+                _ = br.discardDelimiterInclusive('\n') catch |e| switch (e) {
                     error.EndOfStream => break,
                     error.ReadFailed => return error.ReadFailed,
                 };
@@ -1396,6 +1395,25 @@ fn parseHosts(
             try canon.appendSlice(gpa, name_text);
         }
     }
+}
+
+test parseHosts {
+    if (builtin.os.tag == .wasi) {
+        // TODO parsing addresses should not have OS dependencies
+        return error.SkipZigTest;
+    }
+    var reader: std.io.Reader = .fixed(
+        \\127.0.0.1 localhost
+        \\::1 localhost
+        \\127.0.0.2 abcd
+    );
+    var addrs: ArrayList(LookupAddr) = .empty;
+    defer addrs.deinit(std.testing.allocator);
+    var canon: ArrayList(u8) = .empty;
+    defer canon.deinit(std.testing.allocator);
+    try parseHosts(std.testing.allocator, &addrs, &canon, "abcd", posix.AF.UNSPEC, 1234, &reader);
+    try std.testing.expectEqual(1, addrs.items.len);
+    try std.testing.expectFmt("127.0.0.2:1234", "{f}", .{addrs.items[0].addr});
 }
 
 pub fn isValidHostName(hostname: []const u8) bool {
@@ -1562,9 +1580,12 @@ const ResolvConf = struct {
         };
     }
 
-    fn parse(rc: *ResolvConf, br: *io.Reader) !void {
+    const Directive = enum { options, nameserver, domain, search };
+    const Option = enum { ndots, attempts, timeout };
+
+    fn parse(rc: *ResolvConf, reader: *io.Reader) !void {
         const gpa = rc.gpa;
-        while (br.takeSentinel('\n')) |line_with_comment| {
+        while (reader.takeSentinel('\n')) |line_with_comment| {
             const line = line: {
                 var split = mem.splitScalar(u8, line_with_comment, '#');
                 break :line split.first();
@@ -1572,8 +1593,8 @@ const ResolvConf = struct {
             var line_it = mem.tokenizeAny(u8, line, " \t");
 
             const token = line_it.next() orelse continue;
-            if (mem.eql(u8, token, "options")) {
-                while (line_it.next()) |sub_tok| {
+            switch (std.meta.stringToEnum(Directive, token) orelse continue) {
+                .options => while (line_it.next()) |sub_tok| {
                     var colon_it = mem.splitScalar(u8, sub_tok, ':');
                     const name = colon_it.first();
                     const value_txt = colon_it.next() orelse continue;
@@ -1581,22 +1602,25 @@ const ResolvConf = struct {
                         error.Overflow => 255,
                         error.InvalidCharacter => continue,
                     };
-                    if (mem.eql(u8, name, "ndots")) {
-                        rc.ndots = @min(value, 15);
-                    } else if (mem.eql(u8, name, "attempts")) {
-                        rc.attempts = @min(value, 10);
-                    } else if (mem.eql(u8, name, "timeout")) {
-                        rc.timeout = @min(value, 60);
+                    switch (std.meta.stringToEnum(Option, name) orelse continue) {
+                        .ndots => rc.ndots = @min(value, 15),
+                        .attempts => rc.attempts = @min(value, 10),
+                        .timeout => rc.timeout = @min(value, 60),
                     }
-                }
-            } else if (mem.eql(u8, token, "nameserver")) {
-                const ip_txt = line_it.next() orelse continue;
-                try linuxLookupNameFromNumericUnspec(gpa, &rc.ns, ip_txt, 53);
-            } else if (mem.eql(u8, token, "domain") or mem.eql(u8, token, "search")) {
-                rc.search.items.len = 0;
-                try rc.search.appendSlice(gpa, line_it.rest());
+                },
+                .nameserver => {
+                    const ip_txt = line_it.next() orelse continue;
+                    try linuxLookupNameFromNumericUnspec(gpa, &rc.ns, ip_txt, 53);
+                },
+                .domain, .search => {
+                    rc.search.items.len = 0;
+                    try rc.search.appendSlice(gpa, line_it.rest());
+                },
             }
-        } else |err| return err;
+        } else |err| switch (err) {
+            error.EndOfStream => if (reader.bufferedLen() != 0) return error.EndOfStream,
+            else => |e| return e,
+        }
 
         if (rc.ns.items.len == 0) {
             return linuxLookupNameFromNumericUnspec(gpa, &rc.ns, "127.0.0.1", 53);
@@ -1849,9 +1873,15 @@ pub const Stream = struct {
         }
     }
 
-    const ReadError = posix.ReadError;
+    pub const ReadError = posix.ReadError || error{
+        SocketNotBound,
+        MessageTooBig,
+        NetworkSubsystemFailed,
+        ConnectionResetByPeer,
+        SocketNotConnected,
+    };
 
-    const WriteError = posix.SendMsgError || error{
+    pub const WriteError = posix.SendMsgError || error{
         ConnectionResetByPeer,
         SocketNotBound,
         MessageTooBig,
@@ -1863,16 +1893,21 @@ pub const Stream = struct {
 
     pub const Reader = switch (native_os) {
         .windows => struct {
-            /// Use `interface` to access portably.
+            /// Use `interface` for portable code.
             interface_state: io.Reader,
-            /// Use `getStream` to access portably.
+            /// Use `getStream` for portable code.
             net_stream: Stream,
-            err: ?Error = null,
+            /// Use `getError` for portable code.
+            error_state: ?Error,
 
             pub const Error = ReadError;
 
             pub fn getStream(r: *const Reader) Stream {
                 return r.stream;
+            }
+
+            pub fn getError(r: *const Reader) ?Error {
+                return r.error_state;
             }
 
             pub fn interface(r: *Reader) *io.Reader {
@@ -1882,22 +1917,33 @@ pub const Stream = struct {
             pub fn init(net_stream: Stream, buffer: []u8) Reader {
                 return .{
                     .interface_state = .{
-                        .context = undefined,
                         .vtable = &.{ .stream = stream },
                         .buffer = buffer,
+                        .seek = 0,
+                        .end = 0,
                     },
                     .net_stream = net_stream,
+                    .error_state = null,
                 };
             }
 
             fn stream(io_r: *io.Reader, io_w: *io.Writer, limit: io.Limit) io.Reader.StreamError!usize {
-                const r: *Reader = @fieldParentPtr("interface", io_r);
-                var iovecs: [max_buffers_len]windows.WSABUF = undefined;
-                const bufs = io_w.writableVectorWsa(&iovecs, limit);
-                assert(bufs[0].len > 0);
+                const r: *Reader = @alignCast(@fieldParentPtr("interface_state", io_r));
+                var iovecs: [max_buffers_len]windows.ws2_32.WSABUF = undefined;
+                const bufs = try io_w.writableVectorWsa(&iovecs, limit);
+                assert(bufs[0].len != 0);
+                const n = streamBufs(r, bufs) catch |err| {
+                    r.error_state = err;
+                    return error.ReadFailed;
+                };
+                if (n == 0) return error.EndOfStream;
+                return n;
+            }
+
+            fn streamBufs(r: *Reader, bufs: []windows.ws2_32.WSABUF) Error!u32 {
                 var n: u32 = undefined;
                 var flags: u32 = 0;
-                const rc = windows.ws2_32.WSARecvFrom(r.net_stream.handle, bufs.ptr, bufs.len, &n, &flags, null, null, null, null);
+                const rc = windows.ws2_32.WSARecvFrom(r.net_stream.handle, bufs.ptr, @intCast(bufs.len), &n, &flags, null, null, null, null);
                 if (rc != 0) switch (windows.ws2_32.WSAGetLastError()) {
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
                     .WSAEFAULT => unreachable, // a pointer is not completely contained in user address space.
@@ -1913,11 +1959,11 @@ pub const Stream = struct {
                     .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
                     else => |err| return windows.unexpectedWSAError(err),
                 };
-                if (n == 0) return error.EndOfStream;
                 return n;
             }
         },
         else => struct {
+            /// Use `getStream`, `interface`, and `getError` for portable code.
             file_reader: File.Reader,
 
             pub const Error = ReadError;
@@ -1940,6 +1986,10 @@ pub const Stream = struct {
             pub fn getStream(r: *const Reader) Stream {
                 return .{ .handle = r.file_reader.file.handle };
             }
+
+            pub fn getError(r: *const Reader) ?Error {
+                return r.file_reader.err;
+            }
         },
     };
 
@@ -1949,6 +1999,8 @@ pub const Stream = struct {
             interface: io.Writer,
             /// Use `getStream` for cross-platform support.
             stream: Stream,
+            /// This field is present on all systems.
+            err: ?Error = null,
 
             pub const Error = WriteError;
 
@@ -1966,43 +2018,39 @@ pub const Stream = struct {
                 return w.stream;
             }
 
+            fn addWsaBuf(v: []windows.ws2_32.WSABUF, i: *u32, bytes: []const u8) void {
+                const cap = std.math.maxInt(u32);
+                var remaining = bytes;
+                while (remaining.len > cap) {
+                    if (v.len - i.* == 0) return;
+                    v[i.*] = .{ .buf = @constCast(remaining.ptr), .len = cap };
+                    i.* += 1;
+                    remaining = remaining[cap..];
+                } else {
+                    @branchHint(.likely);
+                    if (v.len - i.* == 0) return;
+                    v[i.*] = .{ .buf = @constCast(remaining.ptr), .len = @intCast(remaining.len) };
+                    i.* += 1;
+                }
+            }
+
             fn drain(io_w: *io.Writer, data: []const []const u8, splat: usize) io.Writer.Error!usize {
-                const w: *Writer = @fieldParentPtr("interface", io_w);
+                const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const buffered = io_w.buffered();
                 comptime assert(native_os == .windows);
-                var iovecs: [max_buffers_len]windows.WSABUF = undefined;
+                var iovecs: [max_buffers_len]windows.ws2_32.WSABUF = undefined;
                 var len: u32 = 0;
-                if (buffered.len != 0) {
-                    iovecs[len] = .{
-                        .buf = buffered.ptr,
-                        .len = buffered.len,
-                    };
-                    len += 1;
-                }
-                for (data) |bytes| {
-                    if (bytes.len == 0) continue;
-                    iovecs[len] = .{
-                        .buf = bytes.ptr,
-                        .len = bytes.len,
-                    };
-                    len += 1;
-                    if (iovecs.len - len == 0) break;
-                }
-                if (len == 0) return 0;
+                addWsaBuf(&iovecs, &len, buffered);
+                for (data[0 .. data.len - 1]) |bytes| addWsaBuf(&iovecs, &len, bytes);
                 const pattern = data[data.len - 1];
-                switch (splat) {
-                    0 => if (iovecs[len - 1].buf == data[data.len - 1].ptr) {
-                        len -= 1;
-                    },
-                    1 => {},
+                if (iovecs.len - len != 0) switch (splat) {
+                    0 => {},
+                    1 => addWsaBuf(&iovecs, &len, pattern),
                     else => switch (pattern.len) {
                         0 => {},
-                        1 => memset: {
-                            // Replace the 1-byte buffer with a bigger one.
-                            if (iovecs[len - 1].buf == data[data.len - 1].ptr) len -= 1;
-                            if (iovecs.len - len == 0) break :memset;
+                        1 => {
                             const splat_buffer_candidate = io_w.buffer[io_w.end..];
-                            var backup_buffer: [32]u8 = undefined;
+                            var backup_buffer: [64]u8 = undefined;
                             const splat_buffer = if (splat_buffer_candidate.len >= backup_buffer.len)
                                 splat_buffer_candidate
                             else
@@ -2010,31 +2058,29 @@ pub const Stream = struct {
                             const memset_len = @min(splat_buffer.len, splat);
                             const buf = splat_buffer[0..memset_len];
                             @memset(buf, pattern[0]);
-                            iovecs[len] = .{ .buf = buf.ptr, .len = buf.len };
-                            len += 1;
+                            addWsaBuf(&iovecs, &len, buf);
                             var remaining_splat = splat - buf.len;
                             while (remaining_splat > splat_buffer.len and len < iovecs.len) {
-                                iovecs[len] = .{ .buf = splat_buffer.ptr, .len = splat_buffer.len };
+                                addWsaBuf(&iovecs, &len, splat_buffer);
                                 remaining_splat -= splat_buffer.len;
-                                len += 1;
                             }
-                            if (remaining_splat > 0 and iovecs.len - len != 0) {
-                                iovecs[len] = .{ .buf = splat_buffer.ptr, .len = remaining_splat };
-                                len += 1;
-                            }
+                            addWsaBuf(&iovecs, &len, splat_buffer[0..remaining_splat]);
                         },
-                        else => for (0..splat - 1) |_| {
-                            if (iovecs.len - len == 0) break;
-                            iovecs[len] = .{
-                                .buf = pattern.ptr,
-                                .len = pattern.len,
-                            };
-                            len += 1;
+                        else => for (0..@min(splat, iovecs.len - len)) |_| {
+                            addWsaBuf(&iovecs, &len, pattern);
                         },
                     },
-                }
+                };
+                const n = sendBufs(w.stream.handle, iovecs[0..len]) catch |err| {
+                    w.err = err;
+                    return error.WriteFailed;
+                };
+                return io_w.consume(n);
+            }
+
+            fn sendBufs(handle: Stream.Handle, bufs: []windows.ws2_32.WSABUF) Error!u32 {
                 var n: u32 = undefined;
-                const rc = windows.ws2_32.WSASend(w.stream.handle, &iovecs, len, &n, 0, null, null);
+                const rc = windows.ws2_32.WSASend(handle, bufs.ptr, @intCast(bufs.len), &n, 0, null, null);
                 if (rc == windows.ws2_32.SOCKET_ERROR) switch (windows.ws2_32.WSAGetLastError()) {
                     .WSAECONNABORTED => return error.ConnectionResetByPeer,
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
@@ -2055,7 +2101,7 @@ pub const Stream = struct {
                     .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
                     else => |err| return windows.unexpectedWSAError(err),
                 };
-                return io_w.consume(n);
+                return n;
             }
         },
         else => struct {
@@ -2084,95 +2130,68 @@ pub const Stream = struct {
                 return .{ .handle = w.file_writer.file.handle };
             }
 
+            fn addBuf(v: []posix.iovec_const, i: *@FieldType(posix.msghdr_const, "iovlen"), bytes: []const u8) void {
+                // OS checks ptr addr before length so zero length vectors must be omitted.
+                if (bytes.len == 0) return;
+                if (v.len - i.* == 0) return;
+                v[i.*] = .{ .base = bytes.ptr, .len = bytes.len };
+                i.* += 1;
+            }
+
             fn drain(io_w: *io.Writer, data: []const []const u8, splat: usize) io.Writer.Error!usize {
-                const w: *Writer = @fieldParentPtr("interface", io_w);
+                const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const buffered = io_w.buffered();
-                var iovecs: [max_buffers_len]std.posix.iovec_const = undefined;
-                var msg: posix.msghdr_const = msg: {
-                    var i: usize = 0;
-                    if (buffered.len != 0) {
-                        iovecs[i] = .{
-                            .base = buffered.ptr,
-                            .len = buffered.len,
-                        };
-                        i += 1;
-                    }
-                    for (data) |bytes| {
-                        // OS checks ptr addr before length so zero length vectors must be omitted.
-                        if (bytes.len == 0) continue;
-                        iovecs[i] = .{
-                            .base = bytes.ptr,
-                            .len = bytes.len,
-                        };
-                        i += 1;
-                        if (iovecs.len - i == 0) break;
-                    }
-                    break :msg .{
-                        .name = null,
-                        .namelen = 0,
-                        .iov = &iovecs,
-                        .iovlen = i,
-                        .control = null,
-                        .controllen = 0,
-                        .flags = 0,
-                    };
+                var iovecs: [max_buffers_len]posix.iovec_const = undefined;
+                var msg: posix.msghdr_const = .{
+                    .name = null,
+                    .namelen = 0,
+                    .iov = &iovecs,
+                    .iovlen = 0,
+                    .control = null,
+                    .controllen = 0,
+                    .flags = 0,
                 };
-                if (msg.iovlen == 0) return 0;
+                addBuf(&iovecs, &msg.iovlen, buffered);
+                for (data[0 .. data.len - 1]) |bytes| addBuf(&iovecs, &msg.iovlen, bytes);
                 const pattern = data[data.len - 1];
-                switch (splat) {
-                    0 => if (iovecs[msg.iovlen - 1].base == data[data.len - 1].ptr) {
-                        msg.iovlen -= 1;
-                    },
-                    1 => {},
+                if (iovecs.len - msg.iovlen != 0) switch (splat) {
+                    0 => {},
+                    1 => addBuf(&iovecs, &msg.iovlen, pattern),
                     else => switch (pattern.len) {
                         0 => {},
-                        1 => memset: {
-                            // Replace the 1-byte buffer with a bigger one.
-                            if (iovecs[msg.iovlen - 1].base == data[data.len - 1].ptr) msg.iovlen -= 1;
-                            if (iovecs.len - msg.iovlen == 0) break :memset;
+                        1 => {
                             const splat_buffer_candidate = io_w.buffer[io_w.end..];
-                            var backup_buffer: [32]u8 = undefined;
+                            var backup_buffer: [64]u8 = undefined;
                             const splat_buffer = if (splat_buffer_candidate.len >= backup_buffer.len)
                                 splat_buffer_candidate
                             else
                                 &backup_buffer;
-                            if (splat_buffer.len == 0) break :memset;
                             const memset_len = @min(splat_buffer.len, splat);
                             const buf = splat_buffer[0..memset_len];
                             @memset(buf, pattern[0]);
-                            iovecs[msg.iovlen] = .{ .base = buf.ptr, .len = buf.len };
-                            msg.iovlen += 1;
+                            addBuf(&iovecs, &msg.iovlen, buf);
                             var remaining_splat = splat - buf.len;
                             while (remaining_splat > splat_buffer.len and iovecs.len - msg.iovlen != 0) {
                                 assert(buf.len == splat_buffer.len);
-                                iovecs[msg.iovlen] = .{ .base = splat_buffer.ptr, .len = splat_buffer.len };
-                                msg.iovlen += 1;
+                                addBuf(&iovecs, &msg.iovlen, splat_buffer);
                                 remaining_splat -= splat_buffer.len;
                             }
-                            if (remaining_splat > 0 and iovecs.len - msg.iovlen != 0) {
-                                iovecs[msg.iovlen] = .{ .base = splat_buffer.ptr, .len = remaining_splat };
-                                msg.iovlen += 1;
-                            }
+                            addBuf(&iovecs, &msg.iovlen, splat_buffer[0..remaining_splat]);
                         },
-                        else => for (0..splat - 1) |_| {
-                            if (iovecs.len - msg.iovlen == 0) break;
-                            iovecs[msg.iovlen] = .{
-                                .base = pattern.ptr,
-                                .len = pattern.len,
-                            };
-                            msg.iovlen += 1;
+                        else => for (0..@min(splat, iovecs.len - msg.iovlen)) |_| {
+                            addBuf(&iovecs, &msg.iovlen, pattern);
                         },
                     },
-                }
+                };
                 const flags = posix.MSG.NOSIGNAL;
-                return io_w.consume(std.posix.sendmsg(w.file_writer.file.handle, &msg, flags) catch |err| {
+                return io_w.consume(posix.sendmsg(w.file_writer.file.handle, &msg, flags) catch |err| {
                     w.err = err;
                     return error.WriteFailed;
                 });
             }
 
             fn sendFile(io_w: *io.Writer, file_reader: *File.Reader, limit: io.Limit) io.Writer.FileError!usize {
-                const w: *Writer = @fieldParentPtr("interface", io_w);
+                const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const n = try w.file_writer.interface.sendFileHeader(io_w.buffered(), file_reader, limit);
                 return io_w.consume(n);
             }
@@ -2188,7 +2207,6 @@ pub const Stream = struct {
     }
 
     const max_buffers_len = 8;
-    const splat_buffer_len = 256;
 };
 
 pub const Server = struct {

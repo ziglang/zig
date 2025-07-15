@@ -438,7 +438,7 @@ const test_targets = blk: {
                 .os_tag = .linux,
                 .abi = .none,
             },
-            // https://github.com/ziglang/zig/issues/23696
+            // https://github.com/ziglang/zig/issues/21646
             .skip_modules = &.{"std"},
         },
         .{
@@ -448,7 +448,7 @@ const test_targets = blk: {
                 .abi = .musl,
             },
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/23696
+            // https://github.com/ziglang/zig/issues/21646
             .skip_modules = &.{"std"},
         },
         .{
@@ -459,7 +459,7 @@ const test_targets = blk: {
             },
             .linkage = .dynamic,
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/23696
+            // https://github.com/ziglang/zig/issues/21646
             .skip_modules = &.{"std"},
             .extra_target = true,
         },
@@ -470,7 +470,7 @@ const test_targets = blk: {
                 .abi = .gnu,
             },
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/23696
+            // https://github.com/ziglang/zig/issues/21646
             .skip_modules = &.{"std"},
         },
 
@@ -2367,6 +2367,11 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             continue;
 
         if (options.skip_single_threaded and test_target.single_threaded == true)
+            continue;
+
+        // https://github.com/ziglang/zig/issues/24405
+        if (!builtin.cpu.arch.isLoongArch() and target.cpu.arch.isLoongArch() and
+            (mem.eql(u8, options.name, "behavior") or mem.eql(u8, options.name, "std")))
             continue;
 
         // TODO get compiler-rt tests passing for self-hosted backends.

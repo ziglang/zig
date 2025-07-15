@@ -146,7 +146,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     const int_tag_ty = Zcu.Type.fromInterned(data.ip_index).intTagType(zcu);
                     gop.value_ptr.* = .{ .tag_name = .{
                         .symbol_name = try wasm.internStringFmt("__zig_tag_name_{d}", .{@intFromEnum(data.ip_index)}),
-                        .type_index = try wasm.internFunctionType(.Unspecified, &.{int_tag_ty.ip_index}, .slice_const_u8_sentinel_0, target),
+                        .type_index = try wasm.internFunctionType(.auto, &.{int_tag_ty.ip_index}, .slice_const_u8_sentinel_0, target),
                         .table_index = @intCast(wasm.tag_name_offs.items.len),
                     } };
                     try wasm.functions.put(gpa, .fromZcuFunc(wasm, @enumFromInt(gop.index)), {});

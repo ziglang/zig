@@ -494,6 +494,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 
 test {
     _ = Reader;
+    _ = Reader.Limited;
     _ = Writer;
     _ = @import("Io/test.zig");
 }

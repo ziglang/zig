@@ -156,9 +156,6 @@ pub const OptimizeMode = enum {
     ReleaseSmall,
 };
 
-/// Deprecated; use OptimizeMode.
-pub const Mode = OptimizeMode;
-
 /// The calling convention of a function defines how arguments and return values are passed, as well
 /// as any other requirements which callers and callees must respect, such as register preservation
 /// and stack alignment.
@@ -186,51 +183,6 @@ pub const CallingConvention = union(enum(u8)) {
         .spirv32, .spirv64 => .spirv_kernel,
         else => unreachable,
     };
-
-    /// Deprecated; use `.auto`.
-    pub const Unspecified: CallingConvention = .auto;
-    /// Deprecated; use `.c`.
-    pub const C: CallingConvention = .c;
-    /// Deprecated; use `.naked`.
-    pub const Naked: CallingConvention = .naked;
-    /// Deprecated; use `.@"inline"`.
-    pub const Inline: CallingConvention = .@"inline";
-    /// Deprecated; use `.x86_64_interrupt`, `.x86_interrupt`, or `.avr_interrupt`.
-    pub const Interrupt: CallingConvention = switch (builtin.target.cpu.arch) {
-        .x86_64 => .{ .x86_64_interrupt = .{} },
-        .x86 => .{ .x86_interrupt = .{} },
-        .avr => .avr_interrupt,
-        else => unreachable,
-    };
-    /// Deprecated; use `.avr_signal`.
-    pub const Signal: CallingConvention = .avr_signal;
-    /// Deprecated; use `.x86_stdcall`.
-    pub const Stdcall: CallingConvention = .{ .x86_stdcall = .{} };
-    /// Deprecated; use `.x86_fastcall`.
-    pub const Fastcall: CallingConvention = .{ .x86_fastcall = .{} };
-    /// Deprecated; use `.x86_64_vectorcall`, `.x86_vectorcall`, or `aarch64_vfabi`.
-    pub const Vectorcall: CallingConvention = switch (builtin.target.cpu.arch) {
-        .x86_64 => .{ .x86_64_vectorcall = .{} },
-        .x86 => .{ .x86_vectorcall = .{} },
-        .aarch64, .aarch64_be => .{ .aarch64_vfabi = .{} },
-        else => unreachable,
-    };
-    /// Deprecated; use `.x86_thiscall`.
-    pub const Thiscall: CallingConvention = .{ .x86_thiscall = .{} };
-    /// Deprecated; use `.arm_aapcs`.
-    pub const AAPCS: CallingConvention = .{ .arm_aapcs = .{} };
-    /// Deprecated; use `.arm_aapcs_vfp`.
-    pub const AAPCSVFP: CallingConvention = .{ .arm_aapcs_vfp = .{} };
-    /// Deprecated; use `.x86_64_sysv`.
-    pub const SysV: CallingConvention = .{ .x86_64_sysv = .{} };
-    /// Deprecated; use `.x86_64_win`.
-    pub const Win64: CallingConvention = .{ .x86_64_win = .{} };
-    /// Deprecated; use `.kernel`.
-    pub const Kernel: CallingConvention = .kernel;
-    /// Deprecated; use `.spirv_fragment`.
-    pub const Fragment: CallingConvention = .spirv_fragment;
-    /// Deprecated; use `.spirv_vertex`.
-    pub const Vertex: CallingConvention = .spirv_vertex;
 
     /// The default Zig calling convention when neither `export` nor `inline` is specified.
     /// This calling convention makes no guarantees about stack alignment, registers, etc.
@@ -1119,10 +1071,6 @@ pub const TestFn = struct {
     func: *const fn () anyerror!void,
 };
 
-/// Deprecated, use the `Panic` namespace instead.
-/// To be deleted after 0.14.0 is released.
-pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
-
 /// This namespace is used by the Zig compiler to emit various kinds of safety
 /// panics. These can be overridden by making a public `panic` namespace in the
 /// root source file.
@@ -1137,9 +1085,6 @@ pub const panic: type = p: {
             }.panic);
         }
         break :p root.panic;
-    }
-    if (@hasDecl(root, "Panic")) {
-        break :p root.Panic; // Deprecated; use `panic` instead.
     }
     break :p switch (builtin.zig_backend) {
         .stage2_powerpc,

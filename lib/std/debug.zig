@@ -231,10 +231,6 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
     nosuspend w.print(fmt, args) catch return;
 }
 
-pub fn getStderrMutex() *std.Thread.Mutex {
-    @compileError("deprecated. call std.debug.lockStdErr() and std.debug.unlockStdErr() instead which will integrate properly with std.Progress");
-}
-
 /// TODO multithreaded awareness
 var self_debug_info: ?SelfInfo = null;
 
@@ -658,9 +654,8 @@ pub fn defaultPanic(
 
             if (uefi.system_table.boot_services) |bs| {
                 // ExitData buffer must be allocated using boot_services.allocatePool (spec: page 220)
-                const exit_data: []u16 = uefi.raw_pool_allocator.alloc(u16, exit_msg.len + 1) catch @trap();
-                @memcpy(exit_data, exit_msg[0..exit_data.len]); // Includes null terminator.
-                _ = bs.exit(uefi.handle, .aborted, exit_data.len, exit_data.ptr);
+                const exit_data = uefi.raw_pool_allocator.dupeZ(u16, exit_msg) catch @trap();
+                bs.exit(uefi.handle, .aborted, exit_data) catch {};
             }
             @trap();
         },

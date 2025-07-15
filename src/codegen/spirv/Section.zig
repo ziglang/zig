@@ -79,7 +79,7 @@ pub fn emit(
 pub fn emitBranch(
     section: *Section,
     allocator: Allocator,
-    target_label: spec.IdRef,
+    target_label: spec.Id,
 ) !void {
     try section.emit(allocator, .OpBranch, .{
         .target_label = target_label,
@@ -94,8 +94,8 @@ pub fn emitSpecConstantOp(
 ) !void {
     const word_count = operandsSize(opcode.Operands(), operands);
     try section.emitRaw(allocator, .OpSpecConstantOp, 1 + word_count);
-    section.writeOperand(spec.IdRef, operands.id_result_type);
-    section.writeOperand(spec.IdRef, operands.id_result);
+    section.writeOperand(spec.Id, operands.id_result_type);
+    section.writeOperand(spec.Id, operands.id_result);
     section.writeOperand(Opcode, opcode);
 
     const fields = @typeInfo(opcode.Operands()).@"struct".fields;
@@ -134,7 +134,7 @@ fn writeOperands(section: *Section, comptime Operands: type, operands: Operands)
 
 pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand) void {
     switch (Operand) {
-        spec.IdResult => section.writeWord(@intFromEnum(operand)),
+        spec.Id => section.writeWord(@intFromEnum(operand)),
 
         spec.LiteralInteger => section.writeWord(operand),
 
@@ -266,7 +266,7 @@ fn operandsSize(comptime Operands: type, operands: Operands) usize {
 
 fn operandSize(comptime Operand: type, operand: Operand) usize {
     return switch (Operand) {
-        spec.IdResult,
+        spec.Id,
         spec.LiteralInteger,
         spec.LiteralExtInstInteger,
         => 1,

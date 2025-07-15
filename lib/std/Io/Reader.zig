@@ -99,7 +99,7 @@ pub const ShortError = error{
 
 pub const failing: Reader = .{
     .vtable = &.{
-        .read = failingStream,
+        .stream = failingStream,
         .discard = failingDiscard,
     },
     .buffer = &.{},
@@ -245,6 +245,7 @@ pub fn appendRemaining(
     list: *std.ArrayListAlignedUnmanaged(u8, alignment),
     limit: Limit,
 ) LimitedAllocError!void {
+    assert(r.buffer.len != 0); // Needed to detect limit exceeded without losing data.
     const buffer = r.buffer;
     const buffer_contents = buffer[r.seek..r.end];
     const copy_len = limit.minInt(buffer_contents.len);
@@ -858,8 +859,10 @@ pub fn streamDelimiter(r: *Reader, w: *Writer, delimiter: u8) StreamError!usize 
 /// Appends to `w` contents by reading from the stream until `delimiter` is found.
 /// Does not write the delimiter itself.
 ///
-/// Returns number of bytes streamed, which may be zero. End of stream can be
-/// detected by checking if the next byte in the stream is the delimiter.
+/// Returns number of bytes streamed, which may be zero. If the stream reaches
+/// the end, the reader buffer will be empty when this function returns.
+/// Otherwise, it will have at least one byte buffered, starting with the
+/// delimiter.
 ///
 /// Asserts buffer capacity of at least one. This function performs better with
 /// larger buffers.
@@ -1000,6 +1003,18 @@ pub fn fill(r: *Reader, n: usize) Error!void {
         @branchHint(.likely);
         return;
     }
+    return fillUnbuffered(r, n);
+}
+
+/// This internal function is separated from `fill` to encourage optimizers to inline `fill`, hence
+/// propagating its `@branchHint` to usage sites. If these functions are combined, `fill` is large
+/// enough that LLVM is reluctant to inline it, forcing usages of APIs like `takeInt` to go through
+/// an expensive runtime function call just to figure out that the data is, in fact, already in the
+/// buffer.
+///
+/// Missing this optimization can result in wall-clock time for the most affected benchmarks
+/// increasing by a factor of 5 or more.
+fn fillUnbuffered(r: *Reader, n: usize) Error!void {
     if (r.seek + n <= r.buffer.len) while (true) {
         const end_cap = r.buffer[r.end..];
         var writer: Writer = .fixed(end_cap);
@@ -1645,11 +1660,12 @@ test "readAlloc when the backing reader provides one byte at a time" {
         }
     };
     const str = "This is a test";
+    var tiny_buffer: [1]u8 = undefined;
     var one_byte_stream: OneByteReader = .{
         .str = str,
         .i = 0,
         .reader = .{
-            .buffer = &.{},
+            .buffer = &tiny_buffer,
             .vtable = &.{ .stream = OneByteReader.stream },
             .seek = 0,
             .end = 0,

@@ -7,7 +7,7 @@ const Allocator = std.mem.Allocator;
 const File = std.fs.File;
 const assert = std.debug.assert;
 
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
 const Server = std.zig.Server;
 
 pub fn main() !void {

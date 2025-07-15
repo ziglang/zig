@@ -1235,7 +1235,7 @@ fn logSecrets(w: *Writer, context: anytype, secrets: anytype) void {
     }) catch {};
 }
 
-inline fn big(x: anytype) @TypeOf(x) {
+fn big(x: anytype) @TypeOf(x) {
     return switch (native_endian) {
         .big => x,
         .little => @byteSwap(x),
