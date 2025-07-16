@@ -21,7 +21,7 @@ pub fn syscall0(number: SYS) usize {
         \\ 1:
         : [ret] "={$2}" (-> usize),
         : [number] "{$2}" (@intFromEnum(number)),
-        : .{ .@"r1" = true, .@"r3" = true, .@"r4" = true, .@"r5" = true, .@"r6" = true, .@"r7" = true, .@"r8" = true, .@"r9" = true, .@"r10" = true, .@"r11" = true, .@"r12" = true, .@"r13" = true, .@"r14" = true, .@"r15" = true, .@"r24" = true, .@"r25" = true, .hi = true, .lo = true, .memory = true });
+        : .{ .r1 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 pub fn syscall_pipe(fd: *[2]i32) usize {
@@ -40,7 +40,7 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
         : [ret] "={$2}" (-> usize),
         : [number] "{$2}" (@intFromEnum(SYS.pipe)),
           [fd] "{$4}" (fd),
-        : .{ .@"r1" = true, .@"r3" = true, .@"r5" = true, .@"r6" = true, .@"r7" = true, .@"r8" = true, .@"r9" = true, .@"r10" = true, .@"r11" = true, .@"r12" = true, .@"r13" = true, .@"r14" = true, .@"r15" = true, .@"r24" = true, .@"r25" = true, .hi = true, .lo = true, .memory = true });
+        : .{ .r1 = true, .r3 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -53,7 +53,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={$2}" (-> usize),
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
-        : .{ .@"r1" = true, .@"r3" = true, .@"r5" = true, .@"r6" = true, .@"r7" = true, .@"r8" = true, .@"r9" = true, .@"r10" = true, .@"r11" = true, .@"r12" = true, .@"r13" = true, .@"r14" = true, .@"r15" = true, .@"r24" = true, .@"r25" = true, .hi = true, .lo = true, .memory = true });
+        : .{ .r1 = true, .r3 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -67,7 +67,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{$2}" (@intFromEnum(number)),
           [arg1] "{$4}" (arg1),
           [arg2] "{$5}" (arg2),
-        : .{ .@"r1" = true, .@"r3" = true, .@"r6" = true, .@"r7" = true, .@"r8" = true, .@"r9" = true, .@"r10" = true, .@"r11" = true, .@"r12" = true, .@"r13" = true, .@"r14" = true, .@"r15" = true, .@"r24" = true, .@"r25" = true, .hi = true, .lo = true, .memory = true });
+        : .{ .r1 = true, .r3 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -82,7 +82,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{$4}" (arg1),
           [arg2] "{$5}" (arg2),
           [arg3] "{$6}" (arg3),
-        : .{ .@"r1" = true, .@"r3" = true, .@"r7" = true, .@"r8" = true, .@"r9" = true, .@"r10" = true, .@"r11" = true, .@"r12" = true, .@"r13" = true, .@"r14" = true, .@"r15" = true, .@"r24" = true, .@"r25" = true, .hi = true, .lo = true, .memory = true });
+        : .{ .r1 = true, .r3 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -98,7 +98,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{$5}" (arg2),
           [arg3] "{$6}" (arg3),
           [arg4] "{$7}" (arg4),
-        : .{ .@"r1" = true, .@"r3" = true, .@"r8" = true, .@"r9" = true, .@"r10" = true, .@"r11" = true, .@"r12" = true, .@"r13" = true, .@"r14" = true, .@"r15" = true, .@"r24" = true, .@"r25" = true, .hi = true, .lo = true, .memory = true });
+        : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -119,7 +119,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{$6}" (arg3),
           [arg4] "{$7}" (arg4),
           [arg5] "r" (arg5),
-        : .{ .@"r1" = true, .@"r3" = true, .@"r8" = true, .@"r9" = true, .@"r10" = true, .@"r11" = true, .@"r12" = true, .@"r13" = true, .@"r14" = true, .@"r15" = true, .@"r24" = true, .@"r25" = true, .hi = true, .lo = true, .memory = true });
+        : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 // NOTE: The o32 calling convention requires the callee to reserve 16 bytes for
@@ -153,7 +153,7 @@ pub fn syscall6(
           [arg4] "{$7}" (arg4),
           [arg5] "r" (arg5),
           [arg6] "r" (arg6),
-        : .{ .@"r1" = true, .@"r3" = true, .@"r8" = true, .@"r9" = true, .@"r10" = true, .@"r11" = true, .@"r12" = true, .@"r13" = true, .@"r14" = true, .@"r15" = true, .@"r24" = true, .@"r25" = true, .hi = true, .lo = true, .memory = true });
+        : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 pub fn syscall7(
@@ -187,7 +187,7 @@ pub fn syscall7(
           [arg5] "r" (arg5),
           [arg6] "r" (arg6),
           [arg7] "r" (arg7),
-        : .{ .@"r1" = true, .@"r3" = true, .@"r8" = true, .@"r9" = true, .@"r10" = true, .@"r11" = true, .@"r12" = true, .@"r13" = true, .@"r14" = true, .@"r15" = true, .@"r24" = true, .@"r25" = true, .hi = true, .lo = true, .memory = true });
+        : .{ .r1 = true, .r3 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 pub fn clone() callconv(.naked) usize {
@@ -246,7 +246,7 @@ pub fn restore() callconv(.naked) noreturn {
         \\ syscall
         :
         : [number] "{$2}" (@intFromEnum(SYS.sigreturn)),
-        : .{ .@"r1" = true, .@"r3" = true, .@"r4" = true, .@"r5" = true, .@"r6" = true, .@"r7" = true, .@"r8" = true, .@"r9" = true, .@"r10" = true, .@"r11" = true, .@"r12" = true, .@"r13" = true, .@"r14" = true, .@"r15" = true, .@"r24" = true, .@"r25" = true, .hi = true, .lo = true, .memory = true });
+        : .{ .r1 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 pub fn restore_rt() callconv(.naked) noreturn {
@@ -254,7 +254,7 @@ pub fn restore_rt() callconv(.naked) noreturn {
         \\ syscall
         :
         : [number] "{$2}" (@intFromEnum(SYS.rt_sigreturn)),
-        : .{ .@"r1" = true, .@"r3" = true, .@"r4" = true, .@"r5" = true, .@"r6" = true, .@"r7" = true, .@"r8" = true, .@"r9" = true, .@"r10" = true, .@"r11" = true, .@"r12" = true, .@"r13" = true, .@"r14" = true, .@"r15" = true, .@"r24" = true, .@"r25" = true, .hi = true, .lo = true, .memory = true });
+        : .{ .r1 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
 }
 
 pub const F = struct {

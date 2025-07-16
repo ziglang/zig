@@ -17,7 +17,7 @@ pub fn syscall0(number: SYS) usize {
         \\ syscall 0
         : [ret] "={$r4}" (-> usize),
         : [number] "{$r11}" (@intFromEnum(number)),
-        : .{ .@"$t0" = true, .@"$t1" = true, .@"$t2" = true, .@"$t3" = true, .@"$t4" = true, .@"$t5" = true, .@"$t6" = true, .@"$t7" = true, .@"$t8" = true, .memory = true });
+        : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -26,7 +26,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={$r4}" (-> usize),
         : [number] "{$r11}" (@intFromEnum(number)),
           [arg1] "{$r4}" (arg1),
-        : .{ .@"$t0" = true, .@"$t1" = true, .@"$t2" = true, .@"$t3" = true, .@"$t4" = true, .@"$t5" = true, .@"$t6" = true, .@"$t7" = true, .@"$t8" = true, .memory = true });
+        : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -36,7 +36,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{$r11}" (@intFromEnum(number)),
           [arg1] "{$r4}" (arg1),
           [arg2] "{$r5}" (arg2),
-        : .{ .@"$t0" = true, .@"$t1" = true, .@"$t2" = true, .@"$t3" = true, .@"$t4" = true, .@"$t5" = true, .@"$t6" = true, .@"$t7" = true, .@"$t8" = true, .memory = true });
+        : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -47,7 +47,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{$r4}" (arg1),
           [arg2] "{$r5}" (arg2),
           [arg3] "{$r6}" (arg3),
-        : .{ .@"$t0" = true, .@"$t1" = true, .@"$t2" = true, .@"$t3" = true, .@"$t4" = true, .@"$t5" = true, .@"$t6" = true, .@"$t7" = true, .@"$t8" = true, .memory = true });
+        : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -59,7 +59,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{$r5}" (arg2),
           [arg3] "{$r6}" (arg3),
           [arg4] "{$r7}" (arg4),
-        : .{ .@"$t0" = true, .@"$t1" = true, .@"$t2" = true, .@"$t3" = true, .@"$t4" = true, .@"$t5" = true, .@"$t6" = true, .@"$t7" = true, .@"$t8" = true, .memory = true });
+        : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -72,7 +72,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{$r6}" (arg3),
           [arg4] "{$r7}" (arg4),
           [arg5] "{$r8}" (arg5),
-        : .{ .@"$t0" = true, .@"$t1" = true, .@"$t2" = true, .@"$t3" = true, .@"$t4" = true, .@"$t5" = true, .@"$t6" = true, .@"$t7" = true, .@"$t8" = true, .memory = true });
+        : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
 pub fn syscall6(
@@ -94,7 +94,7 @@ pub fn syscall6(
           [arg4] "{$r7}" (arg4),
           [arg5] "{$r8}" (arg5),
           [arg6] "{$r9}" (arg6),
-        : .{ .@"$t0" = true, .@"$t1" = true, .@"$t2" = true, .@"$t3" = true, .@"$t4" = true, .@"$t5" = true, .@"$t6" = true, .@"$t7" = true, .@"$t8" = true, .memory = true });
+        : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
 pub fn clone() callconv(.naked) usize {
@@ -143,7 +143,7 @@ pub fn restore_rt() callconv(.naked) noreturn {
         \\ syscall 0
         :
         : [number] "r" (@intFromEnum(SYS.rt_sigreturn)),
-        : .{ .@"$t0" = true, .@"$t1" = true, .@"$t2" = true, .@"$t3" = true, .@"$t4" = true, .@"$t5" = true, .@"$t6" = true, .@"$t7" = true, .@"$t8" = true, .memory = true });
+        : .{ .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r16 = true, .r17 = true, .r18 = true, .r19 = true, .r20 = true, .memory = true });
 }
 
 pub const msghdr = extern struct {
