@@ -1906,7 +1906,7 @@ fn processOneTarget(job: Job) void {
     var zig_code_file = try target_dir.createFile(zig_code_basename, .{});
     defer zig_code_file.close();
 
-    var bw = std.io.bufferedWriter(zig_code_file.writer());
+    var bw = std.io.bufferedWriter(zig_code_file.deprecatedWriter());
     const w = bw.writer();
 
     try w.writeAll(
@@ -1920,7 +1920,7 @@ fn processOneTarget(job: Job) void {
     );
 
     for (all_features.items, 0..) |feature, i| {
-        try w.print("\n    {p},", .{std.zig.fmtId(feature.zig_name)});
+        try w.print("\n    {f},", .{std.zig.fmtId(feature.zig_name)});
 
         if (i == all_features.items.len - 1) try w.writeAll("\n");
     }
@@ -1949,27 +1949,27 @@ fn processOneTarget(job: Job) void {
     for (all_features.items) |feature| {
         if (feature.llvm_name) |llvm_name| {
             try w.print(
-                \\    result[@intFromEnum(Feature.{p_})] = .{{
-                \\        .llvm_name = "{}",
-                \\        .description = "{}",
+                \\    result[@intFromEnum(Feature.{f})] = .{{
+                \\        .llvm_name = "{f}",
+                \\        .description = "{f}",
                 \\        .dependencies = featureSet(&[_]Feature{{
             ,
                 .{
-                    std.zig.fmtId(feature.zig_name),
-                    std.zig.fmtEscapes(llvm_name),
-                    std.zig.fmtEscapes(feature.desc),
+                    std.zig.fmtIdPU(feature.zig_name),
+                    std.zig.fmtString(llvm_name),
+                    std.zig.fmtString(feature.desc),
                 },
             );
         } else {
             try w.print(
-                \\    result[@intFromEnum(Feature.{p_})] = .{{
+                \\    result[@intFromEnum(Feature.{f})] = .{{
                 \\        .llvm_name = null,
-                \\        .description = "{}",
+                \\        .description = "{f}",
                 \\        .dependencies = featureSet(&[_]Feature{{
             ,
                 .{
-                    std.zig.fmtId(feature.zig_name),
-                    std.zig.fmtEscapes(feature.desc),
+                    std.zig.fmtIdPU(feature.zig_name),
+                    std.zig.fmtString(feature.desc),
                 },
             );
         }
@@ -1996,7 +1996,7 @@ fn processOneTarget(job: Job) void {
         } else {
             try w.writeAll("\n");
             for (dependencies.items) |dep| {
-                try w.print("            .{p_},\n", .{std.zig.fmtId(dep)});
+                try w.print("            .{f},\n", .{std.zig.fmtIdPU(dep)});
             }
             try w.writeAll(
                 \\        }),
@@ -2033,24 +2033,24 @@ fn processOneTarget(job: Job) void {
         mem.sort([]const u8, cpu_features.items, {}, asciiLessThan);
         if (cpu.llvm_name) |llvm_name| {
             try w.print(
-                \\    pub const {}: CpuModel = .{{
-                \\        .name = "{}",
-                \\        .llvm_name = "{}",
+                \\    pub const {f}: CpuModel = .{{
+                \\        .name = "{f}",
+                \\        .llvm_name = "{f}",
                 \\        .features = featureSet(&[_]Feature{{
             , .{
                 std.zig.fmtId(cpu.zig_name),
-                std.zig.fmtEscapes(cpu.zig_name),
-                std.zig.fmtEscapes(llvm_name),
+                std.zig.fmtString(cpu.zig_name),
+                std.zig.fmtString(llvm_name),
             });
         } else {
             try w.print(
-                \\    pub const {}: CpuModel = .{{
-                \\        .name = "{}",
+                \\    pub const {f}: CpuModel = .{{
+                \\        .name = "{f}",
                 \\        .llvm_name = null,
                 \\        .features = featureSet(&[_]Feature{{
             , .{
                 std.zig.fmtId(cpu.zig_name),
-                std.zig.fmtEscapes(cpu.zig_name),
+                std.zig.fmtString(cpu.zig_name),
             });
         }
         if (cpu_features.items.len == 0) {
@@ -2062,7 +2062,7 @@ fn processOneTarget(job: Job) void {
         } else {
             try w.writeAll("\n");
             for (cpu_features.items) |feature_zig_name| {
-                try w.print("            .{p_},\n", .{std.zig.fmtId(feature_zig_name)});
+                try w.print("            .{f},\n", .{std.zig.fmtIdPU(feature_zig_name)});
             }
             try w.writeAll(
                 \\        }),
