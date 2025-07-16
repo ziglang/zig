@@ -6,7 +6,7 @@ const log = std.log.scoped(.spirv_link);
 const BinaryModule = @import("BinaryModule.zig");
 const Section = @import("../../codegen/spirv/Section.zig");
 const spec = @import("../../codegen/spirv/spec.zig");
-const ResultId = spec.IdResult;
+const ResultId = spec.Id;
 const Word = spec.Word;
 
 /// This structure contains all the stuff that we need to parse from the module in
@@ -626,7 +626,7 @@ const ModuleBuilder = struct {
                 try self.section.emit(self.arena, .OpVariable, .{
                     .id_result_type = global_info.ty,
                     .id_result = id,
-                    .storage_class = .Function,
+                    .storage_class = .function,
                     .initializer = null,
                 });
             }

@@ -772,12 +772,12 @@ pub fn exit(status: u8) noreturn {
     if (native_os == .uefi) {
         const uefi = std.os.uefi;
         // exit() is only available if exitBootServices() has not been called yet.
-        // This call to exit should not fail, so we don't care about its return value.
+        // This call to exit should not fail, so we catch-ignore errors.
         if (uefi.system_table.boot_services) |bs| {
-            _ = bs.exit(uefi.handle, @enumFromInt(status), 0, null);
+            bs.exit(uefi.handle, @enumFromInt(status), null) catch {};
         }
         // If we can't exit, reboot the system instead.
-        uefi.system_table.runtime_services.resetSystem(.reset_cold, @enumFromInt(status), 0, null);
+        uefi.system_table.runtime_services.resetSystem(.cold, @enumFromInt(status), null);
     }
     system.exit(status);
 }
@@ -7086,6 +7086,20 @@ pub fn tcsetpgrp(handle: fd_t, pgrp: pid_t) TermioSetPgrpError!void {
             .PERM => return TermioSetPgrpError.NotAPgrpMember,
             else => |err| return unexpectedErrno(err),
         }
+    }
+}
+
+pub const SetSidError = error{
+    /// The calling process is already a process group leader, or the process group ID of a process other than the calling process matches the process ID of the calling process.
+    PermissionDenied,
+} || UnexpectedError;
+
+pub fn setsid() SetSidError!pid_t {
+    const rc = system.setsid();
+    switch (errno(rc)) {
+        .SUCCESS => return rc,
+        .PERM => return error.PermissionDenied,
+        else => |err| return unexpectedErrno(err),
     }
 }
 

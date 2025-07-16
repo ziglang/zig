@@ -507,7 +507,7 @@ pub const Os = struct {
                 .freebsd => .{
                     .semver = .{
                         .min = blk: {
-                            const default_min: std.SemanticVersion = .{ .major = 13, .minor = 4, .patch = 0 };
+                            const default_min: std.SemanticVersion = .{ .major = 14, .minor = 0, .patch = 0 };
 
                             for (std.zig.target.available_libcs) |libc| {
                                 if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
@@ -525,7 +525,7 @@ pub const Os = struct {
                 .netbsd => .{
                     .semver = .{
                         .min = blk: {
-                            const default_min: std.SemanticVersion = .{ .major = 9, .minor = 4, .patch = 0 };
+                            const default_min: std.SemanticVersion = .{ .major = 10, .minor = 1, .patch = 0 };
 
                             for (std.zig.target.available_libcs) |libc| {
                                 if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
