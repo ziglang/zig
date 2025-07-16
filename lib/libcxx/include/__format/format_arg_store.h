@@ -14,13 +14,14 @@
 #  pragma GCC system_header
 #endif
 
-#include <__concepts/arithmetic.h>
 #include <__concepts/same_as.h>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__format/concepts.h>
 #include <__format/format_arg.h>
 #include <__type_traits/conditional.h>
 #include <__type_traits/extent.h>
+#include <__type_traits/integer_traits.h>
 #include <__type_traits/remove_const.h>
 #include <cstdint>
 #include <string>
@@ -31,6 +32,12 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 namespace __format {
+
+template <class _Arr, class _Elem>
+inline constexpr bool __is_bounded_array_of = false;
+
+template <class _Elem, size_t _Len>
+inline constexpr bool __is_bounded_array_of<_Elem[_Len], _Elem> = true;
 
 /// \returns The @c __arg_t based on the type of the formatting argument.
 ///
@@ -58,7 +65,7 @@ consteval __arg_t __determine_arg_t() {
 #  endif
 
 // Signed integers
-template <class, __libcpp_signed_integer _Tp>
+template <class, __signed_integer _Tp>
 consteval __arg_t __determine_arg_t() {
   if constexpr (sizeof(_Tp) <= sizeof(int))
     return __arg_t::__int;
@@ -73,7 +80,7 @@ consteval __arg_t __determine_arg_t() {
 }
 
 // Unsigned integers
-template <class, __libcpp_unsigned_integer _Tp>
+template <class, __unsigned_integer _Tp>
 consteval __arg_t __determine_arg_t() {
   if constexpr (sizeof(_Tp) <= sizeof(unsigned))
     return __arg_t::__unsigned;
@@ -110,7 +117,7 @@ consteval __arg_t __determine_arg_t() {
 
 // Char array
 template <class _Context, class _Tp>
-  requires(is_array_v<_Tp> && same_as<_Tp, typename _Context::char_type[extent_v<_Tp>]>)
+  requires __is_bounded_array_of<_Tp, typename _Context::char_type>
 consteval __arg_t __determine_arg_t() {
   return __arg_t::__string_view;
 }
@@ -164,17 +171,18 @@ consteval __arg_t __determine_arg_t() {
 template <class _Context, class _Tp>
 _LIBCPP_HIDE_FROM_ABI basic_format_arg<_Context> __create_format_arg(_Tp& __value) noexcept {
   using _Dp               = remove_const_t<_Tp>;
-  constexpr __arg_t __arg = __determine_arg_t<_Context, _Dp>();
+  constexpr __arg_t __arg = __format::__determine_arg_t<_Context, _Dp>();
   static_assert(__arg != __arg_t::__none, "the supplied type is not formattable");
   static_assert(__formattable_with<_Tp, _Context>);
 
+  using __context_char_type = _Context::char_type;
   // Not all types can be used to directly initialize the
   // __basic_format_arg_value.  First handle all types needing adjustment, the
   // final else requires no adjustment.
   if constexpr (__arg == __arg_t::__char_type)
 
 #  if _LIBCPP_HAS_WIDE_CHARACTERS
-    if constexpr (same_as<typename _Context::char_type, wchar_t> && same_as<_Dp, char>)
+    if constexpr (same_as<__context_char_type, wchar_t> && same_as<_Dp, char>)
       return basic_format_arg<_Context>{__arg, static_cast<wchar_t>(static_cast<unsigned char>(__value))};
     else
 #  endif
@@ -189,14 +197,16 @@ _LIBCPP_HIDE_FROM_ABI basic_format_arg<_Context> __create_format_arg(_Tp& __valu
     return basic_format_arg<_Context>{__arg, static_cast<unsigned long long>(__value)};
   else if constexpr (__arg == __arg_t::__string_view)
     // Using std::size on a character array will add the NUL-terminator to the size.
-    if constexpr (is_array_v<_Dp>)
+    if constexpr (__is_bounded_array_of<_Dp, __context_char_type>) {
+      const __context_char_type* const __pbegin = std::begin(__value);
+      const __context_char_type* const __pzero =
+          char_traits<__context_char_type>::find(__pbegin, extent_v<_Dp>, __context_char_type{});
+      _LIBCPP_ASSERT_VALID_INPUT_RANGE(__pzero != nullptr, "formatting a non-null-terminated array");
       return basic_format_arg<_Context>{
-          __arg, basic_string_view<typename _Context::char_type>{__value, extent_v<_Dp> - 1}};
-    else
-      // When the _Traits or _Allocator are different an implicit conversion will
-      // fail.
-      return basic_format_arg<_Context>{
-          __arg, basic_string_view<typename _Context::char_type>{__value.data(), __value.size()}};
+          __arg, basic_string_view<__context_char_type>{__pbegin, static_cast<size_t>(__pzero - __pbegin)}};
+    } else
+      // When the _Traits or _Allocator are different an implicit conversion will fail.
+      return basic_format_arg<_Context>{__arg, basic_string_view<__context_char_type>{__value.data(), __value.size()}};
   else if constexpr (__arg == __arg_t::__ptr)
     return basic_format_arg<_Context>{__arg, static_cast<const void*>(__value)};
   else if constexpr (__arg == __arg_t::__handle)
@@ -247,7 +257,7 @@ struct __unpacked_format_arg_store {
 } // namespace __format
 
 template <class _Context, class... _Args>
-struct _LIBCPP_TEMPLATE_VIS __format_arg_store {
+struct __format_arg_store {
   _LIBCPP_HIDE_FROM_ABI __format_arg_store(_Args&... __args) noexcept {
     if constexpr (sizeof...(_Args) != 0) {
       if constexpr (__format::__use_packed_format_arg_store(sizeof...(_Args)))

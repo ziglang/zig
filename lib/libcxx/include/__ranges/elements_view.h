@@ -197,7 +197,7 @@ class elements_view<_View, _Np>::__iterator
   }
 
 public:
-  using iterator_concept = decltype(__get_iterator_concept());
+  using iterator_concept = decltype(__iterator::__get_iterator_concept());
   using value_type       = remove_cvref_t<tuple_element_t<_Np, range_value_t<_Base>>>;
   using difference_type  = range_difference_t<_Base>;
 

@@ -51,7 +51,7 @@ __write_to_windows_console([[maybe_unused]] FILE* __stream, [[maybe_unused]] wst
                     __view.size(),
                     nullptr,
                     nullptr) == 0) {
-    __throw_system_error(filesystem::detail::get_last_error(), "failed to write formatted output");
+    std::__throw_system_error(filesystem::detail::get_last_error(), "failed to write formatted output");
   }
 }
 #  endif // _LIBCPP_HAS_WIDE_CHARACTERS

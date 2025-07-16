@@ -28,14 +28,14 @@ struct _LIBCPP_EXPORTED_FROM_ABI in_place_t {
 inline constexpr in_place_t in_place{};
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS in_place_type_t {
+struct in_place_type_t {
   _LIBCPP_HIDE_FROM_ABI explicit in_place_type_t() = default;
 };
 template <class _Tp>
 inline constexpr in_place_type_t<_Tp> in_place_type{};
 
 template <size_t _Idx>
-struct _LIBCPP_TEMPLATE_VIS in_place_index_t {
+struct in_place_index_t {
   _LIBCPP_HIDE_FROM_ABI explicit in_place_index_t() = default;
 };
 template <size_t _Idx>

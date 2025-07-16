@@ -24,8 +24,7 @@ inline const bool __is_null_pointer_v = __is_same(__remove_cv(_Tp), nullptr_t);
 
 #if _LIBCPP_STD_VER >= 14
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_null_pointer
-    : integral_constant<bool, __is_null_pointer_v<_Tp>> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_null_pointer : integral_constant<bool, __is_null_pointer_v<_Tp>> {};
 
 #  if _LIBCPP_STD_VER >= 17
 template <class _Tp>

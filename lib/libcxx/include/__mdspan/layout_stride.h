@@ -22,6 +22,7 @@
 #include <__config>
 #include <__fwd/mdspan.h>
 #include <__mdspan/extents.h>
+#include <__memory/addressof.h>
 #include <__type_traits/common_type.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_convertible.h>
@@ -86,7 +87,7 @@ private:
 
     index_type __prod = __ext.extent(0);
     for (rank_type __r = 1; __r < __rank_; __r++) {
-      bool __overflowed = __builtin_mul_overflow(__prod, __ext.extent(__r), &__prod);
+      bool __overflowed = __builtin_mul_overflow(__prod, __ext.extent(__r), std::addressof(__prod));
       if (__overflowed)
         return false;
     }
@@ -109,11 +110,12 @@ private:
       }
       if (__ext.extent(__r) == static_cast<index_type>(0))
         return true;
-      index_type __prod     = (__ext.extent(__r) - 1);
-      bool __overflowed_mul = __builtin_mul_overflow(__prod, static_cast<index_type>(__strides[__r]), &__prod);
+      index_type __prod = (__ext.extent(__r) - 1);
+      bool __overflowed_mul =
+          __builtin_mul_overflow(__prod, static_cast<index_type>(__strides[__r]), std::addressof(__prod));
       if (__overflowed_mul)
         return false;
-      bool __overflowed_add = __builtin_add_overflow(__size, __prod, &__size);
+      bool __overflowed_add = __builtin_add_overflow(__size, __prod, std::addressof(__size));
       if (__overflowed_add)
         return false;
     }

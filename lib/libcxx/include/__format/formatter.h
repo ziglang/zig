@@ -21,6 +21,12 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 20
 
+struct __disabled_formatter {
+  __disabled_formatter()                                       = delete;
+  __disabled_formatter(const __disabled_formatter&)            = delete;
+  __disabled_formatter& operator=(const __disabled_formatter&) = delete;
+};
+
 /// The default formatter template.
 ///
 /// [format.formatter.spec]/5
@@ -28,14 +34,10 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 /// - is_default_constructible_v<F>,
 /// - is_copy_constructible_v<F>,
 /// - is_move_constructible_v<F>,
-/// - is_copy_assignable<F>, and
-/// - is_move_assignable<F>.
+/// - is_copy_assignable_v<F>, and
+/// - is_move_assignable_v<F>.
 template <class _Tp, class _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter {
-  formatter()                            = delete;
-  formatter(const formatter&)            = delete;
-  formatter& operator=(const formatter&) = delete;
-};
+struct formatter : __disabled_formatter {};
 
 #  if _LIBCPP_STD_VER >= 23
 

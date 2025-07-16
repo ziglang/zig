@@ -912,6 +912,9 @@ void* align(size_t alignment, size_t size, void*& ptr, size_t& space);
 template<size_t N, class T>
 [[nodiscard]] constexpr T* assume_aligned(T* ptr); // since C++20
 
+template<size_t Alignment, class T>
+  bool is_sufficiently_aligned(T* ptr); // since C++26
+
 // [out.ptr.t], class template out_ptr_t
 template<class Smart, class Pointer, class... Args>
   class out_ptr_t;                                          // since c++23
@@ -945,6 +948,7 @@ template<class Pointer = void, class Smart, class... Args>
 #  include <__memory/allocator_traits.h>
 #  include <__memory/auto_ptr.h>
 #  include <__memory/inout_ptr.h>
+#  include <__memory/is_sufficiently_aligned.h>
 #  include <__memory/out_ptr.h>
 #  include <__memory/pointer_traits.h>
 #  include <__memory/raw_storage_iterator.h>
@@ -958,12 +962,14 @@ template<class Pointer = void, class Smart, class... Args>
 
 #  if _LIBCPP_STD_VER >= 17
 #    include <__memory/construct_at.h>
+#    include <__memory/destroy.h>
 #  endif
 
 #  if _LIBCPP_STD_VER >= 20
 #    include <__memory/assume_aligned.h>
 #    include <__memory/concepts.h>
 #    include <__memory/ranges_construct_at.h>
+#    include <__memory/ranges_destroy.h>
 #    include <__memory/ranges_uninitialized_algorithms.h>
 #    include <__memory/uses_allocator_construction.h>
 #  endif

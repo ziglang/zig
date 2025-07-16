@@ -24,8 +24,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if __has_builtin(__is_nothrow_destructible)
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_nothrow_destructible
-    : integral_constant<bool, __is_nothrow_destructible(_Tp)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_nothrow_destructible : integral_constant<bool, __is_nothrow_destructible(_Tp)> {};
 
 #else
 
@@ -33,24 +32,22 @@ template <bool, class _Tp>
 struct __libcpp_is_nothrow_destructible;
 
 template <class _Tp>
-struct __libcpp_is_nothrow_destructible<false, _Tp> : public false_type {};
+struct __libcpp_is_nothrow_destructible<false, _Tp> : false_type {};
 
 template <class _Tp>
-struct __libcpp_is_nothrow_destructible<true, _Tp>
-    : public integral_constant<bool, noexcept(std::declval<_Tp>().~_Tp()) > {};
+struct __libcpp_is_nothrow_destructible<true, _Tp> : integral_constant<bool, noexcept(std::declval<_Tp>().~_Tp()) > {};
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_destructible
-    : public __libcpp_is_nothrow_destructible<is_destructible<_Tp>::value, _Tp> {};
+struct is_nothrow_destructible : __libcpp_is_nothrow_destructible<is_destructible<_Tp>::value, _Tp> {};
 
 template <class _Tp, size_t _Ns>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_destructible<_Tp[_Ns]> : public is_nothrow_destructible<_Tp> {};
+struct is_nothrow_destructible<_Tp[_Ns]> : is_nothrow_destructible<_Tp> {};
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_destructible<_Tp&> : public true_type {};
+struct is_nothrow_destructible<_Tp&> : true_type {};
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_destructible<_Tp&&> : public true_type {};
+struct is_nothrow_destructible<_Tp&&> : true_type {};
 
 #endif // __has_builtin(__is_nothrow_destructible)
 
