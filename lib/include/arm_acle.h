@@ -29,47 +29,16 @@ extern "C" {
 
 /* 7 SYNCHRONIZATION, BARRIER AND HINT INTRINSICS */
 /* 7.3 Memory barriers */
-#if !__has_builtin(__dmb)
-#define __dmb(i) __builtin_arm_dmb(i)
-#endif
-#if !__has_builtin(__dsb)
-#define __dsb(i) __builtin_arm_dsb(i)
-#endif
-#if !__has_builtin(__isb)
-#define __isb(i) __builtin_arm_isb(i)
-#endif
+void __dmb(unsigned int);
+void __dsb(unsigned int);
+void __isb(unsigned int);
 
 /* 7.4 Hints */
-
-#if !__has_builtin(__wfi)
-static __inline__ void __attribute__((__always_inline__, __nodebug__)) __wfi(void) {
-  __builtin_arm_wfi();
-}
-#endif
-
-#if !__has_builtin(__wfe)
-static __inline__ void __attribute__((__always_inline__, __nodebug__)) __wfe(void) {
-  __builtin_arm_wfe();
-}
-#endif
-
-#if !__has_builtin(__sev)
-static __inline__ void __attribute__((__always_inline__, __nodebug__)) __sev(void) {
-  __builtin_arm_sev();
-}
-#endif
-
-#if !__has_builtin(__sevl)
-static __inline__ void __attribute__((__always_inline__, __nodebug__)) __sevl(void) {
-  __builtin_arm_sevl();
-}
-#endif
-
-#if !__has_builtin(__yield)
-static __inline__ void __attribute__((__always_inline__, __nodebug__)) __yield(void) {
-  __builtin_arm_yield();
-}
-#endif
+void __wfi(void);
+void __wfe(void);
+void __sev(void);
+void __sevl(void);
+void __yield(void);
 
 #if defined(__ARM_32BIT_STATE) && __ARM_32BIT_STATE
 #define __dbg(t) __builtin_arm_dbg(t)
@@ -872,8 +841,9 @@ __gcspopm() {
   return __builtin_arm_gcspopm(0);
 }
 
-static __inline__ const void * __attribute__((__always_inline__, __nodebug__, target("gcs")))
-__gcsss(const void *__stack) {
+static __inline__ void *__attribute__((__always_inline__, __nodebug__,
+                                       target("gcs")))
+__gcsss(void *__stack) {
   return __builtin_arm_gcsss(__stack);
 }
 #endif
