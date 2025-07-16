@@ -6,7 +6,7 @@ const std = @import("std.zig");
 const tokenizer = @import("zig/tokenizer.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 pub const ErrorBundle = @import("zig/ErrorBundle.zig");
 pub const Server = @import("zig/Server.zig");
@@ -426,7 +426,7 @@ pub const FormatId = struct {
     };
 
     /// Print the string as a Zig identifier, escaping it with `@""` syntax if needed.
-    fn render(ctx: FormatId, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn render(ctx: FormatId, writer: *Writer) Writer.Error!void {
         const bytes = ctx.bytes;
         if (isValidId(bytes) and
             (ctx.flags.allow_primitive or !std.zig.isPrimitive(bytes)) and
@@ -464,7 +464,7 @@ test fmtChar {
 }
 
 /// Print the string as escaped contents of a double quoted string.
-pub fn stringEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+pub fn stringEscape(bytes: []const u8, w: *Writer) Writer.Error!void {
     for (bytes) |byte| switch (byte) {
         '\n' => try w.writeAll("\\n"),
         '\r' => try w.writeAll("\\r"),
@@ -481,7 +481,7 @@ pub fn stringEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!vo
 }
 
 /// Print the string as escaped contents of a single-quoted string.
-pub fn charEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+pub fn charEscape(bytes: []const u8, w: *Writer) Writer.Error!void {
     for (bytes) |byte| switch (byte) {
         '\n' => try w.writeAll("\\n"),
         '\r' => try w.writeAll("\\r"),

@@ -12,7 +12,7 @@ const Token = std.zig.Token;
 const Ast = @This();
 const Allocator = std.mem.Allocator;
 const Parse = @import("Parse.zig");
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 /// Reference to externally-owned data.
 source: [:0]const u8,
@@ -205,8 +205,8 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
 /// Caller owns the returned slice of bytes, allocated with `gpa`.
 pub fn renderAlloc(tree: Ast, gpa: Allocator) error{OutOfMemory}![]u8 {
     var aw: std.io.Writer.Allocating = .init(gpa);
-    errdefer aw.deinit();
-    render(tree, gpa, &aw.interface, .{}) catch |err| switch (err) {
+    defer aw.deinit();
+    render(tree, gpa, &aw.writer, .{}) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
     };
     return aw.toOwnedSlice();
@@ -214,8 +214,8 @@ pub fn renderAlloc(tree: Ast, gpa: Allocator) error{OutOfMemory}![]u8 {
 
 pub const Render = @import("Ast/Render.zig");
 
-pub fn render(tree: Ast, gpa: Allocator, bw: *Writer, fixups: Render.Fixups) Render.Error!void {
-    return Render.tree(gpa, bw, tree, fixups);
+pub fn render(tree: Ast, gpa: Allocator, w: *Writer, fixups: Render.Fixups) Render.Error!void {
+    return Render.tree(gpa, w, tree, fixups);
 }
 
 /// Returns an extra offset for column and byte offset of errors that
