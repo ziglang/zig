@@ -1,3 +1,4 @@
+//! Arithmetic mean (https://mathworld.wolfram.com/ArithmeticMean.html)
 const std = @import("std");
 const math = std.math;
 const testing = std.testing;
