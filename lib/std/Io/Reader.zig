@@ -1303,6 +1303,13 @@ fn takeMultipleOf7Leb128(r: *Reader, comptime Result: type) TakeLeb128Error!Resu
 }
 
 /// Left-aligns data such that `r.seek` becomes zero.
+///
+/// If `r.seek` is not already zero then `buffer` is mutated, making it illegal
+/// to call this function with a const-casted `buffer`, such as in the case of
+/// `fixed`. This issue can be avoided:
+/// * in implementations, by attempting a read before a rebase, in which
+///   case the read will return `error.EndOfStream`, preventing the rebase.
+/// * in usage, by copying into a mutable buffer before initializing `fixed`.
 pub fn rebase(r: *Reader) void {
     if (r.seek == 0) return;
     const data = r.buffer[r.seek..r.end];
@@ -1315,6 +1322,13 @@ pub fn rebase(r: *Reader) void {
 /// if necessary.
 ///
 /// Asserts `capacity` is within the buffer capacity.
+///
+/// If the rebase occurs then `buffer` is mutated, making it illegal to call
+/// this function with a const-casted `buffer`, such as in the case of `fixed`.
+/// This issue can be avoided:
+/// * in implementations, by attempting a read before a rebase, in which
+///   case the read will return `error.EndOfStream`, preventing the rebase.
+/// * in usage, by copying into a mutable buffer before initializing `fixed`.
 pub fn rebaseCapacity(r: *Reader, capacity: usize) void {
     if (r.end > r.buffer.len - capacity) rebase(r);
 }
