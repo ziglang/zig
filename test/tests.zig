@@ -847,6 +847,7 @@ const test_targets = blk: {
                 .arch_os_abi = "riscv32-linux-none",
                 .cpu_features = "baseline-d-f",
             }) catch unreachable,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -872,6 +873,7 @@ const test_targets = blk: {
                 .cpu_features = "baseline-d-f",
             }) catch unreachable,
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -904,6 +906,7 @@ const test_targets = blk: {
                 .arch_os_abi = "riscv64-linux-none",
                 .cpu_features = "baseline-d-f",
             }) catch unreachable,
+            .extra_target = true,
         },
         .{
             .target = .{
@@ -929,6 +932,7 @@ const test_targets = blk: {
                 .cpu_features = "baseline-d-f",
             }) catch unreachable,
             .link_libc = true,
+            .extra_target = true,
         },
         .{
             .target = .{
