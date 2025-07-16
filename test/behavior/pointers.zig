@@ -189,6 +189,46 @@ test "C pointer comparison and arithmetic" {
     try comptime S.doTheTest();
 }
 
+test "dereference C pointer of array" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const ArrayCptr = [*c][2]c_int;
+    const ArrayMptr = [*][2]c_int;
+    var array: [2]c_int = [2]c_int{
+        10,
+        20,
+    };
+    var a: ArrayCptr = &array;
+    _ = &a;
+    a.*[0] = 30;
+    try testing.expect(array[0] == 30);
+    a[0][1] = 40;
+    try testing.expect(array[1] == 40);
+    const p_array1 = &a.*[1];
+    try testing.expect(p_array1.* == 40);
+    p_array1.* = 37;
+    try testing.expect(array[1] == 37);
+
+    const zptr: *[2]c_int = &array;
+    zptr.*[1] = 50;
+    try testing.expect(array[1] == 50);
+    try testing.expect(zptr.*[1] == 50);
+    const z_array1 = &zptr.*[1];
+    z_array1.* = 55;
+    try testing.expect(array[1] == 55);
+    try testing.expect(z_array1.* == 55);
+
+    const mptr: ArrayMptr = @as(ArrayMptr, @alignCast(@ptrCast(&array)));
+    mptr[0][1] = 70;
+    try testing.expect(array[1] == 70);
+    try testing.expect(mptr[0][1] == 70);
+    const m_array1 = &mptr[0][1];
+    m_array1.* = 75;
+    try testing.expect(array[1] == 75);
+    try testing.expect(m_array1.* == 75);
+}
+
 test "dereference pointer again" {
     try testDerefPtrOneVal();
     try comptime testDerefPtrOneVal();
