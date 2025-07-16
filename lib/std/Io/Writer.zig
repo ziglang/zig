@@ -483,7 +483,7 @@ pub fn writeSplatAll(w: *Writer, data: [][]const u8, splat: usize) Error!void {
 
     // Deal with any left over splats
     if (data.len != 0 and truncate < data[index].len * splat) {
-        std.debug.assert(index == data.len - 1);
+        assert(index == data.len - 1);
         var remaining_splat = splat;
         while (true) {
             remaining_splat -= truncate / data[index].len;
@@ -840,11 +840,11 @@ pub inline fn writeStruct(w: *Writer, value: anytype, endian: std.builtin.Endian
             .auto => @compileError("ill-defined memory layout"),
             .@"extern" => {
                 if (native_endian == endian) {
-                    return w.writeStruct(value);
+                    return w.writeAll(@ptrCast((&value)[0..1]));
                 } else {
                     var copy = value;
                     std.mem.byteSwapAllFields(@TypeOf(value), &copy);
-                    return w.writeStruct(copy);
+                    return w.writeAll(@ptrCast((&copy)[0..1]));
                 }
             },
             .@"packed" => {
@@ -2606,8 +2606,32 @@ test "allocating sendFile" {
     var file_reader = file_writer.moveToReader();
     try file_reader.seekTo(0);
 
-    var allocating: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var allocating: std.io.Writer.Allocating = .init(testing.allocator);
     defer allocating.deinit();
 
     _ = try file_reader.interface.streamRemaining(&allocating.writer);
+}
+
+test writeStruct {
+    var buffer: [16]u8 = undefined;
+    const S = extern struct { a: u64, b: u32, c: u32 };
+    const s: S = .{ .a = 1, .b = 2, .c = 3 };
+    {
+        var w: Writer = .fixed(&buffer);
+        try w.writeStruct(s, .little);
+        try testing.expectEqualSlices(u8, &.{
+            1, 0, 0, 0, 0, 0, 0, 0, //
+            2, 0, 0, 0, //
+            3, 0, 0, 0, //
+        }, &buffer);
+    }
+    {
+        var w: Writer = .fixed(&buffer);
+        try w.writeStruct(s, .big);
+        try testing.expectEqualSlices(u8, &.{
+            0, 0, 0, 0, 0, 0, 0, 1, //
+            0, 0, 0, 2, //
+            0, 0, 0, 3, //
+        }, &buffer);
+    }
 }
