@@ -6367,7 +6367,9 @@ test "ampersand" {
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *bool) ![]u8 {
-    const stderr = std.fs.File.stderr().deprecatedWriter();
+    var buffer: [64]u8 = undefined;
+    const stderr = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
 
     var tree = try std.zig.Ast.parse(allocator, source, .zig);
     defer tree.deinit(allocator);
@@ -6390,7 +6392,7 @@ fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *
         return error.ParseError;
     }
 
-    const formatted = try tree.render(allocator);
+    const formatted = try tree.renderAlloc(allocator);
     anything_changed.* = !mem.eql(u8, formatted, source);
     return formatted;
 }

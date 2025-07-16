@@ -2475,6 +2475,12 @@ pub const Allocating = struct {
         return result;
     }
 
+    pub fn ensureUnusedCapacity(a: *Allocating, additional_count: usize) Allocator.Error!void {
+        var list = a.toArrayList();
+        defer a.setArrayList(list);
+        return list.ensureUnusedCapacity(a.allocator, additional_count);
+    }
+
     pub fn toOwnedSlice(a: *Allocating) error{OutOfMemory}![]u8 {
         var list = a.toArrayList();
         defer a.setArrayList(list);

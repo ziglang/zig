@@ -207,7 +207,7 @@ pub fn renderAlloc(tree: Ast, gpa: Allocator) error{OutOfMemory}![]u8 {
     var aw: std.io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
     render(tree, gpa, &aw.writer, .{}) catch |err| switch (err) {
-        error.WriteFailed => return error.OutOfMemory,
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
     return aw.toOwnedSlice();
 }
@@ -215,7 +215,7 @@ pub fn renderAlloc(tree: Ast, gpa: Allocator) error{OutOfMemory}![]u8 {
 pub const Render = @import("Ast/Render.zig");
 
 pub fn render(tree: Ast, gpa: Allocator, w: *Writer, fixups: Render.Fixups) Render.Error!void {
-    return Render.tree(gpa, w, tree, fixups);
+    return Render.renderTree(gpa, w, tree, fixups);
 }
 
 /// Returns an extra offset for column and byte offset of errors that
