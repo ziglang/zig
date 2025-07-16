@@ -34,7 +34,7 @@ const Fmt = struct {
     color: Color,
     gpa: Allocator,
     arena: Allocator,
-    out_buffer: std.ArrayList(u8),
+    out_buffer: std.Io.Writer.Allocating,
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
@@ -102,7 +102,9 @@ pub fn run(
         }
 
         const stdin: fs.File = .stdin();
-        const source_code = std.zig.readSourceFileToEndAlloc(gpa, stdin, null) catch |err| {
+        var stdio_buffer: [1024]u8 = undefined;
+        var file_reader: fs.File.Reader = stdin.reader(&stdio_buffer);
+        const source_code = std.zig.readSourceFileToEndAlloc(gpa, &file_reader) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
         defer gpa.free(source_code);
@@ -146,7 +148,7 @@ pub fn run(
             try std.zig.printAstErrorsToStderr(gpa, tree, "<stdin>", color);
             process.exit(2);
         }
-        const formatted = try tree.render(gpa);
+        const formatted = try tree.renderAlloc(gpa);
         defer gpa.free(formatted);
 
         if (check_flag) {
@@ -169,7 +171,7 @@ pub fn run(
         .check_ast = check_ast_flag,
         .force_zon = force_zon,
         .color = color,
-        .out_buffer = std.ArrayList(u8).init(gpa),
+        .out_buffer = .init(gpa),
     };
     defer fmt.seen.deinit();
     defer fmt.out_buffer.deinit();
@@ -230,6 +232,9 @@ const FmtError = error{
     NetNameDeleted,
     InvalidArgument,
     ProcessNotFound,
+    ConnectionTimedOut,
+    NotOpenForReading,
+    StreamTooLong,
 } || fs.File.OpenError;
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
@@ -295,12 +300,15 @@ fn fmtPathFile(
     if (stat.kind == .directory)
         return error.IsDir;
 
+    var read_buffer: [1024]u8 = undefined;
+    var file_reader: fs.File.Reader = source_file.reader(&read_buffer);
+    file_reader.size = stat.size;
+
     const gpa = fmt.gpa;
-    const source_code = try std.zig.readSourceFileToEndAlloc(
-        gpa,
-        source_file,
-        std.math.cast(usize, stat.size) orelse return error.FileTooBig,
-    );
+    const source_code = std.zig.readSourceFileToEndAlloc(gpa, &file_reader) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        else => |e| return e,
+    };
     defer gpa.free(source_code);
 
     source_file.close();
@@ -363,11 +371,13 @@ fn fmtPathFile(
     }
 
     // As a heuristic, we make enough capacity for the same as the input source.
-    fmt.out_buffer.shrinkRetainingCapacity(0);
+    fmt.out_buffer.clearRetainingCapacity();
     try fmt.out_buffer.ensureTotalCapacity(source_code.len);
 
-    try tree.renderToArrayList(&fmt.out_buffer, .{});
-    if (mem.eql(u8, fmt.out_buffer.items, source_code))
+    tree.render(gpa, &fmt.out_buffer.writer, .{}) catch |err| switch (err) {
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
+    };
+    if (mem.eql(u8, fmt.out_buffer.getWritten(), source_code))
         return;
 
     if (check_mode) {
@@ -378,7 +388,7 @@ fn fmtPathFile(
         var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
         defer af.deinit();
 
-        try af.file.writeAll(fmt.out_buffer.items);
+        try af.file.writeAll(fmt.out_buffer.getWritten());
         try af.finish();
         const stdout = std.fs.File.stdout().deprecatedWriter();
         try stdout.print("{s}\n", .{file_path});

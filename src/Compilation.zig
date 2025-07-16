@@ -5328,7 +5328,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         var out_zig_file = try o_dir.createFile(cimport_zig_basename, .{});
         defer out_zig_file.close();
 
-        const formatted = try tree.render(comp.gpa);
+        const formatted = try tree.renderAlloc(comp.gpa);
         defer comp.gpa.free(formatted);
 
         try out_zig_file.writeAll(formatted);
