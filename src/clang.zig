@@ -973,7 +973,10 @@ pub const TypedefNameDecl = opaque {
 
 pub const FileScopeAsmDecl = opaque {
     pub const getAsmString = ZigClangFileScopeAsmDecl_getAsmString;
-    extern fn ZigClangFileScopeAsmDecl_getAsmString(*const FileScopeAsmDecl) *const StringLiteral;
+    extern fn ZigClangFileScopeAsmDecl_getAsmString(*const FileScopeAsmDecl) [*:0]const u8;
+
+    pub const freeAsmString = ZigClangFileScopeAsmDecl_freeAsmString;
+    extern fn ZigClangFileScopeAsmDecl_freeAsmString([*:0]const u8) void;
 };
 
 pub const TypedefType = opaque {
@@ -1170,6 +1173,7 @@ pub const TypeClass = enum(c_int) {
     FunctionNoProto,
     FunctionProto,
     HLSLAttributedResource,
+    HLSLInlineSpirv,
     InjectedClassName,
     MacroQualified,
     ConstantMatrix,
@@ -1209,7 +1213,6 @@ const StmtClass = enum(c_int) {
     VAArgExprClass,
     UnaryOperatorClass,
     UnaryExprOrTypeTraitExprClass,
-    TypoExprClass,
     TypeTraitExprClass,
     SubstNonTypeTemplateParmPackExprClass,
     SubstNonTypeTemplateParmExprClass,
@@ -1351,11 +1354,13 @@ const StmtClass = enum(c_int) {
     OpenACCInitConstructClass,
     OpenACCExitDataConstructClass,
     OpenACCEnterDataConstructClass,
+    OpenACCCacheConstructClass,
     OpenACCLoopConstructClass,
     OpenACCHostDataConstructClass,
     OpenACCDataConstructClass,
     OpenACCComputeConstructClass,
     OpenACCCombinedConstructClass,
+    OpenACCAtomicConstructClass,
     ObjCForCollectionStmtClass,
     ObjCAutoreleasePoolStmtClass,
     ObjCAtTryStmtClass,
@@ -1391,6 +1396,7 @@ const StmtClass = enum(c_int) {
     OMPMaskedDirectiveClass,
     OMPUnrollDirectiveClass,
     OMPTileDirectiveClass,
+    OMPStripeDirectiveClass,
     OMPReverseDirectiveClass,
     OMPInterchangeDirectiveClass,
     OMPTeamsGenericLoopDirectiveClass,
@@ -1541,6 +1547,8 @@ pub const DeclKind = enum(c_int) {
     StaticAssert,
     PragmaDetectMismatch,
     PragmaComment,
+    OpenACCRoutine,
+    OpenACCDeclare,
     ObjCPropertyImpl,
     OMPThreadPrivate,
     OMPRequires,
@@ -1606,6 +1614,7 @@ pub const DeclKind = enum(c_int) {
     ObjCCompatibleAlias,
     NamespaceAlias,
     Label,
+    HLSLRootSignature,
     UsingEnum,
     Using,
     LifetimeExtendedTemporary,
@@ -1724,6 +1733,7 @@ pub const BuiltinTypeKind = enum(c_int) {
     SveBoolx4,
     SveCount,
     MFloat8,
+    DMR1024,
     VectorQuad,
     VectorPair,
     RvvInt8mf8,
@@ -2143,14 +2153,13 @@ pub const CallingConv = enum(c_int) {
     AAPCS_VFP,
     IntelOclBicc,
     SpirFunction,
-    OpenCLKernel,
+    DeviceKernel,
     Swift,
     SwiftAsync,
     PreserveMost,
     PreserveAll,
     AArch64VectorCall,
     AArch64SVEPCS,
-    AMDGPUKernelCall,
     M68kRTD,
     PreserveNone,
     RISCVVectorCall,
@@ -2216,6 +2225,7 @@ pub const Expr_ConstantExprKind = enum(c_int) {
 pub const UnaryExprOrTypeTrait_Kind = enum(c_int) {
     SizeOf,
     DataSizeOf,
+    CountOf,
     AlignOf,
     PreferredAlignOf,
     PtrAuthTypeDiscriminator,

@@ -353,11 +353,10 @@ fn declVisitor(c: *Context, decl: *const clang.Decl) Error!void {
 }
 
 fn transFileScopeAsm(c: *Context, scope: *Scope, file_scope_asm: *const clang.FileScopeAsmDecl) Error!void {
-    const asm_string = file_scope_asm.getAsmString();
-    var len: usize = undefined;
-    const bytes_ptr = asm_string.getString_bytes_begin_size(&len);
+    const asm_string = std.mem.span(file_scope_asm.getAsmString());
+    defer clang.FileScopeAsmDecl.freeAsmString(asm_string.ptr);
 
-    const str = try std.fmt.allocPrint(c.arena, "\"{f}\"", .{std.zig.fmtString(bytes_ptr[0..len])});
+    const str = try std.fmt.allocPrint(c.arena, "\"{f}\"", .{std.zig.fmtString(asm_string)});
     const str_node = try Tag.string_literal.create(c.arena, str);
 
     const asm_node = try Tag.asm_simple.create(c.arena, str_node);
@@ -3696,6 +3695,7 @@ fn transUnaryExprOrTypeTraitExpr(
         .SizeOf => try Tag.sizeof.create(c.arena, type_node),
         .AlignOf => try Tag.alignof.create(c.arena, type_node),
         .DataSizeOf,
+        .CountOf,
         .PreferredAlignOf,
         .PtrAuthTypeDiscriminator,
         .VecStep,
