@@ -246,34 +246,18 @@ pub fn appendRemaining(
     limit: Limit,
 ) LimitedAllocError!void {
     assert(r.buffer.len != 0); // Needed to detect limit exceeded without losing data.
-    const buffer = r.buffer;
-    const buffer_contents = buffer[r.seek..r.end];
-    const copy_len = limit.minInt(buffer_contents.len);
-    try list.ensureUnusedCapacity(gpa, copy_len);
-    @memcpy(list.unusedCapacitySlice()[0..copy_len], buffer[0..copy_len]);
-    list.items.len += copy_len;
-    r.seek += copy_len;
-    if (copy_len == buffer_contents.len) {
-        r.seek = 0;
-        r.end = 0;
-    }
-    var remaining = limit.subtract(copy_len).?;
-    while (true) {
-        try list.ensureUnusedCapacity(gpa, 1);
+    var remaining = limit;
+    while (remaining.nonzero()) {
+        try list.ensureUnusedCapacity(gpa, r.bufferedLen() + 1);
         const dest = remaining.slice(list.unusedCapacitySlice());
-        const additional_buffer: []u8 = if (@intFromEnum(remaining) == dest.len) buffer else &.{};
-        const n = readVec(r, &.{ dest, additional_buffer }) catch |err| switch (err) {
+        const n = readVecLimit(r, &.{dest}, .unlimited) catch |err| switch (err) {
             error.EndOfStream => break,
             error.ReadFailed => return error.ReadFailed,
         };
-        if (n > dest.len) {
-            r.end = n - dest.len;
-            list.items.len += dest.len;
-            return error.StreamTooLong;
-        }
         list.items.len += n;
         remaining = remaining.subtract(n).?;
     }
+    if (r.bufferedLen() != 0) return error.StreamTooLong;
 }
 
 /// Writes bytes from the internally tracked stream position to `data`.
