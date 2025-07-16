@@ -165,18 +165,10 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
             const file = try std.fs.cwd().openFile(path, .{ .mode = .write_only });
             defer file.close();
-<<<<<<< HEAD
             var fw = file.writer(&.{});
             fw.interface.writeAll(name) catch |err| switch (err) {
                 error.WriteFailed => return fw.err.?,
             };
-||||||| edf785db0f
-
-            try file.writer().writeAll(name);
-=======
-
-            try file.deprecatedWriter().writeAll(name);
->>>>>>> origin/master
             return;
         },
         .windows => {
@@ -288,23 +280,11 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             const path = try std.fmt.bufPrint(&buf, "/proc/self/task/{d}/comm", .{self.getHandle()});
             const file = try std.fs.cwd().openFile(path, .{});
             defer file.close();
-<<<<<<< HEAD
             var fr = file.reader(&.{});
             const n = fr.interface.readSliceShort(buffer_ptr[0 .. max_name_len + 1]) catch |err| switch (err) {
                 error.ReadFailed => return fr.err.?,
             };
             return if (n == 0) null else buffer[0 .. n - 1];
-||||||| edf785db0f
-
-            const data_len = try file.reader().readAll(buffer_ptr[0 .. max_name_len + 1]);
-
-            return if (data_len >= 1) buffer[0 .. data_len - 1] else null;
-=======
-
-            const data_len = try file.deprecatedReader().readAll(buffer_ptr[0 .. max_name_len + 1]);
-
-            return if (data_len >= 1) buffer[0 .. data_len - 1] else null;
->>>>>>> origin/master
         },
         .windows => {
             const buf_capacity = @sizeOf(windows.UNICODE_STRING) + (@sizeOf(u16) * max_name_len);
