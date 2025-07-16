@@ -240,6 +240,7 @@ pub const gcd = @import("math/gcd.zig").gcd;
 pub const lcm = @import("math/lcm.zig").lcm;
 pub const gamma = @import("math/gamma.zig").gamma;
 pub const lgamma = @import("math/gamma.zig").lgamma;
+pub const mean = @import("math/mean.zig").mean;
 
 /// Sine trigonometric function on a floating point number.
 /// Uses a dedicated hardware instruction when available.
@@ -401,6 +402,7 @@ test {
     _ = lcm;
     _ = gamma;
     _ = lgamma;
+    _ = mean;
 
     _ = complex;
     _ = Complex;
