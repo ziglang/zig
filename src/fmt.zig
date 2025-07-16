@@ -35,15 +35,12 @@ const Fmt = struct {
     gpa: Allocator,
     arena: Allocator,
     out_buffer: std.Io.Writer.Allocating,
+    stdout_writer: *fs.File.Writer,
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
-pub fn run(
-    gpa: Allocator,
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var color: Color = .auto;
     var stdin_flag = false;
     var check_flag = false;
@@ -60,8 +57,7 @@ pub fn run(
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.fs.File.stdout().deprecatedWriter();
-                    try stdout.writeAll(usage_fmt);
+                    try fs.File.stdout().writeAll(usage_fmt);
                     return process.cleanExit();
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
@@ -156,12 +152,15 @@ pub fn run(
             process.exit(code);
         }
 
-        return std.fs.File.stdout().writeAll(formatted);
+        return fs.File.stdout().writeAll(formatted);
     }
 
     if (input_files.items.len == 0) {
         fatal("expected at least one source file argument", .{});
     }
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
 
     var fmt: Fmt = .{
         .gpa = gpa,
@@ -172,6 +171,7 @@ pub fn run(
         .force_zon = force_zon,
         .color = color,
         .out_buffer = .init(gpa),
+        .stdout_writer = &stdout_writer,
     };
     defer fmt.seen.deinit();
     defer fmt.out_buffer.deinit();
@@ -198,46 +198,10 @@ pub fn run(
     if (fmt.any_error) {
         process.exit(1);
     }
+    try fmt.stdout_writer.interface.flush();
 }
 
-const FmtError = error{
-    SystemResources,
-    OperationAborted,
-    IoPending,
-    BrokenPipe,
-    Unexpected,
-    WouldBlock,
-    Canceled,
-    FileClosed,
-    DestinationAddressRequired,
-    DiskQuota,
-    FileTooBig,
-    MessageTooBig,
-    InputOutput,
-    NoSpaceLeft,
-    AccessDenied,
-    OutOfMemory,
-    RenameAcrossMountPoints,
-    ReadOnlyFileSystem,
-    LinkQuotaExceeded,
-    FileBusy,
-    EndOfStream,
-    Unseekable,
-    NotOpenForWriting,
-    UnsupportedEncoding,
-    InvalidEncoding,
-    ConnectionResetByPeer,
-    SocketNotConnected,
-    LockViolation,
-    NetNameDeleted,
-    InvalidArgument,
-    ProcessNotFound,
-    ConnectionTimedOut,
-    NotOpenForReading,
-    StreamTooLong,
-} || fs.File.OpenError;
-
-fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
+fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) !void {
     fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, dir, sub_path),
         else => {
@@ -254,7 +218,7 @@ fn fmtPathDir(
     check_mode: bool,
     parent_dir: fs.Dir,
     parent_sub_path: []const u8,
-) FmtError!void {
+) !void {
     var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
     defer dir.close();
 
@@ -290,7 +254,7 @@ fn fmtPathFile(
     check_mode: bool,
     dir: fs.Dir,
     sub_path: []const u8,
-) FmtError!void {
+) !void {
     const source_file = try dir.openFile(sub_path, .{});
     var file_closed = false;
     errdefer if (!file_closed) source_file.close();
@@ -381,8 +345,7 @@ fn fmtPathFile(
         return;
 
     if (check_mode) {
-        const stdout = std.fs.File.stdout().deprecatedWriter();
-        try stdout.print("{s}\n", .{file_path});
+        try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
         fmt.any_error = true;
     } else {
         var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
@@ -390,8 +353,7 @@ fn fmtPathFile(
 
         try af.file.writeAll(fmt.out_buffer.getWritten());
         try af.finish();
-        const stdout = std.fs.File.stdout().deprecatedWriter();
-        try stdout.print("{s}\n", .{file_path});
+        try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
     }
 }
 
