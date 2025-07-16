@@ -2062,6 +2062,8 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         /// addresses other than those derived from input pointer provenance.
         memory: bool = false,
 
+        lr: bool = false,
+
         hi: bool = false,
         lo: bool = false,
         ac0: bool = false,
