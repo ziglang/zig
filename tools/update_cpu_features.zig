@@ -399,6 +399,7 @@ const targets = [_]ArchTarget{
             .name = "AMDGPU",
             .td_name = "AMDGPU",
         },
+        .branch_quota = 2000,
         .feature_overrides = &.{
             .{
                 .llvm_name = "DumpCode",
