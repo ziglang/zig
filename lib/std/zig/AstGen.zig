@@ -11291,7 +11291,7 @@ fn parseStrLit(
     const result = r: {
         var aw: std.io.Writer.Allocating = .fromArrayList(astgen.gpa, buf);
         defer buf.* = aw.toArrayList();
-        break :r std.zig.string_literal.parseWrite(&aw.interface, raw_string) catch |err| switch (err) {
+        break :r std.zig.string_literal.parseWrite(&aw.writer, raw_string) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
         };
     };
@@ -13741,7 +13741,7 @@ fn lowerAstErrors(astgen: *AstGen) error{OutOfMemory}!void {
 
     var msg: std.io.Writer.Allocating = .init(gpa);
     defer msg.deinit();
-    const msg_bw = &msg.interface;
+    const msg_w = &msg.writer;
 
     var notes: std.ArrayListUnmanaged(u32) = .empty;
     defer notes.deinit(gpa);
@@ -13775,19 +13775,19 @@ fn lowerAstErrors(astgen: *AstGen) error{OutOfMemory}!void {
             .extra = .{ .offset = bad_off },
         };
         msg.clearRetainingCapacity();
-        tree.renderError(ast_err, msg_bw) catch return error.OutOfMemory;
+        tree.renderError(ast_err, msg_w) catch return error.OutOfMemory;
         return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.getWritten()}, notes.items);
     }
 
     var cur_err = tree.errors[0];
     for (tree.errors[1..]) |err| {
         if (err.is_note) {
-            tree.renderError(err, msg_bw) catch return error.OutOfMemory;
+            tree.renderError(err, msg_w) catch return error.OutOfMemory;
             try notes.append(gpa, try astgen.errNoteTok(err.token, "{s}", .{msg.getWritten()}));
         } else {
             // Flush error
             const extra_offset = tree.errorOffset(cur_err);
-            tree.renderError(cur_err, msg_bw) catch return error.OutOfMemory;
+            tree.renderError(cur_err, msg_w) catch return error.OutOfMemory;
             try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
             notes.clearRetainingCapacity();
             cur_err = err;
@@ -13801,7 +13801,7 @@ fn lowerAstErrors(astgen: *AstGen) error{OutOfMemory}!void {
 
     // Flush error
     const extra_offset = tree.errorOffset(cur_err);
-    tree.renderError(cur_err, msg_bw) catch return error.OutOfMemory;
+    tree.renderError(cur_err, msg_w) catch return error.OutOfMemory;
     try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
 }
 
