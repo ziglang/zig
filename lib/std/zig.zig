@@ -534,6 +534,11 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader
     var buffer: std.ArrayListAlignedUnmanaged(u8, .@"2") = .empty;
     defer buffer.deinit(gpa);
 
+    if (file_reader.getSize()) |size| {
+        const casted_size = std.math.cast(u32, size) orelse return error.StreamTooLong;
+        try buffer.ensureTotalCapacityPrecise(gpa, casted_size);
+    } else |_| {}
+
     try file_reader.interface.appendRemaining(gpa, .@"2", &buffer, .limited(max_src_size));
 
     // Detect unsupported file types with their Byte Order Mark
