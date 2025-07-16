@@ -123,6 +123,8 @@ pub fn F16T(comptime OtherType: type) type {
         .thumbeb,
         .aarch64,
         .aarch64_be,
+        .loongarch32,
+        .loongarch64,
         .nvptx,
         .nvptx64,
         .riscv32,
