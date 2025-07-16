@@ -16,231 +16,112 @@
 
 #include <x86gprintrin.h>
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__MMX__)
 #include <mmintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__SSE__)
 #include <xmmintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__SSE2__)
 #include <emmintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__SSE3__)
 #include <pmmintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__SSSE3__)
 #include <tmmintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__SSE4_2__) || defined(__SSE4_1__))
 #include <smmintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AES__) || defined(__PCLMUL__))
 #include <wmmintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__CLFLUSHOPT__)
 #include <clflushoptintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__CLWB__)
 #include <clwbintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX__)
 #include <avxintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX2__)
 #include <avx2intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__F16C__)
 #include <f16cintrin.h>
-#endif
 
-/* No feature check desired due to internal checks */
 #include <bmiintrin.h>
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__BMI2__)
 #include <bmi2intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__LZCNT__)
 #include <lzcntintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__POPCNT__)
 #include <popcntintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__FMA__)
 #include <fmaintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512F__)
 #include <avx512fintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512VL__)
 #include <avx512vlintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512BW__)
 #include <avx512bwintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512BITALG__)
 #include <avx512bitalgintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512CD__)
 #include <avx512cdintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512VPOPCNTDQ__)
 #include <avx512vpopcntdqintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX512VL__) && defined(__AVX512VPOPCNTDQ__))
 #include <avx512vpopcntdqvlintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512VNNI__)
 #include <avx512vnniintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX512VL__) && defined(__AVX512VNNI__))
 #include <avx512vlvnniintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVXVNNI__)
 #include <avxvnniintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512DQ__)
 #include <avx512dqintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX512VL__) && defined(__AVX512BITALG__))
 #include <avx512vlbitalgintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX512VL__) && defined(__AVX512BW__))
 #include <avx512vlbwintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX512VL__) && defined(__AVX512CD__))
 #include <avx512vlcdintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX512VL__) && defined(__AVX512DQ__))
 #include <avx512vldqintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512IFMA__)
 #include <avx512ifmaintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX512IFMA__) && defined(__AVX512VL__))
 #include <avx512ifmavlintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVXIFMA__)
 #include <avxifmaintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512VBMI__)
 #include <avx512vbmiintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX512VBMI__) && defined(__AVX512VL__))
 #include <avx512vbmivlintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512VBMI2__)
 #include <avx512vbmi2intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX512VBMI2__) && defined(__AVX512VL__))
 #include <avx512vlvbmi2intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512FP16__)
 #include <avx512fp16intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX512VL__) && defined(__AVX512FP16__))
 #include <avx512vlfp16intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX512BF16__)
 #include <avx512bf16intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX512VL__) && defined(__AVX512BF16__))
 #include <avx512vlbf16intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__PKU__)
 #include <pkuintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__VPCLMULQDQ__)
 #include <vpclmulqdqintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__VAES__)
 #include <vaesintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__GFNI__)
 #include <gfniintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVXVNNIINT8__)
 #include <avxvnniint8intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVXNECONVERT__)
 #include <avxneconvertintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__SHA512__)
 #include <sha512intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__SM3__)
 #include <sm3intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__SM4__)
 #include <sm4intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVXVNNIINT16__)
 #include <avxvnniint16intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__RDPID__)
 /// Reads the value of the IA32_TSC_AUX MSR (0xc0000103).
 ///
 /// \headerfile <immintrin.h>
@@ -252,9 +133,7 @@ static __inline__ unsigned int __attribute__((__always_inline__, __nodebug__, __
 _rdpid_u32(void) {
   return __builtin_ia32_rdpid();
 }
-#endif // __RDPID__
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__RDRND__)
 /// Returns a 16-bit hardware-generated random value.
 ///
 /// \headerfile <immintrin.h>
@@ -314,9 +193,7 @@ _rdrand64_step(unsigned long long *__p)
   }
 #endif
 }
-#endif /* __RDRND__ */
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__FSGSBASE__)
 #ifdef __x86_64__
 /// Reads the FS base register.
 ///
@@ -427,9 +304,6 @@ _writegsbase_u64(unsigned long long __V)
 }
 
 #endif
-#endif /* __FSGSBASE__ */
-
-#if !defined(__SCE__) || __has_feature(modules) || defined(__MOVBE__)
 
 /* The structs used below are to force the load/store to be unaligned. This
  * is accomplished with the __packed__ attribute. The __may_alias__ prevents
@@ -543,172 +417,86 @@ _storebe_i64(void * __P, long long __D) {
   ((struct __storeu_i64*)__P)->__v = __builtin_bswap64((unsigned long long)__D);
 }
 #endif
-#endif /* __MOVBE */
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__RTM__)
 #include <rtmintrin.h>
 #include <xtestintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__SHA__)
 #include <shaintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__FXSR__)
 #include <fxsrintrin.h>
-#endif
 
 /* No feature check desired due to internal MSC_VER checks */
 #include <xsaveintrin.h>
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__XSAVEOPT__)
 #include <xsaveoptintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__XSAVEC__)
 #include <xsavecintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__XSAVES__)
 #include <xsavesintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__SHSTK__)
 #include <cetintrin.h>
-#endif
 
 /* Intrinsics inside adcintrin.h are available at all times. */
 #include <adcintrin.h>
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__ADX__)
 #include <adxintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__RDSEED__)
 #include <rdseedintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__WBNOINVD__)
 #include <wbnoinvdintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__CLDEMOTE__)
 #include <cldemoteintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__WAITPKG__)
 #include <waitpkgintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__MOVDIRI__) ||     \
-    defined(__MOVDIR64B__)
 #include <movdirintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__MOVRS__)
 #include <movrsintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX10_2__) && defined(__MOVRS__))
 #include <movrs_avx10_2intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX10_2_512__) && defined(__MOVRS__))
 #include <movrs_avx10_2_512intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__PCONFIG__)
 #include <pconfigintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__SGX__)
 #include <sgxintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__PTWRITE__)
 #include <ptwriteintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__INVPCID__)
 #include <invpcidintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__KL__) ||          \
-    defined(__WIDEKL__)
 #include <keylockerintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AMX_TILE__) ||    \
-    defined(__AMX_INT8__) || defined(__AMX_BF16__)
 #include <amxintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AMX_FP16__)
 #include <amxfp16intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AMX_COMPLEX__)
 #include <amxcomplexintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AMX_FP8__)
 #include <amxfp8intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AMX_TRANSPOSE__)
 #include <amxtransposeintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AMX_MOVRS__)
 #include <amxmovrsintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AMX_MOVRS__) && defined(__AMX_TRANSPOSE__))
 #include <amxmovrstransposeintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AMX_AVX512__)
 #include <amxavx512intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AMX_TF32__)
 #include <amxtf32intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AMX_TF32__) && defined(__AMX_TRANSPOSE__))
 #include <amxtf32transposeintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AMX_BF16__) && defined(__AMX_TRANSPOSE__))
 #include <amxbf16transposeintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AMX_FP16__) && defined(__AMX_TRANSPOSE__))
 #include <amxfp16transposeintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AMX_COMPLEX__) && defined(__AMX_TRANSPOSE__))
 #include <amxcomplextransposeintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    defined(__AVX512VP2INTERSECT__)
 #include <avx512vp2intersectintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX512VL__) && defined(__AVX512VP2INTERSECT__))
 #include <avx512vlvp2intersectintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX10_2__)
 #include <avx10_2bf16intrin.h>
 #include <avx10_2convertintrin.h>
 #include <avx10_2copyintrin.h>
@@ -716,33 +504,21 @@ _storebe_i64(void * __P, long long __D) {
 #include <avx10_2niintrin.h>
 #include <avx10_2satcvtdsintrin.h>
 #include <avx10_2satcvtintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__AVX10_2_512__)
 #include <avx10_2_512bf16intrin.h>
 #include <avx10_2_512convertintrin.h>
 #include <avx10_2_512minmaxintrin.h>
 #include <avx10_2_512niintrin.h>
 #include <avx10_2_512satcvtdsintrin.h>
 #include <avx10_2_512satcvtintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) ||                             \
-    (defined(__AVX10_2_512__) && defined(__SM4__))
 #include <sm4evexintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__ENQCMD__)
 #include <enqcmdintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__SERIALIZE__)
 #include <serializeintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__TSXLDTRK__)
 #include <tsxldtrkintrin.h>
-#endif
 
 #if defined(_MSC_VER) && __has_extension(gnu_asm)
 /* Define the default attributes for these intrinsics */

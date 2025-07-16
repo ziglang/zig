@@ -7,6 +7,9 @@
  *===-----------------------------------------------------------------------===
  */
 
+#ifndef _VECINTRIN_H
+#define _VECINTRIN_H
+
 #if defined(__s390x__) && defined(__VEC__)
 
 #define __ATTRS_ai __attribute__((__always_inline__))
@@ -12861,3 +12864,5 @@ vec_search_string_until_zero_cc(__vector unsigned int __a,
 #error "Use -fzvector to enable vector extensions"
 
 #endif
+
+#endif /* _VECINTRIN_H */
