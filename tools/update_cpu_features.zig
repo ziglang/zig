@@ -1921,7 +1921,7 @@ fn processOneTarget(job: Job) void {
     );
 
     for (all_features.items, 0..) |feature, i| {
-        try w.print("\n    {f},", .{std.zig.fmtId(feature.zig_name)});
+        try w.print("\n    {f},", .{std.zig.fmtIdPU(feature.zig_name)});
 
         if (i == all_features.items.len - 1) try w.writeAll("\n");
     }
