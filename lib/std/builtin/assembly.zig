@@ -1004,12 +1004,16 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         /// addresses other than those derived from input pointer provenance.
         memory: bool = false,
 
-        xcc: bool = false,
-
         psr: bool = false,
-        ccr: bool = false,
         gsr: bool = false,
         y: bool = false,
+
+        /// asr2; v9+
+        ccr: bool = false,
+        /// Lower bits of `ccr`.
+        icc: bool = false,
+        /// Upper bits of `ccr`.
+        xcc: bool = false,
 
         g1: bool = false,
         g2: bool = false,
