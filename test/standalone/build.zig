@@ -38,20 +38,38 @@ pub fn build(b: *std.Build) void {
         "../../tools/gen_spirv_spec.zig",
         "../../tools/gen_stubs.zig",
         "../../tools/generate_c_size_and_align_checks.zig",
+        "../../tools/generate_JSONTestSuite.zig",
         "../../tools/generate_linux_syscalls.zig",
         "../../tools/process_headers.zig",
+        "../../tools/migrate_langref.zig",
         "../../tools/update-linux-headers.zig",
         "../../tools/update_clang_options.zig",
         "../../tools/update_cpu_features.zig",
+        "../../tools/update_crc_catalog.zig",
         "../../tools/update_freebsd_libc.zig",
         "../../tools/update_glibc.zig",
+        "../../tools/update_mingw.zig",
         "../../tools/update_netbsd_libc.zig",
+    }) |tool_src_path| {
+        if (std.mem.endsWith(u8, tool_src_path, "dump-cov.zig") and tools_target.result.os.tag == .windows) continue;
+
+        const tool = b.addExecutable(.{
+            .name = std.fs.path.stem(tool_src_path),
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(tool_src_path),
+                .target = tools_target,
+            }),
+        });
+        tools_tests_step.dependOn(&tool.step);
+    }
+    for ([_][]const u8{
+        // Alphabetically sorted. Only ones with `test` blocks.
+        "../../tools/doctest.zig",
     }) |tool_src_path| {
         const tool = b.addTest(.{
             .name = std.fs.path.stem(tool_src_path),
             .root_module = b.createModule(.{
                 .root_source_file = b.path(tool_src_path),
-                .optimize = .Debug,
                 .target = tools_target,
             }),
         });
