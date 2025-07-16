@@ -1004,6 +1004,8 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         /// addresses other than those derived from input pointer provenance.
         memory: bool = false,
 
+        xcc: bool = false,
+
         psr: bool = false,
         ccr: bool = false,
         gsr: bool = false,
@@ -2179,6 +2181,15 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         p0: bool = false,
         p1: bool = false,
         p2: bool = false,
+
+        msa_ir: bool = false,
+        msa_csr: bool = false,
+        msa_access: bool = false,
+        msa_save: bool = false,
+        msa_modify: bool = false,
+        msa_request: bool = false,
+        msa_map: bool = false,
+        msa_unmap: bool = false,
     },
     else => packed struct {
         /// Whether the inline assembly code may perform stores to memory

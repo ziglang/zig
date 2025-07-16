@@ -7277,7 +7277,7 @@ pub const FuncGen = struct {
 
         var llvm_ret_i: usize = 0;
         var llvm_param_i: usize = 0;
-        var total_i: u16 = 0;
+        var total_i: usize = 0;
 
         var name_map: std.StringArrayHashMapUnmanaged(u16) = .empty;
         try name_map.ensureUnusedCapacity(arena, max_param_count);
@@ -7359,7 +7359,7 @@ pub const FuncGen = struct {
             if (!std.mem.eql(u8, name, "_")) {
                 const gop = name_map.getOrPutAssumeCapacity(name);
                 if (gop.found_existing) return self.todo("duplicate asm output name '{s}'", .{name});
-                gop.value_ptr.* = total_i;
+                gop.value_ptr.* = @intCast(total_i);
             }
             total_i += 1;
         }
@@ -7414,7 +7414,7 @@ pub const FuncGen = struct {
             if (!std.mem.eql(u8, name, "_")) {
                 const gop = name_map.getOrPutAssumeCapacity(name);
                 if (gop.found_existing) return self.todo("duplicate asm input name '{s}'", .{name});
-                gop.value_ptr.* = total_i;
+                gop.value_ptr.* = @intCast(total_i);
             }
 
             // In the case of indirect inputs, LLVM requires the callsite to have
@@ -7470,18 +7470,13 @@ pub const FuncGen = struct {
         const ip = &zcu.intern_pool;
         const aggregate = ip.indexToKey(extra.data.clobbers).aggregate;
         const struct_type: Type = .fromInterned(aggregate.ty);
+        if (total_i != 0) try llvm_constraints.append(gpa, ',');
         switch (aggregate.storage) {
             .elems => |elems| for (elems, 0..) |elem, i| {
                 switch (elem) {
                     .bool_true => {
                         const name = struct_type.structFieldName(i, zcu).toSlice(ip).?;
-                        try llvm_constraints.ensureUnusedCapacity(gpa, name.len + 4);
-                        if (total_i != 0) llvm_constraints.appendAssumeCapacity(',');
-                        llvm_constraints.appendSliceAssumeCapacity("~{");
-                        llvm_constraints.appendSliceAssumeCapacity(name);
-                        llvm_constraints.appendSliceAssumeCapacity("}");
-
-                        total_i += 1;
+                        total_i += try appendConstraints(gpa, &llvm_constraints, name, target);
                     },
                     .bool_false => continue,
                     else => unreachable,
@@ -7490,13 +7485,7 @@ pub const FuncGen = struct {
             .repeated_elem => |elem| switch (elem) {
                 .bool_true => for (0..struct_type.structFieldCount(zcu)) |i| {
                     const name = struct_type.structFieldName(i, zcu).toSlice(ip).?;
-                    try llvm_constraints.ensureUnusedCapacity(gpa, name.len + 4);
-                    if (total_i != 0) llvm_constraints.appendAssumeCapacity(',');
-                    llvm_constraints.appendSliceAssumeCapacity("~{");
-                    llvm_constraints.appendSliceAssumeCapacity(name);
-                    llvm_constraints.appendSliceAssumeCapacity("}");
-
-                    total_i += 1;
+                    total_i += try appendConstraints(gpa, &llvm_constraints, name, target);
                 },
                 .bool_false => {},
                 else => unreachable,
@@ -7515,17 +7504,17 @@ pub const FuncGen = struct {
         // to be buggy and regress often.
         switch (target.cpu.arch) {
             .x86_64, .x86 => {
-                if (total_i != 0) try llvm_constraints.append(gpa, ',');
-                try llvm_constraints.appendSlice(gpa, "~{dirflag},~{fpsr},~{flags}");
+                try llvm_constraints.appendSlice(gpa, "~{dirflag},~{fpsr},~{flags},");
                 total_i += 3;
             },
             .mips, .mipsel, .mips64, .mips64el => {
-                if (total_i != 0) try llvm_constraints.append(gpa, ',');
-                try llvm_constraints.appendSlice(gpa, "~{$1}");
+                try llvm_constraints.appendSlice(gpa, "~{$1},");
                 total_i += 1;
             },
             else => {},
         }
+
+        if (std.mem.endsWith(u8, llvm_constraints.items, ",")) llvm_constraints.items.len -= 1;
 
         const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
@@ -13206,3 +13195,257 @@ fn maxIntConst(b: *Builder, max_ty: Type, as_ty: Builder.Type, zcu: *const Zcu) 
     try res.setTwosCompIntLimit(.max, info.signedness, info.bits);
     return b.bigIntConst(as_ty, res.toConst());
 }
+
+/// Appends zero or more LLVM constraints to `llvm_constraints`, returning how many were added.
+fn appendConstraints(
+    gpa: Allocator,
+    llvm_constraints: *std.ArrayListUnmanaged(u8),
+    zig_name: []const u8,
+    target: *const std.Target,
+) error{OutOfMemory}!usize {
+    switch (target.cpu.arch) {
+        .mips, .mipsel, .mips64, .mips64el => if (mips_clobber_overrides.get(zig_name)) |llvm_tag| {
+            const llvm_name = @tagName(llvm_tag);
+            try llvm_constraints.ensureUnusedCapacity(gpa, llvm_name.len + 4);
+            llvm_constraints.appendSliceAssumeCapacity("~{");
+            llvm_constraints.appendSliceAssumeCapacity(llvm_name);
+            llvm_constraints.appendSliceAssumeCapacity("},");
+            return 1;
+        },
+        else => {},
+    }
+
+    try llvm_constraints.ensureUnusedCapacity(gpa, zig_name.len + 4);
+    llvm_constraints.appendSliceAssumeCapacity("~{");
+    llvm_constraints.appendSliceAssumeCapacity(zig_name);
+    llvm_constraints.appendSliceAssumeCapacity("},");
+    return 1;
+}
+
+const mips_clobber_overrides = std.StaticStringMap(enum {
+    @"$msair",
+    @"$msacsr",
+    @"$msaaccess",
+    @"$msasave",
+    @"$msamodify",
+    @"$msarequest",
+    @"$msamap",
+    @"$msaunmap",
+    @"$f0",
+    @"$f1",
+    @"$f2",
+    @"$f3",
+    @"$f4",
+    @"$f5",
+    @"$f6",
+    @"$f7",
+    @"$f8",
+    @"$f9",
+    @"$f10",
+    @"$f11",
+    @"$f12",
+    @"$f13",
+    @"$f14",
+    @"$f15",
+    @"$f16",
+    @"$f17",
+    @"$f18",
+    @"$f19",
+    @"$f20",
+    @"$f21",
+    @"$f22",
+    @"$f23",
+    @"$f24",
+    @"$f25",
+    @"$f26",
+    @"$f27",
+    @"$f28",
+    @"$f29",
+    @"$f30",
+    @"$f31",
+    @"$fcc0",
+    @"$fcc1",
+    @"$fcc2",
+    @"$fcc3",
+    @"$fcc4",
+    @"$fcc5",
+    @"$fcc6",
+    @"$fcc7",
+    @"$w0",
+    @"$w1",
+    @"$w2",
+    @"$w3",
+    @"$w4",
+    @"$w5",
+    @"$w6",
+    @"$w7",
+    @"$w8",
+    @"$w9",
+    @"$w10",
+    @"$w11",
+    @"$w12",
+    @"$w13",
+    @"$w14",
+    @"$w15",
+    @"$w16",
+    @"$w17",
+    @"$w18",
+    @"$w19",
+    @"$w20",
+    @"$w21",
+    @"$w22",
+    @"$w23",
+    @"$w24",
+    @"$w25",
+    @"$w26",
+    @"$w27",
+    @"$w28",
+    @"$w29",
+    @"$w30",
+    @"$w31",
+    @"$0",
+    @"$1",
+    @"$2",
+    @"$3",
+    @"$4",
+    @"$5",
+    @"$6",
+    @"$7",
+    @"$8",
+    @"$9",
+    @"$10",
+    @"$11",
+    @"$12",
+    @"$13",
+    @"$14",
+    @"$15",
+    @"$16",
+    @"$17",
+    @"$18",
+    @"$19",
+    @"$20",
+    @"$21",
+    @"$22",
+    @"$23",
+    @"$24",
+    @"$25",
+    @"$26",
+    @"$27",
+    @"$28",
+    @"$29",
+    @"$30",
+    @"$31",
+}).initComptime(.{
+    .{ "msa_ir", .@"$msair" },
+    .{ "msa_csr", .@"$msacsr" },
+    .{ "msa_access", .@"$msaaccess" },
+    .{ "msa_save", .@"$msasave" },
+    .{ "msa_modify", .@"$msamodify" },
+    .{ "msa_request", .@"$msarequest" },
+    .{ "msa_map", .@"$msamap" },
+    .{ "msa_unmap", .@"$msaunmap" },
+    .{ "f0", .@"$f0" },
+    .{ "f1", .@"$f1" },
+    .{ "f2", .@"$f2" },
+    .{ "f3", .@"$f3" },
+    .{ "f4", .@"$f4" },
+    .{ "f5", .@"$f5" },
+    .{ "f6", .@"$f6" },
+    .{ "f7", .@"$f7" },
+    .{ "f8", .@"$f8" },
+    .{ "f9", .@"$f9" },
+    .{ "f10", .@"$f10" },
+    .{ "f11", .@"$f11" },
+    .{ "f12", .@"$f12" },
+    .{ "f13", .@"$f13" },
+    .{ "f14", .@"$f14" },
+    .{ "f15", .@"$f15" },
+    .{ "f16", .@"$f16" },
+    .{ "f17", .@"$f17" },
+    .{ "f18", .@"$f18" },
+    .{ "f19", .@"$f19" },
+    .{ "f20", .@"$f20" },
+    .{ "f21", .@"$f21" },
+    .{ "f22", .@"$f22" },
+    .{ "f23", .@"$f23" },
+    .{ "f24", .@"$f24" },
+    .{ "f25", .@"$f25" },
+    .{ "f26", .@"$f26" },
+    .{ "f27", .@"$f27" },
+    .{ "f28", .@"$f28" },
+    .{ "f29", .@"$f29" },
+    .{ "f30", .@"$f30" },
+    .{ "f31", .@"$f31" },
+    .{ "fcc0", .@"$fcc0" },
+    .{ "fcc1", .@"$fcc1" },
+    .{ "fcc2", .@"$fcc2" },
+    .{ "fcc3", .@"$fcc3" },
+    .{ "fcc4", .@"$fcc4" },
+    .{ "fcc5", .@"$fcc5" },
+    .{ "fcc6", .@"$fcc6" },
+    .{ "fcc7", .@"$fcc7" },
+    .{ "w0", .@"$w0" },
+    .{ "w1", .@"$w1" },
+    .{ "w2", .@"$w2" },
+    .{ "w3", .@"$w3" },
+    .{ "w4", .@"$w4" },
+    .{ "w5", .@"$w5" },
+    .{ "w6", .@"$w6" },
+    .{ "w7", .@"$w7" },
+    .{ "w8", .@"$w8" },
+    .{ "w9", .@"$w9" },
+    .{ "w10", .@"$w10" },
+    .{ "w11", .@"$w11" },
+    .{ "w12", .@"$w12" },
+    .{ "w13", .@"$w13" },
+    .{ "w14", .@"$w14" },
+    .{ "w15", .@"$w15" },
+    .{ "w16", .@"$w16" },
+    .{ "w17", .@"$w17" },
+    .{ "w18", .@"$w18" },
+    .{ "w19", .@"$w19" },
+    .{ "w20", .@"$w20" },
+    .{ "w21", .@"$w21" },
+    .{ "w22", .@"$w22" },
+    .{ "w23", .@"$w23" },
+    .{ "w24", .@"$w24" },
+    .{ "w25", .@"$w25" },
+    .{ "w26", .@"$w26" },
+    .{ "w27", .@"$w27" },
+    .{ "w28", .@"$w28" },
+    .{ "w29", .@"$w29" },
+    .{ "w30", .@"$w30" },
+    .{ "w31", .@"$w31" },
+    .{ "r0", .@"$0" },
+    .{ "r1", .@"$1" },
+    .{ "r2", .@"$2" },
+    .{ "r3", .@"$3" },
+    .{ "r4", .@"$4" },
+    .{ "r5", .@"$5" },
+    .{ "r6", .@"$6" },
+    .{ "r7", .@"$7" },
+    .{ "r8", .@"$8" },
+    .{ "r9", .@"$9" },
+    .{ "r10", .@"$10" },
+    .{ "r11", .@"$11" },
+    .{ "r12", .@"$12" },
+    .{ "r13", .@"$13" },
+    .{ "r14", .@"$14" },
+    .{ "r15", .@"$15" },
+    .{ "r16", .@"$16" },
+    .{ "r17", .@"$17" },
+    .{ "r18", .@"$18" },
+    .{ "r19", .@"$19" },
+    .{ "r20", .@"$20" },
+    .{ "r21", .@"$21" },
+    .{ "r22", .@"$22" },
+    .{ "r23", .@"$23" },
+    .{ "r24", .@"$24" },
+    .{ "r25", .@"$25" },
+    .{ "r26", .@"$26" },
+    .{ "r27", .@"$27" },
+    .{ "r28", .@"$28" },
+    .{ "r29", .@"$29" },
+    .{ "r30", .@"$30" },
+    .{ "r31", .@"$31" },
+});
