@@ -464,32 +464,52 @@ pub fn writeVecAll(w: *Writer, data: [][]const u8) Error!void {
 
 /// The `data` parameter is mutable because this function needs to mutate the
 /// fields in order to handle partial writes from `VTable.writeSplat`.
+/// `data` will be restored to its original state before returning.
 pub fn writeSplatAll(w: *Writer, data: [][]const u8, splat: usize) Error!void {
     var index: usize = 0;
     var truncate: usize = 0;
-    var remaining_splat = splat;
     while (index + 1 < data.len) {
         {
             const untruncated = data[index];
             data[index] = untruncated[truncate..];
             defer data[index] = untruncated;
-            truncate += try w.writeSplat(data[index..], remaining_splat);
+            truncate += try w.writeSplat(data[index..], splat);
         }
-        while (truncate >= data[index].len) {
-            if (index + 1 < data.len) {
-                truncate -= data[index].len;
-                index += 1;
-            } else {
-                const last = data[data.len - 1];
-                remaining_splat -= @divExact(truncate, last.len);
-                while (remaining_splat > 0) {
-                    const n = try w.writeSplat(data[data.len - 1 ..][0..1], remaining_splat);
-                    remaining_splat -= @divExact(n, last.len);
-                }
-                return;
-            }
+        while (truncate >= data[index].len and index + 1 < data.len) {
+            truncate -= data[index].len;
+            index += 1;
         }
     }
+
+    // Deal with any left over splats
+    if (data.len != 0 and truncate < data[index].len * splat) {
+        std.debug.assert(index == data.len - 1);
+        var remaining_splat = splat;
+        while (true) {
+            remaining_splat -= truncate / data[index].len;
+            truncate %= data[index].len;
+            if (remaining_splat == 0) break;
+            truncate += try w.writeSplat(&.{ data[index][truncate..], data[index] }, remaining_splat - 1);
+        }
+    }
+}
+
+test writeSplatAll {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    var buffers = [_][]const u8{ "ba", "na" };
+    try aw.writer.writeSplatAll(&buffers, 2);
+    try testing.expectEqualStrings("banana", aw.writer.buffered());
+}
+
+test "writeSplatAll works with a single buffer" {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    var message: [1][]const u8 = .{"hello"};
+    try aw.writer.writeSplatAll(&message, 3);
+    try testing.expectEqualStrings("hellohellohello", aw.writer.buffered());
 }
 
 pub fn write(w: *Writer, bytes: []const u8) Error!usize {
@@ -763,6 +783,14 @@ pub fn splatByteAll(w: *Writer, byte: u8, n: usize) Error!void {
     while (remaining > 0) remaining -= try w.splatByte(byte, remaining);
 }
 
+test splatByteAll {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    try aw.writer.splatByteAll('7', 45);
+    try testing.expectEqualStrings("7" ** 45, aw.writer.buffered());
+}
+
 /// Writes the same byte many times, allowing short writes.
 ///
 /// Does maximum of one underlying `VTable.drain`.
@@ -778,13 +806,21 @@ pub fn splatBytesAll(w: *Writer, bytes: []const u8, splat: usize) Error!void {
     while (remaining_bytes > 0) {
         const leftover = remaining_bytes % bytes.len;
         const buffers: [2][]const u8 = .{ bytes[bytes.len - leftover ..], bytes };
-        remaining_bytes -= try w.splatBytes(&buffers, splat);
+        remaining_bytes -= try w.writeSplat(&buffers, splat);
     }
+}
+
+test splatBytesAll {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    try aw.writer.splatBytesAll("hello", 3);
+    try testing.expectEqualStrings("hellohellohello", aw.writer.buffered());
 }
 
 /// Writes the same slice many times, allowing short writes.
 ///
-/// Does maximum of one underlying `VTable.writeSplat`.
+/// Does maximum of one underlying `VTable.drain`.
 pub fn splatBytes(w: *Writer, bytes: []const u8, n: usize) Error!usize {
     return writeSplat(w, &.{bytes}, n);
 }
