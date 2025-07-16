@@ -15,7 +15,6 @@
 #include <__type_traits/datasizeof.h>
 #include <__type_traits/is_empty.h>
 #include <__type_traits/is_final.h>
-#include <__type_traits/is_reference.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -63,9 +62,17 @@ inline const size_t __compressed_pair_alignment = _LIBCPP_ALIGNOF(_Tp);
 template <class _Tp>
 inline const size_t __compressed_pair_alignment<_Tp&> = _LIBCPP_ALIGNOF(void*);
 
-template <class _ToPad,
-          bool _Empty = ((is_empty<_ToPad>::value && !__libcpp_is_final<_ToPad>::value) ||
-                         is_reference<_ToPad>::value || sizeof(_ToPad) == __datasizeof_v<_ToPad>)>
+template <class _ToPad>
+inline const bool __is_reference_or_unpadded_object =
+    (is_empty<_ToPad>::value && !__libcpp_is_final<_ToPad>::value) || sizeof(_ToPad) == __datasizeof_v<_ToPad>;
+
+template <class _Tp>
+inline const bool __is_reference_or_unpadded_object<_Tp&> = true;
+
+template <class _Tp>
+inline const bool __is_reference_or_unpadded_object<_Tp&&> = true;
+
+template <class _ToPad, bool _Empty = __is_reference_or_unpadded_object<_ToPad> >
 class __compressed_pair_padding {
   char __padding_[sizeof(_ToPad) - __datasizeof_v<_ToPad>] = {};
 };

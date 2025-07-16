@@ -64,8 +64,6 @@
 // Character manipulation functions
 // --------------------------------
 // namespace __locale {
-//  int     __islower(int, __locale_t);
-//  int     __isupper(int, __locale_t);
 //  int     __isdigit(int, __locale_t);  // required by the headers
 //  int     __isxdigit(int, __locale_t); // required by the headers
 //  int     __toupper(int, __locale_t);
@@ -111,59 +109,64 @@
 //  int     __sscanf(const char*, __locale_t, const char*, ...);     // required by the headers
 // }
 
-#if defined(__APPLE__)
-#  include <__locale_dir/support/apple.h>
-#elif defined(__FreeBSD__)
-#  include <__locale_dir/support/freebsd.h>
-#elif defined(__NetBSD__)
-#  include <__locale_dir/support/netbsd.h>
-#elif defined(_LIBCPP_MSVCRT_LIKE)
-#  include <__locale_dir/support/windows.h>
-#elif defined(__Fuchsia__)
-#  include <__locale_dir/support/fuchsia.h>
-#else
+#if _LIBCPP_HAS_LOCALIZATION
+
+#  if defined(__APPLE__)
+#    include <__locale_dir/support/apple.h>
+#  elif defined(__FreeBSD__)
+#    include <__locale_dir/support/freebsd.h>
+/* zig patch: https://github.com/llvm/llvm-project/pull/143055 */
+#  elif defined(__NetBSD__)
+#    include <__locale_dir/support/netbsd.h>
+#  elif defined(_LIBCPP_MSVCRT_LIKE)
+#    include <__locale_dir/support/windows.h>
+#  elif defined(__Fuchsia__)
+#    include <__locale_dir/support/fuchsia.h>
+#  elif defined(__linux__)
+#    include <__locale_dir/support/linux.h>
+#  else
 
 // TODO: This is a temporary definition to bridge between the old way we defined the locale base API
 //       (by providing global non-reserved names) and the new API. As we move individual platforms
 //       towards the new way of defining the locale base API, this should disappear since each platform
 //       will define those directly.
-#  if defined(_AIX) || defined(__MVS__)
-#    include <__locale_dir/locale_base_api/ibm.h>
-#  elif defined(__ANDROID__)
-#    include <__locale_dir/locale_base_api/android.h>
-#  elif defined(__OpenBSD__)
-#    include <__locale_dir/locale_base_api/openbsd.h>
-#  elif defined(__wasi__) || _LIBCPP_HAS_MUSL_LIBC
-#    include <__locale_dir/locale_base_api/musl.h>
-#  endif
+#    if defined(_AIX) || defined(__MVS__)
+#      include <__locale_dir/locale_base_api/ibm.h>
+#    elif defined(__ANDROID__)
+#      include <__locale_dir/locale_base_api/android.h>
+#    elif defined(__OpenBSD__)
+#      include <__locale_dir/locale_base_api/openbsd.h>
+#    elif defined(__wasi__) || _LIBCPP_HAS_MUSL_LIBC
+#      include <__locale_dir/locale_base_api/musl.h>
+#    endif
 
-#  include <__locale_dir/locale_base_api/bsd_locale_fallbacks.h>
+#    include <__locale_dir/locale_base_api/bsd_locale_fallbacks.h>
 
-#  include <__cstddef/size_t.h>
-#  include <__utility/forward.h>
-#  include <ctype.h>
-#  include <string.h>
-#  include <time.h>
-#  if _LIBCPP_HAS_WIDE_CHARACTERS
-#    include <wctype.h>
-#  endif
+#    include <__cstddef/size_t.h>
+#    include <__utility/forward.h>
+#    include <ctype.h>
+#    include <string.h>
+#    include <time.h>
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
+#      include <wctype.h>
+#    endif
 _LIBCPP_BEGIN_NAMESPACE_STD
 namespace __locale {
 //
 // Locale management
 //
-#  define _LIBCPP_COLLATE_MASK LC_COLLATE_MASK
-#  define _LIBCPP_CTYPE_MASK LC_CTYPE_MASK
-#  define _LIBCPP_MONETARY_MASK LC_MONETARY_MASK
-#  define _LIBCPP_NUMERIC_MASK LC_NUMERIC_MASK
-#  define _LIBCPP_TIME_MASK LC_TIME_MASK
-#  define _LIBCPP_MESSAGES_MASK LC_MESSAGES_MASK
-#  define _LIBCPP_ALL_MASK LC_ALL_MASK
-#  define _LIBCPP_LC_ALL LC_ALL
+#    define _LIBCPP_COLLATE_MASK LC_COLLATE_MASK
+#    define _LIBCPP_CTYPE_MASK LC_CTYPE_MASK
+#    define _LIBCPP_MONETARY_MASK LC_MONETARY_MASK
+#    define _LIBCPP_NUMERIC_MASK LC_NUMERIC_MASK
+#    define _LIBCPP_TIME_MASK LC_TIME_MASK
+#    define _LIBCPP_MESSAGES_MASK LC_MESSAGES_MASK
+#    define _LIBCPP_ALL_MASK LC_ALL_MASK
+#    define _LIBCPP_LC_ALL LC_ALL
 
 using __locale_t _LIBCPP_NODEBUG = locale_t;
 
-#  if defined(_LIBCPP_BUILDING_LIBRARY)
+#    if defined(_LIBCPP_BUILDING_LIBRARY)
 using __lconv_t _LIBCPP_NODEBUG = lconv;
 
 inline _LIBCPP_HIDE_FROM_ABI __locale_t __newlocale(int __category_mask, const char* __name, __locale_t __loc) {
@@ -177,7 +180,7 @@ inline _LIBCPP_HIDE_FROM_ABI char* __setlocale(int __category, char const* __loc
 inline _LIBCPP_HIDE_FROM_ABI void __freelocale(__locale_t __loc) { freelocale(__loc); }
 
 inline _LIBCPP_HIDE_FROM_ABI __lconv_t* __localeconv(__locale_t& __loc) { return __libcpp_localeconv_l(__loc); }
-#  endif // _LIBCPP_BUILDING_LIBRARY
+#    endif // _LIBCPP_BUILDING_LIBRARY
 
 //
 // Strtonum functions
@@ -206,15 +209,10 @@ __strtoull(const char* __nptr, char** __endptr, int __base, __locale_t __loc) {
 //
 // Character manipulation functions
 //
-#  if defined(_LIBCPP_BUILDING_LIBRARY)
-inline _LIBCPP_HIDE_FROM_ABI int __islower(int __ch, __locale_t __loc) { return islower_l(__ch, __loc); }
-inline _LIBCPP_HIDE_FROM_ABI int __isupper(int __ch, __locale_t __loc) { return isupper_l(__ch, __loc); }
-#  endif
-
 inline _LIBCPP_HIDE_FROM_ABI int __isdigit(int __ch, __locale_t __loc) { return isdigit_l(__ch, __loc); }
 inline _LIBCPP_HIDE_FROM_ABI int __isxdigit(int __ch, __locale_t __loc) { return isxdigit_l(__ch, __loc); }
 
-#  if defined(_LIBCPP_BUILDING_LIBRARY)
+#    if defined(_LIBCPP_BUILDING_LIBRARY)
 inline _LIBCPP_HIDE_FROM_ABI int __strcoll(const char* __s1, const char* __s2, __locale_t __loc) {
   return strcoll_l(__s1, __s2, __loc);
 }
@@ -224,7 +222,7 @@ inline _LIBCPP_HIDE_FROM_ABI size_t __strxfrm(char* __dest, const char* __src, s
 inline _LIBCPP_HIDE_FROM_ABI int __toupper(int __ch, __locale_t __loc) { return toupper_l(__ch, __loc); }
 inline _LIBCPP_HIDE_FROM_ABI int __tolower(int __ch, __locale_t __loc) { return tolower_l(__ch, __loc); }
 
-#    if _LIBCPP_HAS_WIDE_CHARACTERS
+#      if _LIBCPP_HAS_WIDE_CHARACTERS
 inline _LIBCPP_HIDE_FROM_ABI int __wcscoll(const wchar_t* __s1, const wchar_t* __s2, __locale_t __loc) {
   return wcscoll_l(__s1, __s2, __loc);
 }
@@ -246,7 +244,7 @@ inline _LIBCPP_HIDE_FROM_ABI int __iswpunct(wint_t __ch, __locale_t __loc) { ret
 inline _LIBCPP_HIDE_FROM_ABI int __iswxdigit(wint_t __ch, __locale_t __loc) { return iswxdigit_l(__ch, __loc); }
 inline _LIBCPP_HIDE_FROM_ABI wint_t __towupper(wint_t __ch, __locale_t __loc) { return towupper_l(__ch, __loc); }
 inline _LIBCPP_HIDE_FROM_ABI wint_t __towlower(wint_t __ch, __locale_t __loc) { return towlower_l(__ch, __loc); }
-#    endif
+#      endif
 
 inline _LIBCPP_HIDE_FROM_ABI size_t
 __strftime(char* __s, size_t __max, const char* __format, const tm* __tm, __locale_t __loc) {
@@ -259,7 +257,7 @@ __strftime(char* __s, size_t __max, const char* __format, const tm* __tm, __loca
 inline _LIBCPP_HIDE_FROM_ABI decltype(__libcpp_mb_cur_max_l(__locale_t())) __mb_len_max(__locale_t __loc) {
   return __libcpp_mb_cur_max_l(__loc);
 }
-#    if _LIBCPP_HAS_WIDE_CHARACTERS
+#      if _LIBCPP_HAS_WIDE_CHARACTERS
 inline _LIBCPP_HIDE_FROM_ABI wint_t __btowc(int __ch, __locale_t __loc) { return __libcpp_btowc_l(__ch, __loc); }
 inline _LIBCPP_HIDE_FROM_ABI int __wctob(wint_t __ch, __locale_t __loc) { return __libcpp_wctob_l(__ch, __loc); }
 inline _LIBCPP_HIDE_FROM_ABI size_t
@@ -287,17 +285,17 @@ inline _LIBCPP_HIDE_FROM_ABI size_t
 __mbsrtowcs(wchar_t* __dest, const char** __src, size_t __len, mbstate_t* __ps, __locale_t __loc) {
   return __libcpp_mbsrtowcs_l(__dest, __src, __len, __ps, __loc);
 }
-#    endif // _LIBCPP_HAS_WIDE_CHARACTERS
-#  endif   // _LIBCPP_BUILDING_LIBRARY
+#      endif // _LIBCPP_HAS_WIDE_CHARACTERS
+#    endif   // _LIBCPP_BUILDING_LIBRARY
 
 _LIBCPP_DIAGNOSTIC_PUSH
 _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wgcc-compat")
 _LIBCPP_GCC_DIAGNOSTIC_IGNORED("-Wformat-nonliteral") // GCC doesn't support [[gnu::format]] on variadic templates
-#  ifdef _LIBCPP_COMPILER_CLANG_BASED
-#    define _LIBCPP_VARIADIC_ATTRIBUTE_FORMAT(...) _LIBCPP_ATTRIBUTE_FORMAT(__VA_ARGS__)
-#  else
-#    define _LIBCPP_VARIADIC_ATTRIBUTE_FORMAT(...) /* nothing */
-#  endif
+#    ifdef _LIBCPP_COMPILER_CLANG_BASED
+#      define _LIBCPP_VARIADIC_ATTRIBUTE_FORMAT(...) _LIBCPP_ATTRIBUTE_FORMAT(__VA_ARGS__)
+#    else
+#      define _LIBCPP_VARIADIC_ATTRIBUTE_FORMAT(...) /* nothing */
+#    endif
 
 template <class... _Args>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_VARIADIC_ATTRIBUTE_FORMAT(__printf__, 4, 5) int __snprintf(
@@ -315,11 +313,13 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_VARIADIC_ATTRIBUTE_FORMAT(__scanf__, 3, 4) int __s
   return std::__libcpp_sscanf_l(__s, __loc, __format, std::forward<_Args>(__args)...);
 }
 _LIBCPP_DIAGNOSTIC_POP
-#  undef _LIBCPP_VARIADIC_ATTRIBUTE_FORMAT
+#    undef _LIBCPP_VARIADIC_ATTRIBUTE_FORMAT
 
 } // namespace __locale
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // Compatibility definition of locale base APIs
+#  endif // Compatibility definition of locale base APIs
+
+#endif // _LIBCPP_HAS_LOCALIZATION
 
 #endif // _LIBCPP___LOCALE_DIR_LOCALE_BASE_API_H

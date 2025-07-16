@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___ITERATOR_NEXT_H
 #define _LIBCPP___ITERATOR_NEXT_H
 
-#include <__assert>
 #include <__config>
 #include <__iterator/advance.h>
 #include <__iterator/concepts.h>
@@ -27,11 +26,6 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _InputIter, __enable_if_t<__has_input_iterator_category<_InputIter>::value, int> = 0>
 [[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 _InputIter
 next(_InputIter __x, typename iterator_traits<_InputIter>::difference_type __n = 1) {
-  // Calling `advance` with a negative value on a non-bidirectional iterator is a no-op in the current implementation.
-  // Note that this check duplicates the similar check in `std::advance`.
-  _LIBCPP_ASSERT_PEDANTIC(__n >= 0 || __has_bidirectional_iterator_category<_InputIter>::value,
-                          "Attempt to next(it, n) with negative n on a non-bidirectional iterator");
-
   std::advance(__x, __n);
   return __x;
 }

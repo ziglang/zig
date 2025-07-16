@@ -10,8 +10,7 @@
 #define _LIBCPP___TYPE_TRAITS_IS_ASSIGNABLE_H
 
 #include <__config>
-#include <__type_traits/add_lvalue_reference.h>
-#include <__type_traits/add_rvalue_reference.h>
+#include <__type_traits/add_reference.h>
 #include <__type_traits/integral_constant.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -21,7 +20,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp, class _Up>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_assignable : _BoolConstant<__is_assignable(_Tp, _Up)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_assignable : _BoolConstant<__is_assignable(_Tp, _Up)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp, class _Arg>
@@ -29,9 +28,8 @@ _LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_assignable_v = __is_assignab
 #endif
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_copy_assignable
-    : public integral_constant<bool,
-                               __is_assignable(__add_lvalue_reference_t<_Tp>, __add_lvalue_reference_t<const _Tp>)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_copy_assignable
+    : integral_constant<bool, __is_assignable(__add_lvalue_reference_t<_Tp>, __add_lvalue_reference_t<const _Tp>)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
@@ -39,8 +37,8 @@ _LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_copy_assignable_v = is_copy_
 #endif
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_move_assignable
-    : public integral_constant<bool, __is_assignable(__add_lvalue_reference_t<_Tp>, __add_rvalue_reference_t<_Tp>)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_move_assignable
+    : integral_constant<bool, __is_assignable(__add_lvalue_reference_t<_Tp>, __add_rvalue_reference_t<_Tp>)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>

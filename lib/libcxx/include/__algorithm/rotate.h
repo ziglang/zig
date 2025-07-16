@@ -9,12 +9,19 @@
 #ifndef _LIBCPP___ALGORITHM_ROTATE_H
 #define _LIBCPP___ALGORITHM_ROTATE_H
 
+#include <__algorithm/copy.h>
+#include <__algorithm/copy_backward.h>
 #include <__algorithm/iterator_operations.h>
 #include <__algorithm/move.h>
 #include <__algorithm/move_backward.h>
 #include <__algorithm/swap_ranges.h>
 #include <__config>
+#include <__cstddef/size_t.h>
+#include <__fwd/bit_reference.h>
 #include <__iterator/iterator_traits.h>
+#include <__memory/construct_at.h>
+#include <__memory/pointer_traits.h>
+#include <__type_traits/is_constant_evaluated.h>
 #include <__type_traits/is_trivially_assignable.h>
 #include <__utility/move.h>
 #include <__utility/pair.h>
@@ -183,6 +190,44 @@ __rotate(_Iterator __first, _Iterator __middle, _Sentinel __last) {
   auto __result = std::__rotate_impl<_AlgPolicy>(std::move(__first), std::move(__middle), __last_iter, _IterCategory());
 
   return _Ret(std::move(__result), std::move(__last_iter));
+}
+
+template <class, class _Cp>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<__bit_iterator<_Cp, false>, __bit_iterator<_Cp, false> >
+__rotate(__bit_iterator<_Cp, false> __first, __bit_iterator<_Cp, false> __middle, __bit_iterator<_Cp, false> __last) {
+  using _I1             = __bit_iterator<_Cp, false>;
+  using difference_type = typename _I1::difference_type;
+  difference_type __d1  = __middle - __first;
+  difference_type __d2  = __last - __middle;
+  _I1 __r               = __first + __d2;
+  while (__d1 != 0 && __d2 != 0) {
+    if (__d1 <= __d2) {
+      if (__d1 <= __bit_array<_Cp>::capacity()) {
+        __bit_array<_Cp> __b(__d1);
+        std::copy(__first, __middle, __b.begin());
+        std::copy(__b.begin(), __b.end(), std::copy(__middle, __last, __first));
+        break;
+      } else {
+        __bit_iterator<_Cp, false> __mp = std::swap_ranges(__first, __middle, __middle);
+        __first                         = __middle;
+        __middle                        = __mp;
+        __d2 -= __d1;
+      }
+    } else {
+      if (__d2 <= __bit_array<_Cp>::capacity()) {
+        __bit_array<_Cp> __b(__d2);
+        std::copy(__middle, __last, __b.begin());
+        std::copy_backward(__b.begin(), __b.end(), std::copy_backward(__first, __middle, __last));
+        break;
+      } else {
+        __bit_iterator<_Cp, false> __mp = __first + __d2;
+        std::swap_ranges(__first, __mp, __middle);
+        __first = __mp;
+        __d1 -= __d2;
+      }
+    }
+  }
+  return std::make_pair(__r, __last);
 }
 
 template <class _ForwardIterator>

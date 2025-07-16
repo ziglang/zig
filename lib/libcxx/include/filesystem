@@ -534,7 +534,7 @@ inline constexpr bool std::ranges::enable_view<std::filesystem::recursive_direct
 */
 
 #if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
-#  include <__cxx03/filesystem>
+#  include <__cxx03/__config>
 #else
 #  include <__config>
 

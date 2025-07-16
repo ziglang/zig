@@ -28,12 +28,10 @@ using __libcpp_timespec_t = ::timespec;
 typedef void* __libcpp_mutex_t;
 #define _LIBCPP_MUTEX_INITIALIZER 0
 
-#if defined(_M_IX86) || defined(__i386__) || defined(_M_ARM) || defined(__arm__)
-typedef void* __libcpp_recursive_mutex_t[6];
-#elif defined(_M_AMD64) || defined(__x86_64__) || defined(_M_ARM64) || defined(__aarch64__)
+#if defined(_WIN64)
 typedef void* __libcpp_recursive_mutex_t[5];
 #else
-#  error Unsupported architecture
+typedef void* __libcpp_recursive_mutex_t[6];
 #endif
 
 _LIBCPP_EXPORTED_FROM_ABI int __libcpp_recursive_mutex_init(__libcpp_recursive_mutex_t* __m);

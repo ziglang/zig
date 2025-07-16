@@ -378,9 +378,7 @@ extern "C++" {
 #      include <__math/traits.h>
 #      include <__math/trigonometric_functions.h>
 #      include <__type_traits/enable_if.h>
-#      include <__type_traits/is_floating_point.h>
 #      include <__type_traits/is_integral.h>
-#      include <stdlib.h>
 
 // fpclassify relies on implementation-defined constants, so we can't move it to a detail header
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -431,19 +429,12 @@ using std::__math::isnormal;
 using std::__math::isunordered;
 #      endif // _LIBCPP_MSVCRT
 
-// abs
-//
-// handled in stdlib.h
-
-// div
-//
-// handled in stdlib.h
-
 // We have to provide double overloads for <math.h> to work on platforms that don't provide the full set of math
 // functions. To make the overload set work with multiple functions that take the same arguments, we make our overloads
 // templates. Functions are preferred over function templates during overload resolution, which means that our overload
 // will only be selected when the C library doesn't provide one.
 
+using std::__math::abs;
 using std::__math::acos;
 using std::__math::acosh;
 using std::__math::asin;

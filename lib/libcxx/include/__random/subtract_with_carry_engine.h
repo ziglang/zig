@@ -30,7 +30,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _UIntType, size_t __w, size_t __s, size_t __r>
-class _LIBCPP_TEMPLATE_VIS subtract_with_carry_engine;
+class subtract_with_carry_engine;
 
 template <class _UInt, size_t _Wp, size_t _Sp, size_t _Rp>
 _LIBCPP_HIDE_FROM_ABI bool operator==(const subtract_with_carry_engine<_UInt, _Wp, _Sp, _Rp>& __x,
@@ -49,7 +49,7 @@ _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, subtract_with_carry_engine<_UInt, _Wp, _Sp, _Rp>& __x);
 
 template <class _UIntType, size_t __w, size_t __s, size_t __r>
-class _LIBCPP_TEMPLATE_VIS subtract_with_carry_engine {
+class subtract_with_carry_engine {
 public:
   // types
   typedef _UIntType result_type;

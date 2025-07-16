@@ -10,6 +10,7 @@
 #ifndef _LIBCPP___FORMAT_FORMATTER_STRING_H
 #define _LIBCPP___FORMAT_FORMATTER_STRING_H
 
+#include <__assert>
 #include <__config>
 #include <__format/concepts.h>
 #include <__format/format_parse_context.h>
@@ -17,6 +18,7 @@
 #include <__format/formatter_output.h>
 #include <__format/parser_std_format_spec.h>
 #include <__format/write_escaped.h>
+#include <cstddef>
 #include <string>
 #include <string_view>
 
@@ -29,7 +31,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS __formatter_string {
+struct __formatter_string {
 public:
   template <class _ParseContext>
   _LIBCPP_HIDE_FROM_ABI constexpr typename _ParseContext::iterator parse(_ParseContext& __ctx) {
@@ -58,7 +60,7 @@ public:
 
 // Formatter const char*.
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<const _CharT*, _CharT> : public __formatter_string<_CharT> {
+struct formatter<const _CharT*, _CharT> : public __formatter_string<_CharT> {
   using _Base _LIBCPP_NODEBUG = __formatter_string<_CharT>;
 
   template <class _FormatContext>
@@ -77,7 +79,7 @@ struct _LIBCPP_TEMPLATE_VIS formatter<const _CharT*, _CharT> : public __formatte
 
 // Formatter char*.
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<_CharT*, _CharT> : public formatter<const _CharT*, _CharT> {
+struct formatter<_CharT*, _CharT> : public formatter<const _CharT*, _CharT> {
   using _Base _LIBCPP_NODEBUG = formatter<const _CharT*, _CharT>;
 
   template <class _FormatContext>
@@ -88,20 +90,21 @@ struct _LIBCPP_TEMPLATE_VIS formatter<_CharT*, _CharT> : public formatter<const 
 
 // Formatter char[].
 template <__fmt_char_type _CharT, size_t _Size>
-struct _LIBCPP_TEMPLATE_VIS formatter<_CharT[_Size], _CharT> : public __formatter_string<_CharT> {
+struct formatter<_CharT[_Size], _CharT> : public __formatter_string<_CharT> {
   using _Base _LIBCPP_NODEBUG = __formatter_string<_CharT>;
 
   template <class _FormatContext>
   _LIBCPP_HIDE_FROM_ABI typename _FormatContext::iterator
   format(const _CharT (&__str)[_Size], _FormatContext& __ctx) const {
-    return _Base::format(basic_string_view<_CharT>(__str, _Size), __ctx);
+    const _CharT* const __pzero = char_traits<_CharT>::find(__str, _Size, _CharT{});
+    _LIBCPP_ASSERT_VALID_INPUT_RANGE(__pzero != nullptr, "formatting a non-null-terminated array");
+    return _Base::format(basic_string_view<_CharT>(__str, static_cast<size_t>(__pzero - __str)), __ctx);
   }
 };
 
 // Formatter std::string.
 template <__fmt_char_type _CharT, class _Traits, class _Allocator>
-struct _LIBCPP_TEMPLATE_VIS formatter<basic_string<_CharT, _Traits, _Allocator>, _CharT>
-    : public __formatter_string<_CharT> {
+struct formatter<basic_string<_CharT, _Traits, _Allocator>, _CharT> : public __formatter_string<_CharT> {
   using _Base _LIBCPP_NODEBUG = __formatter_string<_CharT>;
 
   template <class _FormatContext>
@@ -114,7 +117,7 @@ struct _LIBCPP_TEMPLATE_VIS formatter<basic_string<_CharT, _Traits, _Allocator>,
 
 // Formatter std::string_view.
 template <__fmt_char_type _CharT, class _Traits>
-struct _LIBCPP_TEMPLATE_VIS formatter<basic_string_view<_CharT, _Traits>, _CharT> : public __formatter_string<_CharT> {
+struct formatter<basic_string_view<_CharT, _Traits>, _CharT> : public __formatter_string<_CharT> {
   using _Base _LIBCPP_NODEBUG = __formatter_string<_CharT>;
 
   template <class _FormatContext>
@@ -124,6 +127,19 @@ struct _LIBCPP_TEMPLATE_VIS formatter<basic_string_view<_CharT, _Traits>, _CharT
     return _Base::format(basic_string_view<_CharT>(__str.data(), __str.size()), __ctx);
   }
 };
+
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
+template <>
+struct formatter<char*, wchar_t> : __disabled_formatter {};
+template <>
+struct formatter<const char*, wchar_t> : __disabled_formatter {};
+template <size_t _Size>
+struct formatter<char[_Size], wchar_t> : __disabled_formatter {};
+template <class _Traits, class _Allocator>
+struct formatter<basic_string<char, _Traits, _Allocator>, wchar_t> : __disabled_formatter {};
+template <class _Traits>
+struct formatter<basic_string_view<char, _Traits>, wchar_t> : __disabled_formatter {};
+#  endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 #  if _LIBCPP_STD_VER >= 23
 template <>
