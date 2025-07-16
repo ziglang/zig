@@ -323,6 +323,45 @@
 #define ULACCUM_EPSILON 0x1.0p-32ULK
 #endif // ULACCUM_EPSILON
 
+#define absfx(x)                                                               \
+  _Generic((x),                                                                \
+      fract: absr,                                                             \
+      short fract: abshr,                                                      \
+      long fract: abslr,                                                       \
+      accum: absk,                                                             \
+      short accum: abshk,                                                      \
+      long accum: abslk)(x)
+
+#define countlsfx(x)                                                           \
+  _Generic((x),                                                                \
+      fract: countlsr,                                                         \
+      short fract: countlshr,                                                  \
+      long fract: countlslr,                                                   \
+      accum: countlsk,                                                         \
+      short accum: countlshk,                                                  \
+      long accum: countlslk,                                                   \
+      unsigned fract: countlsur,                                               \
+      unsigned short fract: countlsuhr,                                        \
+      unsigned long fract: countlsulr,                                         \
+      unsigned accum: countlsuk,                                               \
+      unsigned short accum: countlsuhk,                                        \
+      unsigned long accum: countlsulk)(x)
+
+#define roundfx(x, y)                                                          \
+  _Generic((x),                                                                \
+      fract: roundr,                                                           \
+      short fract: roundhr,                                                    \
+      long fract: roundlr,                                                     \
+      accum: roundk,                                                           \
+      short accum: roundhk,                                                    \
+      long accum: roundlk,                                                     \
+      unsigned fract: roundur,                                                 \
+      unsigned short fract: rounduhr,                                          \
+      unsigned long fract: roundulr,                                           \
+      unsigned accum: rounduk,                                                 \
+      unsigned short accum: rounduhk,                                          \
+      unsigned long accum: roundulk)(x, y)
+
 #endif // LIBC_COMPILER_HAS_FIXED_POINT
 
 #endif // LLVM_LIBC_MACROS_STDFIX_MACROS_H
