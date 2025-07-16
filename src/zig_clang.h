@@ -273,6 +273,7 @@ enum ZigClangTypeClass {
     ZigClangType_FunctionNoProto,
     ZigClangType_FunctionProto,
     ZigClangType_HLSLAttributedResource,
+    ZigClangType_HLSLInlineSpirv,
     ZigClangType_InjectedClassName,
     ZigClangType_MacroQualified,
     ZigClangType_ConstantMatrix,
@@ -312,7 +313,6 @@ enum ZigClangStmtClass {
     ZigClangStmt_VAArgExprClass,
     ZigClangStmt_UnaryOperatorClass,
     ZigClangStmt_UnaryExprOrTypeTraitExprClass,
-    ZigClangStmt_TypoExprClass,
     ZigClangStmt_TypeTraitExprClass,
     ZigClangStmt_SubstNonTypeTemplateParmPackExprClass,
     ZigClangStmt_SubstNonTypeTemplateParmExprClass,
@@ -454,11 +454,13 @@ enum ZigClangStmtClass {
     ZigClangStmt_OpenACCInitConstructClass,
     ZigClangStmt_OpenACCExitDataConstructClass,
     ZigClangStmt_OpenACCEnterDataConstructClass,
+    ZigClangStmt_OpenACCCacheConstructClass,
     ZigClangStmt_OpenACCLoopConstructClass,
     ZigClangStmt_OpenACCHostDataConstructClass,
     ZigClangStmt_OpenACCDataConstructClass,
     ZigClangStmt_OpenACCComputeConstructClass,
     ZigClangStmt_OpenACCCombinedConstructClass,
+    ZigClangStmt_OpenACCAtomicConstructClass,
     ZigClangStmt_ObjCForCollectionStmtClass,
     ZigClangStmt_ObjCAutoreleasePoolStmtClass,
     ZigClangStmt_ObjCAtTryStmtClass,
@@ -494,6 +496,7 @@ enum ZigClangStmtClass {
     ZigClangStmt_OMPMaskedDirectiveClass,
     ZigClangStmt_OMPUnrollDirectiveClass,
     ZigClangStmt_OMPTileDirectiveClass,
+    ZigClangStmt_OMPStripeDirectiveClass,
     ZigClangStmt_OMPReverseDirectiveClass,
     ZigClangStmt_OMPInterchangeDirectiveClass,
     ZigClangStmt_OMPTeamsGenericLoopDirectiveClass,
@@ -644,6 +647,8 @@ enum ZigClangDeclKind {
     ZigClangDeclStaticAssert,
     ZigClangDeclPragmaDetectMismatch,
     ZigClangDeclPragmaComment,
+    ZigClangDeclOpenACCRoutine,
+    ZigClangDeclOpenACCDeclare,
     ZigClangDeclObjCPropertyImpl,
     ZigClangDeclOMPThreadPrivate,
     ZigClangDeclOMPRequires,
@@ -709,6 +714,7 @@ enum ZigClangDeclKind {
     ZigClangDeclObjCCompatibleAlias,
     ZigClangDeclNamespaceAlias,
     ZigClangDeclLabel,
+    ZigClangDeclHLSLRootSignature,
     ZigClangDeclUsingEnum,
     ZigClangDeclUsing,
     ZigClangDeclLifetimeExtendedTemporary,
@@ -827,6 +833,7 @@ enum ZigClangBuiltinTypeKind {
     ZigClangBuiltinTypeSveBoolx4,
     ZigClangBuiltinTypeSveCount,
     ZigClangBuiltinTypeMFloat8,
+    ZigClangBuiltinTypeDMR1024,
     ZigClangBuiltinTypeVectorQuad,
     ZigClangBuiltinTypeVectorPair,
     ZigClangBuiltinTypeRvvInt8mf8,
@@ -1246,14 +1253,13 @@ enum ZigClangCallingConv {
     ZigClangCallingConv_AAPCS_VFP,
     ZigClangCallingConv_IntelOclBicc,
     ZigClangCallingConv_SpirFunction,
-    ZigClangCallingConv_OpenCLKernel,
+    ZigClangCallingConv_DeviceKernel,
     ZigClangCallingConv_Swift,
     ZigClangCallingConv_SwiftAsync,
     ZigClangCallingConv_PreserveMost,
     ZigClangCallingConv_PreserveAll,
     ZigClangCallingConv_AArch64VectorCall,
     ZigClangCallingConv_AArch64SVEPCS,
-    ZigClangCallingConv_AMDGPUKernelCall,
     ZigClangCallingConv_M68kRTD,
     ZigClangCallingConv_PreserveNone,
     ZigClangCallingConv_RISCVVectorCall,
@@ -1356,6 +1362,7 @@ enum ZigClangExpr_ConstantExprKind {
 enum ZigClangUnaryExprOrTypeTrait_Kind {
     ZigClangUnaryExprOrTypeTrait_KindSizeOf,
     ZigClangUnaryExprOrTypeTrait_KindDataSizeOf,
+    ZigClangUnaryExprOrTypeTrait_KindCountOf,
     ZigClangUnaryExprOrTypeTrait_KindAlignOf,
     ZigClangUnaryExprOrTypeTrait_KindPreferredAlignOf,
     ZigClangUnaryExprOrTypeTrait_KindPtrAuthTypeDiscriminator,
@@ -1424,7 +1431,8 @@ ZIG_EXTERN_C unsigned ZigClangFieldDecl_getAlignedAttribute(const struct ZigClan
 ZIG_EXTERN_C bool ZigClangVarDecl_getPackedAttribute(const struct ZigClangVarDecl *self);
 ZIG_EXTERN_C bool ZigClangFieldDecl_getPackedAttribute(const struct ZigClangFieldDecl *self);
 
-ZIG_EXTERN_C const struct ZigClangStringLiteral *ZigClangFileScopeAsmDecl_getAsmString(const struct ZigClangFileScopeAsmDecl *self);
+ZIG_EXTERN_C const char *ZigClangFileScopeAsmDecl_getAsmString(const struct ZigClangFileScopeAsmDecl *self);
+ZIG_EXTERN_C void ZigClangFileScopeAsmDecl_freeAsmString(const char *str);
 
 ZIG_EXTERN_C struct ZigClangQualType ZigClangParmVarDecl_getOriginalType(const struct ZigClangParmVarDecl *self);
 
