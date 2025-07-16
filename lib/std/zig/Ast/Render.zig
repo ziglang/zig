@@ -10,13 +10,13 @@ const Writer = std.io.Writer;
 
 const Render = @This();
 
-const indent_delta = 4;
-const asm_indent_delta = 2;
-
 gpa: Allocator,
 ais: *AutoIndentingStream,
 tree: Ast,
 fixups: Fixups,
+
+const indent_delta = 4;
+const asm_indent_delta = 2;
 
 pub const Error = error{
     /// Ran out of memory allocating call stack frames to complete rendering.
@@ -83,9 +83,9 @@ pub const Fixups = struct {
     }
 };
 
-pub fn renderTree(gpa: Allocator, bw: *Writer, tree: Ast, fixups: Fixups) Error!void {
+pub fn renderTree(gpa: Allocator, w: *Writer, tree: Ast, fixups: Fixups) Error!void {
     assert(tree.errors.len == 0); // Cannot render an invalid tree.
-    var auto_indenting_stream: AutoIndentingStream = .init(gpa, bw, indent_delta);
+    var auto_indenting_stream: AutoIndentingStream = .init(gpa, w, indent_delta);
     defer auto_indenting_stream.deinit();
     var r: Render = .{
         .gpa = gpa,
@@ -2131,7 +2131,7 @@ fn renderArrayInit(
         const sub_expr_buffer_starts = try gpa.alloc(usize, section_exprs.len + 1);
         defer gpa.free(sub_expr_buffer_starts);
 
-        var auto_indenting_stream: AutoIndentingStream = .init(gpa, &sub_expr_buffer.interface, indent_delta);
+        var auto_indenting_stream: AutoIndentingStream = .init(gpa, &sub_expr_buffer.writer, indent_delta);
         defer auto_indenting_stream.deinit();
         var sub_render: Render = .{
             .gpa = r.gpa,
@@ -3116,11 +3116,11 @@ fn anythingBetween(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenI
     return false;
 }
 
-fn writeFixingWhitespace(bw: *Writer, slice: []const u8) Error!void {
+fn writeFixingWhitespace(w: *Writer, slice: []const u8) Error!void {
     for (slice) |byte| switch (byte) {
-        '\t' => try bw.splatByteAll(' ', indent_delta),
+        '\t' => try w.splatByteAll(' ', indent_delta),
         '\r' => {},
-        else => try bw.writeByte(byte),
+        else => try w.writeByte(byte),
     };
 }
 
@@ -3281,9 +3281,9 @@ const AutoIndentingStream = struct {
         indent_count: usize,
     };
 
-    pub fn init(gpa: Allocator, bw: *Writer, starting_indent_delta: usize) AutoIndentingStream {
+    pub fn init(gpa: Allocator, w: *Writer, starting_indent_delta: usize) AutoIndentingStream {
         return .{
-            .underlying_writer = bw,
+            .underlying_writer = w,
             .indent_delta = starting_indent_delta,
             .indent_stack = .init(gpa),
             .space_stack = .init(gpa),
