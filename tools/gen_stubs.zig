@@ -303,7 +303,7 @@ pub fn main() !void {
             libc_so_path,
             100 * 1024 * 1024,
             1 * 1024 * 1024,
-            @alignOf(elf.Elf64_Ehdr),
+            .of(elf.Elf64_Ehdr),
             null,
         ) catch |err| {
             std.debug.panic("unable to read '{s}/{s}': {s}", .{
