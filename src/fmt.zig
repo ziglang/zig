@@ -394,3 +394,12 @@ fn fmtPathFile(
         try stdout.print("{s}\n", .{file_path});
     }
 }
+
+/// Provided for debugging/testing purposes; unused by the compiler.
+pub fn main() !void {
+    const gpa = std.heap.smp_allocator;
+    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    const arena = arena_instance.allocator();
+    const args = try process.argsAlloc(arena);
+    return run(gpa, arena, args[1..]);
+}
