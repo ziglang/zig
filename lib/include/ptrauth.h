@@ -42,6 +42,19 @@ typedef enum {
      The extra data is always 0. */
   ptrauth_key_cxx_vtable_pointer = ptrauth_key_process_independent_data,
 
+  /* The key used to sign metadata pointers to Objective-C method-lists. */
+  ptrauth_key_method_list_pointer = ptrauth_key_asda,
+
+  /* The key used to sign Objective-C isa and super pointers. */
+  ptrauth_key_objc_isa_pointer = ptrauth_key_process_independent_data,
+  ptrauth_key_objc_super_pointer = ptrauth_key_process_independent_data,
+
+  /* The key used to sign selector pointers */
+  ptrauth_key_objc_sel_pointer = ptrauth_key_process_dependent_data,
+
+  /* The key used to sign Objective-C class_ro_t pointers. */
+  ptrauth_key_objc_class_ro_pointer = ptrauth_key_process_independent_data,
+
   /* The key used to sign pointers in ELF .init_array/.fini_array. */
   ptrauth_key_init_fini_pointer = ptrauth_key_process_independent_code,
 
@@ -259,6 +272,46 @@ typedef __UINTPTR_TYPE__ ptrauth_generic_signature_t;
 /* The value is ptrauth_string_discriminator("init_fini") */
 #define __ptrauth_init_fini_discriminator 0xd9d4
 
+/* Objective-C pointer auth ABI qualifiers */
+#define __ptrauth_objc_method_list_imp                                         \
+  __ptrauth(ptrauth_key_function_pointer, 1, 0)
+
+#if __has_feature(ptrauth_objc_method_list_pointer)
+#define __ptrauth_objc_method_list_pointer                                     \
+  __ptrauth(ptrauth_key_method_list_pointer, 1, 0xC310)
+#else
+#define __ptrauth_objc_method_list_pointer
+#endif
+
+#define __ptrauth_isa_discriminator 0x6AE1
+#define __ptrauth_super_discriminator 0xB5AB
+#define __ptrauth_objc_isa_pointer                                             \
+  __ptrauth(ptrauth_key_objc_isa_pointer, 1, __ptrauth_isa_discriminator)
+#if __has_feature(ptrauth_restricted_intptr_qualifier)
+#define __ptrauth_objc_isa_uintptr                                             \
+  __ptrauth_restricted_intptr(ptrauth_key_objc_isa_pointer, 1,                 \
+                              __ptrauth_isa_discriminator)
+#else
+#define __ptrauth_objc_isa_uintptr                                             \
+  __ptrauth(ptrauth_key_objc_isa_pointer, 1, __ptrauth_isa_discriminator)
+#endif
+
+#define __ptrauth_objc_super_pointer                                           \
+  __ptrauth(ptrauth_key_objc_super_pointer, 1, __ptrauth_super_discriminator)
+
+#define __ptrauth_objc_sel_discriminator 0x57c2
+#if __has_feature(ptrauth_objc_interface_sel)
+#define __ptrauth_objc_sel                                                     \
+  __ptrauth(ptrauth_key_objc_sel_pointer, 1, __ptrauth_objc_sel_discriminator)
+#else
+#define __ptrauth_objc_sel
+#endif
+
+#define __ptrauth_objc_class_ro_discriminator 0x61f8
+#define __ptrauth_objc_class_ro                                                \
+  __ptrauth(ptrauth_key_objc_class_ro_pointer, 1,                              \
+            __ptrauth_objc_class_ro_discriminator)
+
 #else
 
 #define ptrauth_strip(__value, __key)                                          \
@@ -330,6 +383,10 @@ typedef __UINTPTR_TYPE__ ptrauth_generic_signature_t;
 
 #define ptrauth_cxx_vtable_pointer(key, address_discrimination,                \
                                    extra_discrimination...)
+
+#define __ptrauth_objc_isa_pointer
+#define __ptrauth_objc_isa_uintptr
+#define __ptrauth_objc_super_pointer
 
 #endif /* __has_feature(ptrauth_intrinsics) */
 
