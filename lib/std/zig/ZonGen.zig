@@ -1,5 +1,16 @@
 //! Ingests an `Ast` and produces a `Zoir`.
 
+const std = @import("std");
+const assert = std.debug.assert;
+const mem = std.mem;
+const Allocator = mem.Allocator;
+const StringIndexAdapter = std.hash_map.StringIndexAdapter;
+const StringIndexContext = std.hash_map.StringIndexContext;
+const ZonGen = @This();
+const Zoir = @import("Zoir.zig");
+const Ast = @import("Ast.zig");
+const Writer = std.io.Writer;
+
 gpa: Allocator,
 tree: Ast,
 
@@ -463,7 +474,7 @@ fn appendIdentStr(zg: *ZonGen, ident_token: Ast.TokenIndex) error{ OutOfMemory, 
     const result = r: {
         var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &zg.string_bytes);
         defer zg.string_bytes = aw.toArrayList();
-        break :r std.zig.string_literal.parseWrite(&aw.interface, raw_string) catch |err| switch (err) {
+        break :r std.zig.string_literal.parseWrite(&aw.writer, raw_string) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
         };
     };
@@ -561,7 +572,7 @@ fn strLitAsString(zg: *ZonGen, str_node: Ast.Node.Index) error{ OutOfMemory, Bad
     const result = r: {
         var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &zg.string_bytes);
         defer zg.string_bytes = aw.toArrayList();
-        break :r parseStrLit(zg.tree, str_node, &aw.interface) catch |err| switch (err) {
+        break :r parseStrLit(zg.tree, str_node, &aw.writer) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
         };
     };
@@ -876,7 +887,7 @@ fn lowerAstErrors(zg: *ZonGen) Allocator.Error!void {
 
     var msg: std.io.Writer.Allocating = .init(gpa);
     defer msg.deinit();
-    const msg_bw = &msg.interface;
+    const msg_bw = &msg.writer;
 
     var notes: std.ArrayListUnmanaged(Zoir.CompileError.Note) = .empty;
     defer notes.deinit(gpa);
@@ -908,14 +919,3 @@ fn lowerAstErrors(zg: *ZonGen) Allocator.Error!void {
     tree.renderError(cur_err, msg_bw) catch return error.OutOfMemory;
     try zg.addErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
 }
-
-const std = @import("std");
-const assert = std.debug.assert;
-const mem = std.mem;
-const Allocator = mem.Allocator;
-const StringIndexAdapter = std.hash_map.StringIndexAdapter;
-const StringIndexContext = std.hash_map.StringIndexContext;
-const ZonGen = @This();
-const Zoir = @import("Zoir.zig");
-const Ast = @import("Ast.zig");
-const Writer = std.io.Writer;

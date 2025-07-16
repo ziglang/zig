@@ -360,7 +360,7 @@ pub fn parseWrite(writer: *Writer, bytes: []const u8) Writer.Error!Result {
 pub fn parseAlloc(allocator: std.mem.Allocator, bytes: []const u8) ParseError![]u8 {
     var aw: std.io.Writer.Allocating = .init(allocator);
     defer aw.deinit();
-    const result = parseWrite(&aw.interface, bytes) catch |err| switch (err) {
+    const result = parseWrite(&aw.writer, bytes) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
     };
     switch (result) {
