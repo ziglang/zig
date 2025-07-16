@@ -28,8 +28,6 @@
 #ifndef _KEYLOCKERINTRIN_H
 #define _KEYLOCKERINTRIN_H
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__KL__)
-
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS \
   __attribute__((__always_inline__, __nodebug__, __target__("kl"),\
@@ -326,10 +324,6 @@ _mm_aesdec256kl_u8(__m128i* __odata, __m128i __idata, const void *__h) {
 
 #undef __DEFAULT_FN_ATTRS
 
-#endif /* !defined(__SCE__ || __has_feature(modules) || defined(__KL__) */
-
-#if !defined(__SCE__) || __has_feature(modules) || defined(__WIDEKL__)
-
 /* Define the default attributes for the functions in this file. */
 #define __DEFAULT_FN_ATTRS \
   __attribute__((__always_inline__, __nodebug__, __target__("kl,widekl"),\
@@ -520,8 +514,5 @@ _mm_aesdecwide256kl_u8(__m128i __odata[8], const __m128i __idata[8], const void*
 }
 
 #undef __DEFAULT_FN_ATTRS
-
-#endif /* !defined(__SCE__) || __has_feature(modules) || defined(__WIDEKL__)   \
-        */
 
 #endif /* _KEYLOCKERINTRIN_H */
