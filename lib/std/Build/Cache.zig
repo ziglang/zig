@@ -419,6 +419,7 @@ pub const Manifest = struct {
     fn addFileInner(self: *Manifest, prefixed_path: PrefixedPath, handle: ?fs.File, max_file_size: ?usize) usize {
         const gop = self.files.getOrPutAssumeCapacityAdapted(prefixed_path, FilesAdapter{});
         if (gop.found_existing) {
+            self.cache.gpa.free(prefixed_path.sub_path);
             gop.key_ptr.updateMaxSize(max_file_size);
             gop.key_ptr.updateHandle(handle);
             return gop.index;
