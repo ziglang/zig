@@ -21,11 +21,10 @@
 #include <__config>
 
 #include <__concepts/arithmetic.h>
-#include <__cstddef/byte.h>
 #include <__type_traits/common_type.h>
+#include <__type_traits/integer_traits.h>
 #include <__type_traits/is_convertible.h>
 #include <__type_traits/is_nothrow_constructible.h>
-#include <__type_traits/is_same.h>
 #include <__type_traits/make_unsigned.h>
 #include <__utility/integer_sequence.h>
 #include <__utility/unreachable.h>
@@ -283,7 +282,8 @@ public:
   using size_type  = make_unsigned_t<index_type>;
   using rank_type  = size_t;
 
-  static_assert(__libcpp_integer<index_type>, "extents::index_type must be a signed or unsigned integer type");
+  static_assert(__signed_or_unsigned_integer<index_type>,
+                "extents::index_type must be a signed or unsigned integer type");
   static_assert(((__mdspan_detail::__is_representable_as<index_type>(_Extents) || (_Extents == dynamic_extent)) && ...),
                 "extents ctor: arguments must be representable as index_type and nonnegative");
 
@@ -440,13 +440,13 @@ struct __make_dextents;
 
 template <class _IndexType, size_t _Rank, size_t... _ExtentsPack>
 struct __make_dextents< _IndexType, _Rank, extents<_IndexType, _ExtentsPack...>> {
-  using type =
+  using type _LIBCPP_NODEBUG =
       typename __make_dextents< _IndexType, _Rank - 1, extents<_IndexType, dynamic_extent, _ExtentsPack...>>::type;
 };
 
 template <class _IndexType, size_t... _ExtentsPack>
 struct __make_dextents< _IndexType, 0, extents<_IndexType, _ExtentsPack...>> {
-  using type = extents<_IndexType, _ExtentsPack...>;
+  using type _LIBCPP_NODEBUG = extents<_IndexType, _ExtentsPack...>;
 };
 
 } // namespace __mdspan_detail

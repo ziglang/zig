@@ -21,10 +21,10 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp, class _Container = deque<_Tp> >
-class _LIBCPP_TEMPLATE_VIS queue;
+class queue;
 
 template <class _Tp, class _Container = vector<_Tp>, class _Compare = less<typename _Container::value_type> >
-class _LIBCPP_TEMPLATE_VIS priority_queue;
+class priority_queue;
 
 _LIBCPP_END_NAMESPACE_STD
 

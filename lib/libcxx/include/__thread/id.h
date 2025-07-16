@@ -34,7 +34,7 @@ _LIBCPP_HIDE_FROM_ABI __thread_id get_id() _NOEXCEPT;
 template <>
 struct hash<__thread_id>;
 
-class _LIBCPP_TEMPLATE_VIS __thread_id {
+class __thread_id {
   // FIXME: pthread_t is a pointer on Darwin but a long on Linux.
   // NULL is the no-thread value on Darwin.  Someone needs to check
   // on other platforms.  We assume 0 works everywhere for now.
@@ -72,7 +72,7 @@ private:
 
   friend __thread_id this_thread::get_id() _NOEXCEPT;
   friend class _LIBCPP_EXPORTED_FROM_ABI thread;
-  friend struct _LIBCPP_TEMPLATE_VIS hash<__thread_id>;
+  friend struct hash<__thread_id>;
 };
 
 inline _LIBCPP_HIDE_FROM_ABI bool operator==(__thread_id __x, __thread_id __y) _NOEXCEPT {

@@ -52,12 +52,12 @@ concept __integer_like_with_usable_difference_type =
 
 template <class _Tp>
 struct __repeat_view_iterator_difference {
-  using type = _IotaDiffT<_Tp>;
+  using type _LIBCPP_NODEBUG = _IotaDiffT<_Tp>;
 };
 
 template <__signed_integer_like _Tp>
 struct __repeat_view_iterator_difference<_Tp> {
-  using type = _Tp;
+  using type _LIBCPP_NODEBUG = _Tp;
 };
 
 template <class _Tp>

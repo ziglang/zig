@@ -72,7 +72,7 @@ template <input_or_output_iterator _Iter,
           sentinel_for<_Iter> _Sent = _Iter,
           subrange_kind _Kind       = sized_sentinel_for<_Sent, _Iter> ? subrange_kind::sized : subrange_kind::unsized>
   requires(_Kind == subrange_kind::sized || !sized_sentinel_for<_Sent, _Iter>)
-class _LIBCPP_TEMPLATE_VIS subrange : public view_interface<subrange<_Iter, _Sent, _Kind>> {
+class subrange : public view_interface<subrange<_Iter, _Sent, _Kind>> {
 public:
   // Note: this is an internal implementation detail that is public only for internal usage.
   static constexpr bool _StoreSize = (_Kind == subrange_kind::sized && !sized_sentinel_for<_Sent, _Iter>);
@@ -247,22 +247,22 @@ struct tuple_size<ranges::subrange<_Ip, _Sp, _Kp>> : integral_constant<size_t, 2
 
 template <class _Ip, class _Sp, ranges::subrange_kind _Kp>
 struct tuple_element<0, ranges::subrange<_Ip, _Sp, _Kp>> {
-  using type = _Ip;
+  using type _LIBCPP_NODEBUG = _Ip;
 };
 
 template <class _Ip, class _Sp, ranges::subrange_kind _Kp>
 struct tuple_element<1, ranges::subrange<_Ip, _Sp, _Kp>> {
-  using type = _Sp;
+  using type _LIBCPP_NODEBUG = _Sp;
 };
 
 template <class _Ip, class _Sp, ranges::subrange_kind _Kp>
 struct tuple_element<0, const ranges::subrange<_Ip, _Sp, _Kp>> {
-  using type = _Ip;
+  using type _LIBCPP_NODEBUG = _Ip;
 };
 
 template <class _Ip, class _Sp, ranges::subrange_kind _Kp>
 struct tuple_element<1, const ranges::subrange<_Ip, _Sp, _Kp>> {
-  using type = _Sp;
+  using type _LIBCPP_NODEBUG = _Sp;
 };
 
 #endif // _LIBCPP_STD_VER >= 20

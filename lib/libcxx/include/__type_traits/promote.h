@@ -10,7 +10,7 @@
 #define _LIBCPP___TYPE_TRAITS_PROMOTE_H
 
 #include <__config>
-#include <__type_traits/integral_constant.h>
+#include <__type_traits/enable_if.h>
 #include <__type_traits/is_arithmetic.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -19,28 +19,24 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class... _Args>
-class __promote {
-  static_assert((is_arithmetic<_Args>::value && ...));
-
-  static float __test(float);
-  static double __test(char);
-  static double __test(int);
-  static double __test(unsigned);
-  static double __test(long);
-  static double __test(unsigned long);
-  static double __test(long long);
-  static double __test(unsigned long long);
+float __promote_impl(float);
+double __promote_impl(char);
+double __promote_impl(int);
+double __promote_impl(unsigned);
+double __promote_impl(long);
+double __promote_impl(unsigned long);
+double __promote_impl(long long);
+double __promote_impl(unsigned long long);
 #if _LIBCPP_HAS_INT128
-  static double __test(__int128_t);
-  static double __test(__uint128_t);
+double __promote_impl(__int128_t);
+double __promote_impl(__uint128_t);
 #endif
-  static double __test(double);
-  static long double __test(long double);
+double __promote_impl(double);
+long double __promote_impl(long double);
 
-public:
-  using type = decltype((__test(_Args()) + ...));
-};
+template <class... _Args>
+using __promote_t _LIBCPP_NODEBUG =
+    decltype((__enable_if_t<(is_arithmetic<_Args>::value && ...)>)0, (std::__promote_impl(_Args()) + ...));
 
 _LIBCPP_END_NAMESPACE_STD
 

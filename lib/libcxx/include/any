@@ -81,7 +81,7 @@ namespace std {
 */
 
 #if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
-#  include <__cxx03/any>
+#  include <__cxx03/__config>
 #else
 #  include <__config>
 #  include <__memory/allocator.h>
@@ -119,18 +119,18 @@ namespace std {
 _LIBCPP_PUSH_MACROS
 #  include <__undef_macros>
 
-namespace std {
-class _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_AVAILABILITY_BAD_ANY_CAST bad_any_cast : public bad_cast {
+_LIBCPP_BEGIN_UNVERSIONED_NAMESPACE_STD
+class _LIBCPP_EXPORTED_FROM_ABI bad_any_cast : public bad_cast {
 public:
   const char* what() const _NOEXCEPT override;
 };
-} // namespace std
+_LIBCPP_END_UNVERSIONED_NAMESPACE_STD
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 #  if _LIBCPP_STD_VER >= 17
 
-[[noreturn]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_ANY_CAST void __throw_bad_any_cast() {
+[[noreturn]] inline _LIBCPP_HIDE_FROM_ABI void __throw_bad_any_cast() {
 #    if _LIBCPP_HAS_EXCEPTIONS
   throw bad_any_cast();
 #    else
@@ -139,7 +139,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 }
 
 // Forward declarations
-class _LIBCPP_TEMPLATE_VIS any;
+class any;
 
 template <class _ValueType>
 _LIBCPP_HIDE_FROM_ABI add_pointer_t<add_const_t<_ValueType>> any_cast(any const*) _NOEXCEPT;
@@ -166,7 +166,7 @@ template <class _Tp>
 struct _LargeHandler;
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS __unique_typeinfo {
+struct __unique_typeinfo {
   static constexpr int __id = 0;
 };
 
@@ -189,7 +189,7 @@ using _Handler _LIBCPP_NODEBUG = conditional_t< _IsSmallObject<_Tp>::value, _Sma
 
 } // namespace __any_imp
 
-class _LIBCPP_TEMPLATE_VIS any {
+class any {
 public:
   // construct/destruct
   _LIBCPP_HIDE_FROM_ABI constexpr any() _NOEXCEPT : __h_(nullptr) {}
@@ -316,7 +316,7 @@ private:
 
 namespace __any_imp {
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _SmallHandler {
+struct _SmallHandler {
   _LIBCPP_HIDE_FROM_ABI static void*
   __handle(_Action __act, any const* __this, any* __other, type_info const* __info, const void* __fallback_info) {
     switch (__act) {
@@ -383,7 +383,7 @@ private:
 };
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LargeHandler {
+struct _LargeHandler {
   _LIBCPP_HIDE_FROM_ABI static void*
   __handle(_Action __act, any const* __this, any* __other, type_info const* __info, void const* __fallback_info) {
     switch (__act) {
@@ -519,38 +519,38 @@ inline _LIBCPP_HIDE_FROM_ABI any make_any(initializer_list<_Up> __il, _Args&&...
 }
 
 template <class _ValueType>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_ANY_CAST _ValueType any_cast(any const& __v) {
+inline _LIBCPP_HIDE_FROM_ABI _ValueType any_cast(any const& __v) {
   using _RawValueType = __remove_cvref_t<_ValueType>;
   static_assert(is_constructible<_ValueType, _RawValueType const&>::value,
                 "ValueType is required to be a const lvalue reference "
                 "or a CopyConstructible type");
   auto __tmp = std::any_cast<add_const_t<_RawValueType>>(&__v);
   if (__tmp == nullptr)
-    __throw_bad_any_cast();
+    std::__throw_bad_any_cast();
   return static_cast<_ValueType>(*__tmp);
 }
 
 template <class _ValueType>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_ANY_CAST _ValueType any_cast(any& __v) {
+inline _LIBCPP_HIDE_FROM_ABI _ValueType any_cast(any& __v) {
   using _RawValueType = __remove_cvref_t<_ValueType>;
   static_assert(is_constructible<_ValueType, _RawValueType&>::value,
                 "ValueType is required to be an lvalue reference "
                 "or a CopyConstructible type");
   auto __tmp = std::any_cast<_RawValueType>(&__v);
   if (__tmp == nullptr)
-    __throw_bad_any_cast();
+    std::__throw_bad_any_cast();
   return static_cast<_ValueType>(*__tmp);
 }
 
 template <class _ValueType>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_ANY_CAST _ValueType any_cast(any&& __v) {
+inline _LIBCPP_HIDE_FROM_ABI _ValueType any_cast(any&& __v) {
   using _RawValueType = __remove_cvref_t<_ValueType>;
   static_assert(is_constructible<_ValueType, _RawValueType>::value,
                 "ValueType is required to be an rvalue reference "
                 "or a CopyConstructible type");
   auto __tmp = std::any_cast<_RawValueType>(&__v);
   if (__tmp == nullptr)
-    __throw_bad_any_cast();
+    std::__throw_bad_any_cast();
   return static_cast<_ValueType>(std::move(*__tmp));
 }
 

@@ -172,6 +172,7 @@ constexpr T saturate_cast(U x) noexcept;                    // freestanding, Sin
 #    include <__numeric/gcd_lcm.h>
 #    include <__numeric/inclusive_scan.h>
 #    include <__numeric/pstl.h>
+#    include <__numeric/ranges_iota.h>
 #    include <__numeric/reduce.h>
 #    include <__numeric/transform_exclusive_scan.h>
 #    include <__numeric/transform_inclusive_scan.h>

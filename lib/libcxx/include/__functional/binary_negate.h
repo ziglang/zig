@@ -22,7 +22,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_NEGATORS)
 
 template <class _Predicate>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX17 binary_negate
+class _LIBCPP_DEPRECATED_IN_CXX17 binary_negate
     : public __binary_function<typename _Predicate::first_argument_type,
                                typename _Predicate::second_argument_type,
                                bool> {

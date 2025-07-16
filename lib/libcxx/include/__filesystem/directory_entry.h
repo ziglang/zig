@@ -286,7 +286,7 @@ private:
       return;
     }
     if (__ec && (!__allow_dne || !__is_dne_error(__ec)))
-      __throw_filesystem_error(__msg, __p_, __ec);
+      filesystem::__throw_filesystem_error(__msg, __p_, __ec);
   }
 
   _LIBCPP_HIDE_FROM_ABI void __refresh(error_code* __ec = nullptr) {

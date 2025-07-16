@@ -26,7 +26,7 @@ struct _LIBCPP_DEPRECATED_IN_CXX11 auto_ptr_ref {
 };
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 auto_ptr {
+class _LIBCPP_DEPRECATED_IN_CXX11 auto_ptr {
 private:
   _Tp* __ptr_;
 
@@ -80,7 +80,7 @@ public:
 };
 
 template <>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 auto_ptr<void> {
+class _LIBCPP_DEPRECATED_IN_CXX11 auto_ptr<void> {
 public:
   typedef void element_type;
 };

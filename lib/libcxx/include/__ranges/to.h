@@ -26,7 +26,9 @@
 #include <__ranges/size.h>
 #include <__ranges/transform_view.h>
 #include <__type_traits/add_pointer.h>
+#include <__type_traits/is_class.h>
 #include <__type_traits/is_const.h>
+#include <__type_traits/is_union.h>
 #include <__type_traits/is_volatile.h>
 #include <__type_traits/type_identity.h>
 #include <__utility/declval.h>
@@ -81,7 +83,7 @@ template <class _Container, input_range _Range, class... _Args>
   static_assert(!is_const_v<_Container>, "The target container cannot be const-qualified, please remove the const");
   static_assert(
       !is_volatile_v<_Container>, "The target container cannot be volatile-qualified, please remove the volatile");
-
+  static_assert(is_class_v<_Container> || is_union_v<_Container>, "The target must be a class type or union type");
   // First see if the non-recursive case applies -- the conversion target is either:
   // - a range with a convertible value type;
   // - a non-range type which might support being created from the input argument(s) (e.g. an `optional`).
@@ -208,7 +210,7 @@ template <class _Container, class... _Args>
   static_assert(!is_const_v<_Container>, "The target container cannot be const-qualified, please remove the const");
   static_assert(
       !is_volatile_v<_Container>, "The target container cannot be volatile-qualified, please remove the volatile");
-
+  static_assert(is_class_v<_Container> || is_union_v<_Container>, "The target must be a class type or union type");
   auto __to_func = []<input_range _Range, class... _Tail>(_Range&& __range, _Tail&&... __tail) static
     requires requires { //
       /**/ ranges::to<_Container>(std::forward<_Range>(__range), std::forward<_Tail>(__tail)...);

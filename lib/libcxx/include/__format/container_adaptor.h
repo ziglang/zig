@@ -35,7 +35,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // adaptor headers. To use the format functions users already include <format>.
 
 template <class _Adaptor, class _CharT>
-struct _LIBCPP_TEMPLATE_VIS __formatter_container_adaptor {
+struct __formatter_container_adaptor {
 private:
   using __maybe_const_container _LIBCPP_NODEBUG = __fmt_maybe_const<typename _Adaptor::container_type, _CharT>;
   using __maybe_const_adaptor _LIBCPP_NODEBUG   = __maybe_const<is_const_v<__maybe_const_container>, _Adaptor>;
@@ -55,15 +55,15 @@ public:
 };
 
 template <class _CharT, class _Tp, formattable<_CharT> _Container>
-struct _LIBCPP_TEMPLATE_VIS formatter<queue<_Tp, _Container>, _CharT>
+struct formatter<queue<_Tp, _Container>, _CharT>
     : public __formatter_container_adaptor<queue<_Tp, _Container>, _CharT> {};
 
 template <class _CharT, class _Tp, class _Container, class _Compare>
-struct _LIBCPP_TEMPLATE_VIS formatter<priority_queue<_Tp, _Container, _Compare>, _CharT>
+struct formatter<priority_queue<_Tp, _Container, _Compare>, _CharT>
     : public __formatter_container_adaptor<priority_queue<_Tp, _Container, _Compare>, _CharT> {};
 
 template <class _CharT, class _Tp, formattable<_CharT> _Container>
-struct _LIBCPP_TEMPLATE_VIS formatter<stack<_Tp, _Container>, _CharT>
+struct formatter<stack<_Tp, _Container>, _CharT>
     : public __formatter_container_adaptor<stack<_Tp, _Container>, _CharT> {};
 
 #endif // _LIBCPP_STD_VER >= 23

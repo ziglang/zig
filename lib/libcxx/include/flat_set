@@ -1,0 +1,85 @@
+// -*- C++ -*-
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef _LIBCPP_FLAT_SET
+#define _LIBCPP_FLAT_SET
+
+/*
+  Header <flat_set> synopsis
+
+#include <compare>              // see [compare.syn]
+#include <initializer_list>     // see [initializer.list.syn]
+
+namespace std {
+  // [flat.set], class template flat_set
+  template<class Key, class Compare = less<Key>, class KeyContainer = vector<Key>>
+    class flat_set;
+
+  struct sorted_unique_t { explicit sorted_unique_t() = default; };
+  inline constexpr sorted_unique_t sorted_unique{};
+
+  template<class Key, class Compare, class KeyContainer, class Allocator>
+    struct uses_allocator<flat_set<Key, Compare, KeyContainer>, Allocator>;
+
+  // [flat.set.erasure], erasure for flat_set
+  template<class Key, class Compare, class KeyContainer, class Predicate>
+    typename flat_set<Key, Compare, KeyContainer>::size_type
+      erase_if(flat_set<Key, Compare, KeyContainer>& c, Predicate pred);
+
+   // [flat.multiset], class template flat_multiset
+  template<class Key, class Compare = less<Key>, class KeyContainer = vector<Key>>
+    class flat_multiset;
+
+  struct sorted_equivalent_t { explicit sorted_equivalent_t() = default; };
+  inline constexpr sorted_equivalent_t sorted_equivalent{};
+
+  template<class Key, class Compare, class KeyContainer, class Allocator>
+    struct uses_allocator<flat_multiset<Key, Compare, KeyContainer>, Allocator>;
+
+  // [flat.multiset.erasure], erasure for flat_multiset
+  template<class Key, class Compare, class KeyContainer, class Predicate>
+    typename flat_multiset<Key, Compare, KeyContainer>::size_type
+      erase_if(flat_multiset<Key, Compare, KeyContainer>& c, Predicate pred);
+}
+*/
+
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/__config>
+#else
+#  include <__config>
+
+#  if _LIBCPP_STD_VER >= 23
+#    include <__flat_map/sorted_equivalent.h>
+#    include <__flat_map/sorted_unique.h>
+#    include <__flat_set/flat_multiset.h>
+#    include <__flat_set/flat_set.h>
+#  endif
+
+// for feature-test macros
+#  include <version>
+
+// standard required includes
+
+// [iterator.range]
+#  include <__iterator/access.h>
+#  include <__iterator/data.h>
+#  include <__iterator/empty.h>
+#  include <__iterator/reverse_access.h>
+#  include <__iterator/size.h>
+
+// [flat.set.syn]
+#  include <compare>
+#  include <initializer_list>
+
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+
+#endif // _LIBCPP_FLAT_SET

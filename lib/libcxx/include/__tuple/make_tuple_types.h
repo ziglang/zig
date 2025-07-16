@@ -60,7 +60,7 @@ struct __make_tuple_types {
   static_assert(_Sp <= _Ep, "__make_tuple_types input error");
   using _RawTp _LIBCPP_NODEBUG = __remove_cvref_t<_Tp>;
   using _Maker _LIBCPP_NODEBUG = __make_tuple_types_flat<_RawTp, typename __make_tuple_indices<_Ep, _Sp>::type>;
-  using type                   = typename _Maker::template __apply_quals<_Tp>;
+  using type _LIBCPP_NODEBUG   = typename _Maker::template __apply_quals<_Tp>;
 };
 
 template <class... _Types, size_t _Ep>

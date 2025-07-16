@@ -709,6 +709,39 @@ void __init_tzdb(tzdb& __tzdb, __tz::__rules_storage_type& __rules) {
   std::__throw_runtime_error("unknown time zone");
 }
 #else  // ifdef _WIN32
+
+[[nodiscard]] static string __current_zone_environment() {
+  if (const char* __tz = std::getenv("TZ"))
+    return __tz;
+
+  return {};
+}
+
+[[nodiscard]] static string __current_zone_etc_localtime() {
+  filesystem::path __path = "/etc/localtime";
+  if (!filesystem::exists(__path) || !filesystem::is_symlink(__path))
+    return {};
+
+  filesystem::path __tz = filesystem::read_symlink(__path);
+  // The path may be a relative path, in that case convert it to an absolute
+  // path based on the proper initial directory.
+  if (__tz.is_relative())
+    __tz = filesystem::canonical("/etc" / __tz);
+
+  return filesystem::relative(__tz, "/usr/share/zoneinfo/");
+}
+
+[[nodiscard]] static string __current_zone_etc_timezone() {
+  filesystem::path __path = "/etc/timezone";
+  if (!filesystem::exists(__path))
+    return {};
+
+  ifstream __f(__path);
+  string __name;
+  std::getline(__f, __name);
+  return __name;
+}
+
 [[nodiscard]] static const time_zone* __current_zone_posix(const tzdb& tzdb) {
   // On POSIX systems there are several ways to configure the time zone.
   // In order of priority they are:
@@ -727,30 +760,29 @@ void __init_tzdb(tzdb& __tzdb, __tz::__rules_storage_type& __rules) {
   //
   // - The time zone name is the target of the symlink /etc/localtime
   //   relative to /usr/share/zoneinfo/
+  //
+  // - The file /etc/timezone. This text file contains the name of the time
+  //   zone.
+  //
+  // On Linux systems it seems /etc/timezone is deprecated and being phased out.
+  // This file is used when /etc/localtime does not exist, or when it exists but
+  // is not a symlink. For more information and links see
+  // https://github.com/llvm/llvm-project/issues/105634
 
-  // The algorithm is like this:
-  // - If the environment variable TZ is set and points to a valid
-  //   record use this value.
-  // - Else use the name based on the `/etc/localtime` symlink.
+  string __name = chrono::__current_zone_environment();
 
-  if (const char* __tz = getenv("TZ"))
-    if (const time_zone* __result = tzdb.__locate_zone(__tz))
+  // Ignore invalid names in the environment.
+  if (!__name.empty())
+    if (const time_zone* __result = tzdb.__locate_zone(__name))
       return __result;
 
-  filesystem::path __path = "/etc/localtime";
-  if (!filesystem::exists(__path))
-    std::__throw_runtime_error("tzdb: the symlink '/etc/localtime' does not exist");
+  __name = chrono::__current_zone_etc_localtime();
+  if (__name.empty())
+    __name = chrono::__current_zone_etc_timezone();
 
-  if (!filesystem::is_symlink(__path))
-    std::__throw_runtime_error("tzdb: the path '/etc/localtime' is not a symlink");
+  if (__name.empty())
+    std::__throw_runtime_error("tzdb: unable to determine the name of the current time zone");
 
-  filesystem::path __tz = filesystem::read_symlink(__path);
-  // The path may be a relative path, in that case convert it to an absolute
-  // path based on the proper initial directory.
-  if (__tz.is_relative())
-    __tz = filesystem::canonical("/etc" / __tz);
-
-  string __name = filesystem::relative(__tz, "/usr/share/zoneinfo/");
   if (const time_zone* __result = tzdb.__locate_zone(__name))
     return __result;
 

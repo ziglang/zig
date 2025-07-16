@@ -9,8 +9,8 @@
 #ifndef _LIBCPP___UTILITY_CMP_H
 #define _LIBCPP___UTILITY_CMP_H
 
-#include <__concepts/arithmetic.h>
 #include <__config>
+#include <__type_traits/integer_traits.h>
 #include <__type_traits/is_signed.h>
 #include <__type_traits/make_unsigned.h>
 #include <limits>
@@ -26,7 +26,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 20
 
-template <__libcpp_integer _Tp, __libcpp_integer _Up>
+template <__signed_or_unsigned_integer _Tp, __signed_or_unsigned_integer _Up>
 _LIBCPP_HIDE_FROM_ABI constexpr bool cmp_equal(_Tp __t, _Up __u) noexcept {
   if constexpr (is_signed_v<_Tp> == is_signed_v<_Up>)
     return __t == __u;
@@ -36,12 +36,12 @@ _LIBCPP_HIDE_FROM_ABI constexpr bool cmp_equal(_Tp __t, _Up __u) noexcept {
     return __u < 0 ? false : __t == make_unsigned_t<_Up>(__u);
 }
 
-template <__libcpp_integer _Tp, __libcpp_integer _Up>
+template <__signed_or_unsigned_integer _Tp, __signed_or_unsigned_integer _Up>
 _LIBCPP_HIDE_FROM_ABI constexpr bool cmp_not_equal(_Tp __t, _Up __u) noexcept {
   return !std::cmp_equal(__t, __u);
 }
 
-template <__libcpp_integer _Tp, __libcpp_integer _Up>
+template <__signed_or_unsigned_integer _Tp, __signed_or_unsigned_integer _Up>
 _LIBCPP_HIDE_FROM_ABI constexpr bool cmp_less(_Tp __t, _Up __u) noexcept {
   if constexpr (is_signed_v<_Tp> == is_signed_v<_Up>)
     return __t < __u;
@@ -51,22 +51,22 @@ _LIBCPP_HIDE_FROM_ABI constexpr bool cmp_less(_Tp __t, _Up __u) noexcept {
     return __u < 0 ? false : __t < make_unsigned_t<_Up>(__u);
 }
 
-template <__libcpp_integer _Tp, __libcpp_integer _Up>
+template <__signed_or_unsigned_integer _Tp, __signed_or_unsigned_integer _Up>
 _LIBCPP_HIDE_FROM_ABI constexpr bool cmp_greater(_Tp __t, _Up __u) noexcept {
   return std::cmp_less(__u, __t);
 }
 
-template <__libcpp_integer _Tp, __libcpp_integer _Up>
+template <__signed_or_unsigned_integer _Tp, __signed_or_unsigned_integer _Up>
 _LIBCPP_HIDE_FROM_ABI constexpr bool cmp_less_equal(_Tp __t, _Up __u) noexcept {
   return !std::cmp_greater(__t, __u);
 }
 
-template <__libcpp_integer _Tp, __libcpp_integer _Up>
+template <__signed_or_unsigned_integer _Tp, __signed_or_unsigned_integer _Up>
 _LIBCPP_HIDE_FROM_ABI constexpr bool cmp_greater_equal(_Tp __t, _Up __u) noexcept {
   return !std::cmp_less(__t, __u);
 }
 
-template <__libcpp_integer _Tp, __libcpp_integer _Up>
+template <__signed_or_unsigned_integer _Tp, __signed_or_unsigned_integer _Up>
 _LIBCPP_HIDE_FROM_ABI constexpr bool in_range(_Up __u) noexcept {
   return std::cmp_less_equal(__u, numeric_limits<_Tp>::max()) &&
          std::cmp_greater_equal(__u, numeric_limits<_Tp>::min());
