@@ -89,7 +89,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
         const Selector = enum { lo, hi, hi_lo };
 
         // Carryless multiplication of two 64-bit integers for x86_64.
-        inline fn clmulPclmul(x: u128, y: u128, comptime half: Selector) u128 {
+        fn clmulPclmul(x: u128, y: u128, comptime half: Selector) u128 {
             switch (half) {
                 .hi => {
                     const product = asm (
@@ -122,7 +122,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
         }
 
         // Carryless multiplication of two 64-bit integers for ARM crypto.
-        inline fn clmulPmull(x: u128, y: u128, comptime half: Selector) u128 {
+        fn clmulPmull(x: u128, y: u128, comptime half: Selector) u128 {
             switch (half) {
                 .hi => {
                     const product = asm (
@@ -231,7 +231,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
             mid: u128,
         };
 
-        inline fn xor256(x: *I256, y: I256) void {
+        fn xor256(x: *I256, y: I256) void {
             x.* = I256{
                 .hi = x.hi ^ y.hi,
                 .lo = x.lo ^ y.lo,
@@ -249,7 +249,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
         }
 
         // Multiply two 128-bit integers in GF(2^128).
-        inline fn clmul128(x: u128, y: u128) I256 {
+        fn clmul128(x: u128, y: u128) I256 {
             if (mul_algorithm == .karatsuba) {
                 const x_hi = @as(u64, @truncate(x >> 64));
                 const y_hi = @as(u64, @truncate(y >> 64));
@@ -273,7 +273,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
         // Reduce a 256-bit representative of a polynomial modulo the irreducible polynomial x^128 + x^127 + x^126 + x^121 + 1.
         // This is done using Shay Gueron's black magic demysticated here:
         // https://blog.quarkslab.com/reversing-a-finite-field-multiplication-optimization.html
-        inline fn reduce(x: I256) u128 {
+        fn reduce(x: I256) u128 {
             const hi = x.hi ^ (x.mid >> 64);
             const lo = x.lo ^ (x.mid << 64);
             const p64 = (((1 << 121) | (1 << 126) | (1 << 127)) >> 64);

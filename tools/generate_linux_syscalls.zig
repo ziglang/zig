@@ -477,7 +477,7 @@ fn processPreprocessedFile(
         const name = (getOverridenNameNew(value) orelse sys_name)["sys_".len..];
         const fixed_name = if (stdlib_renames_new.get(name)) |f| f else if (stdlib_renames.get(name)) |f| f else name;
 
-        try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), value });
+        try writer.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), value });
     }
 }
 
@@ -510,7 +510,7 @@ fn processTableBasedArch(
         }
         const fixed_name = if (filters.fixedName) |fixedNameFn| fixedNameFn(name) else name;
 
-        try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+        try writer.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
     }
 }
 
@@ -543,7 +543,7 @@ fn processMipsBasedArch(
         }
         const fixed_name = if (filters.fixedName) |fixedNameFn| fixedNameFn(name) else name;
 
-        try writer.print("    {p} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
+        try writer.print("    {f} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
     }
 }
 
@@ -568,12 +568,12 @@ fn processPowerPcBasedArch(
         if (mem.eql(u8, abi, "spu")) {
             continue;
         } else if (mem.eql(u8, abi, "32")) {
-            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+            try writer.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
         } else if (mem.eql(u8, abi, "64")) {
-            try optional_writer.?.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+            try optional_writer.?.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
         } else { // common/nospu
-            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
-            try optional_writer.?.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+            try writer.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
+            try optional_writer.?.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
         }
     }
 }

@@ -9705,7 +9705,6 @@ fn funcCommon(
             func_inst,
             cc_src,
             is_noinline,
-            is_generic,
         );
     }
 
@@ -9745,7 +9744,6 @@ fn funcCommon(
             func_inst,
             cc_src,
             is_noinline,
-            is_generic,
         );
     }
 
@@ -9762,7 +9760,6 @@ fn funcCommon(
         func_inst,
         cc_src,
         is_noinline,
-        is_generic,
     );
 }
 
@@ -9779,7 +9776,6 @@ fn finishFunc(
     func_inst: Zir.Inst.Index,
     cc_src: LazySrcLoc,
     is_noinline: bool,
-    is_generic: bool,
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -9909,13 +9905,6 @@ fn finishFunc(
             @tagName(cc_resolved),
             @tagName(bad_backend),
         }),
-    }
-
-    if (!is_generic and sema.wantErrorReturnTracing(return_type)) {
-        // Make sure that StackTrace's fields are resolved so that the backend can
-        // lower this fn type.
-        const unresolved_stack_trace_ty = try sema.getBuiltinType(block.nodeOffset(.zero), .StackTrace);
-        try unresolved_stack_trace_ty.resolveFields(pt);
     }
 
     return Air.internedToRef(if (opt_func_index != .none) opt_func_index else func_ty);
@@ -13052,8 +13041,10 @@ fn analyzeSwitchRuntimeBlock(
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(cases_extra.items));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(else_body));
 
+    const has_any_continues = spa.operand == .loop and child_block.label.?.merges.extra_insts.items.len > 0;
+
     return try child_block.addInst(.{
-        .tag = if (spa.operand == .loop) .loop_switch_br else .switch_br,
+        .tag = if (has_any_continues) .loop_switch_br else .switch_br,
         .data = .{ .pl_op = .{
             .operand = operand,
             .payload = payload_index,

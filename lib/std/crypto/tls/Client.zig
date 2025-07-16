@@ -1576,7 +1576,7 @@ fn straddleByte(s1: []const u8, s2: []const u8, index: usize) u8 {
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
-inline fn big(x: anytype) @TypeOf(x) {
+fn big(x: anytype) @TypeOf(x) {
     return switch (native_endian) {
         .big => x,
         .little => @byteSwap(x),
