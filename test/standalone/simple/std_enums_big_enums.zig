@@ -3,7 +3,7 @@ const std = @import("std");
 // big enums should not hit the eval branch quota
 pub fn main() void {
     const big = struct {
-        const Big = @Type(.{ .@"enum" = .{
+        const Big = @Enum(.{
             .tag_type = u16,
             .fields = make_fields: {
                 @setEvalBranchQuota(500000);
@@ -16,7 +16,7 @@ pub fn main() void {
             },
             .decls = &.{},
             .is_exhaustive = true,
-        } });
+        });
     };
 
     var set = std.enums.EnumSet(big.Big).init(.{});

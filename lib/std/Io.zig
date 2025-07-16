@@ -884,12 +884,12 @@ pub fn PollFiles(comptime StreamEnum: type) type {
             .alignment = @alignOf(fs.File),
         };
     }
-    return @Type(.{ .@"struct" = .{
+    return @Struct(.{
         .layout = .auto,
         .fields = &struct_fields,
         .decls = &.{},
         .is_tuple = false,
-    } });
+    });
 }
 
 test {

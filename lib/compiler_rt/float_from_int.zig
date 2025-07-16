@@ -66,17 +66,17 @@ pub inline fn floatFromBigInt(comptime T: type, comptime signedness: std.builtin
     switch (x.len) {
         0 => return 0,
         inline 1...4 => |limbs_len| return @floatFromInt(@as(
-            @Type(.{ .int = .{ .signedness = signedness, .bits = 32 * limbs_len } }),
+            @Int(signedness, 32 * limbs_len),
             @bitCast(x[0..limbs_len].*),
         )),
         else => {},
     }
 
     // sign implicit fraction round sticky
-    const I = comptime @Type(.{ .int = .{
-        .signedness = signedness,
-        .bits = @as(u16, @intFromBool(signedness == .signed)) + 1 + math.floatFractionalBits(T) + 1 + 1,
-    } });
+    const I = comptime @Int(
+        signedness,
+        @as(u16, @intFromBool(signedness == .signed)) + 1 + math.floatFractionalBits(T) + 1 + 1,
+    );
 
     const clrsb = clrsb: {
         var clsb: usize = 0;
