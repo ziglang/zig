@@ -49,6 +49,8 @@ struct SuspendedThreadsListWindows final : public SuspendedThreadsList {
 #    define SP_REG Esp
 #  elif SANITIZER_ARM | SANITIZER_ARM64
 #    define SP_REG Sp
+#  elif SANITIZER_MIPS32
+#    define SP_REG IntSp
 #  else
 #    error Architecture not supported!
 #  endif

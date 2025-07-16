@@ -96,12 +96,76 @@ static void RecursiveCreateParentDirs(char *path) {
   }
 }
 
+/// Parse the report path \p pattern and copy the parsed path to \p dest.
+///
+/// * `%%` becomes `%`
+/// * `%H` expands to the environment variable `HOME`
+/// * `%t` expands to the environment variable `TMPDIR`
+/// * `%p` expands to the process ID (PID)
+static void ParseAndSetPath(const char *pattern, char *dest,
+                            const uptr dest_size) {
+  CHECK(pattern);
+  CHECK(dest);
+  CHECK_GE(dest_size, 1);
+  dest[0] = '\0';
+  uptr next_substr_start_idx = 0;
+  for (uptr i = 0; i < internal_strlen(pattern) - 1; i++) {
+    if (pattern[i] != '%')
+      continue;
+    int bytes_to_copy = i - next_substr_start_idx;
+    // Copy over previous substring.
+    CHECK_LT(internal_strlcat(dest, pattern + next_substr_start_idx,
+                              internal_strlen(dest) + bytes_to_copy + 1),
+             dest_size);
+    const char *str_to_concat;
+    switch (pattern[++i]) {
+      case '%':
+        str_to_concat = "%";
+        break;
+      case 'H':
+        str_to_concat = GetEnv("HOME");
+        break;
+      case 't':
+        str_to_concat = GetEnv("TMPDIR");
+        break;
+      case 'p': {
+        // Use printf directly to write the PID since it's not a static string.
+        int remaining_capacity = dest_size - internal_strlen(dest);
+        int bytes_copied =
+            internal_snprintf(dest + internal_strlen(dest), remaining_capacity,
+                              "%ld", internal_getpid());
+        CHECK_GT(bytes_copied, 0);
+        CHECK_LT(bytes_copied, remaining_capacity);
+        str_to_concat = "";
+        break;
+      }
+      default: {
+        // Invalid pattern: fallback to original pattern.
+        const char *message = "ERROR: Unexpected pattern: ";
+        WriteToFile(kStderrFd, message, internal_strlen(message));
+        WriteToFile(kStderrFd, pattern, internal_strlen(pattern));
+        WriteToFile(kStderrFd, "\n", internal_strlen("\n"));
+        CHECK_LT(internal_strlcpy(dest, pattern, dest_size), dest_size);
+        return;
+      }
+    }
+    CHECK(str_to_concat);
+    CHECK_LT(internal_strlcat(dest, str_to_concat, dest_size), dest_size);
+    next_substr_start_idx = i + 1;
+  }
+  CHECK_LT(internal_strlcat(dest, pattern + next_substr_start_idx, dest_size),
+           dest_size);
+}
+
 void ReportFile::SetReportPath(const char *path) {
   if (path) {
     uptr len = internal_strlen(path);
     if (len > sizeof(path_prefix) - 100) {
-      Report("ERROR: Path is too long: %c%c%c%c%c%c%c%c...\n", path[0], path[1],
-             path[2], path[3], path[4], path[5], path[6], path[7]);
+      const char *message = "ERROR: Path is too long: ";
+      WriteToFile(kStderrFd, message, internal_strlen(message));
+      WriteToFile(kStderrFd, path, 8);
+      message = "...\n";
+      WriteToFile(kStderrFd, message, internal_strlen(message));
       Die();
     }
   }
@@ -115,7 +179,7 @@ void ReportFile::SetReportPath(const char *path) {
   } else if (internal_strcmp(path, "stdout") == 0) {
     fd = kStdoutFd;
   } else {
-    internal_snprintf(path_prefix, kMaxPathLength, "%s", path);
+    ParseAndSetPath(path, path_prefix, kMaxPathLength);
     RecursiveCreateParentDirs(path_prefix);
   }
 }

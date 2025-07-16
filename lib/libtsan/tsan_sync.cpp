@@ -246,12 +246,29 @@ void MetaMap::MoveMemory(uptr src, uptr dst, uptr sz) {
   // there are no concurrent accesses to the regions (e.g. stop-the-world).
   CHECK_NE(src, dst);
   CHECK_NE(sz, 0);
+
+  // The current MoveMemory implementation behaves incorrectly when src, dst,
+  // and sz are not aligned to kMetaShadowCell.
+  // For example, with kMetaShadowCell == 8:
+  // - src = 4: unexpectedly clears the metadata for the range [0, 4).
+  // - src = 16, dst = 4, size = 8: A sync variable for addr = 20, which should
+  //   be moved to the metadata for address 8, is incorrectly moved to the
+  //   metadata for address 0 instead.
+  // - src = 0, sz = 4: fails to move the tail metadata.
+  // Therefore, the following assertions is needed.
+  DCHECK_EQ(src % kMetaShadowCell, 0);
+  DCHECK_EQ(dst % kMetaShadowCell, 0);
+  DCHECK_EQ(sz % kMetaShadowCell, 0);
+
   uptr diff = dst - src;
-  u32 *src_meta = MemToMeta(src);
-  u32 *dst_meta = MemToMeta(dst);
-  u32 *src_meta_end = MemToMeta(src + sz);
-  uptr inc = 1;
-  if (dst > src) {
+  u32 *src_meta, *dst_meta, *src_meta_end;
+  uptr inc;
+  if (dst < src) {
+    src_meta = MemToMeta(src);
+    dst_meta = MemToMeta(dst);
+    src_meta_end = MemToMeta(src + sz);
+    inc = 1;
+  } else {
     src_meta = MemToMeta(src + sz) - 1;
     dst_meta = MemToMeta(dst + sz) - 1;
     src_meta_end = MemToMeta(src) - 1;

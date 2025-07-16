@@ -29,6 +29,8 @@
 #  define __errno_location ___errno
 #elif SANITIZER_WINDOWS
 #  define __errno_location _errno
+#elif SANITIZER_HAIKU
+#  define __errno_location _errnop
 #endif
 
 extern "C" int *__errno_location();

@@ -75,6 +75,11 @@ void BufferedStackTrace::UnwindSlow(uptr pc, void *context, u32 max_depth) {
   stack_frame.AddrPC.Offset = ctx.Pc;
   stack_frame.AddrFrame.Offset = ctx.R11;
   stack_frame.AddrStack.Offset = ctx.Sp;
+#      elif SANITIZER_MIPS32
+  int machine_type = IMAGE_FILE_MACHINE_R4000;
+  stack_frame.AddrPC.Offset = ctx.Fir;
+  stack_frame.AddrFrame.Offset = ctx.IntS8;
+  stack_frame.AddrStack.Offset = ctx.IntSp;
 #      else
   int machine_type = IMAGE_FILE_MACHINE_I386;
   stack_frame.AddrPC.Offset = ctx.Eip;
