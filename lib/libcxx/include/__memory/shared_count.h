@@ -10,6 +10,7 @@
 #define _LIBCPP___MEMORY_SHARED_COUNT_H
 
 #include <__config>
+#include <__memory/addressof.h>
 #include <typeinfo>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -52,7 +53,7 @@ inline _LIBCPP_HIDE_FROM_ABI _ValueType __libcpp_acquire_load(_ValueType const* 
 template <class _Tp>
 inline _LIBCPP_HIDE_FROM_ABI _Tp __libcpp_atomic_refcount_increment(_Tp& __t) _NOEXCEPT {
 #if _LIBCPP_HAS_BUILTIN_ATOMIC_SUPPORT && _LIBCPP_HAS_THREADS
-  return __atomic_add_fetch(&__t, 1, __ATOMIC_RELAXED);
+  return __atomic_add_fetch(std::addressof(__t), 1, __ATOMIC_RELAXED);
 #else
   return __t += 1;
 #endif
@@ -61,7 +62,7 @@ inline _LIBCPP_HIDE_FROM_ABI _Tp __libcpp_atomic_refcount_increment(_Tp& __t) _N
 template <class _Tp>
 inline _LIBCPP_HIDE_FROM_ABI _Tp __libcpp_atomic_refcount_decrement(_Tp& __t) _NOEXCEPT {
 #if _LIBCPP_HAS_BUILTIN_ATOMIC_SUPPORT && _LIBCPP_HAS_THREADS
-  return __atomic_add_fetch(&__t, -1, __ATOMIC_ACQ_REL);
+  return __atomic_add_fetch(std::addressof(__t), -1, __ATOMIC_ACQ_REL);
 #else
   return __t -= 1;
 #endif

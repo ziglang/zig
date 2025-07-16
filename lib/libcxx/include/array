@@ -134,6 +134,7 @@ template <size_t I, class T, size_t N> const T&& get(const array<T, N>&&) noexce
 #  include <__type_traits/is_const.h>
 #  include <__type_traits/is_constructible.h>
 #  include <__type_traits/is_nothrow_constructible.h>
+#  include <__type_traits/is_replaceable.h>
 #  include <__type_traits/is_same.h>
 #  include <__type_traits/is_swappable.h>
 #  include <__type_traits/is_trivially_relocatable.h>
@@ -172,9 +173,10 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp, size_t _Size>
-struct _LIBCPP_TEMPLATE_VIS array {
+struct array {
   using __trivially_relocatable _LIBCPP_NODEBUG =
       __conditional_t<__libcpp_is_trivially_relocatable<_Tp>::value, array, void>;
+  using __replaceable _LIBCPP_NODEBUG = __conditional_t<__is_replaceable_v<_Tp>, array, void>;
 
   // types:
   using __self _LIBCPP_NODEBUG = array;
@@ -276,13 +278,13 @@ struct _LIBCPP_TEMPLATE_VIS array {
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 reference at(size_type __n) {
     if (__n >= _Size)
-      __throw_out_of_range("array::at");
+      std::__throw_out_of_range("array::at");
     return __elems_[__n];
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 const_reference at(size_type __n) const {
     if (__n >= _Size)
-      __throw_out_of_range("array::at");
+      std::__throw_out_of_range("array::at");
     return __elems_[__n];
   }
 
@@ -298,7 +300,7 @@ struct _LIBCPP_TEMPLATE_VIS array {
 };
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0> {
+struct array<_Tp, 0> {
   // types:
   using __self _LIBCPP_NODEBUG = array;
   using value_type             = _Tp;
@@ -407,12 +409,12 @@ struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0> {
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 reference at(size_type) {
-    __throw_out_of_range("array<T, 0>::at");
+    std::__throw_out_of_range("array<T, 0>::at");
     __libcpp_unreachable();
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 const_reference at(size_type) const {
-    __throw_out_of_range("array<T, 0>::at");
+    std::__throw_out_of_range("array<T, 0>::at");
     __libcpp_unreachable();
   }
 
@@ -492,12 +494,12 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void swap(array<_Tp, 
 }
 
 template <class _Tp, size_t _Size>
-struct _LIBCPP_TEMPLATE_VIS tuple_size<array<_Tp, _Size> > : public integral_constant<size_t, _Size> {};
+struct tuple_size<array<_Tp, _Size> > : public integral_constant<size_t, _Size> {};
 
 template <size_t _Ip, class _Tp, size_t _Size>
-struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, array<_Tp, _Size> > {
+struct tuple_element<_Ip, array<_Tp, _Size> > {
   static_assert(_Ip < _Size, "Index out of bounds in std::tuple_element<> (std::array)");
-  using type = _Tp;
+  using type _LIBCPP_NODEBUG = _Tp;
 };
 
 template <size_t _Ip, class _Tp, size_t _Size>
@@ -566,6 +568,7 @@ _LIBCPP_POP_MACROS
 #    include <cstdlib>
 #    include <iterator>
 #    include <new>
+#    include <optional>
 #    include <type_traits>
 #    include <utility>
 #  endif

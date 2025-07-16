@@ -39,8 +39,8 @@ template <class = int>
 }
 
 template <class _A1, class _A2, __enable_if_t<is_arithmetic<_A1>::value && is_arithmetic<_A2>::value, int> = 0>
-[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI typename __promote<_A1, _A2>::type fmax(_A1 __x, _A2 __y) _NOEXCEPT {
-  using __result_type = typename __promote<_A1, _A2>::type;
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI __promote_t<_A1, _A2> fmax(_A1 __x, _A2 __y) _NOEXCEPT {
+  using __result_type = __promote_t<_A1, _A2>;
   static_assert(!(_IsSame<_A1, __result_type>::value && _IsSame<_A2, __result_type>::value), "");
   return __math::fmax((__result_type)__x, (__result_type)__y);
 }
@@ -61,8 +61,8 @@ template <class = int>
 }
 
 template <class _A1, class _A2, __enable_if_t<is_arithmetic<_A1>::value && is_arithmetic<_A2>::value, int> = 0>
-[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI typename __promote<_A1, _A2>::type fmin(_A1 __x, _A2 __y) _NOEXCEPT {
-  using __result_type = typename __promote<_A1, _A2>::type;
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI __promote_t<_A1, _A2> fmin(_A1 __x, _A2 __y) _NOEXCEPT {
+  using __result_type = __promote_t<_A1, _A2>;
   static_assert(!(_IsSame<_A1, __result_type>::value && _IsSame<_A2, __result_type>::value), "");
   return __math::fmin((__result_type)__x, (__result_type)__y);
 }

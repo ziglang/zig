@@ -24,7 +24,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 template <class _CharT>
-class _LIBCPP_TEMPLATE_VIS basic_format_parse_context {
+class basic_format_parse_context {
 public:
   using char_type      = _CharT;
   using const_iterator = typename basic_string_view<_CharT>::const_iterator;

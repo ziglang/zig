@@ -37,7 +37,45 @@ void __basic_string_common<true>::__throw_out_of_range() const { std::__throw_ou
 
 #endif // _LIBCPP_ABI_DO_NOT_EXPORT_BASIC_STRING_COMMON
 
-#define _LIBCPP_EXTERN_TEMPLATE_DEFINE(...) template __VA_ARGS__;
+// Define legacy ABI functions
+// ---------------------------
+
+#ifndef _LIBCPP_ABI_STRING_OPTIMIZED_EXTERNAL_INSTANTIATION
+
+template <class _CharT, class _Traits, class _Allocator>
+void basic_string<_CharT, _Traits, _Allocator>::__init(const value_type* __s, size_type __sz, size_type __reserve) {
+  if (__libcpp_is_constant_evaluated())
+    __rep_ = __rep();
+  if (__reserve > max_size())
+    __throw_length_error();
+  pointer __p;
+  if (__fits_in_sso(__reserve)) {
+    __set_short_size(__sz);
+    __p = __get_short_pointer();
+  } else {
+    auto __allocation = std::__allocate_at_least(__alloc_, __recommend(__reserve) + 1);
+    __p               = __allocation.ptr;
+    __begin_lifetime(__p, __allocation.count);
+    __set_long_pointer(__p);
+    __set_long_cap(__allocation.count);
+    __set_long_size(__sz);
+  }
+  traits_type::copy(std::__to_address(__p), __s, __sz);
+  traits_type::assign(__p[__sz], value_type());
+  __annotate_new(__sz);
+}
+
+#  define STRING_LEGACY_API(CharT)                                                                                     \
+    template _LIBCPP_EXPORTED_FROM_ABI void basic_string<CharT>::__init(const value_type*, size_type, size_type)
+
+STRING_LEGACY_API(char);
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
+STRING_LEGACY_API(wchar_t);
+#  endif
+
+#endif // _LIBCPP_ABI_STRING_OPTIMIZED_EXTERNAL_INSTANTIATION
+
+#define _LIBCPP_EXTERN_TEMPLATE_DEFINE(...) template _LIBCPP_EXPORTED_FROM_ABI __VA_ARGS__;
 #ifdef _LIBCPP_ABI_STRING_OPTIMIZED_EXTERNAL_INSTANTIATION
 _LIBCPP_STRING_UNSTABLE_EXTERN_TEMPLATE_LIST(_LIBCPP_EXTERN_TEMPLATE_DEFINE, char)
 #  if _LIBCPP_HAS_WIDE_CHARACTERS

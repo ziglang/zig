@@ -21,8 +21,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 17
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_aggregate
-    : public integral_constant<bool, __is_aggregate(_Tp)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_aggregate : integral_constant<bool, __is_aggregate(_Tp)> {};
 
 template <class _Tp>
 _LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_aggregate_v = __is_aggregate(_Tp);

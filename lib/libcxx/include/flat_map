@@ -72,6 +72,15 @@ namespace std {
 #  include <version>
 
 // standard required includes
+
+// [iterator.range]
+#  include <__iterator/access.h>
+#  include <__iterator/data.h>
+#  include <__iterator/empty.h>
+#  include <__iterator/reverse_access.h>
+#  include <__iterator/size.h>
+
+// [flat.map.syn]
 #  include <compare>
 #  include <initializer_list>
 

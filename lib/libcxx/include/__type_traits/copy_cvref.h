@@ -10,8 +10,7 @@
 #define _LIBCPP___TYPE_TRAITS_COPY_CVREF_H
 
 #include <__config>
-#include <__type_traits/add_lvalue_reference.h>
-#include <__type_traits/add_rvalue_reference.h>
+#include <__type_traits/add_reference.h>
 #include <__type_traits/copy_cv.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

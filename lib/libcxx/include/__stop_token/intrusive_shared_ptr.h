@@ -14,6 +14,7 @@
 #include <__atomic/memory_order.h>
 #include <__config>
 #include <__cstddef/nullptr_t.h>
+#include <__memory/addressof.h>
 #include <__type_traits/is_reference.h>
 #include <__utility/move.h>
 #include <__utility/swap.h>
@@ -113,7 +114,7 @@ private:
 
   _LIBCPP_HIDE_FROM_ABI static void __decrement_ref_count(_Tp& __obj) {
     if (__get_atomic_ref_count(__obj).fetch_sub(1, std::memory_order_acq_rel) == 1) {
-      delete &__obj;
+      delete std::addressof(__obj);
     }
   }
 

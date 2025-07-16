@@ -29,14 +29,14 @@
 // This is a low-level utility which does not work on all platforms, since it needs
 // to make assumptions about the object file format in use. Furthermore, it requires
 // the "base definition" of the function (the one we want to check whether it has been
-// overridden) to be annotated with the _LIBCPP_MAKE_OVERRIDABLE_FUNCTION_DETECTABLE macro.
+// overridden) to be defined using the _LIBCPP_OVERRIDABLE_FUNCTION macro.
 //
 // This currently works with Mach-O files (used on Darwin) and with ELF files (used on Linux
 // and others). On platforms where we know how to implement this detection, the macro
 // _LIBCPP_CAN_DETECT_OVERRIDDEN_FUNCTION is defined to 1, and it is defined to 0 on
-// other platforms. The _LIBCPP_MAKE_OVERRIDABLE_FUNCTION_DETECTABLE macro is defined to
-// nothing on unsupported platforms so that it can be used to decorate functions regardless
-// of whether detection is actually supported.
+// other platforms. The _LIBCPP_OVERRIDABLE_FUNCTION macro is defined to perform a normal
+// function definition on unsupported platforms so that it can be used to define functions
+// regardless of whether detection is actually supported.
 //
 // How does this work?
 // -------------------
@@ -44,7 +44,7 @@
 // Let's say we want to check whether a weak function `f` has been overridden by the user.
 // The general mechanism works by placing `f`'s definition (in the libc++ built library)
 // inside a special section, which we do using the `__section__` attribute via the
-// _LIBCPP_MAKE_OVERRIDABLE_FUNCTION_DETECTABLE macro.
+// _LIBCPP_OVERRIDABLE_FUNCTION macro.
 //
 // Then, when comes the time to check whether the function has been overridden, we take
 // the address of the function and we check whether it falls inside the special function
@@ -66,12 +66,12 @@
 #if defined(_LIBCPP_OBJECT_FORMAT_MACHO)
 
 #  define _LIBCPP_CAN_DETECT_OVERRIDDEN_FUNCTION 1
-#  define _LIBCPP_MAKE_OVERRIDABLE_FUNCTION_DETECTABLE                                                                 \
-    __attribute__((__section__("__TEXT,__lcxx_override,regular,pure_instructions")))
+#  define _LIBCPP_OVERRIDABLE_FUNCTION(type, name, arglist)                                                            \
+    __attribute__((__section__("__TEXT,__lcxx_override,regular,pure_instructions"))) _LIBCPP_WEAK type name arglist
 
 _LIBCPP_BEGIN_NAMESPACE_STD
-template <class _Ret, class... _Args>
-_LIBCPP_HIDE_FROM_ABI bool __is_function_overridden(_Ret (*__fptr)(_Args...)) noexcept {
+template <typename T, T* _Func>
+_LIBCPP_HIDE_FROM_ABI inline bool __is_function_overridden() noexcept {
   // Declare two dummy bytes and give them these special `__asm` values. These values are
   // defined by the linker, which means that referring to `&__lcxx_override_start` will
   // effectively refer to the address where the section starts (and same for the end).
@@ -81,7 +81,7 @@ _LIBCPP_HIDE_FROM_ABI bool __is_function_overridden(_Ret (*__fptr)(_Args...)) no
   // Now get a uintptr_t out of these locations, and out of the function pointer.
   uintptr_t __start = reinterpret_cast<uintptr_t>(&__lcxx_override_start);
   uintptr_t __end   = reinterpret_cast<uintptr_t>(&__lcxx_override_end);
-  uintptr_t __ptr   = reinterpret_cast<uintptr_t>(__fptr);
+  uintptr_t __ptr   = reinterpret_cast<uintptr_t>(_Func);
 
 #  if __has_feature(ptrauth_calls)
   // We must pass a void* to ptrauth_strip since it only accepts a pointer type. Also, in particular,
@@ -100,7 +100,8 @@ _LIBCPP_END_NAMESPACE_STD
 #elif defined(_LIBCPP_OBJECT_FORMAT_ELF) && !defined(__NVPTX__)
 
 #  define _LIBCPP_CAN_DETECT_OVERRIDDEN_FUNCTION 1
-#  define _LIBCPP_MAKE_OVERRIDABLE_FUNCTION_DETECTABLE __attribute__((__section__("__lcxx_override")))
+#  define _LIBCPP_OVERRIDABLE_FUNCTION(type, name, arglist)                                                            \
+    __attribute__((__section__("__lcxx_override"))) _LIBCPP_WEAK type name arglist
 
 // This is very similar to what we do for Mach-O above. The ELF linker will implicitly define
 // variables with those names corresponding to the start and the end of the section.
@@ -110,11 +111,11 @@ extern char __start___lcxx_override;
 extern char __stop___lcxx_override;
 
 _LIBCPP_BEGIN_NAMESPACE_STD
-template <class _Ret, class... _Args>
-_LIBCPP_HIDE_FROM_ABI bool __is_function_overridden(_Ret (*__fptr)(_Args...)) noexcept {
+template <typename T, T* _Func>
+_LIBCPP_HIDE_FROM_ABI inline bool __is_function_overridden() noexcept {
   uintptr_t __start = reinterpret_cast<uintptr_t>(&__start___lcxx_override);
   uintptr_t __end   = reinterpret_cast<uintptr_t>(&__stop___lcxx_override);
-  uintptr_t __ptr   = reinterpret_cast<uintptr_t>(__fptr);
+  uintptr_t __ptr   = reinterpret_cast<uintptr_t>(_Func);
 
 #  if __has_feature(ptrauth_calls)
   // We must pass a void* to ptrauth_strip since it only accepts a pointer type. See full explanation above.
@@ -128,7 +129,7 @@ _LIBCPP_END_NAMESPACE_STD
 #else
 
 #  define _LIBCPP_CAN_DETECT_OVERRIDDEN_FUNCTION 0
-#  define _LIBCPP_MAKE_OVERRIDABLE_FUNCTION_DETECTABLE /* nothing */
+#  define _LIBCPP_OVERRIDABLE_FUNCTION(type, name, arglist) _LIBCPP_WEAK type name arglist
 
 #endif
 

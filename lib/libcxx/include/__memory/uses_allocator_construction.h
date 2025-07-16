@@ -14,7 +14,6 @@
 #include <__memory/uses_allocator.h>
 #include <__tuple/tuple_like_no_subrange.h>
 #include <__type_traits/enable_if.h>
-#include <__type_traits/is_same.h>
 #include <__type_traits/remove_cv.h>
 #include <__utility/declval.h>
 #include <__utility/pair.h>
@@ -31,14 +30,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 17
 
-template <class _Type>
-inline constexpr bool __is_std_pair = false;
-
-template <class _Type1, class _Type2>
-inline constexpr bool __is_std_pair<pair<_Type1, _Type2>> = true;
-
 template <class _Tp>
-inline constexpr bool __is_cv_std_pair = __is_std_pair<remove_cv_t<_Tp>>;
+inline constexpr bool __is_cv_std_pair = __is_pair_v<remove_cv_t<_Tp>>;
 
 template <class _Tp, class = void>
 struct __uses_allocator_construction_args;

@@ -9,10 +9,10 @@
 #ifndef _LIBCPP___ALGORITHM_RANGES_FOR_EACH_N_H
 #define _LIBCPP___ALGORITHM_RANGES_FOR_EACH_N_H
 
+#include <__algorithm/for_each_n.h>
 #include <__algorithm/in_fun_result.h>
 #include <__config>
 #include <__functional/identity.h>
-#include <__functional/invoke.h>
 #include <__iterator/concepts.h>
 #include <__iterator/incrementable_traits.h>
 #include <__iterator/iterator_traits.h>
@@ -40,11 +40,8 @@ struct __for_each_n {
   template <input_iterator _Iter, class _Proj = identity, indirectly_unary_invocable<projected<_Iter, _Proj>> _Func>
   _LIBCPP_HIDE_FROM_ABI constexpr for_each_n_result<_Iter, _Func>
   operator()(_Iter __first, iter_difference_t<_Iter> __count, _Func __func, _Proj __proj = {}) const {
-    while (__count-- > 0) {
-      std::invoke(__func, std::invoke(__proj, *__first));
-      ++__first;
-    }
-    return {std::move(__first), std::move(__func)};
+    auto __last = std::__for_each_n(std::move(__first), __count, __func, __proj);
+    return {std::move(__last), std::move(__func)};
   }
 };
 

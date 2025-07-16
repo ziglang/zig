@@ -43,6 +43,6 @@ struct coroutine_traits : public __coroutine_traits_sfinae<_Ret> {};
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // __LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // _LIBCPP___COROUTINE_COROUTINE_TRAITS_H

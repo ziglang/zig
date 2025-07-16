@@ -20,7 +20,13 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class, class>
-struct _LIBCPP_TEMPLATE_VIS pair;
+struct pair;
+
+template <class _Type>
+inline const bool __is_pair_v = false;
+
+template <class _Type1, class _Type2>
+inline const bool __is_pair_v<pair<_Type1, _Type2> > = true;
 
 template <size_t _Ip, class _T1, class _T2>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 typename tuple_element<_Ip, pair<_T1, _T2> >::type&

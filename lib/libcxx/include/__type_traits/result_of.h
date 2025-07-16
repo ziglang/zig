@@ -29,7 +29,7 @@ _LIBCPP_DIAGNOSTIC_PUSH
 _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Winvalid-specialization")
 #endif
 template <class _Fp, class... _Args>
-struct _LIBCPP_TEMPLATE_VIS result_of<_Fp(_Args...)> : __invoke_result<_Fp, _Args...> {};
+struct result_of<_Fp(_Args...)> : __invoke_result<_Fp, _Args...> {};
 _LIBCPP_DIAGNOSTIC_POP
 
 #  if _LIBCPP_STD_VER >= 14

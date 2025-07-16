@@ -10,18 +10,16 @@
 #ifndef _LIBCPP___FLAT_MAP_FLAT_MULTIMAP_H
 #define _LIBCPP___FLAT_MAP_FLAT_MULTIMAP_H
 
+#include <__algorithm/equal_range.h>
 #include <__algorithm/lexicographical_compare_three_way.h>
+#include <__algorithm/lower_bound.h>
 #include <__algorithm/min.h>
 #include <__algorithm/ranges_equal.h>
-#include <__algorithm/ranges_equal_range.h>
 #include <__algorithm/ranges_inplace_merge.h>
 #include <__algorithm/ranges_is_sorted.h>
-#include <__algorithm/ranges_lower_bound.h>
-#include <__algorithm/ranges_partition_point.h>
 #include <__algorithm/ranges_sort.h>
-#include <__algorithm/ranges_unique.h>
-#include <__algorithm/ranges_upper_bound.h>
 #include <__algorithm/remove_if.h>
+#include <__algorithm/upper_bound.h>
 #include <__assert>
 #include <__compare/synth_three_way.h>
 #include <__concepts/convertible_to.h>
@@ -443,7 +441,7 @@ public:
              is_move_constructible_v<mapped_type>
   _LIBCPP_HIDE_FROM_ABI iterator emplace(_Args&&... __args) {
     std::pair<key_type, mapped_type> __pair(std::forward<_Args>(__args)...);
-    auto __key_it    = ranges::upper_bound(__containers_.keys, __pair.first, __compare_);
+    auto __key_it    = std::upper_bound(__containers_.keys.begin(), __containers_.keys.end(), __pair.first, __compare_);
     auto __mapped_it = __corresponding_mapped_it(*this, __key_it);
 
     return __flat_map_utils::__emplace_exact_pos(
@@ -473,7 +471,7 @@ public:
       //                   |
       //                  hint
       // We want to insert "2" after the last existing "2"
-      __key_iter    = ranges::upper_bound(__containers_.keys.begin(), __key_iter, __pair.first, __compare_);
+      __key_iter    = std::upper_bound(__containers_.keys.begin(), __key_iter, __pair.first, __compare_);
       __mapped_iter = __corresponding_mapped_it(*this, __key_iter);
     } else {
       _LIBCPP_ASSERT_INTERNAL(!__prev_larger && __next_smaller, "this means that the multimap is not sorted");
@@ -485,7 +483,7 @@ public:
       //  |
       // hint
       // We want to insert "2" before the first existing "2"
-      __key_iter    = ranges::lower_bound(__key_iter, __containers_.keys.end(), __pair.first, __compare_);
+      __key_iter    = std::lower_bound(__key_iter, __containers_.keys.end(), __pair.first, __compare_);
       __mapped_iter = __corresponding_mapped_it(*this, __key_iter);
     }
     return __flat_map_utils::__emplace_exact_pos(
@@ -804,7 +802,8 @@ private:
 
   template <class _Self, class _Kp>
   _LIBCPP_HIDE_FROM_ABI static auto __equal_range_impl(_Self&& __self, const _Kp& __key) {
-    auto [__key_first, __key_last] = ranges::equal_range(__self.__containers_.keys, __key, __self.__compare_);
+    auto [__key_first, __key_last] =
+        std::equal_range(__self.__containers_.keys.begin(), __self.__containers_.keys.end(), __key, __self.__compare_);
 
     using __iterator_type = ranges::iterator_t<decltype(__self)>;
     return std::make_pair(__iterator_type(__key_first, __corresponding_mapped_it(__self, __key_first)),
@@ -813,24 +812,26 @@ private:
 
   template <class _Res, class _Self, class _Kp>
   _LIBCPP_HIDE_FROM_ABI static _Res __lower_bound(_Self&& __self, _Kp& __x) {
-    auto __key_iter    = ranges::lower_bound(__self.__containers_.keys, __x, __self.__compare_);
+    auto __key_iter =
+        std::lower_bound(__self.__containers_.keys.begin(), __self.__containers_.keys.end(), __x, __self.__compare_);
     auto __mapped_iter = __corresponding_mapped_it(__self, __key_iter);
     return _Res(std::move(__key_iter), std::move(__mapped_iter));
   }
 
   template <class _Res, class _Self, class _Kp>
   _LIBCPP_HIDE_FROM_ABI static _Res __upper_bound(_Self&& __self, _Kp& __x) {
-    auto __key_iter    = ranges::upper_bound(__self.__containers_.keys, __x, __self.__compare_);
+    auto __key_iter =
+        std::upper_bound(__self.__containers_.keys.begin(), __self.__containers_.keys.end(), __x, __self.__compare_);
     auto __mapped_iter = __corresponding_mapped_it(__self, __key_iter);
     return _Res(std::move(__key_iter), std::move(__mapped_iter));
   }
 
   _LIBCPP_HIDE_FROM_ABI void __reserve(size_t __size) {
-    if constexpr (requires { __containers_.keys.reserve(__size); }) {
+    if constexpr (__container_traits<_KeyContainer>::__reservable) {
       __containers_.keys.reserve(__size);
     }
 
-    if constexpr (requires { __containers_.values.reserve(__size); }) {
+    if constexpr (__container_traits<_MappedContainer>::__reservable) {
       __containers_.values.reserve(__size);
     }
   }

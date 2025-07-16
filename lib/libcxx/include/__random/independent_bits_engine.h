@@ -31,7 +31,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Engine, size_t __w, class _UIntType>
-class _LIBCPP_TEMPLATE_VIS independent_bits_engine {
+class independent_bits_engine {
   template <class _UInt, _UInt _R0, size_t _Wp, size_t _Mp>
   class __get_n {
     static _LIBCPP_CONSTEXPR const size_t _Dt = numeric_limits<_UInt>::digits;

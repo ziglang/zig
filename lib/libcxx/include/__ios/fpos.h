@@ -20,7 +20,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _StateT>
-class _LIBCPP_TEMPLATE_VIS fpos {
+class fpos {
 private:
   _StateT __st_;
   streamoff __off_;

@@ -10,6 +10,7 @@
 #define FILESYSTEM_ERROR_H
 
 #include <__assert>
+#include <__chrono/time_point.h>
 #include <__config>
 #include <cerrno>
 #include <cstdarg>
@@ -96,11 +97,11 @@ struct ErrorHandler {
     string what = string("in ") + func_name_;
     switch (bool(p1_) + bool(p2_)) {
     case 0:
-      __throw_filesystem_error(what, ec);
+      filesystem::__throw_filesystem_error(what, ec);
     case 1:
-      __throw_filesystem_error(what, *p1_, ec);
+      filesystem::__throw_filesystem_error(what, *p1_, ec);
     case 2:
-      __throw_filesystem_error(what, *p1_, *p2_, ec);
+      filesystem::__throw_filesystem_error(what, *p1_, *p2_, ec);
     }
     __libcpp_unreachable();
   }
@@ -114,11 +115,11 @@ struct ErrorHandler {
     string what = string("in ") + func_name_ + ": " + detail::vformat_string(msg, ap);
     switch (bool(p1_) + bool(p2_)) {
     case 0:
-      __throw_filesystem_error(what, ec);
+      filesystem::__throw_filesystem_error(what, ec);
     case 1:
-      __throw_filesystem_error(what, *p1_, ec);
+      filesystem::__throw_filesystem_error(what, *p1_, ec);
     case 2:
-      __throw_filesystem_error(what, *p1_, *p2_, ec);
+      filesystem::__throw_filesystem_error(what, *p1_, *p2_, ec);
     }
     __libcpp_unreachable();
   }
