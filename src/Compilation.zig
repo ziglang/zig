@@ -3042,7 +3042,7 @@ fn flush(
             // If there's an output file, it wants to decide where the LLVM object goes!
             const sub_prog_node = comp.link_prog_node.start("LLVM Emit Object", 0);
             defer sub_prog_node.end();
-            try llvm_object.emit(.{
+            try llvm_object.emit(.{ .zcu = zcu, .tid = tid }, .{
                 .pre_ir_path = comp.verbose_llvm_ir,
                 .pre_bc_path = comp.verbose_llvm_bc,
 
@@ -5328,7 +5328,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         var out_zig_file = try o_dir.createFile(cimport_zig_basename, .{});
         defer out_zig_file.close();
 
-        const formatted = try tree.render(comp.gpa);
+        const formatted = try tree.renderAlloc(comp.gpa);
         defer comp.gpa.free(formatted);
 
         try out_zig_file.writeAll(formatted);

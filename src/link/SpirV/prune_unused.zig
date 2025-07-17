@@ -15,14 +15,14 @@ const BinaryModule = @import("BinaryModule.zig");
 const Section = @import("../../codegen/spirv/Section.zig");
 const spec = @import("../../codegen/spirv/spec.zig");
 const Opcode = spec.Opcode;
-const ResultId = spec.IdResult;
+const ResultId = spec.Id;
 const Word = spec.Word;
 
 /// Return whether a particular opcode's instruction can be pruned.
 /// These are idempotent instructions at globals scope and instructions
 /// within functions that do not have any side effects.
 /// The opcodes that return true here do not necessarily need to
-/// have an .IdResult. If they don't, then they are regarded
+/// have an .Id. If they don't, then they are regarded
 /// as 'decoration'-style instructions that don't keep their
 /// operands alive, but will be emitted if they are.
 fn canPrune(op: Opcode) bool {
@@ -34,12 +34,12 @@ fn canPrune(op: Opcode) bool {
     // instruction has any non-trivial side effects (like OpLoad
     // with the Volatile memory semantics).
     return switch (op.class()) {
-        .TypeDeclaration,
-        .Conversion,
-        .Arithmetic,
-        .RelationalAndLogical,
-        .Bit,
-        .Annotation,
+        .type_declaration,
+        .conversion,
+        .arithmetic,
+        .relational_and_logical,
+        .bit,
+        .annotation,
         => true,
         else => switch (op) {
             .OpFunction,
@@ -111,7 +111,7 @@ const ModuleInfo = struct {
 
             // Result-id can only be the first or second operand
             const maybe_result_id: ?ResultId = for (0..2) |i| {
-                if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .IdResult) {
+                if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .id_result) {
                     break @enumFromInt(inst.operands[i]);
                 }
             } else null;
@@ -305,7 +305,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
 
             // Result-id can only be the first or second operand
             const result_id: ResultId = for (0..2) |i| {
-                if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .IdResult) {
+                if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .id_result) {
                     break @enumFromInt(inst.operands[i]);
                 }
             } else {

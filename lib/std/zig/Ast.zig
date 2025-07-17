@@ -4,6 +4,16 @@
 //! For Zon syntax, the root node is at nodes[0] and contains lhs as the node
 //! index of the main expression.
 
+const std = @import("../std.zig");
+const assert = std.debug.assert;
+const testing = std.testing;
+const mem = std.mem;
+const Token = std.zig.Token;
+const Ast = @This();
+const Allocator = std.mem.Allocator;
+const Parse = @import("Parse.zig");
+const Writer = std.Io.Writer;
+
 /// Reference to externally-owned data.
 source: [:0]const u8,
 
@@ -128,12 +138,6 @@ pub fn deinit(tree: *Ast, gpa: Allocator) void {
     tree.* = undefined;
 }
 
-pub const RenderError = error{
-    /// Ran out of memory allocating call stack frames to complete rendering, or
-    /// ran out of memory allocating space in the output buffer.
-    OutOfMemory,
-};
-
 pub const Mode = enum { zig, zon };
 
 /// Result should be freed with tree.deinit() when there are
@@ -199,27 +203,25 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
 
 /// `gpa` is used for allocating the resulting formatted source code.
 /// Caller owns the returned slice of bytes, allocated with `gpa`.
-pub fn render(tree: Ast, gpa: Allocator) RenderError![]u8 {
-    var buffer = std.ArrayList(u8).init(gpa);
-    defer buffer.deinit();
-
-    try tree.renderToArrayList(&buffer, .{});
-    return buffer.toOwnedSlice();
+pub fn renderAlloc(tree: Ast, gpa: Allocator) error{OutOfMemory}![]u8 {
+    var aw: std.io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    render(tree, gpa, &aw.writer, .{}) catch |err| switch (err) {
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
+    };
+    return aw.toOwnedSlice();
 }
 
-pub const Fixups = private_render.Fixups;
+pub const Render = @import("Ast/Render.zig");
 
-pub fn renderToArrayList(tree: Ast, buffer: *std.ArrayList(u8), fixups: Fixups) RenderError!void {
-    return @import("./render.zig").renderTree(buffer, tree, fixups);
+pub fn render(tree: Ast, gpa: Allocator, w: *Writer, fixups: Render.Fixups) Render.Error!void {
+    return Render.renderTree(gpa, w, tree, fixups);
 }
 
 /// Returns an extra offset for column and byte offset of errors that
 /// should point after the token in the error message.
 pub fn errorOffset(tree: Ast, parse_error: Error) u32 {
-    return if (parse_error.token_is_prev)
-        @as(u32, @intCast(tree.tokenSlice(parse_error.token).len))
-    else
-        0;
+    return if (parse_error.token_is_prev) @intCast(tree.tokenSlice(parse_error.token).len) else 0;
 }
 
 pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenIndex) Location {
@@ -318,254 +320,254 @@ pub fn rootDecls(tree: Ast) []const Node.Index {
     }
 }
 
-pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
+pub fn renderError(tree: Ast, parse_error: Error, w: *Writer) Writer.Error!void {
     switch (parse_error.tag) {
         .asterisk_after_ptr_deref => {
             // Note that the token will point at the `.*` but ideally the source
             // location would point to the `*` after the `.*`.
-            return stream.writeAll("'.*' cannot be followed by '*'; are you missing a space?");
+            return w.writeAll("'.*' cannot be followed by '*'; are you missing a space?");
         },
         .chained_comparison_operators => {
-            return stream.writeAll("comparison operators cannot be chained");
+            return w.writeAll("comparison operators cannot be chained");
         },
         .decl_between_fields => {
-            return stream.writeAll("declarations are not allowed between container fields");
+            return w.writeAll("declarations are not allowed between container fields");
         },
         .expected_block => {
-            return stream.print("expected block, found '{s}'", .{
+            return w.print("expected block, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_block_or_assignment => {
-            return stream.print("expected block or assignment, found '{s}'", .{
+            return w.print("expected block or assignment, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_block_or_expr => {
-            return stream.print("expected block or expression, found '{s}'", .{
+            return w.print("expected block or expression, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_block_or_field => {
-            return stream.print("expected block or field, found '{s}'", .{
+            return w.print("expected block or field, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_container_members => {
-            return stream.print("expected test, comptime, var decl, or container field, found '{s}'", .{
+            return w.print("expected test, comptime, var decl, or container field, found '{s}'", .{
                 tree.tokenTag(parse_error.token).symbol(),
             });
         },
         .expected_expr => {
-            return stream.print("expected expression, found '{s}'", .{
+            return w.print("expected expression, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_expr_or_assignment => {
-            return stream.print("expected expression or assignment, found '{s}'", .{
+            return w.print("expected expression or assignment, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_expr_or_var_decl => {
-            return stream.print("expected expression or var decl, found '{s}'", .{
+            return w.print("expected expression or var decl, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_fn => {
-            return stream.print("expected function, found '{s}'", .{
+            return w.print("expected function, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_inlinable => {
-            return stream.print("expected 'while' or 'for', found '{s}'", .{
+            return w.print("expected 'while' or 'for', found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_labelable => {
-            return stream.print("expected 'while', 'for', 'inline', or '{{', found '{s}'", .{
+            return w.print("expected 'while', 'for', 'inline', or '{{', found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_param_list => {
-            return stream.print("expected parameter list, found '{s}'", .{
+            return w.print("expected parameter list, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_prefix_expr => {
-            return stream.print("expected prefix expression, found '{s}'", .{
+            return w.print("expected prefix expression, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_primary_type_expr => {
-            return stream.print("expected primary type expression, found '{s}'", .{
+            return w.print("expected primary type expression, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_pub_item => {
-            return stream.writeAll("expected function or variable declaration after pub");
+            return w.writeAll("expected function or variable declaration after pub");
         },
         .expected_return_type => {
-            return stream.print("expected return type expression, found '{s}'", .{
+            return w.print("expected return type expression, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_semi_or_else => {
-            return stream.writeAll("expected ';' or 'else' after statement");
+            return w.writeAll("expected ';' or 'else' after statement");
         },
         .expected_semi_or_lbrace => {
-            return stream.writeAll("expected ';' or block after function prototype");
+            return w.writeAll("expected ';' or block after function prototype");
         },
         .expected_statement => {
-            return stream.print("expected statement, found '{s}'", .{
+            return w.print("expected statement, found '{s}'", .{
                 tree.tokenTag(parse_error.token).symbol(),
             });
         },
         .expected_suffix_op => {
-            return stream.print("expected pointer dereference, optional unwrap, or field access, found '{s}'", .{
+            return w.print("expected pointer dereference, optional unwrap, or field access, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_type_expr => {
-            return stream.print("expected type expression, found '{s}'", .{
+            return w.print("expected type expression, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_var_decl => {
-            return stream.print("expected variable declaration, found '{s}'", .{
+            return w.print("expected variable declaration, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_var_decl_or_fn => {
-            return stream.print("expected variable declaration or function, found '{s}'", .{
+            return w.print("expected variable declaration or function, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_loop_payload => {
-            return stream.print("expected loop payload, found '{s}'", .{
+            return w.print("expected loop payload, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .expected_container => {
-            return stream.print("expected a struct, enum or union, found '{s}'", .{
+            return w.print("expected a struct, enum or union, found '{s}'", .{
                 tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev)).symbol(),
             });
         },
         .extern_fn_body => {
-            return stream.writeAll("extern functions have no body");
+            return w.writeAll("extern functions have no body");
         },
         .extra_addrspace_qualifier => {
-            return stream.writeAll("extra addrspace qualifier");
+            return w.writeAll("extra addrspace qualifier");
         },
         .extra_align_qualifier => {
-            return stream.writeAll("extra align qualifier");
+            return w.writeAll("extra align qualifier");
         },
         .extra_allowzero_qualifier => {
-            return stream.writeAll("extra allowzero qualifier");
+            return w.writeAll("extra allowzero qualifier");
         },
         .extra_const_qualifier => {
-            return stream.writeAll("extra const qualifier");
+            return w.writeAll("extra const qualifier");
         },
         .extra_volatile_qualifier => {
-            return stream.writeAll("extra volatile qualifier");
+            return w.writeAll("extra volatile qualifier");
         },
         .ptr_mod_on_array_child_type => {
-            return stream.print("pointer modifier '{s}' not allowed on array child type", .{
+            return w.print("pointer modifier '{s}' not allowed on array child type", .{
                 tree.tokenTag(parse_error.token).symbol(),
             });
         },
         .invalid_bit_range => {
-            return stream.writeAll("bit range not allowed on slices and arrays");
+            return w.writeAll("bit range not allowed on slices and arrays");
         },
         .same_line_doc_comment => {
-            return stream.writeAll("same line documentation comment");
+            return w.writeAll("same line documentation comment");
         },
         .unattached_doc_comment => {
-            return stream.writeAll("unattached documentation comment");
+            return w.writeAll("unattached documentation comment");
         },
         .test_doc_comment => {
-            return stream.writeAll("documentation comments cannot be attached to tests");
+            return w.writeAll("documentation comments cannot be attached to tests");
         },
         .comptime_doc_comment => {
-            return stream.writeAll("documentation comments cannot be attached to comptime blocks");
+            return w.writeAll("documentation comments cannot be attached to comptime blocks");
         },
         .varargs_nonfinal => {
-            return stream.writeAll("function prototype has parameter after varargs");
+            return w.writeAll("function prototype has parameter after varargs");
         },
         .expected_continue_expr => {
-            return stream.writeAll("expected ':' before while continue expression");
+            return w.writeAll("expected ':' before while continue expression");
         },
 
         .expected_semi_after_decl => {
-            return stream.writeAll("expected ';' after declaration");
+            return w.writeAll("expected ';' after declaration");
         },
         .expected_semi_after_stmt => {
-            return stream.writeAll("expected ';' after statement");
+            return w.writeAll("expected ';' after statement");
         },
         .expected_comma_after_field => {
-            return stream.writeAll("expected ',' after field");
+            return w.writeAll("expected ',' after field");
         },
         .expected_comma_after_arg => {
-            return stream.writeAll("expected ',' after argument");
+            return w.writeAll("expected ',' after argument");
         },
         .expected_comma_after_param => {
-            return stream.writeAll("expected ',' after parameter");
+            return w.writeAll("expected ',' after parameter");
         },
         .expected_comma_after_initializer => {
-            return stream.writeAll("expected ',' after initializer");
+            return w.writeAll("expected ',' after initializer");
         },
         .expected_comma_after_switch_prong => {
-            return stream.writeAll("expected ',' after switch prong");
+            return w.writeAll("expected ',' after switch prong");
         },
         .expected_comma_after_for_operand => {
-            return stream.writeAll("expected ',' after for operand");
+            return w.writeAll("expected ',' after for operand");
         },
         .expected_comma_after_capture => {
-            return stream.writeAll("expected ',' after for capture");
+            return w.writeAll("expected ',' after for capture");
         },
         .expected_initializer => {
-            return stream.writeAll("expected field initializer");
+            return w.writeAll("expected field initializer");
         },
         .mismatched_binary_op_whitespace => {
-            return stream.print("binary operator '{s}' has whitespace on one side, but not the other", .{tree.tokenTag(parse_error.token).lexeme().?});
+            return w.print("binary operator '{s}' has whitespace on one side, but not the other", .{tree.tokenTag(parse_error.token).lexeme().?});
         },
         .invalid_ampersand_ampersand => {
-            return stream.writeAll("ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND");
+            return w.writeAll("ambiguous use of '&&'; use 'and' for logical AND, or change whitespace to ' & &' for bitwise AND");
         },
         .c_style_container => {
-            return stream.print("'{s} {s}' is invalid", .{
+            return w.print("'{s} {s}' is invalid", .{
                 parse_error.extra.expected_tag.symbol(), tree.tokenSlice(parse_error.token),
             });
         },
         .zig_style_container => {
-            return stream.print("to declare a container do 'const {s} = {s}'", .{
+            return w.print("to declare a container do 'const {s} = {s}'", .{
                 tree.tokenSlice(parse_error.token), parse_error.extra.expected_tag.symbol(),
             });
         },
         .previous_field => {
-            return stream.writeAll("field before declarations here");
+            return w.writeAll("field before declarations here");
         },
         .next_field => {
-            return stream.writeAll("field after declarations here");
+            return w.writeAll("field after declarations here");
         },
         .expected_var_const => {
-            return stream.writeAll("expected 'var' or 'const' before variable declaration");
+            return w.writeAll("expected 'var' or 'const' before variable declaration");
         },
         .wrong_equal_var_decl => {
-            return stream.writeAll("variable initialized with '==' instead of '='");
+            return w.writeAll("variable initialized with '==' instead of '='");
         },
         .var_const_decl => {
-            return stream.writeAll("use 'var' or 'const' to declare variable");
+            return w.writeAll("use 'var' or 'const' to declare variable");
         },
         .extra_for_capture => {
-            return stream.writeAll("extra capture in for loop");
+            return w.writeAll("extra capture in for loop");
         },
         .for_input_not_captured => {
-            return stream.writeAll("for input is not captured");
+            return w.writeAll("for input is not captured");
         },
 
         .invalid_byte => {
             const tok_slice = tree.source[tree.tokens.items(.start)[parse_error.token]..];
-            return stream.print("{s} contains invalid byte: '{f}'", .{
+            return w.print("{s} contains invalid byte: '{f}'", .{
                 switch (tok_slice[0]) {
                     '\'' => "character literal",
                     '"', '\\' => "string literal",
@@ -580,10 +582,10 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             const found_tag = tree.tokenTag(parse_error.token + @intFromBool(parse_error.token_is_prev));
             const expected_symbol = parse_error.extra.expected_tag.symbol();
             switch (found_tag) {
-                .invalid => return stream.print("expected '{s}', found invalid bytes", .{
+                .invalid => return w.print("expected '{s}', found invalid bytes", .{
                     expected_symbol,
                 }),
-                else => return stream.print("expected '{s}', found '{s}'", .{
+                else => return w.print("expected '{s}', found '{s}'", .{
                     expected_symbol, found_tag.symbol(),
                 }),
             }
@@ -634,6 +636,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .@"nosuspend",
         .asm_simple,
         .@"asm",
+        .asm_legacy,
         .array_type,
         .array_type_sentinel,
         .error_value,
@@ -1046,6 +1049,11 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
                 end_offset += 1; // for the rbrace
                 n = @enumFromInt(tree.extra_data[@intFromEnum(members.end) - 1]); // last parameter
             }
+        },
+        .asm_legacy => {
+            _, const extra_index = tree.nodeData(n).node_and_extra;
+            const extra = tree.extraData(extra_index, Node.AsmLegacy);
+            return extra.rparen + end_offset;
         },
         .@"asm" => {
             _, const extra_index = tree.nodeData(n).node_and_extra;
@@ -1885,6 +1893,19 @@ pub fn asmSimple(tree: Ast, node: Node.Index) full.Asm {
         .template = template,
         .items = &.{},
         .rparen = rparen,
+        .clobbers = .none,
+    });
+}
+
+pub fn asmLegacy(tree: Ast, node: Node.Index) full.AsmLegacy {
+    const template, const extra_index = tree.nodeData(node).node_and_extra;
+    const extra = tree.extraData(extra_index, Node.AsmLegacy);
+    const items = tree.extraDataSlice(.{ .start = extra.items_start, .end = extra.items_end }, Node.Index);
+    return tree.legacyAsmComponents(.{
+        .asm_token = tree.nodeMainToken(node),
+        .template = template,
+        .items = items,
+        .rparen = extra.rparen,
     });
 }
 
@@ -1896,6 +1917,7 @@ pub fn asmFull(tree: Ast, node: Node.Index) full.Asm {
         .asm_token = tree.nodeMainToken(node),
         .template = template,
         .items = items,
+        .clobbers = extra.clobbers,
         .rparen = extra.rparen,
     });
 }
@@ -2192,8 +2214,8 @@ fn fullSwitchCaseComponents(tree: Ast, info: full.SwitchCase.Components, node: N
     return result;
 }
 
-fn fullAsmComponents(tree: Ast, info: full.Asm.Components) full.Asm {
-    var result: full.Asm = .{
+fn legacyAsmComponents(tree: Ast, info: full.AsmLegacy.Components) full.AsmLegacy {
+    var result: full.AsmLegacy = .{
         .ast = info,
         .volatile_token = null,
         .inputs = &.{},
@@ -2249,6 +2271,29 @@ fn fullAsmComponents(tree: Ast, info: full.Asm.Components) full.Asm {
             result.first_clobber = i + 2;
         }
     }
+
+    return result;
+}
+
+fn fullAsmComponents(tree: Ast, info: full.Asm.Components) full.Asm {
+    var result: full.Asm = .{
+        .ast = info,
+        .volatile_token = null,
+        .inputs = &.{},
+        .outputs = &.{},
+    };
+    if (tree.tokenTag(info.asm_token + 1) == .keyword_volatile) {
+        result.volatile_token = info.asm_token + 1;
+    }
+    const outputs_end: usize = for (info.items, 0..) |item, i| {
+        switch (tree.nodeTag(item)) {
+            .asm_output => continue,
+            else => break i,
+        }
+    } else info.items.len;
+
+    result.outputs = info.items[0..outputs_end];
+    result.inputs = info.items[outputs_end..];
 
     return result;
 }
@@ -2443,6 +2488,14 @@ pub fn fullAsm(tree: Ast, node: Node.Index) ?full.Asm {
     return switch (tree.nodeTag(node)) {
         .asm_simple => tree.asmSimple(node),
         .@"asm" => tree.asmFull(node),
+        else => null,
+    };
+}
+
+/// To be deleted after 0.15.0 is tagged
+pub fn legacyAsm(tree: Ast, node: Node.Index) ?full.AsmLegacy {
+    return switch (tree.nodeTag(node)) {
+        .asm_legacy => tree.asmLegacy(node),
         else => null,
     };
 }
@@ -2827,6 +2880,21 @@ pub const full = struct {
     };
 
     pub const Asm = struct {
+        ast: Components,
+        volatile_token: ?TokenIndex,
+        outputs: []const Node.Index,
+        inputs: []const Node.Index,
+
+        pub const Components = struct {
+            asm_token: TokenIndex,
+            template: Node.Index,
+            items: []const Node.Index,
+            clobbers: Node.OptionalIndex,
+            rparen: TokenIndex,
+        };
+    };
+
+    pub const AsmLegacy = struct {
         ast: Components,
         volatile_token: ?TokenIndex,
         first_clobber: ?TokenIndex,
@@ -3833,15 +3901,22 @@ pub const Node = struct {
         /// Same as `block` except there is known to be a trailing comma before
         /// the final rbrace.
         block_semicolon,
-        /// `asm(lhs)`.
+        /// `asm(a)`.
         ///
-        /// rhs is a `Token.Index` to the `)` token.
         /// The `main_token` field is the `asm` token.
         asm_simple,
         /// `asm(lhs, a)`.
         ///
         /// The `data` field is a `.node_and_extra`:
         ///   1. a `Node.Index` to lhs.
+        ///   2. a `ExtraIndex` to `AsmLegacy`.
+        ///
+        /// The `main_token` field is the `asm` token.
+        asm_legacy,
+        /// `asm(a, b)`.
+        ///
+        /// The `data` field is a `.node_and_extra`:
+        ///   1. a `Node.Index` to a.
         ///   2. a `ExtraIndex` to `Asm`.
         ///
         /// The `main_token` field is the `asm` token.
@@ -4014,9 +4089,18 @@ pub const Node = struct {
         callconv_expr: OptionalIndex,
     };
 
+    /// To be removed after 0.15.0 is tagged
+    pub const AsmLegacy = struct {
+        items_start: ExtraIndex,
+        items_end: ExtraIndex,
+        /// Needed to make lastToken() work.
+        rparen: TokenIndex,
+    };
+
     pub const Asm = struct {
         items_start: ExtraIndex,
         items_end: ExtraIndex,
+        clobbers: OptionalIndex,
         /// Needed to make lastToken() work.
         rparen: TokenIndex,
     };
@@ -4054,17 +4138,7 @@ pub fn tokensToSpan(tree: *const Ast, start: Ast.TokenIndex, end: Ast.TokenIndex
     return Span{ .start = start_off, .end = end_off, .main = tree.tokenStart(main) };
 }
 
-const std = @import("../std.zig");
-const assert = std.debug.assert;
-const testing = std.testing;
-const mem = std.mem;
-const Token = std.zig.Token;
-const Ast = @This();
-const Allocator = std.mem.Allocator;
-const Parse = @import("Parse.zig");
-const private_render = @import("./render.zig");
-
 test {
     _ = Parse;
-    _ = private_render;
+    _ = Render;
 }

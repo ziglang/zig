@@ -245,33 +245,41 @@ pub fn appendRemaining(
     list: *std.ArrayListAlignedUnmanaged(u8, alignment),
     limit: Limit,
 ) LimitedAllocError!void {
-    const buffer = r.buffer;
-    const buffer_contents = buffer[r.seek..r.end];
+    assert(r.buffer.len != 0); // Needed to detect limit exceeded without losing data.
+    const buffer_contents = r.buffer[r.seek..r.end];
     const copy_len = limit.minInt(buffer_contents.len);
-    try list.ensureUnusedCapacity(gpa, copy_len);
-    @memcpy(list.unusedCapacitySlice()[0..copy_len], buffer[0..copy_len]);
-    list.items.len += copy_len;
+    try list.appendSlice(gpa, r.buffer[0..copy_len]);
     r.seek += copy_len;
-    if (copy_len == buffer_contents.len) {
-        r.seek = 0;
-        r.end = 0;
-    }
-    var remaining = limit.subtract(copy_len).?;
+    if (buffer_contents.len - copy_len != 0) return error.StreamTooLong;
+    r.seek = 0;
+    r.end = 0;
+    var remaining = @intFromEnum(limit) - copy_len;
     while (true) {
         try list.ensureUnusedCapacity(gpa, 1);
-        const dest = remaining.slice(list.unusedCapacitySlice());
-        const additional_buffer: []u8 = if (@intFromEnum(remaining) == dest.len) buffer else &.{};
-        const n = readVec(r, &.{ dest, additional_buffer }) catch |err| switch (err) {
-            error.EndOfStream => break,
-            error.ReadFailed => return error.ReadFailed,
-        };
-        if (n > dest.len) {
-            r.end = n - dest.len;
-            list.items.len += dest.len;
-            return error.StreamTooLong;
+        const cap = list.unusedCapacitySlice();
+        const dest = cap[0..@min(cap.len, remaining)];
+        if (remaining - dest.len == 0) {
+            // Additionally provides `buffer` to detect end.
+            const new_remaining = readVecInner(r, &.{}, dest, remaining) catch |err| switch (err) {
+                error.EndOfStream => {
+                    if (r.bufferedLen() != 0) return error.StreamTooLong;
+                    return;
+                },
+                error.ReadFailed => return error.ReadFailed,
+            };
+            list.items.len += remaining - new_remaining;
+            remaining = new_remaining;
+        } else {
+            // Leave `buffer` empty, appending directly to `list`.
+            var dest_w: Writer = .fixed(dest);
+            const n = r.vtable.stream(r, &dest_w, .limited(dest.len)) catch |err| switch (err) {
+                error.WriteFailed => unreachable, // Prevented by the limit.
+                error.EndOfStream => return,
+                error.ReadFailed => return error.ReadFailed,
+            };
+            list.items.len += n;
+            remaining -= n;
         }
-        list.items.len += n;
-        remaining = remaining.subtract(n).?;
     }
 }
 
@@ -312,60 +320,66 @@ pub fn readVecLimit(r: *Reader, data: []const []u8, limit: Limit) Error!usize {
         // buffer capacity requirements met.
         r.seek = 0;
         r.end = 0;
-        const first = buf[copy_len..];
-        const middle = data[i + 1 ..];
-        var wrapper: Writer.VectorWrapper = .{
-            .it = .{
-                .first = first,
-                .middle = middle,
-                .last = r.buffer,
-            },
-            .writer = .{
-                .buffer = if (first.len >= r.buffer.len) first else r.buffer,
-                .vtable = Writer.VectorWrapper.vtable,
-            },
-        };
-        var n = r.vtable.stream(r, &wrapper.writer, .limited(remaining)) catch |err| switch (err) {
-            error.WriteFailed => {
-                assert(!wrapper.used);
-                if (wrapper.writer.buffer.ptr == first.ptr) {
-                    remaining -= wrapper.writer.end;
-                } else {
-                    assert(wrapper.writer.end <= r.buffer.len);
-                    r.end = wrapper.writer.end;
-                }
-                break;
-            },
-            else => |e| return e,
-        };
-        if (!wrapper.used) {
-            if (wrapper.writer.buffer.ptr == first.ptr) {
-                remaining -= n;
-            } else {
-                assert(n <= r.buffer.len);
-                r.end = n;
-            }
-            break;
-        }
-        if (n < first.len) {
-            remaining -= n;
-            break;
-        }
-        remaining -= first.len;
-        n -= first.len;
-        for (middle) |mid| {
-            if (n < mid.len) {
-                remaining -= n;
-                break;
-            }
-            remaining -= mid.len;
-            n -= mid.len;
-        }
-        assert(n <= r.buffer.len);
-        r.end = n;
+        remaining = try readVecInner(r, data[i + 1 ..], buf[copy_len..], remaining);
         break;
     }
     return @intFromEnum(limit) - remaining;
+}
+
+fn readVecInner(r: *Reader, middle: []const []u8, first: []u8, remaining: usize) Error!usize {
+    var wrapper: Writer.VectorWrapper = .{
+        .it = .{
+            .first = first,
+            .middle = middle,
+            .last = r.buffer,
+        },
+        .writer = .{
+            .buffer = if (first.len >= r.buffer.len) first else r.buffer,
+            .vtable = Writer.VectorWrapper.vtable,
+        },
+    };
+    // If the limit may pass beyond user buffer into Reader buffer, use
+    // unlimited, allowing the Reader buffer to fill.
+    const limit: Limit = l: {
+        var n: usize = first.len;
+        for (middle) |m| n += m.len;
+        break :l if (remaining >= n) .unlimited else .limited(remaining);
+    };
+    var n = r.vtable.stream(r, &wrapper.writer, limit) catch |err| switch (err) {
+        error.WriteFailed => {
+            assert(!wrapper.used);
+            if (wrapper.writer.buffer.ptr == first.ptr) {
+                return remaining - wrapper.writer.end;
+            } else {
+                assert(wrapper.writer.end <= r.buffer.len);
+                r.end = wrapper.writer.end;
+                return remaining;
+            }
+        },
+        else => |e| return e,
+    };
+    if (!wrapper.used) {
+        if (wrapper.writer.buffer.ptr == first.ptr) {
+            return remaining - n;
+        } else {
+            assert(n <= r.buffer.len);
+            r.end = n;
+            return remaining;
+        }
+    }
+    if (n < first.len) return remaining - n;
+    var result = remaining - first.len;
+    n -= first.len;
+    for (middle) |mid| {
+        if (n < mid.len) {
+            return result - n;
+        }
+        result -= mid.len;
+        n -= mid.len;
+    }
+    assert(n <= r.buffer.len);
+    r.end = n;
+    return result;
 }
 
 pub fn buffered(r: *Reader) []u8 {
@@ -858,8 +872,10 @@ pub fn streamDelimiter(r: *Reader, w: *Writer, delimiter: u8) StreamError!usize 
 /// Appends to `w` contents by reading from the stream until `delimiter` is found.
 /// Does not write the delimiter itself.
 ///
-/// Returns number of bytes streamed, which may be zero. End of stream can be
-/// detected by checking if the next byte in the stream is the delimiter.
+/// Returns number of bytes streamed, which may be zero. If the stream reaches
+/// the end, the reader buffer will be empty when this function returns.
+/// Otherwise, it will have at least one byte buffered, starting with the
+/// delimiter.
 ///
 /// Asserts buffer capacity of at least one. This function performs better with
 /// larger buffers.
@@ -1093,33 +1109,41 @@ pub inline fn takeInt(r: *Reader, comptime T: type, endian: std.builtin.Endian) 
     return std.mem.readInt(T, try r.takeArray(n), endian);
 }
 
+/// Asserts the buffer was initialized with a capacity at least `@bitSizeOf(T) / 8`.
+pub inline fn peekInt(r: *Reader, comptime T: type, endian: std.builtin.Endian) Error!T {
+    const n = @divExact(@typeInfo(T).int.bits, 8);
+    return std.mem.readInt(T, try r.peekArray(n), endian);
+}
+
 /// Asserts the buffer was initialized with a capacity at least `n`.
 pub fn takeVarInt(r: *Reader, comptime Int: type, endian: std.builtin.Endian, n: usize) Error!Int {
     assert(n <= @sizeOf(Int));
     return std.mem.readVarInt(Int, try r.take(n), endian);
 }
 
+/// Obtains an unaligned pointer to the beginning of the stream, reinterpreted
+/// as a pointer to the provided type, advancing the seek position.
+///
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
 ///
-/// Advances the seek position.
-///
 /// See also:
-/// * `peekStruct`
-/// * `takeStructEndian`
-pub fn takeStruct(r: *Reader, comptime T: type) Error!*align(1) T {
+/// * `peekStructReference`
+/// * `takeStruct`
+pub fn takeStructReference(r: *Reader, comptime T: type) Error!*align(1) T {
     // Only extern and packed structs have defined in-memory layout.
     comptime assert(@typeInfo(T).@"struct".layout != .auto);
     return @ptrCast(try r.takeArray(@sizeOf(T)));
 }
 
+/// Obtains an unaligned pointer to the beginning of the stream, reinterpreted
+/// as a pointer to the provided type, without advancing the seek position.
+///
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
 ///
-/// Does not advance the seek position.
-///
 /// See also:
-/// * `takeStruct`
-/// * `peekStructEndian`
-pub fn peekStruct(r: *Reader, comptime T: type) Error!*align(1) T {
+/// * `takeStructReference`
+/// * `peekStruct`
+pub fn peekStructReference(r: *Reader, comptime T: type) Error!*align(1) T {
     // Only extern and packed structs have defined in-memory layout.
     comptime assert(@typeInfo(T).@"struct".layout != .auto);
     return @ptrCast(try r.peekArray(@sizeOf(T)));
@@ -1131,12 +1155,23 @@ pub fn peekStruct(r: *Reader, comptime T: type) Error!*align(1) T {
 /// when `endian` is comptime-known and matches the host endianness.
 ///
 /// See also:
-/// * `takeStruct`
-/// * `peekStructEndian`
-pub inline fn takeStructEndian(r: *Reader, comptime T: type, endian: std.builtin.Endian) Error!T {
-    var res = (try r.takeStruct(T)).*;
-    if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
-    return res;
+/// * `takeStructReference`
+/// * `peekStruct`
+pub inline fn takeStruct(r: *Reader, comptime T: type, endian: std.builtin.Endian) Error!T {
+    switch (@typeInfo(T)) {
+        .@"struct" => |info| switch (info.layout) {
+            .auto => @compileError("ill-defined memory layout"),
+            .@"extern" => {
+                var res = (try r.takeStructReference(T)).*;
+                if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
+                return res;
+            },
+            .@"packed" => {
+                return takeInt(r, info.backing_integer.?, endian);
+            },
+        },
+        else => @compileError("not a struct"),
+    }
 }
 
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
@@ -1145,12 +1180,23 @@ pub inline fn takeStructEndian(r: *Reader, comptime T: type, endian: std.builtin
 /// when `endian` is comptime-known and matches the host endianness.
 ///
 /// See also:
-/// * `takeStructEndian`
-/// * `peekStruct`
-pub inline fn peekStructEndian(r: *Reader, comptime T: type, endian: std.builtin.Endian) Error!T {
-    var res = (try r.peekStruct(T)).*;
-    if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
-    return res;
+/// * `takeStruct`
+/// * `peekStructReference`
+pub inline fn peekStruct(r: *Reader, comptime T: type, endian: std.builtin.Endian) Error!T {
+    switch (@typeInfo(T)) {
+        .@"struct" => |info| switch (info.layout) {
+            .auto => @compileError("ill-defined memory layout"),
+            .@"extern" => {
+                var res = (try r.peekStructReference(T)).*;
+                if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
+                return res;
+            },
+            .@"packed" => {
+                return peekInt(r, info.backing_integer.?, endian);
+            },
+        },
+        else => @compileError("not a struct"),
+    }
 }
 
 pub const TakeEnumError = Error || error{InvalidEnumTag};
@@ -1270,6 +1316,13 @@ fn takeMultipleOf7Leb128(r: *Reader, comptime Result: type) TakeLeb128Error!Resu
 }
 
 /// Left-aligns data such that `r.seek` becomes zero.
+///
+/// If `r.seek` is not already zero then `buffer` is mutated, making it illegal
+/// to call this function with a const-casted `buffer`, such as in the case of
+/// `fixed`. This issue can be avoided:
+/// * in implementations, by attempting a read before a rebase, in which
+///   case the read will return `error.EndOfStream`, preventing the rebase.
+/// * in usage, by copying into a mutable buffer before initializing `fixed`.
 pub fn rebase(r: *Reader) void {
     if (r.seek == 0) return;
     const data = r.buffer[r.seek..r.end];
@@ -1282,6 +1335,13 @@ pub fn rebase(r: *Reader) void {
 /// if necessary.
 ///
 /// Asserts `capacity` is within the buffer capacity.
+///
+/// If the rebase occurs then `buffer` is mutated, making it illegal to call
+/// this function with a const-casted `buffer`, such as in the case of `fixed`.
+/// This issue can be avoided:
+/// * in implementations, by attempting a read before a rebase, in which
+///   case the read will return `error.EndOfStream`, preventing the rebase.
+/// * in usage, by copying into a mutable buffer before initializing `fixed`.
 pub fn rebaseCapacity(r: *Reader, capacity: usize) void {
     if (r.end > r.buffer.len - capacity) rebase(r);
 }
@@ -1516,43 +1576,43 @@ test takeVarInt {
     try testing.expectError(error.EndOfStream, r.takeVarInt(u16, .little, 1));
 }
 
-test takeStruct {
+test takeStructReference {
     var r: Reader = .fixed(&.{ 0x12, 0x00, 0x34, 0x56 });
     const S = extern struct { a: u8, b: u16 };
     switch (native_endian) {
-        .little => try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.takeStruct(S)).*),
-        .big => try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.takeStruct(S)).*),
+        .little => try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.takeStructReference(S)).*),
+        .big => try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.takeStructReference(S)).*),
     }
-    try testing.expectError(error.EndOfStream, r.takeStruct(S));
+    try testing.expectError(error.EndOfStream, r.takeStructReference(S));
+}
+
+test peekStructReference {
+    var r: Reader = .fixed(&.{ 0x12, 0x00, 0x34, 0x56 });
+    const S = extern struct { a: u8, b: u16 };
+    switch (native_endian) {
+        .little => {
+            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.peekStructReference(S)).*);
+            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.peekStructReference(S)).*);
+        },
+        .big => {
+            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.peekStructReference(S)).*);
+            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.peekStructReference(S)).*);
+        },
+    }
+}
+
+test takeStruct {
+    var r: Reader = .fixed(&.{ 0x12, 0x00, 0x34, 0x56 });
+    const S = extern struct { a: u8, b: u16 };
+    try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), try r.takeStruct(S, .big));
+    try testing.expectError(error.EndOfStream, r.takeStruct(S, .little));
 }
 
 test peekStruct {
     var r: Reader = .fixed(&.{ 0x12, 0x00, 0x34, 0x56 });
     const S = extern struct { a: u8, b: u16 };
-    switch (native_endian) {
-        .little => {
-            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.peekStruct(S)).*);
-            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.peekStruct(S)).*);
-        },
-        .big => {
-            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.peekStruct(S)).*);
-            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.peekStruct(S)).*);
-        },
-    }
-}
-
-test takeStructEndian {
-    var r: Reader = .fixed(&.{ 0x12, 0x00, 0x34, 0x56 });
-    const S = extern struct { a: u8, b: u16 };
-    try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), try r.takeStructEndian(S, .big));
-    try testing.expectError(error.EndOfStream, r.takeStructEndian(S, .little));
-}
-
-test peekStructEndian {
-    var r: Reader = .fixed(&.{ 0x12, 0x00, 0x34, 0x56 });
-    const S = extern struct { a: u8, b: u16 };
-    try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), try r.peekStructEndian(S, .big));
-    try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), try r.peekStructEndian(S, .little));
+    try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), try r.peekStruct(S, .big));
+    try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), try r.peekStruct(S, .little));
 }
 
 test takeEnum {
@@ -1657,11 +1717,12 @@ test "readAlloc when the backing reader provides one byte at a time" {
         }
     };
     const str = "This is a test";
+    var tiny_buffer: [1]u8 = undefined;
     var one_byte_stream: OneByteReader = .{
         .str = str,
         .i = 0,
         .reader = .{
-            .buffer = &.{},
+            .buffer = &tiny_buffer,
             .vtable = &.{ .stream = OneByteReader.stream },
             .seek = 0,
             .end = 0,
