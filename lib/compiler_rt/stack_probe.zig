@@ -13,11 +13,11 @@ comptime {
         // Default stack-probe functions emitted by LLVM
         if (builtin.target.isMinGW()) {
             @export(&_chkstk, .{ .name = "_alloca", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__chkstk, .{ .name = "__chkstk", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&___chkstk, .{ .name = "__alloca", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&___chkstk, .{ .name = "___chkstk", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__chkstk_ms, .{ .name = "__chkstk_ms", .linkage = common.linkage, .visibility = common.visibility });
             @export(&___chkstk_ms, .{ .name = "___chkstk_ms", .linkage = common.linkage, .visibility = common.visibility });
-
-            if (arch == .thumb or arch == .aarch64) {
-                @export(&__chkstk, .{ .name = "__chkstk", .linkage = common.linkage, .visibility = common.visibility });
-            }
         } else if (!builtin.link_libc) {
             // This symbols are otherwise exported by MSVCRT.lib
             @export(&_chkstk, .{ .name = "_chkstk", .linkage = common.linkage, .visibility = common.visibility });
