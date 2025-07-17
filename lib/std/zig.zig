@@ -905,4 +905,5 @@ test {
     _ = system;
     _ = target;
     _ = c_translation;
+    _ = llvm;
 }

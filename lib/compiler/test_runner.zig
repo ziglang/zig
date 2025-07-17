@@ -2,7 +2,6 @@
 const builtin = @import("builtin");
 
 const std = @import("std");
-const io = std.io;
 const testing = std.testing;
 const assert = std.debug.assert;
 
@@ -13,6 +12,8 @@ pub const std_options: std.Options = .{
 var log_err_count: usize = 0;
 var fba_buffer: [8192]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
+var stdin_buffer: [std.heap.page_size_min]u8 align(std.heap.page_size_min) = undefined;
+var stdout_buffer: [std.heap.page_size_min]u8 align(std.heap.page_size_min) = undefined;
 
 const crippled = switch (builtin.zig_backend) {
     .stage2_powerpc,
@@ -67,13 +68,13 @@ pub fn main() void {
 
 fn mainServer() !void {
     @disableInstrumentation();
+    var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     var server = try std.zig.Server.init(.{
-        .gpa = fba.allocator(),
-        .in = .stdin(),
-        .out = .stdout(),
+        .in = &stdin_reader.interface,
+        .out = &stdout_writer.interface,
         .zig_version = builtin.zig_version_string,
     });
-    defer server.deinit();
 
     if (builtin.fuzz) {
         const coverage_id = fuzzer_coverage_id();
