@@ -2399,24 +2399,24 @@ fn renderAsmLegacy(
             try renderToken(r, first_clobber - 2, .none);
             try renderToken(r, first_clobber - 1, .space);
 
-            try ais.writer().writeAll(".{ ");
+            try ais.writeAll(".{ ");
 
             var tok_i = first_clobber;
             while (true) : (tok_i += 1) {
-                try ais.writer().writeByte('.');
+                try ais.writeByte('.');
                 _ = try writeStringLiteralAsIdentifier(r, tok_i);
-                try ais.writer().writeAll(" = true");
+                try ais.writeAll(" = true");
 
                 tok_i += 1;
                 switch (tree.tokenTag(tok_i)) {
                     .r_paren => {
-                        try ais.writer().writeAll(" }");
+                        try ais.writeAll(" }");
                         ais.popIndent();
                         return renderToken(r, tok_i, space);
                     },
                     .comma => {
                         if (tree.tokenTag(tok_i + 1) == .r_paren) {
-                            try ais.writer().writeAll(" }");
+                            try ais.writeAll(" }");
                             ais.popIndent();
                             return renderToken(r, tok_i + 1, space);
                         } else {
@@ -2511,16 +2511,16 @@ fn renderAsmLegacy(
     };
 
     try renderToken(r, colon3, .space); // :
-    try ais.writer().writeAll(".{ ");
+    try ais.writeAll(".{ ");
     const first_clobber = asm_node.first_clobber.?;
     var tok_i = first_clobber;
     while (true) {
         switch (tree.tokenTag(tok_i + 1)) {
             .r_paren => {
                 ais.setIndentDelta(indent_delta);
-                try ais.writer().writeByte('.');
+                try ais.writeByte('.');
                 const lexeme_len = try writeStringLiteralAsIdentifier(r, tok_i);
-                try ais.writer().writeAll(" = true }");
+                try ais.writeAll(" = true }");
                 try renderSpace(r, tok_i, lexeme_len, .newline);
                 ais.popIndent();
                 return renderToken(r, tok_i + 1, space);
@@ -2529,17 +2529,17 @@ fn renderAsmLegacy(
                 switch (tree.tokenTag(tok_i + 2)) {
                     .r_paren => {
                         ais.setIndentDelta(indent_delta);
-                        try ais.writer().writeByte('.');
+                        try ais.writeByte('.');
                         const lexeme_len = try writeStringLiteralAsIdentifier(r, tok_i);
-                        try ais.writer().writeAll(" = true }");
+                        try ais.writeAll(" = true }");
                         try renderSpace(r, tok_i, lexeme_len, .newline);
                         ais.popIndent();
                         return renderToken(r, tok_i + 2, space);
                     },
                     else => {
-                        try ais.writer().writeByte('.');
+                        try ais.writeByte('.');
                         _ = try writeStringLiteralAsIdentifier(r, tok_i);
-                        try ais.writer().writeAll(" = true");
+                        try ais.writeAll(" = true");
                         try renderToken(r, tok_i + 1, .space);
                         tok_i += 2;
                     },
@@ -3242,11 +3242,11 @@ fn writeStringLiteralAsIdentifier(r: *Render, token_index: Ast.TokenIndex) !usiz
     const lexeme = tokenSliceForRender(tree, token_index);
     const unquoted = lexeme[1..][0 .. lexeme.len - 2];
     if (std.zig.isValidId(unquoted)) {
-        try ais.writer().writeAll(unquoted);
+        try ais.writeAll(unquoted);
         return unquoted.len;
     } else {
-        try ais.writer().writeByte('@');
-        try ais.writer().writeAll(lexeme);
+        try ais.writeByte('@');
+        try ais.writeAll(lexeme);
         return lexeme.len + 1;
     }
 }
