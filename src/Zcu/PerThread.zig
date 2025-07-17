@@ -635,6 +635,7 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
             .main => .Type,
             .panic => .panic,
             .va_list => .VaList,
+            .assembly => .assembly,
         };
         if (zcu.builtin_decl_values.get(to_check) != .none) return;
     }
