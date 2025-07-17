@@ -372,6 +372,34 @@ pub fn discard(self: Self) anyerror!u64 {
     }
 }
 
+/// Helper for bridging to the new `Reader` API while upgrading.
+pub fn adaptToNewApi(self: *const Self) Adapter {
+    return .{
+        .derp_reader = self.*,
+        .new_interface = .{
+            .buffer = &.{},
+            .vtable = &.{ .stream = Adapter.stream },
+            .seek = 0,
+            .end = 0,
+        },
+    };
+}
+
+pub const Adapter = struct {
+    derp_reader: Self,
+    new_interface: std.io.Reader,
+    err: ?Error = null,
+
+    fn stream(r: *std.io.Reader, w: *std.io.Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
+        const a: *@This() = @alignCast(@fieldParentPtr("new_interface", r));
+        const buf = limit.slice(try w.writableSliceGreedy(1));
+        return a.derp_reader.read(buf) catch |err| {
+            a.err = err;
+            return error.ReadFailed;
+        };
+    }
+};
+
 const std = @import("../std.zig");
 const Self = @This();
 const math = std.math;
