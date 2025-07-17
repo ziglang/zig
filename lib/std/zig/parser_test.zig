@@ -6056,6 +6056,47 @@ test "zig fmt: indentation of comments within catch, else, orelse" {
     );
 }
 
+test "zig fmt: seperate errors in error sets with comments" {
+    try testTransform(
+        \\error{
+        \\    /// This error is very bad!
+        \\    A, B}
+        \\
+    ,
+        \\error{
+        \\    /// This error is very bad!
+        \\    A,
+        \\    B,
+        \\}
+        \\
+    );
+
+    try testTransform(
+        \\error{
+        \\    A, B
+        \\    // something important
+        \\}
+        \\
+    ,
+        \\error{
+        \\    A,
+        \\    B,
+        \\    // something important
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: proper escape checks" {
+    try testTransform(
+        \\@"\x41\x42\!"
+        \\
+    ,
+        \\@"AB\!"
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
@@ -6430,4 +6471,135 @@ fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
     for (expected_errors, 0..) |expected, i| {
         try std.testing.expectEqual(expected, tree.errors[i].tag);
     }
+}
+
+test "fuzz zig fmt" {
+    try std.testing.fuzz({}, fuzzTestOneRender, .{});
+}
+
+fn parseTokens(
+    fba: std.mem.Allocator,
+    source: [:0]const u8,
+) error{ Invalid, OutOfMemory }!struct {
+    toks: std.zig.Ast.TokenList,
+    maybe_rewriteable: bool,
+} {
+    @disableInstrumentation();
+    // Byte-order marker can be stripped
+    var maybe_rewriteable: bool = std.mem.startsWith(u8, source, "\xEF\xBB\xBF");
+
+    var tokens: std.zig.Ast.TokenList = .{};
+    try tokens.ensureTotalCapacity(fba, source.len / 2);
+    var tokenizer: std.zig.Tokenizer = .init(source);
+    while (true) {
+        const tok = tokenizer.next();
+        switch (tok.tag) {
+            .invalid,
+            .invalid_periodasterisks,
+            => return error.Invalid,
+            // Extra colons can be removed
+            .keyword_asm,
+            // Qualifiers can be reordered
+            // keyword_const is intentionally excluded since it is used in other contexts and
+            // having only one qualifier will never lead to reordering.
+            .keyword_addrspace,
+            .keyword_align,
+            .keyword_allowzero,
+            .keyword_callconv,
+            .keyword_linksection,
+            .keyword_volatile,
+            => maybe_rewriteable = true,
+            // Labeled statements can sometimes be (questionably) rewritten due to ambigous grammer
+            // ex: `O: for (x) |T| (break O: T)` -> `O: O: for (x) |T| (break :O T)`
+            .keyword_for,
+            .keyword_while,
+            .l_brace,
+            => {
+                const tags = tokens.items(.tag);
+                maybe_rewriteable = maybe_rewriteable or (tags.len >= 2 and
+                    tags[tags.len - 2] == .identifier and tags[tags.len - 1] == .colon);
+            },
+            // #23754
+            .container_doc_comment => maybe_rewriteable = true,
+            // Quoted identifiers can be unquoted
+            .identifier => maybe_rewriteable = maybe_rewriteable or source[tok.loc.start] == '@',
+            else => {},
+        }
+        try tokens.append(fba, .{
+            .tag = tok.tag,
+            .start = @intCast(tok.loc.start),
+        });
+        if (tok.tag == .eof) break;
+    }
+    return .{
+        .toks = tokens,
+        .maybe_rewriteable = maybe_rewriteable,
+    };
+}
+
+fn parseAstFromTokens(
+    fba: std.mem.Allocator,
+    source: [:0]const u8,
+    toks: std.zig.Ast.TokenList,
+) error{OutOfMemory}!std.zig.Ast {
+    var parser: @import("Parse.zig") = .{
+        .source = source,
+        .gpa = fba,
+        .tokens = toks.slice(),
+        .errors = .{},
+        .nodes = .{},
+        .extra_data = .{},
+        .scratch = .{},
+        .tok_i = 0,
+    };
+    try parser.nodes.ensureTotalCapacity(fba, 1 + toks.len / 2);
+    try parser.parseRoot();
+    return .{
+        .source = source,
+        .mode = .zig,
+        .tokens = parser.tokens,
+        .nodes = parser.nodes.slice(),
+        .extra_data = parser.extra_data.items,
+        .errors = parser.errors.items,
+    };
+}
+
+/// Checks equivelence of non-whitespace characters
+/// If there are commas in `bytes`, then it is checked they are also present in `rendered`. Extra
+/// commas in `rendered` are considered equivelent.
+fn isRewritten(bytes: []const u8, rendered: []const u8) bool {
+    @disableInstrumentation();
+    var i: usize = 0;
+    for (bytes) |c| switch (c) {
+        ' ', '\r', '\t', '\n' => {},
+        else => while (true) {
+            if (i == rendered.len) return true;
+            defer i += 1;
+            switch (rendered[i]) {
+                ' ', '\r', '\n' => {},
+                ',' => if (c == ',') break,
+                else => |n| if (c != n) return false else break,
+            }
+        },
+    };
+    for (rendered[i..]) |c| switch (c) {
+        ' ', '\n', ',' => {},
+        else => return true,
+    };
+    return false;
+}
+
+fn fuzzTestOneRender(_: void, bytes: []const u8) anyerror!void {
+    if (bytes.len < 2) return;
+    const mem_limit: u16 = @bitCast(bytes[0..2].*);
+
+    var fba_ctx = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..mem_limit]);
+    const fba = fba_ctx.allocator();
+    const source = fba.dupeZ(u8, bytes[2..]) catch return;
+    const toks = parseTokens(fba, source) catch return;
+    const tree = parseAstFromTokens(fba, source, toks.toks) catch return;
+    if (tree.errors.len != 0) return;
+
+    const rendered = tree.render(fba) catch return;
+    if (!toks.maybe_rewriteable and isRewritten(source, rendered)) return error.TestFailed;
 }
