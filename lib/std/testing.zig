@@ -1207,12 +1207,14 @@ pub inline fn fuzz(
     return @import("root").fuzz(context, testOne, options);
 }
 
-/// A `std.io.Reader` that writes a predetermined list of buffers during `stream`.
+/// A `std.Io.Reader` that writes a predetermined list of buffers during `stream`.
 pub const Reader = struct {
     calls: []const Call,
-    interface: std.io.Reader,
+    interface: std.Io.Reader,
     next_call_index: usize,
     next_offset: usize,
+    /// Further reduces how many bytes are written in each `stream` call.
+    artificial_limit: std.Io.Limit = .unlimited,
 
     pub const Call = struct {
         buffer: []const u8,
@@ -1232,11 +1234,11 @@ pub const Reader = struct {
         };
     }
 
-    fn stream(io_r: *std.io.Reader, w: *std.io.Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
+    fn stream(io_r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
         const r: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
         if (r.calls.len - r.next_call_index == 0) return error.EndOfStream;
         const call = r.calls[r.next_call_index];
-        const buffer = limit.sliceConst(call.buffer[r.next_offset..]);
+        const buffer = r.artificial_limit.sliceConst(limit.sliceConst(call.buffer[r.next_offset..]));
         const n = try w.write(buffer);
         r.next_offset += n;
         if (call.buffer.len - r.next_offset == 0) {

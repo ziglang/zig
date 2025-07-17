@@ -593,48 +593,29 @@ pub fn readSliceAll(r: *Reader, buffer: []u8) Error!void {
 /// See also:
 /// * `readSliceAll`
 pub fn readSliceShort(r: *Reader, buffer: []u8) ShortError!usize {
-    const in_buffer = r.buffer[r.seek..r.end];
-    const copy_len = @min(buffer.len, in_buffer.len);
-    @memcpy(buffer[0..copy_len], in_buffer[0..copy_len]);
-    if (buffer.len - copy_len == 0) {
-        r.seek += copy_len;
-        return buffer.len;
-    }
-    var i: usize = copy_len;
-    r.end = 0;
-    r.seek = 0;
+    var i: usize = 0;
     while (true) {
+        const buffer_contents = r.buffer[r.seek..r.end];
+        const dest = buffer[i..];
+        const copy_len = @min(dest.len, buffer_contents.len);
+        @memcpy(dest[0..copy_len], buffer_contents[0..copy_len]);
+        if (dest.len - copy_len == 0) {
+            @branchHint(.likely);
+            r.seek += copy_len;
+            return buffer.len;
+        }
+        i += copy_len;
+        r.end = 0;
+        r.seek = 0;
         const remaining = buffer[i..];
-        var wrapper: Writer.VectorWrapper = .{
-            .it = .{
-                .first = remaining,
-                .last = r.buffer,
-            },
-            .writer = .{
-                .buffer = if (remaining.len >= r.buffer.len) remaining else r.buffer,
-                .vtable = Writer.VectorWrapper.vtable,
-            },
-        };
-        const n = r.vtable.stream(r, &wrapper.writer, .unlimited) catch |err| switch (err) {
-            error.WriteFailed => {
-                if (!wrapper.used) {
-                    assert(r.seek == 0);
-                    r.seek = remaining.len;
-                    r.end = wrapper.writer.end;
-                    @memcpy(remaining, r.buffer[0..remaining.len]);
-                }
-                return buffer.len;
-            },
+        const new_remaining_len = readVecInner(r, &.{}, remaining, remaining.len) catch |err| switch (err) {
             error.EndOfStream => return i,
             error.ReadFailed => return error.ReadFailed,
         };
-        if (n < remaining.len) {
-            i += n;
-            continue;
-        }
-        r.end = n - remaining.len;
-        return buffer.len;
+        if (new_remaining_len == 0) return buffer.len;
+        i += remaining.len - new_remaining_len;
     }
+    return buffer.len;
 }
 
 /// Fill `buffer` with the next `buffer.len` bytes from the stream, advancing
@@ -1640,6 +1621,19 @@ test readSliceShort {
     try testing.expectEqual(0, try r.readSliceShort(&buf));
 }
 
+test "readSliceShort with smaller buffer than Reader" {
+    var reader_buf: [15]u8 = undefined;
+    const str = "This is a test";
+    var one_byte_stream: testing.Reader = .init(&reader_buf, &.{
+        .{ .buffer = str },
+    });
+    one_byte_stream.artificial_limit = .limited(1);
+
+    var buf: [14]u8 = undefined;
+    try testing.expectEqual(14, try one_byte_stream.interface.readSliceShort(&buf));
+    try testing.expectEqualStrings(str, &buf);
+}
+
 test readVec {
     var r: Reader = .fixed(std.ascii.letters);
     var flat_buffer: [52]u8 = undefined;
@@ -1702,33 +1696,13 @@ fn failingDiscard(r: *Reader, limit: Limit) Error!usize {
 }
 
 test "readAlloc when the backing reader provides one byte at a time" {
-    const OneByteReader = struct {
-        str: []const u8,
-        i: usize,
-        reader: Reader,
-
-        fn stream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
-            assert(@intFromEnum(limit) >= 1);
-            const self: *@This() = @fieldParentPtr("reader", r);
-            if (self.str.len - self.i == 0) return error.EndOfStream;
-            try w.writeByte(self.str[self.i]);
-            self.i += 1;
-            return 1;
-        }
-    };
     const str = "This is a test";
     var tiny_buffer: [1]u8 = undefined;
-    var one_byte_stream: OneByteReader = .{
-        .str = str,
-        .i = 0,
-        .reader = .{
-            .buffer = &tiny_buffer,
-            .vtable = &.{ .stream = OneByteReader.stream },
-            .seek = 0,
-            .end = 0,
-        },
-    };
-    const res = try one_byte_stream.reader.allocRemaining(std.testing.allocator, .unlimited);
+    var one_byte_stream: testing.Reader = .init(&tiny_buffer, &.{
+        .{ .buffer = str },
+    });
+    one_byte_stream.artificial_limit = .limited(1);
+    const res = try one_byte_stream.interface.allocRemaining(std.testing.allocator, .unlimited);
     defer std.testing.allocator.free(res);
     try std.testing.expectEqualStrings(str, res);
 }
