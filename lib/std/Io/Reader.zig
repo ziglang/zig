@@ -1702,33 +1702,13 @@ fn failingDiscard(r: *Reader, limit: Limit) Error!usize {
 }
 
 test "readAlloc when the backing reader provides one byte at a time" {
-    const OneByteReader = struct {
-        str: []const u8,
-        i: usize,
-        reader: Reader,
-
-        fn stream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
-            assert(@intFromEnum(limit) >= 1);
-            const self: *@This() = @fieldParentPtr("reader", r);
-            if (self.str.len - self.i == 0) return error.EndOfStream;
-            try w.writeByte(self.str[self.i]);
-            self.i += 1;
-            return 1;
-        }
-    };
     const str = "This is a test";
     var tiny_buffer: [1]u8 = undefined;
-    var one_byte_stream: OneByteReader = .{
-        .str = str,
-        .i = 0,
-        .reader = .{
-            .buffer = &tiny_buffer,
-            .vtable = &.{ .stream = OneByteReader.stream },
-            .seek = 0,
-            .end = 0,
-        },
-    };
-    const res = try one_byte_stream.reader.allocRemaining(std.testing.allocator, .unlimited);
+    var one_byte_stream: testing.Reader = .init(&tiny_buffer, &.{
+        .{ .buffer = str },
+    });
+    one_byte_stream.artificial_limit = .limited(1);
+    const res = try one_byte_stream.interface.allocRemaining(std.testing.allocator, .unlimited);
     defer std.testing.allocator.free(res);
     try std.testing.expectEqualStrings(str, res);
 }
