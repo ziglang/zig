@@ -1868,7 +1868,7 @@ pub fn intModScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: 
     );
     var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
     var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
-    result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
+    result_q.divFloor(&result_r, lhs_bigint, rhs_bigint, limbs_buffer, null);
     return pt.intValue_big(ty, result_r.toConst());
 }
 

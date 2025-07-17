@@ -4068,3 +4068,64 @@ test "ctz" {
     try testing.expectEqual(0, limb_max_squared.ctz(@bitSizeOf(Limb) * 2));
     try testing.expectEqual(0, limb_max_squared.ctz(@bitSizeOf(Limb) * 2 + 1));
 }
+
+test "divFloor random (positive)" {
+    // This test assumes multiplication is correct
+    var rand = std.Random.DefaultPrng.init(testing.random_seed);
+
+    // must be large enough to trigger advanced division algorithm
+    const max_limb_count = 1000;
+
+    for (0..500) |_| {
+        var a = blk: {
+            const len = 2 + rand.next() % max_limb_count;
+            const bytes = try testing.allocator.alignedAlloc(u8, .of(Limb), @intCast(len * @sizeOf(Limb)));
+            rand.fill(bytes);
+
+            var retry_limit: u8 = 5;
+            while (std.mem.allEqual(u8, bytes, 0) and retry_limit > 0) : (retry_limit -= 1)
+                rand.fill(bytes);
+
+            if (retry_limit == 0)
+                @panic("Failed to fill limbs with non zero values");
+
+            const limbs = std.mem.bytesAsSlice(Limb, bytes);
+            var num = Managed{ .allocator = testing.allocator, .limbs = limbs, .metadata = limbs.len };
+            num.normalize(num.len());
+            break :blk num;
+        };
+        defer a.deinit();
+
+        var b = blk: {
+            const len = 2 + rand.next() % a.len();
+            const bytes = try testing.allocator.alignedAlloc(u8, .of(Limb), @intCast(len * @sizeOf(Limb)));
+            rand.fill(bytes);
+
+            var retry_limit: u8 = 5;
+            while (std.mem.allEqual(u8, bytes, 0) and retry_limit > 0) : (retry_limit -= 1)
+                rand.fill(bytes);
+
+            if (retry_limit == 0)
+                @panic("Failed to fill limbs with non zero values");
+
+            const limbs = std.mem.bytesAsSlice(Limb, bytes);
+            var num = Managed{ .allocator = testing.allocator, .limbs = limbs, .metadata = limbs.len };
+            num.normalize(num.len());
+            break :blk num;
+        };
+        defer b.deinit();
+
+        var q = try Managed.init(testing.allocator);
+        defer q.deinit();
+
+        var r = try Managed.init(testing.allocator);
+        defer r.deinit();
+
+        try q.divFloor(&r, &a, &b);
+
+        try q.mul(&q, &b);
+        try q.add(&q, &r);
+
+        try testing.expect(q.eql(a));
+    }
+}
