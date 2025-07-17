@@ -10,6 +10,9 @@ const assert = std.debug.assert;
 const fatal = std.process.fatal;
 const Server = std.zig.Server;
 
+var stdin_buffer: [1024]u8 = undefined;
+var stdout_buffer: [1024]u8 = undefined;
+
 pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_instance.deinit();
@@ -22,11 +25,8 @@ pub fn main() !void {
     return cmdObjCopy(gpa, arena, args[1..]);
 }
 
-fn cmdObjCopy(
-    gpa: Allocator,
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+fn cmdObjCopy(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+    _ = gpa;
     var i: usize = 0;
     var opt_out_fmt: ?std.Target.ObjectFormat = null;
     var opt_input: ?[]const u8 = null;
@@ -225,13 +225,13 @@ fn cmdObjCopy(
     }
 
     if (listen) {
+        var stdin_reader = fs.File.stdin().reader(&stdin_buffer);
+        var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
         var server = try Server.init(.{
-            .gpa = gpa,
-            .in = .stdin(),
-            .out = .stdout(),
+            .in = &stdin_reader.interface,
+            .out = &stdout_writer.interface,
             .zig_version = builtin.zig_version_string,
         });
-        defer server.deinit();
 
         var seen_update = false;
         while (true) {

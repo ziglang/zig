@@ -12,6 +12,7 @@ const ThreadPool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
 const ErrorBundle = std.zig.ErrorBundle;
 const fatal = std.process.fatal;
+const Writer = std.io.Writer;
 
 const Value = @import("Value.zig");
 const Type = @import("Type.zig");
@@ -43,6 +44,8 @@ const Air = @import("Air.zig");
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
+
+const DeprecatedLinearFifo = @import("deprecated.zig").LinearFifo;
 
 pub const Config = @import("Compilation/Config.zig");
 
@@ -121,15 +124,15 @@ work_queues: [
         }
         break :len len;
     }
-]std.fifo.LinearFifo(Job, .Dynamic),
+]DeprecatedLinearFifo(Job),
 
 /// These jobs are to invoke the Clang compiler to create an object file, which
 /// gets linked with the Compilation.
-c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
+c_object_work_queue: DeprecatedLinearFifo(*CObject),
 
 /// These jobs are to invoke the RC compiler to create a compiled resource file (.res), which
 /// gets linked with the Compilation.
-win32_resource_work_queue: if (dev.env.supports(.win32_resource)) std.fifo.LinearFifo(*Win32Resource, .Dynamic) else struct {
+win32_resource_work_queue: if (dev.env.supports(.win32_resource)) DeprecatedLinearFifo(*Win32Resource) else struct {
     pub fn ensureUnusedCapacity(_: @This(), _: u0) error{}!void {}
     pub fn readItem(_: @This()) ?noreturn {
         return null;
@@ -995,13 +998,13 @@ pub const CObject = struct {
 
                 const file = fs.cwd().openFile(file_name, .{}) catch break :source_line 0;
                 defer file.close();
-                file.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
-
-                var line = std.ArrayList(u8).init(eb.gpa);
-                defer line.deinit();
-                file.deprecatedReader().readUntilDelimiterArrayList(&line, '\n', 1 << 10) catch break :source_line 0;
-
-                break :source_line try eb.addString(line.items);
+                var buffer: [1024]u8 = undefined;
+                var file_reader = file.reader(&buffer);
+                file_reader.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
+                var aw: Writer.Allocating = .init(eb.gpa);
+                defer aw.deinit();
+                _ = file_reader.interface.streamDelimiterEnding(&aw.writer, '\n') catch break :source_line 0;
+                break :source_line try eb.addString(aw.getWritten());
             };
 
             return .{
@@ -1067,11 +1070,11 @@ pub const CObject = struct {
                     }
                 };
 
+                var buffer: [1024]u8 = undefined;
                 const file = try fs.cwd().openFile(path, .{});
                 defer file.close();
-                var br = std.io.bufferedReader(file.deprecatedReader());
-                const reader = br.reader();
-                var bc = std.zig.llvm.BitcodeReader.init(gpa, .{ .reader = reader.any() });
+                var file_reader = file.reader(&buffer);
+                var bc = std.zig.llvm.BitcodeReader.init(gpa, .{ .reader = &file_reader.interface });
                 defer bc.deinit();
 
                 var file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty;
@@ -1873,15 +1876,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
         if (options.verbose_llvm_cpu_features) {
             if (options.root_mod.resolved_target.llvm_cpu_features) |cf| print: {
-                std.debug.lockStdErr();
-                defer std.debug.unlockStdErr();
-                const stderr = fs.File.stderr().deprecatedWriter();
-                nosuspend {
-                    stderr.print("compilation: {s}\n", .{options.root_name}) catch break :print;
-                    stderr.print("  target: {s}\n", .{try target.zigTriple(arena)}) catch break :print;
-                    stderr.print("  cpu: {s}\n", .{target.cpu.model.name}) catch break :print;
-                    stderr.print("  features: {s}\n", .{cf}) catch {};
-                }
+                const stderr_w = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                stderr_w.print("compilation: {s}\n", .{options.root_name}) catch break :print;
+                stderr_w.print("  target: {s}\n", .{try target.zigTriple(arena)}) catch break :print;
+                stderr_w.print("  cpu: {s}\n", .{target.cpu.model.name}) catch break :print;
+                stderr_w.print("  features: {s}\n", .{cf}) catch {};
             }
         }
 
@@ -2483,7 +2483,7 @@ pub fn destroy(comp: *Compilation) void {
     if (comp.zcu) |zcu| zcu.deinit();
     comp.cache_use.deinit();
 
-    for (comp.work_queues) |work_queue| work_queue.deinit();
+    for (&comp.work_queues) |*work_queue| work_queue.deinit();
     comp.c_object_work_queue.deinit();
     comp.win32_resource_work_queue.deinit();
 
@@ -3931,11 +3931,12 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             // This AU is referenced and has a transitive compile error, meaning it referenced something with a compile error.
             // However, we haven't reported any such error.
             // This is a compiler bug.
-            const stderr = fs.File.stderr().deprecatedWriter();
-            try stderr.writeAll("referenced transitive analysis errors, but none actually emitted\n");
-            try stderr.print("{f} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
+            var stderr_w = std.debug.lockStderrWriter(&.{});
+            defer std.debug.unlockStderrWriter();
+            try stderr_w.writeAll("referenced transitive analysis errors, but none actually emitted\n");
+            try stderr_w.print("{f} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
             while (ref) |r| {
-                try stderr.print("referenced by: {f}{s}\n", .{
+                try stderr_w.print("referenced by: {f}{s}\n", .{
                     zcu.fmtAnalUnit(r.referencer),
                     if (zcu.transitive_failed_analysis.contains(r.referencer)) " [transitive failure]" else "",
                 });
@@ -5849,7 +5850,9 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
                 try child.spawn();
 
-                const stderr = try child.stderr.?.deprecatedReader().readAllAlloc(arena, std.math.maxInt(usize));
+                var small_buffer: [1]u8 = undefined;
+                var stderr_reader = child.stderr.?.reader(&small_buffer);
+                const stderr = try stderr_reader.interface.allocRemaining(arena, .unlimited);
 
                 const term = child.wait() catch |err| {
                     return comp.failCObj(c_object, "failed to spawn zig clang {s}: {s}", .{ argv.items[0], @errorName(err) });
@@ -6213,13 +6216,10 @@ fn spawnZigRc(
     const stdout = poller.fifo(.stdout);
 
     poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(std.zig.Server.Message.Header)) {
-            if (!(try poller.poll())) break :poll;
-        }
-        const header = stdout.reader().readStruct(std.zig.Server.Message.Header) catch unreachable;
-        while (stdout.readableLength() < header.bytes_len) {
-            if (!(try poller.poll())) break :poll;
-        }
+        while (stdout.readableLength() < @sizeOf(std.zig.Server.Message.Header)) if (!try poller.poll()) break :poll;
+        var header: std.zig.Server.Message.Header = undefined;
+        assert(stdout.read(std.mem.asBytes(&header)) == @sizeOf(std.zig.Server.Message.Header));
+        while (stdout.readableLength() < header.bytes_len) if (!try poller.poll()) break :poll;
         const body = stdout.readableSliceOfLen(header.bytes_len);
 
         switch (header.tag) {
@@ -7209,13 +7209,16 @@ pub fn lockAndSetMiscFailure(
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
-    std.debug.lockStdErr();
-    defer std.debug.unlockStdErr();
-    const stderr = fs.File.stderr().deprecatedWriter();
-    for (argv[0 .. argv.len - 1]) |arg| {
-        nosuspend stderr.print("{s} ", .{arg}) catch return;
+    var buffer: [64]u8 = undefined;
+    const stderr = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
+    nosuspend {
+        for (argv) |arg| {
+            stderr.writeAll(arg) catch return;
+            (stderr.writableArray(1) catch return)[0] = ' ';
+        }
+        stderr.buffer[stderr.end - 1] = '\n';
     }
-    nosuspend stderr.print("{s}\n", .{argv[argv.len - 1]}) catch {};
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {

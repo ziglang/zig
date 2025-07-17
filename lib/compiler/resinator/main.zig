@@ -13,6 +13,8 @@ const hasDisjointCodePage = @import("disjoint_code_page.zig").hasDisjointCodePag
 const fmtResourceType = @import("res.zig").NameOrOrdinal.fmtResourceType;
 const aro = @import("aro");
 
+var stdout_buffer: [1024]u8 = undefined;
+
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer std.debug.assert(gpa.deinit() == .ok);
@@ -41,12 +43,12 @@ pub fn main() !void {
         cli_args = args[3..];
     }
 
+    var stdout_writer2 = std.fs.File.stdout().writer(&stdout_buffer);
     var error_handler: ErrorHandler = switch (zig_integration) {
         true => .{
             .server = .{
-                .out = std.fs.File.stdout(),
+                .out = &stdout_writer2.interface,
                 .in = undefined, // won't be receiving messages
-                .receive_fifo = undefined, // won't be receiving messages
             },
         },
         false => .{
