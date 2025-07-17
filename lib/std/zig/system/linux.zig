@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
-const io = std.io;
 const fs = std.fs;
 const fmt = std.fmt;
 const testing = std.testing;
@@ -344,7 +343,7 @@ fn testParser(
     expected_model: *const Target.Cpu.Model,
     input: []const u8,
 ) !void {
-    var r: std.io.Reader = .fixed(input);
+    var r: std.Io.Reader = .fixed(input);
     const result = try parser.parse(arch, &r);
     try testing.expectEqual(expected_model, result.?.model);
     try testing.expect(expected_model.features.eql(result.?.features));
@@ -357,7 +356,7 @@ fn testParser(
 // When all the lines have been analyzed the finalize method is called.
 fn CpuinfoParser(comptime impl: anytype) type {
     return struct {
-        fn parse(arch: Target.Cpu.Arch, reader: *std.io.Reader) !?Target.Cpu {
+        fn parse(arch: Target.Cpu.Arch, reader: *std.Io.Reader) !?Target.Cpu {
             var obj: impl = .{};
             while (reader.takeDelimiterExclusive('\n')) |line| {
                 const colon_pos = mem.indexOfScalar(u8, line, ':') orelse continue;

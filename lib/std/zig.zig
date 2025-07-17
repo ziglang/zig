@@ -530,18 +530,16 @@ test isUnderscore {
     try std.testing.expect(!isUnderscore("\\x5f"));
 }
 
-pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: usize) ![:0]u8 {
+pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader) ![:0]u8 {
     var buffer: std.ArrayListAlignedUnmanaged(u8, .@"2") = .empty;
     defer buffer.deinit(gpa);
 
-    try buffer.ensureUnusedCapacity(gpa, size_hint);
+    if (file_reader.getSize()) |size| {
+        const casted_size = std.math.cast(u32, size) orelse return error.StreamTooLong;
+        try buffer.ensureTotalCapacityPrecise(gpa, casted_size);
+    } else |_| {}
 
-    input.readIntoArrayList(gpa, .limited(max_src_size), .@"2", &buffer) catch |err| switch (err) {
-        error.ConnectionResetByPeer => unreachable,
-        error.ConnectionTimedOut => unreachable,
-        error.NotOpenForReading => unreachable,
-        else => |e| return e,
-    };
+    try file_reader.interface.appendRemaining(gpa, .@"2", &buffer, .limited(max_src_size));
 
     // Detect unsupported file types with their Byte Order Mark
     const unsupported_boms = [_][]const u8{

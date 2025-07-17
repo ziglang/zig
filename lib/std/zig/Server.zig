@@ -1,4 +1,19 @@
-in: *std.io.Reader,
+const Server = @This();
+
+const builtin = @import("builtin");
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const native_endian = builtin.target.cpu.arch.endian();
+const need_bswap = native_endian != .little;
+const Cache = std.Build.Cache;
+const OutMessage = std.zig.Server.Message;
+const InMessage = std.zig.Client.Message;
+const Reader = std.Io.Reader;
+const Writer = std.Io.Writer;
+
+in: *Reader,
 out: *Writer,
 
 pub const Message = struct {
@@ -93,7 +108,7 @@ pub const Message = struct {
 };
 
 pub const Options = struct {
-    in: *std.io.Reader,
+    in: *Reader,
     out: *Writer,
     zig_version: []const u8,
 };
@@ -108,7 +123,7 @@ pub fn init(options: Options) !Server {
 }
 
 pub fn receiveMessage(s: *Server) !InMessage.Header {
-    return try s.in.takeStructEndian(InMessage.Header, .little);
+    return s.in.takeStruct(InMessage.Header, .little);
 }
 
 pub fn receiveBody_u32(s: *Server) !u32 {
@@ -203,16 +218,3 @@ pub fn serveTestMetadata(s: *Server, test_metadata: TestMetadata) !void {
     try s.out.writeAll(test_metadata.string_bytes);
     try s.out.flush();
 }
-
-const OutMessage = std.zig.Server.Message;
-const InMessage = std.zig.Client.Message;
-
-const Server = @This();
-const builtin = @import("builtin");
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const native_endian = builtin.target.cpu.arch.endian();
-const need_bswap = native_endian != .little;
-const Cache = std.Build.Cache;
-const Writer = std.io.Writer;

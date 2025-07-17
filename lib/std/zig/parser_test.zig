@@ -6367,31 +6367,32 @@ test "ampersand" {
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *bool) ![]u8 {
-    const stderr: std.fs.File = .stderr();
-    const stderr_writer = stderr.writer().unbuffered();
+    var buffer: [64]u8 = undefined;
+    const stderr = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
 
     var tree = try std.zig.Ast.parse(allocator, source, .zig);
     defer tree.deinit(allocator);
 
     for (tree.errors) |parse_error| {
         const loc = tree.tokenLocation(0, parse_error.token);
-        try stderr_writer.print("(memory buffer):{d}:{d}: error: ", .{ loc.line + 1, loc.column + 1 });
-        try tree.renderError(parse_error, stderr_writer);
-        try stderr_writer.print("\n{s}\n", .{source[loc.line_start..loc.line_end]});
+        try stderr.print("(memory buffer):{d}:{d}: error: ", .{ loc.line + 1, loc.column + 1 });
+        try tree.renderError(parse_error, stderr);
+        try stderr.print("\n{s}\n", .{source[loc.line_start..loc.line_end]});
         {
             var i: usize = 0;
             while (i < loc.column) : (i += 1) {
-                try stderr_writer.writeAll(" ");
+                try stderr.writeAll(" ");
             }
-            try stderr_writer.writeAll("^");
+            try stderr.writeAll("^");
         }
-        try stderr_writer.writeAll("\n");
+        try stderr.writeAll("\n");
     }
     if (tree.errors.len != 0) {
         return error.ParseError;
     }
 
-    const formatted = try tree.render(allocator);
+    const formatted = try tree.renderAlloc(allocator);
     anything_changed.* = !mem.eql(u8, formatted, source);
     return formatted;
 }
