@@ -103,8 +103,7 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
             : [_] "{$2}" (165), // nr = SYS_sysarch
               [_] "{$4}" (0), // op = MIPS_CACHEFLUSH
               [_] "{$5}" (&cfa), // args = &cfa
-            : "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13", "$14", "$15", "$24", "$25", "hi", "lo", "memory"
-        );
+            : .{ .r1 = true, .r2 = true, .r3 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .r24 = true, .r25 = true, .hi = true, .lo = true, .memory = true });
         exportIt();
     } else if (mips and os == .openbsd) {
         // TODO

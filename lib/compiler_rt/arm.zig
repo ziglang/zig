@@ -142,8 +142,7 @@ pub fn __aeabi_uidivmod() callconv(.naked) void {
         \\ pop {pc}
         :
         : [__udivmodsi4] "X" (&__udivmodsi4),
-        : "memory"
-    );
+        : .{ .memory = true });
     unreachable;
 }
 
@@ -162,8 +161,7 @@ pub fn __aeabi_uldivmod() callconv(.naked) void {
         \\ pop {r4, pc}
         :
         : [__udivmoddi4] "X" (&__udivmoddi4),
-        : "memory"
-    );
+        : .{ .memory = true });
     unreachable;
 }
 
@@ -180,8 +178,7 @@ pub fn __aeabi_idivmod() callconv(.naked) void {
         \\ pop {pc}
         :
         : [__divmodsi4] "X" (&__divmodsi4),
-        : "memory"
-    );
+        : .{ .memory = true });
     unreachable;
 }
 
@@ -200,8 +197,7 @@ pub fn __aeabi_ldivmod() callconv(.naked) void {
         \\ pop {r4, pc}
         :
         : [__divmoddi4] "X" (&__divmoddi4),
-        : "memory"
-    );
+        : .{ .memory = true });
     unreachable;
 }
 

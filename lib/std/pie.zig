@@ -100,8 +100,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ %[ret] = add(r1, %[ret])
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : "r1"
-            ),
+                : .{ .r1 = true }),
             .loongarch32, .loongarch64 => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
@@ -127,8 +126,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ addu %[ret], %[ret], $gp
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : "lr"
-            ),
+                : .{ .lr = true }),
             .mips64, .mips64el => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
@@ -140,8 +138,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ daddu %[ret], %[ret], $gp
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : "lr"
-            ),
+                : .{ .lr = true }),
             .powerpc, .powerpcle => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
@@ -153,8 +150,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ add %[ret], 4, %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : "lr", "r4"
-            ),
+                : .{ .lr = true, .r4 = true }),
             .powerpc64, .powerpc64le => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
@@ -166,8 +162,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ add %[ret], 4, %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : "lr", "r4"
-            ),
+                : .{ .lr = true, .r4 = true }),
             .riscv32, .riscv64 => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC

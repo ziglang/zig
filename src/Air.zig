@@ -1413,19 +1413,20 @@ pub const ShuffleTwoMask = enum(u32) {
 ///      terminated string.
 ///    - name: memory at this position is reinterpreted as a null
 ///      terminated string. pad to the next u32 after the null byte.
-/// 4. for every clobbers_len
-///    - clobber_name: memory at this position is reinterpreted as a null
-///      terminated string. pad to the next u32 after the null byte.
-/// 5. A number of u32 elements follow according to the equation `(source_len + 3) / 4`.
+/// 4. A number of u32 elements follow according to the equation `(source_len + 3) / 4`.
 ///    Memory starting at this position is reinterpreted as the source bytes.
 pub const Asm = struct {
     /// Length of the assembly source in bytes.
     source_len: u32,
-    outputs_len: u32,
     inputs_len: u32,
-    /// The MSB is `is_volatile`.
-    /// The rest of the bits are `clobbers_len`.
-    flags: u32,
+    /// A comptime `std.builtin.assembly.Clobbers` value for the target architecture.
+    clobbers: InternPool.Index,
+    flags: Flags,
+
+    pub const Flags = packed struct(u32) {
+        outputs_len: u31,
+        is_volatile: bool,
+    };
 };
 
 pub const Cmpxchg = struct {
@@ -1749,7 +1750,7 @@ pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end
         @field(result, field.name) = switch (field.type) {
             u32 => air.extra.items[i],
             InternPool.Index, Inst.Ref => @enumFromInt(air.extra.items[i]),
-            i32, CondBr.BranchHints => @bitCast(air.extra.items[i]),
+            i32, CondBr.BranchHints, Asm.Flags => @bitCast(air.extra.items[i]),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
         i += 1;

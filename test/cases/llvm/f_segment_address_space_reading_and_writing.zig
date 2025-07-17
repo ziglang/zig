@@ -9,7 +9,7 @@ fn setFs(value: c_ulong) void {
         : [number] "{rax}" (158),
           [code] "{rdi}" (0x1002),
           [val] "{rsi}" (value),
-        : "rcx", "r11", "memory"
+        : .{ .rcx = true, .r11 = true, .memory = true }
     );
 }
 
@@ -21,7 +21,7 @@ fn getFs() c_ulong {
         : [number] "{rax}" (158),
           [code] "{rdi}" (0x1003),
           [ptr] "{rsi}" (@intFromPtr(&result)),
-        : "rcx", "r11", "memory"
+        : .{ .rcx = true, .r11 = true, .memory = true }
     );
     return result;
 }

@@ -55,13 +55,11 @@ test "output constraint modifiers" {
     asm volatile (""
         : [_] "=m,r" (a),
         :
-        : ""
-    );
+        : .{});
     asm volatile (""
         : [_] "=r,m" (a),
         :
-        : ""
-    );
+        : .{});
 }
 
 test "alternative constraints" {
@@ -79,7 +77,6 @@ test "alternative constraints" {
     asm volatile (""
         : [_] "=r,m" (a),
         : [_] "r,m" (a),
-        : ""
     );
 }
 
@@ -96,42 +93,34 @@ test "sized integer/float in asm input" {
     asm volatile (""
         :
         : [_] "m" (@as(usize, 3)),
-        : ""
     );
     asm volatile (""
         :
         : [_] "m" (@as(i15, -3)),
-        : ""
     );
     asm volatile (""
         :
         : [_] "m" (@as(u3, 3)),
-        : ""
     );
     asm volatile (""
         :
         : [_] "m" (@as(i3, 3)),
-        : ""
     );
     asm volatile (""
         :
         : [_] "m" (@as(u121, 3)),
-        : ""
     );
     asm volatile (""
         :
         : [_] "m" (@as(i121, 3)),
-        : ""
     );
     asm volatile (""
         :
         : [_] "m" (@as(f32, 3.17)),
-        : ""
     );
     asm volatile (""
         :
         : [_] "m" (@as(f64, 3.17)),
-        : ""
     );
 }
 
@@ -172,8 +161,7 @@ test "rw constraint (x86_64)" {
     asm ("addl %[b], %[a]"
         : [a] "+r" (res),
         : [b] "r" (@as(i32, 13)),
-        : "flags"
-    );
+        : .{ .flags = true });
     try expectEqual(@as(i32, 18), res);
 }
 

@@ -6387,13 +6387,13 @@ const NavGen = struct {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Asm, ty_pl.payload);
 
-        const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
-        const clobbers_len: u31 = @truncate(extra.data.flags);
+        const is_volatile = extra.data.flags.is_volatile;
+        const outputs_len = extra.data.flags.outputs_len;
 
         if (!is_volatile and self.liveness.isUnused(inst)) return null;
 
         var extra_i: usize = extra.end;
-        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.outputs_len]);
+        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..outputs_len]);
         extra_i += outputs.len;
         const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
@@ -6402,7 +6402,7 @@ const NavGen = struct {
             return self.todo("implement inline asm with more than 1 output", .{});
         }
 
-        var as = SpvAssembler{
+        var as: SpvAssembler = .{
             .gpa = self.gpa,
             .spv = self.spv,
             .func = &self.func,
@@ -6486,14 +6486,8 @@ const NavGen = struct {
             }
         }
 
-        {
-            var clobber_i: u32 = 0;
-            while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
-                extra_i += clobber.len / 4 + 1;
-                // TODO: Record clobber and use it somewhere.
-            }
-        }
+        // TODO: do something with clobbers
+        _ = extra.data.clobbers;
 
         const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 

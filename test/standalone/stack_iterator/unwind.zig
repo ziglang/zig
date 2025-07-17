@@ -31,7 +31,7 @@ noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
                         \\movl $7, %%edi
                         \\movl $6, %%esi
                         \\movl $5, %%ebp
-                        ::: "ebx", "ecx", "edx", "edi", "esi", "ebp");
+                        ::: .{ .ebx = true, .ecx = true, .edx = true, .edi = true, .esi = true, .ebp = true });
                 } else {
                     asm volatile (
                         \\movl $3, %%ebx
@@ -39,7 +39,7 @@ noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
                         \\movl $2, %%edx
                         \\movl $7, %%edi
                         \\movl $6, %%esi
-                        ::: "ebx", "ecx", "edx", "edi", "esi");
+                        ::: .{ .ebx = true, .ecx = true, .edx = true, .edi = true, .esi = true });
                 }
             },
             .x86_64 => {
@@ -51,7 +51,7 @@ noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
                         \\movq $14, %%r14
                         \\movq $15, %%r15
                         \\movq $6, %%rbp
-                        ::: "rbx", "r12", "r13", "r14", "r15", "rbp");
+                        ::: .{ .rbx = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .rbp = true });
                 } else {
                     asm volatile (
                         \\movq $3, %%rbx
@@ -59,7 +59,7 @@ noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
                         \\movq $13, %%r13
                         \\movq $14, %%r14
                         \\movq $15, %%r15
-                        ::: "rbx", "r12", "r13", "r14", "r15");
+                        ::: .{ .rbx = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true });
                 }
             },
             else => {},

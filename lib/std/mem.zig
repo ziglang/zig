@@ -4497,8 +4497,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
                 asm volatile (""
                     :
                     : [val] "m" (val),
-                    : "memory"
-                );
+                    : .{ .memory = true });
             }
         },
         .array => {
