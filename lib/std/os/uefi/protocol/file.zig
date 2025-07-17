@@ -225,7 +225,7 @@ pub const File = extern struct {
             &len,
             buffer.ptr,
         )) {
-            .success => return @as(*InfoType, @ptrCast(buffer.ptr)),
+            .success => return @as(*InfoType, @ptrCast(@alignCast(buffer.ptr))),
             .buffer_too_small => return Error.BufferTooSmall,
             .unsupported => return Error.Unsupported,
             .no_media => return Error.NoMedia,
