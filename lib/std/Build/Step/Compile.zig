@@ -1809,18 +1809,11 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     const zig_args = try getZigArgs(compile, false);
 
-    const maybe_output_dir = step.evalZigProcess(
+    const maybe_output_dir = try step.evalZigProcess(
         zig_args,
         options.progress_node,
         (b.graph.incremental == true) and options.watch,
-    ) catch |err| switch (err) {
-        error.NeedCompileErrorCheck => {
-            assert(compile.expect_errors != null);
-            try checkCompileErrors(compile);
-            return;
-        },
-        else => |e| return e,
-    };
+    );
 
     // Update generated files
     if (maybe_output_dir) |output_dir| {
@@ -1956,7 +1949,7 @@ fn addFlag(args: *ArrayList([]const u8), comptime name: []const u8, opt: ?bool) 
     }
 }
 
-fn checkCompileErrors(compile: *Compile) !void {
+pub fn checkCompileErrors(compile: *Compile) !void {
     // Clear this field so that it does not get printed by the build runner.
     const actual_eb = compile.step.result_error_bundle;
     compile.step.result_error_bundle = .empty;
