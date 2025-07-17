@@ -14,13 +14,13 @@ pub fn mean(comptime T: type, items: []const T) T {
     std.debug.assert(items.len > 0);
     const info = @typeInfo(T);
     return switch (info) {
-        .float => meanFloat(T, items),
-        .int => meanInt(T, items),
+        .float => float(T, items),
+        .int => int(T, items),
         else => @compileError("T must be float or integer, found " ++ @typeName(T)),
     };
 }
 
-fn meanFloat(comptime T: type, items: []const T) T {
+fn float(comptime T: type, items: []const T) T {
     const info = @typeInfo(T);
     const Wider: type = switch (info.float.bits) {
         16 => f32,
@@ -39,7 +39,7 @@ fn meanFloat(comptime T: type, items: []const T) T {
     return @floatCast(mean_wide);
 }
 
-fn meanInt(comptime T: type, items: []const T) T {
+fn int(comptime T: type, items: []const T) T {
     const info = @typeInfo(T);
     const sign = info.int.signedness;
     const bits = info.int.bits;
