@@ -618,10 +618,6 @@ pub fn writeAllPreserve(w: *Writer, preserve_length: usize, bytes: []const u8) E
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 ///
 /// To print literal curly braces, escape them by writing them twice, e.g. `{{` or `}}`.
-///
-/// Asserts `buffer` capacity of at least 2 if a union is printed. This
-/// requirement could be lifted by adjusting the code, but if you trigger that
-/// assertion it is a clue that you should probably be using a buffer.
 pub fn print(w: *Writer, comptime fmt: []const u8, args: anytype) Error!void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
@@ -1257,14 +1253,13 @@ pub fn printValue(
                 .@"extern", .@"packed" => {
                     if (info.fields.len == 0) return w.writeAll(".{}");
                     try w.writeAll(".{ ");
-                    inline for (info.fields) |field| {
+                    inline for (info.fields, 1..) |field, i| {
                         try w.writeByte('.');
                         try w.writeAll(field.name);
                         try w.writeAll(" = ");
                         try w.printValue(ANY, options, @field(value, field.name), max_depth - 1);
-                        (try w.writableArray(2)).* = ", ".*;
+                        try w.writeAll(if (i < info.fields.len) ", " else " }");
                     }
-                    w.buffer[w.end - 2 ..][0..2].* = " }".*;
                 },
             }
         },
