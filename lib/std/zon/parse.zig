@@ -411,18 +411,22 @@ const Parser = struct {
     diag: ?*Diagnostics,
     options: Options,
 
-    fn parseExpr(self: *@This(), T: type, node: Zoir.Node.Index) error{ ParseZon, OutOfMemory }!T {
+    const ParseExprError = error{ ParseZon, OutOfMemory };
+
+    fn parseExpr(self: *@This(), T: type, node: Zoir.Node.Index) ParseExprError!T {
         return self.parseExprInner(T, node) catch |err| switch (err) {
             error.WrongType => return self.failExpectedType(T, node),
             else => |e| return e,
         };
     }
 
+    const ParseExprInnerError = error{ ParseZon, OutOfMemory, WrongType };
+
     fn parseExprInner(
         self: *@This(),
         T: type,
         node: Zoir.Node.Index,
-    ) error{ ParseZon, OutOfMemory, WrongType }!T {
+    ) ParseExprInnerError!T {
         if (T == Zoir.Node.Index) {
             return node;
         }
@@ -611,15 +615,17 @@ const Parser = struct {
         }
     }
 
-    fn parseString(self: *@This(), T: type, node: Zoir.Node.Index) !T {
+    fn parseString(self: *@This(), T: type, node: Zoir.Node.Index) ParseExprInnerError!T {
         const ast_node = node.getAstNode(self.zoir);
         const pointer = @typeInfo(T).pointer;
         var size_hint = ZonGen.strLitSizeHint(self.ast, ast_node);
         if (pointer.sentinel() != null) size_hint += 1;
 
-        var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, size_hint);
-        defer buf.deinit(self.gpa);
-        switch (try ZonGen.parseStrLit(self.ast, ast_node, buf.writer(self.gpa))) {
+        var aw: std.Io.Writer.Allocating = .init(self.gpa);
+        try aw.ensureUnusedCapacity(size_hint);
+        defer aw.deinit();
+        const result = ZonGen.parseStrLit(self.ast, ast_node, &aw.writer) catch return error.OutOfMemory;
+        switch (result) {
             .success => {},
             .failure => |err| {
                 const token = self.ast.nodeMainToken(ast_node);
@@ -638,9 +644,9 @@ const Parser = struct {
         }
 
         if (pointer.sentinel() != null) {
-            return buf.toOwnedSliceSentinel(self.gpa, 0);
+            return aw.toOwnedSliceSentinel(0);
         } else {
-            return buf.toOwnedSlice(self.gpa);
+            return aw.toOwnedSlice();
         }
     }
 

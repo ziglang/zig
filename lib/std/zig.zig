@@ -2,6 +2,12 @@
 //! source lives here. These APIs are provided as-is and have absolutely no API
 //! guarantees whatsoever.
 
+const std = @import("std.zig");
+const tokenizer = @import("zig/tokenizer.zig");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const Writer = std.Io.Writer;
+
 pub const ErrorBundle = @import("zig/ErrorBundle.zig");
 pub const Server = @import("zig/Server.zig");
 pub const Client = @import("zig/Client.zig");
@@ -355,11 +361,6 @@ pub fn serializeCpuAlloc(ally: Allocator, cpu: std.Target.Cpu) Allocator.Error![
     return buffer.toOwnedSlice();
 }
 
-const std = @import("std.zig");
-const tokenizer = @import("zig/tokenizer.zig");
-const assert = std.debug.assert;
-const Allocator = std.mem.Allocator;
-
 /// Return a Formatter for a Zig identifier, escaping it with `@""` syntax if needed.
 ///
 /// See also `fmtIdFlags`.
@@ -425,7 +426,7 @@ pub const FormatId = struct {
     };
 
     /// Print the string as a Zig identifier, escaping it with `@""` syntax if needed.
-    fn render(ctx: FormatId, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn render(ctx: FormatId, writer: *Writer) Writer.Error!void {
         const bytes = ctx.bytes;
         if (isValidId(bytes) and
             (ctx.flags.allow_primitive or !std.zig.isPrimitive(bytes)) and
@@ -463,7 +464,7 @@ test fmtChar {
 }
 
 /// Print the string as escaped contents of a double quoted string.
-pub fn stringEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+pub fn stringEscape(bytes: []const u8, w: *Writer) Writer.Error!void {
     for (bytes) |byte| switch (byte) {
         '\n' => try w.writeAll("\\n"),
         '\r' => try w.writeAll("\\r"),
@@ -480,7 +481,7 @@ pub fn stringEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!vo
 }
 
 /// Print the string as escaped contents of a single-quoted string.
-pub fn charEscape(bytes: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+pub fn charEscape(bytes: []const u8, w: *Writer) Writer.Error!void {
     for (bytes) |byte| switch (byte) {
         '\n' => try w.writeAll("\\n"),
         '\r' => try w.writeAll("\\r"),
@@ -529,20 +530,16 @@ test isUnderscore {
     try std.testing.expect(!isUnderscore("\\x5f"));
 }
 
-pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: ?usize) ![:0]u8 {
-    const source_code = input.readToEndAllocOptions(
-        gpa,
-        max_src_size,
-        size_hint,
-        .of(u8),
-        0,
-    ) catch |err| switch (err) {
-        error.ConnectionResetByPeer => unreachable,
-        error.ConnectionTimedOut => unreachable,
-        error.NotOpenForReading => unreachable,
-        else => |e| return e,
-    };
-    errdefer gpa.free(source_code);
+pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader) ![:0]u8 {
+    var buffer: std.ArrayListAlignedUnmanaged(u8, .@"2") = .empty;
+    defer buffer.deinit(gpa);
+
+    if (file_reader.getSize()) |size| {
+        const casted_size = std.math.cast(u32, size) orelse return error.StreamTooLong;
+        try buffer.ensureTotalCapacityPrecise(gpa, casted_size);
+    } else |_| {}
+
+    try file_reader.interface.appendRemaining(gpa, .@"2", &buffer, .limited(max_src_size));
 
     // Detect unsupported file types with their Byte Order Mark
     const unsupported_boms = [_][]const u8{
@@ -551,30 +548,23 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, input: std.fs.File, size_hint: ?
         "\xfe\xff", // UTF-16 big endian
     };
     for (unsupported_boms) |bom| {
-        if (std.mem.startsWith(u8, source_code, bom)) {
+        if (std.mem.startsWith(u8, buffer.items, bom)) {
             return error.UnsupportedEncoding;
         }
     }
 
     // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
-    if (std.mem.startsWith(u8, source_code, "\xff\xfe")) {
-        if (source_code.len % 2 != 0) return error.InvalidEncoding;
-        // TODO: after wrangle-writer-buffering branch is merged,
-        // avoid this unnecessary allocation
-        const aligned_copy = try gpa.alloc(u16, source_code.len / 2);
-        defer gpa.free(aligned_copy);
-        @memcpy(std.mem.sliceAsBytes(aligned_copy), source_code);
-        const source_code_utf8 = std.unicode.utf16LeToUtf8AllocZ(gpa, aligned_copy) catch |err| switch (err) {
+    if (std.mem.startsWith(u8, buffer.items, "\xff\xfe")) {
+        if (buffer.items.len % 2 != 0) return error.InvalidEncoding;
+        return std.unicode.utf16LeToUtf8AllocZ(gpa, @ptrCast(buffer.items)) catch |err| switch (err) {
             error.DanglingSurrogateHalf => error.UnsupportedEncoding,
             error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             else => |e| return e,
         };
-        gpa.free(source_code);
-        return source_code_utf8;
     }
 
-    return source_code;
+    return buffer.toOwnedSliceSentinel(gpa, 0);
 }
 
 pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Color) !void {
@@ -621,7 +611,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
                 for (diags.arch.?.allCpuModels()) |cpu| {
-                    help_text.writer().print(" {s}\n", .{cpu.name}) catch break :help;
+                    help_text.print(" {s}\n", .{cpu.name}) catch break :help;
                 }
                 std.log.info("available CPUs for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
@@ -634,7 +624,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
                 for (diags.arch.?.allFeaturesList()) |feature| {
-                    help_text.writer().print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
+                    help_text.print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
                 }
                 std.log.info("available CPU features for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
@@ -647,7 +637,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
                 inline for (@typeInfo(std.Target.ObjectFormat).@"enum".fields) |field| {
-                    help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
+                    help_text.print(" {s}\n", .{field.name}) catch break :help;
                 }
                 std.log.info("available object formats:\n{s}", .{help_text.items});
             }
@@ -658,7 +648,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
                 inline for (@typeInfo(std.Target.Cpu.Arch).@"enum".fields) |field| {
-                    help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
+                    help_text.print(" {s}\n", .{field.name}) catch break :help;
                 }
                 std.log.info("available architectures:\n{s} native\n", .{help_text.items});
             }
