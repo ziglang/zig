@@ -536,7 +536,8 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader
 
     if (file_reader.getSize()) |size| {
         const casted_size = std.math.cast(u32, size) orelse return error.StreamTooLong;
-        try buffer.ensureTotalCapacityPrecise(gpa, casted_size);
+        // +1 to avoid resizing for the null byte added in toOwnedSliceSentinel below.
+        try buffer.ensureTotalCapacityPrecise(gpa, casted_size + 1);
     } else |_| {}
 
     try file_reader.interface.appendRemaining(gpa, .@"2", &buffer, .limited(max_src_size));
