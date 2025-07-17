@@ -5426,17 +5426,11 @@ test "zig fmt: while continue expr" {
         \\    while (i > 0)
         \\        (i * 2);
         \\}
+        \\T: (while (true) ({
+        \\    break usize;
+        \\})),
         \\
     );
-    try testError(
-        \\test {
-        \\    while (i > 0) (i -= 1) {
-        \\        print("test123", .{});
-        \\    }
-        \\}
-    , &[_]Error{
-        .expected_continue_expr,
-    });
 }
 
 test "zig fmt: canonicalize symbols (simple)" {
