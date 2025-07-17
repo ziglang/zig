@@ -30,7 +30,7 @@ pub fn main() anyerror!void {
     var zig_code_file = try hash_target_dir.createFile("crc.zig", .{});
     defer zig_code_file.close();
 
-    var cbw = std.io.bufferedWriter(zig_code_file.writer());
+    var cbw = std.io.bufferedWriter(zig_code_file.deprecatedWriter());
     defer cbw.flush() catch unreachable;
     const code_writer = cbw.writer();
 
@@ -55,7 +55,7 @@ pub fn main() anyerror!void {
     var zig_test_file = try crc_target_dir.createFile("test.zig", .{});
     defer zig_test_file.close();
 
-    var tbw = std.io.bufferedWriter(zig_test_file.writer());
+    var tbw = std.io.bufferedWriter(zig_test_file.deprecatedWriter());
     defer tbw.flush() catch unreachable;
     const test_writer = tbw.writer();
 

@@ -238,7 +238,7 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         => try zg.addErrorNode(node, "control flow is not allowed in ZON", .{}),
 
         .@"comptime" => try zg.addErrorNode(node, "keyword 'comptime' is not allowed in ZON", .{}),
-        .asm_simple, .@"asm" => try zg.addErrorNode(node, "inline asm is not allowed in ZON", .{}),
+        .asm_simple, .@"asm", .asm_legacy => try zg.addErrorNode(node, "inline asm is not allowed in ZON", .{}),
 
         .builtin_call_two,
         .builtin_call_two_comma,

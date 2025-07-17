@@ -793,6 +793,8 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
             try expr(w, scope, parent_decl, full.ast.template);
         },
 
+        .asm_legacy => {},
+
         .builtin_call_two,
         .builtin_call_two_comma,
         .builtin_call,

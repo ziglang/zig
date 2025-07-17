@@ -1,6 +1,10 @@
 //! Types and values provided by the Zig language.
 
 const builtin = @import("builtin");
+const std = @import("std.zig");
+const root = @import("root");
+
+pub const assembly = @import("builtin/assembly.zig");
 
 /// `explicit_subsystem` is missing when the subsystem is automatically detected,
 /// so Zig standard library has the subsystem detection logic here. This should generally be
@@ -1102,6 +1106,3 @@ pub noinline fn returnError() void {
         st.instruction_addresses[st.index] = @returnAddress();
     st.index += 1;
 }
-
-const std = @import("std.zig");
-const root = @import("root");

@@ -6048,10 +6048,10 @@ fn airBoolOp(func: *Func, inst: Air.Inst.Index) !void {
 fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Asm, ty_pl.payload);
-    const clobbers_len: u31 = @truncate(extra.data.flags);
+    const outputs_len = extra.data.flags.outputs_len;
     var extra_i: usize = extra.end;
     const outputs: []const Air.Inst.Ref =
-        @ptrCast(func.air.extra.items[extra_i..][0..extra.data.outputs_len]);
+        @ptrCast(func.air.extra.items[extra_i..][0..outputs_len]);
     extra_i += outputs.len;
     const inputs: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[extra_i..][0..extra.data.inputs_len]);
     extra_i += inputs.len;
@@ -6162,21 +6162,33 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         args.appendAssumeCapacity(arg_mcv);
     }
 
-    {
-        var clobber_i: u32 = 0;
-        while (clobber_i < clobbers_len) : (clobber_i += 1) {
-            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(func.air.extra.items[extra_i..]), 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += clobber.len / 4 + 1;
-
-            if (std.mem.eql(u8, clobber, "") or std.mem.eql(u8, clobber, "memory")) {
-                // nothing really to do
-            } else {
-                try func.register_manager.getReg(parseRegName(clobber) orelse
-                    return func.fail("invalid clobber: '{s}'", .{clobber}), null);
+    const zcu = func.pt.zcu;
+    const ip = &zcu.intern_pool;
+    const aggregate = ip.indexToKey(extra.data.clobbers).aggregate;
+    const struct_type: Type = .fromInterned(aggregate.ty);
+    switch (aggregate.storage) {
+        .elems => |elems| for (elems, 0..) |elem, i| {
+            switch (elem) {
+                .bool_true => {
+                    const clobber = struct_type.structFieldName(i, zcu).toSlice(ip).?;
+                    assert(clobber.len != 0);
+                    if (std.mem.eql(u8, clobber, "memory")) {
+                        // nothing really to do
+                    } else {
+                        try func.register_manager.getReg(parseRegName(clobber) orelse
+                            return func.fail("invalid clobber: '{s}'", .{clobber}), null);
+                    }
+                },
+                .bool_false => continue,
+                else => unreachable,
             }
-        }
+        },
+        .repeated_elem => |elem| switch (elem) {
+            .bool_true => @panic("TODO"),
+            .bool_false => {},
+            else => unreachable,
+        },
+        .bytes => @panic("TODO"),
     }
 
     const Label = struct {
