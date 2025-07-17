@@ -343,7 +343,9 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return cmdInit(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
         dev.check(.targets_command);
-        return @import("print_targets.zig").cmdTargets(arena, cmd_args);
+        const host = std.zig.resolveTargetQueryOrFatal(.{});
+        const stdout = fs.File.stdout().deprecatedWriter();
+        return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, &host);
     } else if (mem.eql(u8, cmd, "version")) {
         dev.check(.version_command);
         try fs.File.stdout().writeAll(build_options.version ++ "\n");
@@ -4548,7 +4550,7 @@ fn cmdTranslateC(
                     error.SemanticAnalyzeFail => break :f .{ .error_bundle = errors },
                 };
                 defer tree.deinit(comp.gpa);
-                break :f .{ .success = try tree.render(arena) };
+                break :f .{ .success = try tree.renderAlloc(arena) };
             },
         };
 
@@ -5684,7 +5686,7 @@ const ArgIteratorResponseFile = process.ArgIteratorGeneral(.{ .comments = true, 
 /// Initialize the arguments from a Response File. "*.rsp"
 fn initArgIteratorResponseFile(allocator: Allocator, resp_file_path: []const u8) !ArgIteratorResponseFile {
     const max_bytes = 10 * 1024 * 1024; // 10 MiB of command line arguments is a reasonable limit
-    const cmd_line = try fs.cwd().readFileAlloc(resp_file_path, allocator, .limited(max_bytes));
+    const cmd_line = try fs.cwd().readFileAlloc(allocator, resp_file_path, max_bytes);
     errdefer allocator.free(cmd_line);
 
     return ArgIteratorResponseFile.initTakeOwnership(allocator, cmd_line);
@@ -6056,7 +6058,8 @@ fn cmdAstCheck(
             };
         } else fs.File.stdin();
         defer if (zig_source_path != null) f.close();
-        break :s std.zig.readSourceFileToEndAlloc(arena, f, null) catch |err| {
+        var file_reader: fs.File.Reader = f.reader(&stdio_buffer);
+        break :s std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err| {
             fatal("unable to load file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
         };
     };
@@ -6413,14 +6416,16 @@ fn cmdChangelist(
         var f = fs.cwd().openFile(old_source_path, .{}) catch |err|
             fatal("unable to open old source file '{s}': {s}", .{ old_source_path, @errorName(err) });
         defer f.close();
-        break :source std.zig.readSourceFileToEndAlloc(arena, f, std.zig.max_src_size) catch |err|
+        var file_reader: fs.File.Reader = f.reader(&stdio_buffer);
+        break :source std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err|
             fatal("unable to read old source file '{s}': {s}", .{ old_source_path, @errorName(err) });
     };
     const new_source = source: {
         var f = fs.cwd().openFile(new_source_path, .{}) catch |err|
             fatal("unable to open new source file '{s}': {s}", .{ new_source_path, @errorName(err) });
         defer f.close();
-        break :source std.zig.readSourceFileToEndAlloc(arena, f, std.zig.max_src_size) catch |err|
+        var file_reader: fs.File.Reader = f.reader(&stdio_buffer);
+        break :source std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err|
             fatal("unable to read new source file '{s}': {s}", .{ new_source_path, @errorName(err) });
     };
 
@@ -6943,7 +6948,7 @@ fn cmdFetch(
         ast.deinit(gpa);
     }
 
-    var fixups: Ast.Fixups = .{};
+    var fixups: Ast.Render.Fixups = .{};
     defer fixups.deinit(gpa);
 
     var saved_path_or_url = path_or_url;
@@ -7044,15 +7049,15 @@ fn cmdFetch(
         try fixups.append_string_after_node.put(gpa, manifest.version_node, dependencies_text);
     }
 
-    var file = build_root.directory.handle.createFile(Package.Manifest.basename, .{}) catch |err| {
-        fatal("unable to create {s} file: {s}", .{ Package.Manifest.basename, err });
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    try ast.render(gpa, &aw.writer, fixups);
+    const rendered = aw.getWritten();
+
+    build_root.directory.handle.writeFile(.{ .sub_path = Package.Manifest.basename, .data = rendered }) catch |err| {
+        fatal("unable to write {s} file: {t}", .{ Package.Manifest.basename, err });
     };
-    defer file.close();
-    var stdout_bw = fs.File.stdout().writer().buffered(&stdio_buffer);
-    ast.render(gpa, &stdout_bw, fixups) catch |err| fatal("failed to render AST to {s}: {s}", .{
-        Package.Manifest.basename, err,
-    });
-    stdout_bw.flush() catch |err| fatal("failed to flush {s}: {s}", .{ Package.Manifest.basename, err });
+
     return cleanExit();
 }
 
@@ -7205,9 +7210,9 @@ fn loadManifest(
 ) !struct { Package.Manifest, Ast } {
     const manifest_bytes = while (true) {
         break options.dir.readFileAllocOptions(
-            Package.Manifest.basename,
             arena,
-            .limited(Package.Manifest.max_bytes),
+            Package.Manifest.basename,
+            Package.Manifest.max_bytes,
             null,
             .@"1",
             0,
@@ -7284,7 +7289,7 @@ const Templates = struct {
         }
 
         const max_bytes = 10 * 1024 * 1024;
-        const contents = templates.dir.readFileAlloc(template_path, arena, .limited(max_bytes)) catch |err| {
+        const contents = templates.dir.readFileAlloc(arena, template_path, max_bytes) catch |err| {
             fatal("unable to read template file '{s}': {s}", .{ template_path, @errorName(err) });
         };
         templates.buffer.clearRetainingCapacity();

@@ -12,6 +12,8 @@ pub const std_options: std.Options = .{
 var log_err_count: usize = 0;
 var fba_buffer: [8192]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
+var stdin_buffer: [std.heap.page_size_min]u8 align(std.heap.page_size_min) = undefined;
+var stdout_buffer: [std.heap.page_size_min]u8 align(std.heap.page_size_min) = undefined;
 
 const crippled = switch (builtin.zig_backend) {
     .stage2_powerpc,
@@ -63,9 +65,6 @@ pub fn main() void {
         return mainTerminal();
     }
 }
-
-var stdin_buffer: [std.heap.page_size_min]u8 align(std.heap.page_size_min) = undefined;
-var stdout_buffer: [std.heap.page_size_min]u8 align(std.heap.page_size_min) = undefined;
 
 fn mainServer() !void {
     @disableInstrumentation();
