@@ -72,6 +72,7 @@ pub fn nthElementContext(n: usize, a: usize, b: usize, context: anytype) void {
     assert(a < b);
     const len = b - a;
     assert(n < len);
+    const target = a + n;
     var left: usize = a;
     var right: usize = b;
     var depth_limit: usize = math.log2_int(usize, len) * 2; // This is what C++ std::nth_element does.
@@ -81,7 +82,7 @@ pub fn nthElementContext(n: usize, a: usize, b: usize, context: anytype) void {
             break;
         }
         if (depth_limit == 0) {
-            heapSelectContext(n - (left - a), left, right, context);
+            heapSelectContext(target - left, left, right, context);
             break;
         }
         depth_limit -= 1;
@@ -92,10 +93,10 @@ pub fn nthElementContext(n: usize, a: usize, b: usize, context: anytype) void {
         // This case is usually hit when the slice contains many duplicate elements.
         if (left > a and !context.lessThan(left - 1, pivot)) {
             left = sort.partitionEqual(left, right, pivot, context);
+            if (target < left) break;
             continue;
         }
         _ = sort.partition(left, right, &pivot, context);
-        const target = a + n;
         if (pivot == target) {
             break;
         } else if (pivot > target) {
