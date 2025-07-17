@@ -320,6 +320,8 @@ pub fn GenericReader(
                 .new_interface = .{
                     .buffer = &.{},
                     .vtable = &.{ .stream = Adapter.stream },
+                    .seek = 0,
+                    .end = 0,
                 },
             };
         }
