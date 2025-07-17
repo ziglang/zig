@@ -127,7 +127,7 @@ export fn coveredSourceLocations() usize {
 }
 
 fn getCoverageUpdateHeader() *abi.CoverageUpdateHeader {
-    return @alignCast(@ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]));
+    return @ptrCast(@alignCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]));
 }
 
 export fn totalRuns() u64 {
