@@ -53,6 +53,7 @@ stage3-debug/bin/zig build test-cases test-modules test-unit test-standalone tes
   --maxrss 68719476736 \
   -Dstatic-llvm \
   -Dskip-non-native \
+  -Dskip-single-threaded \
   -Dskip-translate-c \
   -Dskip-run-translated-c \
   -Dtarget=native-native-musl \
