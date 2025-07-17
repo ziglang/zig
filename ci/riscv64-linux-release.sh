@@ -49,7 +49,7 @@ unset CXX
 ninja install
 
 # No -fqemu and -fwasmtime here as they're covered by the x86_64-linux scripts.
-stage3-release/bin/zig build test-cases test-modules test-unit test-standalone test-c-abi test-link test-stack-traces test-asm-link test-llvm-ir docs \
+stage3-release/bin/zig build test-cases test-modules test-unit test-standalone test-c-abi test-link test-stack-traces test-asm-link test-llvm-ir \
   --maxrss 68719476736 \
   -Dstatic-llvm \
   -Dskip-non-native \
