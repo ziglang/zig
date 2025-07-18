@@ -66,9 +66,9 @@ pub fn wasi_cwd() std.os.wasi.fd_t {
 const fatal = std.process.fatal;
 
 /// This can be global since stdin is a singleton.
-var stdin_buffer: [4096]u8 = undefined;
+var stdin_buffer: [4096]u8 align(std.heap.page_size_min) = undefined;
 /// This can be global since stdout is a singleton.
-var stdout_buffer: [4096]u8 = undefined;
+var stdout_buffer: [4096]u8 align(std.heap.page_size_min) = undefined;
 
 /// Shaming all the locations that inappropriately use an O(N) search algorithm.
 /// Please delete this and fix the compilation errors!
