@@ -6600,6 +6600,20 @@ pub fn tmpFilePath(comp: Compilation, ally: Allocator, suffix: []const u8) error
     }
 }
 
+pub fn addTranslateCCArgs(
+    comp: *Compilation,
+    arena: Allocator,
+    argv: *std.ArrayList([]const u8),
+    ext: FileExt,
+    out_dep_path: ?[]const u8,
+    owner_mod: *Package.Module,
+) !void {
+    try argv.appendSlice(&.{ "-x", "c" });
+    try comp.addCCArgs(arena, argv, ext, out_dep_path, owner_mod);
+    // This gives us access to preprocessing entities, presumably at the cost of performance.
+    try argv.appendSlice(&.{ "-Xclang", "-detailed-preprocessing-record" });
+}
+
 /// Add common C compiler args between translate-c and C object compilation.
 pub fn addCCArgs(
     comp: *const Compilation,

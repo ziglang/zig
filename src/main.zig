@@ -4542,9 +4542,22 @@ fn cmdTranslateC(
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
 
-    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
-    try argv.append(arena, c_source_file.src_path);
+    var zig_cache_tmp_dir = try comp.dirs.local_cache.handle.makeOpenPath("tmp", .{});
+    defer zig_cache_tmp_dir.close();
 
+    const ext = Compilation.classifyFileExt(c_source_file.src_path);
+    const out_dep_path: ?[]const u8 = blk: {
+        if (comp.disable_c_depfile) break :blk null;
+        const c_src_basename = fs.path.basename(c_source_file.src_path);
+        const dep_basename = try std.fmt.allocPrint(arena, "{s}.d", .{c_src_basename});
+        const out_dep_path = try comp.tmpFilePath(arena, dep_basename);
+        break :blk out_dep_path;
+    };
+
+    var argv = std.ArrayList([]const u8).init(arena);
+    try argv.append("arocc");
+    try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path, comp.root_mod);
+    try argv.append(c_source_file.src_path);
     if (comp.verbose_cc) Compilation.dump_argv(argv.items);
 
     try jitCmd(comp.gpa, arena, argv.items, .{
@@ -4553,6 +4566,23 @@ fn cmdTranslateC(
         .depend_on_aro = true,
         .progress_node = prog_node,
     });
+
+    if (out_dep_path) |dep_file_path| {
+        const dep_basename = fs.path.basename(dep_file_path);
+        // Add the files depended on to the cache system.
+        //man.addDepFilePost(zig_cache_tmp_dir, dep_basename) catch |err| switch (err) {
+        //    error.FileNotFound => {
+        //        // Clang didn't emit the dep file; nothing to add to the manifest.
+        //        break :add_deps;
+        //    },
+        //    else => |e| return e,
+        //};
+        // Just to save disk space, we delete the file because it is never needed again.
+        zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
+            warn("failed to delete '{s}': {t}", .{ dep_file_path, err });
+        };
+    }
+
     return cleanExit();
 }
 
@@ -5512,12 +5542,13 @@ fn jitCmd(
     child_argv.appendSliceAssumeCapacity(args);
 
     if (process.can_execv and options.capture == null) {
+        if (EnvVar.ZIG_DEBUG_CMD.isSet()) {
+            const cmd = try std.mem.join(arena, " ", child_argv.items);
+            std.debug.print("{s}\n", .{cmd});
+        }
         const err = process.execv(gpa, child_argv.items);
         const cmd = try std.mem.join(arena, " ", child_argv.items);
-        fatal("the following command failed to execve with '{s}':\n{s}", .{
-            @errorName(err),
-            cmd,
-        });
+        fatal("the following command failed to execve with '{t}':\n{s}", .{ err, cmd });
     }
 
     if (!process.can_spawn) {
