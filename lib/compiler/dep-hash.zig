@@ -27,14 +27,18 @@ pub fn main() !void {
 
     assert(args.len > 0);
 
+    var buffer: [1024]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buffer);
+    const writer = &stdout.interface;
+    defer writer.flush() catch @panic("failed to flush stdout");
+
     {
         var i: usize = 1;
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (arg[0] == '-') {
                 if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-                    const stdout = std.io.getStdOut();
-                    try stdout.writeAll(usage_dep_hash);
+                    try writer.writeAll(usage_dep_hash);
                     return std.process.cleanExit();
                 } else if (std.mem.eql(u8, arg, "--list")) {
                     mode = .list;
@@ -74,7 +78,7 @@ pub fn main() !void {
     var global_cache: std.Build.Cache.Directory = dir: {
         const path = override_global_cache_dir orelse try std.zig.introspect.resolveGlobalCacheDir(arena);
         const handle = std.fs.cwd().openDir(path, .{}) catch |err| {
-            fatal("could not open global cache at '{s}': {s}", .{ path, @errorName(err) });
+            fatal("could not open global cache at '{s}': {t}", .{ path, err });
         };
         break :dir .{
             .handle = handle,
@@ -108,18 +112,16 @@ pub fn main() !void {
     );
     defer man.deinit(arena);
 
-    const stdout = std.io.getStdOut().writer();
-
     switch (mode) {
         .graph => try graph(
             arena,
-            stdout,
+            writer,
             global_cache,
             build_root.directory,
             man,
             color,
         ),
-        .list => try listDepHashes(man),
+        .list => try listDepHashes(man, writer),
         .single => {
             assert(dep_chain.items.len > 0);
             const dep = man.dependencies.get(dep_chain.items[dep_chain.items.len - 1]) orelse {
@@ -130,7 +132,7 @@ pub fn main() !void {
                 });
             };
             if (dep.hash) |hash| {
-                try stdout.print("{s}\n", .{hash});
+                try writer.print("{s}\n", .{hash});
             } else switch (dep.location) {
                 .url => fatal("the hash for {s} is missing from the manifest", .{dep_name}),
                 .path => fatal("cannot print hash: {s} is a local dependency", .{dep_name}),
@@ -141,7 +143,7 @@ pub fn main() !void {
 
 fn graph(
     allocator: Allocator,
-    writer: anytype,
+    writer: *std.Io.Writer,
     global_cache: std.Build.Cache.Directory,
     build_root: std.Build.Cache.Directory,
     manifest: std.zig.Manifest,
@@ -164,7 +166,7 @@ fn graph(
 
 fn graphInner(
     allocator: Allocator,
-    writer: anytype,
+    writer: *std.Io.Writer,
     global_cache: std.Build.Cache.Directory,
     build_root: std.Build.Cache.Path,
     visited: *std.StringArrayHashMapUnmanaged(void),
@@ -207,7 +209,7 @@ fn graphInner(
             try writer.writeAll("│  ");
         }
 
-        try writer.writeByteNTimes(' ', 3 * (indent - line_count));
+        try writer.splatByteAll(' ', 3 * (indent - line_count));
 
         const last = deps.index > manifest.dependencies.entries.len - 1;
         if (last) {
@@ -216,7 +218,7 @@ fn graphInner(
             try writer.print("├─ {s} ", .{name});
         }
 
-        try writer.writeByteNTimes(' ', longest_name - name.len);
+        try writer.splatByteAll(' ', longest_name - name.len);
 
         if (dep.hash) |hash|
             try writer.print("    {s}", .{hash})
@@ -271,10 +273,9 @@ fn graphInner(
     }
 }
 
-fn listDepHashes(manifest: std.zig.Manifest) !void {
+fn listDepHashes(manifest: std.zig.Manifest, writer: *std.Io.Writer) !void {
     if (manifest.dependencies.count() == 0) {
-        const stdout = std.io.getStdOut().writer();
-        try stdout.print("{s} has no dependencies\n", .{manifest.name});
+        try writer.print("{s} has no dependencies\n", .{manifest.name});
         return;
     }
 
@@ -287,23 +288,22 @@ fn listDepHashes(manifest: std.zig.Manifest) !void {
 
     deps.reset();
     while (deps.next()) |entry| {
-        const stdout = std.io.getStdOut().writer();
         const name = entry.key_ptr.*;
         if (entry.value_ptr.hash) |hash| {
-            try stdout.print("{s}    ", .{name});
-            try stdout.writeByteNTimes(' ', longest_name - name.len);
-            try stdout.print("{s}\n", .{hash});
+            try writer.print("{s}    ", .{name});
+            try writer.splatByteAll(' ', longest_name - name.len);
+            try writer.print("{s}\n", .{hash});
         } else {
             switch (entry.value_ptr.location) {
                 .url => {
-                    try stdout.print("{s}    ", .{name});
-                    try stdout.writeByteNTimes(' ', longest_name - name.len);
-                    try stdout.writeAll("(missing)");
+                    try writer.print("{s}    ", .{name});
+                    try writer.splatByteAll(' ', longest_name - name.len);
+                    try writer.writeAll("(missing)");
                 },
                 .path => |p| {
-                    try stdout.print("{s}    ", .{name});
-                    try stdout.writeByteNTimes(' ', longest_name - name.len);
-                    try stdout.print("{s} (local)\n", .{p});
+                    try writer.print("{s}    ", .{name});
+                    try writer.splatByteAll(' ', longest_name - name.len);
+                    try writer.print("{s} (local)\n", .{p});
                 },
             }
         }
@@ -412,7 +412,7 @@ fn loadManifest(
         if (!required) {
             if (err == error.FileNotFound) return error.FileNotFound;
         }
-        fatal("unable to load package manifest '{}': {s}", .{ root, @errorName(err) });
+        fatal("unable to load package manifest '{f}': {t}", .{ root, err });
     };
     errdefer allocator.free(manifest_bytes);
 
@@ -478,11 +478,7 @@ fn getDepRoot(
     }
 }
 
-fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    std.log.err(format, args);
-    std.process.exit(1);
-}
-
 const std = @import("std");
 const assert = std.debug.assert;
+const fatal = std.process.fatal;
 const Allocator = std.mem.Allocator;
