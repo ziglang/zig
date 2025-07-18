@@ -118,6 +118,8 @@ pub fn init(options: Options) !Server {
         .in = options.in,
         .out = options.out,
     };
+    assert(s.out.buffer.len >= 4);
+    std.debug.assertAligned(s.out.buffer.ptr, .@"4");
     try s.serveStringMessage(.zig_version, options.zig_version);
     return s;
 }
