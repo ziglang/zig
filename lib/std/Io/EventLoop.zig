@@ -140,7 +140,6 @@ pub fn io(el: *EventLoop) Io {
         .vtable = &.{
             .async = async,
             .asyncConcurrent = asyncConcurrent,
-            .asyncParallel = asyncParallel,
             .await = await,
             .asyncDetached = asyncDetached,
             .select = select,
@@ -936,23 +935,6 @@ fn asyncConcurrent(
 
     event_loop.schedule(.current(), .{ .head = fiber, .tail = fiber });
     return @ptrCast(fiber);
-}
-
-fn asyncParallel(
-    userdata: ?*anyopaque,
-    result_len: usize,
-    result_alignment: Alignment,
-    context: []const u8,
-    context_alignment: Alignment,
-    start: *const fn (context: *const anyopaque, result: *anyopaque) void,
-) error{OutOfMemory}!*std.Io.AnyFuture {
-    _ = userdata;
-    _ = result_len;
-    _ = result_alignment;
-    _ = context;
-    _ = context_alignment;
-    _ = start;
-    @panic("TODO");
 }
 
 const DetachedClosure = struct {
