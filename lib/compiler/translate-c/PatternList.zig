@@ -10,7 +10,7 @@ const Translator = @import("Translator.zig");
 const Error = Translator.Error;
 pub const MacroProcessingError = Error || error{UnexpectedMacroToken};
 
-const Impl = std.meta.DeclEnum(@import("helpers"));
+const Impl = std.meta.DeclEnum(std.zig.c_translation.helpers);
 const Template = struct { []const u8, Impl };
 
 /// Templates must be function-like macros

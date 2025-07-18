@@ -8,7 +8,6 @@ const Driver = @import("Driver.zig");
 const Filesystem = @import("Driver/Filesystem.zig").Filesystem;
 const Multilib = @import("Driver/Multilib.zig");
 const target_util = @import("target.zig");
-const Linux = @import("toolchains/Linux.zig");
 
 pub const PathList = std.ArrayListUnmanaged([]const u8);
 
@@ -37,15 +36,7 @@ pub const UnwindLibKind = enum {
 
 const Inner = union(enum) {
     uninitialized,
-    linux: Linux,
     unknown: void,
-
-    fn deinit(self: *Inner, allocator: mem.Allocator) void {
-        switch (self.*) {
-            .linux => |*linux| linux.deinit(allocator),
-            .uninitialized, .unknown => {},
-        }
-    }
 };
 
 const Toolchain = @This();
@@ -81,32 +72,15 @@ fn getDefaultLinker(tc: *const Toolchain) []const u8 {
 /// Call this after driver has finished parsing command line arguments to find the toolchain
 pub fn discover(tc: *Toolchain) !void {
     if (tc.inner != .uninitialized) return;
-
-    const target = tc.getTarget();
-    tc.inner = switch (target.os.tag) {
-        .linux,
-        => if (target.cpu.arch == .hexagon)
-            .{ .unknown = {} } // TODO
-        else if (target.cpu.arch.isMIPS())
-            .{ .unknown = {} } // TODO
-        else if (target.cpu.arch.isPowerPC())
-            .{ .unknown = {} } // TODO
-        else if (target.cpu.arch == .ve)
-            .{ .unknown = {} } // TODO
-        else
-            .{ .linux = .{} },
-        else => .{ .unknown = {} }, // TODO
-    };
+    tc.inner = .unknown;
     return switch (tc.inner) {
         .uninitialized => unreachable,
-        .linux => |*linux| linux.discover(tc),
         .unknown => {},
     };
 }
 
 pub fn deinit(tc: *Toolchain) void {
     const gpa = tc.driver.comp.gpa;
-    tc.inner.deinit(gpa);
 
     tc.library_paths.deinit(gpa);
     tc.file_paths.deinit(gpa);
@@ -501,7 +475,6 @@ pub fn addRuntimeLibs(tc: *const Toolchain, argv: *std.array_list.Managed([]cons
 pub fn defineSystemIncludes(tc: *Toolchain) !void {
     return switch (tc.inner) {
         .uninitialized => unreachable,
-        .linux => |*linux| linux.defineSystemIncludes(tc),
         .unknown => {
             if (tc.driver.nostdinc) return;
 

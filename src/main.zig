@@ -4549,7 +4549,7 @@ fn cmdTranslateC(
 
     try jitCmd(comp.gpa, arena, argv.items, .{
         .cmd_name = "translate-c",
-        .root_src_path = "translate-c/src/main.zig",
+        .root_src_path = "translate-c/main.zig",
         .depend_on_aro = true,
         .progress_node = prog_node,
     });
