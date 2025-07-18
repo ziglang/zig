@@ -169,7 +169,6 @@ pub const Options = struct {
     comp: *aro.Compilation,
     pp: *const aro.Preprocessor,
     tree: *const aro.Tree,
-    module_libs: bool,
 };
 
 pub fn translate(options: Options) ![]u8 {
@@ -217,32 +216,23 @@ pub fn translate(options: Options) ![]u8 {
 
     try translator.global_scope.processContainerMemberFns();
 
-    var buf: std.ArrayList(u8) = .init(gpa);
-    defer buf.deinit();
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    if (options.module_libs) {
-        try buf.appendSlice(
-            \\pub const __builtin = @import("c_builtins");
-            \\pub const __helpers = @import("helpers");
-            \\
-            \\
-        );
-    } else {
-        try buf.appendSlice(
-            \\pub const __builtin = @import("c_builtins.zig");
-            \\pub const __helpers = @import("helpers.zig");
-            \\
-            \\
-        );
-    }
+    try aw.writer.writeAll(
+        \\pub const __builtin = @import("std").zig.c_translation.builtins;
+        \\pub const __helpers = @import("std").zig.c_translation.helpers;
+        \\
+        \\
+    );
 
     var zig_ast = try ast.render(gpa, translator.global_scope.nodes.items);
     defer {
         gpa.free(zig_ast.source);
         zig_ast.deinit(gpa);
     }
-    try zig_ast.renderToArrayList(&buf, .{});
-    return buf.toOwnedSlice();
+    try zig_ast.render(gpa, &aw.writer, .{});
+    return aw.toOwnedSlice();
 }
 
 fn prepopulateGlobalNameTable(t: *Translator) !void {
@@ -3905,7 +3895,7 @@ fn createBinOpNode(
     return ZigNode.initPayload(&payload.base);
 }
 
-pub fn createHelperCallNode(t: *Translator, name: std.meta.DeclEnum(@import("helpers")), args_opt: ?[]const ZigNode) !ZigNode {
+pub fn createHelperCallNode(t: *Translator, name: std.meta.DeclEnum(std.zig.c_translation.helpers), args_opt: ?[]const ZigNode) !ZigNode {
     if (args_opt) |args| {
         return ZigTag.helper_call.create(t.arena, .{
             .name = @tagName(name),

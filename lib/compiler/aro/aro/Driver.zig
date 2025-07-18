@@ -99,7 +99,6 @@ raw_target_triple: ?[]const u8 = null,
 use_assembly_backend: bool = false,
 
 // linker options
-use_linker: ?[]const u8 = null,
 linker_path: ?[]const u8 = null,
 nodefaultlibs: bool = false,
 nolibc: bool = false,
@@ -572,10 +571,6 @@ pub fn parseArgs(
                 d.comp.langopts.preserve_comments = true;
                 d.comp.langopts.preserve_comments_in_macros = true;
                 comment_arg = arg;
-            } else if (option(arg, "-fuse-ld=")) |linker_name| {
-                d.use_linker = linker_name;
-            } else if (mem.eql(u8, arg, "-fuse-ld=")) {
-                d.use_linker = null;
             } else if (option(arg, "--ld-path=")) |linker_path| {
                 d.linker_path = linker_path;
             } else if (mem.eql(u8, arg, "-r")) {
@@ -1150,29 +1145,20 @@ fn exitWithCleanup(d: *Driver, code: u8) noreturn {
 /// Parses the various -fpic/-fPIC/-fpie/-fPIE arguments.
 /// Then, smooshes them together with platform defaults, to decide whether
 /// this compile should be using PIC mode or not.
-/// Returns a tuple of ( backend.CodeGenOptions.PicLevel, IsPIE).
 pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { backend.CodeGenOptions.PicLevel, bool } {
     const eqlIgnoreCase = std.ascii.eqlIgnoreCase;
 
     const target = d.comp.target;
-    const linker = d.use_linker orelse @import("system_defaults").linker;
-    const is_bfd_linker = eqlIgnoreCase(linker, "bfd");
 
     const is_pie_default = switch (target_util.isPIEDefault(target)) {
         .yes => true,
         .no => false,
-        .depends_on_linker => if (is_bfd_linker)
-            target.cpu.arch == .x86_64 // CrossWindows
-        else
-            false, //MSVC
+        .depends_on_linker => false,
     };
     const is_pic_default = switch (target_util.isPICdefault(target)) {
         .yes => true,
         .no => false,
-        .depends_on_linker => if (is_bfd_linker)
-            target.cpu.arch == .x86_64
-        else
-            (target.cpu.arch == .x86_64 or target.cpu.arch == .aarch64),
+        .depends_on_linker => false,
     };
 
     var pie: bool = is_pie_default;
@@ -1239,7 +1225,7 @@ pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { ba
     const forced = switch (target_util.isPICDefaultForced(target)) {
         .yes => true,
         .no => false,
-        .depends_on_linker => if (is_bfd_linker) target.cpu.arch == .x86_64 else target.cpu.arch == .aarch64 or target.cpu.arch == .x86_64,
+        .depends_on_linker => false,
     };
     if (!forced) {
         // -fpic/-fPIC, -fpie/-fPIE
