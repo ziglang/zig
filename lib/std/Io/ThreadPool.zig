@@ -220,7 +220,7 @@ fn async(
     }
     const pool: *Pool = @alignCast(@ptrCast(userdata));
     const cpu_count = pool.cpu_count catch {
-        return asyncParallel(userdata, result.len, result_alignment, context, context_alignment, start) orelse {
+        return asyncParallel(userdata, result.len, result_alignment, context, context_alignment, start) catch {
             start(context.ptr, result.ptr);
             return null;
         };
@@ -291,8 +291,8 @@ fn asyncParallel(
     context: []const u8,
     context_alignment: std.mem.Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
-) ?*Io.AnyFuture {
-    if (builtin.single_threaded) return null;
+) error{OutOfMemory}!*Io.AnyFuture {
+    if (builtin.single_threaded) unreachable;
 
     const pool: *Pool = @alignCast(@ptrCast(userdata));
     const cpu_count = pool.cpu_count catch 1;
@@ -300,7 +300,7 @@ fn asyncParallel(
     const context_offset = context_alignment.forward(@sizeOf(AsyncClosure));
     const result_offset = result_alignment.forward(context_offset + context.len);
     const n = result_offset + result_len;
-    const closure: *AsyncClosure = @alignCast(@ptrCast(gpa.alignedAlloc(u8, .of(AsyncClosure), n) catch return null));
+    const closure: *AsyncClosure = @alignCast(@ptrCast(try gpa.alignedAlloc(u8, .of(AsyncClosure), n)));
 
     closure.* = .{
         .func = start,
@@ -324,7 +324,7 @@ fn asyncParallel(
     pool.threads.ensureTotalCapacity(gpa, thread_capacity) catch {
         pool.mutex.unlock();
         closure.free(gpa, result_len);
-        return null;
+        return error.OutOfMemory;
     };
 
     pool.run_queue.prepend(&closure.runnable.node);
@@ -334,7 +334,7 @@ fn asyncParallel(
             assert(pool.run_queue.popFirst() == &closure.runnable.node);
             pool.mutex.unlock();
             closure.free(gpa, result_len);
-            return null;
+            return error.OutOfMemory;
         };
         pool.threads.appendAssumeCapacity(thread);
     }
