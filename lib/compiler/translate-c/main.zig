@@ -41,14 +41,7 @@ pub fn main() u8 {
     };
     defer comp.deinit();
 
-    const exe_name = std.fs.selfExePathAlloc(gpa) catch {
-        std.debug.print("unable to find translate-c executable path\n", .{});
-        if (fast_exit) process.exit(1);
-        return 1;
-    };
-    defer gpa.free(exe_name);
-
-    var driver: aro.Driver = .{ .comp = &comp, .diagnostics = &diagnostics, .aro_name = exe_name };
+    var driver: aro.Driver = .{ .comp = &comp, .diagnostics = &diagnostics, .aro_name = "aro" };
     defer driver.deinit();
 
     var toolchain: aro.Toolchain = .{ .driver = &driver, .filesystem = .{ .real = comp.cwd } };
