@@ -1430,6 +1430,7 @@ pub const Reader = struct {
                     return error.EndOfStream;
                 }
                 r.pos += n;
+                w.advance(n);
                 return n;
             },
             .streaming_reading => {
@@ -1453,6 +1454,7 @@ pub const Reader = struct {
                     return error.EndOfStream;
                 }
                 r.pos += n;
+                w.advance(n);
                 return n;
             },
             .failure => return error.ReadFailed,
