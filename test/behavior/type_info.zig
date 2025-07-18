@@ -539,20 +539,6 @@ fn add(a: i32, b: i32) i32 {
     return a + b;
 }
 
-test "type info for async frames" {
-    if (true) {
-        // https://github.com/ziglang/zig/issues/6025
-        return error.SkipZigTest;
-    }
-
-    switch (@typeInfo(@Frame(add))) {
-        .frame => |frame| {
-            try expect(@as(@TypeOf(add), @ptrCast(frame.function)) == add);
-        },
-        else => unreachable,
-    }
-}
-
 test "Declarations are returned in declaration order" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
