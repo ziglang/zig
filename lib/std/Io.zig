@@ -934,6 +934,32 @@ pub const VTable = struct {
         context_alignment: std.mem.Alignment,
         start: *const fn (context: *const anyopaque, result: *anyopaque) void,
     ) ?*AnyFuture,
+    /// Returning `null` indicates resource allocation failed.
+    ///
+    /// Thread-safe.
+    asyncConcurrent: *const fn (
+        /// Corresponds to `Io.userdata`.
+        userdata: ?*anyopaque,
+        result_len: usize,
+        result_alignment: std.mem.Alignment,
+        /// Copied and then passed to `start`.
+        context: []const u8,
+        context_alignment: std.mem.Alignment,
+        start: *const fn (context: *const anyopaque, result: *anyopaque) void,
+    ) ?*AnyFuture,
+    /// Returning `null` indicates resource allocation failed.
+    ///
+    /// Thread-safe.
+    asyncParallel: *const fn (
+        /// Corresponds to `Io.userdata`.
+        userdata: ?*anyopaque,
+        result_len: usize,
+        result_alignment: std.mem.Alignment,
+        /// Copied and then passed to `start`.
+        context: []const u8,
+        context_alignment: std.mem.Alignment,
+        start: *const fn (context: *const anyopaque, result: *anyopaque) void,
+    ) ?*AnyFuture,
     /// Executes `start` asynchronously in a manner such that it cleans itself
     /// up. This mode does not support results, await, or cancel.
     ///
@@ -1491,7 +1517,18 @@ pub fn Queue(Elem: type) type {
 
 /// Calls `function` with `args`, such that the return value of the function is
 /// not guaranteed to be available until `await` is called.
-pub fn async(io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) Future(@typeInfo(@TypeOf(function)).@"fn".return_type.?) {
+///
+/// `function` *may* be called immediately, before `async` returns. This has
+/// weaker guarantees than `asyncConcurrent` and `asyncParallel`, making it the
+/// most portable and reusable among the async family functions.
+///
+/// See also:
+/// * `asyncDetached`
+pub fn async(
+    io: Io,
+    function: anytype,
+    args: std.meta.ArgsTuple(@TypeOf(function)),
+) Future(@typeInfo(@TypeOf(function)).@"fn".return_type.?) {
     const Result = @typeInfo(@TypeOf(function)).@"fn".return_type.?;
     const Args = @TypeOf(args);
     const TypeErased = struct {
@@ -1513,8 +1550,86 @@ pub fn async(io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(functio
     return future;
 }
 
+/// Calls `function` with `args`, such that the return value of the function is
+/// not guaranteed to be available until `await` is called, passing control
+/// flow back to the caller while waiting for any `Io` operations.
+///
+/// This has a weaker guarantee than `asyncParallel`, making it more portable
+/// and reusable, however it has stronger guarantee than `async`, placing
+/// restrictions on what kind of `Io` implementations are supported. By calling
+/// `async` instead, one allows, for example, stackful single-threaded blocking I/O.
+pub fn asyncConcurrent(
+    io: Io,
+    function: anytype,
+    args: std.meta.ArgsTuple(@TypeOf(function)),
+) error{OutOfMemory}!Future(@typeInfo(@TypeOf(function)).@"fn".return_type.?) {
+    const Result = @typeInfo(@TypeOf(function)).@"fn".return_type.?;
+    const Args = @TypeOf(args);
+    const TypeErased = struct {
+        fn start(context: *const anyopaque, result: *anyopaque) void {
+            const args_casted: *const Args = @alignCast(@ptrCast(context));
+            const result_casted: *Result = @ptrCast(@alignCast(result));
+            result_casted.* = @call(.auto, function, args_casted.*);
+        }
+    };
+    var future: Future(Result) = undefined;
+    future.any_future = io.vtable.asyncConcurrent(
+        io.userdata,
+        @sizeOf(Result),
+        .of(Result),
+        @ptrCast((&args)[0..1]),
+        .of(Args),
+        TypeErased.start,
+    );
+    return future;
+}
+
+/// Calls `function` with `args`, such that the return value of the function is
+/// not guaranteed to be available until `await` is called, while simultaneously
+/// passing control flow back to the caller.
+///
+/// This has the strongest guarantees of all async family functions, placing
+/// the most restrictions on what kind of `Io` implementations are supported.
+/// By calling `asyncConcurrent` instead, one allows, for example,
+/// stackful single-threaded non-blocking I/O.
+///
+/// See also:
+/// * `asyncConcurrent`
+/// * `async`
+pub fn asyncParallel(
+    io: Io,
+    function: anytype,
+    args: std.meta.ArgsTuple(@TypeOf(function)),
+) error{OutOfMemory}!Future(@typeInfo(@TypeOf(function)).@"fn".return_type.?) {
+    const Result = @typeInfo(@TypeOf(function)).@"fn".return_type.?;
+    const Args = @TypeOf(args);
+    const TypeErased = struct {
+        fn start(context: *const anyopaque, result: *anyopaque) void {
+            const args_casted: *const Args = @alignCast(@ptrCast(context));
+            const result_casted: *Result = @ptrCast(@alignCast(result));
+            result_casted.* = @call(.auto, function, args_casted.*);
+        }
+    };
+    var future: Future(Result) = undefined;
+    future.any_future = io.vtable.asyncConcurrent(
+        io.userdata,
+        @ptrCast((&future.result)[0..1]),
+        .of(Result),
+        @ptrCast((&args)[0..1]),
+        .of(Args),
+        TypeErased.start,
+    );
+    return future;
+}
+
 /// Calls `function` with `args` asynchronously. The resource cleans itself up
 /// when the function returns. Does not support await, cancel, or a return value.
+///
+/// `function` *may* be called immediately, before `async` returns.
+///
+/// See also:
+/// * `async`
+/// * `asyncConcurrent`
 pub fn asyncDetached(io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
     const Args = @TypeOf(args);
     const TypeErased = struct {
@@ -1524,6 +1639,10 @@ pub fn asyncDetached(io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf
         }
     };
     io.vtable.asyncDetached(io.userdata, @ptrCast((&args)[0..1]), .of(Args), TypeErased.start);
+}
+
+pub fn cancelRequested(io: Io) bool {
+    return io.vtable.cancelRequested(io.userdata);
 }
 
 pub fn now(io: Io, clockid: std.posix.clockid_t) ClockGetTimeError!Timestamp {

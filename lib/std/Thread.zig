@@ -384,6 +384,8 @@ pub const CpuCountError = error{
 };
 
 /// Returns the platforms view on the number of logical CPU cores available.
+///
+/// Returned value guaranteed to be >= 1.
 pub fn getCpuCount() CpuCountError!usize {
     return try Impl.getCpuCount();
 }

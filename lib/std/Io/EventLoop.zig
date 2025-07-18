@@ -139,6 +139,8 @@ pub fn io(el: *EventLoop) Io {
         .userdata = el,
         .vtable = &.{
             .async = async,
+            .asyncConcurrent = asyncConcurrent,
+            .asyncParallel = asyncParallel,
             .await = await,
             .asyncDetached = asyncDetached,
             .select = select,
@@ -877,16 +879,27 @@ fn async(
     context_alignment: Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
 ) ?*std.Io.AnyFuture {
-    assert(result_alignment.compare(.lte, Fiber.max_result_align)); // TODO
-    assert(context_alignment.compare(.lte, Fiber.max_context_align)); // TODO
-    assert(result.len <= Fiber.max_result_size); // TODO
-    assert(context.len <= Fiber.max_context_size); // TODO
-
-    const event_loop: *EventLoop = @alignCast(@ptrCast(userdata));
-    const fiber = Fiber.allocate(event_loop) catch {
+    return asyncConcurrent(userdata, result.len, result_alignment, context, context_alignment, start) orelse {
         start(context.ptr, result.ptr);
         return null;
     };
+}
+
+fn asyncConcurrent(
+    userdata: ?*anyopaque,
+    result_len: usize,
+    result_alignment: Alignment,
+    context: []const u8,
+    context_alignment: Alignment,
+    start: *const fn (context: *const anyopaque, result: *anyopaque) void,
+) ?*std.Io.AnyFuture {
+    assert(result_alignment.compare(.lte, Fiber.max_result_align)); // TODO
+    assert(context_alignment.compare(.lte, Fiber.max_context_align)); // TODO
+    assert(result_len <= Fiber.max_result_size); // TODO
+    assert(context.len <= Fiber.max_context_size); // TODO
+
+    const event_loop: *EventLoop = @alignCast(@ptrCast(userdata));
+    const fiber = Fiber.allocate(event_loop) catch return null;
     std.log.debug("allocated {*}", .{fiber});
 
     const closure: *AsyncClosure = .fromFiber(fiber);
@@ -923,6 +936,23 @@ fn async(
 
     event_loop.schedule(.current(), .{ .head = fiber, .tail = fiber });
     return @ptrCast(fiber);
+}
+
+fn asyncParallel(
+    userdata: ?*anyopaque,
+    result_len: usize,
+    result_alignment: Alignment,
+    context: []const u8,
+    context_alignment: Alignment,
+    start: *const fn (context: *const anyopaque, result: *anyopaque) void,
+) ?*std.Io.AnyFuture {
+    _ = userdata;
+    _ = result_len;
+    _ = result_alignment;
+    _ = context;
+    _ = context_alignment;
+    _ = start;
+    @panic("TODO");
 }
 
 const DetachedClosure = struct {
