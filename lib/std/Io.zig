@@ -946,7 +946,7 @@ pub const VTable = struct {
         context: []const u8,
         context_alignment: std.mem.Alignment,
         start: *const fn (context: *const anyopaque, result: *anyopaque) void,
-    ) ?*AnyFuture,
+    ) error{OutOfMemory}!*AnyFuture,
     /// Returning `null` indicates resource allocation failed.
     ///
     /// Thread-safe.
@@ -959,7 +959,7 @@ pub const VTable = struct {
         context: []const u8,
         context_alignment: std.mem.Alignment,
         start: *const fn (context: *const anyopaque, result: *anyopaque) void,
-    ) ?*AnyFuture,
+    ) error{OutOfMemory}!*AnyFuture,
     /// Executes `start` asynchronously in a manner such that it cleans itself
     /// up. This mode does not support results, await, or cancel.
     ///
@@ -1573,7 +1573,7 @@ pub fn asyncConcurrent(
         }
     };
     var future: Future(Result) = undefined;
-    future.any_future = io.vtable.asyncConcurrent(
+    future.any_future = try io.vtable.asyncConcurrent(
         io.userdata,
         @sizeOf(Result),
         .of(Result),
@@ -1584,14 +1584,14 @@ pub fn asyncConcurrent(
     return future;
 }
 
-/// Calls `function` with `args`, such that the return value of the function is
-/// not guaranteed to be available until `await` is called, while simultaneously
-/// passing control flow back to the caller.
+/// Simultaneously calls `function` with `args` while passing control flow back
+/// to the caller. The return value of the function is not guaranteed to be
+/// available until `await` is called.
 ///
 /// This has the strongest guarantees of all async family functions, placing
 /// the most restrictions on what kind of `Io` implementations are supported.
-/// By calling `asyncConcurrent` instead, one allows, for example,
-/// stackful single-threaded non-blocking I/O.
+/// By calling `asyncConcurrent` instead, one allows, for example, stackful
+/// single-threaded non-blocking I/O.
 ///
 /// See also:
 /// * `asyncConcurrent`
@@ -1611,9 +1611,9 @@ pub fn asyncParallel(
         }
     };
     var future: Future(Result) = undefined;
-    future.any_future = io.vtable.asyncConcurrent(
+    future.any_future = try io.vtable.asyncParallel(
         io.userdata,
-        @ptrCast((&future.result)[0..1]),
+        @sizeOf(Result),
         .of(Result),
         @ptrCast((&args)[0..1]),
         .of(Args),

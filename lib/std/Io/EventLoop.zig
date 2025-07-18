@@ -879,7 +879,7 @@ fn async(
     context_alignment: Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
 ) ?*std.Io.AnyFuture {
-    return asyncConcurrent(userdata, result.len, result_alignment, context, context_alignment, start) orelse {
+    return asyncConcurrent(userdata, result.len, result_alignment, context, context_alignment, start) catch {
         start(context.ptr, result.ptr);
         return null;
     };
@@ -892,14 +892,14 @@ fn asyncConcurrent(
     context: []const u8,
     context_alignment: Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
-) ?*std.Io.AnyFuture {
+) error{OutOfMemory}!*std.Io.AnyFuture {
     assert(result_alignment.compare(.lte, Fiber.max_result_align)); // TODO
     assert(context_alignment.compare(.lte, Fiber.max_context_align)); // TODO
     assert(result_len <= Fiber.max_result_size); // TODO
     assert(context.len <= Fiber.max_context_size); // TODO
 
     const event_loop: *EventLoop = @alignCast(@ptrCast(userdata));
-    const fiber = Fiber.allocate(event_loop) catch return null;
+    const fiber = try Fiber.allocate(event_loop);
     std.log.debug("allocated {*}", .{fiber});
 
     const closure: *AsyncClosure = .fromFiber(fiber);
@@ -945,7 +945,7 @@ fn asyncParallel(
     context: []const u8,
     context_alignment: Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
-) ?*std.Io.AnyFuture {
+) error{OutOfMemory}!*std.Io.AnyFuture {
     _ = userdata;
     _ = result_len;
     _ = result_alignment;
