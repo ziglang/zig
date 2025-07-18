@@ -197,7 +197,6 @@ set(ZIG_CPP_SOURCES
     # These are planned to stay even when we are self-hosted.
     src/zig_llvm.cpp
     src/zig_llvm-ar.cpp
-    src/zig_clang.cpp
     src/zig_clang_driver.cpp
     src/zig_clang_cc1_main.cpp
     src/zig_clang_cc1as_main.cpp
@@ -537,7 +536,6 @@ set(ZIG_STAGE2_SOURCES
     src/Value.zig
     src/Zcu.zig
     src/Zcu/PerThread.zig
-    src/clang.zig
     src/clang_options.zig
     src/clang_options_data.zig
     src/codegen.zig
@@ -639,7 +637,6 @@ set(ZIG_STAGE2_SOURCES
     src/register_manager.zig
     src/target.zig
     src/tracy.zig
-    src/translate_c.zig
     src/libs/wasi_libc.zig
 )
 

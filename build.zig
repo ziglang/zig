@@ -724,13 +724,7 @@ fn addCompilerMod(b: *std.Build, options: AddCompilerModOptions) *std.Build.Modu
         .root_source_file = b.path("lib/compiler/aro/aro.zig"),
     });
 
-    const aro_translate_c_mod = b.createModule(.{
-        .root_source_file = b.path("lib/compiler/aro_translate_c.zig"),
-    });
-
-    aro_translate_c_mod.addImport("aro", aro_mod);
     compiler_mod.addImport("aro", aro_mod);
-    compiler_mod.addImport("aro_translate_c", aro_translate_c_mod);
 
     return compiler_mod;
 }

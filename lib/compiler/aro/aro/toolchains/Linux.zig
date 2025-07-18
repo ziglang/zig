@@ -1,12 +1,14 @@
 const std = @import("std");
 const mem = std.mem;
+
+const system_defaults = @import("system_defaults");
+
 const Compilation = @import("../Compilation.zig");
-const GCCDetector = @import("../Driver/GCCDetector.zig");
-const Toolchain = @import("../Toolchain.zig");
 const Driver = @import("../Driver.zig");
 const Distro = @import("../Driver/Distro.zig");
+const GCCDetector = @import("../Driver/GCCDetector.zig");
 const target_util = @import("../target.zig");
-const system_defaults = @import("system_defaults");
+const Toolchain = @import("../Toolchain.zig");
 
 const Linux = @This();
 
@@ -144,7 +146,7 @@ fn getPIE(self: *const Linux, d: *const Driver) bool {
 fn getStaticPIE(self: *const Linux, d: *Driver) !bool {
     _ = self;
     if (d.static_pie and d.pie != null) {
-        try d.err("cannot specify 'nopie' along with 'static-pie'");
+        try d.err("cannot specify 'nopie' along with 'static-pie'", .{});
     }
     return d.static_pie;
 }
@@ -195,7 +197,7 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.arra
     if (target_util.ldEmulationOption(d.comp.target, null)) |emulation| {
         try argv.appendSlice(&.{ "-m", emulation });
     } else {
-        try d.err("Unknown target triple");
+        try d.err("Unknown target triple", .{});
         return;
     }
     if (d.comp.target.cpu.arch.isRISCV()) {
@@ -214,9 +216,9 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.arra
             const dynamic_linker = d.comp.target.standardDynamicLinkerPath();
             // todo: check for --dyld-prefix
             if (dynamic_linker.get()) |path| {
-                try argv.appendSlice(&.{ "-dynamic-linker", try tc.arena.dupe(u8, path) });
+                try argv.appendSlice(&.{ "-dynamic-linker", try d.comp.arena.dupe(u8, path) });
             } else {
-                try d.err("Could not find dynamic linker path");
+                try d.err("Could not find dynamic linker path", .{});
             }
         }
     }
@@ -318,7 +320,7 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.arra
 
 fn getMultiarchTriple(target: std.Target) ?[]const u8 {
     const is_android = target.abi.isAndroid();
-    const is_mips_r6 = target.cpu.has(.mips, .mips32r6);
+    const is_mips_r6 = std.Target.mips.featureSetHas(target.cpu.features, .mips32r6);
     return switch (target.cpu.arch) {
         .arm, .thumb => if (is_android) "arm-linux-androideabi" else if (target.abi == .gnueabihf) "arm-linux-gnueabihf" else "arm-linux-gnueabi",
         .armeb, .thumbeb => if (target.abi == .gnueabihf) "armeb-linux-gnueabihf" else "armeb-linux-gnueabi",
@@ -372,13 +374,13 @@ pub fn defineSystemIncludes(self: *const Linux, tc: *const Toolchain) !void {
     // musl prefers /usr/include before builtin includes, so musl targets will add builtins
     // at the end of this function (unless disabled with nostdlibinc)
     if (!tc.driver.nobuiltininc and (!target.abi.isMusl() or tc.driver.nostdlibinc)) {
-        try comp.addBuiltinIncludeDir(tc.driver.aro_name);
+        try comp.addBuiltinIncludeDir(tc.driver.aro_name, tc.driver.resource_dir);
     }
 
     if (tc.driver.nostdlibinc) return;
 
     const sysroot = tc.getSysroot();
-    const local_include = try std.fmt.allocPrint(comp.gpa, "{s}{s}", .{ sysroot, "/usr/local/include" });
+    const local_include = try std.fs.path.join(comp.gpa, &.{ sysroot, "/usr/local/include" });
     defer comp.gpa.free(local_include);
     try comp.addSystemIncludeDir(local_include);
 
@@ -389,7 +391,7 @@ pub fn defineSystemIncludes(self: *const Linux, tc: *const Toolchain) !void {
     }
 
     if (getMultiarchTriple(target)) |triple| {
-        const joined = try std.fs.path.join(comp.gpa, &.{ sysroot, "usr", "include", triple });
+        const joined = try std.fs.path.join(comp.gpa, &.{ sysroot, "/usr/include", triple });
         defer comp.gpa.free(joined);
         if (tc.filesystem.exists(joined)) {
             try comp.addSystemIncludeDir(joined);
@@ -403,7 +405,7 @@ pub fn defineSystemIncludes(self: *const Linux, tc: *const Toolchain) !void {
 
     std.debug.assert(!tc.driver.nostdlibinc);
     if (!tc.driver.nobuiltininc and target.abi.isMusl()) {
-        try comp.addBuiltinIncludeDir(tc.driver.aro_name);
+        try comp.addBuiltinIncludeDir(tc.driver.aro_name, tc.driver.resource_dir);
     }
 }
 
@@ -414,7 +416,7 @@ test Linux {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
+    var comp = Compilation.init(std.testing.allocator, arena, undefined, std.fs.cwd());
     defer comp.deinit();
     comp.environment = .{
         .path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -426,7 +428,7 @@ test Linux {
     comp.target = try std.zig.system.resolveTargetQuery(target_query);
     comp.langopts.setEmulatedCompiler(.gcc);
 
-    var driver: Driver = .{ .comp = &comp };
+    var driver: Driver = .{ .comp = &comp, .diagnostics = undefined };
     defer driver.deinit();
     driver.raw_target_triple = raw_triple;
 
@@ -434,7 +436,7 @@ test Linux {
     try driver.link_objects.append(driver.comp.gpa, link_obj);
     driver.temp_file_count += 1;
 
-    var toolchain: Toolchain = .{ .driver = &driver, .arena = arena, .filesystem = .{ .fake = &.{
+    var toolchain: Toolchain = .{ .driver = &driver, .filesystem = .{ .fake = &.{
         .{ .path = "/tmp" },
         .{ .path = "/usr" },
         .{ .path = "/usr/lib64" },
