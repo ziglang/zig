@@ -934,23 +934,8 @@ pub const VTable = struct {
         context_alignment: std.mem.Alignment,
         start: *const fn (context: *const anyopaque, result: *anyopaque) void,
     ) ?*AnyFuture,
-    /// Returning `null` indicates resource allocation failed.
-    ///
     /// Thread-safe.
     asyncConcurrent: *const fn (
-        /// Corresponds to `Io.userdata`.
-        userdata: ?*anyopaque,
-        result_len: usize,
-        result_alignment: std.mem.Alignment,
-        /// Copied and then passed to `start`.
-        context: []const u8,
-        context_alignment: std.mem.Alignment,
-        start: *const fn (context: *const anyopaque, result: *anyopaque) void,
-    ) error{OutOfMemory}!*AnyFuture,
-    /// Returning `null` indicates resource allocation failed.
-    ///
-    /// Thread-safe.
-    asyncParallel: *const fn (
         /// Corresponds to `Io.userdata`.
         userdata: ?*anyopaque,
         result_len: usize,
@@ -1519,8 +1504,8 @@ pub fn Queue(Elem: type) type {
 /// not guaranteed to be available until `await` is called.
 ///
 /// `function` *may* be called immediately, before `async` returns. This has
-/// weaker guarantees than `asyncConcurrent` and `asyncParallel`, making it the
-/// most portable and reusable among the async family functions.
+/// weaker guarantees than `asyncConcurrent`, making more portable and
+/// reusable.
 ///
 /// See also:
 /// * `asyncDetached`
@@ -1551,13 +1536,12 @@ pub fn async(
 }
 
 /// Calls `function` with `args`, such that the return value of the function is
-/// not guaranteed to be available until `await` is called, passing control
-/// flow back to the caller while waiting for any `Io` operations.
+/// not guaranteed to be available until `await` is called, allowing the caller
+/// to progress while waiting for any `Io` operations.
 ///
-/// This has a weaker guarantee than `asyncParallel`, making it more portable
-/// and reusable, however it has stronger guarantee than `async`, placing
-/// restrictions on what kind of `Io` implementations are supported. By calling
-/// `async` instead, one allows, for example, stackful single-threaded blocking I/O.
+/// This has stronger guarantee than `async`, placing restrictions on what kind
+/// of `Io` implementations are supported. By calling `async` instead, one
+/// allows, for example, stackful single-threaded blocking I/O.
 pub fn asyncConcurrent(
     io: Io,
     function: anytype,
@@ -1574,44 +1558,6 @@ pub fn asyncConcurrent(
     };
     var future: Future(Result) = undefined;
     future.any_future = try io.vtable.asyncConcurrent(
-        io.userdata,
-        @sizeOf(Result),
-        .of(Result),
-        @ptrCast((&args)[0..1]),
-        .of(Args),
-        TypeErased.start,
-    );
-    return future;
-}
-
-/// Simultaneously calls `function` with `args` while passing control flow back
-/// to the caller. The return value of the function is not guaranteed to be
-/// available until `await` is called.
-///
-/// This has the strongest guarantees of all async family functions, placing
-/// the most restrictions on what kind of `Io` implementations are supported.
-/// By calling `asyncConcurrent` instead, one allows, for example, stackful
-/// single-threaded non-blocking I/O.
-///
-/// See also:
-/// * `asyncConcurrent`
-/// * `async`
-pub fn asyncParallel(
-    io: Io,
-    function: anytype,
-    args: std.meta.ArgsTuple(@TypeOf(function)),
-) error{OutOfMemory}!Future(@typeInfo(@TypeOf(function)).@"fn".return_type.?) {
-    const Result = @typeInfo(@TypeOf(function)).@"fn".return_type.?;
-    const Args = @TypeOf(args);
-    const TypeErased = struct {
-        fn start(context: *const anyopaque, result: *anyopaque) void {
-            const args_casted: *const Args = @alignCast(@ptrCast(context));
-            const result_casted: *Result = @ptrCast(@alignCast(result));
-            result_casted.* = @call(.auto, function, args_casted.*);
-        }
-    };
-    var future: Future(Result) = undefined;
-    future.any_future = try io.vtable.asyncParallel(
         io.userdata,
         @sizeOf(Result),
         .of(Result),
