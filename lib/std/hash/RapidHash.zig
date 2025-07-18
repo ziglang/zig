@@ -20,7 +20,7 @@ pub fn hash(seed: u64, input: []const u8) u64 {
 
     if (len <= 16) {
         if (len >= 4) {
-            const d: u64 = ((len & 24) >> @intCast(len >> 3));
+            const d: usize = ((len & 24) >> @intCast(len >> 3));
             const e = len - 4;
             a = (r32(k) << 32) | r32(k[e..]);
             b = ((r32(k[d..]) << 32) | r32(k[(e - d)..]));
