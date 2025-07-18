@@ -1,9 +1,11 @@
 const std = @import("std");
-const Toolchain = @import("../Toolchain.zig");
-const target_util = @import("../target.zig");
+
 const system_defaults = @import("system_defaults");
+
 const GCCVersion = @import("GCCVersion.zig");
 const Multilib = @import("Multilib.zig");
+const target_util = @import("../target.zig");
+const Toolchain = @import("../Toolchain.zig");
 
 const GCCDetector = @This();
 
@@ -50,7 +52,7 @@ fn addDefaultGCCPrefixes(prefixes: *std.ArrayListUnmanaged([]const u8), tc: *con
     if (sysroot.len == 0) {
         prefixes.appendAssumeCapacity("/usr");
     } else {
-        var usr_path = try tc.arena.alloc(u8, 4 + sysroot.len);
+        var usr_path = try tc.driver.comp.arena.alloc(u8, 4 + sysroot.len);
         @memcpy(usr_path[0..4], "/usr");
         @memcpy(usr_path[4..], sysroot);
         prefixes.appendAssumeCapacity(usr_path);
@@ -284,11 +286,6 @@ fn collectLibDirsAndTriples(
         },
         .x86 => {
             lib_dirs.appendSliceAssumeCapacity(&X86LibDirs);
-            triple_aliases.appendSliceAssumeCapacity(&X86Triples);
-            biarch_libdirs.appendSliceAssumeCapacity(&X86_64LibDirs);
-            biarch_triple_aliases.appendSliceAssumeCapacity(&X86_64Triples);
-            biarch_libdirs.appendSliceAssumeCapacity(&X32LibDirs);
-            biarch_triple_aliases.appendSliceAssumeCapacity(&X32Triples);
         },
         .loongarch64 => {
             lib_dirs.appendSliceAssumeCapacity(&LoongArch64LibDirs);
@@ -587,6 +584,7 @@ fn scanLibDirForGCCTriple(
 ) !void {
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     var fib = std.heap.FixedBufferAllocator.init(&path_buf);
+    const arena = tc.driver.comp.arena;
     for (0..2) |i| {
         if (i == 0 and !gcc_dir_exists) continue;
         if (i == 1 and !gcc_cross_dir_exists) continue;
@@ -619,9 +617,9 @@ fn scanLibDirForGCCTriple(
             if (!try self.scanGCCForMultilibs(tc, target, .{ dir_name, version_text }, needs_biarch_suffix)) continue;
 
             self.version = candidate_version;
-            self.gcc_triple = try tc.arena.dupe(u8, candidate_triple);
-            self.install_path = try std.fs.path.join(tc.arena, &.{ lib_dir, lib_suffix, version_text });
-            self.parent_lib_path = try std.fs.path.join(tc.arena, &.{ self.install_path, "..", "..", ".." });
+            self.gcc_triple = try arena.dupe(u8, candidate_triple);
+            self.install_path = try std.fs.path.join(arena, &.{ lib_dir, lib_suffix, version_text });
+            self.parent_lib_path = try std.fs.path.join(arena, &.{ self.install_path, "..", "..", ".." });
             self.is_valid = true;
         }
     }
