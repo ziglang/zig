@@ -86,8 +86,7 @@ pub fn io(pool: *Pool) Io {
         .userdata = pool,
         .vtable = &.{
             .async = async,
-            .asyncConcurrent = asyncParallel,
-            .asyncParallel = asyncParallel,
+            .asyncConcurrent = asyncConcurrent,
             .await = await,
             .asyncDetached = asyncDetached,
             .cancel = cancel,
@@ -220,7 +219,7 @@ fn async(
     }
     const pool: *Pool = @alignCast(@ptrCast(userdata));
     const cpu_count = pool.cpu_count catch {
-        return asyncParallel(userdata, result.len, result_alignment, context, context_alignment, start) catch {
+        return asyncConcurrent(userdata, result.len, result_alignment, context, context_alignment, start) catch {
             start(context.ptr, result.ptr);
             return null;
         };
@@ -284,7 +283,7 @@ fn async(
     return @ptrCast(closure);
 }
 
-fn asyncParallel(
+fn asyncConcurrent(
     userdata: ?*anyopaque,
     result_len: usize,
     result_alignment: std.mem.Alignment,
