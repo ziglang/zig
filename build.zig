@@ -90,8 +90,6 @@ pub fn build(b: *std.Build) !void {
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
     const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
-    const skip_translate_c = b.option(bool, "skip-translate-c", "Main test suite skips translate-c tests") orelse false;
-    const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_freebsd = b.option(bool, "skip-freebsd", "Main test suite skips targets with freebsd OS") orelse false;
     const skip_netbsd = b.option(bool, "skip-netbsd", "Main test suite skips targets with netbsd OS") orelse false;
     const skip_windows = b.option(bool, "skip-windows", "Main test suite skips targets with windows OS") orelse false;
@@ -415,7 +413,7 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(check_fmt);
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
-    try tests.addCases(b, test_cases_step, target, .{
+    try tests.addCases(b, test_cases_step, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
         .skip_compile_errors = skip_compile_errors,
@@ -427,9 +425,6 @@ pub fn build(b: *std.Build) !void {
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-    }, .{
-        .skip_translate_c = skip_translate_c,
-        .skip_run_translated_c = skip_run_translated_c,
     }, .{
         .enable_llvm = enable_llvm,
         .llvm_has_m68k = llvm_has_m68k,
