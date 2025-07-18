@@ -998,13 +998,13 @@ pub const CObject = struct {
 
                 const file = fs.cwd().openFile(file_name, .{}) catch break :source_line 0;
                 defer file.close();
-                var buffer: [1024]u8 = undefined;
-                var file_reader = file.reader(&buffer);
-                file_reader.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
-                var aw: Writer.Allocating = .init(eb.gpa);
-                defer aw.deinit();
-                _ = file_reader.interface.streamDelimiterEnding(&aw.writer, '\n') catch break :source_line 0;
-                break :source_line try eb.addString(aw.getWritten());
+                file.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
+
+                var line = std.ArrayList(u8).init(eb.gpa);
+                defer line.deinit();
+                file.deprecatedReader().readUntilDelimiterArrayList(&line, '\n', 1 << 10) catch break :source_line 0;
+
+                break :source_line try eb.addString(line.items);
             };
 
             return .{
@@ -5850,9 +5850,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
                 try child.spawn();
 
-                var small_buffer: [1]u8 = undefined;
-                var stderr_reader = child.stderr.?.reader(&small_buffer);
-                const stderr = try stderr_reader.interface.allocRemaining(arena, .unlimited);
+                const stderr = try child.stderr.?.deprecatedReader().readAllAlloc(arena, std.math.maxInt(usize));
 
                 const term = child.wait() catch |err| {
                     return comp.failCObj(c_object, "failed to spawn zig clang {s}: {s}", .{ argv.items[0], @errorName(err) });
