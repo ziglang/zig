@@ -684,7 +684,7 @@ pub const Directories = struct {
             global,
         },
         wasi_preopens: switch (builtin.target.os.tag) {
-            .wasi => std.fs.wasi.Preopens,
+            .wasi => fs.wasi.Preopens,
             else => void,
         },
         self_exe_path: switch (builtin.target.os.tag) {
@@ -741,7 +741,7 @@ pub const Directories = struct {
             .local_cache = local_cache,
         };
     }
-    fn openWasiPreopen(preopens: std.fs.wasi.Preopens, name: []const u8) Cache.Directory {
+    fn openWasiPreopen(preopens: fs.wasi.Preopens, name: []const u8) Cache.Directory {
         return .{
             .path = if (std.mem.eql(u8, name, ".")) null else name,
             .handle = .{
@@ -755,8 +755,8 @@ pub const Directories = struct {
         };
         const nonempty_path = if (path.len == 0) "." else path;
         const handle_or_err = switch (thing) {
-            .@"zig lib" => std.fs.cwd().openDir(nonempty_path, .{}),
-            .@"global cache", .@"local cache" => std.fs.cwd().makeOpenPath(nonempty_path, .{}),
+            .@"zig lib" => fs.cwd().openDir(nonempty_path, .{}),
+            .@"global cache", .@"local cache" => fs.cwd().makeOpenPath(nonempty_path, .{}),
         };
         return .{
             .path = if (path.len == 0) null else path,
@@ -993,7 +993,7 @@ pub const CObject = struct {
             const source_line = source_line: {
                 if (diag.src_loc.offset == 0 or diag.src_loc.column == 0) break :source_line 0;
 
-                const file = std.fs.cwd().openFile(file_name, .{}) catch break :source_line 0;
+                const file = fs.cwd().openFile(file_name, .{}) catch break :source_line 0;
                 defer file.close();
                 file.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
 
@@ -1067,7 +1067,7 @@ pub const CObject = struct {
                     }
                 };
 
-                const file = try std.fs.cwd().openFile(path, .{});
+                const file = try fs.cwd().openFile(path, .{});
                 defer file.close();
                 var br = std.io.bufferedReader(file.deprecatedReader());
                 const reader = br.reader();
@@ -1875,7 +1875,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             if (options.root_mod.resolved_target.llvm_cpu_features) |cf| print: {
                 std.debug.lockStdErr();
                 defer std.debug.unlockStdErr();
-                const stderr = std.fs.File.stderr().deprecatedWriter();
+                const stderr = fs.File.stderr().deprecatedWriter();
                 nosuspend {
                     stderr.print("compilation: {s}\n", .{options.root_name}) catch break :print;
                     stderr.print("  target: {s}\n", .{try target.zigTriple(arena)}) catch break :print;
@@ -1901,7 +1901,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .manifest_dir = try options.dirs.local_cache.handle.makeOpenPath("h", .{}),
         };
         // These correspond to std.zig.Server.Message.PathPrefix.
-        cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
+        cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
         cache.addPrefix(options.dirs.zig_lib);
         cache.addPrefix(options.dirs.local_cache);
         cache.addPrefix(options.dirs.global_cache);
@@ -2192,7 +2192,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 comp.digest = hash.peekBin();
                 const digest = hash.final();
 
-                const artifact_sub_dir = "o" ++ std.fs.path.sep_str ++ digest;
+                const artifact_sub_dir = "o" ++ fs.path.sep_str ++ digest;
                 var artifact_dir = try options.dirs.local_cache.handle.makeOpenPath(artifact_sub_dir, .{});
                 errdefer artifact_dir.close();
                 const artifact_directory: Cache.Directory = .{
@@ -2604,11 +2604,11 @@ fn cleanupAfterUpdate(comp: *Compilation, tmp_dir_rand_int: u64) void {
                     // temporary directories; it doesn't have a real cache directory anyway.
                     return;
                 }
-                const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
+                const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
                 comp.dirs.local_cache.handle.deleteTree(tmp_dir_sub_path) catch |err| {
                     log.warn("failed to delete temporary directory '{s}{c}{s}': {s}", .{
                         comp.dirs.local_cache.path orelse ".",
-                        std.fs.path.sep,
+                        fs.path.sep,
                         tmp_dir_sub_path,
                         @errorName(err),
                     });
@@ -2628,11 +2628,11 @@ fn cleanupAfterUpdate(comp: *Compilation, tmp_dir_rand_int: u64) void {
             if (whole.tmp_artifact_directory) |*tmp_dir| {
                 tmp_dir.handle.close();
                 whole.tmp_artifact_directory = null;
-                const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
+                const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
                 comp.dirs.local_cache.handle.deleteTree(tmp_dir_sub_path) catch |err| {
                     log.warn("failed to delete temporary directory '{s}{c}{s}': {s}", .{
                         comp.dirs.local_cache.path orelse ".",
-                        std.fs.path.sep,
+                        fs.path.sep,
                         tmp_dir_sub_path,
                         @errorName(err),
                     });
@@ -2668,7 +2668,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             assert(none.tmp_artifact_directory == null);
             none.tmp_artifact_directory = d: {
                 tmp_dir_rand_int = std.crypto.random.int(u64);
-                const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
+                const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
                 const path = try comp.dirs.local_cache.join(arena, &.{tmp_dir_sub_path});
                 break :d .{
                     .path = path,
@@ -2735,7 +2735,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             // Compile the artifacts to a temporary directory.
             whole.tmp_artifact_directory = d: {
                 tmp_dir_rand_int = std.crypto.random.int(u64);
-                const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
+                const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
                 const path = try comp.dirs.local_cache.join(arena, &.{tmp_dir_sub_path});
                 break :d .{
                     .path = path,
@@ -2910,7 +2910,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             // Close tmp dir and link.File to avoid open handle during rename.
             whole.tmp_artifact_directory.?.handle.close();
             whole.tmp_artifact_directory = null;
-            const s = std.fs.path.sep_str;
+            const s = fs.path.sep_str;
             const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(tmp_dir_rand_int);
             const o_sub_path = "o" ++ s ++ hex_digest;
             renameTmpIntoCache(comp.dirs.local_cache, tmp_dir_sub_path, o_sub_path) catch |err| {
@@ -2932,7 +2932,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             if (comp.bin_file) |lf| {
                 lf.emit = .{
                     .root_dir = comp.dirs.local_cache,
-                    .sub_path = try std.fs.path.join(arena, &.{ o_sub_path, comp.emit_bin.? }),
+                    .sub_path = try fs.path.join(arena, &.{ o_sub_path, comp.emit_bin.? }),
                 };
 
                 switch (need_writable_dance) {
@@ -3105,7 +3105,7 @@ fn renameTmpIntoCache(
 ) !void {
     var seen_eaccess = false;
     while (true) {
-        std.fs.rename(
+        fs.rename(
             cache_directory.handle,
             tmp_dir_sub_path,
             cache_directory.handle,
@@ -3931,7 +3931,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             // This AU is referenced and has a transitive compile error, meaning it referenced something with a compile error.
             // However, we haven't reported any such error.
             // This is a compiler bug.
-            const stderr = std.fs.File.stderr().deprecatedWriter();
+            const stderr = fs.File.stderr().deprecatedWriter();
             try stderr.writeAll("referenced transitive analysis errors, but none actually emitted\n");
             try stderr.print("{f} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
             while (ref) |r| {
@@ -4842,7 +4842,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     defer out_dir.close();
 
     for (&[_][]const u8{ "docs/main.js", "docs/index.html" }) |sub_path| {
-        const basename = std.fs.path.basename(sub_path);
+        const basename = fs.path.basename(sub_path);
         comp.dirs.zig_lib.handle.copyFile(sub_path, out_dir, basename, .{}) catch |err| {
             comp.lockAndSetMiscFailure(.docs_copy, "unable to copy {s}: {s}", .{
                 sub_path,
@@ -4878,7 +4878,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     }
 }
 
-fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8, tar_file: std.fs.File) !void {
+fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8, tar_file: fs.File) !void {
     const root = module.root;
     var mod_dir = d: {
         const root_dir, const sub_path = root.openInfo(comp.dirs);
@@ -4973,7 +4973,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
     });
 
     const src_basename = "main.zig";
-    const root_name = std.fs.path.stem(src_basename);
+    const root_name = fs.path.stem(src_basename);
 
     const dirs = comp.dirs.withoutLocalCache();
 
@@ -5068,13 +5068,13 @@ fn workerUpdateFile(
     prog_node: std.Progress.Node,
     wg: *WaitGroup,
 ) void {
-    const child_prog_node = prog_node.start(std.fs.path.basename(file.path.sub_path), 0);
+    const child_prog_node = prog_node.start(fs.path.basename(file.path.sub_path), 0);
     defer child_prog_node.end();
 
     const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
     defer pt.deactivate();
     pt.updateFile(file_index, file) catch |err| {
-        pt.reportRetryableFileError(file_index, "unable to load '{s}': {s}", .{ std.fs.path.basename(file.path.sub_path), @errorName(err) }) catch |oom| switch (oom) {
+        pt.reportRetryableFileError(file_index, "unable to load '{s}': {s}", .{ fs.path.basename(file.path.sub_path), @errorName(err) }) catch |oom| switch (oom) {
             error.OutOfMemory => {
                 comp.mutex.lock();
                 defer comp.mutex.unlock();
@@ -5239,7 +5239,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         const arena = arena_allocator.allocator();
 
         const tmp_digest = man.hash.peek();
-        const tmp_dir_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &tmp_digest });
+        const tmp_dir_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &tmp_digest });
         var zig_cache_tmp_dir = try comp.dirs.local_cache.handle.makeOpenPath(tmp_dir_sub_path, .{});
         defer zig_cache_tmp_dir.close();
         const cimport_basename = "cimport.h";
@@ -5308,7 +5308,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
             log.info("C import .d file: {s}", .{out_dep_path});
         }
 
-        const dep_basename = std.fs.path.basename(out_dep_path);
+        const dep_basename = fs.path.basename(out_dep_path);
         try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
         switch (comp.cache_use) {
             .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
@@ -5321,7 +5321,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
 
         const bin_digest = man.finalBin();
         const hex_digest = Cache.binToHex(bin_digest);
-        const o_sub_path = "o" ++ std.fs.path.sep_str ++ hex_digest;
+        const o_sub_path = "o" ++ fs.path.sep_str ++ hex_digest;
         var o_dir = try comp.dirs.local_cache.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
 
@@ -5674,7 +5674,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const c_source_basename = std.fs.path.basename(c_object.src.src_path);
+    const c_source_basename = fs.path.basename(c_object.src.src_path);
 
     const child_progress_node = c_obj_prog_node.start(c_source_basename, 0);
     defer child_progress_node.end();
@@ -5687,7 +5687,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
     const o_basename_noext = if (direct_o)
         comp.root_name
     else
-        c_source_basename[0 .. c_source_basename.len - std.fs.path.extension(c_source_basename).len];
+        c_source_basename[0 .. c_source_basename.len - fs.path.extension(c_source_basename).len];
 
     const target = comp.getTarget();
     const o_ext = target.ofmt.fileExt(target.cpu.arch);
@@ -5814,11 +5814,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         }
 
         // Just to save disk space, we delete the files that are never needed again.
-        defer if (out_diag_path) |diag_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(diag_file_path)) catch |err| switch (err) {
+        defer if (out_diag_path) |diag_file_path| zig_cache_tmp_dir.deleteFile(fs.path.basename(diag_file_path)) catch |err| switch (err) {
             error.FileNotFound => {}, // the file wasn't created due to an error we reported
             else => log.warn("failed to delete '{s}': {s}", .{ diag_file_path, @errorName(err) }),
         };
-        defer if (out_dep_path) |dep_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(dep_file_path)) catch |err| switch (err) {
+        defer if (out_dep_path) |dep_file_path| zig_cache_tmp_dir.deleteFile(fs.path.basename(dep_file_path)) catch |err| switch (err) {
             error.FileNotFound => {}, // the file wasn't created due to an error we reported
             else => log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) }),
         };
@@ -5889,7 +5889,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         }
 
         if (out_dep_path) |dep_file_path| {
-            const dep_basename = std.fs.path.basename(dep_file_path);
+            const dep_basename = fs.path.basename(dep_file_path);
             // Add the files depended on to the cache system.
             try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
             switch (comp.cache_use) {
@@ -5909,11 +5909,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
         // Rename into place.
         const digest = man.final();
-        const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
+        const o_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest });
         var o_dir = try comp.dirs.local_cache.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
-        const tmp_basename = std.fs.path.basename(out_obj_path);
-        try std.fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, o_basename);
+        const tmp_basename = fs.path.basename(out_obj_path);
+        try fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, o_basename);
         break :blk digest;
     };
 
@@ -5935,7 +5935,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         .success = .{
             .object_path = .{
                 .root_dir = comp.dirs.local_cache,
-                .sub_path = try std.fs.path.join(gpa, &.{ "o", &digest, o_basename }),
+                .sub_path = try fs.path.join(gpa, &.{ "o", &digest, o_basename }),
             },
             .lock = man.toOwnedLock(),
         },
@@ -5959,7 +5959,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         .rc => |rc_src| rc_src.src_path,
         .manifest => |src_path| src_path,
     };
-    const src_basename = std.fs.path.basename(src_path);
+    const src_basename = fs.path.basename(src_path);
 
     log.debug("updating win32 resource: {s}", .{src_path});
 
@@ -5996,7 +5996,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             // get the digest now and write the .res directly to the cache
             const digest = man.final();
 
-            const o_sub_path = try std.fs.path.join(arena, &.{ "o", &digest });
+            const o_sub_path = try fs.path.join(arena, &.{ "o", &digest });
             var o_dir = try comp.dirs.local_cache.handle.makeOpenPath(o_sub_path, .{});
             defer o_dir.close();
 
@@ -6082,7 +6082,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
     _ = try man.addFile(rc_src.src_path, null);
     man.hash.addListOfBytes(rc_src.extra_flags);
 
-    const rc_basename_noext = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
+    const rc_basename_noext = src_basename[0 .. src_basename.len - fs.path.extension(src_basename).len];
 
     const digest = if (try man.hit()) man.final() else blk: {
         var zig_cache_tmp_dir = try comp.dirs.local_cache.handle.makeOpenPath("tmp", .{});
@@ -6127,7 +6127,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
         // Read depfile and update cache manifest
         {
-            const dep_basename = std.fs.path.basename(out_dep_path);
+            const dep_basename = fs.path.basename(out_dep_path);
             const dep_file_contents = try zig_cache_tmp_dir.readFileAlloc(arena, dep_basename, 50 * 1024 * 1024);
             defer arena.free(dep_file_contents);
 
@@ -6155,11 +6155,11 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
         // Rename into place.
         const digest = man.final();
-        const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
+        const o_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest });
         var o_dir = try comp.dirs.local_cache.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
-        const tmp_basename = std.fs.path.basename(out_res_path);
-        try std.fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, res_filename);
+        const tmp_basename = fs.path.basename(out_res_path);
+        try fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, res_filename);
         break :blk digest;
     };
 
@@ -6270,7 +6270,7 @@ fn spawnZigRc(
 }
 
 pub fn tmpFilePath(comp: Compilation, ally: Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
-    const s = std.fs.path.sep_str;
+    const s = fs.path.sep_str;
     const rand_int = std.crypto.random.int(u64);
     if (comp.dirs.local_cache.path) |p| {
         return std.fmt.allocPrint(ally, "{s}" ++ s ++ "tmp" ++ s ++ "{x}-{s}", .{ p, rand_int, suffix });
@@ -6520,12 +6520,12 @@ pub fn addCCArgs(
 
             if (comp.config.link_libcpp) {
                 try argv.append("-isystem");
-                try argv.append(try std.fs.path.join(arena, &[_][]const u8{
+                try argv.append(try fs.path.join(arena, &[_][]const u8{
                     comp.dirs.zig_lib.path.?, "libcxx", "include",
                 }));
 
                 try argv.append("-isystem");
-                try argv.append(try std.fs.path.join(arena, &[_][]const u8{
+                try argv.append(try fs.path.join(arena, &[_][]const u8{
                     comp.dirs.zig_lib.path.?, "libcxxabi", "include",
                 }));
 
@@ -6536,7 +6536,7 @@ pub fn addCCArgs(
             // However as noted by @dimenus, appending libc headers before compiler headers breaks
             // intrinsics and other compiler specific items.
             try argv.append("-isystem");
-            try argv.append(try std.fs.path.join(arena, &.{ comp.dirs.zig_lib.path.?, "include" }));
+            try argv.append(try fs.path.join(arena, &.{ comp.dirs.zig_lib.path.?, "include" }));
 
             try argv.ensureUnusedCapacity(comp.libc_include_dir_list.len * 2);
             for (comp.libc_include_dir_list) |include_dir| {
@@ -6554,7 +6554,7 @@ pub fn addCCArgs(
 
             if (comp.config.link_libunwind) {
                 try argv.append("-isystem");
-                try argv.append(try std.fs.path.join(arena, &[_][]const u8{
+                try argv.append(try fs.path.join(arena, &[_][]const u8{
                     comp.dirs.zig_lib.path.?, "libunwind", "include",
                 }));
             }
@@ -7147,7 +7147,7 @@ fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const u8)
     return (try crtFilePath(&comp.crt_files, basename)) orelse {
         const lci = comp.libc_installation orelse return error.LibCInstallationNotAvailable;
         const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCrtDir;
-        const full_path = try std.fs.path.join(arena, &[_][]const u8{ crt_dir_path, basename });
+        const full_path = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, basename });
         return Cache.Path.initCwd(full_path);
     };
 }
@@ -7211,7 +7211,7 @@ pub fn lockAndSetMiscFailure(
 pub fn dump_argv(argv: []const []const u8) void {
     std.debug.lockStdErr();
     defer std.debug.unlockStdErr();
-    const stderr = std.fs.File.stderr().deprecatedWriter();
+    const stderr = fs.File.stderr().deprecatedWriter();
     for (argv[0 .. argv.len - 1]) |arg| {
         nosuspend stderr.print("{s} ", .{arg}) catch return;
     }
@@ -7542,7 +7542,7 @@ pub fn toCrtFile(comp: *Compilation) Allocator.Error!CrtFile {
     return .{
         .full_object_path = .{
             .root_dir = comp.dirs.local_cache,
-            .sub_path = try std.fs.path.join(comp.gpa, &.{
+            .sub_path = try fs.path.join(comp.gpa, &.{
                 "o",
                 &Cache.binToHex(comp.digest.?),
                 comp.emit_bin.?,
