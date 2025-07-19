@@ -1118,10 +1118,12 @@ fn runCommand(
                         // Wine's excessive stderr logging is only situationally helpful. Disable it by default, but
                         // allow the user to override it (e.g. with `WINEDEBUG=err+all`) if desired.
                         if (env_map.get("WINEDEBUG") == null) {
-                            // We don't own `env_map` at this point, so turn it into a copy before modifying it.
-                            env_map = arena.create(EnvMap) catch @panic("OOM");
-                            env_map.hash_map = try env_map.hash_map.cloneWithAllocator(arena);
-                            try env_map.put("WINEDEBUG", "-all");
+                            // We don't own `env_map` at this point, so create a copy in order to modify it.
+                            const new_env_map = arena.create(EnvMap) catch @panic("OOM");
+                            new_env_map.hash_map = try env_map.hash_map.cloneWithAllocator(arena);
+                            try new_env_map.put("WINEDEBUG", "-all");
+
+                            env_map = new_env_map;
                         }
                     } else {
                         return failForeign(run, "-fwine", argv[0], exe);
