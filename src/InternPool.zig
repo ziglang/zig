@@ -1137,13 +1137,16 @@ const Local = struct {
                     const elem_info = @typeInfo(Elem).@"struct";
                     const elem_fields = elem_info.fields;
                     var new_fields: [elem_fields.len]std.builtin.Type.StructField = undefined;
-                    for (&new_fields, elem_fields) |*new_field, elem_field| new_field.* = .{
-                        .name = elem_field.name,
-                        .type = *[len]elem_field.type,
-                        .default_value_ptr = null,
-                        .is_comptime = false,
-                        .alignment = 0,
-                    };
+                    for (&new_fields, elem_fields) |*new_field, elem_field| {
+                        const T = *[len]elem_field.type;
+                        new_field.* = .{
+                            .name = elem_field.name,
+                            .type = T,
+                            .default_value_ptr = null,
+                            .is_comptime = false,
+                            .alignment = @alignOf(T),
+                        };
+                    }
                     return @Type(.{ .@"struct" = .{
                         .layout = .auto,
                         .fields = &new_fields,
@@ -1158,22 +1161,25 @@ const Local = struct {
                     const elem_info = @typeInfo(Elem).@"struct";
                     const elem_fields = elem_info.fields;
                     var new_fields: [elem_fields.len]std.builtin.Type.StructField = undefined;
-                    for (&new_fields, elem_fields) |*new_field, elem_field| new_field.* = .{
-                        .name = elem_field.name,
-                        .type = @Type(.{ .pointer = .{
+                    for (&new_fields, elem_fields) |*new_field, elem_field| {
+                        const T = @Type(.{ .pointer = .{
                             .size = opts.size,
                             .is_const = opts.is_const,
                             .is_volatile = false,
-                            .alignment = 0,
+                            .alignment = @alignOf(elem_field.type),
                             .address_space = .generic,
                             .child = elem_field.type,
                             .is_allowzero = false,
                             .sentinel_ptr = null,
-                        } }),
-                        .default_value_ptr = null,
-                        .is_comptime = false,
-                        .alignment = 0,
-                    };
+                        } });
+                        new_field.* = .{
+                            .name = elem_field.name,
+                            .type = T,
+                            .default_value_ptr = null,
+                            .is_comptime = false,
+                            .alignment = @alignOf(T),
+                        };
+                    }
                     return @Type(.{ .@"struct" = .{
                         .layout = .auto,
                         .fields = &new_fields,

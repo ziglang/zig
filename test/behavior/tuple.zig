@@ -338,7 +338,7 @@ test "zero sized struct in tuple handled correctly" {
                     .type = struct {},
                     .default_value_ptr = null,
                     .is_comptime = false,
-                    .alignment = 0,
+                    .alignment = @alignOf(struct {}),
                 }},
             },
         }),
