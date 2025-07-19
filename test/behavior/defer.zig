@@ -1,8 +1,7 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
+const builtin = @import("builtin");
 
 test "break and continue inside loop inside defer expression" {
     testBreakContInDefer(10);
@@ -119,7 +118,7 @@ test "errdefer with payload" {
     const S = struct {
         fn foo() !i32 {
             errdefer |a| {
-                expectEqual(error.One, a) catch @panic("test failure");
+                expect(error.One == a) catch @panic("test failure");
             }
             return error.One;
         }
@@ -143,8 +142,8 @@ test "reference to errdefer payload" {
             errdefer |a| {
                 const ptr = &a;
                 const ptr2 = &ptr;
-                expectEqual(error.One, ptr2.*.*) catch @panic("test failure");
-                expectEqual(error.One, ptr.*) catch @panic("test failure");
+                expect(error.One == ptr2.*.*) catch @panic("test failure");
+                expect(error.One == ptr.*) catch @panic("test failure");
             }
             return error.One;
         }

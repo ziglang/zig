@@ -1,12 +1,12 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const native_endian = builtin.target.cpu.arch.endian();
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const maxInt = std.math.maxInt;
+const builtin = @import("builtin");
 
+const native_endian = builtin.target.cpu.arch.endian();
 top_level_field: i32,
 
 test "top level fields" {
@@ -1005,7 +1005,7 @@ test "struct with 0-length union array field" {
 
     var s: S = undefined;
     _ = &s;
-    try expectEqual(@as(usize, 0), s.zero_length.len);
+    try expect(@as(usize, 0) == s.zero_length.len);
 }
 
 test "packed struct with undefined initializers" {
@@ -1317,13 +1317,13 @@ test "fieldParentPtr of a zero-bit field" {
                 const a = A{ .u = 0 };
                 const b_ptr = &a.b;
                 const a_ptr: *const A = @fieldParentPtr("b", b_ptr);
-                try std.testing.expectEqual(&a, a_ptr);
+                try std.testing.expect(&a == a_ptr);
             }
             {
                 var a = A{ .u = 0 };
                 const b_ptr = &a.b;
                 const a_ptr: *A = @fieldParentPtr("b", b_ptr);
-                try std.testing.expectEqual(&a, a_ptr);
+                try std.testing.expect(&a == a_ptr);
             }
         }
         fn testNestedStruct(comptime A: type) !void {
@@ -1331,17 +1331,17 @@ test "fieldParentPtr of a zero-bit field" {
                 const a = A{ .u = 0 };
                 const c_ptr = &a.b.c;
                 const b_ptr: @TypeOf(&a.b) = @fieldParentPtr("c", c_ptr);
-                try std.testing.expectEqual(&a.b, b_ptr);
+                try std.testing.expect(&a.b == b_ptr);
                 const a_ptr: *const A = @fieldParentPtr("b", b_ptr);
-                try std.testing.expectEqual(&a, a_ptr);
+                try std.testing.expect(&a == a_ptr);
             }
             {
                 var a = A{ .u = 0 };
                 const c_ptr = &a.b.c;
                 const b_ptr: @TypeOf(&a.b) = @fieldParentPtr("c", c_ptr);
-                try std.testing.expectEqual(&a.b, b_ptr);
+                try std.testing.expect(&a.b == b_ptr);
                 const a_ptr: *const A = @fieldParentPtr("b", b_ptr);
-                try std.testing.expectEqual(&a, a_ptr);
+                try std.testing.expect(&a == a_ptr);
             }
         }
         fn doTheTest() !void {
@@ -1408,10 +1408,10 @@ test "struct has only one reference" {
     const pointer_nested_pointer_packed_struct: *const anyopaque = &S.pointerNestedPointerPackedStruct;
     try expect(pointer_nested_packed_struct != pointer_nested_pointer_packed_struct);
 
-    try expectEqual(@alignOf(struct {}), S.optionalComptimeIntParam(@alignOf(struct {})));
-    try expectEqual(@alignOf(struct { x: u8 }), S.errorUnionComptimeIntParam(@alignOf(struct { x: u8 })));
-    try expectEqual(@sizeOf(struct { x: u16 }), S.optionalComptimeIntParam(@sizeOf(struct { x: u16 })));
-    try expectEqual(@sizeOf(struct { x: u32 }), S.errorUnionComptimeIntParam(@sizeOf(struct { x: u32 })));
+    try expect(@alignOf(struct {}) == S.optionalComptimeIntParam(@alignOf(struct {})));
+    try expect(@alignOf(struct { x: u8 }) == S.errorUnionComptimeIntParam(@alignOf(struct { x: u8 })));
+    try expect(@sizeOf(struct { x: u16 }) == S.optionalComptimeIntParam(@sizeOf(struct { x: u16 })));
+    try expect(@sizeOf(struct { x: u32 }) == S.errorUnionComptimeIntParam(@sizeOf(struct { x: u32 })));
 }
 
 test "no dependency loop on pointer to optional struct" {
@@ -1597,9 +1597,9 @@ test "struct field pointer has correct alignment" {
             comptime assert(@TypeOf(bp) == *align(1) u32);
             comptime assert(@TypeOf(cp) == *u32); // undefined layout, cannot inherit larger alignment
 
-            try expectEqual(@as(u32, 123), ap.*);
-            try expectEqual(@as(u32, 456), bp.*);
-            try expectEqual(@as(u32, 789), cp.*);
+            try expect(@as(u32, 123) == ap.*);
+            try expect(@as(u32, 456) == bp.*);
+            try expect(@as(u32, 789) == cp.*);
         }
     };
 
@@ -1634,13 +1634,13 @@ test "extern struct field pointer has correct alignment" {
             comptime assert(@TypeOf(byp) == *align(1) u16);
             comptime assert(@TypeOf(cyp) == *align(@alignOf(u32)) u16);
 
-            try expectEqual(@as(u32, 1), axp.*);
-            try expectEqual(@as(u32, 3), bxp.*);
-            try expectEqual(@as(u32, 5), cxp.*);
+            try expect(@as(u32, 1) == axp.*);
+            try expect(@as(u32, 3) == bxp.*);
+            try expect(@as(u32, 5) == cxp.*);
 
-            try expectEqual(@as(u16, 2), ayp.*);
-            try expectEqual(@as(u16, 4), byp.*);
-            try expectEqual(@as(u16, 6), cyp.*);
+            try expect(@as(u16, 2) == ayp.*);
+            try expect(@as(u16, 4) == byp.*);
+            try expect(@as(u16, 6) == cyp.*);
         }
     };
 
@@ -1695,7 +1695,7 @@ test "runtime side-effects in comptime-known struct init" {
         },
     };
     try expectEqual(S{ .a = 1, .b = 2, .c = 4, .d = 8 }, init);
-    try expectEqual(@as(u4, std.math.maxInt(u4)), side_effects);
+    try expect(@as(u4, std.math.maxInt(u4)) == side_effects);
 }
 
 test "pointer to struct initialized through reference to anonymous initializer provides result types" {
@@ -1732,7 +1732,7 @@ test "comptimeness of optional and error union payload is analyzed properly" {
     const C = struct { x: comptime_int };
     const c: anyerror!?C = .{ .x = 3 };
     const x = (try c).?.x;
-    try std.testing.expectEqual(3, x);
+    try std.testing.expect(3 == x);
 }
 
 test "initializer uses own alignment" {
@@ -1742,8 +1742,8 @@ test "initializer uses own alignment" {
 
     var s: S = .{};
     _ = &s;
-    try expectEqual(4, @alignOf(S));
-    try expectEqual(@as(usize, 5), s.x);
+    try expect(4 == @alignOf(S));
+    try expect(@as(usize, 5) == s.x);
 }
 
 test "initializer uses own size" {
@@ -1753,8 +1753,8 @@ test "initializer uses own size" {
 
     var s: S = .{};
     _ = &s;
-    try expectEqual(4, @sizeOf(S));
-    try expectEqual(@as(usize, 5), s.x);
+    try expect(4 == @sizeOf(S));
+    try expect(@as(usize, 5) == s.x);
 }
 
 test "initializer takes a pointer to a variable inside its struct" {
@@ -1769,7 +1769,7 @@ test "initializer takes a pointer to a variable inside its struct" {
         fn doTheTest() !void {
             var foo: S = .{};
             _ = &foo;
-            try expectEqual(&S.instance, foo.s);
+            try expect(&S.instance == foo.s);
         }
     };
 
@@ -1840,8 +1840,8 @@ test "extern struct fields are aligned to 1" {
         .a = 1,
         .b = 2,
     };
-    try std.testing.expectEqual(1, foo.a);
-    try std.testing.expectEqual(2, foo.b);
+    try std.testing.expect(1 == foo.a);
+    try std.testing.expect(2 == foo.b);
 }
 
 test "assign to slice.len of global variable" {
@@ -1939,7 +1939,7 @@ test "runtime value in nested initializer passed as pointer to function" {
         a: Bar,
 
         fn takeFoo(foo: *const @This()) !void {
-            try std.testing.expectEqual(@as(u32, 24), foo.a.b);
+            try std.testing.expect(@as(u32, 24) == foo.a.b);
         }
     };
 
@@ -1980,8 +1980,8 @@ test "struct field default value is a call" {
     };
 
     const x = X{};
-    try std.testing.expectEqual(@as(u16, 0), x.y.a);
-    try std.testing.expectEqual(false, x.y.b);
+    try std.testing.expect(@as(u16, 0) == x.y.a);
+    try std.testing.expect(false == x.y.b);
     try std.testing.expectEqual(Z{ .a = 0 }, x.y.c);
     try std.testing.expectEqual(Z{ .a = 0 }, x.y.d);
 }

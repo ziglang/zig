@@ -113,5 +113,5 @@ test "including the sentinel when dereferencing a string literal" {
     const const_derefed = const_str[0 .. const_str.len + 1].*;
 
     try std.testing.expectEqualSlices(u8, &var_derefed, &const_derefed);
-    try std.testing.expectEqual(0, const_derefed[3]);
+    try std.testing.expect(0 == const_derefed[3]);
 }

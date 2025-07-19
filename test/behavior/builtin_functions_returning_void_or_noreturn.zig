@@ -1,6 +1,6 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
+const builtin = @import("builtin");
 
 var x: u8 = 1;
 
@@ -13,15 +13,15 @@ test {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var val: u8 = undefined;
-    try testing.expectEqual({}, @atomicStore(u8, &val, 0, .unordered));
-    try testing.expectEqual(void, @TypeOf(@breakpoint()));
-    try testing.expectEqual({}, @export(&x, .{ .name = "x" }));
-    try testing.expectEqual({}, @memcpy(@as([*]u8, @ptrFromInt(1))[0..0], @as([*]u8, @ptrFromInt(1))[0..0]));
-    try testing.expectEqual({}, @memmove(@as([*]u8, @ptrFromInt(1))[0..0], @as([*]u8, @ptrFromInt(1))[0..0]));
-    try testing.expectEqual({}, @memset(@as([*]u8, @ptrFromInt(1))[0..0], undefined));
-    try testing.expectEqual(noreturn, @TypeOf(if (true) @panic("") else {}));
-    try testing.expectEqual({}, @prefetch(&val, .{}));
-    try testing.expectEqual({}, @setEvalBranchQuota(0));
-    try testing.expectEqual({}, @setFloatMode(.optimized));
-    try testing.expectEqual({}, @setRuntimeSafety(true));
+    try testing.expect({} == @atomicStore(u8, &val, 0, .unordered));
+    try testing.expect(void == @TypeOf(@breakpoint()));
+    try testing.expect({} == @export(&x, .{ .name = "x" }));
+    try testing.expect({} == @memcpy(@as([*]u8, @ptrFromInt(1))[0..0], @as([*]u8, @ptrFromInt(1))[0..0]));
+    try testing.expect({} == @memmove(@as([*]u8, @ptrFromInt(1))[0..0], @as([*]u8, @ptrFromInt(1))[0..0]));
+    try testing.expect({} == @memset(@as([*]u8, @ptrFromInt(1))[0..0], undefined));
+    try testing.expect(noreturn == @TypeOf(if (true) @panic("") else {}));
+    try testing.expect({} == @prefetch(&val, .{}));
+    try testing.expect({} == @setEvalBranchQuota(0));
+    try testing.expect({} == @setFloatMode(.optimized));
+    try testing.expect({} == @setRuntimeSafety(true));
 }

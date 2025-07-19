@@ -1,4 +1,3 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
@@ -6,6 +5,7 @@ const expectError = std.testing.expectError;
 const expectEqual = std.testing.expectEqual;
 const minInt = std.math.minInt;
 const maxInt = std.math.maxInt;
+const builtin = @import("builtin");
 
 test "switch with numbers" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -752,7 +752,7 @@ test "switch capture copies its payload" {
                 .A => |value| {
                     // Modify the original union
                     tmp = .{ .B = 0x10101010 };
-                    try expectEqual(@as(u8, 42), value);
+                    try expect(@as(u8, 42) == value);
                 },
                 else => unreachable,
             }
@@ -827,7 +827,7 @@ test "comptime inline switch" {
         };
     };
 
-    try expectEqual(u32, value);
+    try expect(u32 == value);
 }
 
 test "switch capture peer type resolution" {
@@ -843,8 +843,8 @@ test "switch capture peer type resolution" {
         }
     };
 
-    try expectEqual(@as(u64, 100), U.innerVal(.{ .a = 100 }));
-    try expectEqual(@as(u64, 200), U.innerVal(.{ .b = 200 }));
+    try expect(@as(u64, 100) == U.innerVal(.{ .a = 100 }));
+    try expect(@as(u64, 200) == U.innerVal(.{ .b = 200 }));
 }
 
 test "switch capture peer type resolution for in-memory coercible payloads" {
@@ -863,8 +863,8 @@ test "switch capture peer type resolution for in-memory coercible payloads" {
         }
     };
 
-    try expectEqual(@as(c_int, 100), U.innerVal(.{ .a = 100 }));
-    try expectEqual(@as(c_int, 200), U.innerVal(.{ .b = 200 }));
+    try expect(@as(c_int, 100) == U.innerVal(.{ .a = 100 }));
+    try expect(@as(c_int, 200) == U.innerVal(.{ .b = 200 }));
 }
 
 test "switch pointer capture peer type resolution" {
@@ -897,8 +897,8 @@ test "inline switch range that includes the maximum value of the switched type" 
     const inputs: [3]u8 = .{ 0, 254, 255 };
     for (inputs) |input| {
         switch (input) {
-            inline 254...255 => |val| try expectEqual(input, val),
-            else => |val| try expectEqual(input, val),
+            inline 254...255 => |val| try expect(input == val),
+            else => |val| try expect(input == val),
         }
     }
 }

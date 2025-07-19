@@ -1,8 +1,9 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const builtin = @import("builtin");
+
 const native_endian = builtin.cpu.arch.endian();
 
 test "flags in packed structs" {
@@ -32,8 +33,8 @@ test "flags in packed structs" {
         _: u9,
     };
 
-    try expectEqual(@sizeOf(u24), @sizeOf(Flags1));
-    try expectEqual(24, @bitSizeOf(Flags1));
+    try expect(@sizeOf(u24) == @sizeOf(Flags1));
+    try expect(24 == @bitSizeOf(Flags1));
 
     const Flags2 = packed struct {
         // byte 0
@@ -59,8 +60,8 @@ test "flags in packed structs" {
         _: u10,
     };
 
-    try expectEqual(@sizeOf(u25), @sizeOf(Flags2));
-    try expectEqual(25, @bitSizeOf(Flags2));
+    try expect(@sizeOf(u25) == @sizeOf(Flags2));
+    try expect(25 == @bitSizeOf(Flags2));
 
     const Flags3 = packed struct {
         // byte 0
@@ -87,8 +88,8 @@ test "flags in packed structs" {
         _: u16, // it works, if the padding is 8-based
     };
 
-    try expectEqual(@sizeOf(u32), @sizeOf(Flags3));
-    try expectEqual(32, @bitSizeOf(Flags3));
+    try expect(@sizeOf(u32) == @sizeOf(Flags3));
+    try expect(32 == @bitSizeOf(Flags3));
 }
 
 test "consistent size of packed structs" {
@@ -100,11 +101,11 @@ test "consistent size of packed structs" {
     const register_size_bits = 32;
     const register_size_bytes = @sizeOf(u32);
 
-    try expectEqual(register_size_bits, @bitSizeOf(TxData1));
-    try expectEqual(register_size_bytes, @sizeOf(TxData1));
+    try expect(register_size_bits == @bitSizeOf(TxData1));
+    try expect(register_size_bytes == @sizeOf(TxData1));
 
-    try expectEqual(register_size_bits, @bitSizeOf(TxData2));
-    try expectEqual(register_size_bytes, @sizeOf(TxData2));
+    try expect(register_size_bits == @bitSizeOf(TxData2));
+    try expect(register_size_bytes == @sizeOf(TxData2));
 
     const TxData4 = packed struct { a: u32, b: u24 };
     const TxData6 = packed struct { a: u24, b: u32 };
@@ -112,11 +113,11 @@ test "consistent size of packed structs" {
     const expectedBitSize = 56;
     const expectedByteSize = @sizeOf(u56);
 
-    try expectEqual(expectedBitSize, @bitSizeOf(TxData4));
-    try expectEqual(expectedByteSize, @sizeOf(TxData4));
+    try expect(expectedBitSize == @bitSizeOf(TxData4));
+    try expect(expectedByteSize == @sizeOf(TxData4));
 
-    try expectEqual(expectedBitSize, @bitSizeOf(TxData6));
-    try expectEqual(expectedByteSize, @sizeOf(TxData6));
+    try expect(expectedBitSize == @bitSizeOf(TxData6));
+    try expect(expectedByteSize == @sizeOf(TxData6));
 }
 
 test "correct sizeOf and offsets in packed structs" {
@@ -138,51 +139,51 @@ test "correct sizeOf and offsets in packed structs" {
         u10_a: u10,
         u10_b: u10,
     };
-    try expectEqual(0, @offsetOf(PStruct, "bool_a"));
-    try expectEqual(0, @bitOffsetOf(PStruct, "bool_a"));
-    try expectEqual(0, @offsetOf(PStruct, "bool_b"));
-    try expectEqual(1, @bitOffsetOf(PStruct, "bool_b"));
-    try expectEqual(0, @offsetOf(PStruct, "bool_c"));
-    try expectEqual(2, @bitOffsetOf(PStruct, "bool_c"));
-    try expectEqual(0, @offsetOf(PStruct, "bool_d"));
-    try expectEqual(3, @bitOffsetOf(PStruct, "bool_d"));
-    try expectEqual(0, @offsetOf(PStruct, "bool_e"));
-    try expectEqual(4, @bitOffsetOf(PStruct, "bool_e"));
-    try expectEqual(0, @offsetOf(PStruct, "bool_f"));
-    try expectEqual(5, @bitOffsetOf(PStruct, "bool_f"));
-    try expectEqual(0, @offsetOf(PStruct, "u1_a"));
-    try expectEqual(6, @bitOffsetOf(PStruct, "u1_a"));
-    try expectEqual(0, @offsetOf(PStruct, "bool_g"));
-    try expectEqual(7, @bitOffsetOf(PStruct, "bool_g"));
-    try expectEqual(1, @offsetOf(PStruct, "u1_b"));
-    try expectEqual(8, @bitOffsetOf(PStruct, "u1_b"));
-    try expectEqual(1, @offsetOf(PStruct, "u3_a"));
-    try expectEqual(9, @bitOffsetOf(PStruct, "u3_a"));
-    try expectEqual(1, @offsetOf(PStruct, "u10_a"));
-    try expectEqual(12, @bitOffsetOf(PStruct, "u10_a"));
-    try expectEqual(2, @offsetOf(PStruct, "u10_b"));
-    try expectEqual(22, @bitOffsetOf(PStruct, "u10_b"));
-    try expectEqual(4, @sizeOf(PStruct));
+    try expect(0 == @offsetOf(PStruct, "bool_a"));
+    try expect(0 == @bitOffsetOf(PStruct, "bool_a"));
+    try expect(0 == @offsetOf(PStruct, "bool_b"));
+    try expect(1 == @bitOffsetOf(PStruct, "bool_b"));
+    try expect(0 == @offsetOf(PStruct, "bool_c"));
+    try expect(2 == @bitOffsetOf(PStruct, "bool_c"));
+    try expect(0 == @offsetOf(PStruct, "bool_d"));
+    try expect(3 == @bitOffsetOf(PStruct, "bool_d"));
+    try expect(0 == @offsetOf(PStruct, "bool_e"));
+    try expect(4 == @bitOffsetOf(PStruct, "bool_e"));
+    try expect(0 == @offsetOf(PStruct, "bool_f"));
+    try expect(5 == @bitOffsetOf(PStruct, "bool_f"));
+    try expect(0 == @offsetOf(PStruct, "u1_a"));
+    try expect(6 == @bitOffsetOf(PStruct, "u1_a"));
+    try expect(0 == @offsetOf(PStruct, "bool_g"));
+    try expect(7 == @bitOffsetOf(PStruct, "bool_g"));
+    try expect(1 == @offsetOf(PStruct, "u1_b"));
+    try expect(8 == @bitOffsetOf(PStruct, "u1_b"));
+    try expect(1 == @offsetOf(PStruct, "u3_a"));
+    try expect(9 == @bitOffsetOf(PStruct, "u3_a"));
+    try expect(1 == @offsetOf(PStruct, "u10_a"));
+    try expect(12 == @bitOffsetOf(PStruct, "u10_a"));
+    try expect(2 == @offsetOf(PStruct, "u10_b"));
+    try expect(22 == @bitOffsetOf(PStruct, "u10_b"));
+    try expect(4 == @sizeOf(PStruct));
 
     if (native_endian == .little) {
         const s1 = @as(PStruct, @bitCast(@as(u32, 0x12345678)));
-        try expectEqual(false, s1.bool_a);
-        try expectEqual(false, s1.bool_b);
-        try expectEqual(false, s1.bool_c);
-        try expectEqual(true, s1.bool_d);
-        try expectEqual(true, s1.bool_e);
-        try expectEqual(true, s1.bool_f);
-        try expectEqual(1, s1.u1_a);
-        try expectEqual(false, s1.bool_g);
-        try expectEqual(0, s1.u1_b);
-        try expectEqual(3, s1.u3_a);
-        try expectEqual(0b1101000101, s1.u10_a);
-        try expectEqual(0b0001001000, s1.u10_b);
+        try expect(false == s1.bool_a);
+        try expect(false == s1.bool_b);
+        try expect(false == s1.bool_c);
+        try expect(true == s1.bool_d);
+        try expect(true == s1.bool_e);
+        try expect(true == s1.bool_f);
+        try expect(1 == s1.u1_a);
+        try expect(false == s1.bool_g);
+        try expect(0 == s1.u1_b);
+        try expect(3 == s1.u3_a);
+        try expect(0b1101000101 == s1.u10_a);
+        try expect(0b0001001000 == s1.u10_b);
 
         const s2 = @as(packed struct { x: u1, y: u7, z: u24 }, @bitCast(@as(u32, 0xd5c71ff4)));
-        try expectEqual(0, s2.x);
-        try expectEqual(0b1111010, s2.y);
-        try expectEqual(0xd5c71f, s2.z);
+        try expect(0 == s2.x);
+        try expect(0b1111010 == s2.y);
+        try expect(0xd5c71f == s2.z);
     }
 }
 
@@ -198,20 +199,20 @@ test "nested packed structs" {
     const S3 = packed struct { x: S1, y: S2 };
     const S3Padded = packed struct { s3: S3, pad: u16 };
 
-    try expectEqual(48, @bitSizeOf(S3));
-    try expectEqual(@sizeOf(u48), @sizeOf(S3));
+    try expect(48 == @bitSizeOf(S3));
+    try expect(@sizeOf(u48) == @sizeOf(S3));
 
-    try expectEqual(3, @offsetOf(S3, "y"));
-    try expectEqual(24, @bitOffsetOf(S3, "y"));
+    try expect(3 == @offsetOf(S3, "y"));
+    try expect(24 == @bitOffsetOf(S3, "y"));
 
     if (native_endian == .little) {
         const s3 = @as(S3Padded, @bitCast(@as(u64, 0xe952d5c71ff4))).s3;
-        try expectEqual(0xf4, s3.x.a);
-        try expectEqual(0x1f, s3.x.b);
-        try expectEqual(0xc7, s3.x.c);
-        try expectEqual(0xd5, s3.y.d);
-        try expectEqual(0x52, s3.y.e);
-        try expectEqual(0xe9, s3.y.f);
+        try expect(0xf4 == s3.x.a);
+        try expect(0x1f == s3.x.b);
+        try expect(0xc7 == s3.x.c);
+        try expect(0xd5 == s3.y.d);
+        try expect(0x52 == s3.y.e);
+        try expect(0xe9 == s3.y.f);
     }
 
     const S4 = packed struct { a: i32, b: i8 };
@@ -220,15 +221,15 @@ test "nested packed structs" {
 
     const expectedBitSize = 80;
     const expectedByteSize = @sizeOf(u80);
-    try expectEqual(expectedBitSize, @bitSizeOf(S5));
-    try expectEqual(expectedByteSize, @sizeOf(S5));
-    try expectEqual(expectedBitSize, @bitSizeOf(S6));
-    try expectEqual(expectedByteSize, @sizeOf(S6));
+    try expect(expectedBitSize == @bitSizeOf(S5));
+    try expect(expectedByteSize == @sizeOf(S5));
+    try expect(expectedBitSize == @bitSizeOf(S6));
+    try expect(expectedByteSize == @sizeOf(S6));
 
-    try expectEqual(5, @offsetOf(S5, "c"));
-    try expectEqual(40, @bitOffsetOf(S5, "c"));
-    try expectEqual(9, @offsetOf(S6, "c"));
-    try expectEqual(72, @bitOffsetOf(S6, "c"));
+    try expect(5 == @offsetOf(S5, "c"));
+    try expect(40 == @bitOffsetOf(S5, "c"));
+    try expect(9 == @offsetOf(S6, "c"));
+    try expect(72 == @bitOffsetOf(S6, "c"));
 }
 
 test "regular in irregular packed struct" {
@@ -247,8 +248,8 @@ test "regular in irregular packed struct" {
     foo.bar.a = 235;
     foo.bar.b = 42;
 
-    try expectEqual(235, foo.bar.a);
-    try expectEqual(42, foo.bar.b);
+    try expect(235 == foo.bar.a);
+    try expect(42 == foo.bar.b);
 }
 
 test "nested packed struct unaligned" {
@@ -454,12 +455,12 @@ test "nested packed struct field pointers" {
     const ptr_p0_c = &S2.s.p0.c;
     const ptr_p1_a = &S2.s.p1.a;
     const ptr_p1_b = &S2.s.p1.b;
-    try expectEqual(1, ptr_base.*);
-    try expectEqual(2, ptr_p0_a.*);
-    try expectEqual(3, ptr_p0_b.*);
-    try expectEqual(4, ptr_p0_c.*);
-    try expectEqual(5, ptr_p1_a.*);
-    try expectEqual(6, ptr_p1_b.*);
+    try expect(1 == ptr_base.*);
+    try expect(2 == ptr_p0_a.*);
+    try expect(3 == ptr_p0_b.*);
+    try expect(4 == ptr_p0_c.*);
+    try expect(5 == ptr_p1_a.*);
+    try expect(6 == ptr_p1_b.*);
 }
 
 test "load pointer from packed struct" {
@@ -688,15 +689,15 @@ test "nested packed struct field access test" {
         .y = 2.0,
     };
 
-    try std.testing.expectEqual(vec2.x, 1.0);
-    try std.testing.expectEqual(vec2.y, 2.0);
+    try std.testing.expect(vec2.x == 1.0);
+    try std.testing.expect(vec2.y == 2.0);
 
     var vec2_o: Vec2 = undefined;
     const vec2_o_ptr: *Vec2 = &vec2_o;
     vec2_o_ptr.* = vec2;
 
-    try std.testing.expectEqual(vec2_o.x, 1.0);
-    try std.testing.expectEqual(vec2_o.y, 2.0);
+    try std.testing.expect(vec2_o.x == 1.0);
+    try std.testing.expect(vec2_o.y == 2.0);
 
     const nested_vec2 = NestedVec2{
         .nested = Vec2{
@@ -705,15 +706,15 @@ test "nested packed struct field access test" {
         },
     };
 
-    try std.testing.expectEqual(nested_vec2.nested.x, 1.0);
-    try std.testing.expectEqual(nested_vec2.nested.y, 2.0);
+    try std.testing.expect(nested_vec2.nested.x == 1.0);
+    try std.testing.expect(nested_vec2.nested.y == 2.0);
 
     var nested_o: NestedVec2 = undefined;
     const nested_o_ptr: *NestedVec2 = &nested_o;
     nested_o_ptr.* = nested_vec2;
 
-    try std.testing.expectEqual(nested_o.nested.x, 1.0);
-    try std.testing.expectEqual(nested_o.nested.y, 2.0);
+    try std.testing.expect(nested_o.nested.x == 1.0);
+    try std.testing.expect(nested_o.nested.y == 2.0);
 
     const vec3 = Vec3{
         .x = 1.0,
@@ -721,17 +722,17 @@ test "nested packed struct field access test" {
         .z = 3.0,
     };
 
-    try std.testing.expectEqual(vec3.x, 1.0);
-    try std.testing.expectEqual(vec3.y, 2.0);
-    try std.testing.expectEqual(vec3.z, 3.0);
+    try std.testing.expect(vec3.x == 1.0);
+    try std.testing.expect(vec3.y == 2.0);
+    try std.testing.expect(vec3.z == 3.0);
 
     var vec3_o: Vec3 = undefined;
     const vec3_o_ptr: *Vec3 = &vec3_o;
     vec3_o_ptr.* = vec3;
 
-    try std.testing.expectEqual(vec3_o.x, 1.0);
-    try std.testing.expectEqual(vec3_o.y, 2.0);
-    try std.testing.expectEqual(vec3_o.z, 3.0);
+    try std.testing.expect(vec3_o.x == 1.0);
+    try std.testing.expect(vec3_o.y == 2.0);
+    try std.testing.expect(vec3_o.z == 3.0);
 
     const nested_vec3 = NestedVec3{
         .nested = Vec3{
@@ -741,17 +742,17 @@ test "nested packed struct field access test" {
         },
     };
 
-    try std.testing.expectEqual(nested_vec3.nested.x, 1.0);
-    try std.testing.expectEqual(nested_vec3.nested.y, 2.0);
-    try std.testing.expectEqual(nested_vec3.nested.z, 3.0);
+    try std.testing.expect(nested_vec3.nested.x == 1.0);
+    try std.testing.expect(nested_vec3.nested.y == 2.0);
+    try std.testing.expect(nested_vec3.nested.z == 3.0);
 
     var nested_vec3_o: NestedVec3 = undefined;
     const nested_vec3_o_ptr: *NestedVec3 = &nested_vec3_o;
     nested_vec3_o_ptr.* = nested_vec3;
 
-    try std.testing.expectEqual(nested_vec3_o.nested.x, 1.0);
-    try std.testing.expectEqual(nested_vec3_o.nested.y, 2.0);
-    try std.testing.expectEqual(nested_vec3_o.nested.z, 3.0);
+    try std.testing.expect(nested_vec3_o.nested.x == 1.0);
+    try std.testing.expect(nested_vec3_o.nested.y == 2.0);
+    try std.testing.expect(nested_vec3_o.nested.z == 3.0);
 
     const hld = packed struct {
         c: u64,
@@ -983,7 +984,7 @@ test "store undefined to packed result location" {
     var x: u4 = 0;
     _ = &x;
     const s = packed struct { x: u4, y: u4 }{ .x = x, .y = if (x > 0) x else undefined };
-    try expectEqual(x, s.x);
+    try expect(x == s.x);
 }
 
 test "bitcast back and forth" {
@@ -1036,12 +1037,12 @@ test "modify nested packed struct aligned field" {
 
     var opts = Options{};
     opts.pretty_print.indent += 1;
-    try std.testing.expectEqual(0b00000000100100000, @as(u17, @bitCast(opts)));
+    try std.testing.expect(0b00000000100100000 == @as(u17, @bitCast(opts)));
     try std.testing.expect(!opts.foo);
     try std.testing.expect(!opts.bar);
     try std.testing.expect(!opts.pretty_print.enabled);
-    try std.testing.expectEqual(4, opts.pretty_print.num_spaces);
-    try std.testing.expectEqual(1, opts.pretty_print.indent);
+    try std.testing.expect(4 == opts.pretty_print.num_spaces);
+    try std.testing.expect(1 == opts.pretty_print.indent);
     try std.testing.expect(!opts.baz);
 }
 
@@ -1377,8 +1378,8 @@ test "packed struct store of comparison result" {
 
     var A: S1 = .{ .val1 = 1, .val2 = 1 };
     A.val2 += 1;
-    try expectEqual(1, A.val1);
-    try expectEqual(2, A.val2);
+    try expect(1 == A.val1);
+    try expect(2 == A.val2);
     try expect((A.val2 & 1) != 1);
     const result1: S2 = .{ .a = (A.val2 & 1) != 1, .b = (A.val1 & 1) != 1 };
     try expect(result1.a);

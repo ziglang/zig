@@ -1,8 +1,8 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const Type = std.builtin.Type;
 const testing = std.testing;
 const assert = std.debug.assert;
+const builtin = @import("builtin");
 
 fn testTypes(comptime types: []const type) !void {
     inline for (types) |testType| {
@@ -265,85 +265,85 @@ test "Type.Struct" {
 
     const A = @Type(@typeInfo(struct { x: u8, y: u32 }));
     const infoA = @typeInfo(A).@"struct";
-    try testing.expectEqual(Type.ContainerLayout.auto, infoA.layout);
+    try testing.expect(Type.ContainerLayout.auto == infoA.layout);
     try testing.expectEqualSlices(u8, "x", infoA.fields[0].name);
-    try testing.expectEqual(u8, infoA.fields[0].type);
-    try testing.expectEqual(@as(?*const anyopaque, null), infoA.fields[0].default_value_ptr);
+    try testing.expect(u8 == infoA.fields[0].type);
+    try testing.expect(@as(?*const anyopaque, null) == infoA.fields[0].default_value_ptr);
     try testing.expectEqualSlices(u8, "y", infoA.fields[1].name);
-    try testing.expectEqual(u32, infoA.fields[1].type);
-    try testing.expectEqual(@as(?*const anyopaque, null), infoA.fields[1].default_value_ptr);
+    try testing.expect(u32 == infoA.fields[1].type);
+    try testing.expect(@as(?*const anyopaque, null) == infoA.fields[1].default_value_ptr);
     try testing.expectEqualSlices(Type.Declaration, &.{}, infoA.decls);
-    try testing.expectEqual(@as(bool, false), infoA.is_tuple);
+    try testing.expect(@as(bool, false) == infoA.is_tuple);
 
     var a = A{ .x = 0, .y = 1 };
-    try testing.expectEqual(@as(u8, 0), a.x);
-    try testing.expectEqual(@as(u32, 1), a.y);
+    try testing.expect(@as(u8, 0) == a.x);
+    try testing.expect(@as(u32, 1) == a.y);
     a.y += 1;
-    try testing.expectEqual(@as(u32, 2), a.y);
+    try testing.expect(@as(u32, 2) == a.y);
 
     const B = @Type(@typeInfo(extern struct { x: u8, y: u32 = 5 }));
     const infoB = @typeInfo(B).@"struct";
-    try testing.expectEqual(Type.ContainerLayout.@"extern", infoB.layout);
+    try testing.expect(Type.ContainerLayout.@"extern" == infoB.layout);
     try testing.expectEqualSlices(u8, "x", infoB.fields[0].name);
-    try testing.expectEqual(u8, infoB.fields[0].type);
-    try testing.expectEqual(@as(?*const anyopaque, null), infoB.fields[0].default_value_ptr);
+    try testing.expect(u8 == infoB.fields[0].type);
+    try testing.expect(@as(?*const anyopaque, null) == infoB.fields[0].default_value_ptr);
     try testing.expectEqualSlices(u8, "y", infoB.fields[1].name);
-    try testing.expectEqual(u32, infoB.fields[1].type);
-    try testing.expectEqual(@as(u32, 5), infoB.fields[1].defaultValue().?);
-    try testing.expectEqual(@as(usize, 0), infoB.decls.len);
-    try testing.expectEqual(@as(bool, false), infoB.is_tuple);
+    try testing.expect(u32 == infoB.fields[1].type);
+    try testing.expect(@as(u32, 5) == infoB.fields[1].defaultValue().?);
+    try testing.expect(@as(usize, 0) == infoB.decls.len);
+    try testing.expect(@as(bool, false) == infoB.is_tuple);
 
     const C = @Type(@typeInfo(packed struct { x: u8 = 3, y: u32 = 5 }));
     const infoC = @typeInfo(C).@"struct";
-    try testing.expectEqual(Type.ContainerLayout.@"packed", infoC.layout);
+    try testing.expect(Type.ContainerLayout.@"packed" == infoC.layout);
     try testing.expectEqualSlices(u8, "x", infoC.fields[0].name);
-    try testing.expectEqual(u8, infoC.fields[0].type);
-    try testing.expectEqual(@as(u8, 3), infoC.fields[0].defaultValue().?);
+    try testing.expect(u8 == infoC.fields[0].type);
+    try testing.expect(@as(u8, 3) == infoC.fields[0].defaultValue().?);
     try testing.expectEqualSlices(u8, "y", infoC.fields[1].name);
-    try testing.expectEqual(u32, infoC.fields[1].type);
-    try testing.expectEqual(@as(u32, 5), infoC.fields[1].defaultValue().?);
-    try testing.expectEqual(@as(usize, 0), infoC.decls.len);
-    try testing.expectEqual(@as(bool, false), infoC.is_tuple);
+    try testing.expect(u32 == infoC.fields[1].type);
+    try testing.expect(@as(u32, 5) == infoC.fields[1].defaultValue().?);
+    try testing.expect(@as(usize, 0) == infoC.decls.len);
+    try testing.expect(@as(bool, false) == infoC.is_tuple);
 
     // anon structs
     const D = @Type(@typeInfo(@TypeOf(.{ .x = 3, .y = 5 })));
     const infoD = @typeInfo(D).@"struct";
-    try testing.expectEqual(Type.ContainerLayout.auto, infoD.layout);
+    try testing.expect(Type.ContainerLayout.auto == infoD.layout);
     try testing.expectEqualSlices(u8, "x", infoD.fields[0].name);
-    try testing.expectEqual(comptime_int, infoD.fields[0].type);
-    try testing.expectEqual(@as(comptime_int, 3), infoD.fields[0].defaultValue().?);
+    try testing.expect(comptime_int == infoD.fields[0].type);
+    try testing.expect(@as(comptime_int, 3) == infoD.fields[0].defaultValue().?);
     try testing.expectEqualSlices(u8, "y", infoD.fields[1].name);
-    try testing.expectEqual(comptime_int, infoD.fields[1].type);
-    try testing.expectEqual(@as(comptime_int, 5), infoD.fields[1].defaultValue().?);
-    try testing.expectEqual(@as(usize, 0), infoD.decls.len);
-    try testing.expectEqual(@as(bool, false), infoD.is_tuple);
+    try testing.expect(comptime_int == infoD.fields[1].type);
+    try testing.expect(@as(comptime_int, 5) == infoD.fields[1].defaultValue().?);
+    try testing.expect(@as(usize, 0) == infoD.decls.len);
+    try testing.expect(@as(bool, false) == infoD.is_tuple);
 
     // tuples
     const E = @Type(@typeInfo(@TypeOf(.{ 1, 2 })));
     const infoE = @typeInfo(E).@"struct";
-    try testing.expectEqual(Type.ContainerLayout.auto, infoE.layout);
+    try testing.expect(Type.ContainerLayout.auto == infoE.layout);
     try testing.expectEqualSlices(u8, "0", infoE.fields[0].name);
-    try testing.expectEqual(comptime_int, infoE.fields[0].type);
-    try testing.expectEqual(@as(comptime_int, 1), infoE.fields[0].defaultValue().?);
+    try testing.expect(comptime_int == infoE.fields[0].type);
+    try testing.expect(@as(comptime_int, 1) == infoE.fields[0].defaultValue().?);
     try testing.expectEqualSlices(u8, "1", infoE.fields[1].name);
-    try testing.expectEqual(comptime_int, infoE.fields[1].type);
-    try testing.expectEqual(@as(comptime_int, 2), infoE.fields[1].defaultValue().?);
-    try testing.expectEqual(@as(usize, 0), infoE.decls.len);
-    try testing.expectEqual(@as(bool, true), infoE.is_tuple);
+    try testing.expect(comptime_int == infoE.fields[1].type);
+    try testing.expect(@as(comptime_int, 2) == infoE.fields[1].defaultValue().?);
+    try testing.expect(@as(usize, 0) == infoE.decls.len);
+    try testing.expect(@as(bool, true) == infoE.is_tuple);
 
     // empty struct
     const F = @Type(@typeInfo(struct {}));
     const infoF = @typeInfo(F).@"struct";
-    try testing.expectEqual(Type.ContainerLayout.auto, infoF.layout);
+    try testing.expect(Type.ContainerLayout.auto == infoF.layout);
     try testing.expect(infoF.fields.len == 0);
-    try testing.expectEqual(@as(bool, false), infoF.is_tuple);
+    try testing.expect(@as(bool, false) == infoF.is_tuple);
 
     // empty tuple
     const G = @Type(@typeInfo(@TypeOf(.{})));
     const infoG = @typeInfo(G).@"struct";
-    try testing.expectEqual(Type.ContainerLayout.auto, infoG.layout);
+    try testing.expect(Type.ContainerLayout.auto == infoG.layout);
     try testing.expect(infoG.fields.len == 0);
-    try testing.expectEqual(@as(bool, true), infoG.is_tuple);
+    try testing.expect(@as(bool, true) == infoG.is_tuple);
 }
 
 test "Type.Enum" {
@@ -362,9 +362,9 @@ test "Type.Enum" {
             .is_exhaustive = true,
         },
     });
-    try testing.expectEqual(true, @typeInfo(Foo).@"enum".is_exhaustive);
-    try testing.expectEqual(@as(u8, 1), @intFromEnum(Foo.a));
-    try testing.expectEqual(@as(u8, 5), @intFromEnum(Foo.b));
+    try testing.expect(true == @typeInfo(Foo).@"enum".is_exhaustive);
+    try testing.expect(@as(u8, 1) == @intFromEnum(Foo.a));
+    try testing.expect(@as(u8, 5) == @intFromEnum(Foo.b));
     const Bar = @Type(.{
         .@"enum" = .{
             .tag_type = u32,
@@ -376,10 +376,10 @@ test "Type.Enum" {
             .is_exhaustive = false,
         },
     });
-    try testing.expectEqual(false, @typeInfo(Bar).@"enum".is_exhaustive);
-    try testing.expectEqual(@as(u32, 1), @intFromEnum(Bar.a));
-    try testing.expectEqual(@as(u32, 5), @intFromEnum(Bar.b));
-    try testing.expectEqual(@as(u32, 6), @intFromEnum(@as(Bar, @enumFromInt(6))));
+    try testing.expect(false == @typeInfo(Bar).@"enum".is_exhaustive);
+    try testing.expect(@as(u32, 1) == @intFromEnum(Bar.a));
+    try testing.expect(@as(u32, 5) == @intFromEnum(Bar.b));
+    try testing.expect(@as(u32, 6) == @intFromEnum(@as(Bar, @enumFromInt(6))));
 
     { // from https://github.com/ziglang/zig/issues/19985
         { // enum with single field can be initialized.
@@ -390,7 +390,7 @@ test "Type.Enum" {
                 .decls = &.{},
             } });
             const s: struct { E } = .{.foo};
-            try testing.expectEqual(.foo, s[0]);
+            try testing.expect(.foo == s[0]);
         }
 
         { // meta.FieldEnum() with single field
@@ -403,7 +403,7 @@ test "Type.Enum" {
                     @field(s, @tagName(tag)) = 42;
                 },
             }
-            try testing.expectEqual(42, s.foo);
+            try testing.expect(42 == s.foo);
         }
     }
 }
@@ -427,7 +427,7 @@ test "Type.Union" {
     var untagged = Untagged{ .int = 1 };
     untagged.float = 2.0;
     untagged.int = 3;
-    try testing.expectEqual(@as(i32, 3), untagged.int);
+    try testing.expect(@as(i32, 3) == untagged.int);
 
     const PackedUntagged = @Type(.{
         .@"union" = .{
@@ -442,8 +442,8 @@ test "Type.Union" {
     });
     var packed_untagged: PackedUntagged = .{ .signed = -1 };
     _ = &packed_untagged;
-    try testing.expectEqual(@as(i32, -1), packed_untagged.signed);
-    try testing.expectEqual(~@as(u32, 0), packed_untagged.unsigned);
+    try testing.expect(@as(i32, -1) == packed_untagged.signed);
+    try testing.expect(~@as(u32, 0) == packed_untagged.unsigned);
 
     const Tag = @Type(.{
         .@"enum" = .{
@@ -468,9 +468,9 @@ test "Type.Union" {
         },
     });
     var tagged = Tagged{ .signed = -1 };
-    try testing.expectEqual(Tag.signed, @as(Tag, tagged));
+    try testing.expect(Tag.signed == @as(Tag, tagged));
     tagged = .{ .unsigned = 1 };
-    try testing.expectEqual(Tag.unsigned, @as(Tag, tagged));
+    try testing.expect(Tag.unsigned == @as(Tag, tagged));
 }
 
 test "Type.Union from Type.Enum" {
@@ -522,7 +522,7 @@ test "Type.Union from empty regular enum" {
             .decls = &.{},
         },
     });
-    try testing.expectEqual(@sizeOf(U), 0);
+    try testing.expect(@sizeOf(U) == 0);
 }
 
 test "Type.Union from empty Type.Enum" {
@@ -542,7 +542,7 @@ test "Type.Union from empty Type.Enum" {
             .decls = &.{},
         },
     });
-    try testing.expectEqual(@sizeOf(U), 0);
+    try testing.expect(@sizeOf(U) == 0);
 }
 
 test "Type.Fn" {
@@ -566,13 +566,13 @@ test "Type.Fn" {
         } };
 
         const fn_type = @Type(fn_info);
-        try std.testing.expectEqual(T, fn_type);
+        try std.testing.expect(T == fn_type);
     }
 
     {
         const fn_info = @typeInfo(T);
         const fn_type = @Type(fn_info);
-        try std.testing.expectEqual(T, fn_type);
+        try std.testing.expect(T == fn_type);
     }
 }
 
@@ -720,7 +720,7 @@ test "@Type should resolve its children types" {
     comptime var sparse_info = @typeInfo(anyerror!sparse);
     sparse_info.error_union.payload = dense;
     const B = @Type(sparse_info);
-    try testing.expectEqual(anyerror!dense, B);
+    try testing.expect(anyerror!dense == B);
 }
 
 test "struct field names sliced at comptime from larger string" {
@@ -756,7 +756,7 @@ test "struct field names sliced at comptime from larger string" {
         });
 
         const gen_fields = @typeInfo(T).@"struct".fields;
-        try testing.expectEqual(3, gen_fields.len);
+        try testing.expect(3 == gen_fields.len);
         try testing.expectEqualStrings("f1", gen_fields[0].name);
         try testing.expectEqualStrings("f2", gen_fields[1].name);
         try testing.expectEqualStrings("f3", gen_fields[2].name);

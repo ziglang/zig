@@ -1,9 +1,8 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
+const builtin = @import("builtin");
 
 /// A more basic implementation of std.testing.expectError which
 /// does not require formatter/printing support
@@ -1086,7 +1085,7 @@ test "result location initialization of error union with OPV payload" {
 
     var c: anyerror!S = .{ .x = 0 };
     _ = &c;
-    try expectEqual(0, (c catch return error.TestFailed).x);
+    try expect(0 == (c catch return error.TestFailed).x);
 }
 
 test "return error union with i65" {

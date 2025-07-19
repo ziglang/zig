@@ -1,8 +1,7 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const mem = std.mem;
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
+const builtin = @import("builtin");
 
 test "@shuffle int" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -123,10 +122,10 @@ fn testShuffle(
     for (mask, x_elems) |m, x_elem| {
         if (m >= 0) {
             // Element from A
-            try expectEqual(x_elem, a_elems[@intCast(m)]);
+            try expect(x_elem == a_elems[@intCast(m)]);
         } else {
             // Element from B
-            try expectEqual(x_elem, b_elems[@intCast(~m)]);
+            try expect(x_elem == b_elems[@intCast(~m)]);
         }
     }
 }

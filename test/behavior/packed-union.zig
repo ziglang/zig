@@ -1,7 +1,8 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
 const expectEqual = std.testing.expectEqual;
+const expect = std.testing.expect;
+const builtin = @import("builtin");
 
 test "flags in packed union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -32,18 +33,18 @@ fn testFlagsInPackedUnion() !void {
     };
     var test_bits: FlagBits = .{};
 
-    try expectEqual(false, test_bits.enable_1);
-    try expectEqual(true, test_bits.other_flags.flags.enable_1);
+    try expect(false == test_bits.enable_1);
+    try expect(true == test_bits.other_flags.flags.enable_1);
 
     test_bits.enable_1 = true;
 
-    try expectEqual(true, test_bits.enable_1);
-    try expectEqual(true, test_bits.other_flags.flags.enable_1);
+    try expect(true == test_bits.enable_1);
+    try expect(true == test_bits.other_flags.flags.enable_1);
 
     test_bits.other_flags.flags.enable_1 = false;
 
-    try expectEqual(true, test_bits.enable_1);
-    try expectEqual(false, test_bits.other_flags.flags.enable_1);
+    try expect(true == test_bits.enable_1);
+    try expect(false == test_bits.other_flags.flags.enable_1);
 }
 
 test "flags in packed union at offset" {
@@ -83,20 +84,20 @@ fn testFlagsInPackedUnionAtOffset() !void {
     };
     var test_bits: FlagBits = .{ .adv_flags = .{ .adv = .{ .flags = .{} } } };
 
-    try expectEqual(@as(u8, 0), test_bits.adv_flags.pad);
-    try expectEqual(true, test_bits.adv_flags.adv.flags.enable_1);
-    try expectEqual(false, test_bits.adv_flags.adv.flags.enable_2);
+    try expect(@as(u8, 0) == test_bits.adv_flags.pad);
+    try expect(true == test_bits.adv_flags.adv.flags.enable_1);
+    try expect(false == test_bits.adv_flags.adv.flags.enable_2);
 
     test_bits.adv_flags.adv.flags.enable_1 = false;
     test_bits.adv_flags.adv.flags.enable_2 = true;
-    try expectEqual(@as(u8, 0), test_bits.adv_flags.pad);
-    try expectEqual(false, test_bits.adv_flags.adv.flags.enable_1);
-    try expectEqual(true, test_bits.adv_flags.adv.flags.enable_2);
+    try expect(@as(u8, 0) == test_bits.adv_flags.pad);
+    try expect(false == test_bits.adv_flags.adv.flags.enable_1);
+    try expect(true == test_bits.adv_flags.adv.flags.enable_2);
 
     test_bits.adv_flags.adv.bits = 12;
-    try expectEqual(@as(u8, 0), test_bits.adv_flags.pad);
-    try expectEqual(false, test_bits.adv_flags.adv.flags.enable_1);
-    try expectEqual(false, test_bits.adv_flags.adv.flags.enable_2);
+    try expect(@as(u8, 0) == test_bits.adv_flags.pad);
+    try expect(false == test_bits.adv_flags.adv.flags.enable_1);
+    try expect(false == test_bits.adv_flags.adv.flags.enable_2);
 }
 
 test "packed union in packed struct" {

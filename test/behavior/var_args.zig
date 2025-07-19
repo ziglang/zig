@@ -1,6 +1,6 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
+const builtin = @import("builtin");
 
 fn add(args: anytype) i32 {
     var sum = @as(i32, 0);
@@ -135,14 +135,14 @@ test "simple variadic function" {
 
     if (builtin.zig_backend != .stage2_c) {
         // pre C23 doesn't support varargs without a preceding runtime arg.
-        try std.testing.expectEqual(@as(c_int, 0), S.simple(@as(c_int, 0)));
-        try std.testing.expectEqual(@as(c_int, 1024), S.simple(@as(c_int, 1024)));
+        try std.testing.expect(@as(c_int, 0) == S.simple(@as(c_int, 0)));
+        try std.testing.expect(@as(c_int, 1024) == S.simple(@as(c_int, 1024)));
     }
-    try std.testing.expectEqual(@as(c_int, 0), S.compatible(undefined, @as(c_int, 0)));
-    try std.testing.expectEqual(@as(c_int, 1024), S.compatible(undefined, @as(c_int, 1024)));
-    try std.testing.expectEqual(@as(c_int, 0), S.add(0));
-    try std.testing.expectEqual(@as(c_int, 1), S.add(1, @as(c_int, 1)));
-    try std.testing.expectEqual(@as(c_int, 3), S.add(2, @as(c_int, 1), @as(c_int, 2)));
+    try std.testing.expect(@as(c_int, 0) == S.compatible(undefined, @as(c_int, 0)));
+    try std.testing.expect(@as(c_int, 1024) == S.compatible(undefined, @as(c_int, 1024)));
+    try std.testing.expect(@as(c_int, 0) == S.add(0));
+    try std.testing.expect(@as(c_int, 1) == S.add(1, @as(c_int, 1)));
+    try std.testing.expect(@as(c_int, 3) == S.add(2, @as(c_int, 1), @as(c_int, 2)));
 
     {
         // Test type coercion of a var args argument.
@@ -265,9 +265,9 @@ test "copy VaList" {
         }
     };
 
-    try std.testing.expectEqual(@as(c_int, 0), S.add(0));
-    try std.testing.expectEqual(@as(c_int, 3), S.add(1, @as(c_int, 1)));
-    try std.testing.expectEqual(@as(c_int, 9), S.add(2, @as(c_int, 1), @as(c_int, 2)));
+    try std.testing.expect(@as(c_int, 0) == S.add(0));
+    try std.testing.expect(@as(c_int, 3) == S.add(1, @as(c_int, 1)));
+    try std.testing.expect(@as(c_int, 9) == S.add(2, @as(c_int, 1), @as(c_int, 2)));
 }
 
 test "unused VaList arg" {
@@ -299,5 +299,5 @@ test "unused VaList arg" {
         }
     };
     const x = S.thirdArg(0, @as(c_int, 1), @as(c_int, 2));
-    try std.testing.expectEqual(@as(c_int, 2), x);
+    try std.testing.expect(@as(c_int, 2) == x);
 }

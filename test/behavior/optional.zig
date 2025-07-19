@@ -1,10 +1,10 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
+const builtin = @import("builtin");
 
 test "passing an optional integer as a parameter" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -520,7 +520,7 @@ test "orelse on C pointer" {
     // TODO https://github.com/ziglang/zig/issues/6597
     const foo: [*c]const u8 = "hey";
     const d = foo orelse @compileError("bad");
-    try expectEqual([*c]const u8, @TypeOf(d));
+    try expect([*c]const u8 == @TypeOf(d));
 }
 
 test "alignment of wrapping an optional payload" {
@@ -658,7 +658,7 @@ test "result location initialization of optional with OPV payload" {
 
     var c: ?S = .{ .x = 0 };
     _ = &c;
-    try expectEqual(0, (c orelse return error.TestFailed).x);
+    try expect(0 == (c orelse return error.TestFailed).x);
 }
 
 test "global comptime only optional" {

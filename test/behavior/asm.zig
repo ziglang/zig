@@ -1,7 +1,6 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
+const builtin = @import("builtin");
 
 const is_x86_64_linux = builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux;
 
@@ -162,7 +161,7 @@ test "rw constraint (x86_64)" {
         : [a] "+r" (res),
         : [b] "r" (@as(i32, 13)),
         : .{ .flags = true });
-    try expectEqual(@as(i32, 18), res);
+    try expect(@as(i32, 18) == res);
 }
 
 test "asm modifiers (AArch64)" {
@@ -177,5 +176,5 @@ test "asm modifiers (AArch64)" {
         : [ret] "=r" (-> u32),
         : [in] "r" (x),
     );
-    try expectEqual(2 * x, double);
+    try expect(2 * x == double);
 }

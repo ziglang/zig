@@ -1,9 +1,9 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const mem = std.mem;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const builtin = @import("builtin");
 
 test "@max" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
@@ -128,16 +128,16 @@ test "@min/max for floats" {
             var x: T = -3.14;
             var y: T = 5.27;
             _ = .{ &x, &y };
-            try expectEqual(x, @min(x, y));
-            try expectEqual(x, @min(y, x));
-            try expectEqual(y, @max(x, y));
-            try expectEqual(y, @max(y, x));
+            try expect(x == @min(x, y));
+            try expect(x == @min(y, x));
+            try expect(y == @max(x, y));
+            try expect(y == @max(y, x));
 
             if (T != comptime_float) {
                 var nan: T = std.math.nan(T);
                 _ = &nan;
-                try expectEqual(y, @max(nan, y));
-                try expectEqual(y, @max(y, nan));
+                try expect(y == @max(nan, y));
+                try expect(y == @max(y, nan));
             }
         }
     };
@@ -162,8 +162,8 @@ test "@min/@max more than two arguments" {
     const x: u32 = 30;
     const y: u32 = 10;
     const z: u32 = 20;
-    try expectEqual(@as(u32, 10), @min(x, y, z));
-    try expectEqual(@as(u32, 30), @max(x, y, z));
+    try expect(@as(u32, 10) == @min(x, y, z));
+    try expect(@as(u32, 30) == @max(x, y, z));
 }
 
 test "@min/@max more than two vector arguments" {
@@ -191,10 +191,10 @@ test "@min/@max notices bounds" {
     _ = .{ &x, &z };
     const min = @min(x, y, z);
     const max = @max(x, y, z);
-    try expectEqual(x, min);
-    try expectEqual(u5, @TypeOf(min));
-    try expectEqual(z, max);
-    try expectEqual(u32, @TypeOf(max));
+    try expect(x == min);
+    try expect(u5 == @TypeOf(min));
+    try expect(z == max);
+    try expect(u32 == @TypeOf(max));
 }
 
 test "@min/@max notices vector bounds" {
@@ -224,10 +224,10 @@ test "@min/@max on comptime_int" {
     const min = @min(1, 2, -2, -1);
     const max = @max(1, 2, -2, -1);
 
-    try expectEqual(comptime_int, @TypeOf(min));
-    try expectEqual(comptime_int, @TypeOf(max));
-    try expectEqual(-2, min);
-    try expectEqual(2, max);
+    try expect(comptime_int == @TypeOf(min));
+    try expect(comptime_int == @TypeOf(max));
+    try expect(-2 == min);
+    try expect(2 == max);
 }
 
 test "@min/@max notices bounds from types" {
@@ -246,8 +246,8 @@ test "@min/@max notices bounds from types" {
     comptime assert(@TypeOf(min) == u8);
     comptime assert(@TypeOf(max) == u32);
 
-    try expectEqual(z, min);
-    try expectEqual(y, max);
+    try expect(z == min);
+    try expect(y == max);
 }
 
 test "@min/@max notices bounds from vector types" {
@@ -310,8 +310,8 @@ test "@min/@max notices bounds from vector types when element of comptime-known 
     comptime assert(@TypeOf(min) == @Vector(2, u16));
     comptime assert(@TypeOf(max) == @Vector(2, u32));
 
-    try expectEqual(@as(u16, 10), min[0]);
-    try expectEqual(@as(u32, 1_000_000), max[0]);
+    try expect(@as(u16, 10) == min[0]);
+    try expect(@as(u32, 1_000_000) == max[0]);
     // Cannot assert values at index 1 as one was undefined
 }
 
@@ -328,8 +328,8 @@ test "@min/@max of signed and unsigned runtime integers" {
     comptime assert(@TypeOf(min) == i32);
     comptime assert(@TypeOf(max) == u31);
 
-    try expectEqual(x, @min(x, y));
-    try expectEqual(y, @max(x, y));
+    try expect(x == @min(x, y));
+    try expect(y == @max(x, y));
 }
 
 test "@min resulting in u0" {

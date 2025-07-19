@@ -1,7 +1,6 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
+const builtin = @import("builtin");
 
 test "@popCount integers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
