@@ -70,6 +70,15 @@ stage3-release/bin/zig build test docs \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-superhtml
 
+# Ensure that dependency overrides function correctly
+wd=$PWD
+
+cd ../test/dependency_override
+./run-tests.sh ../../build-release/stage3-release/bin/zig
+cd $wd
+
+unset wd
+
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \
   --prefix stage4-release \

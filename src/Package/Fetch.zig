@@ -71,6 +71,7 @@ use_latest_commit: bool,
 /// This will either be relative to `global_cache`, or to the build root of
 /// the root package.
 package_root: Cache.Path,
+local_override: bool,
 error_bundle: ErrorBundle.Wip,
 manifest: ?Manifest,
 manifest_ast: std.zig.Ast,
@@ -115,6 +116,7 @@ pub const JobQueue = struct {
     thread_pool: *ThreadPool,
     wait_group: WaitGroup = .{},
     global_cache: Cache.Directory,
+    local_cache: ?Cache.Directory,
     /// If true then, no fetching occurs, and:
     /// * The `global_cache` directory is assumed to be the direct parent
     ///   directory of on-disk packages rather than having the "p/" directory
@@ -227,9 +229,10 @@ pub const JobQueue = struct {
             }
 
             try buf.writer().print(
+                \\        pub const local_override = {};
                 \\        pub const build_root = "{f}";
                 \\
-            , .{std.fmt.alt(fetch.package_root, .formatEscapeString)});
+            , .{ fetch.local_override, std.fmt.alt(fetch.package_root, .formatEscapeString) });
 
             if (fetch.has_build_zig) {
                 try buf.writer().print(
@@ -414,6 +417,36 @@ pub fn run(f: *Fetch) RunError!void {
         const prefixed_pkg_sub_path = prefixed_pkg_sub_path_buffer[0 .. 2 + hash_slice.len];
         const prefix_len: usize = if (f.job_queue.read_only) "p/".len else 0;
         const pkg_sub_path = prefixed_pkg_sub_path[prefix_len..];
+
+        if (f.job_queue.local_cache) |local_cache| local: {
+            const local_cache_path = if (f.job_queue.read_only) prefixed_pkg_sub_path else pkg_sub_path;
+            if (local_cache.handle.access(local_cache_path, .{})) |_| {
+                f.local_override = true;
+                if (f.job_queue.read_only) break :local;
+
+                assert(f.lazy_status != .unavailable);
+                f.package_root = .{
+                    .root_dir = local_cache,
+                    .sub_path = try arena.dupe(u8, local_cache_path),
+                };
+                try loadManifest(f, f.package_root);
+                try checkBuildFileExistence(f);
+                if (!f.job_queue.recursive) return;
+                return queueJobsForDeps(f);
+            } else |err| switch (err) {
+                error.FileNotFound => {},
+                else => |e| {
+                    try eb.addRootErrorMessage(.{
+                        .msg = try eb.printString(
+                            "unable to open local package cache directory '{f}{s}': {s}",
+                            .{ local_cache, local_cache_path, @errorName(e) },
+                        ),
+                    });
+                    return error.FetchFailed;
+                },
+            }
+        }
+
         if (cache_root.handle.access(pkg_sub_path, .{})) |_| {
             assert(f.lazy_status != .unavailable);
             f.package_root = .{
@@ -794,6 +827,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .use_latest_commit = false,
 
                 .package_root = undefined,
+                .local_override = false,
                 .error_bundle = undefined,
                 .manifest = null,
                 .manifest_ast = undefined,
@@ -2335,6 +2369,7 @@ const TestFetchBuilder = struct {
             .http_client = &self.http_client,
             .thread_pool = &self.thread_pool,
             .global_cache = self.global_cache_directory,
+            .local_cache = null,
             .recursive = false,
             .read_only = false,
             .debug_hash = false,
@@ -2360,6 +2395,7 @@ const TestFetchBuilder = struct {
             .use_latest_commit = true,
 
             .package_root = undefined,
+            .local_override = false,
             .error_bundle = undefined,
             .manifest = null,
             .manifest_ast = undefined,
