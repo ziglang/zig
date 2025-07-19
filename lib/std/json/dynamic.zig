@@ -4,17 +4,12 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 const StringArrayHashMap = std.StringArrayHashMap;
 const Allocator = std.mem.Allocator;
-
-const StringifyOptions = @import("./stringify.zig").StringifyOptions;
-const stringify = @import("./stringify.zig").stringify;
+const json = std.json;
 
 const ParseOptions = @import("./static.zig").ParseOptions;
 const ParseError = @import("./static.zig").ParseError;
 
-const JsonScanner = @import("./scanner.zig").Scanner;
-const AllocWhen = @import("./scanner.zig").AllocWhen;
-const Token = @import("./scanner.zig").Token;
-const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
+const isNumberFormattedLikeAnInteger = @import("Scanner.zig").isNumberFormattedLikeAnInteger;
 
 pub const ObjectMap = StringArrayHashMap(Value);
 pub const Array = ArrayList(Value);
@@ -52,12 +47,11 @@ pub const Value = union(enum) {
         }
     }
 
-    pub fn dump(self: Value) void {
-        std.debug.lockStdErr();
-        defer std.debug.unlockStdErr();
+    pub fn dump(v: Value) void {
+        const w = std.debug.lockStderrWriter(&.{});
+        defer std.debug.unlockStderrWriter();
 
-        const stderr = std.fs.File.stderr().deprecatedWriter();
-        stringify(self, .{}, stderr) catch return;
+        json.Stringify.value(v, .{}, w) catch return;
     }
 
     pub fn jsonStringify(value: @This(), jws: anytype) !void {
