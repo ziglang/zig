@@ -30,6 +30,8 @@ pub const WindowsSdk = @import("zig/WindowsSdk.zig");
 pub const LibCDirs = @import("zig/LibCDirs.zig");
 pub const target = @import("zig/target.zig");
 pub const llvm = @import("zig/llvm.zig");
+pub const introspect = @import("zig/introspect.zig");
+pub const Manifest = @import("zig/Manifest.zig");
 
 // Character literal parsing
 pub const ParsedCharLiteral = string_literal.ParsedCharLiteral;
@@ -42,6 +44,8 @@ pub const c_translation = @import("zig/c_translation.zig");
 
 pub const SrcHasher = std.crypto.hash.Blake3;
 pub const SrcHash = [16]u8;
+
+pub const build_file_basename = "build.zig";
 
 pub const Color = enum {
     /// Determine whether stderr is a terminal or not automatically.
@@ -886,6 +890,111 @@ pub const EmitArtifact = enum {
             .h => ".h",
         };
         return std.fmt.allocPrint(gpa, "{s}{s}", .{ opts.root_name, suffix });
+    }
+};
+
+pub const BuildRoot = struct {
+    directory: std.Build.Cache.Directory,
+    build_zig_basename: []const u8,
+    cleanup_build_dir: ?std.fs.Dir,
+
+    pub fn deinit(br: *BuildRoot) void {
+        if (br.cleanup_build_dir) |*dir| dir.close();
+        br.* = undefined;
+    }
+};
+
+const FindBuildRootOptions = struct {
+    build_file: ?[]const u8 = null,
+    cwd_path: ?[]const u8 = null,
+};
+
+pub fn findBuildRoot(arena: Allocator, options: FindBuildRootOptions) !BuildRoot {
+    const cwd_path = options.cwd_path orelse try introspect.getResolvedCwd(arena);
+    const build_zig_basename = if (options.build_file) |bf|
+        std.fs.path.basename(bf)
+    else
+        build_file_basename;
+
+    if (options.build_file) |bf| {
+        if (std.fs.path.dirname(bf)) |dirname| {
+            const dir = std.fs.cwd().openDir(dirname, .{}) catch |err| {
+                std.process.fatal(
+                    "unable to open directory to build file from argument 'build-file', '{s}': {s}",
+                    .{ dirname, @errorName(err) },
+                );
+            };
+            return .{
+                .build_zig_basename = build_zig_basename,
+                .directory = .{ .path = dirname, .handle = dir },
+                .cleanup_build_dir = dir,
+            };
+        }
+
+        return .{
+            .build_zig_basename = build_zig_basename,
+            .directory = .{ .path = null, .handle = std.fs.cwd() },
+            .cleanup_build_dir = null,
+        };
+    }
+    // Search up parent directories until we find build.zig.
+    var dirname: []const u8 = cwd_path;
+    while (true) {
+        const joined_path = try std.fs.path.join(arena, &.{ dirname, build_zig_basename });
+        if (std.fs.cwd().access(joined_path, .{})) |_| {
+            const dir = std.fs.cwd().openDir(dirname, .{}) catch |err| {
+                std.process.fatal(
+                    "unable to open directory while searching for build.zig file, '{s}': {s}",
+                    .{ dirname, @errorName(err) },
+                );
+            };
+            return .{
+                .build_zig_basename = build_zig_basename,
+                .directory = .{
+                    .path = dirname,
+                    .handle = dir,
+                },
+                .cleanup_build_dir = dir,
+            };
+        } else |err| switch (err) {
+            error.FileNotFound => {
+                dirname = std.fs.path.dirname(dirname) orelse {
+                    std.log.info("initialize {s} template file with 'zig init'", .{
+                        build_file_basename,
+                    });
+                    std.log.info("see 'zig --help' for more options", .{});
+                    std.process.fatal(
+                        "no build.zig file found, in the current directory or any parent directories",
+                        .{},
+                    );
+                };
+                continue;
+            },
+            else => |e| return e,
+        }
+    }
+}
+
+pub const Fingerprint = packed struct(u64) {
+    id: u32,
+    checksum: u32,
+
+    pub fn generate(name: []const u8) Fingerprint {
+        return .{
+            .id = std.crypto.random.intRangeLessThan(u32, 1, 0xffffffff),
+            .checksum = std.hash.Crc32.hash(name),
+        };
+    }
+
+    pub fn validate(n: Fingerprint, name: []const u8) bool {
+        switch (n.id) {
+            0x00000000, 0xffffffff => return false,
+            else => return std.hash.Crc32.hash(name) == n.checksum,
+        }
+    }
+
+    pub fn int(n: Fingerprint) u64 {
+        return @bitCast(n);
     }
 };
 

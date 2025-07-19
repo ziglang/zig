@@ -1,6 +1,6 @@
 const std = @import("std");
 const build_options = @import("build_options");
-const introspect = @import("introspect.zig");
+const introspect = std.zig.introspect;
 const Allocator = std.mem.Allocator;
 const fatal = std.process.fatal;
 
