@@ -480,6 +480,51 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
     };
 }
 
+pub const AutoAllocatorOptions = struct {
+    debug_allocator_config: DebugAllocatorConfig = .{},
+};
+
+pub fn AutoAllocator(options: AutoAllocatorOptions) type {
+    const impl: enum { debug, smp, wasm, c } = if (builtin.os.tag == .wasi)
+        .wasm
+    else switch (builtin.mode) {
+        .Debug => .debug,
+        .ReleaseSafe, .ReleaseFast, .ReleaseSmall => if (builtin.link_libc)
+            .c
+        else if (builtin.single_threaded)
+            .debug
+        else
+            .smp,
+    };
+
+    return struct {
+        inner: switch (impl) {
+            .debug => DebugAllocator(options.debug_allocator_config),
+            else => void,
+        } = switch (impl) {
+            .debug => .init,
+            else => {},
+        },
+
+        pub fn allocator(self: *@This()) std.mem.Allocator {
+            return switch (impl) {
+                .debug => self.inner.allocator(),
+                .wasm => wasm_allocator,
+                .c => c_allocator,
+                .smp => smp_allocator,
+            };
+        }
+
+        pub fn deinit(self: *@This()) Check {
+            defer self.* = undefined;
+            return switch (impl) {
+                .debug => self.inner.deinit(),
+                else => .ok,
+            };
+        }
+    };
+}
+
 test c_allocator {
     if (builtin.link_libc) {
         try testAllocator(c_allocator);
@@ -525,6 +570,20 @@ test PageAllocator {
     }
 }
 
+test AutoAllocator {
+    var ctx: AutoAllocator(.{}) = .{};
+    const allocator = ctx.allocator();
+
+    try testAllocator(allocator);
+    try testAllocatorAligned(allocator);
+    if (!builtin.target.cpu.arch.isWasm()) {
+        try testAllocatorLargeAlignment(allocator);
+        try testAllocatorAlignedShrink(allocator);
+    }
+
+    try testing.expectEqual(.ok, ctx.deinit());
+}
+
 test ArenaAllocator {
     var arena_allocator = ArenaAllocator.init(page_allocator);
     defer arena_allocator.deinit();
@@ -536,7 +595,7 @@ test ArenaAllocator {
     try testAllocatorAlignedShrink(allocator);
 }
 
-test "StackFallbackAllocator" {
+test StackFallbackAllocator {
     {
         var stack_allocator = stackFallback(4096, std.testing.allocator);
         try testAllocator(stack_allocator.get());

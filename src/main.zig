@@ -178,7 +178,10 @@ pub fn main() anyerror!void {
         }
         break :gpa switch (builtin.mode) {
             .Debug, .ReleaseSafe => .{ debug_allocator.allocator(), true },
-            .ReleaseFast, .ReleaseSmall => .{ std.heap.smp_allocator, false },
+            .ReleaseFast, .ReleaseSmall => if (builtin.single_threaded)
+                .{ debug_allocator.allocator(), false }
+            else
+                .{ std.heap.smp_allocator, false },
         };
     };
     defer if (is_debug) {
