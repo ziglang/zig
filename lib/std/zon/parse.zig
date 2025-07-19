@@ -64,14 +64,14 @@ pub const Error = union(enum) {
             }
         };
 
-        fn formatMessage(self: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+        fn formatMessage(self: []const u8, w: *std.Io.Writer) std.Io.Writer.Error!void {
             // Just writes the string for now, but we're keeping this behind a formatter so we have
             // the option to extend it in the future to print more advanced messages (like `Error`
             // does) without breaking the API.
             try w.writeAll(self);
         }
 
-        pub fn fmtMessage(self: Note, diag: *const Diagnostics) std.fmt.Formatter([]const u8, Note.formatMessage) {
+        pub fn fmtMessage(self: Note, diag: *const Diagnostics) std.fmt.Alt([]const u8, Note.formatMessage) {
             return .{ .data = switch (self) {
                 .zoir => |note| note.msg.get(diag.zoir),
                 .type_check => |note| note.msg,
@@ -147,14 +147,14 @@ pub const Error = union(enum) {
         diag: *const Diagnostics,
     };
 
-    fn formatMessage(self: FormatMessage, w: *std.io.Writer) std.io.Writer.Error!void {
+    fn formatMessage(self: FormatMessage, w: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self.err) {
             .zoir => |err| try w.writeAll(err.msg.get(self.diag.zoir)),
             .type_check => |tc| try w.writeAll(tc.message),
         }
     }
 
-    pub fn fmtMessage(self: @This(), diag: *const Diagnostics) std.fmt.Formatter(FormatMessage, formatMessage) {
+    pub fn fmtMessage(self: @This(), diag: *const Diagnostics) std.fmt.Alt(FormatMessage, formatMessage) {
         return .{ .data = .{
             .err = self,
             .diag = diag,
@@ -226,7 +226,7 @@ pub const Diagnostics = struct {
         return .{ .diag = self };
     }
 
-    pub fn format(self: *const @This(), w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: *const @This(), w: *std.Io.Writer) std.Io.Writer.Error!void {
         var errors = self.iterateErrors();
         while (errors.next()) |err| {
             const loc = err.getLocation(self);
@@ -606,7 +606,7 @@ const Parser = struct {
         }
     }
 
-    fn parseSlicePointer(self: *@This(), T: type, node: Zoir.Node.Index) !T {
+    fn parseSlicePointer(self: *@This(), T: type, node: Zoir.Node.Index) ParseExprInnerError!T {
         switch (node.get(self.zoir)) {
             .string_literal => return self.parseString(T, node),
             .array_literal => |nodes| return self.parseSlice(T, nodes),
@@ -1048,6 +1048,7 @@ const Parser = struct {
         name: []const u8,
     ) error{ OutOfMemory, ParseZon } {
         @branchHint(.cold);
+        const gpa = self.gpa;
         const token = if (field) |f| b: {
             var buf: [2]Ast.Node.Index = undefined;
             const struct_init = self.ast.fullStructInit(&buf, node.getAstNode(self.zoir)).?;
@@ -1065,13 +1066,12 @@ const Parser = struct {
                     };
                 } else b: {
                     const msg = "supported: ";
-                    var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, 64);
-                    defer buf.deinit(self.gpa);
-                    const writer = buf.writer(self.gpa);
-                    try writer.writeAll(msg);
+                    var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(gpa, 64);
+                    defer buf.deinit(gpa);
+                    try buf.appendSlice(gpa, msg);
                     inline for (info.fields, 0..) |field_info, i| {
-                        if (i != 0) try writer.writeAll(", ");
-                        try writer.print("'{f}'", .{std.zig.fmtIdFlags(field_info.name, .{
+                        if (i != 0) try buf.appendSlice(gpa, ", ");
+                        try buf.print(gpa, "'{f}'", .{std.zig.fmtIdFlags(field_info.name, .{
                             .allow_primitive = true,
                             .allow_underscore = true,
                         })});
@@ -1079,7 +1079,7 @@ const Parser = struct {
                     break :b .{
                         .token = token,
                         .offset = 0,
-                        .msg = try buf.toOwnedSlice(self.gpa),
+                        .msg = try buf.toOwnedSlice(gpa),
                         .owned = true,
                     };
                 };

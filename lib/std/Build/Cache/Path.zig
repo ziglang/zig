@@ -161,17 +161,19 @@ pub fn formatEscapeString(path: Path, writer: *std.io.Writer) std.io.Writer.Erro
     }
 }
 
+/// Deprecated, use double quoted escape to print paths.
 pub fn fmtEscapeChar(path: Path) std.fmt.Formatter(Path, formatEscapeChar) {
     return .{ .data = path };
 }
 
+/// Deprecated, use double quoted escape to print paths.
 pub fn formatEscapeChar(path: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
     if (path.root_dir.path) |p| {
-        try std.zig.charEscape(p, writer);
-        if (path.sub_path.len > 0) try std.zig.charEscape(fs.path.sep_str, writer);
+        for (p) |byte| try std.zig.charEscape(byte, writer);
+        if (path.sub_path.len > 0) try writer.writeByte(fs.path.sep);
     }
     if (path.sub_path.len > 0) {
-        try std.zig.charEscape(path.sub_path, writer);
+        for (path.sub_path) |byte| try std.zig.charEscape(byte, writer);
     }
 }
 
