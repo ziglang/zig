@@ -357,7 +357,7 @@ pub inline fn fchmodat(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) 
     // No special handling for linux is needed if we can use the libc fallback
     // or `flags` is empty. Glibc only added the fallback in 2.32.
     const skip_fchmodat_fallback = native_os != .linux or
-        std.c.versionCheck(.{ .major = 2, .minor = 32, .patch = 0 }) or
+        (!builtin.abi.isAndroid() and std.c.versionCheck(.{ .major = 2, .minor = 32, .patch = 0 })) or
         flags == 0;
 
     // This function is marked inline so that when flags is comptime-known,
@@ -610,7 +610,8 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
     if (@TypeOf(system.getrandom) != void) {
         var buf = buffer;
         const use_c = native_os != .linux or
-            std.c.versionCheck(std.SemanticVersion{ .major = 2, .minor = 25, .patch = 0 });
+            (!builtin.abi.isAndroid() and std.c.versionCheck(std.SemanticVersion{ .major = 2, .minor = 25, .patch = 0 })) or
+            (builtin.abi.isAndroid() and std.c.versionCheck(std.SemanticVersion{ .major = 28, .minor = 0, .patch = 0 }));
 
         while (buf.len != 0) {
             const num_read: usize, const err = if (use_c) res: {
@@ -6659,7 +6660,7 @@ pub const CopyFileRangeError = error{
 /// Maximum offsets on Linux and FreeBSD are `maxInt(i64)`.
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
     if (builtin.os.tag == .freebsd or
-        (comptime builtin.os.tag == .linux and std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })))
+        (comptime builtin.os.tag == .linux and std.c.versionCheck(if (!builtin.abi.isAndroid()) .{ .major = 2, .minor = 27, .patch = 0 } else .{ .major = 34, .minor = 0, .patch = 0 })))
     {
         var off_in_copy: i64 = @bitCast(off_in);
         var off_out_copy: i64 = @bitCast(off_out);
@@ -6968,8 +6969,8 @@ pub const MemFdCreateError = error{
 pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
     switch (native_os) {
         .linux => {
-            // memfd_create is available only in glibc versions starting with 2.27.
-            const use_c = std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 });
+            // memfd_create is available only in glibc versions starting with 2.27 and bionic versions starting with 30.
+            const use_c = if (!builtin.abi.isAndroid()) std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }) else std.c.versionCheck(.{ .major = 30, .minor = 0, .patch = 0 });
             const sys = if (use_c) std.c else linux;
             const rc = sys.memfd_create(name, flags);
             switch (errno(rc)) {
