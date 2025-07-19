@@ -4,6 +4,7 @@ const testing = std.testing;
 const mem = std.mem;
 const math = std.math;
 
+pub const Hint = enum { increasing, decreasing, unknown };
 pub const Mode = enum { stable, unstable };
 
 pub const block = @import("sort/block.zig").block;
@@ -98,7 +99,7 @@ pub fn heapContext(a: usize, b: usize, context: anytype) void {
     }
 }
 
-fn siftDown(a: usize, target: usize, b: usize, context: anytype) void {
+pub fn siftDown(a: usize, target: usize, b: usize, context: anytype) void {
     var cur = target;
     while (true) {
         // When we don't overflow from the multiply below, the following expression equals (2*cur) - (2*a) + a + 1
@@ -983,4 +984,123 @@ test isSorted {
 
     try testing.expect(isSorted(u8, "ffff", {}, asc_u8));
     try testing.expect(isSorted(u8, "ffff", {}, desc_u8));
+}
+
+/// partitions `items[a..b]` into elements smaller than `items[pivot]`,
+/// followed by elements greater than or equal to `items[pivot]`.
+///
+/// sets the new pivot.
+/// returns `true` if already partitioned.
+pub fn partition(a: usize, b: usize, pivot: *usize, context: anytype) bool {
+    // move pivot to the first place
+    context.swap(a, pivot.*);
+
+    var i = a + 1;
+    var j = b - 1;
+
+    while (i <= j and context.lessThan(i, a)) i += 1;
+    while (i <= j and !context.lessThan(j, a)) j -= 1;
+
+    // check if items are already partitioned (no item to swap)
+    if (i > j) {
+        // put pivot back to the middle
+        context.swap(j, a);
+        pivot.* = j;
+        return true;
+    }
+
+    context.swap(i, j);
+    i += 1;
+    j -= 1;
+
+    while (true) {
+        while (i <= j and context.lessThan(i, a)) i += 1;
+        while (i <= j and !context.lessThan(j, a)) j -= 1;
+        if (i > j) break;
+
+        context.swap(i, j);
+        i += 1;
+        j -= 1;
+    }
+
+    // TODO: Enable the BlockQuicksort optimization
+
+    context.swap(j, a);
+    pivot.* = j;
+    return false;
+}
+
+/// partitions items into elements equal to `items[pivot]`
+/// followed by elements greater than `items[pivot]`.
+///
+/// it assumed that `items[a..b]` does not contain elements smaller than the `items[pivot]`.
+pub fn partitionEqual(a: usize, b: usize, pivot: usize, context: anytype) usize {
+    // move pivot to the first place
+    context.swap(a, pivot);
+
+    var i = a + 1;
+    var j = b - 1;
+
+    while (true) {
+        while (i <= j and !context.lessThan(a, i)) i += 1;
+        while (i <= j and context.lessThan(a, j)) j -= 1;
+        if (i > j) break;
+
+        context.swap(i, j);
+        i += 1;
+        j -= 1;
+    }
+
+    return i;
+}
+
+/// chooses a pivot in `items[a..b]`.
+/// swaps likely_sorted when `items[a..b]` seems to be already sorted.
+pub fn chosePivot(a: usize, b: usize, pivot: *usize, context: anytype) Hint {
+    // minimum length for using the Tukey's ninther method
+    const shortest_ninther = 50;
+    // max_swaps is the maximum number of swaps allowed in this function
+    const max_swaps = 4 * 3;
+
+    const len = b - a;
+    const i = a + len / 4 * 1;
+    const j = a + len / 4 * 2;
+    const k = a + len / 4 * 3;
+    var swaps: usize = 0;
+
+    if (len >= 8) {
+        if (len >= shortest_ninther) {
+            // find medians in the neighborhoods of `i`, `j` and `k`
+            sort3(i - 1, i, i + 1, &swaps, context);
+            sort3(j - 1, j, j + 1, &swaps, context);
+            sort3(k - 1, k, k + 1, &swaps, context);
+        }
+
+        // find the median among `i`, `j` and `k` and stores it in `j`
+        sort3(i, j, k, &swaps, context);
+    }
+
+    pivot.* = j;
+    return switch (swaps) {
+        0 => .increasing,
+        max_swaps => .decreasing,
+        else => .unknown,
+    };
+}
+
+pub fn sort3(a: usize, b: usize, c: usize, swaps: *usize, context: anytype) void {
+    if (context.lessThan(b, a)) {
+        swaps.* += 1;
+        context.swap(b, a);
+    }
+
+    if (context.lessThan(c, b)) {
+        swaps.* += 1;
+        context.swap(c, b);
+    }
+
+    if (context.lessThan(b, a)) {
+        swaps.* += 1;
+        context.swap(b, a);
+    }
 }
