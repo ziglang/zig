@@ -137,6 +137,11 @@ allow_memoize: bool = true,
 /// This state is on `Sema` so that `cold` hints can be propagated up through blocks with less special handling.
 branch_hint: ?std.builtin.BranchHint = null,
 
+/// The `LoopHint` for the current inner-most loop.
+/// This state is on `Sema` so it can be propagated up through the child blocks between a loop
+/// instruction and the loop hint.
+loop_hint: std.builtin.LoopHint = .none,
+
 const RuntimeIndex = enum(u32) {
     zero = 0,
     comptime_field_ptr = std.math.maxInt(u32),
@@ -1455,6 +1460,11 @@ fn analyzeBodyInner(
                     },
                     .branch_hint => {
                         try sema.zirBranchHint(block, extended);
+                        i += 1;
+                        continue;
+                    },
+                    .loop_hint => {
+                        try sema.zirLoopHint(block, extended);
                         i += 1;
                         continue;
                     },
@@ -6058,6 +6068,8 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
     var loop_block = child_block.makeSubBlock();
     defer loop_block.instructions.deinit(gpa);
 
+    const parent_loop_hint = sema.loop_hint;
+    defer sema.loop_hint = parent_loop_hint;
     // Use `analyzeBodyInner` directly to push any comptime control flow up the stack.
     try sema.analyzeBodyInner(&loop_block, body);
 
@@ -6076,6 +6088,7 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
             .tag = .repeat,
             .data = .{ .repeat = .{
                 .loop_inst = loop_inst,
+                .loop_hint = sema.loop_hint,
             } },
         });
         // Note that `loop_block_len` is now off by one.
@@ -26191,6 +26204,7 @@ fn zirBuiltinValue(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
         .type_info          => try sema.getBuiltinType(src, .Type),
         .branch_hint        => try sema.getBuiltinType(src, .BranchHint),
         .clobbers           => try sema.getBuiltinType(src, .@"assembly.Clobbers"),
+        .loop_hint          => try sema.getBuiltinType(src, .LoopHint),
         // zig fmt: on
 
         // Values are handled here.
@@ -26261,6 +26275,28 @@ fn zirBranchHint(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     if (sema.branch_hint == null) {
         sema.branch_hint = try sema.interpretBuiltinType(block, operand_src, hint_val, std.builtin.BranchHint);
     }
+}
+
+fn zirLoopHint(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
+    const pt = sema.pt;
+
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const uncoerced_hint = try sema.resolveInst(extra.operand);
+    const operand_src = block.builtinCallArgSrc(extra.node, 0);
+
+    const hint_ty = try sema.getBuiltinType(operand_src, .LoopHint);
+    const coerced_hint = try sema.coerce(block, hint_ty, uncoerced_hint, operand_src);
+    const hint_val = try sema.resolveConstDefinedValue(block, operand_src, coerced_hint, .{
+        .simple = .operand_loopHint,
+    });
+
+    const loop_hint = hint_val.interpret(std.builtin.LoopHint, pt) catch |err| switch (err) {
+        error.OutOfMemory => |e| return e,
+        error.UndefinedValue => unreachable, // handled by `resolveConstDefinedValue` above
+        error.TypeMismatch => @panic("std.builtin is corrupt"),
+    };
+
+    sema.loop_hint = loop_hint;
 }
 
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {

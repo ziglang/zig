@@ -407,6 +407,7 @@ pub const BuiltinDecl = enum {
     ExportOptions,
     ExternOptions,
     BranchHint,
+    LoopHint,
 
     Type,
     @"Type.Fn",
@@ -485,6 +486,7 @@ pub const BuiltinDecl = enum {
             .BranchHint,
             .assembly,
             .@"assembly.Clobbers",
+            .LoopHint,
             => .type,
 
             .Type,
