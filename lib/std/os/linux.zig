@@ -1015,6 +1015,44 @@ pub fn munmap(address: [*]const u8, length: usize) usize {
     return syscall2(.munmap, @intFromPtr(address), length);
 }
 
+pub fn mlock(address: [*]const u8, length: usize) usize {
+    return syscall2(.mlock, @intFromPtr(address), length);
+}
+
+pub fn munlock(address: [*]const u8, length: usize) usize {
+    return syscall2(.munlock, @intFromPtr(address), length);
+}
+
+pub const MLOCK = packed struct(u32) {
+    ONFAULT: bool = false,
+    _1: u31 = 0,
+};
+
+pub fn mlock2(address: [*]const u8, length: usize, flags: MLOCK) usize {
+    return syscall3(.mlock2, @intFromPtr(address), length, @as(u32, @bitCast(flags)));
+}
+
+pub const MCL = if (native_arch.isSPARC() or native_arch.isPowerPC()) packed struct(u32) {
+    _0: u13 = 0,
+    CURRENT: bool = false,
+    FUTURE: bool = false,
+    ONFAULT: bool = false,
+    _4: u16 = 0,
+} else packed struct(u32) {
+    CURRENT: bool = false,
+    FUTURE: bool = false,
+    ONFAULT: bool = false,
+    _3: u29 = 0,
+};
+
+pub fn mlockall(flags: MCL) usize {
+    return syscall1(.mlockall, @as(u32, @bitCast(flags)));
+}
+
+pub fn munlockall() usize {
+    return syscall0(.munlockall);
+}
+
 pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
     if (@hasField(SYS, "poll")) {
         return syscall3(.poll, @intFromPtr(fds), n, @as(u32, @bitCast(timeout)));
