@@ -1,10 +1,11 @@
+const WindowsSdk = @This();
+const builtin = @import("builtin");
+const std = @import("std");
+const Writer = std.Io.Writer;
+
 windows10sdk: ?Installation,
 windows81sdk: ?Installation,
 msvc_lib_dir: ?[]const u8,
-
-const WindowsSdk = @This();
-const std = @import("std");
-const builtin = @import("builtin");
 
 const windows = std.os.windows;
 const RRF = windows.advapi32.RRF;
@@ -759,14 +760,13 @@ const MsvcLibDir = struct {
         while (instances_dir_it.next() catch return error.PathNotFound) |entry| {
             if (entry.kind != .directory) continue;
 
-            var fbs = std.io.fixedBufferStream(&state_subpath_buf);
-            const writer = fbs.writer();
+            var writer: Writer = .fixed(&state_subpath_buf);
 
             writer.writeAll(entry.name) catch unreachable;
             writer.writeByte(std.fs.path.sep) catch unreachable;
             writer.writeAll("state.json") catch unreachable;
 
-            const json_contents = instances_dir.readFileAlloc(allocator, fbs.getWritten(), std.math.maxInt(usize)) catch continue;
+            const json_contents = instances_dir.readFileAlloc(allocator, writer.buffered(), std.math.maxInt(usize)) catch continue;
             defer allocator.free(json_contents);
 
             var parsed = std.json.parseFromSlice(std.json.Value, allocator, json_contents, .{}) catch continue;

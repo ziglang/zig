@@ -566,6 +566,13 @@ pub fn assertReadable(slice: []const volatile u8) void {
     for (slice) |*byte| _ = byte.*;
 }
 
+/// Invokes detectable illegal behavior when the provided array is not aligned
+/// to the provided amount.
+pub fn assertAligned(ptr: anytype, comptime alignment: std.mem.Alignment) void {
+    const aligned_ptr: *align(alignment.toByteUnits()) anyopaque = @alignCast(@ptrCast(ptr));
+    _ = aligned_ptr;
+}
+
 /// Equivalent to `@panic` but with a formatted message.
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @branchHint(.cold);
