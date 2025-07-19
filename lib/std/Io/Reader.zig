@@ -990,9 +990,9 @@ pub fn discardDelimiterLimit(r: *Reader, delimiter: u8, limit: Limit) DiscardDel
 /// Returns `error.EndOfStream` if and only if there are fewer than `n` bytes
 /// remaining.
 ///
-/// Asserts buffer capacity is at least `n`.
+/// If the end of stream is not encountered, asserts buffer capacity is at
+/// least `n`.
 pub fn fill(r: *Reader, n: usize) Error!void {
-    assert(n <= r.buffer.len);
     if (r.seek + n <= r.end) {
         @branchHint(.likely);
         return;
