@@ -32281,6 +32281,46 @@ fn analyzeSlice(
                 break :e try sema.coerce(block, .usize, uncasted_end, end_src);
             } else break :e try sema.coerce(block, .usize, uncasted_end_opt, end_src);
         }
+
+        // when slicing a many-item pointer, if a sentinel `S` is provided as in `ptr[a.. :S]`, it
+        // must match the sentinel of `@TypeOf(ptr)`.
+        if (sentinel_opt != .none) sentinel_check: {
+            const provided = provided: {
+                const casted = try sema.coerce(block, elem_ty, sentinel_opt, sentinel_src);
+                try checkSentinelType(sema, block, sentinel_src, elem_ty);
+                break :provided try sema.resolveConstDefinedValue(
+                    block,
+                    sentinel_src,
+                    casted,
+                    .{ .simple = .slice_sentinel },
+                );
+            };
+
+            const msg = msg: {
+                const parent = if (ptr_sentinel) |expected| parent: {
+                    if (expected.eql(provided, elem_ty, zcu)) break :sentinel_check;
+                    break :parent try sema.errMsg(
+                        sentinel_src,
+                        "sentinel-terminated slicing of many-item pointer must preserve sentinel; expected sentinel {f}, found {f}",
+                        .{
+                            expected.fmtValue(pt),
+                            provided.fmtValue(pt),
+                        },
+                    );
+                } else parent: {
+                    break :parent try sema.errMsg(
+                        sentinel_src,
+                        "sentinel-terminated slicing is not permitted on many-item pointer without sentinel",
+                        .{},
+                    );
+                };
+                errdefer parent.destroy(sema.gpa);
+
+                try sema.errNote(src, parent, "use @ptrCast to cast pointer sentinel", .{});
+                break :msg parent;
+            };
+            return sema.failWithOwnedErrorMsg(block, msg);
+        }
         return sema.analyzePtrArithmetic(block, src, ptr, start, .ptr_add, ptr_src, start_src);
     };
 
