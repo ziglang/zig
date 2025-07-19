@@ -6056,6 +6056,16 @@ test "zig fmt: indentation of comments within catch, else, orelse" {
     );
 }
 
+test "zig fmt: extern addrspace in struct" {
+    try testCanonical(
+        \\const namespace = struct {
+        \\    extern const num: u8 addrspace(.generic);
+        \\};
+        \\// comment
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
