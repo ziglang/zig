@@ -35,8 +35,8 @@ const Fmt = struct {
     color: Color,
     gpa: Allocator,
     arena: Allocator,
-    out_buffer: std.ArrayListUnmanaged(u8),
-    stdout_writer: *File.Writer,
+    out_buffer: std.Io.Writer.Allocating,
+    stdout_writer: *fs.File.Writer,
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
@@ -58,7 +58,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    try File.stdout().writeAll(usage_fmt);
+                    try fs.File.stdout().writeAll(usage_fmt);
                     return process.cleanExit();
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
@@ -98,7 +98,10 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             fatal("cannot use --stdin with positional arguments", .{});
         }
 
-        const source_code = std.zig.readSourceFileToEndAlloc(gpa, .stdin(), 0) catch |err| {
+        const stdin: fs.File = .stdin();
+        var stdio_buffer: [1024]u8 = undefined;
+        var file_reader: fs.File.Reader = stdin.reader(&stdio_buffer);
+        const source_code = std.zig.readSourceFileToEndAlloc(gpa, &file_reader) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
         defer gpa.free(source_code);
@@ -142,17 +145,15 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             try std.zig.printAstErrorsToStderr(gpa, tree, "<stdin>", color);
             process.exit(2);
         }
-        var aw: std.io.Writer.Allocating = .init(gpa);
-        defer aw.deinit();
-        try tree.render(gpa, &aw.interface, .{});
-        const formatted = aw.getWritten();
+        const formatted = try tree.renderAlloc(gpa);
+        defer gpa.free(formatted);
 
         if (check_flag) {
             const code: u8 = @intFromBool(mem.eql(u8, formatted, source_code));
             process.exit(code);
         }
 
-        return File.stdout().writeAll(formatted);
+        return fs.File.stdout().writeAll(formatted);
     }
 
     if (input_files.items.len == 0) {
@@ -160,7 +161,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 
     var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = File.stdout().writer(&stdout_buffer);
+    var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
 
     var fmt: Fmt = .{
         .gpa = gpa,
@@ -170,7 +171,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         .check_ast = check_ast_flag,
         .force_zon = force_zon,
         .color = color,
-        .out_buffer = .empty,
+        .out_buffer = .init(gpa),
         .stdout_writer = &stdout_writer,
     };
     defer fmt.seen.deinit();
@@ -198,10 +199,10 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     if (fmt.any_error) {
         process.exit(1);
     }
-    try fmt.stdout_writer.flush();
+    try fmt.stdout_writer.interface.flush();
 }
 
-fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) anyerror!void {
+fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) !void {
     fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, dir, sub_path),
         else => {
@@ -218,7 +219,7 @@ fn fmtPathDir(
     check_mode: bool,
     parent_dir: fs.Dir,
     parent_sub_path: []const u8,
-) anyerror!void {
+) !void {
     var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
     defer dir.close();
 
@@ -254,7 +255,7 @@ fn fmtPathFile(
     check_mode: bool,
     dir: fs.Dir,
     sub_path: []const u8,
-) anyerror!void {
+) !void {
     const source_file = try dir.openFile(sub_path, .{});
     var file_closed = false;
     errdefer if (!file_closed) source_file.close();
@@ -264,12 +265,15 @@ fn fmtPathFile(
     if (stat.kind == .directory)
         return error.IsDir;
 
+    var read_buffer: [1024]u8 = undefined;
+    var file_reader: fs.File.Reader = source_file.reader(&read_buffer);
+    file_reader.size = stat.size;
+
     const gpa = fmt.gpa;
-    const source_code = try std.zig.readSourceFileToEndAlloc(
-        gpa,
-        source_file,
-        std.math.cast(usize, stat.size) orelse return error.FileTooBig,
-    );
+    const source_code = std.zig.readSourceFileToEndAlloc(gpa, &file_reader) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        else => |e| return e,
+    };
     defer gpa.free(source_code);
 
     source_file.close();
@@ -332,15 +336,13 @@ fn fmtPathFile(
     }
 
     // As a heuristic, we make enough capacity for the same as the input source.
-    fmt.out_buffer.shrinkRetainingCapacity(0);
-    try fmt.out_buffer.ensureTotalCapacity(gpa, source_code.len);
+    fmt.out_buffer.clearRetainingCapacity();
+    try fmt.out_buffer.ensureTotalCapacity(source_code.len);
 
-    {
-        var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &fmt.out_buffer);
-        defer fmt.out_buffer = aw.toArrayList();
-        try tree.render(gpa, &aw.interface, .{});
-    }
-    if (mem.eql(u8, fmt.out_buffer.items, source_code))
+    tree.render(gpa, &fmt.out_buffer.writer, .{}) catch |err| switch (err) {
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
+    };
+    if (mem.eql(u8, fmt.out_buffer.getWritten(), source_code))
         return;
 
     if (check_mode) {
@@ -350,7 +352,7 @@ fn fmtPathFile(
         var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
         defer af.deinit();
 
-        try af.file.writeAll(fmt.out_buffer.items);
+        try af.file.writeAll(fmt.out_buffer.getWritten());
         try af.finish();
         try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
     }

@@ -411,16 +411,22 @@ const Parser = struct {
     diag: ?*Diagnostics,
     options: Options,
 
-    fn parseExpr(self: *@This(), T: type, node: Zoir.Node.Index) error{ ParseZon, OutOfMemory }!T {
+    const ParseExprError = error{ ParseZon, OutOfMemory };
+
+    fn parseExpr(self: *@This(), T: type, node: Zoir.Node.Index) ParseExprError!T {
         return self.parseExprInner(T, node) catch |err| switch (err) {
             error.WrongType => return self.failExpectedType(T, node),
             else => |e| return e,
         };
     }
 
-    const InnerError = error{ ParseZon, OutOfMemory, WrongType };
+    const ParseExprInnerError = error{ ParseZon, OutOfMemory, WrongType };
 
-    fn parseExprInner(self: *@This(), T: type, node: Zoir.Node.Index) InnerError!T {
+    fn parseExprInner(
+        self: *@This(),
+        T: type,
+        node: Zoir.Node.Index,
+    ) ParseExprInnerError!T {
         if (T == Zoir.Node.Index) {
             return node;
         }
@@ -600,7 +606,7 @@ const Parser = struct {
         }
     }
 
-    fn parseSlicePointer(self: *@This(), T: type, node: Zoir.Node.Index) InnerError!T {
+    fn parseSlicePointer(self: *@This(), T: type, node: Zoir.Node.Index) ParseExprInnerError!T {
         switch (node.get(self.zoir)) {
             .string_literal => return self.parseString(T, node),
             .array_literal => |nodes| return self.parseSlice(T, nodes),
@@ -609,19 +615,17 @@ const Parser = struct {
         }
     }
 
-    fn parseString(self: *@This(), T: type, node: Zoir.Node.Index) InnerError!T {
+    fn parseString(self: *@This(), T: type, node: Zoir.Node.Index) ParseExprInnerError!T {
         const ast_node = node.getAstNode(self.zoir);
         const pointer = @typeInfo(T).pointer;
         var size_hint = ZonGen.strLitSizeHint(self.ast, ast_node);
         if (pointer.sentinel() != null) size_hint += 1;
-        const gpa = self.gpa;
 
-        var aw = try std.io.Writer.Allocating.initCapacity(gpa, size_hint);
+        var aw: std.Io.Writer.Allocating = .init(self.gpa);
+        try aw.ensureUnusedCapacity(size_hint);
         defer aw.deinit();
-        const parsed = ZonGen.parseStrLit(self.ast, ast_node, &aw.interface) catch |err| switch (err) {
-            error.WriteFailed => return error.OutOfMemory,
-        };
-        switch (parsed) {
+        const result = ZonGen.parseStrLit(self.ast, ast_node, &aw.writer) catch return error.OutOfMemory;
+        switch (result) {
             .success => {},
             .failure => |err| {
                 const token = self.ast.nodeMainToken(ast_node);

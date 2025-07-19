@@ -471,10 +471,14 @@ const Parse = struct {
         offset: u32,
     ) InnerError!void {
         const raw_string = bytes[offset..];
-        var aw: std.io.Writer.Allocating = .fromArrayList(p.gpa, buf);
-        const result = std.zig.string_literal.parseWrite(&aw.interface, raw_string);
-        buf.* = aw.toArrayList();
-        switch (result catch return error.OutOfMemory) {
+        const result = r: {
+            var aw: std.io.Writer.Allocating = .fromArrayList(p.gpa, buf);
+            defer buf.* = aw.toArrayList();
+            break :r std.zig.string_literal.parseWrite(&aw.writer, raw_string) catch |err| switch (err) {
+                error.WriteFailed => return error.OutOfMemory,
+            };
+        };
+        switch (result) {
             .success => {},
             .failure => |err| try p.appendStrLitError(err, token, bytes, offset),
         }

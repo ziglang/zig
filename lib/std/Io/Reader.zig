@@ -246,33 +246,40 @@ pub fn appendRemaining(
     limit: Limit,
 ) LimitedAllocError!void {
     assert(r.buffer.len != 0); // Needed to detect limit exceeded without losing data.
-    const buffer = r.buffer;
-    const buffer_contents = buffer[r.seek..r.end];
+    const buffer_contents = r.buffer[r.seek..r.end];
     const copy_len = limit.minInt(buffer_contents.len);
-    try list.ensureUnusedCapacity(gpa, copy_len);
-    @memcpy(list.unusedCapacitySlice()[0..copy_len], buffer[0..copy_len]);
-    list.items.len += copy_len;
+    try list.appendSlice(gpa, r.buffer[0..copy_len]);
     r.seek += copy_len;
-    if (copy_len == buffer_contents.len) {
-        r.seek = 0;
-        r.end = 0;
-    }
-    var remaining = limit.subtract(copy_len).?;
+    if (buffer_contents.len - copy_len != 0) return error.StreamTooLong;
+    r.seek = 0;
+    r.end = 0;
+    var remaining = @intFromEnum(limit) - copy_len;
     while (true) {
         try list.ensureUnusedCapacity(gpa, 1);
-        const dest = remaining.slice(list.unusedCapacitySlice());
-        const additional_buffer: []u8 = if (@intFromEnum(remaining) == dest.len) buffer else &.{};
-        const n = readVec(r, &.{ dest, additional_buffer }) catch |err| switch (err) {
-            error.EndOfStream => break,
-            error.ReadFailed => return error.ReadFailed,
-        };
-        if (n > dest.len) {
-            r.end = n - dest.len;
-            list.items.len += dest.len;
-            return error.StreamTooLong;
+        const cap = list.unusedCapacitySlice();
+        const dest = cap[0..@min(cap.len, remaining)];
+        if (remaining - dest.len == 0) {
+            // Additionally provides `buffer` to detect end.
+            const new_remaining = readVecInner(r, &.{}, dest, remaining) catch |err| switch (err) {
+                error.EndOfStream => {
+                    if (r.bufferedLen() != 0) return error.StreamTooLong;
+                    return;
+                },
+                error.ReadFailed => return error.ReadFailed,
+            };
+            list.items.len += remaining - new_remaining;
+            remaining = new_remaining;
+        } else {
+            // Leave `buffer` empty, appending directly to `list`.
+            var dest_w: Writer = .fixed(dest);
+            const n = r.vtable.stream(r, &dest_w, .limited(dest.len)) catch |err| switch (err) {
+                error.WriteFailed => unreachable, // Prevented by the limit.
+                error.EndOfStream => return,
+                error.ReadFailed => return error.ReadFailed,
+            };
+            list.items.len += n;
+            remaining -= n;
         }
-        list.items.len += n;
-        remaining = remaining.subtract(n).?;
     }
 }
 
@@ -313,60 +320,66 @@ pub fn readVecLimit(r: *Reader, data: []const []u8, limit: Limit) Error!usize {
         // buffer capacity requirements met.
         r.seek = 0;
         r.end = 0;
-        const first = buf[copy_len..];
-        const middle = data[i + 1 ..];
-        var wrapper: Writer.VectorWrapper = .{
-            .it = .{
-                .first = first,
-                .middle = middle,
-                .last = r.buffer,
-            },
-            .writer = .{
-                .buffer = if (first.len >= r.buffer.len) first else r.buffer,
-                .vtable = Writer.VectorWrapper.vtable,
-            },
-        };
-        var n = r.vtable.stream(r, &wrapper.writer, .limited(remaining)) catch |err| switch (err) {
-            error.WriteFailed => {
-                assert(!wrapper.used);
-                if (wrapper.writer.buffer.ptr == first.ptr) {
-                    remaining -= wrapper.writer.end;
-                } else {
-                    assert(wrapper.writer.end <= r.buffer.len);
-                    r.end = wrapper.writer.end;
-                }
-                break;
-            },
-            else => |e| return e,
-        };
-        if (!wrapper.used) {
-            if (wrapper.writer.buffer.ptr == first.ptr) {
-                remaining -= n;
-            } else {
-                assert(n <= r.buffer.len);
-                r.end = n;
-            }
-            break;
-        }
-        if (n < first.len) {
-            remaining -= n;
-            break;
-        }
-        remaining -= first.len;
-        n -= first.len;
-        for (middle) |mid| {
-            if (n < mid.len) {
-                remaining -= n;
-                break;
-            }
-            remaining -= mid.len;
-            n -= mid.len;
-        }
-        assert(n <= r.buffer.len);
-        r.end = n;
+        remaining = try readVecInner(r, data[i + 1 ..], buf[copy_len..], remaining);
         break;
     }
     return @intFromEnum(limit) - remaining;
+}
+
+fn readVecInner(r: *Reader, middle: []const []u8, first: []u8, remaining: usize) Error!usize {
+    var wrapper: Writer.VectorWrapper = .{
+        .it = .{
+            .first = first,
+            .middle = middle,
+            .last = r.buffer,
+        },
+        .writer = .{
+            .buffer = if (first.len >= r.buffer.len) first else r.buffer,
+            .vtable = Writer.VectorWrapper.vtable,
+        },
+    };
+    // If the limit may pass beyond user buffer into Reader buffer, use
+    // unlimited, allowing the Reader buffer to fill.
+    const limit: Limit = l: {
+        var n: usize = first.len;
+        for (middle) |m| n += m.len;
+        break :l if (remaining >= n) .unlimited else .limited(remaining);
+    };
+    var n = r.vtable.stream(r, &wrapper.writer, limit) catch |err| switch (err) {
+        error.WriteFailed => {
+            assert(!wrapper.used);
+            if (wrapper.writer.buffer.ptr == first.ptr) {
+                return remaining - wrapper.writer.end;
+            } else {
+                assert(wrapper.writer.end <= r.buffer.len);
+                r.end = wrapper.writer.end;
+                return remaining;
+            }
+        },
+        else => |e| return e,
+    };
+    if (!wrapper.used) {
+        if (wrapper.writer.buffer.ptr == first.ptr) {
+            return remaining - n;
+        } else {
+            assert(n <= r.buffer.len);
+            r.end = n;
+            return remaining;
+        }
+    }
+    if (n < first.len) return remaining - n;
+    var result = remaining - first.len;
+    n -= first.len;
+    for (middle) |mid| {
+        if (n < mid.len) {
+            return result - n;
+        }
+        result -= mid.len;
+        n -= mid.len;
+    }
+    assert(n <= r.buffer.len);
+    r.end = n;
+    return result;
 }
 
 pub fn buffered(r: *Reader) []u8 {
@@ -580,48 +593,29 @@ pub fn readSliceAll(r: *Reader, buffer: []u8) Error!void {
 /// See also:
 /// * `readSliceAll`
 pub fn readSliceShort(r: *Reader, buffer: []u8) ShortError!usize {
-    const in_buffer = r.buffer[r.seek..r.end];
-    const copy_len = @min(buffer.len, in_buffer.len);
-    @memcpy(buffer[0..copy_len], in_buffer[0..copy_len]);
-    if (buffer.len - copy_len == 0) {
-        r.seek += copy_len;
-        return buffer.len;
-    }
-    var i: usize = copy_len;
-    r.end = 0;
-    r.seek = 0;
+    var i: usize = 0;
     while (true) {
+        const buffer_contents = r.buffer[r.seek..r.end];
+        const dest = buffer[i..];
+        const copy_len = @min(dest.len, buffer_contents.len);
+        @memcpy(dest[0..copy_len], buffer_contents[0..copy_len]);
+        if (dest.len - copy_len == 0) {
+            @branchHint(.likely);
+            r.seek += copy_len;
+            return buffer.len;
+        }
+        i += copy_len;
+        r.end = 0;
+        r.seek = 0;
         const remaining = buffer[i..];
-        var wrapper: Writer.VectorWrapper = .{
-            .it = .{
-                .first = remaining,
-                .last = r.buffer,
-            },
-            .writer = .{
-                .buffer = if (remaining.len >= r.buffer.len) remaining else r.buffer,
-                .vtable = Writer.VectorWrapper.vtable,
-            },
-        };
-        const n = r.vtable.stream(r, &wrapper.writer, .unlimited) catch |err| switch (err) {
-            error.WriteFailed => {
-                if (!wrapper.used) {
-                    assert(r.seek == 0);
-                    r.seek = remaining.len;
-                    r.end = wrapper.writer.end;
-                    @memcpy(remaining, r.buffer[0..remaining.len]);
-                }
-                return buffer.len;
-            },
+        const new_remaining_len = readVecInner(r, &.{}, remaining, remaining.len) catch |err| switch (err) {
             error.EndOfStream => return i,
             error.ReadFailed => return error.ReadFailed,
         };
-        if (n < remaining.len) {
-            i += n;
-            continue;
-        }
-        r.end = n - remaining.len;
-        return buffer.len;
+        if (new_remaining_len == 0) return buffer.len;
+        i += remaining.len - new_remaining_len;
     }
+    return buffer.len;
 }
 
 /// Fill `buffer` with the next `buffer.len` bytes from the stream, advancing
@@ -1627,6 +1621,19 @@ test readSliceShort {
     try testing.expectEqual(0, try r.readSliceShort(&buf));
 }
 
+test "readSliceShort with smaller buffer than Reader" {
+    var reader_buf: [15]u8 = undefined;
+    const str = "This is a test";
+    var one_byte_stream: testing.Reader = .init(&reader_buf, &.{
+        .{ .buffer = str },
+    });
+    one_byte_stream.artificial_limit = .limited(1);
+
+    var buf: [14]u8 = undefined;
+    try testing.expectEqual(14, try one_byte_stream.interface.readSliceShort(&buf));
+    try testing.expectEqualStrings(str, &buf);
+}
+
 test readVec {
     var r: Reader = .fixed(std.ascii.letters);
     var flat_buffer: [52]u8 = undefined;
@@ -1689,33 +1696,13 @@ fn failingDiscard(r: *Reader, limit: Limit) Error!usize {
 }
 
 test "readAlloc when the backing reader provides one byte at a time" {
-    const OneByteReader = struct {
-        str: []const u8,
-        i: usize,
-        reader: Reader,
-
-        fn stream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
-            assert(@intFromEnum(limit) >= 1);
-            const self: *@This() = @fieldParentPtr("reader", r);
-            if (self.str.len - self.i == 0) return error.EndOfStream;
-            try w.writeByte(self.str[self.i]);
-            self.i += 1;
-            return 1;
-        }
-    };
     const str = "This is a test";
     var tiny_buffer: [1]u8 = undefined;
-    var one_byte_stream: OneByteReader = .{
-        .str = str,
-        .i = 0,
-        .reader = .{
-            .buffer = &tiny_buffer,
-            .vtable = &.{ .stream = OneByteReader.stream },
-            .seek = 0,
-            .end = 0,
-        },
-    };
-    const res = try one_byte_stream.reader.allocRemaining(std.testing.allocator, .unlimited);
+    var one_byte_stream: testing.Reader = .init(&tiny_buffer, &.{
+        .{ .buffer = str },
+    });
+    one_byte_stream.artificial_limit = .limited(1);
+    const res = try one_byte_stream.interface.allocRemaining(std.testing.allocator, .unlimited);
     defer std.testing.allocator.free(res);
     try std.testing.expectEqualStrings(str, res);
 }

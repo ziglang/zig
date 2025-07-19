@@ -484,8 +484,7 @@ fn findNativeKernel32LibDir(
 
     for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        const stream = result_buf.writer();
-        try stream.print("{s}\\Lib\\{s}\\um\\{s}", .{ install.path, install.version, arch_sub_dir });
+        try result_buf.print("{s}\\Lib\\{s}\\um\\{s}", .{ install.path, install.version, arch_sub_dir });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,

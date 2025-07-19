@@ -483,7 +483,7 @@ pub fn writeSplatAll(w: *Writer, data: [][]const u8, splat: usize) Error!void {
 
     // Deal with any left over splats
     if (data.len != 0 and truncate < data[index].len * splat) {
-        std.debug.assert(index == data.len - 1);
+        assert(index == data.len - 1);
         var remaining_splat = splat;
         while (true) {
             remaining_splat -= truncate / data[index].len;
@@ -618,10 +618,6 @@ pub fn writeAllPreserve(w: *Writer, preserve_length: usize, bytes: []const u8) E
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 ///
 /// To print literal curly braces, escape them by writing them twice, e.g. `{{` or `}}`.
-///
-/// Asserts `buffer` capacity of at least 2 if a union is printed. This
-/// requirement could be lifted by adjusting the code, but if you trigger that
-/// assertion it is a clue that you should probably be using a buffer.
 pub fn print(w: *Writer, comptime fmt: []const u8, args: anytype) Error!void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
@@ -840,11 +836,11 @@ pub inline fn writeStruct(w: *Writer, value: anytype, endian: std.builtin.Endian
             .auto => @compileError("ill-defined memory layout"),
             .@"extern" => {
                 if (native_endian == endian) {
-                    return w.writeStruct(value);
+                    return w.writeAll(@ptrCast((&value)[0..1]));
                 } else {
                     var copy = value;
                     std.mem.byteSwapAllFields(@TypeOf(value), &copy);
-                    return w.writeStruct(copy);
+                    return w.writeAll(@ptrCast((&copy)[0..1]));
                 }
             },
             .@"packed" => {
@@ -855,6 +851,9 @@ pub inline fn writeStruct(w: *Writer, value: anytype, endian: std.builtin.Endian
     }
 }
 
+/// If, `endian` is not native,
+/// * Asserts that the buffer storage capacity is at least enough to store `@sizeOf(Elem)`
+/// * Asserts that the buffer is aligned enough for `@alignOf(Elem)`.
 pub inline fn writeSliceEndian(
     w: *Writer,
     Elem: type,
@@ -864,7 +863,22 @@ pub inline fn writeSliceEndian(
     if (native_endian == endian) {
         return writeAll(w, @ptrCast(slice));
     } else {
-        return w.writeArraySwap(w, Elem, slice);
+        return writeSliceSwap(w, Elem, slice);
+    }
+}
+
+/// Asserts that the buffer storage capacity is at least enough to store `@sizeOf(Elem)`
+///
+/// Asserts that the buffer is aligned enough for `@alignOf(Elem)`.
+pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
+    var i: usize = 0;
+    while (i < slice.len) {
+        const dest_bytes = try w.writableSliceGreedy(@sizeOf(Elem));
+        const dest: []Elem = @alignCast(@ptrCast(dest_bytes[0 .. dest_bytes.len - dest_bytes.len % @sizeOf(Elem)]));
+        const copy_len = @min(dest.len, slice.len - i);
+        @memcpy(dest[0..copy_len], slice[i..][0..copy_len]);
+        i += copy_len;
+        std.mem.byteSwapAllElements(Elem, dest);
     }
 }
 
@@ -1257,14 +1271,13 @@ pub fn printValue(
                 .@"extern", .@"packed" => {
                     if (info.fields.len == 0) return w.writeAll(".{}");
                     try w.writeAll(".{ ");
-                    inline for (info.fields) |field| {
+                    inline for (info.fields, 1..) |field, i| {
                         try w.writeByte('.');
                         try w.writeAll(field.name);
                         try w.writeAll(" = ");
                         try w.printValue(ANY, options, @field(value, field.name), max_depth - 1);
-                        (try w.writableArray(2)).* = ", ".*;
+                        try w.writeAll(if (i < info.fields.len) ", " else " }");
                     }
-                    w.buffer[w.end - 2 ..][0..2].* = " }".*;
                 },
             }
         },
@@ -2475,6 +2488,18 @@ pub const Allocating = struct {
         return result;
     }
 
+    pub fn ensureUnusedCapacity(a: *Allocating, additional_count: usize) Allocator.Error!void {
+        var list = a.toArrayList();
+        defer a.setArrayList(list);
+        return list.ensureUnusedCapacity(a.allocator, additional_count);
+    }
+
+    pub fn ensureTotalCapacity(a: *Allocating, new_capacity: usize) Allocator.Error!void {
+        var list = a.toArrayList();
+        defer a.setArrayList(list);
+        return list.ensureTotalCapacity(a.allocator, new_capacity);
+    }
+
     pub fn toOwnedSlice(a: *Allocating) error{OutOfMemory}![]u8 {
         var list = a.toArrayList();
         defer a.setArrayList(list);
@@ -2594,8 +2619,40 @@ test "allocating sendFile" {
     var file_reader = file_writer.moveToReader();
     try file_reader.seekTo(0);
 
-    var allocating: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var allocating: std.io.Writer.Allocating = .init(testing.allocator);
     defer allocating.deinit();
 
     _ = try file_reader.interface.streamRemaining(&allocating.writer);
+}
+
+test writeStruct {
+    var buffer: [16]u8 = undefined;
+    const S = extern struct { a: u64, b: u32, c: u32 };
+    const s: S = .{ .a = 1, .b = 2, .c = 3 };
+    {
+        var w: Writer = .fixed(&buffer);
+        try w.writeStruct(s, .little);
+        try testing.expectEqualSlices(u8, &.{
+            1, 0, 0, 0, 0, 0, 0, 0, //
+            2, 0, 0, 0, //
+            3, 0, 0, 0, //
+        }, &buffer);
+    }
+    {
+        var w: Writer = .fixed(&buffer);
+        try w.writeStruct(s, .big);
+        try testing.expectEqualSlices(u8, &.{
+            0, 0, 0, 0, 0, 0, 0, 1, //
+            0, 0, 0, 2, //
+            0, 0, 0, 3, //
+        }, &buffer);
+    }
+}
+
+test writeSliceEndian {
+    var buffer: [4]u8 align(2) = undefined;
+    var w: Writer = .fixed(&buffer);
+    const array: [2]u16 = .{ 0x1234, 0x5678 };
+    try writeSliceEndian(&w, u16, &array, .big);
+    try testing.expectEqualSlices(u8, &.{ 0x12, 0x34, 0x56, 0x78 }, &buffer);
 }

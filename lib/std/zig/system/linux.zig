@@ -379,15 +379,18 @@ inline fn getAArch64CpuFeature(comptime feat_reg: []const u8) u64 {
 }
 
 pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
-    var f = fs.openFileAbsolute("/proc/cpuinfo", .{}) catch |err| switch (err) {
+    var file = fs.openFileAbsolute("/proc/cpuinfo", .{}) catch |err| switch (err) {
         else => return null,
     };
-    defer f.close();
+    defer file.close();
+
+    var buffer: [4096]u8 = undefined; // "flags" lines can get pretty long.
+    var file_reader = file.reader(&buffer);
 
     const current_arch = builtin.cpu.arch;
     switch (current_arch) {
         .arm, .armeb, .thumb, .thumbeb => {
-            return ArmCpuinfoParser.parse(current_arch, f.deprecatedReader()) catch null;
+            return ArmCpuinfoParser.parse(current_arch, &file_reader.interface) catch null;
         },
         .aarch64, .aarch64_be => {
             const registers = [12]u64{
@@ -409,13 +412,13 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
             return core;
         },
         .sparc64 => {
-            return SparcCpuinfoParser.parse(current_arch, f.deprecatedReader()) catch null;
+            return SparcCpuinfoParser.parse(current_arch, &file_reader.interface) catch null;
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
-            return PowerpcCpuinfoParser.parse(current_arch, f.deprecatedReader()) catch null;
+            return PowerpcCpuinfoParser.parse(current_arch, &file_reader.interface) catch null;
         },
         .riscv64, .riscv32 => {
-            return RiscvCpuinfoParser.parse(current_arch, f.deprecatedReader()) catch null;
+            return RiscvCpuinfoParser.parse(current_arch, &file_reader.interface) catch null;
         },
         else => {},
     }

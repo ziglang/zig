@@ -177,7 +177,7 @@ pub fn next(bc: *BitcodeReader) !?Item {
 
 pub fn skipBlock(bc: *BitcodeReader, block: Block) !void {
     assert(bc.bit_offset == 0);
-    try bc.reader.discard(4 * @as(u34, block.len));
+    try bc.reader.discardAll(4 * @as(u34, block.len));
     try bc.endBlock();
 }
 
@@ -513,3 +513,7 @@ const Abbrev = struct {
         }
     };
 };
+
+test {
+    _ = &skipBlock;
+}

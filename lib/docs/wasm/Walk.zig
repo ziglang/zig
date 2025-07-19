@@ -433,20 +433,18 @@ fn parse(file_name: []const u8, source: []u8) Oom!Ast {
         defer ast.deinit(gpa);
 
         const token_offsets = ast.tokens.items(.start);
-        var rendered_err: std.ArrayListUnmanaged(u8) = .{};
-        defer rendered_err.deinit(gpa);
+        var rendered_err: std.Io.Writer.Allocating = .init(gpa);
+        defer rendered_err.deinit();
         for (ast.errors) |err| {
             const err_offset = token_offsets[err.token] + ast.errorOffset(err);
             const err_loc = std.zig.findLineColumn(ast.source, err_offset);
             rendered_err.clearRetainingCapacity();
-            {
-                var aw: std.io.Writer.Allocating = .fromArrayList(gpa, &rendered_err);
-                defer rendered_err = aw.toArrayList();
-                ast.renderError(err, &aw.interface) catch |e| switch (e) {
-                    error.WriteFailed => return error.OutOfMemory,
-                };
-            }
-            log.err("{s}:{d}:{d}: {s}", .{ file_name, err_loc.line + 1, err_loc.column + 1, rendered_err.items });
+            ast.renderError(err, &rendered_err.writer) catch |e| switch (e) {
+                error.WriteFailed => return error.OutOfMemory,
+            };
+            log.err("{s}:{d}:{d}: {s}", .{
+                file_name, err_loc.line + 1, err_loc.column + 1, rendered_err.getWritten(),
+            });
         }
         return Ast.parse(gpa, "", .zig);
     }

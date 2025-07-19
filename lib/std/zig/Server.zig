@@ -118,6 +118,8 @@ pub fn init(options: Options) !Server {
         .in = options.in,
         .out = options.out,
     };
+    assert(s.out.buffer.len >= 4);
+    std.debug.assertAligned(s.out.buffer.ptr, .@"4");
     try s.serveStringMessage(.zig_version, options.zig_version);
     return s;
 }
@@ -141,7 +143,7 @@ pub fn serveStringMessage(s: *Server, tag: OutMessage.Tag, msg: []const u8) !voi
 
 /// Don't forget to flush!
 pub fn serveMessageHeader(s: *const Server, header: OutMessage.Header) !void {
-    try s.out.writeStructEndian(header, .little);
+    try s.out.writeStruct(header, .little);
 }
 
 pub fn serveU64Message(s: *const Server, tag: OutMessage.Tag, int: u64) !void {
@@ -162,7 +164,7 @@ pub fn serveEmitDigest(
         .tag = .emit_digest,
         .bytes_len = @intCast(digest.len + @sizeOf(OutMessage.EmitDigest)),
     });
-    try s.out.writeStructEndian(header, .little);
+    try s.out.writeStruct(header, .little);
     try s.out.writeAll(digest);
     try s.out.flush();
 }
@@ -172,7 +174,7 @@ pub fn serveTestResults(s: *Server, msg: OutMessage.TestResults) !void {
         .tag = .test_results,
         .bytes_len = @intCast(@sizeOf(OutMessage.TestResults)),
     });
-    try s.out.writeStructEndian(msg, .little);
+    try s.out.writeStruct(msg, .little);
     try s.out.flush();
 }
 
@@ -187,7 +189,7 @@ pub fn serveErrorBundle(s: *Server, error_bundle: std.zig.ErrorBundle) !void {
         .tag = .error_bundle,
         .bytes_len = @intCast(bytes_len),
     });
-    try s.out.writeStructEndian(eb_hdr, .little);
+    try s.out.writeStruct(eb_hdr, .little);
     try s.out.writeSliceEndian(u32, error_bundle.extra, .little);
     try s.out.writeAll(error_bundle.string_bytes);
     try s.out.flush();
@@ -212,7 +214,7 @@ pub fn serveTestMetadata(s: *Server, test_metadata: TestMetadata) !void {
         .tag = .test_metadata,
         .bytes_len = @intCast(bytes_len),
     });
-    try s.out.writeStructEndian(header, .little);
+    try s.out.writeStruct(header, .little);
     try s.out.writeSliceEndian(u32, test_metadata.names, .little);
     try s.out.writeSliceEndian(u32, test_metadata.expected_panic_msgs, .little);
     try s.out.writeAll(test_metadata.string_bytes);
