@@ -2179,22 +2179,8 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
             const BackingInt = std.meta.Int(.unsigned, @bitSizeOf(S));
             ptr.* = @bitCast(@byteSwap(@as(BackingInt, @bitCast(ptr.*))));
         },
-        .array => {
-            for (ptr) |*item| {
-                switch (@typeInfo(@TypeOf(item.*))) {
-                    .@"struct", .@"union", .array => byteSwapAllFields(@TypeOf(item.*), item),
-                    .@"enum" => {
-                        item.* = @enumFromInt(@byteSwap(@intFromEnum(item.*)));
-                    },
-                    .bool => {},
-                    .float => |float_info| {
-                        item.* = @bitCast(@byteSwap(@as(std.meta.Int(.unsigned, float_info.bits), @bitCast(item.*))));
-                    },
-                    else => {
-                        item.* = @byteSwap(item.*);
-                    },
-                }
-            }
+        .array => |info| {
+            byteSwapAllElements(info.child, ptr);
         },
         else => {
             ptr.* = @byteSwap(ptr.*);
@@ -2256,6 +2242,24 @@ test byteSwapAllFields {
         .f4 = false,
         .f5 = @as(f32, @bitCast(@as(u32, 0x0028d445))),
     }, k);
+}
+
+pub fn byteSwapAllElements(comptime Elem: type, slice: []Elem) void {
+    for (slice) |*elem| {
+        switch (@typeInfo(@TypeOf(elem.*))) {
+            .@"struct", .@"union", .array => byteSwapAllFields(@TypeOf(elem.*), elem),
+            .@"enum" => {
+                elem.* = @enumFromInt(@byteSwap(@intFromEnum(elem.*)));
+            },
+            .bool => {},
+            .float => |float_info| {
+                elem.* = @bitCast(@byteSwap(@as(std.meta.Int(.unsigned, float_info.bits), @bitCast(elem.*))));
+            },
+            else => {
+                elem.* = @byteSwap(elem.*);
+            },
+        }
+    }
 }
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
