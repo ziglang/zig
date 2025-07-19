@@ -2794,4 +2794,4 @@ const assert = std.debug.assert;
 const linux = std.os.linux;
 const windows = std.os.windows;
 const native_os = builtin.os.tag;
-const have_flock = @TypeOf(posix.system.flock) != void;
+const have_flock = @hasDecl(posix.system, "flock") and @TypeOf(posix.system.flock) != void;

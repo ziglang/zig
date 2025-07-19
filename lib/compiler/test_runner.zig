@@ -18,7 +18,7 @@ const crippled = switch (builtin.zig_backend) {
     .stage2_powerpc,
     .stage2_riscv64,
     => true,
-    else => false,
+    else => builtin.os.tag == .uefi,
 };
 
 pub fn main() void {

@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 const Os = std.builtin.Os;
 const native_os = builtin.os.tag;
 const is_windows = native_os == .windows;
+const is_uefi = builtin.os.tag == .uefi;
 
 const File = @This();
 const std = @import("../std.zig");
@@ -186,15 +187,33 @@ pub const CreateFlags = struct {
 };
 
 pub fn stdout() File {
-    return .{ .handle = if (is_windows) windows.peb().ProcessParameters.hStdOutput else posix.STDOUT_FILENO };
+    return .{
+        .handle = blk: {
+            if (is_windows) break :blk windows.peb().ProcessParameters.hStdOutput;
+            if (is_uefi) break :blk .{ .simple_output = std.os.uefi.system_table.con_out.? };
+            break :blk posix.STDOUT_FILENO;
+        },
+    };
 }
 
 pub fn stderr() File {
-    return .{ .handle = if (is_windows) windows.peb().ProcessParameters.hStdError else posix.STDERR_FILENO };
+    return .{
+        .handle = blk: {
+            if (is_windows) break :blk windows.peb().ProcessParameters.hStdError;
+            if (is_uefi) break :blk .{ .simple_output = std.os.uefi.system_table.std_err.? };
+            break :blk posix.STDERR_FILENO;
+        },
+    };
 }
 
 pub fn stdin() File {
-    return .{ .handle = if (is_windows) windows.peb().ProcessParameters.hStdInput else posix.STDIN_FILENO };
+    return .{
+        .handle = blk: {
+            if (is_windows) break :blk windows.peb().ProcessParameters.hStdInput;
+            if (is_uefi) break :blk .{ .simple_output = std.os.uefi.system_table.con_in.? };
+            break :blk posix.STDIN_FILENO;
+        },
+    };
 }
 
 /// Upon success, the stream is in an uninitialized state. To continue using it,
@@ -331,6 +350,10 @@ pub fn supportsAnsiEscapeCodes(self: File) bool {
         // WASI sanitizes stdout when fd is a tty so ANSI escape codes
         // will not be interpreted as actual cursor commands, and
         // stderr is always sanitized.
+        return false;
+    }
+    if (builtin.os.tag == .uefi) {
+        // UEFI has it's own way of terminal control without ANSI.
         return false;
     }
     if (self.isTty()) {

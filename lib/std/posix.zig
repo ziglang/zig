@@ -39,6 +39,7 @@ const use_libc = builtin.link_libc or switch (native_os) {
 const linux = std.os.linux;
 const windows = std.os.windows;
 const wasi = std.os.wasi;
+const uefi = std.os.uefi;
 
 /// A libc-compatible API layer.
 pub const system = if (use_libc)
@@ -46,6 +47,7 @@ pub const system = if (use_libc)
 else switch (native_os) {
     .linux => linux,
     .plan9 => std.os.plan9,
+    .uefi => std.os.uefi.posix,
     else => struct {
         pub const ucontext_t = void;
         pub const pid_t = void;
@@ -271,6 +273,9 @@ pub fn close(fd: fd_t) void {
     if (native_os == .wasi and !builtin.link_libc) {
         _ = std.os.wasi.fd_close(fd);
         return;
+    }
+    if (native_os == .uefi) {
+        return uefi.posix.close(fd);
     }
     switch (errno(system.close(fd))) {
         .BADF => unreachable, // Always a race condition.
@@ -770,7 +775,6 @@ pub fn exit(status: u8) noreturn {
         linux.exit_group(status);
     }
     if (native_os == .uefi) {
-        const uefi = std.os.uefi;
         // exit() is only available if exitBootServices() has not been called yet.
         // This call to exit should not fail, so we catch-ignore errors.
         if (uefi.system_table.boot_services) |bs| {
@@ -852,6 +856,9 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
+    }
+    if (native_os == .uefi) {
+        return uefi.posix.read(fd, buf);
     }
 
     // Prevents EINVAL.
@@ -1261,6 +1268,10 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
+    }
+
+    if (native_os == .uefi) {
+        return uefi.posix.write(fd, bytes);
     }
 
     const max_count = switch (native_os) {
@@ -1713,6 +1724,8 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: O, mode: mode_t) OpenE
         }
 
         return fd;
+    } else if (native_os == .uefi) {
+        return uefi.posix.openat(dir_fd, file_path, flags, mode);
     }
     const file_path_c = try toPosixPath(file_path);
     return openatZ(dir_fd, &file_path_c, flags, mode);
@@ -1815,7 +1828,7 @@ fn openOptionsFromFlagsWasi(oflag: O) OpenError!WasiOpenOptions {
 pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) OpenError!fd_t {
     if (native_os == .windows) {
         @compileError("Windows does not support POSIX; use Windows-specific API or cross-platform std.fs API");
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if ((native_os == .wasi or native_os == .uefi) and !builtin.link_libc) {
         return openat(dir_fd, mem.sliceTo(file_path, 0), flags, mode);
     }
 
@@ -3562,6 +3575,9 @@ pub fn isatty(handle: fd_t) bool {
             }
         }
     }
+    if (native_os == .uefi) {
+        return uefi.posix.isatty(handle);
+    }
     return system.isatty(handle) != 0;
 }
 
@@ -5271,6 +5287,9 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
+    if (native_os == .uefi) {
+        return uefi.posix.lseek_SET(fd, offset);
+    }
 
     const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
     switch (errno(lseek_sym(fd, @bitCast(offset), SEEK.SET))) {
@@ -5314,6 +5333,9 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
+    if (native_os == .uefi) {
+        return uefi.posix.lseek_CUR(fd, offset);
+    }
     const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
     switch (errno(lseek_sym(fd, @bitCast(offset), SEEK.CUR))) {
         .SUCCESS => return,
@@ -5356,6 +5378,9 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
+    if (native_os == .uefi) {
+        return uefi.posix.lseek_END(fd, offset);
+    }
     const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
     switch (errno(lseek_sym(fd, @bitCast(offset), SEEK.END))) {
         .SUCCESS => return,
@@ -5397,6 +5422,9 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
+    }
+    if (native_os == .uefi) {
+        return uefi.posix.lseek_CUR_get(fd);
     }
     const lseek_sym = if (lfs64_abi) system.lseek64 else system.lseek;
     const rc = lseek_sym(fd, 0, SEEK.CUR);

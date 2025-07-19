@@ -278,20 +278,16 @@ pub const File = extern struct {
         }
     }
 
-    pub const OpenMode = enum(u64) {
-        pub const Bits = packed struct(u64) {
-            // 0x0000000000000001
-            read: bool = false,
-            // 0x0000000000000002
-            write: bool = false,
-            _pad: u61 = 0,
-            // 0x8000000000000000
-            create: bool = false,
-        };
+    pub const OpenMode = packed struct(u64) {
+        read: bool = true,
 
-        read = @bitCast(Bits{ .read = true }),
-        read_write = @bitCast(Bits{ .read = true, .write = true }),
-        read_write_create = @bitCast(Bits{ .read = true, .write = true, .create = true }),
+        /// May only be specified if `read` is true.
+        write: bool = false,
+
+        _pad: u61 = 0,
+
+        /// May only be specified if `write` is true.
+        create: bool = false,
     };
 
     pub const Attributes = packed struct(u64) {
