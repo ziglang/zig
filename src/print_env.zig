@@ -21,10 +21,10 @@ pub fn cmdEnv(arena: Allocator, args: []const []const u8) !void {
     const host = try std.zig.system.resolveTargetQuery(.{});
     const triple = try host.zigTriple(arena);
 
-    var bw = std.io.bufferedWriter(std.fs.File.stdout().deprecatedWriter());
-    const w = bw.writer();
+    var buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
 
-    var jws = std.json.writeStream(w, .{ .whitespace = .indent_1 });
+    var jws: std.json.Stringify = .{ .writer = &stdout_writer.interface, .options = .{ .whitespace = .indent_1 } };
 
     try jws.beginObject();
 
@@ -55,7 +55,7 @@ pub fn cmdEnv(arena: Allocator, args: []const []const u8) !void {
     try jws.endObject();
 
     try jws.endObject();
-    try w.writeByte('\n');
 
-    try bw.flush();
+    try stdout_writer.interface.writeByte('\n');
+    try stdout_writer.interface.flush();
 }
