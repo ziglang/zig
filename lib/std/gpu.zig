@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 
 pub const position_in = @extern(*addrspace(.input) @Vector(4, f32), .{ .name = "position" });
 pub const position_out = @extern(*addrspace(.output) @Vector(4, f32), .{ .name = "position" });
@@ -125,4 +126,36 @@ pub fn executionMode(comptime entry_point: anytype, comptime mode: ExecutionMode
             );
         },
     }
+}
+
+/// Writes formatted output to an implementation-defined stream.
+/// Returns 0 on success, –1 on failure.
+pub fn printf(comptime fmt: [*:0]const u8, args: anytype) u32 {
+    if (builtin.zig_backend == .stage2_spirv and builtin.target.os.tag == .opencl) {
+        comptime var expr: []const u8 =
+            \\%std = OpExtInstImport "OpenCL.std"
+            \\%u32 = OpTypeInt 32 0
+            \\%ret = OpExtInst %u32 %std 184 %fmt
+        ;
+        inline for (0..args.len) |i| {
+            expr = expr ++ std.fmt.comptimePrint(" %arg{d}", .{i});
+        }
+        const result = switch (args.len) {
+            // zig fmt: off
+            0 => asm volatile (expr : [ret] "" (-> u32), : [fmt] "c" (fmt)),
+            1 => asm volatile (expr : [ret] "" (-> u32), : [fmt] "c" (fmt), [arg0] "" (args[0])),
+            2 => asm volatile (expr : [ret] "" (-> u32), : [fmt] "c" (fmt), [arg0] "" (args[0]), [arg1] "" (args[1])),
+            3 => asm volatile (expr : [ret] "" (-> u32), : [fmt] "c" (fmt), [arg0] "" (args[0]), [arg1] "" (args[1]), [arg2] "" (args[2])),
+            4 => asm volatile (expr : [ret] "" (-> u32), : [fmt] "c" (fmt), [arg0] "" (args[0]), [arg1] "" (args[1]), [arg2] "" (args[2]), [arg3] "" (args[3])),
+            5 => asm volatile (expr : [ret] "" (-> u32), : [fmt] "c" (fmt), [arg0] "" (args[0]), [arg1] "" (args[1]), [arg2] "" (args[2]), [arg3] "" (args[3]), [arg4] "" (args[4])),
+            6 => asm volatile (expr : [ret] "" (-> u32), : [fmt] "c" (fmt), [arg0] "" (args[0]), [arg1] "" (args[1]), [arg2] "" (args[2]), [arg3] "" (args[3]), [arg4] "" (args[4]), [arg5] "" (args[5])),
+            7 => asm volatile (expr : [ret] "" (-> u32), : [fmt] "c" (fmt), [arg0] "" (args[0]), [arg1] "" (args[1]), [arg2] "" (args[2]), [arg3] "" (args[3]), [arg4] "" (args[4]), [arg5] "" (args[5]), [arg6] "" (args[6])),
+            8 => asm volatile (expr : [ret] "" (-> u32), : [fmt] "c" (fmt), [arg0] "" (args[0]), [arg1] "" (args[1]), [arg2] "" (args[2]), [arg3] "" (args[3]), [arg4] "" (args[4]), [arg5] "" (args[5]), [arg6] "" (args[6]), [arg7] "" (args[7])),
+            9 => asm volatile (expr : [ret] "" (-> u32), : [fmt] "c" (fmt), [arg0] "" (args[0]), [arg1] "" (args[1]), [arg2] "" (args[2]), [arg3] "" (args[3]), [arg4] "" (args[4]), [arg5] "" (args[5]), [arg6] "" (args[6]), [arg7] "" (args[7]), [arg8] "" (args[8])),
+            // zig fmt: on
+            else => @compileError("too many arguments"),
+        };
+        return result;
+    }
+    @compileError("unsupported Zig backend or target OS");
 }

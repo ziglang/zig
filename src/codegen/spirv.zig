@@ -6439,7 +6439,8 @@ const NavGen = struct {
 
                 // TODO: This entire function should be handled a bit better...
                 const ip = &zcu.intern_pool;
-                switch (ip.indexToKey(val.toIntern())) {
+                const key = ip.indexToKey(val.toIntern());
+                switch (key) {
                     .int_type,
                     .ptr_type,
                     .array_type,
@@ -6461,6 +6462,27 @@ const NavGen = struct {
 
                     .int => try as.value_map.put(as.gpa, name, .{ .constant = @intCast(val.toUnsignedInt(zcu)) }),
                     .enum_literal => |str| try as.value_map.put(as.gpa, name, .{ .string = str.toSlice(ip) }),
+                    .ptr => |ptr| {
+                        switch (ptr.base_addr) {
+                            .uav => |uav| {
+                                const pointee_val = uav.val;
+                                const pointee_key = ip.indexToKey(pointee_val);
+                                switch (pointee_key) {
+                                    .aggregate => |aggregate| {
+                                        if (Type.fromInterned(pointee_key.aggregate.ty).zigTypeTag(zcu) == .array and aggregate.storage == .bytes) {
+                                            const pointee_type = Type.fromInterned(pointee_key.aggregate.ty);
+                                            const bytes = aggregate.storage.bytes.toSlice(pointee_type.arrayLenIncludingSentinel(zcu), ip);
+                                            try as.value_map.put(as.gpa, name, .{ .string = bytes });
+                                        } else {
+                                            return self.fail("unsupported pointee constant type for 'c' constraint (ptr.uav.aggregate case - pointee type tag: {}, storage: {})", .{ Type.fromInterned(pointee_key.aggregate.ty).zigTypeTag(zcu), aggregate.storage });
+                                        }
+                                    },
+                                    else => return self.fail("unsupported pointee constant type for 'c' constraint (ptr.uav case): {}", .{pointee_key}),
+                                }
+                            },
+                            else => return self.fail("unsupported pointer base address type for 'c' constraint: {}", .{ptr.base_addr}),
+                        }
+                    },
 
                     else => unreachable, // TODO
                 }

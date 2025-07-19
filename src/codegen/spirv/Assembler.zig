@@ -152,6 +152,22 @@ const AsmValue = union(enum) {
             .ty => |result| result,
         };
     }
+
+    /// Retrieve the result-id of this AsmValue, creating constants as needed.
+    /// This is used by the assembler to convert constants and strings to result IDs.
+    pub fn resultIdOrConstant(self: AsmValue, spv: *SpvModule) !Id {
+        return switch (self) {
+            .just_declared,
+            .unresolved_forward_reference,
+            .constant,
+            => unreachable, // TODO: Create constant integer instruction
+            .string => |str| {
+                return try spv.constStringGlobal(str);
+            },
+            .value => |result| result,
+            .ty => |result| result,
+        };
+    }
 };
 
 /// This map type maps results to values. Results can be addressed either by name (without the %), or by
@@ -365,10 +381,18 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             const child_type = try self.resolveRefId(operands[1].ref_id);
             break :blk try self.spv.vectorType(operands[2].literal32, child_type);
         },
-        .OpTypeArray => {
+        .OpTypeArray => blk: {
             // TODO: The length of an OpTypeArray is determined by a constant (which may be a spec constant),
             // and so some consideration must be taken when entering this in the type system.
-            return self.todo("process OpTypeArray", .{});
+            const element_type = try self.resolveRefId(operands[1].ref_id);
+            const length = try self.resolveRefId(operands[2].ref_id);
+            const result_id = self.spv.allocId();
+            try section.emit(self.spv.gpa, .OpTypeArray, .{
+                .id_result = result_id,
+                .element_type = element_type,
+                .length = length,
+            });
+            break :blk result_id;
         },
         .OpTypeRuntimeArray => blk: {
             const element_type = try self.resolveRefId(operands[1].ref_id);
@@ -508,7 +532,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
             .ref_id => |index| {
                 const result = try self.resolveRef(index);
                 try section.ensureUnusedCapacity(self.spv.gpa, 1);
-                section.writeOperand(spec.Id, result.resultId());
+                section.writeOperand(spec.Id, try result.resultIdOrConstant(self.spv));
             },
             .string => |offset| {
                 const text = std.mem.sliceTo(self.inst.string_bytes.items[offset..], 0);
@@ -559,7 +583,7 @@ fn resolveRef(self: *Assembler, ref: AsmValue.Ref) !AsmValue {
 
 fn resolveRefId(self: *Assembler, ref: AsmValue.Ref) !Id {
     const value = try self.resolveRef(ref);
-    return value.resultId();
+    return value.resultIdOrConstant(self.spv);
 }
 
 /// Attempt to parse an instruction into `self.inst`.
