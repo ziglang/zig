@@ -559,6 +559,7 @@ const Io = @This();
 
 pub const EventLoop = @import("Io/EventLoop.zig");
 pub const ThreadPool = @import("Io/ThreadPool.zig");
+pub const net = @import("Io/net.zig");
 
 userdata: ?*anyopaque,
 vtable: *const VTable,
@@ -656,6 +657,12 @@ pub const VTable = struct {
 
     now: *const fn (?*anyopaque, clockid: std.posix.clockid_t) ClockGetTimeError!Timestamp,
     sleep: *const fn (?*anyopaque, clockid: std.posix.clockid_t, deadline: Deadline) SleepError!void,
+
+    listen: *const fn (?*anyopaque, address: net.IpAddress, options: net.ListenOptions) net.ListenError!net.Server,
+    accept: *const fn (?*anyopaque, server: *net.Server) net.Server.AcceptError!net.Server.Connection,
+    netRead: *const fn (?*anyopaque, src: net.Stream, dest: *Io.Writer, limit: Io.Limit) net.Stream.Reader.Error!usize,
+    netWrite: *const fn (?*anyopaque, dest: net.Stream, header: []const u8, data: []const []const u8, splat: usize) net.Stream.Writer.Error!usize,
+    netClose: *const fn (?*anyopaque, stream: net.Stream) void,
 };
 
 pub const Cancelable = error{
