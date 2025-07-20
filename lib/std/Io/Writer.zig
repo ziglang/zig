@@ -851,9 +851,6 @@ pub inline fn writeStruct(w: *Writer, value: anytype, endian: std.builtin.Endian
     }
 }
 
-/// If, `endian` is not native,
-/// * Asserts that the buffer storage capacity is at least enough to store `@sizeOf(Elem)`
-/// * Asserts that the buffer is aligned enough for `@alignOf(Elem)`.
 pub inline fn writeSliceEndian(
     w: *Writer,
     Elem: type,
@@ -867,18 +864,11 @@ pub inline fn writeSliceEndian(
     }
 }
 
-/// Asserts that the buffer storage capacity is at least enough to store `@sizeOf(Elem)`
-///
-/// Asserts that the buffer is aligned enough for `@alignOf(Elem)`.
 pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
-    var i: usize = 0;
-    while (i < slice.len) {
-        const dest_bytes = try w.writableSliceGreedy(@sizeOf(Elem));
-        const dest: []Elem = @alignCast(@ptrCast(dest_bytes[0 .. dest_bytes.len - dest_bytes.len % @sizeOf(Elem)]));
-        const copy_len = @min(dest.len, slice.len - i);
-        @memcpy(dest[0..copy_len], slice[i..][0..copy_len]);
-        i += copy_len;
-        std.mem.byteSwapAllElements(Elem, dest);
+    for (slice) |elem| {
+        var tmp = elem;
+        std.mem.byteSwapAllFields(Elem, &tmp);
+        try w.writeAll(@ptrCast(&tmp));
     }
 }
 
@@ -2650,9 +2640,10 @@ test writeStruct {
 }
 
 test writeSliceEndian {
-    var buffer: [4]u8 align(2) = undefined;
+    var buffer: [5]u8 align(2) = undefined;
     var w: Writer = .fixed(&buffer);
+    try w.writeByte('x');
     const array: [2]u16 = .{ 0x1234, 0x5678 };
     try writeSliceEndian(&w, u16, &array, .big);
-    try testing.expectEqualSlices(u8, &.{ 0x12, 0x34, 0x56, 0x78 }, &buffer);
+    try testing.expectEqualSlices(u8, &.{ 'x', 0x12, 0x34, 0x56, 0x78 }, &buffer);
 }
