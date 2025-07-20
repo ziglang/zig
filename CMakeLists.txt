@@ -494,6 +494,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/pdb.zig
     lib/std/process.zig
     lib/std/process/Child.zig
+    lib/std/select.zig
     lib/std/sort.zig
     lib/std/start.zig
     lib/std/static_string_map.zig
