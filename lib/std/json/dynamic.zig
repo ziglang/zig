@@ -9,10 +9,7 @@ const json = std.json;
 const ParseOptions = @import("./static.zig").ParseOptions;
 const ParseError = @import("./static.zig").ParseError;
 
-const JsonScanner = @import("./scanner.zig").Scanner;
-const AllocWhen = @import("./scanner.zig").AllocWhen;
-const Token = @import("./scanner.zig").Token;
-const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
+const isNumberFormattedLikeAnInteger = @import("Scanner.zig").isNumberFormattedLikeAnInteger;
 
 pub const ObjectMap = StringArrayHashMap(Value);
 pub const Array = ArrayList(Value);

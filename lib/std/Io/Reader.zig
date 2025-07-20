@@ -990,9 +990,9 @@ pub fn discardDelimiterLimit(r: *Reader, delimiter: u8, limit: Limit) DiscardDel
 /// Returns `error.EndOfStream` if and only if there are fewer than `n` bytes
 /// remaining.
 ///
-/// Asserts buffer capacity is at least `n`.
+/// If the end of stream is not encountered, asserts buffer capacity is at
+/// least `n`.
 pub fn fill(r: *Reader, n: usize) Error!void {
-    assert(n <= r.buffer.len);
     if (r.seek + n <= r.end) {
         @branchHint(.likely);
         return;
@@ -1108,9 +1108,9 @@ pub fn takeVarInt(r: *Reader, comptime Int: type, endian: std.builtin.Endian, n:
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
 ///
 /// See also:
-/// * `peekStructReference`
+/// * `peekStructPointer`
 /// * `takeStruct`
-pub fn takeStructReference(r: *Reader, comptime T: type) Error!*align(1) T {
+pub fn takeStructPointer(r: *Reader, comptime T: type) Error!*align(1) T {
     // Only extern and packed structs have defined in-memory layout.
     comptime assert(@typeInfo(T).@"struct".layout != .auto);
     return @ptrCast(try r.takeArray(@sizeOf(T)));
@@ -1122,9 +1122,9 @@ pub fn takeStructReference(r: *Reader, comptime T: type) Error!*align(1) T {
 /// Asserts the buffer was initialized with a capacity at least `@sizeOf(T)`.
 ///
 /// See also:
-/// * `takeStructReference`
+/// * `takeStructPointer`
 /// * `peekStruct`
-pub fn peekStructReference(r: *Reader, comptime T: type) Error!*align(1) T {
+pub fn peekStructPointer(r: *Reader, comptime T: type) Error!*align(1) T {
     // Only extern and packed structs have defined in-memory layout.
     comptime assert(@typeInfo(T).@"struct".layout != .auto);
     return @ptrCast(try r.peekArray(@sizeOf(T)));
@@ -1136,19 +1136,19 @@ pub fn peekStructReference(r: *Reader, comptime T: type) Error!*align(1) T {
 /// when `endian` is comptime-known and matches the host endianness.
 ///
 /// See also:
-/// * `takeStructReference`
+/// * `takeStructPointer`
 /// * `peekStruct`
 pub inline fn takeStruct(r: *Reader, comptime T: type, endian: std.builtin.Endian) Error!T {
     switch (@typeInfo(T)) {
         .@"struct" => |info| switch (info.layout) {
             .auto => @compileError("ill-defined memory layout"),
             .@"extern" => {
-                var res = (try r.takeStructReference(T)).*;
+                var res = (try r.takeStructPointer(T)).*;
                 if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
                 return res;
             },
             .@"packed" => {
-                return takeInt(r, info.backing_integer.?, endian);
+                return @bitCast(try takeInt(r, info.backing_integer.?, endian));
             },
         },
         else => @compileError("not a struct"),
@@ -1162,18 +1162,18 @@ pub inline fn takeStruct(r: *Reader, comptime T: type, endian: std.builtin.Endia
 ///
 /// See also:
 /// * `takeStruct`
-/// * `peekStructReference`
+/// * `peekStructPointer`
 pub inline fn peekStruct(r: *Reader, comptime T: type, endian: std.builtin.Endian) Error!T {
     switch (@typeInfo(T)) {
         .@"struct" => |info| switch (info.layout) {
             .auto => @compileError("ill-defined memory layout"),
             .@"extern" => {
-                var res = (try r.peekStructReference(T)).*;
+                var res = (try r.peekStructPointer(T)).*;
                 if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
                 return res;
             },
             .@"packed" => {
-                return peekInt(r, info.backing_integer.?, endian);
+                return @bitCast(try peekInt(r, info.backing_integer.?, endian));
             },
         },
         else => @compileError("not a struct"),
@@ -1557,27 +1557,27 @@ test takeVarInt {
     try testing.expectError(error.EndOfStream, r.takeVarInt(u16, .little, 1));
 }
 
-test takeStructReference {
+test takeStructPointer {
     var r: Reader = .fixed(&.{ 0x12, 0x00, 0x34, 0x56 });
     const S = extern struct { a: u8, b: u16 };
     switch (native_endian) {
-        .little => try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.takeStructReference(S)).*),
-        .big => try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.takeStructReference(S)).*),
+        .little => try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.takeStructPointer(S)).*),
+        .big => try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.takeStructPointer(S)).*),
     }
-    try testing.expectError(error.EndOfStream, r.takeStructReference(S));
+    try testing.expectError(error.EndOfStream, r.takeStructPointer(S));
 }
 
-test peekStructReference {
+test peekStructPointer {
     var r: Reader = .fixed(&.{ 0x12, 0x00, 0x34, 0x56 });
     const S = extern struct { a: u8, b: u16 };
     switch (native_endian) {
         .little => {
-            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.peekStructReference(S)).*);
-            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.peekStructReference(S)).*);
+            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.peekStructPointer(S)).*);
+            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x5634 }), (try r.peekStructPointer(S)).*);
         },
         .big => {
-            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.peekStructReference(S)).*);
-            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.peekStructReference(S)).*);
+            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.peekStructPointer(S)).*);
+            try testing.expectEqual(@as(S, .{ .a = 0x12, .b = 0x3456 }), (try r.peekStructPointer(S)).*);
         },
     }
 }
@@ -1722,6 +1722,27 @@ test "takeDelimiterInclusive when it rebases" {
     for (0..6) |_| {
         try std.testing.expectEqualStrings(written_line, try r.takeDelimiterInclusive('\n'));
     }
+}
+
+test "takeStruct and peekStruct packed" {
+    var r: Reader = .fixed(&.{ 0b11110000, 0b00110011 });
+    const S = packed struct(u16) { a: u2, b: u6, c: u7, d: u1 };
+
+    try testing.expectEqual(@as(S, .{
+        .a = 0b11,
+        .b = 0b001100,
+        .c = 0b1110000,
+        .d = 0b1,
+    }), try r.peekStruct(S, .big));
+
+    try testing.expectEqual(@as(S, .{
+        .a = 0b11,
+        .b = 0b001100,
+        .c = 0b1110000,
+        .d = 0b1,
+    }), try r.takeStruct(S, .big));
+
+    try testing.expectError(error.EndOfStream, r.takeStruct(S, .little));
 }
 
 /// Provides a `Reader` implementation by passing data from an underlying

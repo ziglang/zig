@@ -44,7 +44,7 @@ test Value {
 test Stringify {
     var out: std.io.Writer.Allocating = .init(testing.allocator);
     var write_stream: Stringify = .{
-        .writer = &out.interface,
+        .writer = &out.writer,
         .options = .{ .whitespace = .indent_2 },
     };
     defer out.deinit();
@@ -66,18 +66,18 @@ pub const Value = @import("json/dynamic.zig").Value;
 
 pub const ArrayHashMap = @import("json/hashmap.zig").ArrayHashMap;
 
-pub const validate = @import("json/scanner.zig").validate;
-pub const Error = @import("json/scanner.zig").Error;
-pub const reader = @import("json/scanner.zig").reader;
-pub const default_buffer_size = @import("json/scanner.zig").default_buffer_size;
-pub const Token = @import("json/scanner.zig").Token;
-pub const TokenType = @import("json/scanner.zig").TokenType;
-pub const Diagnostics = @import("json/scanner.zig").Diagnostics;
-pub const AllocWhen = @import("json/scanner.zig").AllocWhen;
-pub const default_max_value_len = @import("json/scanner.zig").default_max_value_len;
-pub const Reader = @import("json/scanner.zig").Reader;
-pub const Scanner = @import("json/scanner.zig").Scanner;
-pub const isNumberFormattedLikeAnInteger = @import("json/scanner.zig").isNumberFormattedLikeAnInteger;
+pub const Scanner = @import("json/Scanner.zig");
+pub const validate = Scanner.validate;
+pub const Error = Scanner.Error;
+pub const reader = Scanner.reader;
+pub const default_buffer_size = Scanner.default_buffer_size;
+pub const Token = Scanner.Token;
+pub const TokenType = Scanner.TokenType;
+pub const Diagnostics = Scanner.Diagnostics;
+pub const AllocWhen = Scanner.AllocWhen;
+pub const default_max_value_len = Scanner.default_max_value_len;
+pub const Reader = Scanner.Reader;
+pub const isNumberFormattedLikeAnInteger = Scanner.isNumberFormattedLikeAnInteger;
 
 pub const ParseOptions = @import("json/static.zig").ParseOptions;
 pub const Parsed = @import("json/static.zig").Parsed;
@@ -101,10 +101,10 @@ pub fn fmt(value: anytype, options: Stringify.Options) Formatter(@TypeOf(value))
 
 test fmt {
     const expectFmt = std.testing.expectFmt;
-    try expectFmt("123", "{}", .{fmt(@as(u32, 123), .{})});
+    try expectFmt("123", "{f}", .{fmt(@as(u32, 123), .{})});
     try expectFmt(
         \\{"num":927,"msg":"hello","sub":{"mybool":true}}
-    , "{}", .{fmt(struct {
+    , "{f}", .{fmt(struct {
         num: u32,
         msg: []const u8,
         sub: struct {
@@ -123,14 +123,7 @@ pub fn Formatter(comptime T: type) type {
         value: T,
         options: Stringify.Options,
 
-        pub fn format(
-            self: @This(),
-            comptime fmt_spec: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: *std.io.Writer,
-        ) !void {
-            comptime std.debug.assert(fmt_spec.len == 0);
-            _ = options;
+        pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
             try Stringify.value(self.value, self.options, writer);
         }
     };
@@ -138,7 +131,7 @@ pub fn Formatter(comptime T: type) type {
 
 test {
     _ = @import("json/test.zig");
-    _ = @import("json/scanner.zig");
+    _ = Scanner;
     _ = @import("json/dynamic.zig");
     _ = @import("json/hashmap.zig");
     _ = @import("json/static.zig");

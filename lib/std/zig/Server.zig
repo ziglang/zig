@@ -203,8 +203,8 @@ pub const TestMetadata = struct {
 
 pub fn serveTestMetadata(s: *Server, test_metadata: TestMetadata) !void {
     const header: OutMessage.TestMetadata = .{
-        .tests_len = @as(u32, @intCast(test_metadata.names.len)),
-        .string_bytes_len = @as(u32, @intCast(test_metadata.string_bytes.len)),
+        .tests_len = @intCast(test_metadata.names.len),
+        .string_bytes_len = @intCast(test_metadata.string_bytes.len),
     };
     const trailing = 2;
     const bytes_len = @sizeOf(OutMessage.TestMetadata) +

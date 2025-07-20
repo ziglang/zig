@@ -10,38 +10,37 @@ const target = @import("target.zig");
 const assert = std.debug.assert;
 const glibc = @import("libs/glibc.zig");
 const introspect = @import("introspect.zig");
-const Writer = std.io.Writer;
 
-pub fn cmdTargets(arena: Allocator, args: []const []const u8) !void {
+pub fn cmdTargets(
+    allocator: Allocator,
+    args: []const []const u8,
+    out: *std.Io.Writer,
+    native_target: *const Target,
+) !void {
     _ = args;
-    const host = std.zig.resolveTargetQueryOrFatal(.{});
-    var buffer: [1024]u8 = undefined;
-    var bw = fs.File.stdout().writer().buffered(&buffer);
-    try print(arena, &bw, host);
-    try bw.flush();
-}
-
-fn print(arena: Allocator, output: *Writer, host: *const Target) Writer.Error!void {
-    var zig_lib_directory = introspect.findZigLibDir(arena) catch |err| {
+    var zig_lib_directory = introspect.findZigLibDir(allocator) catch |err| {
         fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };
     defer zig_lib_directory.handle.close();
+    defer allocator.free(zig_lib_directory.path.?);
 
     const abilists_contents = zig_lib_directory.handle.readFileAlloc(
+        allocator,
         glibc.abilists_path,
-        arena,
-        .limited(glibc.abilists_max_size),
+        glibc.abilists_max_size,
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => fatal("unable to read " ++ glibc.abilists_path ++ ": {s}", .{@errorName(err)}),
     };
+    defer allocator.free(abilists_contents);
 
-    const glibc_abi = try glibc.loadMetaData(arena, abilists_contents);
+    const glibc_abi = try glibc.loadMetaData(allocator, abilists_contents);
+    defer glibc_abi.destroy(allocator);
 
-    var sz: std.zon.stringify.Serializer = .{ .writer = output };
+    var serializer: std.zon.Serializer = .{ .writer = out };
 
     {
-        var root_obj = try sz.beginStruct(.{});
+        var root_obj = try serializer.beginStruct(.{});
 
         try root_obj.field("arch", meta.fieldNames(Target.Cpu.Arch), .{});
         try root_obj.field("os", meta.fieldNames(Target.Os.Tag), .{});
@@ -50,9 +49,10 @@ fn print(arena: Allocator, output: *Writer, host: *const Target) Writer.Error!vo
         {
             var libc_obj = try root_obj.beginTupleField("libc", .{});
             for (std.zig.target.available_libcs) |libc| {
-                const tmp = try std.fmt.allocPrint(arena, "{s}-{s}-{s}", .{
+                const tmp = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
                     @tagName(libc.arch), @tagName(libc.os), @tagName(libc.abi),
                 });
+                defer allocator.free(tmp);
                 try libc_obj.field(tmp, .{});
             }
             try libc_obj.end();
@@ -61,7 +61,8 @@ fn print(arena: Allocator, output: *Writer, host: *const Target) Writer.Error!vo
         {
             var glibc_obj = try root_obj.beginTupleField("glibc", .{});
             for (glibc_abi.all_versions) |ver| {
-                const tmp = try std.fmt.allocPrint(arena, "{f}", .{ver});
+                const tmp = try std.fmt.allocPrint(allocator, "{f}", .{ver});
+                defer allocator.free(tmp);
                 try glibc_obj.field(tmp, .{});
             }
             try glibc_obj.end();
@@ -101,20 +102,21 @@ fn print(arena: Allocator, output: *Writer, host: *const Target) Writer.Error!vo
         {
             var native_obj = try root_obj.beginStructField("native", .{});
             {
-                const triple = try host.zigTriple(arena);
+                const triple = try native_target.zigTriple(allocator);
+                defer allocator.free(triple);
                 try native_obj.field("triple", triple, .{});
             }
             {
                 var cpu_obj = try native_obj.beginStructField("cpu", .{});
-                try cpu_obj.field("arch", @tagName(host.cpu.arch), .{});
+                try cpu_obj.field("arch", @tagName(native_target.cpu.arch), .{});
 
-                try cpu_obj.field("name", host.cpu.model.name, .{});
+                try cpu_obj.field("name", native_target.cpu.model.name, .{});
 
                 {
                     var features = try native_obj.beginTupleField("features", .{});
-                    for (host.cpu.arch.allFeaturesList(), 0..) |feature, i_usize| {
+                    for (native_target.cpu.arch.allFeaturesList(), 0..) |feature, i_usize| {
                         const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
-                        if (host.cpu.features.isEnabled(index)) {
+                        if (native_target.cpu.features.isEnabled(index)) {
                             try features.field(feature.name, .{});
                         }
                     }
@@ -123,13 +125,13 @@ fn print(arena: Allocator, output: *Writer, host: *const Target) Writer.Error!vo
                 try cpu_obj.end();
             }
 
-            try native_obj.field("os", @tagName(host.os.tag), .{});
-            try native_obj.field("abi", @tagName(host.abi), .{});
+            try native_obj.field("os", @tagName(native_target.os.tag), .{});
+            try native_obj.field("abi", @tagName(native_target.abi), .{});
             try native_obj.end();
         }
 
         try root_obj.end();
     }
 
-    try output.writeByte('\n');
+    try out.writeByte('\n');
 }

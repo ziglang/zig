@@ -292,12 +292,14 @@ pub fn main() !void {
                     };
                     defer depfile.close();
 
-                    const depfile_writer = depfile.deprecatedWriter();
-                    var depfile_buffered_writer = std.io.bufferedWriter(depfile_writer);
+                    var depfile_buffer: [1024]u8 = undefined;
+                    var depfile_writer = depfile.writer(&depfile_buffer);
                     switch (options.depfile_fmt) {
                         .json => {
-                            var write_stream = std.json.writeStream(depfile_buffered_writer.writer(), .{ .whitespace = .indent_2 });
-                            defer write_stream.deinit();
+                            var write_stream: std.json.Stringify = .{
+                                .writer = &depfile_writer.interface,
+                                .options = .{ .whitespace = .indent_2 },
+                            };
 
                             try write_stream.beginArray();
                             for (dependencies_list.items) |dep_path| {
@@ -306,7 +308,7 @@ pub fn main() !void {
                             try write_stream.endArray();
                         },
                     }
-                    try depfile_buffered_writer.flush();
+                    try depfile_writer.interface.flush();
                 }
             }
 

@@ -6385,6 +6385,9 @@ pub const FuncGen = struct {
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/test/MC/WebAssembly/blockaddress.ll
             if (zcu.comp.getTarget().cpu.arch.isWasm()) break :jmp_table null;
 
+            // Workaround for https://github.com/ziglang/zig/issues/24383:
+            if (self.ng.ownerModule().optimize_mode == .ReleaseSafe) break :jmp_table null;
+
             // On a 64-bit target, 1024 pointers in our jump table is about 8K of pointers. This seems just
             // about acceptable - it won't fill L1d cache on most CPUs.
             const max_table_len = 1024;

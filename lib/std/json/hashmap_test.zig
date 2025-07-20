@@ -10,7 +10,7 @@ const parseFromTokenSource = @import("static.zig").parseFromTokenSource;
 const parseFromValue = @import("static.zig").parseFromValue;
 const Value = @import("dynamic.zig").Value;
 
-const jsonReader = @import("./scanner.zig").reader;
+const Scanner = @import("Scanner.zig");
 
 const T = struct {
     i: i32,
@@ -39,8 +39,8 @@ test "parse json hashmap while streaming" {
         \\  "xyz": {"i": 1, "s": "w"}
         \\}
     ;
-    var stream: std.io.FixedBufferStream = .{ .buffer = doc };
-    var json_reader = jsonReader(testing.allocator, stream.reader());
+    var stream: std.Io.Reader = .fixed(doc);
+    var json_reader: Scanner.Reader = .init(testing.allocator, &stream);
 
     var parsed = try parseFromTokenSource(
         ArrayHashMap(T),

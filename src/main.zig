@@ -346,8 +346,9 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "targets")) {
         dev.check(.targets_command);
         const host = std.zig.resolveTargetQueryOrFatal(.{});
-        const stdout = fs.File.stdout().deprecatedWriter();
-        return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, &host);
+        var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
+        try @import("print_targets.zig").cmdTargets(arena, cmd_args, &stdout_writer.interface, &host);
+        return stdout_writer.interface.flush();
     } else if (mem.eql(u8, cmd, "version")) {
         dev.check(.version_command);
         try fs.File.stdout().writeAll(build_options.version ++ "\n");
@@ -358,7 +359,9 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "env")) {
         dev.check(.env_command);
         verifyLibcxxCorrectlyLinked();
-        return @import("print_env.zig").cmdEnv(arena, cmd_args);
+        var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
+        try @import("print_env.zig").cmdEnv(arena, &stdout_writer.interface);
+        return stdout_writer.interface.flush();
     } else if (mem.eql(u8, cmd, "reduce")) {
         return jitCmd(gpa, arena, cmd_args, .{
             .cmd_name = "reduce",

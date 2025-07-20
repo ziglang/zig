@@ -867,18 +867,11 @@ pub inline fn writeSliceEndian(
     }
 }
 
-/// Asserts that the buffer storage capacity is at least enough to store `@sizeOf(Elem)`
-///
-/// Asserts that the buffer is aligned enough for `@alignOf(Elem)`.
 pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
-    var i: usize = 0;
-    while (i < slice.len) {
-        const dest_bytes = try w.writableSliceGreedy(@sizeOf(Elem));
-        const dest: []Elem = @alignCast(@ptrCast(dest_bytes[0 .. dest_bytes.len - dest_bytes.len % @sizeOf(Elem)]));
-        const copy_len = @min(dest.len, slice.len - i);
-        @memcpy(dest[0..copy_len], slice[i..][0..copy_len]);
-        i += copy_len;
-        std.mem.byteSwapAllElements(Elem, dest);
+    for (slice) |elem| {
+        var tmp = elem;
+        std.mem.byteSwapAllFields(Elem, &tmp);
+        try w.writeAll(@ptrCast(&tmp));
     }
 }
 
@@ -1141,8 +1134,8 @@ pub fn printValue(
                 else => invalidFmtError(fmt, value),
             },
             't' => switch (@typeInfo(T)) {
-                .error_set => return w.writeAll(@errorName(value)),
-                .@"enum", .@"union" => return w.writeAll(@tagName(value)),
+                .error_set => return w.alignBufferOptions(@errorName(value), options),
+                .@"enum", .@"union" => return w.alignBufferOptions(@tagName(value), options),
                 else => invalidFmtError(fmt, value),
             },
             else => {},
@@ -2152,6 +2145,14 @@ test "bytes.hex" {
     try testing.expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
 }
 
+test "padding" {
+    const foo: enum { foo } = .foo;
+    try testing.expectFmt("tag: |foo |\n", "tag: |{t:<4}|\n", .{foo});
+
+    const bar: error{bar} = error.bar;
+    try testing.expectFmt("error: |bar |\n", "error: |{t:<4}|\n", .{bar});
+}
+
 test fixed {
     {
         var buf: [255]u8 = undefined;
@@ -2650,9 +2651,10 @@ test writeStruct {
 }
 
 test writeSliceEndian {
-    var buffer: [4]u8 align(2) = undefined;
+    var buffer: [5]u8 align(2) = undefined;
     var w: Writer = .fixed(&buffer);
+    try w.writeByte('x');
     const array: [2]u16 = .{ 0x1234, 0x5678 };
     try writeSliceEndian(&w, u16, &array, .big);
-    try testing.expectEqualSlices(u8, &.{ 0x12, 0x34, 0x56, 0x78 }, &buffer);
+    try testing.expectEqualSlices(u8, &.{ 'x', 0x12, 0x34, 0x56, 0x78 }, &buffer);
 }

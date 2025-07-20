@@ -16,8 +16,7 @@ const parseFromTokenSource = @import("static.zig").parseFromTokenSource;
 const parseFromValueLeaky = @import("static.zig").parseFromValueLeaky;
 const ParseOptions = @import("static.zig").ParseOptions;
 
-const jsonReader = @import("scanner.zig").reader;
-const JsonReader = @import("scanner.zig").Reader;
+const Scanner = @import("Scanner.zig");
 
 test "json.parser.dynamic" {
     const s =
@@ -99,8 +98,8 @@ test "write json then parse it" {
 
     try jw.endObject();
 
-    var fbs: std.io.FixedBufferStream = .{ .buffer = fixed_writer.getWritten() };
-    var json_reader = jsonReader(testing.allocator, fbs.reader());
+    var fbs: std.Io.Reader = .fixed(fixed_writer.buffered());
+    var json_reader: Scanner.Reader = .init(testing.allocator, &fbs);
     defer json_reader.deinit();
     var parsed = try parseFromTokenSource(Value, testing.allocator, &json_reader, .{});
     defer parsed.deinit();
@@ -263,7 +262,7 @@ test "Value.jsonStringify" {
         \\ }
         \\]
     ;
-    try testing.expectEqualStrings(expected, fixed_writer.getWritten());
+    try testing.expectEqualStrings(expected, fixed_writer.buffered());
 }
 
 test "parseFromValue(std.json.Value,...)" {
@@ -331,8 +330,8 @@ test "polymorphic parsing" {
 test "long object value" {
     const value = "01234567890123456789";
     const doc = "{\"key\":\"" ++ value ++ "\"}";
-    var fbs: std.io.FixedBufferStream = .{ .buffer = doc };
-    var reader = smallBufferJsonReader(testing.allocator, fbs.reader());
+    var fbs: std.Io.Reader = .fixed(doc);
+    var reader = smallBufferJsonReader(testing.allocator, &fbs);
     defer reader.deinit();
     var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
     defer parsed.deinit();
@@ -364,8 +363,8 @@ test "many object keys" {
         \\  "k5": "v5"
         \\}
     ;
-    var fbs: std.io.FixedBufferStream = .{ .buffer = doc };
-    var reader = smallBufferJsonReader(testing.allocator, fbs.reader());
+    var fbs: std.Io.Reader = .fixed(doc);
+    var reader = smallBufferJsonReader(testing.allocator, &fbs);
     defer reader.deinit();
     var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
     defer parsed.deinit();
@@ -379,8 +378,8 @@ test "many object keys" {
 
 test "negative zero" {
     const doc = "-0";
-    var fbs: std.io.FixedBufferStream = .{ .buffer = doc };
-    var reader = smallBufferJsonReader(testing.allocator, fbs.reader());
+    var fbs: std.Io.Reader = .fixed(doc);
+    var reader = smallBufferJsonReader(testing.allocator, &fbs);
     defer reader.deinit();
     var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
     defer parsed.deinit();
@@ -388,6 +387,6 @@ test "negative zero" {
     try testing.expect(std.math.isNegativeZero(parsed.value.float));
 }
 
-fn smallBufferJsonReader(allocator: Allocator, io_reader: anytype) JsonReader(16, @TypeOf(io_reader)) {
-    return JsonReader(16, @TypeOf(io_reader)).init(allocator, io_reader);
+fn smallBufferJsonReader(allocator: Allocator, io_reader: anytype) Scanner.Reader {
+    return .init(allocator, io_reader);
 }

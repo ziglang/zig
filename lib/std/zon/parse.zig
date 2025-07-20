@@ -64,14 +64,14 @@ pub const Error = union(enum) {
             }
         };
 
-        fn formatMessage(self: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+        fn formatMessage(self: []const u8, w: *std.Io.Writer) std.Io.Writer.Error!void {
             // Just writes the string for now, but we're keeping this behind a formatter so we have
             // the option to extend it in the future to print more advanced messages (like `Error`
             // does) without breaking the API.
             try w.writeAll(self);
         }
 
-        pub fn fmtMessage(self: Note, diag: *const Diagnostics) std.fmt.Formatter([]const u8, Note.formatMessage) {
+        pub fn fmtMessage(self: Note, diag: *const Diagnostics) std.fmt.Alt([]const u8, Note.formatMessage) {
             return .{ .data = switch (self) {
                 .zoir => |note| note.msg.get(diag.zoir),
                 .type_check => |note| note.msg,
@@ -147,14 +147,14 @@ pub const Error = union(enum) {
         diag: *const Diagnostics,
     };
 
-    fn formatMessage(self: FormatMessage, w: *std.io.Writer) std.io.Writer.Error!void {
+    fn formatMessage(self: FormatMessage, w: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self.err) {
             .zoir => |err| try w.writeAll(err.msg.get(self.diag.zoir)),
             .type_check => |tc| try w.writeAll(tc.message),
         }
     }
 
-    pub fn fmtMessage(self: @This(), diag: *const Diagnostics) std.fmt.Formatter(FormatMessage, formatMessage) {
+    pub fn fmtMessage(self: @This(), diag: *const Diagnostics) std.fmt.Alt(FormatMessage, formatMessage) {
         return .{ .data = .{
             .err = self,
             .diag = diag,
@@ -226,7 +226,7 @@ pub const Diagnostics = struct {
         return .{ .diag = self };
     }
 
-    pub fn format(self: *const @This(), w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: *const @This(), w: *std.Io.Writer) std.Io.Writer.Error!void {
         var errors = self.iterateErrors();
         while (errors.next()) |err| {
             const loc = err.getLocation(self);

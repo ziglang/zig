@@ -2438,7 +2438,10 @@ pub const DeclGen = struct {
         const ty = val.typeOf(zcu);
         return .{ .data = .{
             .dg = dg,
-            .int_info = ty.intInfo(zcu),
+            .int_info = if (ty.zigTypeTag(zcu) == .@"union" and ty.containerLayout(zcu) == .@"packed")
+                .{ .signedness = .unsigned, .bits = @intCast(ty.bitSize(zcu)) }
+            else
+                ty.intInfo(zcu),
             .kind = kind,
             .ctype = try dg.ctypeFromType(ty, kind),
             .val = val,

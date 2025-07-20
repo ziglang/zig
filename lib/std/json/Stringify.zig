@@ -248,7 +248,7 @@ test print {
         \\  ]
         \\}
     ;
-    try std.testing.expectEqualStrings(expected, out.getWritten());
+    try std.testing.expectEqualStrings(expected, out.buffered());
 }
 
 /// An alternative to calling `write` that allows you to write directly to the `.writer` field, e.g. with `.writer.writeAll()`.
@@ -577,7 +577,7 @@ pub fn value(v: anytype, options: Options, writer: *Writer) Error!void {
 
 test value {
     var out: std.io.Writer.Allocating = .init(std.testing.allocator);
-    const writer = &out.interface;
+    const writer = &out.writer;
     defer out.deinit();
 
     const T = struct { a: i32, b: []const u8 };
@@ -617,9 +617,8 @@ test value {
 /// Caller owns returned memory.
 pub fn valueAlloc(gpa: Allocator, v: anytype, options: Options) error{OutOfMemory}![]u8 {
     var aw: std.io.Writer.Allocating = .init(gpa);
-    const writer = &aw.interface;
     defer aw.deinit();
-    value(v, options, writer) catch return error.OutOfMemory;
+    value(v, options, &aw.writer) catch return error.OutOfMemory;
     return aw.toOwnedSlice();
 }
 
@@ -634,23 +633,23 @@ test valueAlloc {
     try std.testing.expectEqualStrings(expected, actual);
 }
 
-fn outputUnicodeEscape(codepoint: u21, bw: *Writer) Error!void {
+fn outputUnicodeEscape(codepoint: u21, w: *Writer) Error!void {
     if (codepoint <= 0xFFFF) {
         // If the character is in the Basic Multilingual Plane (U+0000 through U+FFFF),
         // then it may be represented as a six-character sequence: a reverse solidus, followed
         // by the lowercase letter u, followed by four hexadecimal digits that encode the character's code point.
-        try bw.writeAll("\\u");
-        try bw.printInt("x", .{ .width = 4, .fill = '0' }, codepoint);
+        try w.writeAll("\\u");
+        try w.printInt(codepoint, 16, .lower, .{ .width = 4, .fill = '0' });
     } else {
         assert(codepoint <= 0x10FFFF);
         // To escape an extended character that is not in the Basic Multilingual Plane,
         // the character is represented as a 12-character sequence, encoding the UTF-16 surrogate pair.
         const high = @as(u16, @intCast((codepoint - 0x10000) >> 10)) + 0xD800;
         const low = @as(u16, @intCast(codepoint & 0x3FF)) + 0xDC00;
-        try bw.writeAll("\\u");
-        try bw.printInt("x", .{ .width = 4, .fill = '0' }, high);
-        try bw.writeAll("\\u");
-        try bw.printInt("x", .{ .width = 4, .fill = '0' }, low);
+        try w.writeAll("\\u");
+        try w.printInt(high, 16, .lower, .{ .width = 4, .fill = '0' });
+        try w.writeAll("\\u");
+        try w.printInt(low, 16, .lower, .{ .width = 4, .fill = '0' });
     }
 }
 
@@ -723,8 +722,8 @@ test "json write stream" {
     try testBasicWriteStream(&w);
 }
 
-fn testBasicWriteStream(w: *Stringify) Error!void {
-    w.writer.reset();
+fn testBasicWriteStream(w: *Stringify) !void {
+    w.writer.end = 0;
 
     try w.beginObject();
 
@@ -755,19 +754,19 @@ fn testBasicWriteStream(w: *Stringify) Error!void {
         \\{
         \\  "object": {
         \\    "one": 1,
-        \\    "two": 2e0
+        \\    "two": 2
         \\  },
         \\  "string": "This is a string",
         \\  "array": [
         \\    "Another string",
         \\    1,
-        \\    3.5e0
+        \\    3.5
         \\  ],
         \\  "int": 10,
-        \\  "float": 3.5e0
+        \\  "float": 3.5
         \\}
     ;
-    try std.testing.expectEqualStrings(expected, w.writer.getWritten());
+    try std.testing.expectEqualStrings(expected, w.writer.buffered());
 }
 
 fn getJsonObject(allocator: std.mem.Allocator) !std.json.Value {
@@ -804,12 +803,12 @@ test "stringify basic types" {
     try testStringify("null", @as(?u8, null), .{});
     try testStringify("null", @as(?*u32, null), .{});
     try testStringify("42", 42, .{});
-    try testStringify("4.2e1", 42.0, .{});
+    try testStringify("42", 42.0, .{});
     try testStringify("42", @as(u8, 42), .{});
     try testStringify("42", @as(u128, 42), .{});
     try testStringify("9999999999999999", 9999999999999999, .{});
-    try testStringify("4.2e1", @as(f32, 42), .{});
-    try testStringify("4.2e1", @as(f64, 42), .{});
+    try testStringify("42", @as(f32, 42), .{});
+    try testStringify("42", @as(f64, 42), .{});
     try testStringify("\"ItBroke\"", @as(anyerror, error.ItBroke), .{});
     try testStringify("\"ItBroke\"", error.ItBroke, .{});
 }
@@ -970,9 +969,9 @@ test "stringify struct with custom stringifier" {
 
 fn testStringify(expected: []const u8, v: anytype, options: Options) !void {
     var buffer: [4096]u8 = undefined;
-    var bw: Writer = .fixed(&buffer);
-    try value(v, options, &bw);
-    try std.testing.expectEqualStrings(expected, bw.getWritten());
+    var w: Writer = .fixed(&buffer);
+    try value(v, options, &w);
+    try std.testing.expectEqualStrings(expected, w.buffered());
 }
 
 test "raw streaming" {
@@ -996,5 +995,5 @@ test "raw streaming" {
         \\  "long key": "long value"
         \\}
     ;
-    try std.testing.expectEqualStrings(expected, w.writer.getWritten());
+    try std.testing.expectEqualStrings(expected, w.writer.buffered());
 }
