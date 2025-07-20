@@ -534,7 +534,7 @@ test isUnderscore {
 }
 
 pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader) ![:0]u8 {
-    var buffer: std.ArrayListAlignedUnmanaged(u8, .@"2") = .empty;
+    var buffer: std.ArrayListUnmanaged(u8) = .empty;
     defer buffer.deinit(gpa);
 
     if (file_reader.getSize()) |size| {
@@ -543,7 +543,7 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader
         try buffer.ensureTotalCapacityPrecise(gpa, casted_size + 1);
     } else |_| {}
 
-    try file_reader.interface.appendRemaining(gpa, .@"2", &buffer, .limited(max_src_size));
+    try file_reader.interface.appendRemaining(gpa, null, &buffer, .limited(max_src_size));
 
     // Detect unsupported file types with their Byte Order Mark
     const unsupported_boms = [_][]const u8{
@@ -560,7 +560,7 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader
     // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
     if (std.mem.startsWith(u8, buffer.items, "\xff\xfe")) {
         if (buffer.items.len % 2 != 0) return error.InvalidEncoding;
-        return std.unicode.utf16LeToUtf8AllocZ(gpa, @ptrCast(buffer.items)) catch |err| switch (err) {
+        return std.unicode.alignedUtf16LeToUtf8AllocZ(gpa, .@"1", @ptrCast(buffer.items)) catch |err| switch (err) {
             error.DanglingSurrogateHalf => error.UnsupportedEncoding,
             error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
