@@ -1228,14 +1228,12 @@ pub const Reader = struct {
     pub fn seekBy(r: *Reader, offset: i64) Reader.SeekError!void {
         switch (r.mode) {
             .positional, .positional_reading => {
-                // TODO: make += operator allow any integer types
-                r.pos = @intCast(@as(i64, @intCast(r.pos)) + offset);
+                setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
             },
             .streaming, .streaming_reading => {
                 const seek_err = r.seek_err orelse e: {
                     if (posix.lseek_CUR(r.file.handle, offset)) |_| {
-                        // TODO: make += operator allow any integer types
-                        r.pos = @intCast(@as(i64, @intCast(r.pos)) + offset);
+                        setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
                         return;
                     } else |err| {
                         r.seek_err = err;
@@ -1251,6 +1249,8 @@ pub const Reader = struct {
                     r.pos += n;
                     remaining -= n;
                 }
+                r.interface.seek = 0;
+                r.interface.end = 0;
             },
             .failure => return r.seek_err.?,
         }
@@ -1259,7 +1259,7 @@ pub const Reader = struct {
     pub fn seekTo(r: *Reader, offset: u64) Reader.SeekError!void {
         switch (r.mode) {
             .positional, .positional_reading => {
-                r.pos = offset;
+                setPosAdjustingBuffer(r, offset);
             },
             .streaming, .streaming_reading => {
                 if (offset >= r.pos) return Reader.seekBy(r, @intCast(offset - r.pos));
@@ -1268,10 +1268,20 @@ pub const Reader = struct {
                     r.seek_err = err;
                     return err;
                 };
-                r.pos = offset;
+                setPosAdjustingBuffer(r, offset);
             },
             .failure => return r.seek_err.?,
         }
+    }
+
+    fn setPosAdjustingBuffer(r: *Reader, offset: u64) void {
+        if (offset < r.pos or offset >= r.pos + r.interface.bufferedLen()) {
+            r.interface.seek = 0;
+            r.interface.end = 0;
+        } else {
+            r.interface.seek += @intCast(offset - r.pos);
+        }
+        r.pos = offset;
     }
 
     /// Number of slices to store on the stack, when trying to send as many byte
