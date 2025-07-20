@@ -1,5 +1,5 @@
 const std = @import("std");
-const io = std.io;
+const Io = std.Io;
 const DefaultPrng = std.Random.DefaultPrng;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -24,7 +24,7 @@ test "write a file, read it, then delete it" {
         var file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
-        var buf_stream = io.bufferedWriter(file.deprecatedWriter());
+        var buf_stream = Io.bufferedWriter(file.deprecatedWriter());
         const st = buf_stream.writer();
         try st.print("begin", .{});
         try st.writeAll(data[0..]);
@@ -45,7 +45,7 @@ test "write a file, read it, then delete it" {
         const expected_file_size: u64 = "begin".len + data.len + "end".len;
         try expectEqual(expected_file_size, file_size);
 
-        var buf_stream = io.bufferedReader(file.deprecatedReader());
+        var buf_stream = Io.bufferedReader(file.deprecatedReader());
         const st = buf_stream.reader();
         const contents = try st.readAllAlloc(std.testing.allocator, 2 * 1024);
         defer std.testing.allocator.free(contents);
@@ -66,7 +66,7 @@ test "BitStreams with File Stream" {
         var file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
-        var bit_stream = io.bitWriter(native_endian, file.deprecatedWriter());
+        var bit_stream = Io.bitWriter(native_endian, file.deprecatedWriter());
 
         try bit_stream.writeBits(@as(u2, 1), 1);
         try bit_stream.writeBits(@as(u5, 2), 2);
@@ -80,7 +80,7 @@ test "BitStreams with File Stream" {
         var file = try tmp.dir.openFile(tmp_file_name, .{});
         defer file.close();
 
-        var bit_stream = io.bitReader(native_endian, file.deprecatedReader());
+        var bit_stream = Io.bitReader(native_endian, file.deprecatedReader());
 
         var out_bits: u16 = undefined;
 
@@ -170,7 +170,7 @@ test "updateTimes" {
 
 test "GenericReader methods can return error.EndOfStream" {
     // https://github.com/ziglang/zig/issues/17733
-    var fbs = std.io.fixedBufferStream("");
+    var fbs = std.Io.fixedBufferStream("");
     try std.testing.expectError(
         error.EndOfStream,
         fbs.reader().readEnum(enum(u8) { a, b }, .little),
@@ -179,4 +179,15 @@ test "GenericReader methods can return error.EndOfStream" {
         error.EndOfStream,
         fbs.reader().isBytes("foo"),
     );
+}
+
+test "Io instance provided by unit tester async/await" {
+    const io = std.testing.io;
+    var future1 = io.async(silly, .{1});
+    var future2 = io.async(silly, .{2});
+    try std.testing.expectEqual(3, future1.await(io) + future2.await(io));
+}
+
+fn silly(n: usize) usize {
+    return n;
 }
