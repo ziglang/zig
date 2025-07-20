@@ -10,7 +10,7 @@ pub const std_options: std.Options = .{
 };
 
 var log_err_count: usize = 0;
-var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
+var fba: std.heap.FixedBufferAllocator = .init(&fba_buffer);
 var fba_buffer: [8192]u8 = undefined;
 var stdin_buffer: [4096]u8 = undefined;
 var stdout_buffer: [4096]u8 = undefined;
@@ -121,6 +121,7 @@ fn mainServer() !void {
 
             .run_test => {
                 testing.allocator_instance = .{};
+                testing.io_instance = .init(fba.allocator());
                 log_err_count = 0;
                 const index = try server.receiveBody_u32();
                 const test_fn = builtin.test_functions[index];
@@ -136,6 +137,8 @@ fn mainServer() !void {
                         }
                     },
                 };
+                testing.io_instance.deinit();
+                fba.reset();
                 const leak = testing.allocator_instance.deinit() == .leak;
                 try server.serveTestResults(.{
                     .index = index,
@@ -195,18 +198,13 @@ fn mainTerminal() void {
     });
     const have_tty = std.fs.File.stderr().isTty();
 
-    var async_frame_buffer: []align(builtin.target.stackAlignment()) u8 = undefined;
-    // TODO this is on the next line (using `undefined` above) because otherwise zig incorrectly
-    // ignores the alignment of the slice.
-    async_frame_buffer = &[_]u8{};
-
     var leaks: usize = 0;
     for (test_fn_list, 0..) |test_fn, i| {
         testing.allocator_instance = .{};
+        testing.io_instance = .init(fba.allocator());
         defer {
-            if (testing.allocator_instance.deinit() == .leak) {
-                leaks += 1;
-            }
+            if (testing.allocator_instance.deinit() == .leak) leaks += 1;
+            testing.io_instance.deinit();
         }
         testing.log_level = .warn;
 
