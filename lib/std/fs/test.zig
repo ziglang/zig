@@ -1499,32 +1499,18 @@ test "sendfile" {
     const header2 = "second header\n";
     const trailer1 = "trailer1\n";
     const trailer2 = "second trailer\n";
-    var hdtr = [_]posix.iovec_const{
-        .{
-            .base = header1,
-            .len = header1.len,
-        },
-        .{
-            .base = header2,
-            .len = header2.len,
-        },
-        .{
-            .base = trailer1,
-            .len = trailer1.len,
-        },
-        .{
-            .base = trailer2,
-            .len = trailer2.len,
-        },
-    };
+    var headers: [2][]const u8 = .{ header1, header2 };
+    var trailers: [2][]const u8 = .{ trailer1, trailer2 };
 
     var written_buf: [100]u8 = undefined;
-    try dest_file.writeFileAll(src_file, .{
-        .in_offset = 1,
-        .in_len = 10,
-        .headers_and_trailers = &hdtr,
-        .header_count = 2,
-    });
+    var file_reader = src_file.reader(&.{});
+    var fallback_buffer: [50]u8 = undefined;
+    var file_writer = dest_file.writer(&fallback_buffer);
+    try file_writer.interface.writeVecAll(&headers);
+    try file_reader.seekTo(1);
+    try testing.expectEqual(10, try file_writer.interface.sendFileAll(&file_reader, .limited(10)));
+    try file_writer.interface.writeVecAll(&trailers);
+    try file_writer.interface.flush();
     const amt = try dest_file.preadAll(&written_buf, 0);
     try testing.expectEqualStrings("header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n", written_buf[0..amt]);
 }
@@ -1595,9 +1581,10 @@ test "AtomicFile" {
             ;
 
             {
-                var af = try ctx.dir.atomicFile(test_out_file, .{});
+                var buffer: [100]u8 = undefined;
+                var af = try ctx.dir.atomicFile(test_out_file, .{ .write_buffer = &buffer });
                 defer af.deinit();
-                try af.file.writeAll(test_content);
+                try af.file_writer.interface.writeAll(test_content);
                 try af.finish();
             }
             const content = try ctx.dir.readFileAlloc(allocator, test_out_file, 9999);

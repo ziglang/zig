@@ -3382,7 +3382,7 @@ pub fn saveState(comp: *Compilation) !void {
 
     const gpa = comp.gpa;
 
-    var bufs = std.ArrayList(std.posix.iovec_const).init(gpa);
+    var bufs = std.ArrayList([]const u8).init(gpa);
     defer bufs.deinit();
 
     var pt_headers = std.ArrayList(Header.PerThread).init(gpa);
@@ -3421,50 +3421,50 @@ pub fn saveState(comp: *Compilation) !void {
 
         try bufs.ensureTotalCapacityPrecise(14 + 8 * pt_headers.items.len);
         addBuf(&bufs, mem.asBytes(&header));
-        addBuf(&bufs, mem.sliceAsBytes(pt_headers.items));
+        addBuf(&bufs, @ptrCast(pt_headers.items));
 
-        addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.interned_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.interned_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.zon_file_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.zon_file_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.embed_file_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.embed_file_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.namespace_name_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.namespace_name_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.src_hash_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.src_hash_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.nav_val_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.nav_val_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.nav_ty_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.nav_ty_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.interned_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.interned_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.zon_file_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.zon_file_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.embed_file_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.embed_file_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.namespace_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.namespace_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.namespace_name_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.namespace_name_deps.values()));
 
-        addBuf(&bufs, mem.sliceAsBytes(ip.first_dependency.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.first_dependency.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.dep_entries.items));
-        addBuf(&bufs, mem.sliceAsBytes(ip.free_dep_entries.items));
+        addBuf(&bufs, @ptrCast(ip.first_dependency.keys()));
+        addBuf(&bufs, @ptrCast(ip.first_dependency.values()));
+        addBuf(&bufs, @ptrCast(ip.dep_entries.items));
+        addBuf(&bufs, @ptrCast(ip.free_dep_entries.items));
 
         for (ip.locals, pt_headers.items) |*local, pt_header| {
             if (pt_header.intern_pool.limbs_len > 0) {
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.limbs.view().items(.@"0")[0..pt_header.intern_pool.limbs_len]));
+                addBuf(&bufs, @ptrCast(local.shared.limbs.view().items(.@"0")[0..pt_header.intern_pool.limbs_len]));
             }
             if (pt_header.intern_pool.extra_len > 0) {
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.extra.view().items(.@"0")[0..pt_header.intern_pool.extra_len]));
+                addBuf(&bufs, @ptrCast(local.shared.extra.view().items(.@"0")[0..pt_header.intern_pool.extra_len]));
             }
             if (pt_header.intern_pool.items_len > 0) {
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.items.view().items(.data)[0..pt_header.intern_pool.items_len]));
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.items.view().items(.tag)[0..pt_header.intern_pool.items_len]));
+                addBuf(&bufs, @ptrCast(local.shared.items.view().items(.data)[0..pt_header.intern_pool.items_len]));
+                addBuf(&bufs, @ptrCast(local.shared.items.view().items(.tag)[0..pt_header.intern_pool.items_len]));
             }
             if (pt_header.intern_pool.string_bytes_len > 0) {
                 addBuf(&bufs, local.shared.strings.view().items(.@"0")[0..pt_header.intern_pool.string_bytes_len]);
             }
             if (pt_header.intern_pool.tracked_insts_len > 0) {
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.tracked_insts.view().items(.@"0")[0..pt_header.intern_pool.tracked_insts_len]));
+                addBuf(&bufs, @ptrCast(local.shared.tracked_insts.view().items(.@"0")[0..pt_header.intern_pool.tracked_insts_len]));
             }
             if (pt_header.intern_pool.files_len > 0) {
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.files.view().items(.bin_digest)[0..pt_header.intern_pool.files_len]));
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.files.view().items(.root_type)[0..pt_header.intern_pool.files_len]));
+                addBuf(&bufs, @ptrCast(local.shared.files.view().items(.bin_digest)[0..pt_header.intern_pool.files_len]));
+                addBuf(&bufs, @ptrCast(local.shared.files.view().items(.root_type)[0..pt_header.intern_pool.files_len]));
             }
         }
 
@@ -3482,95 +3482,95 @@ pub fn saveState(comp: *Compilation) !void {
             try bufs.ensureUnusedCapacity(85);
             addBuf(&bufs, wasm.string_bytes.items);
             // TODO make it well-defined memory layout
-            //addBuf(&bufs, mem.sliceAsBytes(wasm.objects.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.func_types.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_function_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_function_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_functions.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_global_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_global_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_globals.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_table_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_table_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_tables.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_memory_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_memory_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_memories.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations.items(.tag)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations.items(.offset)));
+            //addBuf(&bufs, @ptrCast(wasm.objects.items));
+            addBuf(&bufs, @ptrCast(wasm.func_types.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_function_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_function_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.object_functions.items));
+            addBuf(&bufs, @ptrCast(wasm.object_global_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_global_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.object_globals.items));
+            addBuf(&bufs, @ptrCast(wasm.object_table_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_table_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.object_tables.items));
+            addBuf(&bufs, @ptrCast(wasm.object_memory_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_memory_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.object_memories.items));
+            addBuf(&bufs, @ptrCast(wasm.object_relocations.items(.tag)));
+            addBuf(&bufs, @ptrCast(wasm.object_relocations.items(.offset)));
             // TODO handle the union safety field
-            //addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations.items(.pointee)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations.items(.addend)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_init_funcs.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_data_segments.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_datas.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_data_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_data_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_custom_segments.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_custom_segments.values()));
+            //addBuf(&bufs, @ptrCast(wasm.object_relocations.items(.pointee)));
+            addBuf(&bufs, @ptrCast(wasm.object_relocations.items(.addend)));
+            addBuf(&bufs, @ptrCast(wasm.object_init_funcs.items));
+            addBuf(&bufs, @ptrCast(wasm.object_data_segments.items));
+            addBuf(&bufs, @ptrCast(wasm.object_datas.items));
+            addBuf(&bufs, @ptrCast(wasm.object_data_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_data_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.object_custom_segments.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_custom_segments.values()));
             // TODO make it well-defined memory layout
-            // addBuf(&bufs, mem.sliceAsBytes(wasm.object_comdats.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations_table.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations_table.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_comdat_symbols.items(.kind)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_comdat_symbols.items(.index)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.out_relocs.items(.tag)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.out_relocs.items(.offset)));
+            // addBuf(&bufs, @ptrCast(wasm.object_comdats.items));
+            addBuf(&bufs, @ptrCast(wasm.object_relocations_table.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_relocations_table.values()));
+            addBuf(&bufs, @ptrCast(wasm.object_comdat_symbols.items(.kind)));
+            addBuf(&bufs, @ptrCast(wasm.object_comdat_symbols.items(.index)));
+            addBuf(&bufs, @ptrCast(wasm.out_relocs.items(.tag)));
+            addBuf(&bufs, @ptrCast(wasm.out_relocs.items(.offset)));
             // TODO handle the union safety field
-            //addBuf(&bufs, mem.sliceAsBytes(wasm.out_relocs.items(.pointee)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.out_relocs.items(.addend)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.uav_fixups.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.nav_fixups.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.func_table_fixups.items));
+            //addBuf(&bufs, @ptrCast(wasm.out_relocs.items(.pointee)));
+            addBuf(&bufs, @ptrCast(wasm.out_relocs.items(.addend)));
+            addBuf(&bufs, @ptrCast(wasm.uav_fixups.items));
+            addBuf(&bufs, @ptrCast(wasm.nav_fixups.items));
+            addBuf(&bufs, @ptrCast(wasm.func_table_fixups.items));
             if (is_obj) {
-                addBuf(&bufs, mem.sliceAsBytes(wasm.navs_obj.keys()));
-                addBuf(&bufs, mem.sliceAsBytes(wasm.navs_obj.values()));
-                addBuf(&bufs, mem.sliceAsBytes(wasm.uavs_obj.keys()));
-                addBuf(&bufs, mem.sliceAsBytes(wasm.uavs_obj.values()));
+                addBuf(&bufs, @ptrCast(wasm.navs_obj.keys()));
+                addBuf(&bufs, @ptrCast(wasm.navs_obj.values()));
+                addBuf(&bufs, @ptrCast(wasm.uavs_obj.keys()));
+                addBuf(&bufs, @ptrCast(wasm.uavs_obj.values()));
             } else {
-                addBuf(&bufs, mem.sliceAsBytes(wasm.navs_exe.keys()));
-                addBuf(&bufs, mem.sliceAsBytes(wasm.navs_exe.values()));
-                addBuf(&bufs, mem.sliceAsBytes(wasm.uavs_exe.keys()));
-                addBuf(&bufs, mem.sliceAsBytes(wasm.uavs_exe.values()));
+                addBuf(&bufs, @ptrCast(wasm.navs_exe.keys()));
+                addBuf(&bufs, @ptrCast(wasm.navs_exe.values()));
+                addBuf(&bufs, @ptrCast(wasm.uavs_exe.keys()));
+                addBuf(&bufs, @ptrCast(wasm.uavs_exe.values()));
             }
-            addBuf(&bufs, mem.sliceAsBytes(wasm.overaligned_uavs.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.overaligned_uavs.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.zcu_funcs.keys()));
+            addBuf(&bufs, @ptrCast(wasm.overaligned_uavs.keys()));
+            addBuf(&bufs, @ptrCast(wasm.overaligned_uavs.values()));
+            addBuf(&bufs, @ptrCast(wasm.zcu_funcs.keys()));
             // TODO handle the union safety field
-            // addBuf(&bufs, mem.sliceAsBytes(wasm.zcu_funcs.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.nav_exports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.nav_exports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.uav_exports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.uav_exports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.missing_exports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.function_exports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.function_exports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.hidden_function_exports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.hidden_function_exports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.global_exports.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.functions.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.function_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.function_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.data_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.data_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.data_segments.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.globals.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.global_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.global_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.tables.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.table_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.table_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.zcu_indirect_function_set.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_indirect_function_import_set.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_indirect_function_set.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.mir_instructions.items(.tag)));
+            // addBuf(&bufs, @ptrCast(wasm.zcu_funcs.values()));
+            addBuf(&bufs, @ptrCast(wasm.nav_exports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.nav_exports.values()));
+            addBuf(&bufs, @ptrCast(wasm.uav_exports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.uav_exports.values()));
+            addBuf(&bufs, @ptrCast(wasm.imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.missing_exports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.function_exports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.function_exports.values()));
+            addBuf(&bufs, @ptrCast(wasm.hidden_function_exports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.hidden_function_exports.values()));
+            addBuf(&bufs, @ptrCast(wasm.global_exports.items));
+            addBuf(&bufs, @ptrCast(wasm.functions.keys()));
+            addBuf(&bufs, @ptrCast(wasm.function_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.function_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.data_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.data_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.data_segments.keys()));
+            addBuf(&bufs, @ptrCast(wasm.globals.keys()));
+            addBuf(&bufs, @ptrCast(wasm.global_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.global_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.tables.keys()));
+            addBuf(&bufs, @ptrCast(wasm.table_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.table_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.zcu_indirect_function_set.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_indirect_function_import_set.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_indirect_function_set.keys()));
+            addBuf(&bufs, @ptrCast(wasm.mir_instructions.items(.tag)));
             // TODO handle the union safety field
-            //addBuf(&bufs, mem.sliceAsBytes(wasm.mir_instructions.items(.data)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.mir_extra.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.mir_locals.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.tag_name_bytes.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.tag_name_offs.items));
+            //addBuf(&bufs, @ptrCast(wasm.mir_instructions.items(.data)));
+            addBuf(&bufs, @ptrCast(wasm.mir_extra.items));
+            addBuf(&bufs, @ptrCast(wasm.mir_locals.items));
+            addBuf(&bufs, @ptrCast(wasm.tag_name_bytes.items));
+            addBuf(&bufs, @ptrCast(wasm.tag_name_offs.items));
 
             // TODO add as header fields
             // entry_resolution: FunctionImport.Resolution
@@ -3596,16 +3596,16 @@ pub fn saveState(comp: *Compilation) !void {
 
     // Using an atomic file prevents a crash or power failure from corrupting
     // the previous incremental compilation state.
-    var af = try lf.emit.root_dir.handle.atomicFile(basename, .{});
+    var write_buffer: [1024]u8 = undefined;
+    var af = try lf.emit.root_dir.handle.atomicFile(basename, .{ .write_buffer = &write_buffer });
     defer af.deinit();
-    try af.file.pwritevAll(bufs.items, 0);
+    try af.file_writer.interface.writeVecAll(bufs.items);
     try af.finish();
 }
 
-fn addBuf(list: *std.ArrayList(std.posix.iovec_const), buf: []const u8) void {
-    // Even when len=0, the undefined pointer might cause EFAULT.
+fn addBuf(list: *std.ArrayList([]const u8), buf: []const u8) void {
     if (buf.len == 0) return;
-    list.appendAssumeCapacity(.{ .base = buf.ptr, .len = buf.len });
+    list.appendAssumeCapacity(buf);
 }
 
 /// This function is temporally single-threaded.

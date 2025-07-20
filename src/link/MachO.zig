@@ -612,7 +612,6 @@ pub fn flush(
         };
         const emit = self.base.emit;
         invalidateKernelCache(emit.root_dir.handle, emit.sub_path) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
             else => |e| return diags.fail("failed to invalidate kernel cache: {s}", .{@errorName(e)}),
         };
     }
