@@ -1,10 +1,9 @@
 const std = @import("std");
+const json = std.json;
 const testing = std.testing;
 const parseFromSlice = @import("./static.zig").parseFromSlice;
-const validate = @import("./scanner.zig").validate;
-const JsonScanner = @import("./scanner.zig").Scanner;
+const Scanner = @import("./Scanner.zig");
 const Value = @import("./dynamic.zig").Value;
-const stringifyAlloc = @import("./stringify.zig").stringifyAlloc;
 
 // Support for JSONTestSuite.zig
 pub fn ok(s: []const u8) !void {
@@ -20,7 +19,7 @@ pub fn any(s: []const u8) !void {
     testHighLevelDynamicParser(s) catch {};
 }
 fn testLowLevelScanner(s: []const u8) !void {
-    var scanner = JsonScanner.initCompleteInput(testing.allocator, s);
+    var scanner = Scanner.initCompleteInput(testing.allocator, s);
     defer scanner.deinit();
     while (true) {
         const token = try scanner.next();
@@ -47,12 +46,12 @@ test "n_object_closed_missing_value" {
 }
 
 fn roundTrip(s: []const u8) !void {
-    try testing.expect(try validate(testing.allocator, s));
+    try testing.expect(try Scanner.validate(testing.allocator, s));
 
     var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
     defer parsed.deinit();
 
-    const rendered = try stringifyAlloc(testing.allocator, parsed.value, .{});
+    const rendered = try json.Stringify.valueAlloc(testing.allocator, parsed.value, .{});
     defer testing.allocator.free(rendered);
 
     try testing.expectEqualStrings(s, rendered);

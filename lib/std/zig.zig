@@ -446,8 +446,8 @@ pub fn fmtString(bytes: []const u8) std.fmt.Formatter([]const u8, stringEscape) 
 }
 
 /// Return a formatter for escaping a single quoted Zig string.
-pub fn fmtChar(bytes: []const u8) std.fmt.Formatter([]const u8, charEscape) {
-    return .{ .data = bytes };
+pub fn fmtChar(c: u21) std.fmt.Formatter(u21, charEscape) {
+    return .{ .data = c };
 }
 
 test fmtString {
@@ -458,9 +458,7 @@ test fmtString {
 }
 
 test fmtChar {
-    try std.testing.expectFmt(
-        \\" \\ hi \x07 \x11 " derp \'"
-    , "\"{f}\"", .{fmtChar(" \\ hi \x07 \x11 \" derp '")});
+    try std.testing.expectFmt("c \\u{26a1}", "{f} {f}", .{ fmtChar('c'), fmtChar('⚡') });
 }
 
 /// Print the string as escaped contents of a double quoted string.
@@ -480,21 +478,26 @@ pub fn stringEscape(bytes: []const u8, w: *Writer) Writer.Error!void {
     };
 }
 
-/// Print the string as escaped contents of a single-quoted string.
-pub fn charEscape(bytes: []const u8, w: *Writer) Writer.Error!void {
-    for (bytes) |byte| switch (byte) {
+/// Print as escaped contents of a single-quoted string.
+pub fn charEscape(codepoint: u21, w: *Writer) Writer.Error!void {
+    switch (codepoint) {
         '\n' => try w.writeAll("\\n"),
         '\r' => try w.writeAll("\\r"),
         '\t' => try w.writeAll("\\t"),
         '\\' => try w.writeAll("\\\\"),
-        '"' => try w.writeByte('"'),
         '\'' => try w.writeAll("\\'"),
-        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try w.writeByte(byte),
+        '"', ' ', '!', '#'...'&', '('...'[', ']'...'~' => try w.writeByte(@intCast(codepoint)),
         else => {
-            try w.writeAll("\\x");
-            try w.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            if (std.math.cast(u8, codepoint)) |byte| {
+                try w.writeAll("\\x");
+                try w.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            } else {
+                try w.writeAll("\\u{");
+                try w.printInt(codepoint, 16, .lower, .{});
+                try w.writeByte('}');
+            }
         },
-    };
+    }
 }
 
 pub fn isValidId(bytes: []const u8) bool {
