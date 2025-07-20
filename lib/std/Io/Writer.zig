@@ -860,7 +860,15 @@ pub inline fn writeSliceEndian(
     if (native_endian == endian) {
         return writeAll(w, @ptrCast(slice));
     } else {
-        return w.writeArraySwap(w, Elem, slice);
+        return writeSliceSwap(w, Elem, slice);
+    }
+}
+
+pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
+    for (slice) |elem| {
+        var tmp = elem;
+        std.mem.byteSwapAllFields(Elem, &tmp);
+        try w.writeAll(@ptrCast(&tmp));
     }
 }
 
@@ -2637,4 +2645,13 @@ test writeStruct {
             0, 0, 0, 3, //
         }, &buffer);
     }
+}
+
+test writeSliceEndian {
+    var buffer: [5]u8 align(2) = undefined;
+    var w: Writer = .fixed(&buffer);
+    try w.writeByte('x');
+    const array: [2]u16 = .{ 0x1234, 0x5678 };
+    try writeSliceEndian(&w, u16, &array, .big);
+    try testing.expectEqualSlices(u8, &.{ 'x', 0x12, 0x34, 0x56, 0x78 }, &buffer);
 }

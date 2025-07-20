@@ -2821,7 +2821,7 @@ pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
     var buffer: [2000]u8 = undefined;
     var file_reader = cache_file.reader(&buffer);
     return result: {
-        const header = file_reader.interface.takeStructReference(Zir.Header) catch |err| break :result err;
+        const header = file_reader.interface.takeStructPointer(Zir.Header) catch |err| break :result err;
         break :result loadZirCacheBody(gpa, header.*, &file_reader.interface);
     } catch |err| switch (err) {
         error.ReadFailed => return file_reader.err.?,

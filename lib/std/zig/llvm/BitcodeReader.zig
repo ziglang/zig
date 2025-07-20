@@ -1,6 +1,11 @@
+const BitcodeReader = @This();
+
+const std = @import("../../std.zig");
+const assert = std.debug.assert;
+
 allocator: std.mem.Allocator,
 record_arena: std.heap.ArenaAllocator.State,
-reader: std.io.AnyReader,
+reader: *std.Io.Reader,
 keep_names: bool,
 bit_buffer: u32,
 bit_offset: u5,
@@ -93,7 +98,7 @@ pub const Record = struct {
 };
 
 pub const InitOptions = struct {
-    reader: std.io.AnyReader,
+    reader: *std.Io.Reader,
     keep_names: bool = false,
 };
 pub fn init(allocator: std.mem.Allocator, options: InitOptions) BitcodeReader {
@@ -172,7 +177,7 @@ pub fn next(bc: *BitcodeReader) !?Item {
 
 pub fn skipBlock(bc: *BitcodeReader, block: Block) !void {
     assert(bc.bit_offset == 0);
-    try bc.reader.skipBytes(@as(u34, block.len) * 4, .{});
+    try bc.reader.discardAll(4 * @as(usize, block.len));
     try bc.endBlock();
 }
 
@@ -371,19 +376,19 @@ fn align32Bits(bc: *BitcodeReader) void {
 
 fn read32Bits(bc: *BitcodeReader) !u32 {
     assert(bc.bit_offset == 0);
-    return bc.reader.readInt(u32, .little);
+    return bc.reader.takeInt(u32, .little);
 }
 
 fn readBytes(bc: *BitcodeReader, bytes: []u8) !void {
     assert(bc.bit_offset == 0);
-    try bc.reader.readNoEof(bytes);
+    try bc.reader.readSliceAll(bytes);
 
     const trailing_bytes = bytes.len % 4;
     if (trailing_bytes > 0) {
-        var bit_buffer = [1]u8{0} ** 4;
-        try bc.reader.readNoEof(bit_buffer[trailing_bytes..]);
+        var bit_buffer: [4]u8 = @splat(0);
+        try bc.reader.readSliceAll(bit_buffer[trailing_bytes..]);
         bc.bit_buffer = std.mem.readInt(u32, &bit_buffer, .little);
-        bc.bit_offset = @intCast(trailing_bytes * 8);
+        bc.bit_offset = @intCast(8 * trailing_bytes);
     }
 }
 
@@ -509,7 +514,6 @@ const Abbrev = struct {
     };
 };
 
-const assert = std.debug.assert;
-const std = @import("../../std.zig");
-
-const BitcodeReader = @This();
+test {
+    _ = &skipBlock;
+}

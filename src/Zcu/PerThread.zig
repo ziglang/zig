@@ -349,7 +349,7 @@ fn loadZirZoirCache(
     const cache_br = &cache_fr.interface;
 
     // First we read the header to determine the lengths of arrays.
-    const header = (cache_br.takeStructReference(Header) catch |err| switch (err) {
+    const header = (cache_br.takeStructPointer(Header) catch |err| switch (err) {
         error.ReadFailed => return cache_fr.err.?,
         // This can happen if Zig bails out of this function between creating
         // the cached file and writing it.
