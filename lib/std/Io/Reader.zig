@@ -1148,7 +1148,7 @@ pub inline fn takeStruct(r: *Reader, comptime T: type, endian: std.builtin.Endia
                 return res;
             },
             .@"packed" => {
-                return takeInt(r, info.backing_integer.?, endian);
+                return @bitCast(try takeInt(r, info.backing_integer.?, endian));
             },
         },
         else => @compileError("not a struct"),
@@ -1173,7 +1173,7 @@ pub inline fn peekStruct(r: *Reader, comptime T: type, endian: std.builtin.Endia
                 return res;
             },
             .@"packed" => {
-                return peekInt(r, info.backing_integer.?, endian);
+                return @bitCast(try peekInt(r, info.backing_integer.?, endian));
             },
         },
         else => @compileError("not a struct"),
@@ -1722,6 +1722,27 @@ test "takeDelimiterInclusive when it rebases" {
     for (0..6) |_| {
         try std.testing.expectEqualStrings(written_line, try r.takeDelimiterInclusive('\n'));
     }
+}
+
+test "takeStruct and peekStruct packed" {
+    var r: Reader = .fixed(&.{ 0b11110000, 0b00110011 });
+    const S = packed struct(u16) { a: u2, b: u6, c: u7, d: u1 };
+
+    try testing.expectEqual(@as(S, .{
+        .a = 0b11,
+        .b = 0b001100,
+        .c = 0b1110000,
+        .d = 0b1,
+    }), try r.peekStruct(S, .big));
+
+    try testing.expectEqual(@as(S, .{
+        .a = 0b11,
+        .b = 0b001100,
+        .c = 0b1110000,
+        .d = 0b1,
+    }), try r.takeStruct(S, .big));
+
+    try testing.expectError(error.EndOfStream, r.takeStruct(S, .little));
 }
 
 /// Provides a `Reader` implementation by passing data from an underlying
