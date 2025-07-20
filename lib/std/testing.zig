@@ -28,6 +28,9 @@ pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{
     break :b .init;
 };
 
+pub var io_instance: std.Io.ThreadPool = undefined;
+pub const io = io_instance.io();
+
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
 
