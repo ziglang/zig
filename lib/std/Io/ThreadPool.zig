@@ -3,6 +3,7 @@ const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const WaitGroup = std.Thread.WaitGroup;
+const posix = std.posix;
 const Io = std.Io;
 const Pool = @This();
 
@@ -18,6 +19,9 @@ cpu_count: std.Thread.CpuCountError!usize,
 parallel_count: usize,
 
 threadlocal var current_closure: ?*AsyncClosure = null;
+
+const max_iovecs_len = 8;
+const splat_buffer_size = 64;
 
 pub const Runnable = struct {
     start: Start,
@@ -107,6 +111,18 @@ pub fn io(pool: *Pool) Io {
 
             .now = now,
             .sleep = sleep,
+
+            .listen = listen,
+            .accept = accept,
+            .netRead = switch (builtin.os.tag) {
+                .windows => @panic("TODO"),
+                else => netReadPosix,
+            },
+            .netWrite = switch (builtin.os.tag) {
+                .windows => @panic("TODO"),
+                else => netWritePosix,
+            },
+            .netClose = netClose,
         },
     };
 }
@@ -461,7 +477,7 @@ fn cancel(
             .linux => _ = std.os.linux.tgkill(
                 std.os.linux.getpid(),
                 @bitCast(cancel_tid),
-                std.posix.SIG.IO,
+                posix.SIG.IO,
             ),
             else => {},
         },
@@ -635,7 +651,7 @@ fn closeFile(userdata: ?*anyopaque, file: Io.File) void {
     return fs_file.close();
 }
 
-fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: std.posix.off_t) Io.File.PReadError!usize {
+fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: posix.off_t) Io.File.PReadError!usize {
     const pool: *Pool = @alignCast(@ptrCast(userdata));
     try pool.checkCancel();
     const fs_file: std.fs.File = .{ .handle = file.handle };
@@ -645,7 +661,7 @@ fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: std.posix.o
     };
 }
 
-fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: std.posix.off_t) Io.File.PWriteError!usize {
+fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: posix.off_t) Io.File.PWriteError!usize {
     const pool: *Pool = @alignCast(@ptrCast(userdata));
     try pool.checkCancel();
     const fs_file: std.fs.File = .{ .handle = file.handle };
@@ -655,20 +671,20 @@ fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: std.
     };
 }
 
-fn now(userdata: ?*anyopaque, clockid: std.posix.clockid_t) Io.ClockGetTimeError!Io.Timestamp {
+fn now(userdata: ?*anyopaque, clockid: posix.clockid_t) Io.ClockGetTimeError!Io.Timestamp {
     const pool: *Pool = @alignCast(@ptrCast(userdata));
     try pool.checkCancel();
-    const timespec = try std.posix.clock_gettime(clockid);
+    const timespec = try posix.clock_gettime(clockid);
     return @enumFromInt(@as(i128, timespec.sec) * std.time.ns_per_s + timespec.nsec);
 }
 
-fn sleep(userdata: ?*anyopaque, clockid: std.posix.clockid_t, deadline: Io.Deadline) Io.SleepError!void {
+fn sleep(userdata: ?*anyopaque, clockid: posix.clockid_t, deadline: Io.Deadline) Io.SleepError!void {
     const pool: *Pool = @alignCast(@ptrCast(userdata));
     const deadline_nanoseconds: i96 = switch (deadline) {
         .duration => |duration| duration.nanoseconds,
         .timestamp => |timestamp| @intFromEnum(timestamp),
     };
-    var timespec: std.posix.timespec = .{
+    var timespec: posix.timespec = .{
         .sec = @intCast(@divFloor(deadline_nanoseconds, std.time.ns_per_s)),
         .nsec = @intCast(@mod(deadline_nanoseconds, std.time.ns_per_s)),
     };
@@ -682,7 +698,7 @@ fn sleep(userdata: ?*anyopaque, clockid: std.posix.clockid_t, deadline: Io.Deadl
             .FAULT => unreachable,
             .INTR => {},
             .INVAL => return error.UnsupportedClock,
-            else => |err| return std.posix.unexpectedErrno(err),
+            else => |err| return posix.unexpectedErrno(err),
         }
     }
 }
@@ -717,4 +733,207 @@ fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) usize {
         }
     }
     return result.?;
+}
+
+fn listen(userdata: ?*anyopaque, address: Io.net.IpAddress, options: Io.net.ListenOptions) Io.net.ListenError!Io.net.Server {
+    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    try pool.checkCancel();
+
+    const nonblock: u32 = if (options.force_nonblocking) posix.SOCK.NONBLOCK else 0;
+    const sock_flags = posix.SOCK.STREAM | posix.SOCK.CLOEXEC | nonblock;
+    const proto: u32 = posix.IPPROTO.TCP;
+    const family = posixAddressFamily(address);
+    const sockfd = try posix.socket(family, sock_flags, proto);
+    const stream: std.net.Stream = .{ .handle = sockfd };
+    errdefer stream.close();
+
+    if (options.reuse_address) {
+        try posix.setsockopt(
+            sockfd,
+            posix.SOL.SOCKET,
+            posix.SO.REUSEADDR,
+            &std.mem.toBytes(@as(c_int, 1)),
+        );
+        if (@hasDecl(posix.SO, "REUSEPORT") and family != posix.AF.UNIX) {
+            try posix.setsockopt(
+                sockfd,
+                posix.SOL.SOCKET,
+                posix.SO.REUSEPORT,
+                &std.mem.toBytes(@as(c_int, 1)),
+            );
+        }
+    }
+
+    var storage: PosixAddress = undefined;
+    var socklen = addressToPosix(address, &storage);
+    try posix.bind(sockfd, &storage.any, socklen);
+    try posix.listen(sockfd, options.kernel_backlog);
+    try posix.getsockname(sockfd, &storage.any, &socklen);
+    return .{
+        .listen_address = addressFromPosix(&storage),
+        .stream = .{ .handle = stream.handle },
+    };
+}
+
+fn accept(userdata: ?*anyopaque, server: *Io.net.Server) Io.net.Server.AcceptError!Io.net.Server.Connection {
+    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    try pool.checkCancel();
+
+    var storage: PosixAddress = undefined;
+    var addr_len: posix.socklen_t = @sizeOf(PosixAddress);
+    const fd = try posix.accept(server.stream.handle, &storage.any, &addr_len, posix.SOCK.CLOEXEC);
+    return .{
+        .stream = .{ .handle = fd },
+        .address = addressFromPosix(&storage),
+    };
+}
+
+fn netReadPosix(
+    userdata: ?*anyopaque,
+    stream: Io.net.Stream,
+    w: *Io.Writer,
+    limit: Io.Limit,
+) Io.net.Stream.Reader.Error!usize {
+    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    try pool.checkCancel();
+
+    var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
+    const dest = try w.writableVectorPosix(&iovecs_buffer, limit);
+    assert(dest[0].len > 0);
+    const n = try posix.readv(stream.handle, dest);
+    if (n == 0) return error.EndOfStream;
+    return n;
+}
+
+fn netWritePosix(
+    userdata: ?*anyopaque,
+    stream: Io.net.Stream,
+    header: []const u8,
+    data: []const []const u8,
+    splat: usize,
+) Io.net.Stream.Writer.Error!usize {
+    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    try pool.checkCancel();
+
+    var iovecs: [max_iovecs_len]posix.iovec_const = undefined;
+    var msg: posix.msghdr_const = .{
+        .name = null,
+        .namelen = 0,
+        .iov = &iovecs,
+        .iovlen = 0,
+        .control = null,
+        .controllen = 0,
+        .flags = 0,
+    };
+    addBuf(&iovecs, &msg.iovlen, header);
+    for (data[0 .. data.len - 1]) |bytes| addBuf(&iovecs, &msg.iovlen, bytes);
+    const pattern = data[data.len - 1];
+    if (iovecs.len - msg.iovlen != 0) switch (splat) {
+        0 => {},
+        1 => addBuf(&iovecs, &msg.iovlen, pattern),
+        else => switch (pattern.len) {
+            0 => {},
+            1 => {
+                var backup_buffer: [splat_buffer_size]u8 = undefined;
+                const splat_buffer = &backup_buffer;
+                const memset_len = @min(splat_buffer.len, splat);
+                const buf = splat_buffer[0..memset_len];
+                @memset(buf, pattern[0]);
+                addBuf(&iovecs, &msg.iovlen, buf);
+                var remaining_splat = splat - buf.len;
+                while (remaining_splat > splat_buffer.len and iovecs.len - msg.iovlen != 0) {
+                    assert(buf.len == splat_buffer.len);
+                    addBuf(&iovecs, &msg.iovlen, splat_buffer);
+                    remaining_splat -= splat_buffer.len;
+                }
+                addBuf(&iovecs, &msg.iovlen, splat_buffer[0..remaining_splat]);
+            },
+            else => for (0..@min(splat, iovecs.len - msg.iovlen)) |_| {
+                addBuf(&iovecs, &msg.iovlen, pattern);
+            },
+        },
+    };
+    const flags = posix.MSG.NOSIGNAL;
+    return posix.sendmsg(stream.handle, &msg, flags);
+}
+
+fn addBuf(v: []posix.iovec_const, i: *@FieldType(posix.msghdr_const, "iovlen"), bytes: []const u8) void {
+    // OS checks ptr addr before length so zero length vectors must be omitted.
+    if (bytes.len == 0) return;
+    if (v.len - i.* == 0) return;
+    v[i.*] = .{ .base = bytes.ptr, .len = bytes.len };
+    i.* += 1;
+}
+
+fn netClose(userdata: ?*anyopaque, stream: Io.net.Stream) void {
+    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    _ = pool;
+    const net_stream: std.net.Stream = .{ .handle = stream.handle };
+    return net_stream.close();
+}
+
+const PosixAddress = extern union {
+    any: posix.sockaddr,
+    in: posix.sockaddr.in,
+    in6: posix.sockaddr.in6,
+};
+
+fn posixAddressFamily(a: Io.net.IpAddress) posix.sa_family_t {
+    return switch (a) {
+        .ip4 => posix.AF.INET,
+        .ip6 => posix.AF.INET6,
+    };
+}
+
+fn addressFromPosix(posix_address: *PosixAddress) Io.net.IpAddress {
+    return switch (posix_address.any.family) {
+        posix.AF.INET => .{ .ip4 = address4FromPosix(&posix_address.in) },
+        posix.AF.INET6 => .{ .ip6 = address6FromPosix(&posix_address.in6) },
+        else => unreachable,
+    };
+}
+
+fn addressToPosix(a: Io.net.IpAddress, storage: *PosixAddress) posix.socklen_t {
+    return switch (a) {
+        .ip4 => |ip4| {
+            storage.in = address4ToPosix(ip4);
+            return @sizeOf(posix.sockaddr.in);
+        },
+        .ip6 => |ip6| {
+            storage.in6 = address6ToPosix(ip6);
+            return @sizeOf(posix.sockaddr.in6);
+        },
+    };
+}
+
+fn address4FromPosix(in: *posix.sockaddr.in) Io.net.Ip4Address {
+    return .{
+        .port = std.mem.bigToNative(u16, in.port),
+        .bytes = @bitCast(in.addr),
+    };
+}
+
+fn address6FromPosix(in6: *posix.sockaddr.in6) Io.net.Ip6Address {
+    return .{
+        .port = std.mem.bigToNative(u16, in6.port),
+        .bytes = in6.addr,
+        .flowinfo = in6.flowinfo,
+        .scope_id = in6.scope_id,
+    };
+}
+
+fn address4ToPosix(a: Io.net.Ip4Address) posix.sockaddr.in {
+    return .{
+        .port = std.mem.nativeToBig(u16, a.port),
+        .addr = @bitCast(a.bytes),
+    };
+}
+
+fn address6ToPosix(a: Io.net.Ip6Address) posix.sockaddr.in6 {
+    return .{
+        .port = std.mem.nativeToBig(u16, a.port),
+        .flowinfo = a.flowinfo,
+        .addr = a.bytes,
+        .scope_id = a.scope_id,
+    };
 }
