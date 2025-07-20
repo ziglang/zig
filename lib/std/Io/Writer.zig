@@ -1123,8 +1123,8 @@ pub fn printValue(
                 else => invalidFmtError(fmt, value),
             },
             't' => switch (@typeInfo(T)) {
-                .error_set => return w.writeAll(@errorName(value)),
-                .@"enum", .@"union" => return w.writeAll(@tagName(value)),
+                .error_set => return w.alignBufferOptions(@errorName(value), options),
+                .@"enum", .@"union" => return w.alignBufferOptions(@tagName(value), options),
                 else => invalidFmtError(fmt, value),
             },
             else => {},
@@ -2132,6 +2132,14 @@ test "bytes.hex" {
     try testing.expectFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
     const bytes_with_zeros = "\x00\x0E\xBA\xBE";
     try testing.expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
+}
+
+test "padding" {
+    const foo: enum { foo } = .foo;
+    try testing.expectFmt("tag: |foo |\n", "tag: |{t:<4}|\n", .{foo});
+
+    const bar: error{bar} = error.bar;
+    try testing.expectFmt("error: |bar |\n", "error: |{t:<4}|\n", .{bar});
 }
 
 test fixed {
