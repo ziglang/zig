@@ -984,3 +984,32 @@ test isSorted {
     try testing.expect(isSorted(u8, "ffff", {}, asc_u8));
     try testing.expect(isSorted(u8, "ffff", {}, desc_u8));
 }
+
+test "stack overflow" {
+    var array = [_]u64{math.maxInt(u64)} ** 3789730;
+    var idx: usize = 0;
+    var a: usize = 0;
+    var d: usize = 0;
+    while (d < 64) : (d += 1) {
+        const cur_len = array.len - a;
+        const left_len = cur_len / 8;
+        const small_val = 10 * d + 1;
+        const pivot_val = 10 * d + 2;
+        const i_pos = a + (cur_len / 4);
+        const j_pos = a + (cur_len / 4) * 2;
+        array[i_pos - 1] = small_val;
+        array[i_pos] = small_val;
+        array[i_pos + 1] = small_val;
+        array[j_pos - 1] = pivot_val;
+        array[j_pos] = small_val;
+        var fill_len = left_len - 4;
+        while (fill_len > 0) : (fill_len -= 1) {
+            while (array[idx] != math.maxInt(u64)) idx += 1;
+            array[idx] = small_val;
+            idx += 1;
+        }
+        a = a + left_len + 1;
+    }
+    pdq(u64, &array, {}, asc(u64));
+    try testing.expect(isSorted(u64, &array, {}, asc(u64)));
+}
