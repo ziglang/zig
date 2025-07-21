@@ -55,7 +55,7 @@ pub fn writeFile(
 
     try w.underlying_writer.writeAll(@ptrCast((&header)[0..1]));
     _ = try w.underlying_writer.sendFileAll(file_reader, .unlimited);
-    try w.writePadding(size);
+    try w.writePadding64(size);
 }
 
 pub const WriteFileStreamError = Error || std.Io.Reader.StreamError;
@@ -71,7 +71,7 @@ pub fn writeFileStream(
 ) WriteFileStreamError!void {
     try w.writeHeader(.regular, sub_path, "", size, options);
     try reader.streamExact64(w.underlying_writer, size);
-    try w.writePadding(size);
+    try w.writePadding64(size);
 }
 
 /// Writes file using bytes buffer `content` for size and file content.
@@ -172,7 +172,14 @@ fn writeExtendedHeader(w: *Writer, typeflag: Header.FileType, buffers: []const [
 }
 
 fn writePadding(w: *Writer, bytes: usize) std.Io.Writer.Error!void {
-    const pos = bytes % block_size;
+    return writePaddingPos(w, bytes % block_size);
+}
+
+fn writePadding64(w: *Writer, bytes: u64) std.Io.Writer.Error!void {
+    return writePaddingPos(w, @intCast(bytes % block_size));
+}
+
+fn writePaddingPos(w: *Writer, pos: usize) std.Io.Writer.Error!void {
     if (pos == 0) return;
     try w.underlying_writer.splatByteAll(0, block_size - pos);
 }
