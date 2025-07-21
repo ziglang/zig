@@ -179,6 +179,12 @@ pub fn streamExact(r: *Reader, w: *Writer, n: usize) StreamError!void {
     while (remaining != 0) remaining -= try r.stream(w, .limited(remaining));
 }
 
+/// "Pump" exactly `n` bytes from the reader to the writer.
+pub fn streamExact64(r: *Reader, w: *Writer, n: u64) StreamError!void {
+    var remaining = n;
+    while (remaining != 0) remaining -= try r.stream(w, .limited64(remaining));
+}
+
 /// "Pump" data from the reader to the writer, handling `error.EndOfStream` as
 /// a success case.
 ///

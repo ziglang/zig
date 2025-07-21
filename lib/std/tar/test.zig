@@ -18,31 +18,72 @@ const Case = struct {
     err: ?anyerror = null, // parsing should fail with this error
 };
 
-const cases = [_]Case{
-    .{
-        .data = @embedFile("testdata/gnu.tar"),
-        .files = &[_]Case.File{
-            .{
-                .name = "small.txt",
-                .size = 5,
-                .mode = 0o640,
-            },
-            .{
-                .name = "small2.txt",
-                .size = 11,
-                .mode = 0o640,
-            },
+const gnu_case: Case = .{
+    .data = @embedFile("testdata/gnu.tar"),
+    .files = &[_]Case.File{
+        .{
+            .name = "small.txt",
+            .size = 5,
+            .mode = 0o640,
         },
-        .chksums = &[_][]const u8{
-            "e38b27eaccb4391bdec553a7f3ae6b2f",
-            "c65bd2e50a56a2138bf1716f2fd56fe9",
+        .{
+            .name = "small2.txt",
+            .size = 11,
+            .mode = 0o640,
         },
     },
-    .{
+    .chksums = &[_][]const u8{
+        "e38b27eaccb4391bdec553a7f3ae6b2f",
+        "c65bd2e50a56a2138bf1716f2fd56fe9",
+    },
+};
+
+const gnu_multi_headers_case: Case = .{
+    .data = @embedFile("testdata/gnu-multi-hdrs.tar"),
+    .files = &[_]Case.File{
+        .{
+            .name = "GNU2/GNU2/long-path-name",
+            .link_name = "GNU4/GNU4/long-linkpath-name",
+            .kind = .sym_link,
+        },
+    },
+};
+
+const trailing_slash_case: Case = .{
+    .data = @embedFile("testdata/trailing-slash.tar"),
+    .files = &[_]Case.File{
+        .{
+            .name = "123456789/" ** 30,
+            .kind = .directory,
+        },
+    },
+};
+
+const writer_big_long_case: Case = .{
+    // Size in gnu extended format, and name in pax attribute.
+    .data = @embedFile("testdata/writer-big-long.tar"),
+    .files = &[_]Case.File{
+        .{
+            .name = "longname/" ** 15 ++ "16gig.txt",
+            .size = 16 * 1024 * 1024 * 1024,
+            .mode = 0o644,
+            .truncated = true,
+        },
+    },
+};
+
+const fuzz1_case: Case = .{
+    .data = @embedFile("testdata/fuzz1.tar"),
+    .err = error.TarInsufficientBuffer,
+};
+
+test "run test cases" {
+    try testCase(gnu_case);
+    try testCase(.{
         .data = @embedFile("testdata/sparse-formats.tar"),
         .err = error.TarUnsupportedHeader,
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/star.tar"),
         .files = &[_]Case.File{
             .{
@@ -60,8 +101,8 @@ const cases = [_]Case{
             "e38b27eaccb4391bdec553a7f3ae6b2f",
             "c65bd2e50a56a2138bf1716f2fd56fe9",
         },
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/v7.tar"),
         .files = &[_]Case.File{
             .{
@@ -79,8 +120,8 @@ const cases = [_]Case{
             "e38b27eaccb4391bdec553a7f3ae6b2f",
             "c65bd2e50a56a2138bf1716f2fd56fe9",
         },
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/pax.tar"),
         .files = &[_]Case.File{
             .{
@@ -99,13 +140,13 @@ const cases = [_]Case{
         .chksums = &[_][]const u8{
             "3c382e8f5b6631aa2db52643912ffd4a",
         },
-    },
-    .{
+    });
+    try testCase(.{
         // pax attribute don't end with \n
         .data = @embedFile("testdata/pax-bad-hdr-file.tar"),
         .err = error.PaxInvalidAttributeEnd,
-    },
-    .{
+    });
+    try testCase(.{
         // size is in pax attribute
         .data = @embedFile("testdata/pax-pos-size-file.tar"),
         .files = &[_]Case.File{
@@ -119,8 +160,8 @@ const cases = [_]Case{
         .chksums = &[_][]const u8{
             "0afb597b283fe61b5d4879669a350556",
         },
-    },
-    .{
+    });
+    try testCase(.{
         // has pax records which we are not interested in
         .data = @embedFile("testdata/pax-records.tar"),
         .files = &[_]Case.File{
@@ -128,8 +169,8 @@ const cases = [_]Case{
                 .name = "file",
             },
         },
-    },
-    .{
+    });
+    try testCase(.{
         // has global records which we are ignoring
         .data = @embedFile("testdata/pax-global-records.tar"),
         .files = &[_]Case.File{
@@ -146,8 +187,8 @@ const cases = [_]Case{
                 .name = "file4",
             },
         },
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/nil-uid.tar"),
         .files = &[_]Case.File{
             .{
@@ -160,8 +201,8 @@ const cases = [_]Case{
         .chksums = &[_][]const u8{
             "08d504674115e77a67244beac19668f5",
         },
-    },
-    .{
+    });
+    try testCase(.{
         // has xattrs and pax records which we are ignoring
         .data = @embedFile("testdata/xattrs.tar"),
         .files = &[_]Case.File{
@@ -182,23 +223,14 @@ const cases = [_]Case{
             "e38b27eaccb4391bdec553a7f3ae6b2f",
             "c65bd2e50a56a2138bf1716f2fd56fe9",
         },
-    },
-    .{
-        .data = @embedFile("testdata/gnu-multi-hdrs.tar"),
-        .files = &[_]Case.File{
-            .{
-                .name = "GNU2/GNU2/long-path-name",
-                .link_name = "GNU4/GNU4/long-linkpath-name",
-                .kind = .sym_link,
-            },
-        },
-    },
-    .{
+    });
+    try testCase(gnu_multi_headers_case);
+    try testCase(.{
         // has gnu type D (directory) and S (sparse) blocks
         .data = @embedFile("testdata/gnu-incremental.tar"),
         .err = error.TarUnsupportedHeader,
-    },
-    .{
+    });
+    try testCase(.{
         // should use values only from last pax header
         .data = @embedFile("testdata/pax-multi-hdrs.tar"),
         .files = &[_]Case.File{
@@ -208,8 +240,8 @@ const cases = [_]Case{
                 .kind = .sym_link,
             },
         },
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/gnu-long-nul.tar"),
         .files = &[_]Case.File{
             .{
@@ -217,8 +249,8 @@ const cases = [_]Case{
                 .mode = 0o644,
             },
         },
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/gnu-utf8.tar"),
         .files = &[_]Case.File{
             .{
@@ -226,8 +258,8 @@ const cases = [_]Case{
                 .mode = 0o644,
             },
         },
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/gnu-not-utf8.tar"),
         .files = &[_]Case.File{
             .{
@@ -235,33 +267,33 @@ const cases = [_]Case{
                 .mode = 0o644,
             },
         },
-    },
-    .{
+    });
+    try testCase(.{
         // null in pax key
         .data = @embedFile("testdata/pax-nul-xattrs.tar"),
         .err = error.PaxNullInKeyword,
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/pax-nul-path.tar"),
         .err = error.PaxNullInValue,
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/neg-size.tar"),
         .err = error.TarHeader,
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/issue10968.tar"),
         .err = error.TarHeader,
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/issue11169.tar"),
         .err = error.TarHeader,
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/issue12435.tar"),
         .err = error.TarHeaderChksum,
-    },
-    .{
+    });
+    try testCase(.{
         // has magic with space at end instead of null
         .data = @embedFile("testdata/invalid-go17.tar"),
         .files = &[_]Case.File{
@@ -269,8 +301,8 @@ const cases = [_]Case{
                 .name = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/foo",
             },
         },
-    },
-    .{
+    });
+    try testCase(.{
         .data = @embedFile("testdata/ustar-file-devs.tar"),
         .files = &[_]Case.File{
             .{
@@ -278,17 +310,9 @@ const cases = [_]Case{
                 .mode = 0o644,
             },
         },
-    },
-    .{
-        .data = @embedFile("testdata/trailing-slash.tar"),
-        .files = &[_]Case.File{
-            .{
-                .name = "123456789/" ** 30,
-                .kind = .directory,
-            },
-        },
-    },
-    .{
+    });
+    try testCase(trailing_slash_case);
+    try testCase(.{
         // Has size in gnu extended format. To represent size bigger than 8 GB.
         .data = @embedFile("testdata/writer-big.tar"),
         .files = &[_]Case.File{
@@ -299,120 +323,92 @@ const cases = [_]Case{
                 .mode = 0o640,
             },
         },
-    },
-    .{
-        // Size in gnu extended format, and name in pax attribute.
-        .data = @embedFile("testdata/writer-big-long.tar"),
-        .files = &[_]Case.File{
-            .{
-                .name = "longname/" ** 15 ++ "16gig.txt",
-                .size = 16 * 1024 * 1024 * 1024,
-                .mode = 0o644,
-                .truncated = true,
-            },
-        },
-    },
-    .{
-        .data = @embedFile("testdata/fuzz1.tar"),
-        .err = error.TarInsufficientBuffer,
-    },
-    .{
+    });
+    try testCase(writer_big_long_case);
+    try testCase(fuzz1_case);
+    try testCase(.{
         .data = @embedFile("testdata/fuzz2.tar"),
         .err = error.PaxSizeAttrOverflow,
-    },
-};
+    });
+}
 
-// used in test to calculate file chksum
-const Md5Writer = struct {
-    h: std.crypto.hash.Md5 = std.crypto.hash.Md5.init(.{}),
-
-    pub fn writeAll(self: *Md5Writer, buf: []const u8) !void {
-        self.h.update(buf);
-    }
-
-    pub fn writeByte(self: *Md5Writer, byte: u8) !void {
-        self.h.update(&[_]u8{byte});
-    }
-
-    pub fn chksum(self: *Md5Writer) [32]u8 {
-        var s = [_]u8{0} ** 16;
-        self.h.final(&s);
-        return std.fmt.bytesToHex(s, .lower);
-    }
-};
-
-test "run test cases" {
+fn testCase(case: Case) !void {
     var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
 
-    for (cases) |case| {
-        var fsb = std.io.fixedBufferStream(case.data);
-        var iter = tar.iterator(fsb.reader(), .{
-            .file_name_buffer = &file_name_buffer,
-            .link_name_buffer = &link_name_buffer,
-        });
-        var i: usize = 0;
-        while (iter.next() catch |err| {
-            if (case.err) |e| {
-                try testing.expectEqual(e, err);
-                continue;
-            } else {
-                return err;
-            }
-        }) |actual| : (i += 1) {
-            const expected = case.files[i];
-            try testing.expectEqualStrings(expected.name, actual.name);
-            try testing.expectEqual(expected.size, actual.size);
-            try testing.expectEqual(expected.kind, actual.kind);
-            try testing.expectEqual(expected.mode, actual.mode);
-            try testing.expectEqualStrings(expected.link_name, actual.link_name);
+    var br: std.io.Reader = .fixed(case.data);
+    var it: tar.Iterator = .init(&br, .{
+        .file_name_buffer = &file_name_buffer,
+        .link_name_buffer = &link_name_buffer,
+    });
+    var i: usize = 0;
+    while (it.next() catch |err| {
+        if (case.err) |e| {
+            try testing.expectEqual(e, err);
+            return;
+        } else {
+            return err;
+        }
+    }) |actual| : (i += 1) {
+        const expected = case.files[i];
+        try testing.expectEqualStrings(expected.name, actual.name);
+        try testing.expectEqual(expected.size, actual.size);
+        try testing.expectEqual(expected.kind, actual.kind);
+        try testing.expectEqual(expected.mode, actual.mode);
+        try testing.expectEqualStrings(expected.link_name, actual.link_name);
 
-            if (case.chksums.len > i) {
-                var md5writer = Md5Writer{};
-                try actual.writeAll(&md5writer);
-                const chksum = md5writer.chksum();
-                try testing.expectEqualStrings(case.chksums[i], &chksum);
-            } else {
-                if (expected.truncated) {
-                    iter.unread_file_bytes = 0;
-                }
+        if (case.chksums.len > i) {
+            var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+            defer aw.deinit();
+            try it.streamRemaining(actual, &aw.writer);
+            const chksum = std.fmt.bytesToHex(std.crypto.hash.Md5.hashResult(aw.getWritten()), .lower);
+            try testing.expectEqualStrings(case.chksums[i], &chksum);
+        } else {
+            if (expected.truncated) {
+                it.unread_file_bytes = 0;
             }
         }
-        try testing.expectEqual(case.files.len, i);
     }
+    try testing.expectEqual(case.files.len, i);
 }
 
 test "pax/gnu long names with small buffer" {
+    try testLongNameCase(gnu_multi_headers_case);
+    try testLongNameCase(trailing_slash_case);
+    try testLongNameCase(.{
+        .data = @embedFile("testdata/fuzz1.tar"),
+        .err = error.TarInsufficientBuffer,
+    });
+}
+
+fn testLongNameCase(case: Case) !void {
     // should fail with insufficient buffer error
 
     var min_file_name_buffer: [256]u8 = undefined;
     var min_link_name_buffer: [100]u8 = undefined;
-    const long_name_cases = [_]Case{ cases[11], cases[25], cases[28] };
 
-    for (long_name_cases) |case| {
-        var fsb = std.io.fixedBufferStream(case.data);
-        var iter = tar.iterator(fsb.reader(), .{
-            .file_name_buffer = &min_file_name_buffer,
-            .link_name_buffer = &min_link_name_buffer,
-        });
+    var br: std.io.Reader = .fixed(case.data);
+    var iter: tar.Iterator = .init(&br, .{
+        .file_name_buffer = &min_file_name_buffer,
+        .link_name_buffer = &min_link_name_buffer,
+    });
 
-        var iter_err: ?anyerror = null;
-        while (iter.next() catch |err| brk: {
-            iter_err = err;
-            break :brk null;
-        }) |_| {}
+    var iter_err: ?anyerror = null;
+    while (iter.next() catch |err| brk: {
+        iter_err = err;
+        break :brk null;
+    }) |_| {}
 
-        try testing.expect(iter_err != null);
-        try testing.expectEqual(error.TarInsufficientBuffer, iter_err.?);
-    }
+    try testing.expect(iter_err != null);
+    try testing.expectEqual(error.TarInsufficientBuffer, iter_err.?);
 }
 
 test "insufficient buffer in Header name filed" {
     var min_file_name_buffer: [9]u8 = undefined;
     var min_link_name_buffer: [100]u8 = undefined;
 
-    var fsb = std.io.fixedBufferStream(cases[0].data);
-    var iter = tar.iterator(fsb.reader(), .{
+    var br: std.io.Reader = .fixed(gnu_case.data);
+    var iter: tar.Iterator = .init(&br, .{
         .file_name_buffer = &min_file_name_buffer,
         .link_name_buffer = &min_link_name_buffer,
     });
@@ -466,21 +462,21 @@ test "should not overwrite existing file" {
     // This ensures that file is not overwritten.
     //
     const data = @embedFile("testdata/overwrite_file.tar");
-    var fsb = std.io.fixedBufferStream(data);
+    var r: std.io.Reader = .fixed(data);
 
     // Unpack with strip_components = 1 should fail
     var root = std.testing.tmpDir(.{});
     defer root.cleanup();
     try testing.expectError(
         error.PathAlreadyExists,
-        tar.pipeToFileSystem(root.dir, fsb.reader(), .{ .mode_mode = .ignore, .strip_components = 1 }),
+        tar.pipeToFileSystem(root.dir, &r, .{ .mode_mode = .ignore, .strip_components = 1 }),
     );
 
     // Unpack with strip_components = 0 should pass
-    fsb.reset();
+    r = .fixed(data);
     var root2 = std.testing.tmpDir(.{});
     defer root2.cleanup();
-    try tar.pipeToFileSystem(root2.dir, fsb.reader(), .{ .mode_mode = .ignore, .strip_components = 0 });
+    try tar.pipeToFileSystem(root2.dir, &r, .{ .mode_mode = .ignore, .strip_components = 0 });
 }
 
 test "case sensitivity" {
@@ -494,12 +490,12 @@ test "case sensitivity" {
     //     18089/alacritty/Darkermatrix.yml
     //
     const data = @embedFile("testdata/18089.tar");
-    var fsb = std.io.fixedBufferStream(data);
+    var r: std.io.Reader = .fixed(data);
 
     var root = std.testing.tmpDir(.{});
     defer root.cleanup();
 
-    tar.pipeToFileSystem(root.dir, fsb.reader(), .{ .mode_mode = .ignore, .strip_components = 1 }) catch |err| {
+    tar.pipeToFileSystem(root.dir, &r, .{ .mode_mode = .ignore, .strip_components = 1 }) catch |err| {
         // on case insensitive fs we fail on overwrite existing file
         try testing.expectEqual(error.PathAlreadyExists, err);
         return;
