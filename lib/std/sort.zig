@@ -989,7 +989,7 @@ test "stack overflow" {
     var array = [_]u64{math.maxInt(u64)} ** 3789730;
     var idx: usize = 0;
     var a: usize = 0;
-    var d: usize = 0;
+    var d: u64 = 0;
     while (d < 64) : (d += 1) {
         const cur_len = array.len - a;
         const left_len = cur_len / 8;
