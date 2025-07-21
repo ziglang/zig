@@ -6924,8 +6924,10 @@ pub fn addCCArgs(
                 },
             }
 
+            // Homebrew targets without LLVM support; use communities's preferred macros.
             switch (target.os.tag) {
                 .@"3ds" => try argv.append("-D__3DS__"),
+                .vita => try argv.append("-D__vita__"),
                 else => {},
             }
 
