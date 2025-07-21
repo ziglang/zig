@@ -145,6 +145,7 @@ pub const Arg = union(enum) {
     bytes: []u8,
     output_file: *Output,
     output_directory: *Output,
+    modify_path: *ModifyPath,
 };
 
 pub const PrefixedArtifact = struct {
@@ -167,6 +168,11 @@ pub const Output = struct {
     generated_file: std.Build.GeneratedFile,
     prefix: []const u8,
     basename: []const u8,
+};
+
+pub const ModifyPath = struct {
+    lazy_path: std.Build.LazyPath,
+    output: Output,
 };
 
 pub fn create(owner: *std.Build, name: []const u8) *Run {
@@ -426,6 +432,32 @@ pub fn addPrefixedDepFileOutputArg(run: *Run, prefix: []const u8, basename: []co
     return .{ .generated = .{ .file = &dep_file.generated_file } };
 }
 
+/// Add a path argument for the child process to modify. The returned path is
+/// the same as the input path, but has a step dependency on this run step for
+/// use in other steps.
+///
+/// Related:
+/// * `addFileArg` - only serves as an input file for the child process.
+/// * `addOutputFileArg` - only serves as an output file for the child process.
+pub fn addModifyPathArg(run: *Run, lp: std.Build.LazyPath) std.Build.LazyPath {
+    const b = run.step.owner;
+
+    const modify_path = b.allocator.create(ModifyPath) catch @panic("OOM");
+    modify_path.* = .{
+        .lazy_path = lp,
+        .output = .{
+            .prefix = "",
+            .basename = "",
+            .generated_file = .{ .step = &run.step },
+        },
+    };
+
+    run.has_side_effects = true;
+    run.argv.append(b.allocator, .{ .modify_path = modify_path }) catch @panic("OOM");
+    lp.addStepDependencies(&run.step);
+    return .{ .generated = .{ .file = &modify_path.output.generated_file } };
+}
+
 pub fn addArg(run: *Run, arg: []const u8) void {
     const b = run.step.owner;
     run.argv.append(b.allocator, .{ .bytes = b.dupe(arg) }) catch @panic("OOM");
@@ -461,7 +493,7 @@ pub fn addPathDir(run: *Run, search_path: []const u8) void {
 
     const use_wine = b.enable_wine and b.graph.host.result.os.tag != .windows and use_wine: switch (run.argv.items[0]) {
         .artifact => |p| p.artifact.rootModuleTarget().os.tag == .windows,
-        .lazy_path => |p| {
+        inline .lazy_path, .modify_path => |p| {
             switch (p.lazy_path) {
                 .generated => |g| if (g.file.step.cast(Step.Compile)) |cs| break :use_wine cs.rootModuleTarget().os.tag == .windows,
                 else => {},
@@ -608,7 +640,7 @@ fn hasAnyOutputArgs(run: Run) bool {
     if (run.captured_stdout != null) return true;
     if (run.captured_stderr != null) return true;
     for (run.argv.items) |arg| switch (arg) {
-        .output_file, .output_directory => return true,
+        .output_file, .output_directory, .modify_path => return true,
         else => continue,
     };
     return false;
@@ -672,6 +704,10 @@ const IndexedOutput = struct {
     tag: @typeInfo(Arg).@"union".tag_type.?,
     output: *Output,
 };
+const ModifiedPathOutput = struct {
+    modify_path: *ModifyPath,
+    resolved_path: []const u8,
+};
 fn make(step: *Step, options: Step.MakeOptions) !void {
     const prog_node = options.progress_node;
     const b = step.owner;
@@ -681,6 +717,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     var argv_list = std.ArrayList([]const u8).init(arena);
     var output_placeholders = std.ArrayList(IndexedOutput).init(arena);
+    var modify_paths = std.ArrayList(ModifiedPathOutput).init(arena);
 
     var man = b.graph.cache.obtain();
     defer man.deinit();
@@ -761,6 +798,16 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 });
                 _ = try argv_list.addOne();
             },
+            .modify_path => |modify_path| {
+                const file_path = modify_path.lazy_path.getPath3(b, step);
+                const resolved_path = run.convertPathArg(file_path);
+                man.hash.addBytes(resolved_path);
+                try argv_list.append(resolved_path);
+                try modify_paths.append(.{
+                    .modify_path = modify_path,
+                    .resolved_path = resolved_path,
+                });
+            },
         }
     }
 
@@ -801,6 +848,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         try populateGeneratedPaths(
             arena,
             output_placeholders.items,
+            modify_paths.items,
             run.captured_stdout,
             run.captured_stderr,
             b.cache_root,
@@ -821,6 +869,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         try populateGeneratedPaths(
             arena,
             output_placeholders.items,
+            modify_paths.items,
             run.captured_stdout,
             run.captured_stderr,
             b.cache_root,
@@ -935,6 +984,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     try populateGeneratedPaths(
         arena,
         output_placeholders.items,
+        modify_paths.items,
         run.captured_stdout,
         run.captured_stderr,
         b.cache_root,
@@ -976,7 +1026,7 @@ pub fn rerunInFuzzMode(
                     run.convertPathArg(.{ .root_dir = .cwd(), .sub_path = file_path }),
                 }));
             },
-            .output_file, .output_directory => unreachable,
+            .output_file, .output_directory, .modify_path => unreachable,
         }
     }
     const has_side_effects = false;
@@ -991,6 +1041,7 @@ pub fn rerunInFuzzMode(
 fn populateGeneratedPaths(
     arena: std.mem.Allocator,
     output_placeholders: []const IndexedOutput,
+    modify_paths: []const ModifiedPathOutput,
     captured_stdout: ?*Output,
     captured_stderr: ?*Output,
     cache_root: Build.Cache.Directory,
@@ -1000,6 +1051,10 @@ fn populateGeneratedPaths(
         placeholder.output.generated_file.path = try cache_root.join(arena, &.{
             "o", digest, placeholder.output.basename,
         });
+    }
+
+    for (modify_paths) |modify_path| {
+        modify_path.modify_path.output.generated_file.path = modify_path.resolved_path;
     }
 
     if (captured_stdout) |output| {
