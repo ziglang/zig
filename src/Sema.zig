@@ -6562,6 +6562,11 @@ fn resolveAnalyzedBlock(
             } },
         });
     }
+
+    if (try sema.typeHasOnePossibleValue(resolved_ty)) |block_only_value| {
+        return Air.internedToRef(block_only_value.toIntern());
+    }
+
     return merges.block_inst.toRef();
 }
 
