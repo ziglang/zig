@@ -28214,18 +28214,22 @@ fn elemVal(
             .many, .c => {
                 const maybe_indexable_val = try sema.resolveDefinedValue(block, indexable_src, indexable);
                 const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
+                const elem_ty = indexable_ty.elemType2(zcu);
 
                 ct: {
                     const indexable_val = maybe_indexable_val orelse break :ct;
                     const index_val = maybe_index_val orelse break :ct;
                     const index: usize = @intCast(try index_val.toUnsignedIntSema(pt));
-                    const elem_ty = indexable_ty.elemType2(zcu);
                     const many_ptr_ty = try pt.manyConstPtrType(elem_ty);
                     const many_ptr_val = try pt.getCoerced(indexable_val, many_ptr_ty);
                     const elem_ptr_ty = try pt.singleConstPtrType(elem_ty);
                     const elem_ptr_val = try many_ptr_val.ptrElem(index, pt);
                     const elem_val = try sema.pointerDeref(block, indexable_src, elem_ptr_val, elem_ptr_ty) orelse break :ct;
                     return Air.internedToRef((try pt.getCoerced(elem_val, elem_ty)).toIntern());
+                }
+
+                if (try sema.typeHasOnePossibleValue(elem_ty)) |elem_only_value| {
+                    return Air.internedToRef(elem_only_value.toIntern());
                 }
 
                 try sema.checkLogicalPtrOperation(block, src, indexable_ty);
