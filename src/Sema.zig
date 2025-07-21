@@ -28582,6 +28582,10 @@ fn elemValSlice(
         }
     }
 
+    if (try sema.typeHasOnePossibleValue(elem_ty)) |elem_only_value| {
+        return Air.internedToRef(elem_only_value.toIntern());
+    }
+
     try sema.validateRuntimeElemAccess(block, elem_index_src, elem_ty, slice_ty, slice_src);
     try sema.validateRuntimeValue(block, slice_src, slice);
 
