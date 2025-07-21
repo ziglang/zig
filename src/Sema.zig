@@ -28083,10 +28083,16 @@ fn unionFieldVal(
         const active_tag = try block.addTyOp(.get_union_tag, .fromInterned(union_obj.enum_tag_ty), union_byval);
         try sema.addSafetyCheckInactiveUnionField(block, src, active_tag, wanted_tag);
     }
+
     if (field_ty.zigTypeTag(zcu) == .noreturn) {
         _ = try block.addNoOp(.unreach);
         return .unreachable_value;
     }
+
+    if (try sema.typeHasOnePossibleValue(field_ty)) |field_only_value| {
+        return Air.internedToRef(field_only_value.toIntern());
+    }
+
     try field_ty.resolveLayout(pt);
     return block.addStructFieldVal(union_byval, field_index, field_ty);
 }
