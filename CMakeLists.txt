@@ -446,7 +446,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/dwarf/OP.zig
     lib/std/dwarf/TAG.zig
     lib/std/elf.zig
-    lib/std/fifo.zig
     lib/std/fmt.zig
     lib/std/fmt/parse_float.zig
     lib/std/fs.zig
@@ -462,7 +461,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/heap.zig
     lib/std/heap/arena_allocator.zig
     lib/std/json.zig
-    lib/std/json/stringify.zig
     lib/std/leb128.zig
     lib/std/log.zig
     lib/std/macho.zig
@@ -505,6 +503,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/unicode.zig
     lib/std/zig.zig
     lib/std/zig/Ast.zig
+    lib/std/zig/Ast/Render.zig
     lib/std/zig/AstGen.zig
     lib/std/zig/AstRlAnnotate.zig
     lib/std/zig/LibCInstallation.zig
@@ -513,7 +512,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/WindowsSdk.zig
     lib/std/zig/Zir.zig
     lib/std/zig/c_builtins.zig
-    lib/std/zig/render.zig
     lib/std/zig/string_literal.zig
     lib/std/zig/system.zig
     lib/std/zig/system/NativePaths.zig

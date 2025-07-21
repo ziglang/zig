@@ -13041,8 +13041,10 @@ fn analyzeSwitchRuntimeBlock(
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(cases_extra.items));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(else_body));
 
+    const has_any_continues = spa.operand == .loop and child_block.label.?.merges.extra_insts.items.len > 0;
+
     return try child_block.addInst(.{
-        .tag = if (spa.operand == .loop) .loop_switch_br else .switch_br,
+        .tag = if (has_any_continues) .loop_switch_br else .switch_br,
         .data = .{ .pl_op = .{
             .operand = operand,
             .payload = payload_index,
@@ -16411,10 +16413,10 @@ fn zirAsm(
     const extra = sema.code.extraData(Zir.Inst.Asm, extended.operand);
     const src = block.nodeOffset(extra.data.src_node);
     const ret_ty_src = block.src(.{ .node_offset_asm_ret_ty = extra.data.src_node });
-    const outputs_len: u4 = @truncate(extended.small);
-    const inputs_len: u5 = @truncate(extended.small >> 4);
-    const clobbers_len: u6 = @truncate(extended.small >> 9);
-    const is_volatile = @as(u1, @truncate(extended.small >> 15)) != 0;
+    const small: Zir.Inst.Asm.Small = @bitCast(extended.small);
+    const outputs_len = small.outputs_len;
+    const inputs_len = small.inputs_len;
+    const is_volatile = small.is_volatile;
     const is_global_assembly = sema.func_index == .none;
     const zir_tags = sema.code.instructions.items(.tag);
 
@@ -16430,7 +16432,7 @@ fn zirAsm(
         if (inputs_len != 0) {
             return sema.fail(block, src, "module-level assembly does not support inputs", .{});
         }
-        if (clobbers_len != 0) {
+        if (extra.data.clobbers != .none) {
             return sema.fail(block, src, "module-level assembly does not support clobbers", .{});
         }
         if (is_volatile) {
@@ -16504,15 +16506,11 @@ fn zirAsm(
         inputs[arg_i] = .{ .c = constraint, .n = name };
     }
 
-    const clobbers = try sema.arena.alloc([]const u8, clobbers_len);
-    for (clobbers) |*name| {
-        const name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_i]);
-        name.* = sema.code.nullTerminatedString(name_index);
-        extra_i += 1;
-
-        needed_capacity += name.*.len / 4 + 1;
-    }
-
+    const clobbers = if (extra.data.clobbers == .none) empty: {
+        const clobbers_ty = try sema.getBuiltinType(src, .@"assembly.Clobbers");
+        break :empty try sema.structInitEmpty(block, clobbers_ty, src, src);
+    } else try sema.resolveInst(extra.data.clobbers); // Already coerced by AstGen.
+    const clobbers_val = try sema.resolveConstDefinedValue(block, src, clobbers, .{ .simple = .clobber });
     needed_capacity += (asm_source.len + 3) / 4;
 
     const gpa = sema.gpa;
@@ -16523,9 +16521,12 @@ fn zirAsm(
             .ty = expr_ty,
             .payload = sema.addExtraAssumeCapacity(Air.Asm{
                 .source_len = @intCast(asm_source.len),
-                .outputs_len = outputs_len,
                 .inputs_len = @intCast(args.len),
-                .flags = (@as(u32, @intFromBool(is_volatile)) << 31) | @as(u32, @intCast(clobbers.len)),
+                .clobbers = clobbers_val.toIntern(),
+                .flags = .{
+                    .is_volatile = is_volatile,
+                    .outputs_len = outputs_len,
+                },
             }),
         } },
     });
@@ -16546,12 +16547,6 @@ fn zirAsm(
         @memcpy(buffer[input.c.len + 1 ..][0..input.n.len], input.n);
         buffer[input.c.len + 1 + input.n.len] = 0;
         sema.air_extra.items.len += (input.c.len + input.n.len + (2 + 3)) / 4;
-    }
-    for (clobbers) |clobber| {
-        const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
-        @memcpy(buffer[0..clobber.len], clobber);
-        buffer[clobber.len] = 0;
-        sema.air_extra.items.len += clobber.len / 4 + 1;
     }
     {
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
@@ -26195,6 +26190,7 @@ fn zirBuiltinValue(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
         .extern_options     => try sema.getBuiltinType(src, .ExternOptions),
         .type_info          => try sema.getBuiltinType(src, .Type),
         .branch_hint        => try sema.getBuiltinType(src, .BranchHint),
+        .clobbers           => try sema.getBuiltinType(src, .@"assembly.Clobbers"),
         // zig fmt: on
 
         // Values are handled here.
@@ -36544,7 +36540,7 @@ fn payloadToExtraItems(data: anytype) [@typeInfo(@TypeOf(data)).@"struct".fields
     inline for (&result, fields) |*val, field| {
         val.* = switch (field.type) {
             u32 => @field(data, field.name),
-            i32, Air.CondBr.BranchHints => @bitCast(@field(data, field.name)),
+            i32, Air.CondBr.BranchHints, Air.Asm.Flags => @bitCast(@field(data, field.name)),
             Air.Inst.Ref, InternPool.Index => @intFromEnum(@field(data, field.name)),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };

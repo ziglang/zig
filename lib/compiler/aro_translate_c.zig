@@ -1824,7 +1824,7 @@ pub fn main() !void {
     };
     defer tree.deinit(gpa);
 
-    const formatted = try tree.render(arena);
+    const formatted = try tree.renderAlloc(arena);
     try std.fs.File.stdout().writeAll(formatted);
     return std.process.cleanExit();
 }

@@ -7987,7 +7987,7 @@ AsmInput <- COLON AsmInputList AsmClobbers?
 
 AsmInputItem <- LBRACKET IDENTIFIER RBRACKET STRINGLITERAL LPAREN Expr RPAREN
 
-AsmClobbers <- COLON StringList
+AsmClobbers <- COLON Expr
 
 # *** Helper grammar ***
 BreakLabel <- COLON IDENTIFIER

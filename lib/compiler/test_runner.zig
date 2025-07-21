@@ -2,7 +2,6 @@
 const builtin = @import("builtin");
 
 const std = @import("std");
-const io = std.io;
 const testing = std.testing;
 const assert = std.debug.assert;
 
@@ -11,8 +10,10 @@ pub const std_options: std.Options = .{
 };
 
 var log_err_count: usize = 0;
-var fba_buffer: [8192]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&fba_buffer);
+var fba_buffer: [8192]u8 = undefined;
+var stdin_buffer: [4096]u8 = undefined;
+var stdout_buffer: [4096]u8 = undefined;
 
 const crippled = switch (builtin.zig_backend) {
     .stage2_powerpc,
@@ -67,13 +68,13 @@ pub fn main() void {
 
 fn mainServer() !void {
     @disableInstrumentation();
+    var stdin_reader = std.fs.File.stdin().readerStreaming(&stdin_buffer);
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
     var server = try std.zig.Server.init(.{
-        .gpa = fba.allocator(),
-        .in = .stdin(),
-        .out = .stdout(),
+        .in = &stdin_reader.interface,
+        .out = &stdout_writer.interface,
         .zig_version = builtin.zig_version_string,
     });
-    defer server.deinit();
 
     if (builtin.fuzz) {
         const coverage_id = fuzzer_coverage_id();
@@ -103,7 +104,7 @@ fn mainServer() !void {
                 defer testing.allocator.free(expected_panic_msgs);
 
                 for (test_fns, names, expected_panic_msgs) |test_fn, *name, *expected_panic_msg| {
-                    name.* = @as(u32, @intCast(string_bytes.items.len));
+                    name.* = @intCast(string_bytes.items.len);
                     try string_bytes.ensureUnusedCapacity(testing.allocator, test_fn.name.len + 1);
                     string_bytes.appendSliceAssumeCapacity(test_fn.name);
                     string_bytes.appendAssumeCapacity(0);

@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
 const build_options = @import("build_options");
 const Zcu = @import("../Zcu.zig");
@@ -9,7 +10,7 @@ const Air = @import("../Air.zig");
 const InternPool = @import("../InternPool.zig");
 
 pub fn write(air: Air, stream: *std.io.Writer, pt: Zcu.PerThread, liveness: ?Air.Liveness) void {
-    comptime std.debug.assert(build_options.enable_debug_extensions);
+    comptime assert(build_options.enable_debug_extensions);
     const instruction_bytes = air.instructions.len *
         // Here we don't use @sizeOf(Air.Inst.Data) because it would include
         // the debug safety tag but we want to measure release size.
@@ -59,7 +60,7 @@ pub fn writeInst(
     pt: Zcu.PerThread,
     liveness: ?Air.Liveness,
 ) void {
-    comptime std.debug.assert(build_options.enable_debug_extensions);
+    comptime assert(build_options.enable_debug_extensions);
     var writer: Writer = .{
         .pt = pt,
         .gpa = pt.zcu.gpa,
@@ -643,8 +644,8 @@ const Writer = struct {
     fn writeAssembly(w: *Writer, s: *std.io.Writer, inst: Air.Inst.Index) Error!void {
         const ty_pl = w.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = w.air.extraData(Air.Asm, ty_pl.payload);
-        const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
-        const clobbers_len = @as(u31, @truncate(extra.data.flags));
+        const is_volatile = extra.data.flags.is_volatile;
+        const outputs_len = extra.data.flags.outputs_len;
         var extra_i: usize = extra.end;
         var op_index: usize = 0;
 
@@ -655,7 +656,7 @@ const Writer = struct {
             try s.writeAll(", volatile");
         }
 
-        const outputs = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra.items[extra_i..][0..extra.data.outputs_len]));
+        const outputs = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra.items[extra_i..][0..outputs_len]));
         extra_i += outputs.len;
         const inputs = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra.items[extra_i..][0..extra.data.inputs_len]));
         extra_i += inputs.len;
@@ -695,19 +696,35 @@ const Writer = struct {
             try s.writeByte(')');
         }
 
-        {
-            var clobber_i: u32 = 0;
-            while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const extra_bytes = std.mem.sliceAsBytes(w.air.extra.items[extra_i..]);
-                const clobber = std.mem.sliceTo(extra_bytes, 0);
-                // This equation accounts for the fact that even if we have exactly 4 bytes
-                // for the string, we still use the next u32 for the null terminator.
-                extra_i += clobber.len / 4 + 1;
-
-                try s.writeAll(", ~{");
-                try s.writeAll(clobber);
-                try s.writeAll("}");
-            }
+        const zcu = w.pt.zcu;
+        const ip = &zcu.intern_pool;
+        const aggregate = ip.indexToKey(extra.data.clobbers).aggregate;
+        const struct_type: Type = .fromInterned(aggregate.ty);
+        switch (aggregate.storage) {
+            .elems => |elems| for (elems, 0..) |elem, i| {
+                switch (elem) {
+                    .bool_true => {
+                        const clobber = struct_type.structFieldName(i, zcu).toSlice(ip).?;
+                        assert(clobber.len != 0);
+                        try s.writeAll(", ~{");
+                        try s.writeAll(clobber);
+                        try s.writeAll("}");
+                    },
+                    .bool_false => continue,
+                    else => unreachable,
+                }
+            },
+            .repeated_elem => |elem| {
+                try s.writeAll(", ");
+                try s.writeAll(switch (elem) {
+                    .bool_true => "<all clobbers>",
+                    .bool_false => "<no clobbers>",
+                    else => unreachable,
+                });
+            },
+            .bytes => |bytes| {
+                try s.print(", {x}", .{bytes});
+            },
         }
         const asm_source = std.mem.sliceAsBytes(w.air.extra.items[extra_i..])[0..extra.data.source_len];
         try s.print(", \"{f}\"", .{std.zig.fmtString(asm_source)});

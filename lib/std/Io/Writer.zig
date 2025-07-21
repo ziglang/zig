@@ -393,6 +393,32 @@ pub fn writableVectorPosix(w: *Writer, buffer: []std.posix.iovec, limit: Limit) 
     return buffer[0..i];
 }
 
+pub fn writableVectorWsa(
+    w: *Writer,
+    buffer: []std.os.windows.ws2_32.WSABUF,
+    limit: Limit,
+) Error![]std.os.windows.ws2_32.WSABUF {
+    var it = try writableVectorIterator(w);
+    var i: usize = 0;
+    var remaining = limit;
+    while (it.next()) |full_buffer| {
+        if (!remaining.nonzero()) break;
+        if (buffer.len - i == 0) break;
+        const buf = remaining.slice(full_buffer);
+        if (buf.len == 0) continue;
+        if (std.math.cast(u32, buf.len)) |len| {
+            buffer[i] = .{ .buf = buf.ptr, .len = len };
+            i += 1;
+            remaining = remaining.subtract(len).?;
+            continue;
+        }
+        buffer[i] = .{ .buf = buf.ptr, .len = std.math.maxInt(u32) };
+        i += 1;
+        break;
+    }
+    return buffer[0..i];
+}
+
 pub fn ensureUnusedCapacity(w: *Writer, n: usize) Error!void {
     _ = try writableSliceGreedy(w, n);
 }
@@ -438,32 +464,52 @@ pub fn writeVecAll(w: *Writer, data: [][]const u8) Error!void {
 
 /// The `data` parameter is mutable because this function needs to mutate the
 /// fields in order to handle partial writes from `VTable.writeSplat`.
+/// `data` will be restored to its original state before returning.
 pub fn writeSplatAll(w: *Writer, data: [][]const u8, splat: usize) Error!void {
     var index: usize = 0;
     var truncate: usize = 0;
-    var remaining_splat = splat;
     while (index + 1 < data.len) {
         {
             const untruncated = data[index];
             data[index] = untruncated[truncate..];
             defer data[index] = untruncated;
-            truncate += try w.writeSplat(data[index..], remaining_splat);
+            truncate += try w.writeSplat(data[index..], splat);
         }
-        while (truncate >= data[index].len) {
-            if (index + 1 < data.len) {
-                truncate -= data[index].len;
-                index += 1;
-            } else {
-                const last = data[data.len - 1];
-                remaining_splat -= @divExact(truncate, last.len);
-                while (remaining_splat > 0) {
-                    const n = try w.writeSplat(data[data.len - 1 ..][0..1], remaining_splat);
-                    remaining_splat -= @divExact(n, last.len);
-                }
-                return;
-            }
+        while (truncate >= data[index].len and index + 1 < data.len) {
+            truncate -= data[index].len;
+            index += 1;
         }
     }
+
+    // Deal with any left over splats
+    if (data.len != 0 and truncate < data[index].len * splat) {
+        assert(index == data.len - 1);
+        var remaining_splat = splat;
+        while (true) {
+            remaining_splat -= truncate / data[index].len;
+            truncate %= data[index].len;
+            if (remaining_splat == 0) break;
+            truncate += try w.writeSplat(&.{ data[index][truncate..], data[index] }, remaining_splat - 1);
+        }
+    }
+}
+
+test writeSplatAll {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    var buffers = [_][]const u8{ "ba", "na" };
+    try aw.writer.writeSplatAll(&buffers, 2);
+    try testing.expectEqualStrings("banana", aw.writer.buffered());
+}
+
+test "writeSplatAll works with a single buffer" {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    var message: [1][]const u8 = .{"hello"};
+    try aw.writer.writeSplatAll(&message, 3);
+    try testing.expectEqualStrings("hellohellohello", aw.writer.buffered());
 }
 
 pub fn write(w: *Writer, bytes: []const u8) Error!usize {
@@ -572,10 +618,6 @@ pub fn writeAllPreserve(w: *Writer, preserve_length: usize, bytes: []const u8) E
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 ///
 /// To print literal curly braces, escape them by writing them twice, e.g. `{{` or `}}`.
-///
-/// Asserts `buffer` capacity of at least 2 if a union is printed. This
-/// requirement could be lifted by adjusting the code, but if you trigger that
-/// assertion it is a clue that you should probably be using a buffer.
 pub fn print(w: *Writer, comptime fmt: []const u8, args: anytype) Error!void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
@@ -737,6 +779,14 @@ pub fn splatByteAll(w: *Writer, byte: u8, n: usize) Error!void {
     while (remaining > 0) remaining -= try w.splatByte(byte, remaining);
 }
 
+test splatByteAll {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    try aw.writer.splatByteAll('7', 45);
+    try testing.expectEqualStrings("7" ** 45, aw.writer.buffered());
+}
+
 /// Writes the same byte many times, allowing short writes.
 ///
 /// Does maximum of one underlying `VTable.drain`.
@@ -752,13 +802,21 @@ pub fn splatBytesAll(w: *Writer, bytes: []const u8, splat: usize) Error!void {
     while (remaining_bytes > 0) {
         const leftover = remaining_bytes % bytes.len;
         const buffers: [2][]const u8 = .{ bytes[bytes.len - leftover ..], bytes };
-        remaining_bytes -= try w.splatBytes(&buffers, splat);
+        remaining_bytes -= try w.writeSplat(&buffers, splat);
     }
+}
+
+test splatBytesAll {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    try aw.writer.splatBytesAll("hello", 3);
+    try testing.expectEqualStrings("hellohellohello", aw.writer.buffered());
 }
 
 /// Writes the same slice many times, allowing short writes.
 ///
-/// Does maximum of one underlying `VTable.writeSplat`.
+/// Does maximum of one underlying `VTable.drain`.
 pub fn splatBytes(w: *Writer, bytes: []const u8, n: usize) Error!usize {
     return writeSplat(w, &.{bytes}, n);
 }
@@ -770,26 +828,19 @@ pub inline fn writeInt(w: *Writer, comptime T: type, value: T, endian: std.built
     return w.writeAll(&bytes);
 }
 
-pub fn writeStruct(w: *Writer, value: anytype) Error!void {
-    // Only extern and packed structs have defined in-memory layout.
-    comptime assert(@typeInfo(@TypeOf(value)).@"struct".layout != .auto);
-    return w.writeAll(std.mem.asBytes(&value));
-}
-
 /// The function is inline to avoid the dead code in case `endian` is
 /// comptime-known and matches host endianness.
-/// TODO: make sure this value is not a reference type
-pub inline fn writeStructEndian(w: *Writer, value: anytype, endian: std.builtin.Endian) Error!void {
+pub inline fn writeStruct(w: *Writer, value: anytype, endian: std.builtin.Endian) Error!void {
     switch (@typeInfo(@TypeOf(value))) {
         .@"struct" => |info| switch (info.layout) {
             .auto => @compileError("ill-defined memory layout"),
             .@"extern" => {
                 if (native_endian == endian) {
-                    return w.writeStruct(value);
+                    return w.writeAll(@ptrCast((&value)[0..1]));
                 } else {
                     var copy = value;
                     std.mem.byteSwapAllFields(@TypeOf(value), &copy);
-                    return w.writeStruct(copy);
+                    return w.writeAll(@ptrCast((&copy)[0..1]));
                 }
             },
             .@"packed" => {
@@ -809,7 +860,15 @@ pub inline fn writeSliceEndian(
     if (native_endian == endian) {
         return writeAll(w, @ptrCast(slice));
     } else {
-        return w.writeArraySwap(w, Elem, slice);
+        return writeSliceSwap(w, Elem, slice);
+    }
+}
+
+pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
+    for (slice) |elem| {
+        var tmp = elem;
+        std.mem.byteSwapAllFields(Elem, &tmp);
+        try w.writeAll(@ptrCast(&tmp));
     }
 }
 
@@ -1072,8 +1131,8 @@ pub fn printValue(
                 else => invalidFmtError(fmt, value),
             },
             't' => switch (@typeInfo(T)) {
-                .error_set => return w.writeAll(@errorName(value)),
-                .@"enum", .@"union" => return w.writeAll(@tagName(value)),
+                .error_set => return w.alignBufferOptions(@errorName(value), options),
+                .@"enum", .@"union" => return w.alignBufferOptions(@tagName(value), options),
                 else => invalidFmtError(fmt, value),
             },
             else => {},
@@ -1202,14 +1261,13 @@ pub fn printValue(
                 .@"extern", .@"packed" => {
                     if (info.fields.len == 0) return w.writeAll(".{}");
                     try w.writeAll(".{ ");
-                    inline for (info.fields) |field| {
+                    inline for (info.fields, 1..) |field, i| {
                         try w.writeByte('.');
                         try w.writeAll(field.name);
                         try w.writeAll(" = ");
                         try w.printValue(ANY, options, @field(value, field.name), max_depth - 1);
-                        (try w.writableArray(2)).* = ", ".*;
+                        try w.writeAll(if (i < info.fields.len) ", " else " }");
                     }
-                    w.buffer[w.end - 2 ..][0..2].* = " }".*;
                 },
             }
         },
@@ -2084,6 +2142,14 @@ test "bytes.hex" {
     try testing.expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
 }
 
+test "padding" {
+    const foo: enum { foo } = .foo;
+    try testing.expectFmt("tag: |foo |\n", "tag: |{t:<4}|\n", .{foo});
+
+    const bar: error{bar} = error.bar;
+    try testing.expectFmt("error: |bar |\n", "error: |{t:<4}|\n", .{bar});
+}
+
 test fixed {
     {
         var buf: [255]u8 = undefined;
@@ -2162,7 +2228,7 @@ pub const Discarding = struct {
     pub fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
         const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
         const slice = data[0 .. data.len - 1];
-        const pattern = data[slice.len..];
+        const pattern = data[slice.len];
         var written: usize = pattern.len * splat;
         for (slice) |bytes| written += bytes.len;
         d.count += w.end + written;
@@ -2175,8 +2241,10 @@ pub const Discarding = struct {
         const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
         d.count += w.end;
         w.end = 0;
+        if (limit == .nothing) return 0;
         if (file_reader.getSize()) |size| {
             const n = limit.minInt64(size - file_reader.pos);
+            if (n == 0) return error.EndOfStream;
             file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
             w.end = 0;
             d.count += n;
@@ -2418,14 +2486,28 @@ pub const Allocating = struct {
         return result;
     }
 
+    pub fn ensureUnusedCapacity(a: *Allocating, additional_count: usize) Allocator.Error!void {
+        var list = a.toArrayList();
+        defer a.setArrayList(list);
+        return list.ensureUnusedCapacity(a.allocator, additional_count);
+    }
+
+    pub fn ensureTotalCapacity(a: *Allocating, new_capacity: usize) Allocator.Error!void {
+        var list = a.toArrayList();
+        defer a.setArrayList(list);
+        return list.ensureTotalCapacity(a.allocator, new_capacity);
+    }
+
     pub fn toOwnedSlice(a: *Allocating) error{OutOfMemory}![]u8 {
         var list = a.toArrayList();
+        defer a.setArrayList(list);
         return list.toOwnedSlice(a.allocator);
     }
 
     pub fn toOwnedSliceSentinel(a: *Allocating, comptime sentinel: u8) error{OutOfMemory}![:sentinel]u8 {
         const gpa = a.allocator;
         var list = toArrayList(a);
+        defer a.setArrayList(list);
         return list.toOwnedSliceSentinel(gpa, sentinel);
     }
 
@@ -2468,18 +2550,17 @@ pub const Allocating = struct {
 
     fn sendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) FileError!usize {
         if (File.Handle == void) return error.Unimplemented;
+        if (limit == .nothing) return 0;
         const a: *Allocating = @fieldParentPtr("writer", w);
         const gpa = a.allocator;
         var list = a.toArrayList();
         defer setArrayList(a, list);
         const pos = file_reader.pos;
         const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
+        if (additional == 0) return error.EndOfStream;
         list.ensureUnusedCapacity(gpa, limit.minInt64(additional)) catch return error.WriteFailed;
         const dest = limit.slice(list.unusedCapacitySlice());
-        const n = file_reader.read(dest) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
-            error.EndOfStream => 0,
-        };
+        const n = try file_reader.read(dest);
         list.items.len += n;
         return n;
     }
@@ -2501,3 +2582,76 @@ pub const Allocating = struct {
         try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", a.getWritten());
     }
 };
+
+test "discarding sendFile" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    var r_buffer: [256]u8 = undefined;
+    var file_writer: std.fs.File.Writer = .init(file, &r_buffer);
+    try file_writer.interface.writeByte('h');
+    try file_writer.interface.flush();
+
+    var file_reader = file_writer.moveToReader();
+    try file_reader.seekTo(0);
+
+    var w_buffer: [256]u8 = undefined;
+    var discarding: std.io.Writer.Discarding = .init(&w_buffer);
+
+    _ = try file_reader.interface.streamRemaining(&discarding.writer);
+}
+
+test "allocating sendFile" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    var r_buffer: [256]u8 = undefined;
+    var file_writer: std.fs.File.Writer = .init(file, &r_buffer);
+    try file_writer.interface.writeByte('h');
+    try file_writer.interface.flush();
+
+    var file_reader = file_writer.moveToReader();
+    try file_reader.seekTo(0);
+
+    var allocating: std.io.Writer.Allocating = .init(testing.allocator);
+    defer allocating.deinit();
+
+    _ = try file_reader.interface.streamRemaining(&allocating.writer);
+}
+
+test writeStruct {
+    var buffer: [16]u8 = undefined;
+    const S = extern struct { a: u64, b: u32, c: u32 };
+    const s: S = .{ .a = 1, .b = 2, .c = 3 };
+    {
+        var w: Writer = .fixed(&buffer);
+        try w.writeStruct(s, .little);
+        try testing.expectEqualSlices(u8, &.{
+            1, 0, 0, 0, 0, 0, 0, 0, //
+            2, 0, 0, 0, //
+            3, 0, 0, 0, //
+        }, &buffer);
+    }
+    {
+        var w: Writer = .fixed(&buffer);
+        try w.writeStruct(s, .big);
+        try testing.expectEqualSlices(u8, &.{
+            0, 0, 0, 0, 0, 0, 0, 1, //
+            0, 0, 0, 2, //
+            0, 0, 0, 3, //
+        }, &buffer);
+    }
+}
+
+test writeSliceEndian {
+    var buffer: [5]u8 align(2) = undefined;
+    var w: Writer = .fixed(&buffer);
+    try w.writeByte('x');
+    const array: [2]u16 = .{ 0x1234, 0x5678 };
+    try writeSliceEndian(&w, u16, &array, .big);
+    try testing.expectEqualSlices(u8, &.{ 'x', 0x12, 0x34, 0x56, 0x78 }, &buffer);
+}

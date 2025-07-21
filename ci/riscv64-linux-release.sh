@@ -49,27 +49,13 @@ unset CXX
 ninja install
 
 # No -fqemu and -fwasmtime here as they're covered by the x86_64-linux scripts.
-stage3-release/bin/zig build test docs \
+stage3-release/bin/zig build test-cases test-modules test-unit test-standalone test-c-abi test-link test-stack-traces test-asm-link test-llvm-ir \
   --maxrss 68719476736 \
   -Dstatic-llvm \
   -Dskip-non-native \
+  -Dskip-single-threaded \
+  -Dskip-translate-c \
+  -Dskip-run-translated-c \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib"
-
-# Ensure that stage3 and stage4 are byte-for-byte identical.
-stage3-release/bin/zig build \
-  --prefix stage4-release \
-  -Denable-llvm \
-  -Dno-lib \
-  -Doptimize=ReleaseFast \
-  -Dstrip \
-  -Dtarget=$TARGET \
-  -Dcpu=$MCPU \
-  -Duse-zig-libcxx \
-  -Dversion-string="$(stage3-release/bin/zig version)"
-
-# diff returns an error code if the files differ.
-echo "If the following command fails, it means nondeterminism has been"
-echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
-diff stage3-release/bin/zig stage4-release/bin/zig

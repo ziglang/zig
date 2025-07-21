@@ -214,7 +214,7 @@ pub const File = extern struct {
     pub fn getInfo(
         self: *const File,
         comptime info: std.meta.Tag(Info),
-        buffer: []u8,
+        buffer: []align(@alignOf(@FieldType(Info, @tagName(info)))) u8,
     ) GetInfoError!*@FieldType(Info, @tagName(info)) {
         const InfoType = @FieldType(Info, @tagName(info));
 

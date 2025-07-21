@@ -505,6 +505,7 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .bool_or,
         .@"asm",
         .asm_simple,
+        .asm_legacy,
         .string_literal,
         .number_literal,
         .call,
@@ -810,6 +811,12 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .asm_simple,
         .@"asm",
         => return asmExpr(gz, scope, ri, node, tree.fullAsm(node).?),
+
+        .asm_legacy => {
+            return astgen.failNodeNotes(node, "legacy asm clobbers syntax", .{}, &[_]u32{
+                try astgen.errNoteNode(node, "use 'zig fmt' to auto-upgrade", .{}),
+            });
+        },
 
         .string_literal           => return stringLiteral(gz, ri, node),
         .multiline_string_literal => return multilineStringLiteral(gz, ri, node),
@@ -8774,7 +8781,7 @@ fn asmExpr(
     if (is_container_asm) {
         if (full.volatile_token) |t|
             return astgen.failTok(t, "volatile is meaningless on global assembly", .{});
-        if (full.outputs.len != 0 or full.inputs.len != 0 or full.first_clobber != null)
+        if (full.outputs.len != 0 or full.inputs.len != 0 or full.ast.clobbers != .none)
             return astgen.failNode(node, "global assembly cannot have inputs, outputs, or clobbers", .{});
     } else {
         if (full.outputs.len == 0 and full.volatile_token == null) {
@@ -8839,32 +8846,12 @@ fn asmExpr(
         };
     }
 
-    var clobbers_buffer: [63]u32 = undefined;
-    var clobber_i: usize = 0;
-    if (full.first_clobber) |first_clobber| clobbers: {
-        // asm ("foo" ::: "a", "b")
-        // asm ("foo" ::: "a", "b",)
-        var tok_i = first_clobber;
-        while (true) : (tok_i += 1) {
-            if (clobber_i >= clobbers_buffer.len) {
-                return astgen.failTok(tok_i, "too many asm clobbers", .{});
-            }
-            clobbers_buffer[clobber_i] = @intFromEnum((try astgen.strLitAsString(tok_i)).index);
-            clobber_i += 1;
-            tok_i += 1;
-            switch (tree.tokenTag(tok_i)) {
-                .r_paren => break :clobbers,
-                .comma => {
-                    if (tree.tokenTag(tok_i + 1) == .r_paren) {
-                        break :clobbers;
-                    } else {
-                        continue;
-                    }
-                },
-                else => unreachable,
-            }
-        }
-    }
+    const clobbers: Zir.Inst.Ref = if (full.ast.clobbers.unwrap()) |clobbers_node|
+        try comptimeExpr(gz, scope, .{ .rl = .{
+            .coerced_ty = try gz.addBuiltinValue(clobbers_node, .clobbers),
+        } }, clobbers_node, .clobber)
+    else
+        .none;
 
     const result = try gz.addAsm(.{
         .tag = tag_and_tmpl.tag,
@@ -8874,7 +8861,7 @@ fn asmExpr(
         .output_type_bits = output_type_bits,
         .outputs = outputs,
         .inputs = inputs,
-        .clobbers = clobbers_buffer[0..clobber_i],
+        .clobbers = clobbers,
     });
     return rvalue(gz, ri, result, node);
 }
@@ -10332,6 +10319,7 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
 
             .@"asm",
             .asm_simple,
+            .asm_legacy,
             .identifier,
             .field_access,
             .deref,
@@ -10575,6 +10563,7 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .tagged_union_enum_tag_trailing,
             .@"asm",
             .asm_simple,
+            .asm_legacy,
             .add,
             .add_wrap,
             .add_sat,
@@ -10813,6 +10802,7 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .tagged_union_enum_tag_trailing,
             .@"asm",
             .asm_simple,
+            .asm_legacy,
             .add,
             .add_wrap,
             .add_sat,
@@ -11288,10 +11278,14 @@ fn parseStrLit(
     offset: u32,
 ) InnerError!void {
     const raw_string = bytes[offset..];
-    var buf_managed = buf.toManaged(astgen.gpa);
-    const result = std.zig.string_literal.parseWrite(buf_managed.writer(), raw_string);
-    buf.* = buf_managed.moveToUnmanaged();
-    switch (try result) {
+    const result = r: {
+        var aw: std.io.Writer.Allocating = .fromArrayList(astgen.gpa, buf);
+        defer buf.* = aw.toArrayList();
+        break :r std.zig.string_literal.parseWrite(&aw.writer, raw_string) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
+    };
+    switch (result) {
         .success => return,
         .failure => |err| return astgen.failWithStrLitError(err, token, bytes, offset),
     }
@@ -11334,17 +11328,18 @@ fn appendErrorNodeNotes(
     notes: []const u32,
 ) Allocator.Error!void {
     @branchHint(.cold);
+    const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    try string_bytes.print(gpa, format ++ "\x00", args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
-        try astgen.extra.ensureTotalCapacity(astgen.gpa, notes_start + 1 + notes.len);
+        try astgen.extra.ensureTotalCapacity(gpa, notes_start + 1 + notes.len);
         astgen.extra.appendAssumeCapacity(@intCast(notes.len));
         astgen.extra.appendSliceAssumeCapacity(notes);
         break :blk @intCast(notes_start);
     } else 0;
-    try astgen.compile_errors.append(astgen.gpa, .{
+    try astgen.compile_errors.append(gpa, .{
         .msg = msg,
         .node = node.toOptional(),
         .token = .none,
@@ -11428,7 +11423,7 @@ fn appendErrorTokNotesOff(
     const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(gpa).print(format ++ "\x00", args);
+    try string_bytes.print(gpa, format ++ "\x00", args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
         try astgen.extra.ensureTotalCapacity(gpa, notes_start + 1 + notes.len);
@@ -11464,7 +11459,7 @@ fn errNoteTokOff(
     @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    try string_bytes.print(astgen.gpa, format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
         .node = .none,
@@ -11483,7 +11478,7 @@ fn errNoteNode(
     @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    try string_bytes.print(astgen.gpa, format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
         .node = node.toOptional(),
@@ -12806,7 +12801,7 @@ const GenZir = struct {
             is_volatile: bool,
             outputs: []const Zir.Inst.Asm.Output,
             inputs: []const Zir.Inst.Asm.Input,
-            clobbers: []const u32,
+            clobbers: Zir.Inst.Ref,
         },
     ) !Zir.Inst.Ref {
         const astgen = gz.astgen;
@@ -12816,13 +12811,13 @@ const GenZir = struct {
         try astgen.instructions.ensureUnusedCapacity(gpa, 1);
         try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Asm).@"struct".fields.len +
             args.outputs.len * @typeInfo(Zir.Inst.Asm.Output).@"struct".fields.len +
-            args.inputs.len * @typeInfo(Zir.Inst.Asm.Input).@"struct".fields.len +
-            args.clobbers.len);
+            args.inputs.len * @typeInfo(Zir.Inst.Asm.Input).@"struct".fields.len);
 
         const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Asm{
             .src_node = gz.nodeIndexToRelative(args.node),
             .asm_source = args.asm_source,
             .output_type_bits = args.output_type_bits,
+            .clobbers = args.clobbers,
         });
         for (args.outputs) |output| {
             _ = gz.astgen.addExtraAssumeCapacity(output);
@@ -12830,23 +12825,19 @@ const GenZir = struct {
         for (args.inputs) |input| {
             _ = gz.astgen.addExtraAssumeCapacity(input);
         }
-        gz.astgen.extra.appendSliceAssumeCapacity(args.clobbers);
 
-        //  * 0b00000000_0000XXXX - `outputs_len`.
-        //  * 0b0000000X_XXXX0000 - `inputs_len`.
-        //  * 0b0XXXXXX0_00000000 - `clobbers_len`.
-        //  * 0bX0000000_00000000 - is volatile
-        const small: u16 = @as(u16, @as(u4, @intCast(args.outputs.len))) << 0 |
-            @as(u16, @as(u5, @intCast(args.inputs.len))) << 4 |
-            @as(u16, @as(u6, @intCast(args.clobbers.len))) << 9 |
-            @as(u16, @intFromBool(args.is_volatile)) << 15;
+        const small: Zir.Inst.Asm.Small = .{
+            .outputs_len = @intCast(args.outputs.len),
+            .inputs_len = @intCast(args.inputs.len),
+            .is_volatile = args.is_volatile,
+        };
 
         const new_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len);
         astgen.instructions.appendAssumeCapacity(.{
             .tag = .extended,
             .data = .{ .extended = .{
                 .opcode = args.tag,
-                .small = small,
+                .small = @bitCast(small),
                 .operand = payload_index,
             } },
         });
@@ -13729,13 +13720,14 @@ fn emitDbgStmtForceCurrentIndex(gz: *GenZir, lc: LineColumn) !void {
     } });
 }
 
-fn lowerAstErrors(astgen: *AstGen) !void {
+fn lowerAstErrors(astgen: *AstGen) error{OutOfMemory}!void {
     const gpa = astgen.gpa;
     const tree = astgen.tree;
     assert(tree.errors.len > 0);
 
-    var msg: std.ArrayListUnmanaged(u8) = .empty;
-    defer msg.deinit(gpa);
+    var msg: std.io.Writer.Allocating = .init(gpa);
+    defer msg.deinit();
+    const msg_w = &msg.writer;
 
     var notes: std.ArrayListUnmanaged(u32) = .empty;
     defer notes.deinit(gpa);
@@ -13763,26 +13755,26 @@ fn lowerAstErrors(astgen: *AstGen) !void {
             break :blk idx - tok_start;
         };
 
-        const err: Ast.Error = .{
+        const ast_err: Ast.Error = .{
             .tag = Ast.Error.Tag.invalid_byte,
             .token = tok,
             .extra = .{ .offset = bad_off },
         };
         msg.clearRetainingCapacity();
-        try tree.renderError(err, msg.writer(gpa));
-        return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.items}, notes.items);
+        tree.renderError(ast_err, msg_w) catch return error.OutOfMemory;
+        return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.getWritten()}, notes.items);
     }
 
     var cur_err = tree.errors[0];
     for (tree.errors[1..]) |err| {
         if (err.is_note) {
-            try tree.renderError(err, msg.writer(gpa));
-            try notes.append(gpa, try astgen.errNoteTok(err.token, "{s}", .{msg.items}));
+            tree.renderError(err, msg_w) catch return error.OutOfMemory;
+            try notes.append(gpa, try astgen.errNoteTok(err.token, "{s}", .{msg.getWritten()}));
         } else {
             // Flush error
             const extra_offset = tree.errorOffset(cur_err);
-            try tree.renderError(cur_err, msg.writer(gpa));
-            try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.items}, notes.items);
+            tree.renderError(cur_err, msg_w) catch return error.OutOfMemory;
+            try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
             notes.clearRetainingCapacity();
             cur_err = err;
 
@@ -13795,8 +13787,8 @@ fn lowerAstErrors(astgen: *AstGen) !void {
 
     // Flush error
     const extra_offset = tree.errorOffset(cur_err);
-    try tree.renderError(cur_err, msg.writer(gpa));
-    try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.items}, notes.items);
+    tree.renderError(cur_err, msg_w) catch return error.OutOfMemory;
+    try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
 }
 
 const DeclarationName = union(enum) {

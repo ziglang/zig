@@ -11,11 +11,15 @@ const io = std.io;
 const native_endian = builtin.target.cpu.arch.endian();
 const native_os = builtin.os.tag;
 const windows = std.os.windows;
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayListUnmanaged;
+const File = std.fs.File;
 
 // Windows 10 added support for unix sockets in build 17063, redstone 4 is the
 // first release to support them.
 pub const has_unix_sockets = switch (native_os) {
     .windows => builtin.os.version_range.windows.isAtLeast(.win10_rs4) orelse false,
+    .wasi => false,
     else => true,
 };
 
@@ -719,7 +723,7 @@ pub fn connectUnixSocket(path: []const u8) !Stream {
     );
     errdefer Stream.close(.{ .handle = sockfd });
 
-    var addr = try std.net.Address.initUnix(path);
+    var addr = try Address.initUnix(path);
     try posix.connect(sockfd, &addr.any, addr.getOsSockLen());
 
     return .{ .handle = sockfd };
@@ -787,7 +791,7 @@ pub const AddressList = struct {
 pub const TcpConnectToHostError = GetAddressListError || TcpConnectToAddressError;
 
 /// All memory allocated with `allocator` will be freed before this function returns.
-pub fn tcpConnectToHost(allocator: mem.Allocator, name: []const u8, port: u16) TcpConnectToHostError!Stream {
+pub fn tcpConnectToHost(allocator: Allocator, name: []const u8, port: u16) TcpConnectToHostError!Stream {
     const list = try getAddressList(allocator, name, port);
     defer list.deinit();
 
@@ -818,9 +822,9 @@ pub fn tcpConnectToAddress(address: Address) TcpConnectToAddressError!Stream {
     return Stream{ .handle = sockfd };
 }
 
-const GetAddressListError = std.mem.Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || posix.SocketError || posix.BindError || posix.SetSockOptError || error{
-    // TODO: break this up into error sets from the various underlying functions
-
+// TODO: Instead of having a massive error set, make the error set have categories, and then
+// store the sub-error as a diagnostic value.
+const GetAddressListError = Allocator.Error || File.OpenError || File.ReadError || posix.SocketError || posix.BindError || posix.SetSockOptError || error{
     TemporaryNameServerFailure,
     NameServerFailure,
     AddressFamilyNotSupported,
@@ -840,12 +844,13 @@ const GetAddressListError = std.mem.Allocator.Error || std.fs.File.OpenError || 
 
     InterfaceNotFound,
     FileSystem,
+    ResolveConfParseFailed,
 };
 
 /// Call `AddressList.deinit` on the result.
-pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) GetAddressListError!*AddressList {
+pub fn getAddressList(gpa: Allocator, name: []const u8, port: u16) GetAddressListError!*AddressList {
     const result = blk: {
-        var arena = std.heap.ArenaAllocator.init(allocator);
+        var arena = std.heap.ArenaAllocator.init(gpa);
         errdefer arena.deinit();
 
         const result = try arena.allocator().create(AddressList);
@@ -860,11 +865,11 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
     errdefer result.deinit();
 
     if (native_os == .windows) {
-        const name_c = try allocator.dupeZ(u8, name);
-        defer allocator.free(name_c);
+        const name_c = try gpa.dupeZ(u8, name);
+        defer gpa.free(name_c);
 
-        const port_c = try std.fmt.allocPrintSentinel(allocator, "{}", .{port}, 0);
-        defer allocator.free(port_c);
+        const port_c = try std.fmt.allocPrintSentinel(gpa, "{d}", .{port}, 0);
+        defer gpa.free(port_c);
 
         const ws2_32 = windows.ws2_32;
         const hints: posix.addrinfo = .{
@@ -932,11 +937,11 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
     }
 
     if (builtin.link_libc) {
-        const name_c = try allocator.dupeZ(u8, name);
-        defer allocator.free(name_c);
+        const name_c = try gpa.dupeZ(u8, name);
+        defer gpa.free(name_c);
 
-        const port_c = try std.fmt.allocPrintSentinel(allocator, "{}", .{port}, 0);
-        defer allocator.free(port_c);
+        const port_c = try std.fmt.allocPrintSentinel(gpa, "{d}", .{port}, 0);
+        defer gpa.free(port_c);
 
         const hints: posix.addrinfo = .{
             .flags = .{ .NUMERICSERV = true },
@@ -999,17 +1004,17 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
 
     if (native_os == .linux) {
         const family = posix.AF.UNSPEC;
-        var lookup_addrs = std.ArrayList(LookupAddr).init(allocator);
-        defer lookup_addrs.deinit();
+        var lookup_addrs: ArrayList(LookupAddr) = .empty;
+        defer lookup_addrs.deinit(gpa);
 
-        var canon = std.ArrayList(u8).init(arena);
-        defer canon.deinit();
+        var canon: ArrayList(u8) = .empty;
+        defer canon.deinit(gpa);
 
-        try linuxLookupName(&lookup_addrs, &canon, name, family, .{ .NUMERICSERV = true }, port);
+        try linuxLookupName(gpa, &lookup_addrs, &canon, name, family, .{ .NUMERICSERV = true }, port);
 
         result.addrs = try arena.alloc(Address, lookup_addrs.items.len);
         if (canon.items.len != 0) {
-            result.canon_name = try canon.toOwnedSlice();
+            result.canon_name = try arena.dupe(u8, canon.items);
         }
 
         for (lookup_addrs.items, 0..) |lookup_addr, i| {
@@ -1036,8 +1041,9 @@ const DAS_PREFIX_SHIFT = 8;
 const DAS_ORDER_SHIFT = 0;
 
 fn linuxLookupName(
-    addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayList(u8),
+    gpa: Allocator,
+    addrs: *ArrayList(LookupAddr),
+    canon: *ArrayList(u8),
     opt_name: ?[]const u8,
     family: posix.sa_family_t,
     flags: posix.AI,
@@ -1046,13 +1052,13 @@ fn linuxLookupName(
     if (opt_name) |name| {
         // reject empty name and check len so it fits into temp bufs
         canon.items.len = 0;
-        try canon.appendSlice(name);
+        try canon.appendSlice(gpa, name);
         if (Address.parseExpectingFamily(name, family, port)) |addr| {
-            try addrs.append(LookupAddr{ .addr = addr });
+            try addrs.append(gpa, .{ .addr = addr });
         } else |name_err| if (flags.NUMERICHOST) {
             return name_err;
         } else {
-            try linuxLookupNameFromHosts(addrs, canon, name, family, port);
+            try linuxLookupNameFromHosts(gpa, addrs, canon, name, family, port);
             if (addrs.items.len == 0) {
                 // RFC 6761 Section 6.3.3
                 // Name resolution APIs and libraries SHOULD recognize localhost
@@ -1063,17 +1069,18 @@ fn linuxLookupName(
                 // Check for equal to "localhost(.)" or ends in ".localhost(.)"
                 const localhost = if (name[name.len - 1] == '.') "localhost." else "localhost";
                 if (mem.endsWith(u8, name, localhost) and (name.len == localhost.len or name[name.len - localhost.len] == '.')) {
-                    try addrs.append(LookupAddr{ .addr = .{ .in = Ip4Address.parse("127.0.0.1", port) catch unreachable } });
-                    try addrs.append(LookupAddr{ .addr = .{ .in6 = Ip6Address.parse("::1", port) catch unreachable } });
+                    try addrs.append(gpa, .{ .addr = .{ .in = Ip4Address.parse("127.0.0.1", port) catch unreachable } });
+                    try addrs.append(gpa, .{ .addr = .{ .in6 = Ip6Address.parse("::1", port) catch unreachable } });
                     return;
                 }
 
-                try linuxLookupNameFromDnsSearch(addrs, canon, name, family, port);
+                try linuxLookupNameFromDnsSearch(gpa, addrs, canon, name, family, port);
             }
         }
     } else {
-        try canon.resize(0);
-        try linuxLookupNameFromNull(addrs, family, flags, port);
+        try canon.resize(gpa, 0);
+        try addrs.ensureUnusedCapacity(gpa, 2);
+        linuxLookupNameFromNull(addrs, family, flags, port);
     }
     if (addrs.items.len == 0) return error.UnknownHostName;
 
@@ -1279,39 +1286,40 @@ fn addrCmpLessThan(context: void, b: LookupAddr, a: LookupAddr) bool {
 }
 
 fn linuxLookupNameFromNull(
-    addrs: *std.ArrayList(LookupAddr),
+    addrs: *ArrayList(LookupAddr),
     family: posix.sa_family_t,
     flags: posix.AI,
     port: u16,
-) !void {
+) void {
     if (flags.PASSIVE) {
         if (family != posix.AF.INET6) {
-            (try addrs.addOne()).* = LookupAddr{
+            addrs.appendAssumeCapacity(.{
                 .addr = Address.initIp4([1]u8{0} ** 4, port),
-            };
+            });
         }
         if (family != posix.AF.INET) {
-            (try addrs.addOne()).* = LookupAddr{
+            addrs.appendAssumeCapacity(.{
                 .addr = Address.initIp6([1]u8{0} ** 16, port, 0, 0),
-            };
+            });
         }
     } else {
         if (family != posix.AF.INET6) {
-            (try addrs.addOne()).* = LookupAddr{
+            addrs.appendAssumeCapacity(.{
                 .addr = Address.initIp4([4]u8{ 127, 0, 0, 1 }, port),
-            };
+            });
         }
         if (family != posix.AF.INET) {
-            (try addrs.addOne()).* = LookupAddr{
+            addrs.appendAssumeCapacity(.{
                 .addr = Address.initIp6(([1]u8{0} ** 15) ++ [1]u8{1}, port, 0, 0),
-            };
+            });
         }
     }
 }
 
 fn linuxLookupNameFromHosts(
-    addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayList(u8),
+    gpa: Allocator,
+    addrs: *ArrayList(LookupAddr),
+    canon: *ArrayList(u8),
     name: []const u8,
     family: posix.sa_family_t,
     port: u16,
@@ -1325,18 +1333,36 @@ fn linuxLookupNameFromHosts(
     };
     defer file.close();
 
-    var buffered_reader = std.io.bufferedReader(file.deprecatedReader());
-    const reader = buffered_reader.reader();
     var line_buf: [512]u8 = undefined;
-    while (reader.readUntilDelimiterOrEof(&line_buf, '\n') catch |err| switch (err) {
-        error.StreamTooLong => blk: {
-            // Skip to the delimiter in the reader, to fix parsing
-            try reader.skipUntilDelimiterOrEof('\n');
-            // Use the truncated line. A truncated comment or hostname will be handled correctly.
-            break :blk &line_buf;
-        },
-        else => |e| return e,
-    }) |line| {
+    var file_reader = file.reader(&line_buf);
+    return parseHosts(gpa, addrs, canon, name, family, port, &file_reader.interface) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ReadFailed => return file_reader.err.?,
+    };
+}
+
+fn parseHosts(
+    gpa: Allocator,
+    addrs: *ArrayList(LookupAddr),
+    canon: *ArrayList(u8),
+    name: []const u8,
+    family: posix.sa_family_t,
+    port: u16,
+    br: *io.Reader,
+) error{ OutOfMemory, ReadFailed }!void {
+    while (true) {
+        const line = br.takeDelimiterExclusive('\n') catch |err| switch (err) {
+            error.StreamTooLong => {
+                // Skip lines that are too long.
+                _ = br.discardDelimiterInclusive('\n') catch |e| switch (e) {
+                    error.EndOfStream => break,
+                    error.ReadFailed => return error.ReadFailed,
+                };
+                continue;
+            },
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => break,
+        };
         var split_it = mem.splitScalar(u8, line, '#');
         const no_comment_line = split_it.first();
 
@@ -1360,15 +1386,34 @@ fn linuxLookupNameFromHosts(
             error.NonCanonical,
             => continue,
         };
-        try addrs.append(LookupAddr{ .addr = addr });
+        try addrs.append(gpa, .{ .addr = addr });
 
         // first name is canonical name
         const name_text = first_name_text.?;
         if (isValidHostName(name_text)) {
             canon.items.len = 0;
-            try canon.appendSlice(name_text);
+            try canon.appendSlice(gpa, name_text);
         }
     }
+}
+
+test parseHosts {
+    if (builtin.os.tag == .wasi) {
+        // TODO parsing addresses should not have OS dependencies
+        return error.SkipZigTest;
+    }
+    var reader: std.io.Reader = .fixed(
+        \\127.0.0.1 localhost
+        \\::1 localhost
+        \\127.0.0.2 abcd
+    );
+    var addrs: ArrayList(LookupAddr) = .empty;
+    defer addrs.deinit(std.testing.allocator);
+    var canon: ArrayList(u8) = .empty;
+    defer canon.deinit(std.testing.allocator);
+    try parseHosts(std.testing.allocator, &addrs, &canon, "abcd", posix.AF.UNSPEC, 1234, &reader);
+    try std.testing.expectEqual(1, addrs.items.len);
+    try std.testing.expectFmt("127.0.0.2:1234", "{f}", .{addrs.items[0].addr});
 }
 
 pub fn isValidHostName(hostname: []const u8) bool {
@@ -1384,14 +1429,15 @@ pub fn isValidHostName(hostname: []const u8) bool {
 }
 
 fn linuxLookupNameFromDnsSearch(
-    addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayList(u8),
+    gpa: Allocator,
+    addrs: *ArrayList(LookupAddr),
+    canon: *ArrayList(u8),
     name: []const u8,
     family: posix.sa_family_t,
     port: u16,
 ) !void {
     var rc: ResolvConf = undefined;
-    try getResolvConf(addrs.allocator, &rc);
+    rc.init(gpa) catch return error.ResolveConfParseFailed;
     defer rc.deinit();
 
     // Count dots, suppress search when >=ndots or name ends in
@@ -1416,37 +1462,40 @@ fn linuxLookupNameFromDnsSearch(
     // provides the desired default canonical name (if the requested
     // name is not a CNAME record) and serves as a buffer for passing
     // the full requested name to name_from_dns.
-    try canon.resize(canon_name.len);
+    try canon.resize(gpa, canon_name.len);
     @memcpy(canon.items, canon_name);
-    try canon.append('.');
+    try canon.append(gpa, '.');
 
     var tok_it = mem.tokenizeAny(u8, search, " \t");
     while (tok_it.next()) |tok| {
         canon.shrinkRetainingCapacity(canon_name.len + 1);
-        try canon.appendSlice(tok);
-        try linuxLookupNameFromDns(addrs, canon, canon.items, family, rc, port);
+        try canon.appendSlice(gpa, tok);
+        try linuxLookupNameFromDns(gpa, addrs, canon, canon.items, family, rc, port);
         if (addrs.items.len != 0) return;
     }
 
     canon.shrinkRetainingCapacity(canon_name.len);
-    return linuxLookupNameFromDns(addrs, canon, name, family, rc, port);
+    return linuxLookupNameFromDns(gpa, addrs, canon, name, family, rc, port);
 }
 
 const dpc_ctx = struct {
-    addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayList(u8),
+    gpa: Allocator,
+    addrs: *ArrayList(LookupAddr),
+    canon: *ArrayList(u8),
     port: u16,
 };
 
 fn linuxLookupNameFromDns(
-    addrs: *std.ArrayList(LookupAddr),
-    canon: *std.ArrayList(u8),
+    gpa: Allocator,
+    addrs: *ArrayList(LookupAddr),
+    canon: *ArrayList(u8),
     name: []const u8,
     family: posix.sa_family_t,
     rc: ResolvConf,
     port: u16,
 ) !void {
-    const ctx = dpc_ctx{
+    const ctx: dpc_ctx = .{
+        .gpa = gpa,
         .addrs = addrs,
         .canon = canon,
         .port = port,
@@ -1456,8 +1505,8 @@ fn linuxLookupNameFromDns(
         rr: u8,
     };
     const afrrs = [_]AfRr{
-        AfRr{ .af = posix.AF.INET6, .rr = posix.RR.A },
-        AfRr{ .af = posix.AF.INET, .rr = posix.RR.AAAA },
+        .{ .af = posix.AF.INET6, .rr = posix.RR.A },
+        .{ .af = posix.AF.INET, .rr = posix.RR.AAAA },
     };
     var qbuf: [2][280]u8 = undefined;
     var abuf: [2][512]u8 = undefined;
@@ -1477,7 +1526,7 @@ fn linuxLookupNameFromDns(
     ap[0].len = 0;
     ap[1].len = 0;
 
-    try resMSendRc(qp[0..nq], ap[0..nq], apbuf[0..nq], rc);
+    try rc.resMSendRc(qp[0..nq], ap[0..nq], apbuf[0..nq]);
 
     var i: usize = 0;
     while (i < nq) : (i += 1) {
@@ -1492,248 +1541,257 @@ fn linuxLookupNameFromDns(
 }
 
 const ResolvConf = struct {
+    gpa: Allocator,
     attempts: u32,
     ndots: u32,
     timeout: u32,
-    search: std.ArrayList(u8),
-    ns: std.ArrayList(LookupAddr),
+    search: ArrayList(u8),
+    /// TODO there are actually only allowed to be maximum 3 nameservers, no need
+    /// for an array list.
+    ns: ArrayList(LookupAddr),
+
+    /// Returns `error.StreamTooLong` if a line is longer than 512 bytes.
+    /// TODO: https://github.com/ziglang/zig/issues/2765 and https://github.com/ziglang/zig/issues/2761
+    fn init(rc: *ResolvConf, gpa: Allocator) !void {
+        rc.* = .{
+            .gpa = gpa,
+            .ns = .empty,
+            .search = .empty,
+            .ndots = 1,
+            .timeout = 5,
+            .attempts = 2,
+        };
+        errdefer rc.deinit();
+
+        const file = fs.openFileAbsoluteZ("/etc/resolv.conf", .{}) catch |err| switch (err) {
+            error.FileNotFound,
+            error.NotDir,
+            error.AccessDenied,
+            => return linuxLookupNameFromNumericUnspec(gpa, &rc.ns, "127.0.0.1", 53),
+            else => |e| return e,
+        };
+        defer file.close();
+
+        var line_buf: [512]u8 = undefined;
+        var file_reader = file.reader(&line_buf);
+        return parse(rc, &file_reader.interface) catch |err| switch (err) {
+            error.ReadFailed => return file_reader.err.?,
+            else => |e| return e,
+        };
+    }
+
+    const Directive = enum { options, nameserver, domain, search };
+    const Option = enum { ndots, attempts, timeout };
+
+    fn parse(rc: *ResolvConf, reader: *io.Reader) !void {
+        const gpa = rc.gpa;
+        while (reader.takeSentinel('\n')) |line_with_comment| {
+            const line = line: {
+                var split = mem.splitScalar(u8, line_with_comment, '#');
+                break :line split.first();
+            };
+            var line_it = mem.tokenizeAny(u8, line, " \t");
+
+            const token = line_it.next() orelse continue;
+            switch (std.meta.stringToEnum(Directive, token) orelse continue) {
+                .options => while (line_it.next()) |sub_tok| {
+                    var colon_it = mem.splitScalar(u8, sub_tok, ':');
+                    const name = colon_it.first();
+                    const value_txt = colon_it.next() orelse continue;
+                    const value = std.fmt.parseInt(u8, value_txt, 10) catch |err| switch (err) {
+                        error.Overflow => 255,
+                        error.InvalidCharacter => continue,
+                    };
+                    switch (std.meta.stringToEnum(Option, name) orelse continue) {
+                        .ndots => rc.ndots = @min(value, 15),
+                        .attempts => rc.attempts = @min(value, 10),
+                        .timeout => rc.timeout = @min(value, 60),
+                    }
+                },
+                .nameserver => {
+                    const ip_txt = line_it.next() orelse continue;
+                    try linuxLookupNameFromNumericUnspec(gpa, &rc.ns, ip_txt, 53);
+                },
+                .domain, .search => {
+                    rc.search.items.len = 0;
+                    try rc.search.appendSlice(gpa, line_it.rest());
+                },
+            }
+        } else |err| switch (err) {
+            error.EndOfStream => if (reader.bufferedLen() != 0) return error.EndOfStream,
+            else => |e| return e,
+        }
+
+        if (rc.ns.items.len == 0) {
+            return linuxLookupNameFromNumericUnspec(gpa, &rc.ns, "127.0.0.1", 53);
+        }
+    }
+
+    fn resMSendRc(
+        rc: ResolvConf,
+        queries: []const []const u8,
+        answers: [][]u8,
+        answer_bufs: []const []u8,
+    ) !void {
+        const gpa = rc.gpa;
+        const timeout = 1000 * rc.timeout;
+        const attempts = rc.attempts;
+
+        var sl: posix.socklen_t = @sizeOf(posix.sockaddr.in);
+        var family: posix.sa_family_t = posix.AF.INET;
+
+        var ns_list: ArrayList(Address) = .empty;
+        defer ns_list.deinit(gpa);
+
+        try ns_list.resize(gpa, rc.ns.items.len);
+
+        for (ns_list.items, rc.ns.items) |*ns, iplit| {
+            ns.* = iplit.addr;
+            assert(ns.getPort() == 53);
+            if (iplit.addr.any.family != posix.AF.INET) {
+                family = posix.AF.INET6;
+            }
+        }
+
+        const flags = posix.SOCK.DGRAM | posix.SOCK.CLOEXEC | posix.SOCK.NONBLOCK;
+        const fd = posix.socket(family, flags, 0) catch |err| switch (err) {
+            error.AddressFamilyNotSupported => blk: {
+                // Handle case where system lacks IPv6 support
+                if (family == posix.AF.INET6) {
+                    family = posix.AF.INET;
+                    break :blk try posix.socket(posix.AF.INET, flags, 0);
+                }
+                return err;
+            },
+            else => |e| return e,
+        };
+        defer Stream.close(.{ .handle = fd });
+
+        // Past this point, there are no errors. Each individual query will
+        // yield either no reply (indicated by zero length) or an answer
+        // packet which is up to the caller to interpret.
+
+        // Convert any IPv4 addresses in a mixed environment to v4-mapped
+        if (family == posix.AF.INET6) {
+            try posix.setsockopt(
+                fd,
+                posix.SOL.IPV6,
+                std.os.linux.IPV6.V6ONLY,
+                &mem.toBytes(@as(c_int, 0)),
+            );
+            for (ns_list.items) |*ns| {
+                if (ns.any.family != posix.AF.INET) continue;
+                mem.writeInt(u32, ns.in6.sa.addr[12..], ns.in.sa.addr, native_endian);
+                ns.in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
+                ns.any.family = posix.AF.INET6;
+                ns.in6.sa.flowinfo = 0;
+                ns.in6.sa.scope_id = 0;
+            }
+            sl = @sizeOf(posix.sockaddr.in6);
+        }
+
+        // Get local address and open/bind a socket
+        var sa: Address = undefined;
+        @memset(@as([*]u8, @ptrCast(&sa))[0..@sizeOf(Address)], 0);
+        sa.any.family = family;
+        try posix.bind(fd, &sa.any, sl);
+
+        var pfd = [1]posix.pollfd{posix.pollfd{
+            .fd = fd,
+            .events = posix.POLL.IN,
+            .revents = undefined,
+        }};
+        const retry_interval = timeout / attempts;
+        var next: u32 = 0;
+        var t2: u64 = @bitCast(std.time.milliTimestamp());
+        const t0 = t2;
+        var t1 = t2 - retry_interval;
+
+        var servfail_retry: usize = undefined;
+
+        outer: while (t2 - t0 < timeout) : (t2 = @as(u64, @bitCast(std.time.milliTimestamp()))) {
+            if (t2 - t1 >= retry_interval) {
+                // Query all configured nameservers in parallel
+                var i: usize = 0;
+                while (i < queries.len) : (i += 1) {
+                    if (answers[i].len == 0) {
+                        for (ns_list.items) |*ns| {
+                            _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns.any, sl) catch undefined;
+                        }
+                    }
+                }
+                t1 = t2;
+                servfail_retry = 2 * queries.len;
+            }
+
+            // Wait for a response, or until time to retry
+            const clamped_timeout = @min(@as(u31, std.math.maxInt(u31)), t1 + retry_interval - t2);
+            const nevents = posix.poll(&pfd, clamped_timeout) catch 0;
+            if (nevents == 0) continue;
+
+            while (true) {
+                var sl_copy = sl;
+                const rlen = posix.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break;
+
+                // Ignore non-identifiable packets
+                if (rlen < 4) continue;
+
+                // Ignore replies from addresses we didn't send to
+                const ns = for (ns_list.items) |*ns| {
+                    if (ns.eql(sa)) break ns;
+                } else continue;
+
+                // Find which query this answer goes with, if any
+                var i: usize = next;
+                while (i < queries.len and (answer_bufs[next][0] != queries[i][0] or
+                    answer_bufs[next][1] != queries[i][1])) : (i += 1)
+                {}
+
+                if (i == queries.len) continue;
+                if (answers[i].len != 0) continue;
+
+                // Only accept positive or negative responses;
+                // retry immediately on server failure, and ignore
+                // all other codes such as refusal.
+                switch (answer_bufs[next][3] & 15) {
+                    0, 3 => {},
+                    2 => if (servfail_retry != 0) {
+                        servfail_retry -= 1;
+                        _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns.any, sl) catch undefined;
+                    },
+                    else => continue,
+                }
+
+                // Store answer in the right slot, or update next
+                // available temp slot if it's already in place.
+                answers[i].len = rlen;
+                if (i == next) {
+                    while (next < queries.len and answers[next].len != 0) : (next += 1) {}
+                } else {
+                    @memcpy(answer_bufs[i][0..rlen], answer_bufs[next][0..rlen]);
+                }
+
+                if (next == queries.len) break :outer;
+            }
+        }
+    }
 
     fn deinit(rc: *ResolvConf) void {
-        rc.ns.deinit();
-        rc.search.deinit();
+        const gpa = rc.gpa;
+        rc.ns.deinit(gpa);
+        rc.search.deinit(gpa);
         rc.* = undefined;
     }
 };
 
-/// Ignores lines longer than 512 bytes.
-/// TODO: https://github.com/ziglang/zig/issues/2765 and https://github.com/ziglang/zig/issues/2761
-fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
-    rc.* = ResolvConf{
-        .ns = std.ArrayList(LookupAddr).init(allocator),
-        .search = std.ArrayList(u8).init(allocator),
-        .ndots = 1,
-        .timeout = 5,
-        .attempts = 2,
-    };
-    errdefer rc.deinit();
-
-    const file = fs.openFileAbsoluteZ("/etc/resolv.conf", .{}) catch |err| switch (err) {
-        error.FileNotFound,
-        error.NotDir,
-        error.AccessDenied,
-        => return linuxLookupNameFromNumericUnspec(&rc.ns, "127.0.0.1", 53),
-        else => |e| return e,
-    };
-    defer file.close();
-
-    var buf_reader = std.io.bufferedReader(file.deprecatedReader());
-    const stream = buf_reader.reader();
-    var line_buf: [512]u8 = undefined;
-    while (stream.readUntilDelimiterOrEof(&line_buf, '\n') catch |err| switch (err) {
-        error.StreamTooLong => blk: {
-            // Skip to the delimiter in the stream, to fix parsing
-            try stream.skipUntilDelimiterOrEof('\n');
-            // Give an empty line to the while loop, which will be skipped.
-            break :blk line_buf[0..0];
-        },
-        else => |e| return e,
-    }) |line| {
-        const no_comment_line = no_comment_line: {
-            var split = mem.splitScalar(u8, line, '#');
-            break :no_comment_line split.first();
-        };
-        var line_it = mem.tokenizeAny(u8, no_comment_line, " \t");
-
-        const token = line_it.next() orelse continue;
-        if (mem.eql(u8, token, "options")) {
-            while (line_it.next()) |sub_tok| {
-                var colon_it = mem.splitScalar(u8, sub_tok, ':');
-                const name = colon_it.first();
-                const value_txt = colon_it.next() orelse continue;
-                const value = std.fmt.parseInt(u8, value_txt, 10) catch |err| switch (err) {
-                    // TODO https://github.com/ziglang/zig/issues/11812
-                    error.Overflow => @as(u8, 255),
-                    error.InvalidCharacter => continue,
-                };
-                if (mem.eql(u8, name, "ndots")) {
-                    rc.ndots = @min(value, 15);
-                } else if (mem.eql(u8, name, "attempts")) {
-                    rc.attempts = @min(value, 10);
-                } else if (mem.eql(u8, name, "timeout")) {
-                    rc.timeout = @min(value, 60);
-                }
-            }
-        } else if (mem.eql(u8, token, "nameserver")) {
-            const ip_txt = line_it.next() orelse continue;
-            try linuxLookupNameFromNumericUnspec(&rc.ns, ip_txt, 53);
-        } else if (mem.eql(u8, token, "domain") or mem.eql(u8, token, "search")) {
-            rc.search.items.len = 0;
-            try rc.search.appendSlice(line_it.rest());
-        }
-    }
-
-    if (rc.ns.items.len == 0) {
-        return linuxLookupNameFromNumericUnspec(&rc.ns, "127.0.0.1", 53);
-    }
-}
-
 fn linuxLookupNameFromNumericUnspec(
-    addrs: *std.ArrayList(LookupAddr),
+    gpa: Allocator,
+    addrs: *ArrayList(LookupAddr),
     name: []const u8,
     port: u16,
 ) !void {
     const addr = try Address.resolveIp(name, port);
-    (try addrs.addOne()).* = LookupAddr{ .addr = addr };
-}
-
-fn resMSendRc(
-    queries: []const []const u8,
-    answers: [][]u8,
-    answer_bufs: []const []u8,
-    rc: ResolvConf,
-) !void {
-    const timeout = 1000 * rc.timeout;
-    const attempts = rc.attempts;
-
-    var sl: posix.socklen_t = @sizeOf(posix.sockaddr.in);
-    var family: posix.sa_family_t = posix.AF.INET;
-
-    var ns_list = std.ArrayList(Address).init(rc.ns.allocator);
-    defer ns_list.deinit();
-
-    try ns_list.resize(rc.ns.items.len);
-    const ns = ns_list.items;
-
-    for (rc.ns.items, 0..) |iplit, i| {
-        ns[i] = iplit.addr;
-        assert(ns[i].getPort() == 53);
-        if (iplit.addr.any.family != posix.AF.INET) {
-            family = posix.AF.INET6;
-        }
-    }
-
-    const flags = posix.SOCK.DGRAM | posix.SOCK.CLOEXEC | posix.SOCK.NONBLOCK;
-    const fd = posix.socket(family, flags, 0) catch |err| switch (err) {
-        error.AddressFamilyNotSupported => blk: {
-            // Handle case where system lacks IPv6 support
-            if (family == posix.AF.INET6) {
-                family = posix.AF.INET;
-                break :blk try posix.socket(posix.AF.INET, flags, 0);
-            }
-            return err;
-        },
-        else => |e| return e,
-    };
-    defer Stream.close(.{ .handle = fd });
-
-    // Past this point, there are no errors. Each individual query will
-    // yield either no reply (indicated by zero length) or an answer
-    // packet which is up to the caller to interpret.
-
-    // Convert any IPv4 addresses in a mixed environment to v4-mapped
-    if (family == posix.AF.INET6) {
-        try posix.setsockopt(
-            fd,
-            posix.SOL.IPV6,
-            std.os.linux.IPV6.V6ONLY,
-            &mem.toBytes(@as(c_int, 0)),
-        );
-        for (0..ns.len) |i| {
-            if (ns[i].any.family != posix.AF.INET) continue;
-            mem.writeInt(u32, ns[i].in6.sa.addr[12..], ns[i].in.sa.addr, native_endian);
-            ns[i].in6.sa.addr[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
-            ns[i].any.family = posix.AF.INET6;
-            ns[i].in6.sa.flowinfo = 0;
-            ns[i].in6.sa.scope_id = 0;
-        }
-        sl = @sizeOf(posix.sockaddr.in6);
-    }
-
-    // Get local address and open/bind a socket
-    var sa: Address = undefined;
-    @memset(@as([*]u8, @ptrCast(&sa))[0..@sizeOf(Address)], 0);
-    sa.any.family = family;
-    try posix.bind(fd, &sa.any, sl);
-
-    var pfd = [1]posix.pollfd{posix.pollfd{
-        .fd = fd,
-        .events = posix.POLL.IN,
-        .revents = undefined,
-    }};
-    const retry_interval = timeout / attempts;
-    var next: u32 = 0;
-    var t2: u64 = @bitCast(std.time.milliTimestamp());
-    const t0 = t2;
-    var t1 = t2 - retry_interval;
-
-    var servfail_retry: usize = undefined;
-
-    outer: while (t2 - t0 < timeout) : (t2 = @as(u64, @bitCast(std.time.milliTimestamp()))) {
-        if (t2 - t1 >= retry_interval) {
-            // Query all configured nameservers in parallel
-            var i: usize = 0;
-            while (i < queries.len) : (i += 1) {
-                if (answers[i].len == 0) {
-                    var j: usize = 0;
-                    while (j < ns.len) : (j += 1) {
-                        _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
-                    }
-                }
-            }
-            t1 = t2;
-            servfail_retry = 2 * queries.len;
-        }
-
-        // Wait for a response, or until time to retry
-        const clamped_timeout = @min(@as(u31, std.math.maxInt(u31)), t1 + retry_interval - t2);
-        const nevents = posix.poll(&pfd, clamped_timeout) catch 0;
-        if (nevents == 0) continue;
-
-        while (true) {
-            var sl_copy = sl;
-            const rlen = posix.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break;
-
-            // Ignore non-identifiable packets
-            if (rlen < 4) continue;
-
-            // Ignore replies from addresses we didn't send to
-            var j: usize = 0;
-            while (j < ns.len and !ns[j].eql(sa)) : (j += 1) {}
-            if (j == ns.len) continue;
-
-            // Find which query this answer goes with, if any
-            var i: usize = next;
-            while (i < queries.len and (answer_bufs[next][0] != queries[i][0] or
-                answer_bufs[next][1] != queries[i][1])) : (i += 1)
-            {}
-
-            if (i == queries.len) continue;
-            if (answers[i].len != 0) continue;
-
-            // Only accept positive or negative responses;
-            // retry immediately on server failure, and ignore
-            // all other codes such as refusal.
-            switch (answer_bufs[next][3] & 15) {
-                0, 3 => {},
-                2 => if (servfail_retry != 0) {
-                    servfail_retry -= 1;
-                    _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
-                },
-                else => continue,
-            }
-
-            // Store answer in the right slot, or update next
-            // available temp slot if it's already in place.
-            answers[i].len = rlen;
-            if (i == next) {
-                while (next < queries.len and answers[next].len != 0) : (next += 1) {}
-            } else {
-                @memcpy(answer_bufs[i][0..rlen], answer_bufs[next][0..rlen]);
-            }
-
-            if (next == queries.len) break :outer;
-        }
-    }
+    try addrs.append(gpa, .{ .addr = addr });
 }
 
 fn dnsParse(
@@ -1770,20 +1828,19 @@ fn dnsParse(
 }
 
 fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) !void {
+    const gpa = ctx.gpa;
     switch (rr) {
         posix.RR.A => {
             if (data.len != 4) return error.InvalidDnsARecord;
-            const new_addr = try ctx.addrs.addOne();
-            new_addr.* = LookupAddr{
+            try ctx.addrs.append(gpa, .{
                 .addr = Address.initIp4(data[0..4].*, ctx.port),
-            };
+            });
         },
         posix.RR.AAAA => {
             if (data.len != 16) return error.InvalidDnsAAAARecord;
-            const new_addr = try ctx.addrs.addOne();
-            new_addr.* = LookupAddr{
+            try ctx.addrs.append(gpa, .{
                 .addr = Address.initIp6(data[0..16].*, ctx.port, 0, 0),
-            };
+            });
         },
         posix.RR.CNAME => {
             var tmp: [256]u8 = undefined;
@@ -1792,7 +1849,7 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
             const canon_name = mem.sliceTo(&tmp, 0);
             if (isValidHostName(canon_name)) {
                 ctx.canon.items.len = 0;
-                try ctx.canon.appendSlice(canon_name);
+                try ctx.canon.appendSlice(gpa, canon_name);
             }
         },
         else => return,
@@ -1802,7 +1859,12 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
 pub const Stream = struct {
     /// Underlying platform-defined type which may or may not be
     /// interchangeable with a file system file descriptor.
-    handle: posix.socket_t,
+    handle: Handle,
+
+    pub const Handle = switch (native_os) {
+        .windows => windows.ws2_32.SOCKET,
+        else => posix.fd_t,
+    };
 
     pub fn close(s: Stream) void {
         switch (native_os) {
@@ -1811,20 +1873,342 @@ pub const Stream = struct {
         }
     }
 
-    pub const ReadError = posix.ReadError;
-    pub const WriteError = posix.WriteError;
+    pub const ReadError = posix.ReadError || error{
+        SocketNotBound,
+        MessageTooBig,
+        NetworkSubsystemFailed,
+        ConnectionResetByPeer,
+        SocketNotConnected,
+    };
 
-    pub const Reader = io.GenericReader(Stream, ReadError, read);
-    pub const Writer = io.GenericWriter(Stream, WriteError, write);
+    pub const WriteError = posix.SendMsgError || error{
+        ConnectionResetByPeer,
+        SocketNotBound,
+        MessageTooBig,
+        NetworkSubsystemFailed,
+        SystemResources,
+        SocketNotConnected,
+        Unexpected,
+    };
 
-    pub fn reader(self: Stream) Reader {
-        return .{ .context = self };
+    pub const Reader = switch (native_os) {
+        .windows => struct {
+            /// Use `interface` for portable code.
+            interface_state: io.Reader,
+            /// Use `getStream` for portable code.
+            net_stream: Stream,
+            /// Use `getError` for portable code.
+            error_state: ?Error,
+
+            pub const Error = ReadError;
+
+            pub fn getStream(r: *const Reader) Stream {
+                return r.stream;
+            }
+
+            pub fn getError(r: *const Reader) ?Error {
+                return r.error_state;
+            }
+
+            pub fn interface(r: *Reader) *io.Reader {
+                return &r.interface_state;
+            }
+
+            pub fn init(net_stream: Stream, buffer: []u8) Reader {
+                return .{
+                    .interface_state = .{
+                        .vtable = &.{ .stream = stream },
+                        .buffer = buffer,
+                        .seek = 0,
+                        .end = 0,
+                    },
+                    .net_stream = net_stream,
+                    .error_state = null,
+                };
+            }
+
+            fn stream(io_r: *io.Reader, io_w: *io.Writer, limit: io.Limit) io.Reader.StreamError!usize {
+                const r: *Reader = @alignCast(@fieldParentPtr("interface_state", io_r));
+                var iovecs: [max_buffers_len]windows.ws2_32.WSABUF = undefined;
+                const bufs = try io_w.writableVectorWsa(&iovecs, limit);
+                assert(bufs[0].len != 0);
+                const n = streamBufs(r, bufs) catch |err| {
+                    r.error_state = err;
+                    return error.ReadFailed;
+                };
+                if (n == 0) return error.EndOfStream;
+                return n;
+            }
+
+            fn streamBufs(r: *Reader, bufs: []windows.ws2_32.WSABUF) Error!u32 {
+                var n: u32 = undefined;
+                var flags: u32 = 0;
+                const rc = windows.ws2_32.WSARecvFrom(r.net_stream.handle, bufs.ptr, @intCast(bufs.len), &n, &flags, null, null, null, null);
+                if (rc != 0) switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEFAULT => unreachable, // a pointer is not completely contained in user address space.
+                    .WSAEINPROGRESS, .WSAEINTR => unreachable, // deprecated and removed in WSA 2.2
+                    .WSAEINVAL => return error.SocketNotBound,
+                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETRESET => return error.ConnectionResetByPeer,
+                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSANOTINITIALISED => unreachable, // WSAStartup must be called before this function
+                    .WSA_IO_PENDING => unreachable, // not using overlapped I/O
+                    .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
+                    else => |err| return windows.unexpectedWSAError(err),
+                };
+                return n;
+            }
+        },
+        else => struct {
+            /// Use `getStream`, `interface`, and `getError` for portable code.
+            file_reader: File.Reader,
+
+            pub const Error = ReadError;
+
+            pub fn interface(r: *Reader) *io.Reader {
+                return &r.file_reader.interface;
+            }
+
+            pub fn init(net_stream: Stream, buffer: []u8) Reader {
+                return .{
+                    .file_reader = .{
+                        .interface = File.Reader.initInterface(buffer),
+                        .file = .{ .handle = net_stream.handle },
+                        .mode = .streaming,
+                        .seek_err = error.Unseekable,
+                    },
+                };
+            }
+
+            pub fn getStream(r: *const Reader) Stream {
+                return .{ .handle = r.file_reader.file.handle };
+            }
+
+            pub fn getError(r: *const Reader) ?Error {
+                return r.file_reader.err;
+            }
+        },
+    };
+
+    pub const Writer = switch (native_os) {
+        .windows => struct {
+            /// This field is present on all systems.
+            interface: io.Writer,
+            /// Use `getStream` for cross-platform support.
+            stream: Stream,
+            /// This field is present on all systems.
+            err: ?Error = null,
+
+            pub const Error = WriteError;
+
+            pub fn init(stream: Stream, buffer: []u8) Writer {
+                return .{
+                    .stream = stream,
+                    .interface = .{
+                        .vtable = &.{ .drain = drain },
+                        .buffer = buffer,
+                    },
+                };
+            }
+
+            pub fn getStream(w: *const Writer) Stream {
+                return w.stream;
+            }
+
+            fn addWsaBuf(v: []windows.ws2_32.WSABUF, i: *u32, bytes: []const u8) void {
+                const cap = std.math.maxInt(u32);
+                var remaining = bytes;
+                while (remaining.len > cap) {
+                    if (v.len - i.* == 0) return;
+                    v[i.*] = .{ .buf = @constCast(remaining.ptr), .len = cap };
+                    i.* += 1;
+                    remaining = remaining[cap..];
+                } else {
+                    @branchHint(.likely);
+                    if (v.len - i.* == 0) return;
+                    v[i.*] = .{ .buf = @constCast(remaining.ptr), .len = @intCast(remaining.len) };
+                    i.* += 1;
+                }
+            }
+
+            fn drain(io_w: *io.Writer, data: []const []const u8, splat: usize) io.Writer.Error!usize {
+                const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
+                const buffered = io_w.buffered();
+                comptime assert(native_os == .windows);
+                var iovecs: [max_buffers_len]windows.ws2_32.WSABUF = undefined;
+                var len: u32 = 0;
+                addWsaBuf(&iovecs, &len, buffered);
+                for (data[0 .. data.len - 1]) |bytes| addWsaBuf(&iovecs, &len, bytes);
+                const pattern = data[data.len - 1];
+                if (iovecs.len - len != 0) switch (splat) {
+                    0 => {},
+                    1 => addWsaBuf(&iovecs, &len, pattern),
+                    else => switch (pattern.len) {
+                        0 => {},
+                        1 => {
+                            const splat_buffer_candidate = io_w.buffer[io_w.end..];
+                            var backup_buffer: [64]u8 = undefined;
+                            const splat_buffer = if (splat_buffer_candidate.len >= backup_buffer.len)
+                                splat_buffer_candidate
+                            else
+                                &backup_buffer;
+                            const memset_len = @min(splat_buffer.len, splat);
+                            const buf = splat_buffer[0..memset_len];
+                            @memset(buf, pattern[0]);
+                            addWsaBuf(&iovecs, &len, buf);
+                            var remaining_splat = splat - buf.len;
+                            while (remaining_splat > splat_buffer.len and len < iovecs.len) {
+                                addWsaBuf(&iovecs, &len, splat_buffer);
+                                remaining_splat -= splat_buffer.len;
+                            }
+                            addWsaBuf(&iovecs, &len, splat_buffer[0..remaining_splat]);
+                        },
+                        else => for (0..@min(splat, iovecs.len - len)) |_| {
+                            addWsaBuf(&iovecs, &len, pattern);
+                        },
+                    },
+                };
+                const n = sendBufs(w.stream.handle, iovecs[0..len]) catch |err| {
+                    w.err = err;
+                    return error.WriteFailed;
+                };
+                return io_w.consume(n);
+            }
+
+            fn sendBufs(handle: Stream.Handle, bufs: []windows.ws2_32.WSABUF) Error!u32 {
+                var n: u32 = undefined;
+                const rc = windows.ws2_32.WSASend(handle, bufs.ptr, @intCast(bufs.len), &n, 0, null, null);
+                if (rc == windows.ws2_32.SOCKET_ERROR) switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSAECONNABORTED => return error.ConnectionResetByPeer,
+                    .WSAECONNRESET => return error.ConnectionResetByPeer,
+                    .WSAEFAULT => unreachable, // a pointer is not completely contained in user address space.
+                    .WSAEINPROGRESS, .WSAEINTR => unreachable, // deprecated and removed in WSA 2.2
+                    .WSAEINVAL => return error.SocketNotBound,
+                    .WSAEMSGSIZE => return error.MessageTooBig,
+                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                    .WSAENETRESET => return error.ConnectionResetByPeer,
+                    .WSAENOBUFS => return error.SystemResources,
+                    .WSAENOTCONN => return error.SocketNotConnected,
+                    .WSAENOTSOCK => unreachable, // not a socket
+                    .WSAEOPNOTSUPP => unreachable, // only for message-oriented sockets
+                    .WSAESHUTDOWN => unreachable, // cannot send on a socket after write shutdown
+                    .WSAEWOULDBLOCK => return error.WouldBlock,
+                    .WSANOTINITIALISED => unreachable, // WSAStartup must be called before this function
+                    .WSA_IO_PENDING => unreachable, // not using overlapped I/O
+                    .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
+                    else => |err| return windows.unexpectedWSAError(err),
+                };
+                return n;
+            }
+        },
+        else => struct {
+            /// This field is present on all systems.
+            interface: io.Writer,
+
+            err: ?Error = null,
+            file_writer: File.Writer,
+
+            pub const Error = WriteError;
+
+            pub fn init(stream: Stream, buffer: []u8) Writer {
+                return .{
+                    .interface = .{
+                        .vtable = &.{
+                            .drain = drain,
+                            .sendFile = sendFile,
+                        },
+                        .buffer = buffer,
+                    },
+                    .file_writer = .initMode(.{ .handle = stream.handle }, &.{}, .streaming),
+                };
+            }
+
+            pub fn getStream(w: *const Writer) Stream {
+                return .{ .handle = w.file_writer.file.handle };
+            }
+
+            fn addBuf(v: []posix.iovec_const, i: *@FieldType(posix.msghdr_const, "iovlen"), bytes: []const u8) void {
+                // OS checks ptr addr before length so zero length vectors must be omitted.
+                if (bytes.len == 0) return;
+                if (v.len - i.* == 0) return;
+                v[i.*] = .{ .base = bytes.ptr, .len = bytes.len };
+                i.* += 1;
+            }
+
+            fn drain(io_w: *io.Writer, data: []const []const u8, splat: usize) io.Writer.Error!usize {
+                const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
+                const buffered = io_w.buffered();
+                var iovecs: [max_buffers_len]posix.iovec_const = undefined;
+                var msg: posix.msghdr_const = .{
+                    .name = null,
+                    .namelen = 0,
+                    .iov = &iovecs,
+                    .iovlen = 0,
+                    .control = null,
+                    .controllen = 0,
+                    .flags = 0,
+                };
+                addBuf(&iovecs, &msg.iovlen, buffered);
+                for (data[0 .. data.len - 1]) |bytes| addBuf(&iovecs, &msg.iovlen, bytes);
+                const pattern = data[data.len - 1];
+                if (iovecs.len - msg.iovlen != 0) switch (splat) {
+                    0 => {},
+                    1 => addBuf(&iovecs, &msg.iovlen, pattern),
+                    else => switch (pattern.len) {
+                        0 => {},
+                        1 => {
+                            const splat_buffer_candidate = io_w.buffer[io_w.end..];
+                            var backup_buffer: [64]u8 = undefined;
+                            const splat_buffer = if (splat_buffer_candidate.len >= backup_buffer.len)
+                                splat_buffer_candidate
+                            else
+                                &backup_buffer;
+                            const memset_len = @min(splat_buffer.len, splat);
+                            const buf = splat_buffer[0..memset_len];
+                            @memset(buf, pattern[0]);
+                            addBuf(&iovecs, &msg.iovlen, buf);
+                            var remaining_splat = splat - buf.len;
+                            while (remaining_splat > splat_buffer.len and iovecs.len - msg.iovlen != 0) {
+                                assert(buf.len == splat_buffer.len);
+                                addBuf(&iovecs, &msg.iovlen, splat_buffer);
+                                remaining_splat -= splat_buffer.len;
+                            }
+                            addBuf(&iovecs, &msg.iovlen, splat_buffer[0..remaining_splat]);
+                        },
+                        else => for (0..@min(splat, iovecs.len - msg.iovlen)) |_| {
+                            addBuf(&iovecs, &msg.iovlen, pattern);
+                        },
+                    },
+                };
+                const flags = posix.MSG.NOSIGNAL;
+                return io_w.consume(posix.sendmsg(w.file_writer.file.handle, &msg, flags) catch |err| {
+                    w.err = err;
+                    return error.WriteFailed;
+                });
+            }
+
+            fn sendFile(io_w: *io.Writer, file_reader: *File.Reader, limit: io.Limit) io.Writer.FileError!usize {
+                const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
+                const n = try w.file_writer.interface.sendFileHeader(io_w.buffered(), file_reader, limit);
+                return io_w.consume(n);
+            }
+        },
+    };
+
+    pub fn reader(stream: Stream, buffer: []u8) Reader {
+        return .init(stream, buffer);
     }
 
-    pub fn writer(self: Stream) Writer {
-        return .{ .context = self };
+    pub fn writer(stream: Stream, buffer: []u8) Writer {
+        return .init(stream, buffer);
     }
 
+    const max_buffers_len = 8;
+
+    /// Deprecated in favor of `Reader`.
     pub fn read(self: Stream, buffer: []u8) ReadError!usize {
         if (native_os == .windows) {
             return windows.ReadFile(self.handle, buffer, null);
@@ -1833,10 +2217,10 @@ pub const Stream = struct {
         return posix.read(self.handle, buffer);
     }
 
+    /// Deprecated in favor of `Reader`.
     pub fn readv(s: Stream, iovecs: []const posix.iovec) ReadError!usize {
         if (native_os == .windows) {
-            // TODO improve this to use ReadFileScatter
-            if (iovecs.len == 0) return @as(usize, 0);
+            if (iovecs.len == 0) return 0;
             const first = iovecs[0];
             return windows.ReadFile(s.handle, first.base[0..first.len], null);
         }
@@ -1844,18 +2228,7 @@ pub const Stream = struct {
         return posix.readv(s.handle, iovecs);
     }
 
-    /// Returns the number of bytes read. If the number read is smaller than
-    /// `buffer.len`, it means the stream reached the end. Reaching the end of
-    /// a stream is not an error condition.
-    pub fn readAll(s: Stream, buffer: []u8) ReadError!usize {
-        return readAtLeast(s, buffer, buffer.len);
-    }
-
-    /// Returns the number of bytes read, calling the underlying read function
-    /// the minimal number of times until the buffer has at least `len` bytes
-    /// filled. If the number read is less than `len` it means the stream
-    /// reached the end. Reaching the end of the stream is not an error
-    /// condition.
+    /// Deprecated in favor of `Reader`.
     pub fn readAtLeast(s: Stream, buffer: []u8, len: usize) ReadError!usize {
         assert(len <= buffer.len);
         var index: usize = 0;
@@ -1867,17 +2240,13 @@ pub const Stream = struct {
         return index;
     }
 
-    /// TODO in evented I/O mode, this implementation incorrectly uses the event loop's
-    /// file system thread instead of non-blocking. It needs to be reworked to properly
-    /// use non-blocking I/O.
+    /// Deprecated in favor of `Writer`.
     pub fn write(self: Stream, buffer: []const u8) WriteError!usize {
-        if (native_os == .windows) {
-            return windows.WriteFile(self.handle, buffer, null);
-        }
-
-        return posix.write(self.handle, buffer);
+        var stream_writer = self.writer(&.{});
+        return stream_writer.interface.writeVec(&.{buffer}) catch return stream_writer.err.?;
     }
 
+    /// Deprecated in favor of `Writer`.
     pub fn writeAll(self: Stream, bytes: []const u8) WriteError!void {
         var index: usize = 0;
         while (index < bytes.len) {
@@ -1885,16 +2254,12 @@ pub const Stream = struct {
         }
     }
 
-    /// See https://github.com/ziglang/zig/issues/7699
-    /// See equivalent function: `std.fs.File.writev`.
+    /// Deprecated in favor of `Writer`.
     pub fn writev(self: Stream, iovecs: []const posix.iovec_const) WriteError!usize {
-        return posix.writev(self.handle, iovecs);
+        return @errorCast(posix.writev(self.handle, iovecs));
     }
 
-    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
-    /// order to handle partial writes from the underlying OS layer.
-    /// See https://github.com/ziglang/zig/issues/7699
-    /// See equivalent function: `std.fs.File.writevAll`.
+    /// Deprecated in favor of `Writer`.
     pub fn writevAll(self: Stream, iovecs: []posix.iovec_const) WriteError!void {
         if (iovecs.len == 0) return;
 
@@ -1914,10 +2279,10 @@ pub const Stream = struct {
 
 pub const Server = struct {
     listen_address: Address,
-    stream: std.net.Stream,
+    stream: Stream,
 
     pub const Connection = struct {
-        stream: std.net.Stream,
+        stream: Stream,
         address: Address,
     };
 

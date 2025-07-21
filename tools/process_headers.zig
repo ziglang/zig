@@ -266,10 +266,10 @@ pub fn main() !void {
                             if (gop.found_existing) {
                                 max_bytes_saved += raw_bytes.len;
                                 gop.value_ptr.hit_count += 1;
-                                std.debug.print("duplicate: {s} {s} ({:2})\n", .{
+                                std.debug.print("duplicate: {s} {s} ({B})\n", .{
                                     libc_dir,
                                     rel_path,
-                                    std.fmt.fmtIntSizeDec(raw_bytes.len),
+                                    raw_bytes.len,
                                 });
                             } else {
                                 gop.value_ptr.* = Contents{
@@ -311,9 +311,9 @@ pub fn main() !void {
             std.debug.print("warning: libc target not found: {s}\n", .{libc_dir});
         }
     }
-    std.debug.print("summary: {:2} could be reduced to {:2}\n", .{
-        std.fmt.fmtIntSizeDec(total_bytes),
-        std.fmt.fmtIntSizeDec(total_bytes - max_bytes_saved),
+    std.debug.print("summary: {B} could be reduced to {B}\n", .{
+        total_bytes,
+        total_bytes - max_bytes_saved,
     });
     try std.fs.cwd().makePath(out_dir);
 
@@ -343,8 +343,8 @@ pub fn main() !void {
                 if (contender.hit_count > 1) {
                     const this_missed_bytes = contender.hit_count * contender.bytes.len;
                     missed_opportunity_bytes += this_missed_bytes;
-                    std.debug.print("Missed opportunity ({:2}): {s}\n", .{
-                        std.fmt.fmtIntSizeDec(this_missed_bytes),
+                    std.debug.print("Missed opportunity ({B}): {s}\n", .{
+                        this_missed_bytes,
                         path_kv.key_ptr.*,
                     });
                 } else break;

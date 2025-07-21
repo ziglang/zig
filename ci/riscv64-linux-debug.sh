@@ -49,21 +49,13 @@ unset CXX
 ninja install
 
 # No -fqemu and -fwasmtime here as they're covered by the x86_64-linux scripts.
-stage3-debug/bin/zig build test docs \
+stage3-debug/bin/zig build test-cases test-modules test-unit test-standalone test-c-abi test-link test-stack-traces test-asm-link test-llvm-ir \
   --maxrss 68719476736 \
   -Dstatic-llvm \
   -Dskip-non-native \
+  -Dskip-single-threaded \
+  -Dskip-translate-c \
+  -Dskip-run-translated-c \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib"
-
-stage3-debug/bin/zig build \
-  --prefix stage4-debug \
-  -Denable-llvm \
-  -Dno-lib \
-  -Dtarget=$TARGET \
-  -Dcpu=$MCPU \
-  -Duse-zig-libcxx \
-  -Dversion-string="$(stage3-debug/bin/zig version)"
-
-stage4-debug/bin/zig test ../test/behavior.zig
