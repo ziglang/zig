@@ -1205,7 +1205,8 @@ fn unpackResource(
             const reader = resource.reader();
             var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
             var dcp = std.compress.gzip.decompressor(br.reader());
-            var adapter = dcp.reader().adaptToNewApi();
+            var adapter_buffer: [1024]u8 = undefined;
+            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
             return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.xz" => {
@@ -1219,7 +1220,8 @@ fn unpackResource(
                 ));
             };
             defer dcp.deinit();
-            var adapter = dcp.reader().adaptToNewApi();
+            var adapter_buffer: [1024]u8 = undefined;
+            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
             return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.zst" => {
@@ -1230,7 +1232,8 @@ fn unpackResource(
             var dcp = std.compress.zstd.decompressor(br.reader(), .{
                 .window_buffer = window_buffer,
             });
-            var adapter = dcp.reader().adaptToNewApi();
+            var adapter_buffer: [1024]u8 = undefined;
+            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
             return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .git_pack => return unpackGitPack(f, tmp_directory.handle, &resource.git) catch |err| switch (err) {
