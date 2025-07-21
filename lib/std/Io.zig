@@ -456,9 +456,6 @@ pub const countingWriter = @import("Io/counting_writer.zig").countingWriter;
 pub const CountingReader = @import("Io/counting_reader.zig").CountingReader;
 pub const countingReader = @import("Io/counting_reader.zig").countingReader;
 
-pub const MultiWriter = @import("Io/multi_writer.zig").MultiWriter;
-pub const multiWriter = @import("Io/multi_writer.zig").multiWriter;
-
 pub const BitReader = @import("Io/bit_reader.zig").BitReader;
 pub const bitReader = @import("Io/bit_reader.zig").bitReader;
 
