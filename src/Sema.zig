@@ -9058,6 +9058,10 @@ fn analyzeErrUnionPayload(
         try sema.addSafetyCheckUnwrapError(block, src, operand, .unwrap_errunion_err, .is_non_err);
     }
 
+    if (try sema.typeHasOnePossibleValue(payload_ty)) |payload_only_value| {
+        return Air.internedToRef(payload_only_value.toIntern());
+    }
+
     return block.addTyOp(.unwrap_errunion_payload, payload_ty, operand);
 }
 
