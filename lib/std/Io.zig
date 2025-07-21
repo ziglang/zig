@@ -462,9 +462,6 @@ pub const bitReader = @import("Io/bit_reader.zig").bitReader;
 pub const BitWriter = @import("Io/bit_writer.zig").BitWriter;
 pub const bitWriter = @import("Io/bit_writer.zig").bitWriter;
 
-pub const FindByteWriter = @import("Io/find_byte_writer.zig").FindByteWriter;
-pub const findByteWriter = @import("Io/find_byte_writer.zig").findByteWriter;
-
 pub const tty = @import("Io/tty.zig");
 
 /// A Writer that doesn't write to anything.
