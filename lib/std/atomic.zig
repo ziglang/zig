@@ -481,6 +481,71 @@ test "current CPU has a cache line size" {
     _ = cache_line;
 }
 
+pub fn maxAtomicBitsForCpu(cpu: std.Target.Cpu) u16 {
+    return switch (cpu.arch) {
+        .avr,
+        .msp430,
+        => 16,
+
+        .arc,
+        .arm,
+        .armeb,
+        .hexagon,
+        .m68k,
+        .mips,
+        .mipsel,
+        .nvptx,
+        .or1k,
+        .powerpc,
+        .powerpcle,
+        .riscv32,
+        .sparc,
+        .thumb,
+        .thumbeb,
+        .x86,
+        .xcore,
+        .kalimba,
+        .lanai,
+        .wasm32,
+        .csky,
+        .spirv32,
+        .loongarch32,
+        .xtensa,
+        .propeller,
+        => 32,
+
+        .amdgcn,
+        .bpfel,
+        .bpfeb,
+        .mips64,
+        .mips64el,
+        .nvptx64,
+        .powerpc64,
+        .powerpc64le,
+        .riscv64,
+        .sparc64,
+        .s390x,
+        .wasm64,
+        .ve,
+        .spirv64,
+        .loongarch64,
+        => 64,
+
+        .aarch64,
+        .aarch64_be,
+        => 128,
+
+        .x86_64 => if (cpu.has(.x86, .cx16)) 128 else 64,
+    };
+}
+
+/// The largest bit size that can be used with atomic operations on this CPU.
+pub const max_atomic_bits = maxAtomicBitsForCpu(builtin.cpu);
+
+test "current CPU has a max atomic size" {
+    _ = max_atomic_bits;
+}
+
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const AtomicOrder = std.builtin.AtomicOrder;

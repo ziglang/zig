@@ -3791,61 +3791,7 @@ pub fn atomicPtrAlignment(
     diags: *AtomicPtrAlignmentDiagnostics,
 ) AtomicPtrAlignmentError!Alignment {
     const target = zcu.getTarget();
-    const max_atomic_bits: u16 = switch (target.cpu.arch) {
-        .avr,
-        .msp430,
-        => 16,
-
-        .arc,
-        .arm,
-        .armeb,
-        .hexagon,
-        .m68k,
-        .mips,
-        .mipsel,
-        .nvptx,
-        .or1k,
-        .powerpc,
-        .powerpcle,
-        .riscv32,
-        .sparc,
-        .thumb,
-        .thumbeb,
-        .x86,
-        .xcore,
-        .kalimba,
-        .lanai,
-        .wasm32,
-        .csky,
-        .spirv32,
-        .loongarch32,
-        .xtensa,
-        .propeller,
-        => 32,
-
-        .amdgcn,
-        .bpfel,
-        .bpfeb,
-        .mips64,
-        .mips64el,
-        .nvptx64,
-        .powerpc64,
-        .powerpc64le,
-        .riscv64,
-        .sparc64,
-        .s390x,
-        .wasm64,
-        .ve,
-        .spirv64,
-        .loongarch64,
-        => 64,
-
-        .aarch64,
-        .aarch64_be,
-        => 128,
-
-        .x86_64 => if (target.cpu.has(.x86, .cx16)) 128 else 64,
-    };
+    const max_atomic_bits = std.atomic.maxAtomicBitsForCpu(target.cpu);
 
     if (ty.toIntern() == .bool_type) return .none;
     if (ty.isRuntimeFloat()) {
