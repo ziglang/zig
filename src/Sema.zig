@@ -5000,9 +5000,11 @@ fn validateUnionInit(
     }
     if (init_ref) |v| try sema.validateRuntimeValue(block, block.nodeOffset(field_ptr_data.src_node), v);
 
-    const new_tag = Air.internedToRef(tag_val.toIntern());
-    const set_tag_inst = try block.addBinOp(.set_union_tag, union_ptr, new_tag);
-    try sema.checkComptimeKnownStore(block, set_tag_inst, LazySrcLoc.unneeded); // `unneeded` since this isn't a "proper" store
+    if ((try sema.typeHasOnePossibleValue(tag_ty)) == null) {
+        const new_tag = Air.internedToRef(tag_val.toIntern());
+        const set_tag_inst = try block.addBinOp(.set_union_tag, union_ptr, new_tag);
+        try sema.checkComptimeKnownStore(block, set_tag_inst, LazySrcLoc.unneeded); // `unneeded` since this isn't a "proper" store
+    }
 }
 
 fn validateStructInit(
@@ -19690,8 +19692,10 @@ fn zirStructInit(
             const base_ptr = try sema.optEuBasePtrInit(block, alloc, src);
             const field_ptr = try sema.unionFieldPtr(block, field_src, base_ptr, field_name, field_src, resolved_ty, true);
             try sema.storePtr(block, src, field_ptr, init_inst);
-            const new_tag = Air.internedToRef(tag_val.toIntern());
-            _ = try block.addBinOp(.set_union_tag, base_ptr, new_tag);
+            if ((try sema.typeHasOnePossibleValue(tag_ty)) == null) {
+                const new_tag = Air.internedToRef(tag_val.toIntern());
+                _ = try block.addBinOp(.set_union_tag, base_ptr, new_tag);
+            }
             return sema.makePtrConst(block, alloc);
         }
 
