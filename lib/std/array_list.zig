@@ -2184,6 +2184,10 @@ test "ArrayList(u0)" {
         count += 1;
     }
     try testing.expectEqual(count, 3);
+
+    const ownedSlice = try list.toOwnedSlice();
+    defer a.free(ownedSlice);
+    try testing.expectEqualSlices(u0, ownedSlice, &.{ 0, 0, 0 });
 }
 
 test "ArrayList(?u32).pop()" {
