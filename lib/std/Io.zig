@@ -435,25 +435,33 @@ pub fn GenericWriter(
 pub const AnyReader = @import("Io/DeprecatedReader.zig");
 /// Deprecated in favor of `Writer`.
 pub const AnyWriter = @import("Io/DeprecatedWriter.zig");
-
+/// Deprecated in favor of `File.Reader` and `File.Writer`.
 pub const SeekableStream = @import("Io/seekable_stream.zig").SeekableStream;
-
+/// Deprecated in favor of `Writer`.
 pub const BufferedWriter = @import("Io/buffered_writer.zig").BufferedWriter;
+/// Deprecated in favor of `Writer`.
 pub const bufferedWriter = @import("Io/buffered_writer.zig").bufferedWriter;
-
+/// Deprecated in favor of `Reader`.
 pub const BufferedReader = @import("Io/buffered_reader.zig").BufferedReader;
+/// Deprecated in favor of `Reader`.
 pub const bufferedReader = @import("Io/buffered_reader.zig").bufferedReader;
+/// Deprecated in favor of `Reader`.
 pub const bufferedReaderSize = @import("Io/buffered_reader.zig").bufferedReaderSize;
-
+/// Deprecated in favor of `Reader`.
 pub const FixedBufferStream = @import("Io/fixed_buffer_stream.zig").FixedBufferStream;
+/// Deprecated in favor of `Reader`.
 pub const fixedBufferStream = @import("Io/fixed_buffer_stream.zig").fixedBufferStream;
-
+/// Deprecated in favor of `Reader.Limited`.
 pub const LimitedReader = @import("Io/limited_reader.zig").LimitedReader;
+/// Deprecated in favor of `Reader.Limited`.
 pub const limitedReader = @import("Io/limited_reader.zig").limitedReader;
-
+/// Deprecated with no replacement; inefficient pattern
 pub const CountingWriter = @import("Io/counting_writer.zig").CountingWriter;
+/// Deprecated with no replacement; inefficient pattern
 pub const countingWriter = @import("Io/counting_writer.zig").countingWriter;
+/// Deprecated with no replacement; inefficient pattern
 pub const CountingReader = @import("Io/counting_reader.zig").CountingReader;
+/// Deprecated with no replacement; inefficient pattern
 pub const countingReader = @import("Io/counting_reader.zig").countingReader;
 
 pub const BitReader = @import("Io/bit_reader.zig").BitReader;
@@ -464,9 +472,9 @@ pub const bitWriter = @import("Io/bit_writer.zig").bitWriter;
 
 pub const tty = @import("Io/tty.zig");
 
-/// A Writer that doesn't write to anything.
+/// Deprecated in favor of `Writer.Discarding`.
 pub const null_writer: NullWriter = .{ .context = {} };
-
+/// Deprecated in favor of `Writer.Discarding`.
 pub const NullWriter = GenericWriter(void, error{}, dummyWrite);
 fn dummyWrite(context: void, data: []const u8) error{}!usize {
     _ = context;
@@ -882,13 +890,14 @@ test {
     _ = Reader;
     _ = Reader.Limited;
     _ = Writer;
-    _ = @import("Io/bit_reader.zig");
-    _ = @import("Io/bit_writer.zig");
-    _ = @import("Io/buffered_reader.zig");
-    _ = @import("Io/buffered_writer.zig");
-    _ = @import("Io/counting_writer.zig");
-    _ = @import("Io/counting_reader.zig");
-    _ = @import("Io/fixed_buffer_stream.zig");
-    _ = @import("Io/seekable_stream.zig");
+    _ = BitReader;
+    _ = BitWriter;
+    _ = BufferedReader;
+    _ = BufferedWriter;
+    _ = CountingWriter;
+    _ = CountingReader;
+    _ = FixedBufferStream;
+    _ = SeekableStream;
+    _ = tty;
     _ = @import("Io/test.zig");
 }
