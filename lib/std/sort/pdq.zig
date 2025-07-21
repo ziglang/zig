@@ -331,7 +331,7 @@ fn reverseRange(a: usize, b: usize, context: anytype) void {
 }
 
 test "stack overflow" {
-    var array = [_]u64{std.math.maxInt(u64)} ** 3789730;
+    var array = [_]u64{math.maxInt(u64)} ** 3789730;
     var idx: usize = 0;
     var a: usize = 0;
     var d: usize = 0;
@@ -349,12 +349,12 @@ test "stack overflow" {
         array[j_pos] = small_val;
         var fill_len = left_len - 4;
         while (fill_len > 0) : (fill_len -= 1) {
-            while (array[idx] != std.math.maxInt(u64)) idx += 1;
+            while (array[idx] != math.maxInt(u64)) idx += 1;
             array[idx] = small_val;
             idx += 1;
         }
         a = a + left_len + 1;
     }
-    pdq(u64, &array, {}, std.sort.asc(u64));
-    try testing.expect(std.sort.isSorted(u64, &array, {}, std.sort.asc(u64)));
+    pdq(u64, &array, {}, sort.asc(u64));
+    try testing.expect(sort.isSorted(u64, &array, {}, sort.asc(u64)));
 }
