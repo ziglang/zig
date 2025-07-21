@@ -53,6 +53,7 @@ pub const Os = struct {
         ps3,
         ps4,
         ps5,
+        vita,
 
         emscripten,
         wasi,
@@ -203,6 +204,8 @@ pub const Os = struct {
                 .opencl,
                 .opengl,
                 .vulkan,
+
+                .vita,
                 => .semver,
 
                 .hurd => .hurd,
@@ -649,6 +652,13 @@ pub const Os = struct {
                         .max = .{ .major = 1, .minor = 4, .patch = 313 },
                     },
                 },
+                .vita => .{
+                    .semver = .{
+                        // 1.3 is the first public release
+                        .min = .{ .major = 1, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 3, .minor = 60, .patch = 0 },
+                    },
+                },
             };
         }
     };
@@ -725,13 +735,14 @@ pub const Os = struct {
             .freestanding,
             .fuchsia,
             .ps3,
+            .ps4,
+            .ps5,
+            .vita,
             .zos,
             .rtems,
             .cuda,
             .nvcl,
             .amdhsa,
-            .ps4,
-            .ps5,
             .mesa3d,
             .contiki,
             .amdpal,
@@ -913,6 +924,7 @@ pub const Abi = enum {
             .windows => .gnu,
             .uefi => .msvc,
             .wasi, .emscripten => .musl,
+            .vita => .eabihf,
 
             .contiki,
             .fuchsia,
@@ -2164,6 +2176,7 @@ pub const DynamicLinker = struct {
             .ps3,
             .ps4,
             .ps5,
+            .vita,
             => .none,
         };
     }
@@ -2544,6 +2557,8 @@ pub const DynamicLinker = struct {
             .opencl,
             .opengl,
             .vulkan,
+
+            .vita,
             => none,
 
             // TODO go over each item in this list and either move it to the above list, or
@@ -2747,7 +2762,7 @@ pub fn cTypeByteSize(t: *const Target, c_type: CType) u16 {
 
 pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
     switch (target.os.tag) {
-        .freestanding, .other => switch (target.cpu.arch) {
+        .freestanding, .other, .vita, => switch (target.cpu.arch) {
             .msp430 => switch (c_type) {
                 .char => return 8,
                 .short, .ushort, .int, .uint => return 16,
