@@ -2185,6 +2185,7 @@ test "ArrayList(u0)" {
     }
     try testing.expectEqual(count, 3);
 
+    // Test toOwnedSlice to ensure https://github.com/ziglang/zig/issues/22483 doesn't regress
     const ownedSlice = try list.toOwnedSlice();
     defer a.free(ownedSlice);
     try testing.expectEqualSlices(u0, ownedSlice, &.{ 0, 0, 0 });
