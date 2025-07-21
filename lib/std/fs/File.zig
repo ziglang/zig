@@ -1825,6 +1825,7 @@ pub const Writer = struct {
             if (file_reader.pos != 0) break :fcf;
             if (w.pos != 0) break :fcf;
             if (limit != .unlimited) break :fcf;
+            const size = file_reader.getSize() catch break :fcf;
             const rc = std.c.fcopyfile(in_fd, out_fd, null, .{ .DATA = true });
             switch (posix.errno(rc)) {
                 .SUCCESS => {},
@@ -1845,10 +1846,9 @@ pub const Writer = struct {
                     return 0;
                 },
             }
-            const n = if (file_reader.size) |size| size else @panic("TODO figure out how much copied");
-            file_reader.pos = n;
-            w.pos = n;
-            return n;
+            file_reader.pos = size;
+            w.pos = size;
+            return size;
         }
 
         return error.Unimplemented;
