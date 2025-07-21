@@ -448,9 +448,6 @@ pub const bufferedReaderSize = @import("Io/buffered_reader.zig").bufferedReaderS
 pub const FixedBufferStream = @import("Io/fixed_buffer_stream.zig").FixedBufferStream;
 pub const fixedBufferStream = @import("Io/fixed_buffer_stream.zig").fixedBufferStream;
 
-pub const CWriter = @import("Io/c_writer.zig").CWriter;
-pub const cWriter = @import("Io/c_writer.zig").cWriter;
-
 pub const LimitedReader = @import("Io/limited_reader.zig").LimitedReader;
 pub const limitedReader = @import("Io/limited_reader.zig").limitedReader;
 
@@ -903,7 +900,6 @@ test {
     _ = @import("Io/buffered_atomic_file.zig");
     _ = @import("Io/buffered_reader.zig");
     _ = @import("Io/buffered_writer.zig");
-    _ = @import("Io/c_writer.zig");
     _ = @import("Io/counting_writer.zig");
     _ = @import("Io/counting_reader.zig");
     _ = @import("Io/fixed_buffer_stream.zig");
