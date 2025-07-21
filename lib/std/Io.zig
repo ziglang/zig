@@ -471,8 +471,6 @@ pub const changeDetectionStream = @import("Io/change_detection_stream.zig").chan
 pub const FindByteWriter = @import("Io/find_byte_writer.zig").FindByteWriter;
 pub const findByteWriter = @import("Io/find_byte_writer.zig").findByteWriter;
 
-pub const BufferedAtomicFile = @import("Io/buffered_atomic_file.zig").BufferedAtomicFile;
-
 pub const tty = @import("Io/tty.zig");
 
 /// A Writer that doesn't write to anything.
@@ -895,7 +893,6 @@ test {
     _ = Writer;
     _ = @import("Io/bit_reader.zig");
     _ = @import("Io/bit_writer.zig");
-    _ = @import("Io/buffered_atomic_file.zig");
     _ = @import("Io/buffered_reader.zig");
     _ = @import("Io/buffered_writer.zig");
     _ = @import("Io/counting_writer.zig");
