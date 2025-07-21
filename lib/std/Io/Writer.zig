@@ -440,7 +440,8 @@ pub fn advance(w: *Writer, n: usize) void {
 /// After calling `writableVector`, this function tracks how many bytes were
 /// written to it.
 pub fn advanceVector(w: *Writer, n: usize) usize {
-    return consume(w, n);
+    if (w.vtable != VectorWrapper.vtable) advance(w, n);
+    return n;
 }
 
 /// The `data` parameter is mutable because this function needs to mutate the
