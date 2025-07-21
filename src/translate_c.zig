@@ -4030,7 +4030,10 @@ fn transCPtrCast(
     const src_child_type = src_ty.getPointeeType();
     const dst_type_node = try transType(c, scope, ty, loc);
 
-    if (!src_ty.isArrayType() and ((src_child_type.isConstQualified() and
+    if (!src_ty.isArrayType() and (((
+            src_child_type.isConstQualified() or
+            qualTypeIsFunction(src_child_type)   // C function pointers get translated to Zig const function pointers
+        ) and
         !child_type.isConstQualified()) or
         (src_child_type.isVolatileQualified() and
             !child_type.isVolatileQualified())))
@@ -4340,6 +4343,11 @@ fn qualTypeIsPtr(qt: clang.QualType) bool {
 
 fn qualTypeIsBoolean(qt: clang.QualType) bool {
     return qualTypeCanon(qt).isBooleanType();
+}
+
+fn qualTypeIsFunction(qt: clang.QualType) bool {
+    const type_class = qualTypeCanon(qt).getTypeClass();
+    return type_class == .FunctionProto or type_class == .FunctionNoProto;
 }
 
 fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
