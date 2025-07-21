@@ -1262,6 +1262,7 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackRes
             switch (item) {
                 .unable_to_create_file => |i| res.unableToCreateFile(stripRoot(i.file_name, res.root_dir), i.code),
                 .unable_to_create_sym_link => |i| res.unableToCreateSymLink(stripRoot(i.file_name, res.root_dir), i.link_name, i.code),
+                .unable_to_create_hard_link => |i| res.unableToCreateHardLink(stripRoot(i.file_name, res.root_dir), i.link_name, i.code),
                 .unsupported_file_type => |i| res.unsupportedFileType(stripRoot(i.file_name, res.root_dir), @intFromEnum(i.file_type)),
                 .components_outside_stripped_prefix => unreachable, // unreachable with strip_components = 0
             }
@@ -1918,6 +1919,11 @@ const UnpackResult = struct {
             file_name: []const u8,
             link_name: []const u8,
         },
+        unable_to_create_hard_link: struct {
+            code: anyerror,
+            file_name: []const u8,
+            link_name: []const u8,
+        },
         unable_to_create_file: struct {
             code: anyerror,
             file_name: []const u8,
@@ -1931,6 +1937,7 @@ const UnpackResult = struct {
             const file_name = switch (self) {
                 .unable_to_create_file => |info| info.file_name,
                 .unable_to_create_sym_link => |info| info.file_name,
+                .unable_to_create_hard_link => |info| info.file_name,
                 .unsupported_file_type => |info| info.file_name,
             };
             return !filter.includePath(file_name);
@@ -1956,6 +1963,15 @@ const UnpackResult = struct {
 
     fn unableToCreateSymLink(self: *UnpackResult, file_name: []const u8, link_name: []const u8, err: anyerror) void {
         self.errors[self.errors_count] = .{ .unable_to_create_sym_link = .{
+            .code = err,
+            .file_name = file_name,
+            .link_name = link_name,
+        } };
+        self.errors_count += 1;
+    }
+
+    fn unableToCreateHardLink(self: *UnpackResult, file_name: []const u8, link_name: []const u8, err: anyerror) void {
+        self.errors[self.errors_count] = .{ .unable_to_create_hard_link = .{
             .code = err,
             .file_name = file_name,
             .link_name = link_name,
@@ -1995,6 +2011,13 @@ const UnpackResult = struct {
                 .unable_to_create_sym_link => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
+                            info.file_name, info.link_name, @errorName(info.code),
+                        }),
+                    }));
+                },
+                .unable_to_create_hard_link => |info| {
+                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                        .msg = try eb.printString("unable to create hardlink from '{s}' to '{s}': {s}", .{
                             info.file_name, info.link_name, @errorName(info.code),
                         }),
                     }));

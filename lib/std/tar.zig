@@ -15,6 +15,8 @@
 //! GNU tar reference: https://www.gnu.org/software/tar/manual/html_node/Standard.html
 //! pax reference: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html#tag_20_92_13
 
+const builtin = @import("builtin");
+const native_os = builtin.os.tag;
 const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -34,6 +36,11 @@ pub const Diagnostics = struct {
 
     pub const Error = union(enum) {
         unable_to_create_sym_link: struct {
+            code: anyerror,
+            file_name: []const u8,
+            link_name: []const u8,
+        },
+        unable_to_create_hard_link: struct {
             code: anyerror,
             file_name: []const u8,
             link_name: []const u8,
@@ -98,6 +105,10 @@ pub const Diagnostics = struct {
         for (d.errors.items) |item| {
             switch (item) {
                 .unable_to_create_sym_link => |info| {
+                    d.allocator.free(info.file_name);
+                    d.allocator.free(info.link_name);
+                },
+                .unable_to_create_hard_link => |info| {
                     d.allocator.free(info.file_name);
                     d.allocator.free(info.link_name);
                 },
@@ -320,6 +331,7 @@ pub const FileKind = enum {
     directory,
     sym_link,
     file,
+    hard_link,
 };
 
 /// Iterator over entries in the tar file represented by reader.
@@ -431,11 +443,12 @@ pub fn Iterator(comptime ReaderType: type) type {
 
                 switch (kind) {
                     // File types to return upstream
-                    .directory, .normal, .symbolic_link => {
+                    .directory, .normal, .symbolic_link, .hard_link => {
                         file.kind = switch (kind) {
                             .directory => .directory,
                             .normal => .file,
                             .symbolic_link => .sym_link,
+                            .hard_link => .hard_link,
                             else => unreachable,
                         };
                         file.mode = try header.mode();
@@ -676,6 +689,17 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
                     } });
                 };
             },
+            .hard_link => {
+                const link_name = file.link_name;
+                createDirAndHardlink(dir, link_name, file_name) catch |err| {
+                    const d = options.diagnostics orelse return error.UnableToCreateHardLink;
+                    try d.errors.append(d.allocator, .{ .unable_to_create_hard_link = .{
+                        .code = err,
+                        .file_name = try d.allocator.dupe(u8, file_name),
+                        .link_name = try d.allocator.dupe(u8, link_name),
+                    } });
+                };
+            },
         }
     }
 }
@@ -700,6 +724,22 @@ fn createDirAndSymlink(dir: std.fs.Dir, link_name: []const u8, file_name: []cons
             if (std.fs.path.dirname(file_name)) |dir_name| {
                 try dir.makePath(dir_name);
                 return try dir.symLink(link_name, file_name, .{});
+            }
+        }
+        return err;
+    };
+}
+
+// Creates a hard link at path `file_name` which points to `link_name`.
+fn createDirAndHardlink(dir: std.fs.Dir, link_name: []const u8, file_name: []const u8) !void {
+    if (native_os == .windows) {
+        return error.UnableToCreateHardLink;
+    }
+    std.posix.linkat(dir.fd, link_name, dir.fd, file_name, 0) catch |err| {
+        if (err == error.FileNotFound) {
+            if (std.fs.path.dirname(file_name)) |dir_name| {
+                try dir.makePath(dir_name);
+                return try std.posix.linkat(dir.fd, link_name, dir.fd, file_name, 0);
             }
         }
         return err;
@@ -995,6 +1035,9 @@ test iterator {
             .sym_link => {
                 try testing.expectEqualStrings("example/b/symlink", file.name);
                 try testing.expectEqualStrings("../a/file", file.link_name);
+            },
+            .hard_link => {
+                unreachable;
             },
         }
     }
