@@ -2762,7 +2762,7 @@ pub fn cTypeByteSize(t: *const Target, c_type: CType) u16 {
 
 pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
     switch (target.os.tag) {
-        .freestanding, .other, .vita, => switch (target.cpu.arch) {
+        .freestanding, .other, .vita => switch (target.cpu.arch) {
             .msp430 => switch (c_type) {
                 .char => return 8,
                 .short, .ushort, .int, .uint => return 16,
