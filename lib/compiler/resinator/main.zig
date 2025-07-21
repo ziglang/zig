@@ -13,6 +13,8 @@ const hasDisjointCodePage = @import("disjoint_code_page.zig").hasDisjointCodePag
 const fmtResourceType = @import("res.zig").NameOrOrdinal.fmtResourceType;
 const aro = @import("aro");
 
+var stdout_buffer: [1024]u8 = undefined;
+
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer std.debug.assert(gpa.deinit() == .ok);
@@ -41,12 +43,12 @@ pub fn main() !void {
         cli_args = args[3..];
     }
 
+    var stdout_writer2 = std.fs.File.stdout().writer(&stdout_buffer);
     var error_handler: ErrorHandler = switch (zig_integration) {
         true => .{
             .server = .{
-                .out = std.fs.File.stdout(),
+                .out = &stdout_writer2.interface,
                 .in = undefined, // won't be receiving messages
-                .receive_fifo = undefined, // won't be receiving messages
             },
         },
         false => .{
@@ -290,12 +292,14 @@ pub fn main() !void {
                     };
                     defer depfile.close();
 
-                    const depfile_writer = depfile.deprecatedWriter();
-                    var depfile_buffered_writer = std.io.bufferedWriter(depfile_writer);
+                    var depfile_buffer: [1024]u8 = undefined;
+                    var depfile_writer = depfile.writer(&depfile_buffer);
                     switch (options.depfile_fmt) {
                         .json => {
-                            var write_stream = std.json.writeStream(depfile_buffered_writer.writer(), .{ .whitespace = .indent_2 });
-                            defer write_stream.deinit();
+                            var write_stream: std.json.Stringify = .{
+                                .writer = &depfile_writer.interface,
+                                .options = .{ .whitespace = .indent_2 },
+                            };
 
                             try write_stream.beginArray();
                             for (dependencies_list.items) |dep_path| {
@@ -304,7 +308,7 @@ pub fn main() !void {
                             try write_stream.endArray();
                         },
                     }
-                    try depfile_buffered_writer.flush();
+                    try depfile_writer.interface.flush();
                 }
             }
 

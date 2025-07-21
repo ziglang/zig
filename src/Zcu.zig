@@ -460,6 +460,9 @@ pub const BuiltinDecl = enum {
 
     VaList,
 
+    assembly,
+    @"assembly.Clobbers",
+
     /// Determines what kind of validation will be done to the decl's value.
     pub fn kind(decl: BuiltinDecl) enum { type, func, string } {
         return switch (decl) {
@@ -480,6 +483,8 @@ pub const BuiltinDecl = enum {
             .ExportOptions,
             .ExternOptions,
             .BranchHint,
+            .assembly,
+            .@"assembly.Clobbers",
             => .type,
 
             .Type,
@@ -540,6 +545,7 @@ pub const BuiltinDecl = enum {
     /// Resolution of these values is done in three distinct stages:
     /// * Resolution of `std.builtin.Panic` and everything under it
     /// * Resolution of `VaList`
+    /// * Resolution of `assembly`
     /// * Everything else
     ///
     /// Panics are separated because they are provided by the user, so must be able to use
@@ -548,14 +554,20 @@ pub const BuiltinDecl = enum {
     /// `VaList` is separate because its value depends on the target, so it needs some reflection
     /// machinery to work; additionally, it is `@compileError` on some targets, so must be referenced
     /// by itself.
+    ///
+    /// `assembly` is separate because its value depends on the target.
     pub fn stage(decl: BuiltinDecl) InternPool.MemoizedStateStage {
-        if (decl == .VaList) return .va_list;
-
-        if (@intFromEnum(decl) <= @intFromEnum(BuiltinDecl.@"Type.Declaration")) {
-            return .main;
-        } else {
-            return .panic;
-        }
+        return switch (decl) {
+            .VaList => .va_list,
+            .assembly, .@"assembly.Clobbers" => .assembly,
+            else => {
+                if (@intFromEnum(decl) <= @intFromEnum(BuiltinDecl.@"Type.Declaration")) {
+                    return .main;
+                } else {
+                    return .panic;
+                }
+            },
+        };
     }
 
     /// Based on the tag name, determines how to access this decl; either as a direct child of the
@@ -2809,7 +2821,7 @@ pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
     var buffer: [2000]u8 = undefined;
     var file_reader = cache_file.reader(&buffer);
     return result: {
-        const header = file_reader.interface.takeStructReference(Zir.Header) catch |err| break :result err;
+        const header = file_reader.interface.takeStructPointer(Zir.Header) catch |err| break :result err;
         break :result loadZirCacheBody(gpa, header.*, &file_reader.interface);
     } catch |err| switch (err) {
         error.ReadFailed => return file_reader.err.?,

@@ -54,6 +54,7 @@ namespace_name_deps: std.AutoArrayHashMapUnmanaged(NamespaceNameKey, DepEntry.In
 memoized_state_main_deps: DepEntry.Index.Optional,
 memoized_state_panic_deps: DepEntry.Index.Optional,
 memoized_state_va_list_deps: DepEntry.Index.Optional,
+memoized_state_assembly_deps: DepEntry.Index.Optional,
 
 /// Given a `Depender`, points to an entry in `dep_entries` whose `depender`
 /// matches. The `next_dependee` field can be used to iterate all such entries
@@ -96,6 +97,7 @@ pub const empty: InternPool = .{
     .memoized_state_main_deps = .none,
     .memoized_state_panic_deps = .none,
     .memoized_state_va_list_deps = .none,
+    .memoized_state_assembly_deps = .none,
     .first_dependency = .empty,
     .dep_entries = .empty,
     .free_dep_entries = .empty,
@@ -458,6 +460,8 @@ pub const MemoizedStateStage = enum(u32) {
     panic,
     /// Specifically `std.builtin.VaList`. See `Zcu.BuiltinDecl.stage`.
     va_list,
+    /// Everything within `std.builtin.assembly`. See `Zcu.BuiltinDecl.stage`.
+    assembly,
 };
 
 pub const ComptimeUnit = extern struct {
@@ -880,6 +884,7 @@ pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyI
             .main => ip.memoized_state_main_deps.unwrap(),
             .panic => ip.memoized_state_panic_deps.unwrap(),
             .va_list => ip.memoized_state_va_list_deps.unwrap(),
+            .assembly => ip.memoized_state_assembly_deps.unwrap(),
         },
     } orelse return .{
         .ip = ip,
@@ -915,6 +920,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
                 .main => &ip.memoized_state_main_deps,
                 .panic => &ip.memoized_state_panic_deps,
                 .va_list => &ip.memoized_state_va_list_deps,
+                .assembly => &ip.memoized_state_assembly_deps,
             };
 
             if (deps.unwrap()) |first| {

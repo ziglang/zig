@@ -65,8 +65,10 @@ pub fn wasi_cwd() std.os.wasi.fd_t {
 
 const fatal = std.process.fatal;
 
+/// This can be global since stdin is a singleton.
+var stdin_buffer: [4096]u8 align(std.heap.page_size_min) = undefined;
 /// This can be global since stdout is a singleton.
-var stdio_buffer: [4096]u8 = undefined;
+var stdout_buffer: [4096]u8 align(std.heap.page_size_min) = undefined;
 
 /// Shaming all the locations that inappropriately use an O(N) search algorithm.
 /// Please delete this and fix the compilation errors!
@@ -344,8 +346,9 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "targets")) {
         dev.check(.targets_command);
         const host = std.zig.resolveTargetQueryOrFatal(.{});
-        const stdout = fs.File.stdout().deprecatedWriter();
-        return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, &host);
+        var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
+        try @import("print_targets.zig").cmdTargets(arena, cmd_args, &stdout_writer.interface, &host);
+        return stdout_writer.interface.flush();
     } else if (mem.eql(u8, cmd, "version")) {
         dev.check(.version_command);
         try fs.File.stdout().writeAll(build_options.version ++ "\n");
@@ -356,7 +359,9 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "env")) {
         dev.check(.env_command);
         verifyLibcxxCorrectlyLinked();
-        return @import("print_env.zig").cmdEnv(arena, cmd_args);
+        var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
+        try @import("print_env.zig").cmdEnv(arena, &stdout_writer.interface);
+        return stdout_writer.interface.flush();
     } else if (mem.eql(u8, cmd, "reduce")) {
         return jitCmd(gpa, arena, cmd_args, .{
             .cmd_name = "reduce",
@@ -3561,10 +3566,12 @@ fn buildOutputType(
     switch (listen) {
         .none => {},
         .stdio => {
+            var stdin_reader = fs.File.stdin().reader(&stdin_buffer);
+            var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
             try serve(
                 comp,
-                .stdin(),
-                .stdout(),
+                &stdin_reader.interface,
+                &stdout_writer.interface,
                 test_exec_args.items,
                 self_exe_path,
                 arg_mode,
@@ -3584,10 +3591,13 @@ fn buildOutputType(
             const conn = try server.accept();
             defer conn.stream.close();
 
+            var input = conn.stream.reader(&stdin_buffer);
+            var output = conn.stream.writer(&stdout_buffer);
+
             try serve(
                 comp,
-                .{ .handle = conn.stream.handle },
-                .{ .handle = conn.stream.handle },
+                input.interface(),
+                &output.interface,
                 test_exec_args.items,
                 self_exe_path,
                 arg_mode,
@@ -4053,8 +4063,8 @@ fn saveState(comp: *Compilation, incremental: bool) void {
 
 fn serve(
     comp: *Compilation,
-    in: fs.File,
-    out: fs.File,
+    in: *std.Io.Reader,
+    out: *std.Io.Writer,
     test_exec_args: []const ?[]const u8,
     self_exe_path: ?[]const u8,
     arg_mode: ArgMode,
@@ -4064,12 +4074,10 @@ fn serve(
     const gpa = comp.gpa;
 
     var server = try Server.init(.{
-        .gpa = gpa,
         .in = in,
         .out = out,
         .zig_version = build_options.version,
     });
-    defer server.deinit();
 
     var child_pid: ?std.process.Child.Id = null;
 
@@ -4550,7 +4558,7 @@ fn cmdTranslateC(
                     error.SemanticAnalyzeFail => break :f .{ .error_bundle = errors },
                 };
                 defer tree.deinit(comp.gpa);
-                break :f .{ .success = try tree.render(arena) };
+                break :f .{ .success = try tree.renderAlloc(arena) };
             },
         };
 
@@ -5491,10 +5499,10 @@ fn jitCmd(
         defer comp.destroy();
 
         if (options.server) {
+            var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
             var server: std.zig.Server = .{
-                .out = fs.File.stdout(),
+                .out = &stdout_writer.interface,
                 .in = undefined, // won't be receiving messages
-                .receive_fifo = undefined, // won't be receiving messages
             };
 
             try comp.update(root_prog_node);
@@ -6058,7 +6066,8 @@ fn cmdAstCheck(
             };
         } else fs.File.stdin();
         defer if (zig_source_path != null) f.close();
-        break :s std.zig.readSourceFileToEndAlloc(arena, f, null) catch |err| {
+        var file_reader: fs.File.Reader = f.reader(&stdin_buffer);
+        break :s std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err| {
             fatal("unable to load file '{s}' for ast-check: {s}", .{ display_path, @errorName(err) });
         };
     };
@@ -6075,7 +6084,7 @@ fn cmdAstCheck(
 
     const tree = try Ast.parse(arena, source, mode);
 
-    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout_bw = &stdout_writer.interface;
     switch (mode) {
         .zig => {
@@ -6290,7 +6299,7 @@ fn detectNativeCpuWithLLVM(
 }
 
 fn printCpu(cpu: std.Target.Cpu) !void {
-    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout_bw = &stdout_writer.interface;
 
     if (cpu.model.llvm_name) |llvm_name| {
@@ -6339,7 +6348,7 @@ fn cmdDumpLlvmInts(
     const dl = tm.createTargetDataLayout();
     const context = llvm.Context.create();
 
-    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout_bw = &stdout_writer.interface;
     for ([_]u16{ 1, 8, 16, 32, 64, 128, 256 }) |bits| {
         const int_type = context.intType(bits);
@@ -6368,9 +6377,8 @@ fn cmdDumpZir(
     defer f.close();
 
     const zir = try Zcu.loadZirCache(arena, f);
-    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout_bw = &stdout_writer.interface;
-
     {
         const instruction_bytes = zir.instructions.len *
             // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
@@ -6416,14 +6424,16 @@ fn cmdChangelist(
         var f = fs.cwd().openFile(old_source_path, .{}) catch |err|
             fatal("unable to open old source file '{s}': {s}", .{ old_source_path, @errorName(err) });
         defer f.close();
-        break :source std.zig.readSourceFileToEndAlloc(arena, f, std.zig.max_src_size) catch |err|
+        var file_reader: fs.File.Reader = f.reader(&stdin_buffer);
+        break :source std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err|
             fatal("unable to read old source file '{s}': {s}", .{ old_source_path, @errorName(err) });
     };
     const new_source = source: {
         var f = fs.cwd().openFile(new_source_path, .{}) catch |err|
             fatal("unable to open new source file '{s}': {s}", .{ new_source_path, @errorName(err) });
         defer f.close();
-        break :source std.zig.readSourceFileToEndAlloc(arena, f, std.zig.max_src_size) catch |err|
+        var file_reader: fs.File.Reader = f.reader(&stdin_buffer);
+        break :source std.zig.readSourceFileToEndAlloc(arena, &file_reader) catch |err|
             fatal("unable to read new source file '{s}': {s}", .{ new_source_path, @errorName(err) });
     };
 
@@ -6454,7 +6464,7 @@ fn cmdChangelist(
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty;
     try Zcu.mapOldZirToNew(arena, old_zir, new_zir, &inst_map);
 
-    var stdout_writer = fs.File.stdout().writerStreaming(&stdio_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout_bw = &stdout_writer.interface;
     {
         try stdout_bw.print("Instruction mappings:\n", .{});
@@ -6914,7 +6924,7 @@ fn cmdFetch(
 
     const name = switch (save) {
         .no => {
-            var stdout = fs.File.stdout().writerStreaming(&stdio_buffer);
+            var stdout = fs.File.stdout().writerStreaming(&stdout_buffer);
             try stdout.interface.print("{s}\n", .{package_hash_slice});
             try stdout.interface.flush();
             return cleanExit();
@@ -6946,7 +6956,7 @@ fn cmdFetch(
         ast.deinit(gpa);
     }
 
-    var fixups: Ast.Fixups = .{};
+    var fixups: Ast.Render.Fixups = .{};
     defer fixups.deinit(gpa);
 
     var saved_path_or_url = path_or_url;
@@ -7047,12 +7057,13 @@ fn cmdFetch(
         try fixups.append_string_after_node.put(gpa, manifest.version_node, dependencies_text);
     }
 
-    var rendered = std.ArrayList(u8).init(gpa);
-    defer rendered.deinit();
-    try ast.renderToArrayList(&rendered, fixups);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    try ast.render(gpa, &aw.writer, fixups);
+    const rendered = aw.getWritten();
 
-    build_root.directory.handle.writeFile(.{ .sub_path = Package.Manifest.basename, .data = rendered.items }) catch |err| {
-        fatal("unable to write {s} file: {s}", .{ Package.Manifest.basename, @errorName(err) });
+    build_root.directory.handle.writeFile(.{ .sub_path = Package.Manifest.basename, .data = rendered }) catch |err| {
+        fatal("unable to write {s} file: {t}", .{ Package.Manifest.basename, err });
     };
 
     return cleanExit();

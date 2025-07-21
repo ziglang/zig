@@ -131,32 +131,28 @@ fn exit2(code: usize) noreturn {
                     :
                     : [number] "{rax}" (231),
                       [arg1] "{rdi}" (code),
-                    : "rcx", "r11", "memory"
-                );
+                    : .{ .rcx = true, .r11 = true, .memory = true });
             },
             .arm => {
                 asm volatile ("svc #0"
                     :
                     : [number] "{r7}" (1),
                       [arg1] "{r0}" (code),
-                    : "memory"
-                );
+                    : .{ .memory = true });
             },
             .aarch64 => {
                 asm volatile ("svc #0"
                     :
                     : [number] "{x8}" (93),
                       [arg1] "{x0}" (code),
-                    : "memory", "cc"
-                );
+                    : .{ .memory = true });
             },
             .sparc64 => {
                 asm volatile ("ta 0x6d"
                     :
                     : [number] "{g1}" (1),
                       [arg1] "{o0}" (code),
-                    : "o0", "o1", "o2", "o3", "o4", "o5", "o6", "o7", "memory"
-                );
+                    : .{ .o0 = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o6 = true, .o7 = true, .memory = true });
             },
             else => @compileError("TODO"),
         },

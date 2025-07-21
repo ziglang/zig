@@ -1547,8 +1547,7 @@ pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
             \\mov x30, x16
             : [ret] "={x15}" (-> usize),
             : [ptr] "{x15}" (ptr),
-            : "x16"
-        );
+            : .{ .x16 = true });
     }
 
     return ptr;

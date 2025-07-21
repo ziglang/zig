@@ -633,6 +633,7 @@ pub fn lockStderrWriter(buffer: []u8) *Writer {
 
 pub fn unlockStderrWriter() void {
     stderr_writer.flush() catch {};
+    stderr_writer.end = 0;
     stderr_writer.buffer = &.{};
     stderr_mutex.unlock();
 }

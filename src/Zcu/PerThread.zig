@@ -349,7 +349,7 @@ fn loadZirZoirCache(
     const cache_br = &cache_fr.interface;
 
     // First we read the header to determine the lengths of arrays.
-    const header = (cache_br.takeStructReference(Header) catch |err| switch (err) {
+    const header = (cache_br.takeStructPointer(Header) catch |err| switch (err) {
         error.ReadFailed => return cache_fr.err.?,
         // This can happen if Zig bails out of this function between creating
         // the cached file and writing it.
@@ -635,6 +635,7 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
             .main => .Type,
             .panic => .panic,
             .va_list => .VaList,
+            .assembly => .assembly,
         };
         if (zcu.builtin_decl_values.get(to_check) != .none) return;
     }

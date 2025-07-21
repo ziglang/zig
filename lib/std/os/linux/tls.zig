@@ -308,8 +308,7 @@ pub fn setThreadPointer(addr: usize) void {
                 \\ sar %%a0, %%r0
                 :
                 : [addr] "r" (addr),
-                : "r0"
-            );
+                : .{ .r0 = true });
         },
         .sparc, .sparc64 => {
             asm volatile (

@@ -2438,7 +2438,10 @@ pub const DeclGen = struct {
         const ty = val.typeOf(zcu);
         return .{ .data = .{
             .dg = dg,
-            .int_info = ty.intInfo(zcu),
+            .int_info = if (ty.zigTypeTag(zcu) == .@"union" and ty.containerLayout(zcu) == .@"packed")
+                .{ .signedness = .unsigned, .bits = @intCast(ty.bitSize(zcu)) }
+            else
+                ty.intInfo(zcu),
             .kind = kind,
             .ctype = try dg.ctypeFromType(ty, kind),
             .val = val,
@@ -5545,11 +5548,11 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
     const zcu = pt.zcu;
     const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = f.air.extraData(Air.Asm, ty_pl.payload);
-    const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
-    const clobbers_len: u31 = @truncate(extra.data.flags);
+    const is_volatile = extra.data.flags.is_volatile;
+    const outputs_len = extra.data.flags.outputs_len;
     const gpa = f.object.dg.gpa;
     var extra_i: usize = extra.end;
-    const outputs: []const Air.Inst.Ref = @ptrCast(f.air.extra.items[extra_i..][0..extra.data.outputs_len]);
+    const outputs: []const Air.Inst.Ref = @ptrCast(f.air.extra.items[extra_i..][0..outputs_len]);
     extra_i += outputs.len;
     const inputs: []const Air.Inst.Ref = @ptrCast(f.air.extra.items[extra_i..][0..extra.data.inputs_len]);
     extra_i += inputs.len;
@@ -5644,12 +5647,6 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 try w.writeByte(';');
                 try f.object.newline();
             }
-        }
-        for (0..clobbers_len) |_| {
-            const clobber = mem.sliceTo(mem.sliceAsBytes(f.air.extra.items[extra_i..]), 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += clobber.len / 4 + 1;
         }
 
         {
@@ -5757,17 +5754,28 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             try w.writeByte(')');
         }
         try w.writeByte(':');
-        for (0..clobbers_len) |clobber_i| {
-            const clobber = mem.sliceTo(mem.sliceAsBytes(f.air.extra.items[extra_i..]), 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += clobber.len / 4 + 1;
-
-            if (clobber.len == 0) continue;
-
-            if (clobber_i > 0) try w.writeByte(',');
-            try w.print(" {f}", .{fmtStringLiteral(clobber, null)});
+        const ip = &zcu.intern_pool;
+        const aggregate = ip.indexToKey(extra.data.clobbers).aggregate;
+        const struct_type: Type = .fromInterned(aggregate.ty);
+        switch (aggregate.storage) {
+            .elems => |elems| for (elems, 0..) |elem, i| switch (elem) {
+                .bool_true => {
+                    const name = struct_type.structFieldName(i, zcu).toSlice(ip).?;
+                    assert(name.len != 0);
+                    try w.print(" {f}", .{fmtStringLiteral(name, null)});
+                    (try w.writableArray(1))[0] = ',';
+                },
+                .bool_false => continue,
+                else => unreachable,
+            },
+            .repeated_elem => |elem| switch (elem) {
+                .bool_true => @panic("TODO"),
+                .bool_false => {},
+                else => unreachable,
+            },
+            .bytes => @panic("TODO"),
         }
+        w.undo(1); // erase the last comma
         try w.writeAll(");");
         try f.object.newline();
 

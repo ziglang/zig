@@ -120,7 +120,7 @@ pub fn main() !void {
         error_bundle.renderToStdErr(color.renderOptions());
     }
 
-    const formatted_output = try tree.render(allocator);
+    const formatted_output = try tree.renderAlloc(allocator);
     _ = try std.fs.File.stdout().write(formatted_output);
 }
 

@@ -205,7 +205,6 @@ pub fn createEmpty(
     const target = &comp.root_mod.resolved_target.result;
     const output_mode = comp.config.output_mode;
     const optimize_mode = comp.root_mod.optimize_mode;
-    const is_native_os = comp.root_mod.resolved_target.is_native_os;
 
     const obj_file_ext: []const u8 = switch (target.ofmt) {
         .coff => "obj",
@@ -234,7 +233,7 @@ pub fn createEmpty(
             .gc_sections = gc_sections,
             .print_gc_sections = options.print_gc_sections,
             .stack_size = stack_size,
-            .allow_shlib_undefined = options.allow_shlib_undefined orelse !is_native_os,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
             .build_id = options.build_id,
         },
