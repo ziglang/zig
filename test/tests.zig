@@ -2395,6 +2395,9 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
                     // spotted on darwin
                     "-Wno-incompatible-pointer-types",
+
+                    // https://github.com/ziglang/zig/issues/24545
+                    "-Wno-unterminated-string-initialization",
                 },
             });
             compile_c.addIncludePath(b.path("lib")); // for zig.h
