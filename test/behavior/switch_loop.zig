@@ -226,3 +226,28 @@ test "unanalyzed continue with operand" {
         true => {},
     }
 }
+
+test "switch loop on larger than pointer integer" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    var entry: @Type(.{ .int = .{
+        .signedness = .unsigned,
+        .bits = @bitSizeOf(usize) + 1,
+    } }) = undefined;
+    entry = 0;
+    loop: switch (entry) {
+        0 => {
+            entry += 1;
+            continue :loop 1;
+        },
+        1 => |x| {
+            entry += 1;
+            continue :loop x + 1;
+        },
+        2 => entry += 1,
+        else => unreachable,
+    }
+    try expect(entry == 3);
+}

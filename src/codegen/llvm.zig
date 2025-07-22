@@ -6050,10 +6050,10 @@ pub const FuncGen = struct {
             const target_blocks = dispatch_info.case_blocks[0..target_blocks_len];
 
             // Make sure to cast the index to a usize so it's not treated as negative!
-            const table_index = try self.wip.cast(
-                .zext,
+            const table_index = try self.wip.conv(
+                .unsigned,
                 try self.wip.bin(.@"sub nuw", cond, jmp_table.min.toValue(), ""),
-                try o.lowerType(pt, Type.usize),
+                try o.lowerType(pt, .usize),
                 "",
             );
             const target_ptr_ptr = try self.wip.gep(
