@@ -1793,7 +1793,7 @@ pub const Writer = struct {
                 file_reader.size = file_reader.pos;
                 return error.EndOfStream;
             }
-            const consumed = io_w.consume(@bitCast(sbytes));
+            const consumed = io_w.consume(@intCast(sbytes));
             file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
             return consumed;
         }
