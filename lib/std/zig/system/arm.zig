@@ -89,6 +89,7 @@ pub const cpu_models = struct {
         E{ .part = 0xd88, .m64 = &A64.cortex_a520ae },
         E{ .part = 0xd89, .m64 = &A64.cortex_a720ae },
         E{ .part = 0xd8e, .m64 = &A64.neoverse_n3 },
+        E{ .part = 0xd8f, .m64 = &A64.cortex_a320 },
     };
     // implementer = 0x42
     const Broadcom = [_]E{
@@ -113,6 +114,7 @@ pub const cpu_models = struct {
     // implementer = 0x4e
     const Nvidia = [_]E{
         E{ .part = 0x004, .m64 = &A64.carmel },
+        E{ .part = 0x010, .m64 = &A64.olympus },
     };
     // implementer = 0x50
     const Ampere = [_]E{
