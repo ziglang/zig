@@ -3215,7 +3215,7 @@ fn createFoo(param: i32) !Foo {
       to increase their development pace.
       </p>
       <p>
-      Error Return Traces are enabled by default in {#link|Debug#} and {#link|ReleaseSafe#} builds and disabled by default in {#link|ReleaseFast#} and {#link|ReleaseSmall#} builds.
+      Error Return Traces are enabled by default in {#link|Debug#} builds and disabled by default in {#link|ReleaseFast#}, {#link|ReleaseSafe#} and {#link|ReleaseSmall#} builds.
       </p>
       <p>
       There are a few ways to activate this error return tracing feature:
