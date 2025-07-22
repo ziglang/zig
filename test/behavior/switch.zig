@@ -1065,3 +1065,41 @@ test "switch on a signed value smaller than the smallest prong value" {
         else => {},
     }
 }
+
+test "switch with modulus and unreachable else - jump table bug" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    
+    try testSwitchModulusUnreachable();
+    try comptime testSwitchModulusUnreachable();
+}
+
+fn testSwitchModulusUnreachable() !void {
+    var i: u8 = 16; // this value would cause a segfault before the fix
+    std.mem.doNotOptimizeAway(&i);
+    
+    const x = i % 4;
+    const result = switch (x) {
+        0 => 0,
+        1 => 1,
+        2 => 2,
+        3 => 3,
+        else => unreachable,
+    };
+    
+    try expect(result == 0); // 16 % 4 == 0
+    
+    // Test other values that trigger the bug
+    for ([_]u8{ 0, 1, 2, 3, 4, 8, 12, 16, 20, 255 }) |val| {
+        var test_val = val;
+        std.mem.doNotOptimizeAway(&test_val);
+        const mod_result = test_val % 4;
+        const switch_result = switch (mod_result) {
+            0 => @as(u8, 0),
+            1 => 1,
+            2 => 2,  
+            3 => 3,
+            else => unreachable,
+        };
+        try expect(switch_result == mod_result);
+    }
+}
