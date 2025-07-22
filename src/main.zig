@@ -4624,7 +4624,9 @@ fn cmdTranslateC(
             fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{ path, fs.path.sep_str, out_zig_path, @errorName(err) });
         };
         defer zig_file.close();
-        try fs.File.stdout().writeFileAll(zig_file, .{});
+        var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
+        var file_reader = zig_file.reader(&.{});
+        _ = try stdout_writer.interface.sendFileAll(&file_reader, .unlimited);
         return cleanExit();
     }
 }

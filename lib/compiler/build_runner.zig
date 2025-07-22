@@ -708,7 +708,7 @@ fn runStepNames(
 
         const total_count = success_count + failure_count + pending_count + skipped_count;
         ttyconf.setColor(w, .cyan) catch {};
-        w.writeAll("Build Summary:") catch {};
+        w.writeAll("\nBuild Summary:") catch {};
         ttyconf.setColor(w, .reset) catch {};
         w.print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
         if (skipped_count > 0) w.print("; {d} skipped", .{skipped_count}) catch {};

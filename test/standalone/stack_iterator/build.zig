@@ -65,69 +65,70 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&run_cmd.step);
     }
 
-    // Unwinding through a C shared library without a frame pointer (libc)
-    //
-    // getcontext version: libc
-    //
-    // Unwind info type:
-    //   - ELF: DWARF .eh_frame + .debug_frame
-    //   - MachO: __unwind_info encodings:
-    //     - x86_64: STACK_IMMD, STACK_IND
-    //     - aarch64: FRAMELESS, DWARF
-    {
-        const c_shared_lib = b.addLibrary(.{
-            .linkage = .dynamic,
-            .name = "c_shared_lib",
-            .root_module = b.createModule(.{
-                .root_source_file = null,
-                .target = target,
-                .optimize = optimize,
-                .link_libc = true,
-                .strip = false,
-            }),
-        });
+    // https://github.com/ziglang/zig/issues/24522
+    //// Unwinding through a C shared library without a frame pointer (libc)
+    ////
+    //// getcontext version: libc
+    ////
+    //// Unwind info type:
+    ////   - ELF: DWARF .eh_frame + .debug_frame
+    ////   - MachO: __unwind_info encodings:
+    ////     - x86_64: STACK_IMMD, STACK_IND
+    ////     - aarch64: FRAMELESS, DWARF
+    //{
+    //    const c_shared_lib = b.addLibrary(.{
+    //        .linkage = .dynamic,
+    //        .name = "c_shared_lib",
+    //        .root_module = b.createModule(.{
+    //            .root_source_file = null,
+    //            .target = target,
+    //            .optimize = optimize,
+    //            .link_libc = true,
+    //            .strip = false,
+    //        }),
+    //    });
 
-        if (target.result.os.tag == .windows)
-            c_shared_lib.root_module.addCMacro("LIB_API", "__declspec(dllexport)");
+    //    if (target.result.os.tag == .windows)
+    //        c_shared_lib.root_module.addCMacro("LIB_API", "__declspec(dllexport)");
 
-        c_shared_lib.root_module.addCSourceFile(.{
-            .file = b.path("shared_lib.c"),
-            .flags = &.{"-fomit-frame-pointer"},
-        });
+    //    c_shared_lib.root_module.addCSourceFile(.{
+    //        .file = b.path("shared_lib.c"),
+    //        .flags = &.{"-fomit-frame-pointer"},
+    //    });
 
-        const exe = b.addExecutable(.{
-            .name = "shared_lib_unwind",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("shared_lib_unwind.zig"),
-                .target = target,
-                .optimize = optimize,
-                .unwind_tables = if (target.result.os.tag.isDarwin()) .async else null,
-                .omit_frame_pointer = true,
-            }),
-            // zig objcopy doesn't support incremental binaries
-            .use_llvm = true,
-        });
+    //    const exe = b.addExecutable(.{
+    //        .name = "shared_lib_unwind",
+    //        .root_module = b.createModule(.{
+    //            .root_source_file = b.path("shared_lib_unwind.zig"),
+    //            .target = target,
+    //            .optimize = optimize,
+    //            .unwind_tables = if (target.result.os.tag.isDarwin()) .async else null,
+    //            .omit_frame_pointer = true,
+    //        }),
+    //        // zig objcopy doesn't support incremental binaries
+    //        .use_llvm = true,
+    //    });
 
-        exe.linkLibrary(c_shared_lib);
+    //    exe.linkLibrary(c_shared_lib);
 
-        const run_cmd = b.addRunArtifact(exe);
-        test_step.dependOn(&run_cmd.step);
+    //    const run_cmd = b.addRunArtifact(exe);
+    //    test_step.dependOn(&run_cmd.step);
 
-        // Separate debug info ELF file
-        if (target.result.ofmt == .elf) {
-            const filename = b.fmt("{s}_stripped", .{exe.out_filename});
-            const stripped_exe = b.addObjCopy(exe.getEmittedBin(), .{
-                .basename = filename, // set the name for the debuglink
-                .compress_debug = true,
-                .strip = .debug,
-                .extract_to_separate_file = true,
-            });
+    //    // Separate debug info ELF file
+    //    if (target.result.ofmt == .elf) {
+    //        const filename = b.fmt("{s}_stripped", .{exe.out_filename});
+    //        const stripped_exe = b.addObjCopy(exe.getEmittedBin(), .{
+    //            .basename = filename, // set the name for the debuglink
+    //            .compress_debug = true,
+    //            .strip = .debug,
+    //            .extract_to_separate_file = true,
+    //        });
 
-            const run_stripped = std.Build.Step.Run.create(b, b.fmt("run {s}", .{filename}));
-            run_stripped.addFileArg(stripped_exe.getOutput());
-            test_step.dependOn(&run_stripped.step);
-        }
-    }
+    //        const run_stripped = std.Build.Step.Run.create(b, b.fmt("run {s}", .{filename}));
+    //        run_stripped.addFileArg(stripped_exe.getOutput());
+    //        test_step.dependOn(&run_stripped.step);
+    //    }
+    //}
 
     // Unwinding without libc/posix
     //
