@@ -531,6 +531,8 @@ fn testIntDivision() !void {
     try expect(rem(i32, 10, 12) == 10);
     try expect(rem(i32, -14, 12) == -2);
     try expect(rem(i32, -2, 12) == -2);
+    try expect(rem(i32, 118, -12) == 10);
+    try expect(rem(i32, -14, -12) == -2);
     try expect(rem(i16, -118, 12) == -10);
 
     try expect(divTrunc(i20, 20, -5) == -4);

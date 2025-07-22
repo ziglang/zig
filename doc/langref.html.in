@@ -5179,7 +5179,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@mod(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Modulus division. For unsigned integers this is the same as
-      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}, otherwise the
+      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#}, otherwise the
       operation will result in a {#link|Remainder Division by Zero#} when runtime safety checks are enabled.
       </p>
       <ul>
@@ -5284,7 +5284,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@rem(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Remainder division. For unsigned integers this is the same as
-      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}, otherwise the
+      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#}, otherwise the
       operation will result in a {#link|Remainder Division by Zero#} when runtime safety checks are enabled.
       </p>
       <ul>
