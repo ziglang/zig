@@ -593,6 +593,7 @@ pub fn lowerToTranslateCSteps(
 pub const CaseTestOptions = struct {
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
+    skip_compile_errors: bool,
     skip_non_native: bool,
     skip_freebsd: bool,
     skip_netbsd: bool,
@@ -617,6 +618,8 @@ pub fn lowerToBuildSteps(
         for (options.test_filters) |test_filter| {
             if (std.mem.indexOf(u8, case.name, test_filter)) |_| break;
         } else if (options.test_filters.len > 0) continue;
+
+        if (case.case.? == .Error and options.skip_compile_errors) continue;
 
         if (options.skip_non_native and !case.target.query.isNative())
             continue;
