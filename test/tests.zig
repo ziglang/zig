@@ -116,8 +116,6 @@ const test_targets = blk: {
                 .abi = .eabihf,
             },
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/23949
-            .skip_modules = &.{"std"},
         },
 
         .{
