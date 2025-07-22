@@ -1435,7 +1435,7 @@ pub const Reader = struct {
                     }
                     return 0;
                 };
-                const n = @min(size - pos, std.math.maxInt(i64), @intFromEnum(limit));
+                const n = @min(size - pos, maxInt(i64), @intFromEnum(limit));
                 file.seekBy(n) catch |err| {
                     r.seek_err = err;
                     return 0;
@@ -1726,18 +1726,123 @@ pub const Writer = struct {
         file_reader: *Reader,
         limit: std.io.Limit,
     ) std.io.Writer.FileError!usize {
+        const reader_buffered = file_reader.interface.buffered();
+        if (reader_buffered.len >= @intFromEnum(limit))
+            return sendFileBuffered(io_w, file_reader, reader_buffered);
+        const writer_buffered = io_w.buffered();
+        const file_limit = @intFromEnum(limit) - reader_buffered.len;
         const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
         const out_fd = w.file.handle;
         const in_fd = file_reader.file.handle;
-        // TODO try using copy_file_range on FreeBSD
-        // TODO try using sendfile on macOS
-        // TODO try using sendfile on FreeBSD
+
+        if (native_os == .freebsd and w.mode == .streaming) sf: {
+            // Try using sendfile on FreeBSD.
+            if (w.sendfile_err != null) break :sf;
+            const offset = std.math.cast(std.c.off_t, file_reader.pos) orelse break :sf;
+            var hdtr_data: std.c.sf_hdtr = undefined;
+            var headers: [2]posix.iovec_const = undefined;
+            var headers_i: u8 = 0;
+            if (writer_buffered.len != 0) {
+                headers[headers_i] = .{ .base = writer_buffered.ptr, .len = writer_buffered.len };
+                headers_i += 1;
+            }
+            if (reader_buffered.len != 0) {
+                headers[headers_i] = .{ .base = reader_buffered.ptr, .len = reader_buffered.len };
+                headers_i += 1;
+            }
+            const hdtr: ?*std.c.sf_hdtr = if (headers_i == 0) null else b: {
+                hdtr_data = .{
+                    .headers = &headers,
+                    .hdr_cnt = headers_i,
+                    .trailers = null,
+                    .trl_cnt = 0,
+                };
+                break :b &hdtr_data;
+            };
+            var sbytes: std.c.off_t = undefined;
+            const nbytes: usize = @min(file_limit, maxInt(usize));
+            const flags = 0;
+            switch (posix.errno(std.c.sendfile(in_fd, out_fd, offset, nbytes, hdtr, &sbytes, flags))) {
+                .SUCCESS, .INTR => {},
+                .INVAL, .OPNOTSUPP, .NOTSOCK, .NOSYS => w.sendfile_err = error.UnsupportedOperation,
+                .BADF => if (builtin.mode == .Debug) @panic("race condition") else {
+                    w.sendfile_err = error.Unexpected;
+                },
+                .FAULT => if (builtin.mode == .Debug) @panic("segmentation fault") else {
+                    w.sendfile_err = error.Unexpected;
+                },
+                .NOTCONN => w.sendfile_err = error.BrokenPipe,
+                .AGAIN, .BUSY => if (sbytes == 0) {
+                    w.sendfile_err = error.WouldBlock;
+                },
+                .IO => w.sendfile_err = error.InputOutput,
+                .PIPE => w.sendfile_err = error.BrokenPipe,
+                .NOBUFS => w.sendfile_err = error.SystemResources,
+                else => |err| w.sendfile_err = posix.unexpectedErrno(err),
+            }
+            const consumed = io_w.consume(@bitCast(sbytes));
+            file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
+            return consumed;
+        }
+
+        if (native_os.isDarwin() and w.mode == .streaming) sf: {
+            // Try using sendfile on macOS.
+            if (w.sendfile_err != null) break :sf;
+            const offset = std.math.cast(std.c.off_t, file_reader.pos) orelse break :sf;
+            var hdtr_data: std.c.sf_hdtr = undefined;
+            var headers: [2]posix.iovec_const = undefined;
+            var headers_i: u8 = 0;
+            if (writer_buffered.len != 0) {
+                headers[headers_i] = .{ .base = writer_buffered.ptr, .len = writer_buffered.len };
+                headers_i += 1;
+            }
+            if (reader_buffered.len != 0) {
+                headers[headers_i] = .{ .base = reader_buffered.ptr, .len = reader_buffered.len };
+                headers_i += 1;
+            }
+            const hdtr: ?*std.c.sf_hdtr = if (headers_i == 0) null else b: {
+                hdtr_data = .{
+                    .headers = &headers,
+                    .hdr_cnt = headers_i,
+                    .trailers = null,
+                    .trl_cnt = 0,
+                };
+                break :b &hdtr_data;
+            };
+            const max_count = maxInt(i32); // Avoid EINVAL.
+            var sbytes: std.c.off_t = @min(file_limit, max_count);
+            const flags = 0;
+            switch (posix.errno(std.c.sendfile(in_fd, out_fd, offset, &sbytes, hdtr, flags))) {
+                .SUCCESS, .INTR => {},
+                .OPNOTSUPP, .NOTSOCK, .NOSYS => w.sendfile_err = error.UnsupportedOperation,
+                .BADF => if (builtin.mode == .Debug) @panic("race condition") else {
+                    w.sendfile_err = error.Unexpected;
+                },
+                .FAULT => if (builtin.mode == .Debug) @panic("segmentation fault") else {
+                    w.sendfile_err = error.Unexpected;
+                },
+                .INVAL => if (builtin.mode == .Debug) @panic("invalid API usage") else {
+                    w.sendfile_err = error.Unexpected;
+                },
+                .NOTCONN => w.sendfile_err = error.BrokenPipe,
+                .AGAIN => if (sbytes == 0) {
+                    w.sendfile_err = error.WouldBlock;
+                },
+                .IO => w.sendfile_err = error.InputOutput,
+                .PIPE => w.sendfile_err = error.BrokenPipe,
+                else => |err| w.sendfile_err = posix.unexpectedErrno(err),
+            }
+            const consumed = io_w.consume(@bitCast(sbytes));
+            file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
+            return consumed;
+        }
+
         if (native_os == .linux and w.mode == .streaming) sf: {
             // Try using sendfile on Linux.
             if (w.sendfile_err != null) break :sf;
             // Linux sendfile does not support headers.
-            const buffered = limit.slice(file_reader.interface.buffer);
-            if (io_w.end != 0 or buffered.len != 0) return drain(io_w, &.{buffered}, 1);
+            if (writer_buffered.len != 0 or reader_buffered.len != 0)
+                return sendFileBuffered(io_w, file_reader, reader_buffered);
             const max_count = 0x7ffff000; // Avoid EINVAL.
             var off: std.os.linux.off_t = undefined;
             const off_ptr: ?*std.os.linux.off_t, const count: usize = switch (file_reader.mode) {
@@ -1784,6 +1889,7 @@ pub const Writer = struct {
             w.pos += n;
             return n;
         }
+
         const copy_file_range = switch (native_os) {
             .freebsd => std.os.freebsd.copy_file_range,
             .linux => if (std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) std.os.linux.wrapped.copy_file_range else {},
@@ -1791,8 +1897,8 @@ pub const Writer = struct {
         };
         if (@TypeOf(copy_file_range) != void) cfr: {
             if (w.copy_file_range_err != null) break :cfr;
-            const buffered = limit.slice(file_reader.interface.buffer);
-            if (io_w.end != 0 or buffered.len != 0) return drain(io_w, &.{buffered}, 1);
+            if (writer_buffered.len != 0 or reader_buffered.len != 0)
+                return sendFileBuffered(io_w, file_reader, reader_buffered);
             var off_in: i64 = undefined;
             var off_out: i64 = undefined;
             const off_in_ptr: ?*i64 = switch (file_reader.mode) {
@@ -1832,6 +1938,8 @@ pub const Writer = struct {
             if (w.pos != 0) break :fcf;
             if (limit != .unlimited) break :fcf;
             const size = file_reader.getSize() catch break :fcf;
+            if (writer_buffered.len != 0 or reader_buffered.len != 0)
+                return sendFileBuffered(io_w, file_reader, reader_buffered);
             const rc = std.c.fcopyfile(in_fd, out_fd, null, .{ .DATA = true });
             switch (posix.errno(rc)) {
                 .SUCCESS => {},
@@ -1858,6 +1966,16 @@ pub const Writer = struct {
         }
 
         return error.Unimplemented;
+    }
+
+    fn sendFileBuffered(
+        io_w: *std.io.Writer,
+        file_reader: *Reader,
+        reader_buffered: []const u8,
+    ) std.io.Writer.FileError!usize {
+        const n = try drain(io_w, &.{reader_buffered}, 1);
+        file_reader.seekTo(file_reader.pos + n) catch return error.ReadFailed;
+        return n;
     }
 
     pub fn seekTo(w: *Writer, offset: u64) SeekError!void {
