@@ -1624,7 +1624,6 @@ pub const Writer = struct {
                 const pattern = data[data.len - 1];
                 if (pattern.len == 0 or splat == 0) return 0;
                 const n = windows.WriteFile(handle, pattern, null) catch |err| {
-                    std.debug.print("windows write file failed3: {t}\n", .{err});
                     w.err = err;
                     return error.WriteFailed;
                 };
@@ -1735,6 +1734,16 @@ pub const Writer = struct {
         const out_fd = w.file.handle;
         const in_fd = file_reader.file.handle;
 
+        if (file_reader.size) |size| {
+            if (size - file_reader.pos == 0) {
+                if (reader_buffered.len != 0) {
+                    return sendFileBuffered(io_w, file_reader, reader_buffered);
+                } else {
+                    return error.EndOfStream;
+                }
+            }
+        }
+
         if (native_os == .freebsd and w.mode == .streaming) sf: {
             // Try using sendfile on FreeBSD.
             if (w.sendfile_err != null) break :sf;
@@ -1780,6 +1789,10 @@ pub const Writer = struct {
                 .NOBUFS => w.sendfile_err = error.SystemResources,
                 else => |err| w.sendfile_err = posix.unexpectedErrno(err),
             }
+            if (sbytes == 0) {
+                file_reader.size = file_reader.pos;
+                return error.EndOfStream;
+            }
             const consumed = io_w.consume(@bitCast(sbytes));
             file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
             return consumed;
@@ -1810,9 +1823,9 @@ pub const Writer = struct {
                 break :b &hdtr_data;
             };
             const max_count = maxInt(i32); // Avoid EINVAL.
-            var sbytes: std.c.off_t = @min(file_limit, max_count);
+            var len: std.c.off_t = @min(file_limit, max_count);
             const flags = 0;
-            switch (posix.errno(std.c.sendfile(in_fd, out_fd, offset, &sbytes, hdtr, flags))) {
+            switch (posix.errno(std.c.sendfile(in_fd, out_fd, offset, &len, hdtr, flags))) {
                 .SUCCESS, .INTR => {},
                 .OPNOTSUPP, .NOTSOCK, .NOSYS => w.sendfile_err = error.UnsupportedOperation,
                 .BADF => if (builtin.mode == .Debug) @panic("race condition") else {
@@ -1825,14 +1838,18 @@ pub const Writer = struct {
                     w.sendfile_err = error.Unexpected;
                 },
                 .NOTCONN => w.sendfile_err = error.BrokenPipe,
-                .AGAIN => if (sbytes == 0) {
+                .AGAIN => if (len == 0) {
                     w.sendfile_err = error.WouldBlock;
                 },
                 .IO => w.sendfile_err = error.InputOutput,
                 .PIPE => w.sendfile_err = error.BrokenPipe,
                 else => |err| w.sendfile_err = posix.unexpectedErrno(err),
             }
-            const consumed = io_w.consume(@bitCast(sbytes));
+            if (len == 0) {
+                file_reader.size = file_reader.pos;
+                return error.EndOfStream;
+            }
+            const consumed = io_w.consume(@bitCast(len));
             file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
             return consumed;
         }
