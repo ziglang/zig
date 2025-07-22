@@ -1135,7 +1135,7 @@ pub const Reader = struct {
     err: ?ReadError = null,
     mode: Reader.Mode = .positional,
     /// Tracks the true seek position in the file. To obtain the logical
-    /// position, subtract the buffer size from this value.
+    /// position, use `logicalPos`.
     pos: u64 = 0,
     size: ?u64 = null,
     size_err: ?GetEndPosError = null,
@@ -1274,14 +1274,20 @@ pub const Reader = struct {
         }
     }
 
+    pub fn logicalPos(r: *const Reader) u64 {
+        return r.pos - r.interface.bufferedLen();
+    }
+
     fn setPosAdjustingBuffer(r: *Reader, offset: u64) void {
-        if (offset < r.pos or offset >= r.pos + r.interface.bufferedLen()) {
+        const logical_pos = logicalPos(r);
+        if (offset < logical_pos or offset >= r.pos) {
             r.interface.seek = 0;
             r.interface.end = 0;
+            r.pos = offset;
         } else {
-            r.interface.seek += @intCast(offset - r.pos);
+            const logical_delta: usize = @intCast(offset - logical_pos);
+            r.interface.seek += logical_delta;
         }
-        r.pos = offset;
     }
 
     /// Number of slices to store on the stack, when trying to send as many byte
