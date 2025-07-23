@@ -3,13 +3,8 @@ const builtin = @import("builtin");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-const supports_128_bit_atomics = switch (builtin.cpu.arch) {
-    // TODO: Ideally this could be sync'd with the logic in Sema.
-    .aarch64 => true,
-    .aarch64_be => false, // Fails due to LLVM issues.
-    .x86_64 => builtin.cpu.has(.x86, .cx16),
-    else => false,
-};
+const supports_128_bit_cmpxchg = std.atomic.Op.supported(.{ .cmpxchg = .weak }, u128);
+const supports_128_bit_rmw = std.atomic.Op.supported(.{ .rmw = .Xchg }, u128);
 
 test "cmpxchg" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -108,7 +103,7 @@ test "cmpxchg with ignored result" {
 
 test "128-bit cmpxchg" {
     // TODO: this must appear first
-    if (!supports_128_bit_atomics) return error.SkipZigTest;
+    if (!supports_128_bit_cmpxchg) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
@@ -288,7 +283,7 @@ fn testAtomicRmwInt(comptime signedness: std.builtin.Signedness, comptime N: usi
 
 test "atomicrmw with 128-bit ints" {
     // TODO: this must appear first
-    if (!supports_128_bit_atomics) return error.SkipZigTest;
+    if (!supports_128_bit_rmw) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 

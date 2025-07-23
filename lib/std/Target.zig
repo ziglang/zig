@@ -1276,6 +1276,49 @@ pub const Cpu = struct {
                 const other_v: V = other_set.ints;
                 return @reduce(.And, (set_v & other_v) == other_v);
             }
+
+            /// Formatter to print the feature set as a comma-separated list, ending with a conjunction
+            pub fn fmtList(set: Set, family: Arch.Family, conjunction: []const u8) FormatList {
+                return .{ .set = set, .family = family, .conjunction = conjunction };
+            }
+
+            pub const FormatList = struct {
+                set: Set,
+                conjunction: []const u8,
+                family: Arch.Family,
+
+                pub fn format(fmt: @This(), writer: *std.Io.Writer) !void {
+                    const BitSet = std.bit_set.ArrayBitSet(usize, Set.needed_bit_count);
+                    const bit_set: BitSet = .{ .masks = fmt.set.ints };
+                    var it = bit_set.iterator(.{});
+                    var next = it.next();
+                    if (next == null) {
+                        return writer.writeAll("<none>");
+                    }
+                    var i: usize = 0;
+                    while (next) |feat| : (i += 1) {
+                        next = it.next();
+
+                        if (i > 1 or (i > 0 and next != null)) {
+                            try writer.writeAll(", ");
+                        }
+                        if (next == null) {
+                            try writer.print("{s} ", .{fmt.conjunction});
+                        }
+
+                        const name = switch (fmt.family) {
+                            inline else => |family| blk: {
+                                const FeatureEnum = @field(Target, @tagName(family)).Feature;
+                                if (@typeInfo(FeatureEnum).@"enum".fields.len == 0) unreachable;
+
+                                const feat_enum: FeatureEnum = @enumFromInt(feat);
+                                break :blk @tagName(feat_enum);
+                            },
+                        };
+                        try writer.writeAll(name);
+                    }
+                }
+            };
         };
 
         pub fn FeatureSetFns(comptime F: type) type {

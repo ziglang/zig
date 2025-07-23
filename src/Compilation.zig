@@ -3851,10 +3851,12 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
 
     try comp.link_diags.addMessagesToBundle(&bundle, comp.bin_file);
 
-    const compile_log_text: []const u8 = compile_log_text: {
-        const zcu = comp.zcu orelse break :compile_log_text "";
-        if (zcu.skip_analysis_this_update) break :compile_log_text "";
-        if (zcu.compile_logs.count() == 0) break :compile_log_text "";
+    var compile_log_text: std.ArrayListUnmanaged(u8) = .empty;
+    defer compile_log_text.deinit(gpa);
+    compile_log_text: {
+        const zcu = comp.zcu orelse break :compile_log_text;
+        if (zcu.skip_analysis_this_update) break :compile_log_text;
+        if (zcu.compile_logs.count() == 0) break :compile_log_text;
 
         // If there are no other errors, we include a "found compile log statement" error.
         // Otherwise, we just show the compile log output, with no error.
@@ -3877,7 +3879,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             });
         }
 
-        if (messages.items.len == 0) break :compile_log_text "";
+        if (messages.items.len == 0) break :compile_log_text;
 
         // Okay, there *are* referenced compile logs. Sort them into a consistent order.
 
@@ -3899,16 +3901,13 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         std.mem.sort(Zcu.ErrorMsg, messages.items, @as(SortContext, .{ .err = &sort_err, .zcu = zcu }), SortContext.lessThan);
         if (sort_err) |e| return e;
 
-        var log_text: std.ArrayListUnmanaged(u8) = .empty;
-        defer log_text.deinit(gpa);
-
         // Index 0 will be the root message; the rest will be notes.
         // Only the actual message, i.e. index 0, will retain its reference trace.
-        try appendCompileLogLines(&log_text, zcu, messages.items[0].reference_trace_root.unwrap().?);
+        try appendCompileLogLines(&compile_log_text, zcu, messages.items[0].reference_trace_root.unwrap().?);
         messages.items[0].notes = messages.items[1..];
         messages.items[0].msg = "found compile log statement";
         for (messages.items[1..]) |*note| {
-            try appendCompileLogLines(&log_text, zcu, note.reference_trace_root.unwrap().?);
+            try appendCompileLogLines(&compile_log_text, zcu, note.reference_trace_root.unwrap().?);
             note.reference_trace_root = .none; // notes don't have reference traces
             note.msg = "also here";
         }
@@ -3918,9 +3917,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         if (include_compile_log_sources) {
             try addModuleErrorMsg(zcu, &bundle, messages.items[0], false);
         }
-
-        break :compile_log_text try log_text.toOwnedSlice(gpa);
-    };
+    }
 
     // TODO: eventually, this should be behind `std.debug.runtime_safety`. But right now, this is a
     // very common way for incremental compilation bugs to manifest, so let's always check it.
@@ -3947,7 +3944,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     };
 
-    return bundle.toOwnedBundle(compile_log_text);
+    return bundle.toOwnedBundle(compile_log_text.items);
 }
 
 /// Writes all compile log lines belonging to `logging_unit` into `log_text` using `zcu.gpa`.

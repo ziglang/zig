@@ -481,6 +481,346 @@ test "current CPU has a cache line size" {
     _ = cache_line;
 }
 
+pub const Op = union(enum) {
+    load,
+    store,
+    rmw: std.builtin.AtomicRmwOp,
+    cmpxchg: enum { weak, strong },
+
+    /// Check if the operation is supported on the given type.
+    pub fn supported(op: Op, comptime T: type) bool {
+        return op.supportedOnCpu(T, builtin.cpu);
+    }
+    /// Check if the operation is supported on the given type, on a specified CPU.
+    pub fn supportedOnCpu(op: Op, comptime T: type, cpu: std.Target.Cpu) bool {
+        if (!op.isValidAtomicType(T)) return false;
+
+        if (!std.math.isPowerOfTwo(@sizeOf(T))) return false;
+
+        const required_features = op.supportedSizes(cpu.arch).get(@sizeOf(T)) orelse {
+            return false;
+        };
+
+        return cpu.features.isSuperSetOf(required_features);
+    }
+
+    /// Get the set of sizes supported by this operation on the specified architecture.
+    // TODO: Audit this. I've done my best for the architectures I'm familiar with, but there's probably a lot that can improved
+    pub fn supportedSizes(op: Op, arch: std.Target.Cpu.Arch) Sizes {
+        switch (arch) {
+            .avr,
+            .msp430,
+            => return .upTo(2, .empty),
+
+            .arc,
+            .arm,
+            .armeb,
+            .hexagon,
+            .m68k,
+            .mips,
+            .mipsel,
+            .nvptx,
+            .or1k,
+            .powerpc,
+            .powerpcle,
+            .riscv32,
+            .sparc,
+            .thumb,
+            .thumbeb,
+            .xcore,
+            .kalimba,
+            .lanai,
+            .csky,
+            .spirv32,
+            .loongarch32,
+            .xtensa,
+            .propeller,
+            => return .upTo(4, .empty),
+
+            .amdgcn,
+            .bpfel,
+            .bpfeb,
+            .mips64,
+            .mips64el,
+            .nvptx64,
+            .powerpc64,
+            .powerpc64le,
+            .riscv64,
+            .sparc64,
+            .s390x,
+            .ve,
+            .spirv64,
+            .loongarch64,
+            => return .upTo(8, .empty),
+
+            .aarch64,
+            .aarch64_be,
+            => return .upTo(16, .empty),
+
+            .wasm32,
+            .wasm64,
+            => {
+                if (op == .rmw) switch (op.rmw) {
+                    .Xchg,
+                    .Add,
+                    .Sub,
+                    .And,
+                    .Or,
+                    .Xor,
+                    => {},
+
+                    .Nand,
+                    .Max,
+                    .Min,
+                    => return .none, // Not supported on wasm
+                };
+
+                return .upTo(8, std.Target.wasm.featureSet(&.{.atomics}));
+            },
+
+            .x86 => {
+                var sizes: Sizes = .upTo(4, .empty);
+                if (op == .cmpxchg) {
+                    sizes.put(8, std.Target.x86.featureSet(&.{.cx8}));
+                }
+                return sizes;
+            },
+
+            .x86_64 => {
+                var sizes: Sizes = .upTo(8, .empty);
+                if (op == .cmpxchg) {
+                    sizes.put(16, std.Target.x86.featureSet(&.{.cx16}));
+                }
+                return sizes;
+            },
+        }
+    }
+
+    pub const Sizes = struct {
+        /// Bitset of supported sizes. If size `2^n` is present, `supported & (1 << n)` will be non-zero.
+        /// For each set bit, the corresponding entry in `required_features` will be populated.
+        supported: BitsetInt,
+        /// for each set bit in `supported`, the corresponding entry here indicates the required CPU features to support that size.
+        /// Otherwise, the element is `undefined`.
+        required_features: [bit_set_len]std.Target.Cpu.Feature.Set,
+
+        const bit_set_len = std.math.log2_int(usize, max_supported_size) + 1;
+        const BitsetInt = @Type(.{ .int = .{
+            .signedness = .unsigned,
+            .bits = bit_set_len,
+        } });
+
+        pub fn isEmpty(sizes: Sizes) bool {
+            return sizes.supported == 0;
+        }
+        pub fn get(sizes: Sizes, size: u64) ?std.Target.Cpu.Feature.Set {
+            if (size == 0) return .empty; // 0-bit types are always atomic, because they only hold a single value
+            if (!std.math.isPowerOfTwo(size)) return null;
+            if (sizes.supported & size == 0) return null;
+            return sizes.required_features[std.math.log2_int(u64, size)];
+        }
+
+        /// Prints the set as a list of possible sizes.
+        /// eg. `1, 2, 4, or 8`
+        pub fn formatPossibilities(sizes: Sizes, writer: *std.Io.Writer) !void {
+            if (sizes.supported == 0) {
+                return writer.writeAll("<none>");
+            }
+
+            var bits = sizes.supported;
+            var count: usize = 0;
+            while (bits != 0) : (count += 1) {
+                const mask = @as(BitsetInt, 1) << @intCast(@ctz(bits));
+                bits &= ~mask;
+
+                if (count > 1 or (count > 0 and bits != 0)) {
+                    try writer.writeAll(", ");
+                }
+                if (bits == 0) {
+                    try writer.writeAll("or ");
+                }
+
+                try writer.print("{d}", .{mask});
+            }
+        }
+
+        const none: Sizes = .{
+            .supported = 0,
+            .required_features = undefined,
+        };
+        fn upTo(max: BitsetInt, required_features: std.Target.Cpu.Feature.Set) Sizes {
+            std.debug.assert(std.math.isPowerOfTwo(max));
+            var sizes: Sizes = .{
+                .supported = (max << 1) -% 1,
+                .required_features = @splat(required_features),
+            };
+
+            // Safety
+            const max_idx = std.math.log2_int(BitsetInt, max);
+            @memset(sizes.required_features[max_idx + 1 ..], undefined);
+
+            return sizes;
+        }
+        fn put(sizes: *Sizes, size: BitsetInt, required_features: std.Target.Cpu.Feature.Set) void {
+            sizes.supported |= size;
+            sizes.required_features[std.math.log2_int(u64, size)] = required_features;
+        }
+    };
+
+    /// The maximum size supported by any architecture
+    const max_supported_size = 16;
+
+    pub fn format(op: Op, writer: *std.Io.Writer) !void {
+        switch (op) {
+            .load => try writer.writeAll("@atomicLoad"),
+            .store => try writer.writeAll("@atomicStore"),
+            .rmw => |rmw| try writer.print("@atomicRmw(.{s})", .{@tagName(rmw)}),
+            .cmpxchg => |strength| switch (strength) {
+                .weak => try writer.writeAll("@cmpxchgWeak"),
+                .strong => try writer.writeAll("@cmpxchgStrong"),
+            },
+        }
+    }
+
+    /// Returns true if the type may be usable with this atomic operation.
+    /// This does not check that the type actually fits within the target's atomic size constriants.
+    /// This function must be kept in sync with the compiler implementation.
+    fn isValidAtomicType(op: Op, comptime T: type) bool {
+        const supports_floats = switch (op) {
+            .load, .store => true,
+            .rmw => |rmw| switch (rmw) {
+                .Xchg, .Add, .Sub, .Min, .Max => true,
+                .And, .Nand, .Or, .Xor => false,
+            },
+            // floats are not supported for cmpxchg because float equality differs from bitwise equality
+            .cmpxchg => false,
+        };
+
+        return switch (@typeInfo(T)) {
+            .bool, .int, .@"enum", .error_set => true,
+            .float => supports_floats,
+            .@"struct" => |s| s.layout == .@"packed",
+
+            .optional => |opt| switch (@typeInfo(opt.child)) {
+                .pointer => |ptr| switch (ptr.size) {
+                    .slice, .c => false,
+                    .one, .many => !ptr.is_allowzero,
+                },
+            },
+            .pointer => |ptr| switch (ptr.size) {
+                .slice => false,
+                .one, .many, .c => true,
+            },
+
+            else => false,
+        };
+    }
+
+    test isValidAtomicType {
+        try testing.expect(isValidAtomicType(.load, u8));
+        try testing.expect(isValidAtomicType(.load, f32));
+        try testing.expect(isValidAtomicType(.load, bool));
+        try testing.expect(isValidAtomicType(.load, enum { a, b, c }));
+        try testing.expect(isValidAtomicType(.load, packed struct { a: u8, b: u8 }));
+        try testing.expect(isValidAtomicType(.load, error{OutOfMemory}));
+        try testing.expect(isValidAtomicType(.load, u200)); // doesn't check size
+
+        try testing.expect(!isValidAtomicType(.load, struct { a: u8 }));
+        try testing.expect(!isValidAtomicType(.load, union { a: u8 }));
+
+        // cmpxchg doesn't support floats
+        try testing.expect(!isValidAtomicType(.{ .cmpxchg = .weak }, f32));
+    }
+
+    test supportedOnCpu {
+        const x86 = std.Target.x86;
+        try std.testing.expect(
+            supportedOnCpu(.load, u64, x86.cpu.x86_64.toCpu(.x86_64)),
+        );
+        try std.testing.expect(
+            !supportedOnCpu(.{ .cmpxchg = .weak }, u128, x86.cpu.x86_64.toCpu(.x86_64)),
+        );
+        try std.testing.expect(
+            supportedOnCpu(.{ .cmpxchg = .weak }, u128, x86.cpu.x86_64_v2.toCpu(.x86_64)),
+        );
+
+        const aarch64 = std.Target.aarch64;
+        try std.testing.expect(
+            supportedOnCpu(.load, u64, aarch64.cpu.generic.toCpu(.aarch64)),
+        );
+    }
+
+    test supportedSizes {
+        const sizes = supportedSizes(.{ .cmpxchg = .strong }, .x86);
+
+        try std.testing.expect(sizes.get(4) != null);
+        try std.testing.expect(sizes.get(4).?.isEmpty());
+
+        try std.testing.expect(sizes.get(8) != null);
+        try std.testing.expect(std.Target.x86.featureSetHas(sizes.get(8).?, .cx8));
+
+        try std.testing.expect(sizes.get(16) == null);
+    }
+
+    test "wasm only supports atomics when the feature is enabled" {
+        const cpu = std.Target.wasm.cpu;
+        try std.testing.expect(
+            !supportedOnCpu(.store, u32, cpu.mvp.toCpu(.wasm32)),
+        );
+        try std.testing.expect(
+            supportedOnCpu(.store, u32, cpu.bleeding_edge.toCpu(.wasm32)),
+        );
+    }
+
+    test "wasm32 supports up to 64-bit atomics" {
+        const bleeding = std.Target.wasm.cpu.bleeding_edge.toCpu(.wasm32);
+        try std.testing.expect(
+            supportedOnCpu(.store, u64, bleeding),
+        );
+        try std.testing.expect(
+            !supportedOnCpu(.store, u128, bleeding),
+        );
+
+        const sizes = supportedSizes(.{ .rmw = .Add }, .wasm32);
+        try std.testing.expect(sizes.supported == 0b1111);
+    }
+
+    test "wasm32 doesn't support min, max, or nand RMW ops" {
+        const bleeding = std.Target.wasm.cpu.bleeding_edge.toCpu(.wasm32);
+        try std.testing.expect(
+            !supportedOnCpu(.{ .rmw = .Min }, u32, bleeding),
+        );
+        try std.testing.expect(
+            !supportedOnCpu(.{ .rmw = .Max }, u32, bleeding),
+        );
+        try std.testing.expect(
+            !supportedOnCpu(.{ .rmw = .Nand }, u32, bleeding),
+        );
+    }
+
+    test "x86_64 supports 128-bit cmpxchg with cx16 flag" {
+        const x86 = std.Target.x86;
+        const v2 = x86.cpu.x86_64_v2.toCpu(.x86_64);
+        try std.testing.expect(
+            supportedOnCpu(.{ .cmpxchg = .strong }, u128, v2),
+        );
+
+        const sizes = supportedSizes(.{ .cmpxchg = .strong }, .x86_64);
+        try std.testing.expect(sizes.get(16) != null);
+        try std.testing.expect(x86.featureSetHas(sizes.get(16).?, .cx16));
+    }
+};
+
+test Op {
+    try std.testing.expect(
+        // Query atomic operation support for a specific CPU
+        Op.supportedOnCpu(.load, u64, std.Target.aarch64.cpu.generic.toCpu(.aarch64)),
+    );
+
+    // Query atomic operation support for the target CPU
+    _ = Op.supported(.load, u64);
+}
+
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const AtomicOrder = std.builtin.AtomicOrder;
