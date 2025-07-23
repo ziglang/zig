@@ -2555,7 +2555,13 @@ fn initWipNavInner(
             try wip_nav.strp(nav.fqn.toSlice(ip));
             const ty: Type = nav_val.typeOf(zcu);
             const addr: Loc = .{ .addr_reloc = sym_index };
-            const loc: Loc = if (decl.is_threadlocal) .{ .form_tls_address = &addr } else addr;
+            const loc: Loc = if (decl.is_threadlocal) loc: {
+                const target = zcu.comp.root_mod.resolved_target.result;
+                break :loc switch (target.cpu.arch) {
+                    .x86_64 => .{ .form_tls_address = &addr },
+                    else => .empty,
+                };
+            } else addr;
             switch (decl.kind) {
                 .unnamed_test, .@"test", .decltest, .@"comptime" => unreachable,
                 .@"const" => {

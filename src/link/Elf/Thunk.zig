@@ -95,18 +95,21 @@ const aarch64 = struct {
             const sym = elf_file.symbol(ref).?;
             const saddr = thunk.address(elf_file) + @as(i64, @intCast(i * trampoline_size));
             const taddr = sym.address(.{}, elf_file);
-            const pages = try util.calcNumberOfPages(saddr, taddr);
-            try writer.writeInt(u32, Instruction.adrp(.x16, pages).toU32(), .little);
-            const off: u12 = @truncate(@as(u64, @bitCast(taddr)));
-            try writer.writeInt(u32, Instruction.add(.x16, .x16, off, false).toU32(), .little);
-            try writer.writeInt(u32, Instruction.br(.x16).toU32(), .little);
+            try writer.writeInt(u32, @bitCast(
+                util.encoding.Instruction.adrp(.x16, try util.calcNumberOfPages(saddr, taddr) << 12),
+            ), .little);
+            try writer.writeInt(u32, @bitCast(util.encoding.Instruction.add(
+                .x16,
+                .x16,
+                .{ .immediate = @truncate(@as(u64, @bitCast(taddr))) },
+            )), .little);
+            try writer.writeInt(u32, @bitCast(util.encoding.Instruction.br(.x16)), .little);
         }
     }
 
     const trampoline_size = 3 * @sizeOf(u32);
 
     const util = @import("../aarch64.zig");
-    const Instruction = util.Instruction;
 };
 
 const std = @import("std");

@@ -519,6 +519,7 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
 
     var response_writer = body.writer().unbuffered();
     var archiver: std.tar.Writer = .{ .underlying_writer = &response_writer };
+    var read_buffer: [1024]u8 = undefined;
 
     for (deduped_paths) |joined_path| {
         var file = joined_path.root_dir.handle.openFile(joined_path.sub_path, .{}) catch |err| {
@@ -526,9 +527,10 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
             continue;
         };
         defer file.close();
-
+        const stat = try file.stat();
+        var file_reader: std.fs.File.Reader = .initSize(file, &read_buffer, stat.size);
         archiver.prefix = joined_path.root_dir.path orelse try memoizedCwd(arena, &cwd_cache);
-        try archiver.writeFile(joined_path.sub_path, file, try file.stat());
+        try archiver.writeFile(joined_path.sub_path, &file_reader, stat.mtime);
     }
 
     try body.end();

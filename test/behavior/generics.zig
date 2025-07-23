@@ -17,7 +17,6 @@ fn checkSize(comptime T: type) usize {
 }
 
 test "simple generic fn" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(max(i32, 3, -1) == 3);
@@ -53,7 +52,6 @@ fn sameButWithFloats(a: f64, b: f64) f64 {
 
 test "fn with comptime args" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(gimmeTheBigOne(1234, 5678) == 5678);
@@ -63,7 +61,6 @@ test "fn with comptime args" {
 
 test "anytype params" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(max_i32(12, 34) == 34);
@@ -87,7 +84,6 @@ fn max_f64(a: f64, b: f64) f64 {
 }
 
 test "type constructed by comptime function call" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -113,7 +109,6 @@ fn SimpleList(comptime L: usize) type {
 
 test "function with return type type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var list: List(i32) = undefined;
@@ -154,7 +149,6 @@ fn aGenericFn(comptime T: type, comptime a: T, b: T) T {
 
 test "generic fn with implicit cast" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -173,7 +167,6 @@ fn getFirstByte(comptime T: type, mem: []const T) u8 {
 
 test "generic fn keeps non-generic parameter types" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -249,7 +242,6 @@ test "function parameter is generic" {
 }
 
 test "generic function instantiation turns into comptime call" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -300,7 +292,6 @@ test "generic function with void and comptime parameter" {
 }
 
 test "anonymous struct return type referencing comptime parameter" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -318,7 +309,6 @@ test "anonymous struct return type referencing comptime parameter" {
 
 test "generic function instantiation non-duplicates" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -339,7 +329,6 @@ test "generic function instantiation non-duplicates" {
 
 test "generic instantiation of tagged union with only one field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
@@ -439,8 +428,6 @@ test "null sentinel pointer passed as generic argument" {
 }
 
 test "generic function passed as comptime argument" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn doMath(comptime f: fn (comptime type, i32, i32) error{Overflow}!i32, a: i32, b: i32) !void {
             const result = try f(i32, a, b);
@@ -451,7 +438,6 @@ test "generic function passed as comptime argument" {
 }
 
 test "return type of generic function is function pointer" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
@@ -464,8 +450,6 @@ test "return type of generic function is function pointer" {
 }
 
 test "coerced function body has inequal value with its uncoerced body" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     const S = struct {
         const A = B(i32, c);
         fn c() !i32 {
@@ -513,7 +497,6 @@ test "union in struct captures argument" {
 
 test "function argument tuple used as struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
@@ -546,8 +529,8 @@ test "comptime callconv(.c) function ptr uses comptime type argument" {
 }
 
 test "call generic function with from function called by the generic function" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const GET = struct {

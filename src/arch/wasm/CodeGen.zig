@@ -1174,7 +1174,7 @@ pub fn generate(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: *const Air,
-    liveness: *const Air.Liveness,
+    liveness: *const ?Air.Liveness,
 ) Error!Mir {
     _ = src_loc;
     _ = bin_file;
@@ -1195,7 +1195,7 @@ pub fn generate(
         .gpa = gpa,
         .pt = pt,
         .air = air.*,
-        .liveness = liveness.*,
+        .liveness = liveness.*.?,
         .owner_nav = cg.owner_nav,
         .target = target,
         .ptr_size = switch (target.cpu.arch) {
@@ -3777,7 +3777,7 @@ fn structFieldPtr(
                     break :offset @as(u32, 0);
                 }
                 const struct_type = zcu.typeToStruct(struct_ty).?;
-                break :offset @divExact(pt.structPackedFieldBitOffset(struct_type, index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
+                break :offset @divExact(zcu.structPackedFieldBitOffset(struct_type, index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
             },
             .@"union" => 0,
             else => unreachable,
@@ -3813,7 +3813,7 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .@"packed" => switch (struct_ty.zigTypeTag(zcu)) {
             .@"struct" => result: {
                 const packed_struct = zcu.typeToPackedStruct(struct_ty).?;
-                const offset = pt.structPackedFieldBitOffset(packed_struct, field_index);
+                const offset = zcu.structPackedFieldBitOffset(packed_struct, field_index);
                 const backing_ty = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
                 const host_bits = backing_ty.intInfo(zcu).bits;
 
@@ -5697,7 +5697,7 @@ fn airFieldParentPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .auto, .@"extern" => parent_ty.structFieldOffset(field_index, zcu),
         .@"packed" => offset: {
             const parent_ptr_offset = parent_ptr_ty.ptrInfo(zcu).packed_offset.bit_offset;
-            const field_offset = if (zcu.typeToStruct(parent_ty)) |loaded_struct| pt.structPackedFieldBitOffset(loaded_struct, field_index) else 0;
+            const field_offset = if (zcu.typeToStruct(parent_ty)) |loaded_struct| zcu.structPackedFieldBitOffset(loaded_struct, field_index) else 0;
             const field_ptr_offset = field_ptr_ty.ptrInfo(zcu).packed_offset.bit_offset;
             break :offset @divExact(parent_ptr_offset + field_offset - field_ptr_offset, 8);
         },

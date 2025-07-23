@@ -1,4 +1,5 @@
 const subo = @import("subo.zig");
+const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 const math = std.math;
@@ -27,6 +28,8 @@ pub fn simple_suboti4(a: i128, b: i128, overflow: *c_int) i128 {
 }
 
 test "suboti3" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const min: i128 = math.minInt(i128);
     const max: i128 = math.maxInt(i128);
     var i: i128 = 1;

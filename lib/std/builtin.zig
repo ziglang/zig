@@ -774,7 +774,7 @@ pub const Endian = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const Signedness = enum {
+pub const Signedness = enum(u1) {
     signed,
     unsigned,
 };
@@ -896,7 +896,10 @@ pub const VaList = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be => switch (builtin.os.tag) {
         .windows => *u8,
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
-        else => @compileError("disabled due to miscompilations"), // VaListAarch64,
+        else => switch (builtin.zig_backend) {
+            .stage2_aarch64 => VaListAarch64,
+            else => @compileError("disabled due to miscompilations"),
+        },
     },
     .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
         .ios, .macos, .tvos, .watchos, .visionos => *u8,

@@ -4,7 +4,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const is_test = builtin.is_test;
 
 const __eqdf2 = @import("./cmpdf2.zig").__eqdf2;
 const __ledf2 = @import("./cmpdf2.zig").__ledf2;

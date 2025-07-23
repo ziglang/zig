@@ -493,5 +493,6 @@ test {
     _ = Reader;
     _ = Reader.Limited;
     _ = Writer;
+    _ = tty;
     _ = @import("Io/test.zig");
 }

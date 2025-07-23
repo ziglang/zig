@@ -20,16 +20,18 @@ pub fn getTargetAddress(thunk: Thunk, ref: MachO.Ref, macho_file: *MachO) u64 {
     return thunk.getAddress(macho_file) + thunk.symbols.getIndex(ref).? * trampoline_size;
 }
 
-pub fn write(thunk: Thunk, macho_file: *MachO, bw: *Writer) !void {
+pub fn write(thunk: Thunk, macho_file: *MachO, writer: *Writer) !void {
+    const Instruction = aarch64.encoding.Instruction;
     for (thunk.symbols.keys(), 0..) |ref, i| {
         const sym = ref.getSymbol(macho_file).?;
         const saddr = thunk.getAddress(macho_file) + i * trampoline_size;
         const taddr = sym.getAddress(.{}, macho_file);
         const pages = try aarch64.calcNumberOfPages(@intCast(saddr), @intCast(taddr));
-        try bw.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
-        const off: u12 = @truncate(taddr);
-        try bw.writeInt(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32(), .little);
-        try bw.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
+        try writer.writeInt(u32, @bitCast(Instruction.adrp(.x16, pages << 12)), .little);
+        try writer.writeInt(u32, @bitCast(
+            Instruction.add(.x16, .x16, .{ .immediate = @truncate(taddr) }),
+        ), .little);
+        try writer.writeInt(u32, @bitCast(Instruction.br(.x16)), .little);
     }
 }
 

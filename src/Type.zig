@@ -4163,7 +4163,7 @@ pub const generic_poison: Type = .{ .ip_index = .generic_poison_type };
 pub fn smallestUnsignedBits(max: u64) u16 {
     return switch (max) {
         0 => 0,
-        else => 1 + std.math.log2_int(u64, max),
+        else => @as(u16, 1) + std.math.log2_int(u64, max),
     };
 }
 

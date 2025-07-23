@@ -2001,7 +2001,7 @@ pub const R_AARCH64 = enum(u32) {
     TLSLE_LDST64_TPREL_LO12 = 558,
     /// Likewise; no check.
     TLSLE_LDST64_TPREL_LO12_NC = 559,
-    ///  PC-rel. load immediate 20:2.
+    /// PC-rel. load immediate 20:2.
     TLSDESC_LD_PREL19 = 560,
     /// PC-rel. ADR immediate 20:0.
     TLSDESC_ADR_PREL21 = 561,

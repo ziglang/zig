@@ -14,7 +14,7 @@ pub const Options = struct {
     mtime: u64 = 0,
 };
 
-underlying_writer: *std.io.Writer,
+underlying_writer: *std.Io.Writer,
 prefix: []const u8 = "",
 mtime_now: u64 = 0,
 
@@ -36,78 +36,53 @@ pub fn writeDir(w: *Writer, sub_path: []const u8, options: Options) Error!void {
     try w.writeHeader(.directory, sub_path, "", 0, options);
 }
 
-pub const WriteFileError = std.io.Writer.FileError || Error;
+pub const WriteFileError = std.Io.Writer.FileError || Error || std.fs.File.GetEndPosError;
 
 pub fn writeFile(
     w: *Writer,
     sub_path: []const u8,
-    file: std.fs.File,
-    stat: std.fs.File.Stat,
+    file_reader: *std.fs.File.Reader,
+    stat_mtime: i128,
 ) WriteFileError!void {
-    const mtime: u64 = @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
+    const size = try file_reader.getSize();
+    const mtime: u64 = @intCast(@divFloor(stat_mtime, std.time.ns_per_s));
 
     var header: Header = .{};
     try w.setPath(&header, sub_path);
-    try header.setSize(stat.size);
+    try header.setSize(size);
     try header.setMtime(mtime);
     try header.updateChecksum();
 
-    var vec: [1][]const u8 = .{@ptrCast((&header)[0..1])};
-    try w.underlying_writer.writeFileAll(file, .{
-        .limit = .limited(stat.size),
-        .headers_and_trailers = &vec,
-        .headers_len = 1,
-    });
-    try w.writePadding(stat.size);
+    try w.underlying_writer.writeAll(@ptrCast((&header)[0..1]));
+    _ = try w.underlying_writer.sendFileAll(file_reader, .unlimited);
+    try w.writePadding64(size);
 }
+
+pub const WriteFileStreamError = Error || std.Io.Reader.StreamError;
 
 /// Writes file reading file content from `reader`. Reads exactly `size` bytes
 /// from `reader`, or returns `error.EndOfStream`.
 pub fn writeFileStream(
     w: *Writer,
     sub_path: []const u8,
-    size: usize,
-    reader: *std.io.Reader,
+    size: u64,
+    reader: *std.Io.Reader,
     options: Options,
-) std.io.Reader.StreamError!void {
-    try w.writeHeader(.regular, sub_path, "", @intCast(size), options);
-    try reader.readAll(w.underlying_writer, .limited(size));
-    try w.writePadding(size);
+) WriteFileStreamError!void {
+    try w.writeHeader(.regular, sub_path, "", size, options);
+    try reader.streamExact64(w.underlying_writer, size);
+    try w.writePadding64(size);
 }
 
 /// Writes file using bytes buffer `content` for size and file content.
 pub fn writeFileBytes(w: *Writer, sub_path: []const u8, content: []const u8, options: Options) Error!void {
-    try w.writeHeader(.regular, sub_path, "", @intCast(content.len), options);
+    try w.writeHeader(.regular, sub_path, "", content.len, options);
     try w.underlying_writer.writeAll(content);
     try w.writePadding(content.len);
 }
 
 pub fn writeLink(w: *Writer, sub_path: []const u8, link_name: []const u8, options: Options) Error!void {
     try w.writeHeader(.symbolic_link, sub_path, link_name, 0, options);
-}
-
-/// Writes fs.Dir.WalkerEntry. Uses `mtime` from file system entry and
-/// default for entry mode .
-pub fn writeEntry(w: *Writer, entry: std.fs.Dir.Walker.Entry) Error!void {
-    switch (entry.kind) {
-        .directory => {
-            try w.writeDir(entry.path, .{ .mtime = try entryMtime(entry) });
-        },
-        .file => {
-            var file = try entry.dir.openFile(entry.basename, .{});
-            defer file.close();
-            const stat = try file.stat();
-            try w.writeFile(entry.path, file, stat);
-        },
-        .sym_link => {
-            var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
-            const link_name = try entry.dir.readLink(entry.basename, &link_name_buffer);
-            try w.writeLink(entry.path, link_name, .{ .mtime = try entryMtime(entry) });
-        },
-        else => {
-            return error.UnsupportedWalkerEntryKind;
-        },
-    }
 }
 
 fn writeHeader(
@@ -121,7 +96,7 @@ fn writeHeader(
     var header = Header.init(typeflag);
     try w.setPath(&header, sub_path);
     try header.setSize(size);
-    try header.setMtime(if (options.mtime != 0) options.mtime else w.mtimeNow());
+    try header.setMtime(options.mtime);
     if (options.mode != 0)
         try header.setMode(options.mode);
     if (typeflag == .symbolic_link)
@@ -130,17 +105,6 @@ fn writeHeader(
             else => return err,
         };
     try header.write(w.underlying_writer);
-}
-
-fn mtimeNow(w: *Writer) u64 {
-    if (w.mtime_now == 0)
-        w.mtime_now = @intCast(std.time.timestamp());
-    return w.mtime_now;
-}
-
-fn entryMtime(entry: std.fs.Dir.Walker.Entry) !u64 {
-    const stat = try entry.dir.statFile(entry.basename);
-    return @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
 }
 
 /// Writes path in posix header, if don't fit (in name+prefix; 100+155
@@ -172,8 +136,15 @@ fn writeExtendedHeader(w: *Writer, typeflag: Header.FileType, buffers: []const [
     try w.writePadding(len);
 }
 
-fn writePadding(w: *Writer, bytes: usize) std.io.Writer.Error!void {
-    const pos = bytes % block_size;
+fn writePadding(w: *Writer, bytes: usize) std.Io.Writer.Error!void {
+    return writePaddingPos(w, bytes % block_size);
+}
+
+fn writePadding64(w: *Writer, bytes: u64) std.Io.Writer.Error!void {
+    return writePaddingPos(w, @intCast(bytes % block_size));
+}
+
+fn writePaddingPos(w: *Writer, pos: usize) std.Io.Writer.Error!void {
     if (pos == 0) return;
     try w.underlying_writer.splatByteAll(0, block_size - pos);
 }
@@ -182,8 +153,8 @@ fn writePadding(w: *Writer, bytes: usize) std.io.Writer.Error!void {
 /// "reasonable system must not assume that such a block exists when reading an
 /// archive". Therefore, the Zig standard library recommends to not call this
 /// function.
-pub fn finishPedantically(w: *Writer) std.io.Writer.Error!void {
-    try w.underlying_writer.writeSplatAll(&.{&.{0}}, block_size * 2);
+pub fn finishPedantically(w: *Writer) std.Io.Writer.Error!void {
+    try w.underlying_writer.splatByteAll(0, block_size * 2);
 }
 
 /// A struct that is exactly 512 bytes and matches tar file format. This is
@@ -277,7 +248,7 @@ pub const Header = extern struct {
         try octal(&w.checksum, checksum);
     }
 
-    pub fn write(h: *Header, bw: *std.io.Writer) error{ OctalOverflow, WriteFailed }!void {
+    pub fn write(h: *Header, bw: *std.Io.Writer) error{ OctalOverflow, WriteFailed }!void {
         try h.updateChecksum();
         try bw.writeAll(std.mem.asBytes(h));
     }
@@ -375,8 +346,8 @@ pub const Header = extern struct {
         for (cases) |case| {
             var header = Header.init(.regular);
             try header.setPath(case.in[0], case.in[1]);
-            try testing.expectEqualStrings(case.out[0], str(&header.prefix));
-            try testing.expectEqualStrings(case.out[1], str(&header.name));
+            try testing.expectEqualStrings(case.out[0], std.mem.sliceTo(&header.prefix, 0));
+            try testing.expectEqualStrings(case.out[1], std.mem.sliceTo(&header.name, 0));
         }
 
         const error_cases = [_]struct {
@@ -398,14 +369,6 @@ pub const Header = extern struct {
                 header.setPath(case.in[0], case.in[1]),
             );
         }
-    }
-
-    // Breaks string on first null character.
-    fn str(s: []const u8) []const u8 {
-        for (s, 0..) |c, i| {
-            if (c == 0) return s[0..i];
-        }
-        return s;
     }
 };
 
@@ -433,67 +396,67 @@ test "write files" {
     {
         const root = "root";
 
-        var output: std.io.Writer.Allocating = .init(testing.allocator);
-        var wrt: Writer = .{ .underlying_writer = &output.interface };
+        var output: std.Io.Writer.Allocating = .init(testing.allocator);
+        var w: Writer = .{ .underlying_writer = &output.writer };
         defer output.deinit();
-        try wrt.setRoot(root);
+        try w.setRoot(root);
         for (files) |file|
-            try wrt.writeFileBytes(file.path, file.content, .{});
+            try w.writeFileBytes(file.path, file.content, .{});
 
-        var input: std.io.Reader = .fixed(output.getWritten());
-        var iter = std.tar.iterator(&input, .{
+        var input: std.Io.Reader = .fixed(output.getWritten());
+        var it: std.tar.Iterator = .init(&input, .{
             .file_name_buffer = &file_name_buffer,
             .link_name_buffer = &link_name_buffer,
         });
 
         // first entry is directory with prefix
         {
-            const actual = (try iter.next()).?;
+            const actual = (try it.next()).?;
             try testing.expectEqualStrings(root, actual.name);
             try testing.expectEqual(std.tar.FileKind.directory, actual.kind);
         }
 
         var i: usize = 0;
-        while (try iter.next()) |actual| {
+        while (try it.next()) |actual| {
             defer i += 1;
             const expected = files[i];
             try testing.expectEqualStrings(root, actual.name[0..root.len]);
             try testing.expectEqual('/', actual.name[root.len..][0]);
             try testing.expectEqualStrings(expected.path, actual.name[root.len + 1 ..]);
 
-            var content = std.ArrayList(u8).init(testing.allocator);
+            var content: std.Io.Writer.Allocating = .init(testing.allocator);
             defer content.deinit();
-            try actual.writeAll(content.writer());
-            try testing.expectEqualSlices(u8, expected.content, content.items);
+            try it.streamRemaining(actual, &content.writer);
+            try testing.expectEqualSlices(u8, expected.content, content.getWritten());
         }
     }
     // without root
     {
-        var output: std.io.Writer.Allocating = .init(testing.allocator);
-        var wrt: Writer = .{ .underlying_writer = &output.interface };
+        var output: std.Io.Writer.Allocating = .init(testing.allocator);
+        var w: Writer = .{ .underlying_writer = &output.writer };
         defer output.deinit();
         for (files) |file| {
-            var content: std.io.Reader = .fixed(file.content);
-            try wrt.writeFileStream(file.path, file.content.len, &content, .{});
+            var content: std.Io.Reader = .fixed(file.content);
+            try w.writeFileStream(file.path, file.content.len, &content, .{});
         }
 
-        var input: std.io.Reader = .fixed(output.getWritten());
-        var iter = std.tar.iterator(&input, .{
+        var input: std.Io.Reader = .fixed(output.getWritten());
+        var it: std.tar.Iterator = .init(&input, .{
             .file_name_buffer = &file_name_buffer,
             .link_name_buffer = &link_name_buffer,
         });
 
         var i: usize = 0;
-        while (try iter.next()) |actual| {
+        while (try it.next()) |actual| {
             defer i += 1;
             const expected = files[i];
             try testing.expectEqualStrings(expected.path, actual.name);
 
-            var content = std.ArrayList(u8).init(testing.allocator);
+            var content: std.Io.Writer.Allocating = .init(testing.allocator);
             defer content.deinit();
-            try actual.writeAll(content.writer());
-            try testing.expectEqualSlices(u8, expected.content, content.items);
+            try it.streamRemaining(actual, &content.writer);
+            try testing.expectEqualSlices(u8, expected.content, content.getWritten());
         }
-        try wrt.finish();
+        try w.finishPedantically();
     }
 }
