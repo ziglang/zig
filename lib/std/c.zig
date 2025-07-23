@@ -7147,7 +7147,7 @@ pub const dirent = switch (native_os) {
         off: off_t,
         reclen: c_ushort,
         type: u8,
-        name: [256:0]u8,
+        name: [255:0]u8,
     },
     else => void,
 };
