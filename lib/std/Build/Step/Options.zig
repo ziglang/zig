@@ -527,35 +527,45 @@ test Options {
 
     try std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
-        \\pub const option2: ?usize = null;
+        \\
+        \\pub const option2: ?usize = @as(?usize, null);
+        \\
         \\pub const option3: ?usize = 3;
+        \\
         \\pub const option4: comptime_int = 4;
+        \\
         \\pub const string: []const u8 = "zigisthebest";
-        \\pub const optional_string: ?[]const u8 = null;
-        \\pub const nested_array: [2][2]u16 = [2][2]u16 {
-        \\    [2]u16 {
+        \\
+        \\pub const optional_string: ?[]const u8 = @as(?[]const u8, null);
+        \\
+        \\pub const nested_array: [2][2]u16 = .{
+        \\    .{
         \\        300,
         \\        200,
         \\    },
-        \\    [2]u16 {
-        \\        300,
-        \\        200,
-        \\    },
-        \\};
-        \\pub const nested_slice: []const []const u16 = &[_][]const u16 {
-        \\    &[_]u16 {
-        \\        300,
-        \\        200,
-        \\    },
-        \\    &[_]u16 {
+        \\    .{
         \\        300,
         \\        200,
         \\    },
         \\};
-        \\pub const @"Build.Step.Options.decltest.Options.KeywordEnum" = enum (u0) {
+        \\
+        \\pub const nested_slice: []const []const u16 = &.{
+        \\    &.{
+        \\        300,
+        \\        200,
+        \\    },
+        \\    &.{
+        \\        300,
+        \\        200,
+        \\    },
+        \\};
+        \\
+        \\pub const @"Build.Step.Options.decltest.Options.KeywordEnum" = enum(u0) {
         \\    @"0.8.1" = 0,
         \\};
+        \\
         \\pub const keyword_enum: @"Build.Step.Options.decltest.Options.KeywordEnum" = .@"0.8.1";
+        \\
         \\pub const semantic_version: @import("std").SemanticVersion = .{
         \\    .major = 0,
         \\    .minor = 1,
@@ -563,28 +573,36 @@ test Options {
         \\    .pre = "foo",
         \\    .build = "bar",
         \\};
-        \\pub const @"Build.Step.Options.decltest.Options.NormalEnum" = enum (u1) {
+        \\
+        \\pub const @"Build.Step.Options.decltest.Options.NormalEnum" = enum(u1) {
         \\    foo = 0,
         \\    bar = 1,
         \\};
+        \\
         \\pub const normal1_enum: @"Build.Step.Options.decltest.Options.NormalEnum" = .foo;
+        \\
         \\pub const normal2_enum: @"Build.Step.Options.decltest.Options.NormalEnum" = .bar;
+        \\
         \\pub const @"Build.Step.Options.decltest.Options.NormalStruct" = struct {
         \\    hello: ?[]const u8,
         \\    world: bool = true,
         \\};
+        \\
         \\pub const normal1_struct: @"Build.Step.Options.decltest.Options.NormalStruct" = .{
         \\    .hello = "foo",
         \\    .world = true,
         \\};
+        \\
         \\pub const normal2_struct: @"Build.Step.Options.decltest.Options.NormalStruct" = .{
-        \\    .hello = null,
+        \\    .hello = @as(?[]const u8, null),
         \\    .world = false,
         \\};
+        \\
         \\pub const @"Build.Step.Options.decltest.Options.NestedStruct" = struct {
         \\    normal_struct: @"Build.Step.Options.decltest.Options.NormalStruct",
         \\    normal_enum: @"Build.Step.Options.decltest.Options.NormalEnum" = .foo,
         \\};
+        \\
         \\pub const nested_struct: @"Build.Step.Options.decltest.Options.NestedStruct" = .{
         \\    .normal_struct = .{
         \\        .hello = "bar",
@@ -592,6 +610,7 @@ test Options {
         \\    },
         \\    .normal_enum = .foo,
         \\};
+        \\
         \\
     , options.contents.items);
 
