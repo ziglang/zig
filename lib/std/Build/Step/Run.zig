@@ -73,12 +73,12 @@ skip_foreign_checks: bool,
 /// external executor (such as qemu) but not fail if the executor is unavailable.
 failing_to_execute_foreign_is_an_error: bool,
 
-/// Deprecated for `stdio_limit`.
+/// Deprecated in favor of `stdio_limit`.
 max_stdio_size: usize,
 
 /// If stderr or stdout exceeds this amount, the child process is killed and
 /// the step fails.
-stdio_limit: std.io.Limit,
+stdio_limit: std.Io.Limit,
 
 captured_stdout: ?*Output,
 captured_stderr: ?*Output,
@@ -1015,7 +1015,7 @@ fn populateGeneratedPaths(
     }
 }
 
-fn formatTerm(term: ?std.process.Child.Term, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatTerm(term: ?std.process.Child.Term, w: *std.Io.Writer) std.Io.Writer.Error!void {
     if (term) |t| switch (t) {
         .Exited => |code| try w.print("exited with code {d}", .{code}),
         .Signal => |sig| try w.print("terminated with signal {d}", .{sig}),
@@ -1504,7 +1504,7 @@ fn evalZigTest(
     const gpa = run.step.owner.allocator;
     const arena = run.step.owner.allocator;
 
-    var poller = std.io.poll(gpa, enum { stdout, stderr }, .{
+    var poller = std.Io.poll(gpa, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });
@@ -1540,14 +1540,14 @@ fn evalZigTest(
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
 
-    const stdout_br = poller.reader(.stdout);
-    const stderr_br = poller.reader(.stderr);
+    const stdout = poller.reader(.stdout);
+    const stderr = poller.reader(.stderr);
     const any_write_failed = first_write_failed or poll: while (true) {
         const Header = std.zig.Server.Message.Header;
-        while (stdout_br.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll false;
-        const header = (stdout_br.takeStruct(Header) catch unreachable).*;
-        while (stdout_br.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll false;
-        const body = stdout_br.take(header.bytes_len) catch unreachable;
+        while (stdout.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll false;
+        const header = (stdout.takeStruct(Header, .little) catch unreachable).*;
+        while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll false;
+        const body = stdout.take(header.bytes_len) catch unreachable;
         switch (header.tag) {
             .zig_version => {
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
@@ -1604,8 +1604,8 @@ fn evalZigTest(
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
-                    const stderr_contents = stderr_br.buffered();
-                    stderr_br.toss(stderr_contents.len);
+                    const stderr_contents = stderr.buffered();
+                    stderr.toss(stderr_contents.len);
                     const msg = std.mem.trim(u8, stderr_contents, "\n");
                     const label = if (tr_hdr.flags.fail)
                         "failed"
@@ -1665,7 +1665,7 @@ fn evalZigTest(
         while (try poller.poll()) {}
     }
 
-    const stderr_contents = std.mem.trim(u8, stderr_br.buffered(), "\n");
+    const stderr_contents = std.mem.trim(u8, stderr.buffered(), "\n");
     if (stderr_contents.len > 0) {
         run.step.result_stderr = try arena.dupe(u8, stderr_contents);
     }
@@ -1793,7 +1793,7 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
     run.stdio_limit = run.stdio_limit.min(.limited(run.max_stdio_size));
     if (child.stdout) |stdout| {
         if (child.stderr) |stderr| {
-            var poller = std.io.poll(arena, enum { stdout, stderr }, .{
+            var poller = std.Io.poll(arena, enum { stdout, stderr }, .{
                 .stdout = stdout,
                 .stderr = stderr,
             });

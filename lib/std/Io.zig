@@ -82,9 +82,6 @@ pub const Limit = enum(usize) {
 pub const Reader = @import("Io/Reader.zig");
 pub const Writer = @import("Io/Writer.zig");
 
-pub const ChangeDetectionStream = @import("Io/change_detection_stream.zig").ChangeDetectionStream;
-pub const changeDetectionStream = @import("Io/change_detection_stream.zig").changeDetectionStream;
-
 pub const tty = @import("Io/tty.zig");
 
 pub fn poll(

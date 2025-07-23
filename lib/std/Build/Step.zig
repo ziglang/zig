@@ -510,13 +510,13 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
 
     var result: ?Path = null;
 
-    const stdout_br = zp.poller.reader(.stdout);
+    const stdout = zp.poller.reader(.stdout);
     poll: while (true) {
         const Header = std.zig.Server.Message.Header;
-        while (stdout_br.buffered().len < @sizeOf(Header)) if (!try zp.poller.poll()) break :poll;
-        const header = (stdout_br.takeStruct(Header) catch unreachable).*;
-        while (stdout_br.buffered().len < header.bytes_len) if (!try zp.poller.poll()) break :poll;
-        const body = stdout_br.take(header.bytes_len) catch unreachable;
+        while (stdout.buffered().len < @sizeOf(Header)) if (!try zp.poller.poll()) break :poll;
+        const header = (stdout.takeStruct(Header) catch unreachable).*;
+        while (stdout.buffered().len < header.bytes_len) if (!try zp.poller.poll()) break :poll;
+        const body = stdout.take(header.bytes_len) catch unreachable;
         switch (header.tag) {
             .zig_version => {
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
@@ -606,8 +606,8 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
 
     s.result_duration_ns = timer.read();
 
-    const stderr_br = zp.poller.reader(.stderr);
-    const stderr_contents = stderr_br.buffered();
+    const stderr = zp.poller.reader(.stderr);
+    const stderr_contents = stderr.buffered();
     if (stderr_contents.len > 0) {
         try s.result_error_msgs.append(arena, try arena.dupe(u8, stderr_contents));
     }
@@ -761,8 +761,8 @@ pub fn allocPrintCmd2(
     };
 
     var aw: std.io.Writer.Allocating = .init(arena);
-    const w = &aw.interface;
-    if (opt_cwd) |cwd| try w.print(arena, "cd {s} && ", .{cwd});
+    const writer = &aw.writer;
+    if (opt_cwd) |cwd| try writer.print(arena, "cd {s} && ", .{cwd});
     if (opt_env) |env| {
         const process_env_map = std.process.getEnvMap(arena) catch std.process.EnvMap.init(arena);
         var it = env.iterator();
@@ -772,15 +772,15 @@ pub fn allocPrintCmd2(
             if (process_env_map.get(key)) |process_value| {
                 if (std.mem.eql(u8, value, process_value)) continue;
             }
-            try w.print(arena, "{s}=", .{key});
-            try shell.escape(w, value, false);
-            try w.writeByte(arena, ' ');
+            try writer.print(arena, "{s}=", .{key});
+            try shell.escape(writer, value, false);
+            try writer.writeByte(arena, ' ');
         }
     }
-    try shell.escape(w, argv[0], true);
+    try shell.escape(writer, argv[0], true);
     for (argv[1..]) |arg| {
-        try w.writeByte(arena, ' ');
-        try shell.escape(w, arg, false);
+        try writer.writeByte(arena, ' ');
+        try shell.escape(writer, arg, false);
     }
     return aw.getWritten();
 }

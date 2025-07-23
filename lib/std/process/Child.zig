@@ -348,7 +348,7 @@ pub const RunResult = struct {
     stderr: []u8,
 };
 
-fn writeBufferedReaderToArrayList(allocator: Allocator, list: *std.ArrayListUnmanaged(u8), r: *std.io.Reader) !void {
+fn writeBufferedReaderToArrayList(allocator: Allocator, list: *std.ArrayListUnmanaged(u8), r: *std.Io.Reader) !void {
     assert(r.seek == 0);
     if (list.capacity == 0) {
         list.* = .{
@@ -376,16 +376,16 @@ pub fn collectOutput(
     assert(child.stdout_behavior == .Pipe);
     assert(child.stderr_behavior == .Pipe);
 
-    var poller = std.io.poll(allocator, enum { stdout, stderr }, .{
+    var poller = std.Io.poll(allocator, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });
     defer poller.deinit();
 
     while (try poller.poll()) {
-        if (poller.reader(.stdout).buffered().len > max_output_bytes)
+        if (poller.reader(.stdout).bufferedLen() > max_output_bytes)
             return error.StdoutStreamTooLong;
-        if (poller.reader(.stderr).buffered().len > max_output_bytes)
+        if (poller.reader(.stderr).bufferedLen() > max_output_bytes)
             return error.StderrStreamTooLong;
     }
 
@@ -1002,17 +1002,16 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 }
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
-    var fw = std.fs.File.writer(.{ .handle = fd });
     var buffer: [8]u8 = undefined;
-    var bw = fw.interface().buffered(&buffer);
-    bw.writeInt(u64, value, .little) catch return error.SystemResources;
+    var fw: std.fs.File.Writer = .initMode(.{ .handle = fd }, &buffer, .streaming);
+    fw.interface.writeInt(u64, value, .little) catch unreachable;
+    fw.interface.flush() catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
-    var fr = std.fs.File.reader(.{ .handle = fd });
     var buffer: [8]u8 = undefined;
-    var br = fr.interface().buffered(&buffer);
-    return @intCast(br.takeInt(u64, .little) catch return error.SystemResources);
+    var fr: std.fs.File.Reader = .initMode(.{ .handle = fd }, &buffer, .streaming);
+    return @intCast(fr.interface.takeInt(u64, .little) catch return error.SystemResources);
 }
 
 const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);
