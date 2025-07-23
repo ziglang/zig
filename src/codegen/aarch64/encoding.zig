@@ -1072,7 +1072,7 @@ pub const Register = struct {
     }
 
     pub fn parse(reg: []const u8) ?Register {
-        return if (reg.len == 0) null else switch (reg[0]) {
+        return if (reg.len == 0) null else switch (std.ascii.toLower(reg[0])) {
             else => null,
             'r' => if (std.fmt.parseInt(u5, reg[1..], 10)) |n| switch (n) {
                 0...30 => .{
@@ -1087,27 +1087,27 @@ pub const Register = struct {
                     .format = .{ .integer = .doubleword },
                 },
                 31 => null,
-            } else |_| if (std.mem.eql(u8, reg, "xzr")) .xzr else null,
+            } else |_| if (toLowerEqlAssertLower(reg, "xzr")) .xzr else null,
             'w' => if (std.fmt.parseInt(u5, reg[1..], 10)) |n| switch (n) {
                 0...30 => .{
                     .alias = @enumFromInt(@intFromEnum(Alias.r0) + n),
                     .format = .{ .integer = .word },
                 },
                 31 => null,
-            } else |_| if (std.mem.eql(u8, reg, "wzr"))
+            } else |_| if (toLowerEqlAssertLower(reg, "wzr"))
                 .wzr
-            else if (std.mem.eql(u8, reg, "wsp"))
+            else if (toLowerEqlAssertLower(reg, "wsp"))
                 .wsp
             else
                 null,
-            'i' => return if (std.mem.eql(u8, reg, "ip") or std.mem.eql(u8, reg, "ip0"))
+            'i' => return if (toLowerEqlAssertLower(reg, "ip") or toLowerEqlAssertLower(reg, "ip0"))
                 .ip0
-            else if (std.mem.eql(u8, reg, "ip1"))
+            else if (toLowerEqlAssertLower(reg, "ip1"))
                 .ip1
             else
                 null,
-            'f' => return if (std.mem.eql(u8, reg, "fp")) .fp else null,
-            'p' => return if (std.mem.eql(u8, reg, "pc")) .pc else null,
+            'f' => return if (toLowerEqlAssertLower(reg, "fp")) .fp else null,
+            'p' => return if (toLowerEqlAssertLower(reg, "pc")) .pc else null,
             'v' => if (std.fmt.parseInt(u5, reg[1..], 10)) |n| .{
                 .alias = @enumFromInt(@intFromEnum(Alias.v0) + n),
                 .format = .alias,
@@ -1123,7 +1123,7 @@ pub const Register = struct {
             's' => if (std.fmt.parseInt(u5, reg[1..], 10)) |n| .{
                 .alias = @enumFromInt(@intFromEnum(Alias.v0) + n),
                 .format = .{ .scalar = .single },
-            } else |_| if (std.mem.eql(u8, reg, "sp")) .sp else null,
+            } else |_| if (toLowerEqlAssertLower(reg, "sp")) .sp else null,
             'h' => if (std.fmt.parseInt(u5, reg[1..], 10)) |n| .{
                 .alias = @enumFromInt(@intFromEnum(Alias.v0) + n),
                 .format = .{ .scalar = .half },
@@ -1140,6 +1140,422 @@ pub const Register = struct {
     }
     pub fn fmtCase(reg: Register, case: aarch64.Disassemble.Case) aarch64.Disassemble.RegisterFormatter {
         return .{ .reg = reg, .case = case };
+    }
+
+    pub const System = packed struct(u16) {
+        op2: u3,
+        CRm: u4,
+        CRn: u4,
+        op1: u3,
+        op0: u2,
+
+        // D19.2 General system control registers
+        /// D19.2.1 ACCDATA_EL1, Accelerator Data
+        pub const accdata_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b101 };
+        /// D19.2.2 ACTLR_EL1, Auxiliary Control Register (EL1)
+        pub const actlr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.3 ACTLR_EL2, Auxiliary Control Register (EL2)
+        pub const actlr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.4 ACTLR_EL3, Auxiliary Control Register (EL3)
+        pub const actlr_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.5 AFSR0_EL1, Auxiliary Fault Status Register 0 (EL1)
+        pub const afsr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0101, .CRm = 0b0001, .op2 = 0b000 };
+        /// D19.2.5 AFSR0_EL12, Auxiliary Fault Status Register 0 (EL12)
+        pub const afsr0_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0101, .CRm = 0b0001, .op2 = 0b000 };
+        /// D19.2.6 AFSR0_EL2, Auxiliary Fault Status Register 0 (EL2)
+        pub const afsr0_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0101, .CRm = 0b0001, .op2 = 0b000 };
+        /// D19.2.7 AFSR0_EL3, Auxiliary Fault Status Register 0 (EL3)
+        pub const afsr0_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0101, .CRm = 0b0001, .op2 = 0b000 };
+        /// D19.2.8 AFSR1_EL1, Auxiliary Fault Status Register 1 (EL1)
+        pub const afsr1_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0101, .CRm = 0b0001, .op2 = 0b001 };
+        /// D19.2.8 AFSR1_EL12, Auxiliary Fault Status Register 1 (EL12)
+        pub const afsr1_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0101, .CRm = 0b0001, .op2 = 0b001 };
+        /// D19.2.9 AFSR1_EL2, Auxiliary Fault Status Register 1 (EL2)
+        pub const afsr1_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0101, .CRm = 0b0001, .op2 = 0b001 };
+        /// D19.2.10 AFSR1_EL3, Auxiliary Fault Status Register 1 (EL3)
+        pub const afsr1_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0101, .CRm = 0b0001, .op2 = 0b001 };
+        /// D19.2.11 AIDR_EL1, Auxiliary ID Register
+        pub const aidr_el1: System = .{ .op0 = 0b11, .op1 = 0b001, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b111 };
+        /// D19.2.12 AMAIR_EL1, Auxiliary Memory Attribute Indirection Register (EL1)
+        pub const amair_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1010, .CRm = 0b0011, .op2 = 0b000 };
+        /// D19.2.12 AMAIR_EL12, Auxiliary Memory Attribute Indirection Register (EL12)
+        pub const amair_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b1010, .CRm = 0b0011, .op2 = 0b000 };
+        /// D19.2.13 AMAIR_EL2, Auxiliary Memory Attribute Indirection Register (EL2)
+        pub const amair_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b1010, .CRm = 0b0011, .op2 = 0b000 };
+        /// D19.2.14 AMAIR_EL3, Auxiliary Memory Attribute Indirection Register (EL3)
+        pub const amair_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b1010, .CRm = 0b0011, .op2 = 0b000 };
+        /// D19.2.15 APDAKeyHi_EL1, Pointer Authentication Key A for Data (bits[127:64])
+        pub const apdakeyhi_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0010, .op2 = 0b001 };
+        /// D19.2.16 APDAKeyLo_EL1, Pointer Authentication Key A for Data (bits[63:0])
+        pub const apdakeylo_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.17 APDBKeyHi_EL1, Pointer Authentication Key B for Data (bits[127:64])
+        pub const apdbkeyhi_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0010, .op2 = 0b011 };
+        /// D19.2.18 APDAKeyHi_EL1, Pointer Authentication Key B for Data (bits[63:0])
+        pub const apdbkeylo_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0010, .op2 = 0b010 };
+        /// D19.2.19 APGAKeyHi_EL1, Pointer Authentication Key A for Code (bits[127:64])
+        pub const apgakeyhi_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0011, .op2 = 0b001 };
+        /// D19.2.20 APGAKeyLo_EL1, Pointer Authentication Key A for Code (bits[63:0])
+        pub const apgakeylo_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0011, .op2 = 0b000 };
+        /// D19.2.21 APIAKeyHi_EL1, Pointer Authentication Key A for Instruction (bits[127:64])
+        pub const apiakeyhi_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0001, .op2 = 0b001 };
+        /// D19.2.22 APIAKeyLo_EL1, Pointer Authentication Key A for Instruction (bits[63:0])
+        pub const apiakeylo_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0001, .op2 = 0b000 };
+        /// D19.2.23 APIBKeyHi_EL1, Pointer Authentication Key B for Instruction (bits[127:64])
+        pub const apibkeyhi_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0001, .op2 = 0b011 };
+        /// D19.2.24 APIBKeyLo_EL1, Pointer Authentication Key B for Instruction (bits[63:0])
+        pub const apibkeylo_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0001, .op2 = 0b010 };
+        /// D19.2.25 CCSIDR2_EL1, Current Cache Size ID Register 2
+        pub const ccsidr2_el1: System = .{ .op0 = 0b11, .op1 = 0b001, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.26 CCSIDR_EL1, Current Cache Size ID Register
+        pub const ccsidr_el1: System = .{ .op0 = 0b11, .op1 = 0b001, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.27 CLIDR_EL1, Cache Level ID Register
+        pub const clidr_el1: System = .{ .op0 = 0b11, .op1 = 0b001, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.28 CONTEXTIDR_EL1, Context ID Register (EL1)
+        pub const contextidr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.28 CONTEXTIDR_EL12, Context ID Register (EL12)
+        pub const contextidr_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.29 CONTEXTIDR_EL2, Context ID Register (EL2)
+        pub const contextidr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.30 CPACR_EL1, Architectural Feature Access Control Register
+        pub const cpacr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.30 CPACR_EL12, Architectural Feature Access Control Register
+        pub const cpacr_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.31 CPACR_EL2, Architectural Feature Trap Register (EL2)
+        pub const cptr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0001, .op2 = 0b010 };
+        /// D19.2.32 CPACR_EL3, Architectural Feature Trap Register (EL3)
+        pub const cptr_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0001, .CRm = 0b0001, .op2 = 0b010 };
+        /// D19.2.33 CSSELR_EL1, Cache Size Selection Register
+        pub const csselr_el1: System = .{ .op0 = 0b11, .op1 = 0b010, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.34 CTR_EL0, Cache Type Register
+        pub const ctr_el0: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.35 DACR32_EL2, Domain Access Control Register
+        pub const dacr32_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0011, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.36 DCZID_EL0, Data Cache Zero ID Register
+        pub const dczid_el0: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b111 };
+        /// D19.2.37 ESR_EL1, Exception Syndrome Register (EL1)
+        pub const esr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0101, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.37 ESR_EL12, Exception Syndrome Register (EL12)
+        pub const esr_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0101, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.38 ESR_EL2, Exception Syndrome Register (EL2)
+        pub const esr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0101, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.39 ESR_EL3, Exception Syndrome Register (EL3)
+        pub const esr_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0101, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.40 FAR_EL1, Fault Address Register (EL1)
+        pub const far_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0110, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.40 FAR_EL12, Fault Address Register (EL12)
+        pub const far_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0110, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.41 FAR_EL2, Fault Address Register (EL2)
+        pub const far_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0110, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.42 FAR_EL3, Fault Address Register (EL3)
+        pub const far_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0110, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.43 FPEXC32_EL2, Floating-Point Exception Control Register
+        pub const fpexc32_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0101, .CRm = 0b0011, .op2 = 0b000 };
+        /// D19.2.44 GCR_EL1, Tag Control Register
+        pub const gcr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b110 };
+        /// D19.2.45 GMID_EL1, Tag Control Register
+        pub const gmid_el1: System = .{ .op0 = 0b11, .op1 = 0b001, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b100 };
+        /// D19.2.46 HACR_EL2, Hypervisor Auxiliary Control Register
+        pub const hacr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0001, .op2 = 0b111 };
+        /// D19.2.47 HAFGRTR_EL2, Hypervisor Activity Monitors Fine-Grained Read Trap Register
+        pub const hafgrtr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0011, .CRm = 0b0001, .op2 = 0b110 };
+        /// D19.2.48 HCR_EL2, Hypervisor Configuration Register
+        pub const hcr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0001, .op2 = 0b000 };
+        /// D19.2.49 HCRX_EL2, Extended Hypervisor Configuration Register
+        pub const hcrx_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0010, .op2 = 0b010 };
+        /// D19.2.50 HDFGRTR_EL2, Hypervisor Debug Fine-Grained Read Trap Register
+        pub const hdfgrtr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0011, .CRm = 0b0001, .op2 = 0b100 };
+        /// D19.2.51 HDFGWTR_EL2, Hypervisor Debug Fine-Grained Write Trap Register
+        pub const hdfgwtr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0011, .CRm = 0b0001, .op2 = 0b101 };
+        /// D19.2.52 HFGITR_EL2, Hypervisor Fine-Grained Instruction Trap Register
+        pub const hfgitr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0001, .op2 = 0b110 };
+        /// D19.2.53 HFGRTR_EL2, Hypervisor Fine-Grained Read Trap Register
+        pub const hfgrtr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0001, .op2 = 0b100 };
+        /// D19.2.54 HFGWTR_EL2, Hypervisor Fine-Grained Write Trap Register
+        pub const hfgwtr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0001, .op2 = 0b101 };
+        /// D19.2.55 HPFAR_EL2, Hypervisor IPA Fault Address Register
+        pub const hpfar_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0110, .CRm = 0b0000, .op2 = 0b100 };
+        /// D19.2.56 HSTR_EL2, Hypervisor System Trap Register
+        pub const hstr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0001, .op2 = 0b011 };
+        /// D19.2.57 ID_AA64AFR0_EL1, AArch64 Auxiliary Feature Register 0
+        pub const id_aa64afr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0101, .op2 = 0b100 };
+        /// D19.2.58 ID_AA64AFR1_EL1, AArch64 Auxiliary Feature Register 1
+        pub const id_aa64afr1_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0101, .op2 = 0b101 };
+        /// D19.2.59 ID_AA64DFR0_EL1, AArch64 Debug Feature Register 0
+        pub const id_aa64dfr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0101, .op2 = 0b000 };
+        /// D19.2.60 ID_AA64DFR1_EL1, AArch64 Debug Feature Register 1
+        pub const id_aa64dfr1_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0101, .op2 = 0b001 };
+        /// D19.2.61 ID_AA64ISAR0_EL1, AArch64 Instruction Set Attribute Register 0
+        pub const id_aa64isar0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0110, .op2 = 0b000 };
+        /// D19.2.62 ID_AA64ISAR1_EL1, AArch64 Instruction Set Attribute Register 1
+        pub const id_aa64isar1_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0110, .op2 = 0b001 };
+        /// D19.2.63 ID_AA64ISAR2_EL1, AArch64 Instruction Set Attribute Register 2
+        pub const id_aa64isar2_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0110, .op2 = 0b010 };
+        /// D19.2.64 ID_AA64MMFR0_EL1, AArch64 Memory Model Feature Register 0
+        pub const id_aa64mmfr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0111, .op2 = 0b000 };
+        /// D19.2.65 ID_AA64MMFR1_EL1, AArch64 Memory Model Feature Register 1
+        pub const id_aa64mmfr1_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0111, .op2 = 0b001 };
+        /// D19.2.66 ID_AA64MMFR2_EL1, AArch64 Memory Model Feature Register 2
+        pub const id_aa64mmfr2_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0111, .op2 = 0b010 };
+        /// D19.2.67 ID_AA64MMFR3_EL1, AArch64 Memory Model Feature Register 3
+        pub const id_aa64mmfr3_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0111, .op2 = 0b011 };
+        /// D19.2.68 ID_AA64MMFR4_EL1, AArch64 Memory Model Feature Register 4
+        pub const id_aa64mmfr4_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0111, .op2 = 0b100 };
+        /// D19.2.69 ID_AA64PFR0_EL1, AArch64 Processor Feature Register 0
+        pub const id_aa64pfr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0100, .op2 = 0b000 };
+        /// D19.2.70 ID_AA64PFR1_EL1, AArch64 Processor Feature Register 1
+        pub const id_aa64pfr1_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0100, .op2 = 0b001 };
+        /// D19.2.71 ID_AA64PFR2_EL1, AArch64 Processor Feature Register 2
+        pub const id_aa64pfr2_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0100, .op2 = 0b010 };
+        /// D19.2.72 ID_AA64SMFR0_EL1, SME Feature ID Register 0
+        pub const id_aa64smfr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0100, .op2 = 0b101 };
+        /// D19.2.73 ID_AA64ZFR0_EL1, SVE Feature ID Register 0
+        pub const id_aa64zfr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0100, .op2 = 0b100 };
+        /// D19.2.74 ID_AFR0_EL1, AArch32 Auxiliary Feature Register 0
+        pub const id_afr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0001, .op2 = 0b011 };
+        /// D19.2.75 ID_DFR0_EL1, AArch32 Debug Feature Register 0
+        pub const id_dfr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0001, .op2 = 0b010 };
+        /// D19.2.76 ID_DFR1_EL1, AArch32 Debug Feature Register 1
+        pub const id_dfr1_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0011, .op2 = 0b101 };
+        /// D19.2.77 ID_ISAR0_EL1, AArch32 Instruction Set Attribute Register 0
+        pub const id_isar0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.78 ID_ISAR1_EL1, AArch32 Instruction Set Attribute Register 1
+        pub const id_isar1_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0010, .op2 = 0b001 };
+        /// D19.2.79 ID_ISAR2_EL1, AArch32 Instruction Set Attribute Register 2
+        pub const id_isar2_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0010, .op2 = 0b010 };
+        /// D19.2.80 ID_ISAR3_EL1, AArch32 Instruction Set Attribute Register 3
+        pub const id_isar3_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0010, .op2 = 0b011 };
+        /// D19.2.81 ID_ISAR4_EL1, AArch32 Instruction Set Attribute Register 4
+        pub const id_isar4_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0010, .op2 = 0b100 };
+        /// D19.2.82 ID_ISAR5_EL1, AArch32 Instruction Set Attribute Register 5
+        pub const id_isar5_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0010, .op2 = 0b101 };
+        /// D19.2.83 ID_ISAR6_EL1, AArch32 Instruction Set Attribute Register 6
+        pub const id_isar6_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0010, .op2 = 0b111 };
+        /// D19.2.84 ID_MMFR0_EL1, AArch32 Memory Model Feature Register 0
+        pub const id_mmfr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0001, .op2 = 0b100 };
+        /// D19.2.85 ID_MMFR1_EL1, AArch32 Memory Model Feature Register 1
+        pub const id_mmfr1_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0001, .op2 = 0b101 };
+        /// D19.2.86 ID_MMFR2_EL1, AArch32 Memory Model Feature Register 2
+        pub const id_mmfr2_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0001, .op2 = 0b110 };
+        /// D19.2.87 ID_MMFR3_EL1, AArch32 Memory Model Feature Register 3
+        pub const id_mmfr3_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0001, .op2 = 0b111 };
+        /// D19.2.88 ID_MMFR4_EL1, AArch32 Memory Model Feature Register 4
+        pub const id_mmfr4_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0010, .op2 = 0b110 };
+        /// D19.2.89 ID_MMFR5_EL1, AArch32 Memory Model Feature Register 5
+        pub const id_mmfr5_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0011, .op2 = 0b110 };
+        /// D19.2.90 ID_PFR0_EL1, AArch32 Processor Feature Register 0
+        pub const id_pfr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0001, .op2 = 0b000 };
+        /// D19.2.91 ID_PFR1_EL1, AArch32 Processor Feature Register 1
+        pub const id_pfr1_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0001, .op2 = 0b001 };
+        /// D19.2.92 ID_PFR2_EL1, AArch32 Processor Feature Register 2
+        pub const id_pfr2_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0011, .op2 = 0b100 };
+        /// D19.2.93 IFSR32_EL2, Instruction Fault Status Register (EL2)
+        pub const ifsr32_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0101, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.94 ISR_EL1, Interrupt Status Register
+        pub const isr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1100, .CRm = 0b0001, .op2 = 0b000 };
+        /// D19.2.95 LORC_EL1, LORegion Control (EL1)
+        pub const lorc_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1010, .CRm = 0b0100, .op2 = 0b011 };
+        /// D19.2.96 LOREA_EL1, LORegion End Address (EL1)
+        pub const lorea_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1010, .CRm = 0b0100, .op2 = 0b001 };
+        /// D19.2.97 SORID_EL1, LORegionID (EL1)
+        pub const lorid_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1010, .CRm = 0b0100, .op2 = 0b111 };
+        /// D19.2.98 LORN_EL1, LORegion Number (EL1)
+        pub const lorn_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1010, .CRm = 0b0100, .op2 = 0b010 };
+        /// D19.2.99 LORSA_EL1, LORegion Start Address (EL1)
+        pub const lorsa_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1010, .CRm = 0b0100, .op2 = 0b000 };
+        /// D19.2.100 MAIR_EL1, Memory Attribute Indirection Register (EL1)
+        pub const mair_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1010, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.100 MAIR_EL12, Memory Attribute Indirection Register (EL12)
+        pub const mair_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b1010, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.101 MAIR_EL2, Memory Attribute Indirection Register (EL2)
+        pub const mair_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b1010, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.102 MAIR_EL3, Memory Attribute Indirection Register (EL3)
+        pub const mair_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b1010, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.103 MIDR_EL1, Main ID Register
+        pub const midr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.104 MPIDR_EL1, Multiprocessor Affinity Register
+        pub const mpidr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b101 };
+        /// D19.2.105 MVFR0_EL1, AArch32 Media and VFP Feature Register 0
+        pub const mvfr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0011, .op2 = 0b000 };
+        /// D19.2.106 MVFR1_EL1, AArch32 Media and VFP Feature Register 1
+        pub const mvfr1_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0011, .op2 = 0b001 };
+        /// D19.2.107 MVFR2_EL1, AArch32 Media and VFP Feature Register 2
+        pub const mvfr2_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0011, .op2 = 0b010 };
+        /// D19.2.108 PAR_EL1, Physical Address Register
+        pub const par_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0111, .CRm = 0b0100, .op2 = 0b000 };
+        /// D19.2.109 REVIDR_EL1, Revision ID Register
+        pub const revidr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b110 };
+        /// D19.2.110 RGSR_EL1, Random Allocation Tag Seed Register
+        pub const rgsr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b101 };
+        /// D19.2.111 RMR_EL1, Reset Management Register (EL1)
+        pub const rmr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1100, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.112 RMR_EL2, Reset Management Register (EL2)
+        pub const rmr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b1100, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.113 RMR_EL3, Reset Management Register (EL3)
+        pub const rmr_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b1100, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.114 RNDR, Random Number
+        pub const rndr: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b0010, .CRm = 0b0100, .op2 = 0b000 };
+        /// D19.2.115 RNDRRS, Reseeded Random Number
+        pub const rndrrs: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b0010, .CRm = 0b0100, .op2 = 0b001 };
+        /// D19.2.116 RVBAR_EL1, Reset Vector Base Address Register (if EL2 and EL3 not implemented)
+        pub const rvbar_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1100, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.117 RVBAR_EL2, Reset Vector Base Address Register (if EL3 not implemented)
+        pub const rvbar_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b1100, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.118 RVBAR_EL3, Reset Vector Base Address Register (if EL3 implemented)
+        pub const rvbar_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b1100, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.120 SCR_EL3, Secure Configuration Register
+        pub const scr_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0001, .CRm = 0b0001, .op2 = 0b000 };
+        /// D19.2.121 SCTLR2_EL1, System Control Register (EL1)
+        pub const sctlr2_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b011 };
+        /// D19.2.121 SCTLR2_EL12, System Control Register (EL12)
+        pub const sctlr2_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b011 };
+        /// D19.2.122 SCTLR2_EL2, System Control Register (EL2)
+        pub const sctlr2_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b011 };
+        /// D19.2.123 SCTLR2_EL3, System Control Register (EL3)
+        pub const sctlr2_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b011 };
+        /// D19.2.124 SCTLR_EL1, System Control Register (EL1)
+        pub const sctlr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.124 SCTLR_EL12, System Control Register (EL12)
+        pub const sctlr_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.125 SCTLR_EL2, System Control Register (EL2)
+        pub const sctlr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.126 SCTLR_EL3, System Control Register (EL3)
+        pub const sctlr_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0001, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.127 SCXTNUM_EL0, EL0 Read/Write Software Context Number
+        pub const scxtnum_el0: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b111 };
+        /// D19.2.128 SCXTNUM_EL1, EL1 Read/Write Software Context Number
+        pub const scxtnum_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b111 };
+        /// D19.2.128 SCXTNUM_EL12, EL12 Read/Write Software Context Number
+        pub const scxtnum_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b111 };
+        /// D19.2.129 SCXTNUM_EL2, EL2 Read/Write Software Context Number
+        pub const scxtnum_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b111 };
+        /// D19.2.130 SCXTNUM_EL3, EL3 Read/Write Software Context Number
+        pub const scxtnum_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b111 };
+        /// D19.2.131 SMCR_EL1, SME Control Register (EL1)
+        pub const smcr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0001, .CRm = 0b0010, .op2 = 0b110 };
+        /// D19.2.131 SMCR_EL12, SME Control Register (EL12)
+        pub const smcr_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0001, .CRm = 0b0010, .op2 = 0b110 };
+        /// D19.2.132 SMCR_EL2, SME Control Register (EL2)
+        pub const smcr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0010, .op2 = 0b110 };
+        /// D19.2.133 SMCR_EL3, SME Control Register (EL3)
+        pub const smcr_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0001, .CRm = 0b0010, .op2 = 0b110 };
+        /// D19.2.134 SMIDR_EL1, Streaming Mode Identification Register
+        pub const smidr_el1: System = .{ .op0 = 0b11, .op1 = 0b001, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b110 };
+        /// D19.2.135 SMPRIMAP_EL2, Streaming Mode Priority Mapping Register
+        pub const smprimap_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0010, .op2 = 0b101 };
+        /// D19.2.136 SMPRI_EL1, Streaming Mode Priority Register
+        pub const smpri_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0001, .CRm = 0b0010, .op2 = 0b100 };
+        /// D19.2.137 TCR2_EL1, Extended Translation Control Register (EL1)
+        pub const tcr2_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b011 };
+        /// D19.2.137 TCR2_EL12, Extended Translation Control Register (EL12)
+        pub const tcr2_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b011 };
+        /// D19.2.138 TCR2_EL2, Extended Translation Control Register (EL2)
+        pub const tcr2_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b011 };
+        /// D19.2.139 TCR_EL1, Translation Control Register (EL1)
+        pub const tcr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.139 TCR_EL12, Translation Control Register (EL12)
+        pub const tcr_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.140 TCR_EL2, Translation Control Register (EL2)
+        pub const tcr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.141 TCR_EL3, Translation Control Register (EL3)
+        pub const tcr_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.142 TFSRE0_EL1, Tag Fault Status Register (EL0)
+        pub const tfsre0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0101, .CRm = 0b0110, .op2 = 0b001 };
+        /// D19.2.143 TFSR_EL1, Tag Fault Status Register (EL1)
+        pub const tfsr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0101, .CRm = 0b0110, .op2 = 0b000 };
+        /// D19.2.143 TFSR_EL12, Tag Fault Status Register (EL12)
+        pub const tfsr_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0101, .CRm = 0b0110, .op2 = 0b000 };
+        /// D19.2.144 TFSR_EL2, Tag Fault Status Register (EL2)
+        pub const tfsr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0101, .CRm = 0b0110, .op2 = 0b000 };
+        /// D19.2.145 TFSR_EL3, Tag Fault Status Register (EL3)
+        pub const tfsr_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0101, .CRm = 0b0110, .op2 = 0b000 };
+        /// D19.2.146 TPIDR2_EL0, EL0 Read/Write Software Thread ID Register 2
+        pub const tpidr2_el0: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b101 };
+        /// D19.2.147 TPIDR_EL0, EL0 Read/Write Software Thread ID Register
+        pub const tpidr_el0: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.148 TPIDR_EL1, EL1 Read/Write Software Thread ID Register
+        pub const tpidr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b100 };
+        /// D19.2.149 TPIDR_EL2, EL2 Read/Write Software Thread ID Register
+        pub const tpidr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.150 TPIDR_EL3, EL3 Read/Write Software Thread ID Register
+        pub const tpidr_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b010 };
+        /// D19.2.151 TPIDRRO_EL0, EL0 Read-Only Software Thread ID Register
+        pub const tpidrro_el3: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b011 };
+        /// D19.2.152 TTBR0_EL1, Translation Table Base Register 0 (EL1)
+        pub const ttbr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.152 TTBR0_EL12, Translation Table Base Register 0 (EL12)
+        pub const ttbr0_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.153 TTBR0_EL2, Translation Table Base Register 0 (EL2)
+        pub const ttbr0_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.154 TTBR0_EL3, Translation Table Base Register 0 (EL3)
+        pub const ttbr0_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.155 TTBR1_EL1, Translation Table Base Register 1 (EL1)
+        pub const ttbr1_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.155 TTBR1_EL12, Translation Table Base Register 1 (EL12)
+        pub const ttbr1_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.156 TTBR1_EL2, Translation Table Base Register 1 (EL2)
+        pub const ttbr1_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2.157 VBAR_EL1, Vector Base Address Register (EL1)
+        pub const vbar_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b1100, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.157 VBAR_EL12, Vector Base Address Register (EL12)
+        pub const vbar_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b1100, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.158 VBAR_EL2, Vector Base Address Register (EL2)
+        pub const vbar_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b1100, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.159 VBAR_EL3, Vector Base Address Register (EL3)
+        pub const vbar_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b1100, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.160 VMPIDR_EL2, Virtualization Multiprocessor ID Register
+        pub const vmpidr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b101 };
+        /// D19.2.161 VNCR_EL2, Virtual Nested Control Register
+        pub const nvcr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0010, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.162 VPIDR_EL2, Virtualization Processor ID Register
+        pub const vpidr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2.163 VSTCR_EL2, Virtualization Secure Translation Control Register
+        pub const vstcr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0010, .CRm = 0b0110, .op2 = 0b010 };
+        /// D19.2.164 VSTTBR_EL2, Virtualization Secure Translation Table Base Register
+        pub const vsttbr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0010, .CRm = 0b0110, .op2 = 0b000 };
+        /// D19.2.165 VTCR_EL2, Virtualization Translation Control Register
+        pub const vtcr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0010, .CRm = 0b0001, .op2 = 0b010 };
+        /// D19.2.166 VTTBR_EL2, Virtualization Translation Table Base Register
+        pub const vttbr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0010, .CRm = 0b0001, .op2 = 0b000 };
+        /// D19.2.167 ZCR_EL1, SVE Control Register (EL1)
+        pub const zcr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0001, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.167 ZCR_EL12, SVE Control Register (EL12)
+        pub const zcr_el12: System = .{ .op0 = 0b11, .op1 = 0b101, .CRn = 0b0001, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.168 ZCR_EL2, SVE Control Register (EL2)
+        pub const zcr_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0001, .CRm = 0b0010, .op2 = 0b000 };
+        /// D19.2.169 ZCR_EL3, SVE Control Register (EL3)
+        pub const zcr_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0001, .CRm = 0b0010, .op2 = 0b000 };
+
+        pub fn parse(reg: []const u8) ?System {
+            if (reg.len >= 10 and std.ascii.toLower(reg[0]) == 's') encoded: {
+                var symbol_it = std.mem.splitScalar(u8, reg[1..], '_');
+                const op0 = std.fmt.parseInt(u2, symbol_it.next() orelse break :encoded, 10) catch break :encoded;
+                if (op0 < 0b10) break :encoded;
+                const op1 = std.fmt.parseInt(u3, symbol_it.next() orelse break :encoded, 10) catch break :encoded;
+                const n = symbol_it.next() orelse break :encoded;
+                if (n.len == 0 or std.ascii.toLower(n[0]) != 'c') break :encoded;
+                const CRn = std.fmt.parseInt(u4, n[1..], 10) catch break :encoded;
+                const m = symbol_it.next() orelse break :encoded;
+                if (m.len == 0 or std.ascii.toLower(m[0]) != 'c') break :encoded;
+                const CRm = std.fmt.parseInt(u4, m[1..], 10) catch break :encoded;
+                const op2 = std.fmt.parseInt(u3, symbol_it.next() orelse break :encoded, 10) catch break :encoded;
+                if (symbol_it.next() != null) break :encoded;
+                return .{ .op0 = op0, .op1 = op1, .CRn = CRn, .CRm = CRm, .op2 = op2 };
+            }
+            inline for (@typeInfo(System).@"struct".decls) |decl| {
+                if (@TypeOf(@field(System, decl.name)) != System) continue;
+                if (toLowerEqlAssertLower(reg, decl.name)) return @field(System, decl.name);
+            }
+            return null;
+        }
+    };
+
+    fn toLowerEqlAssertLower(lhs: []const u8, rhs: []const u8) bool {
+        if (lhs.len != rhs.len) return false;
+        for (lhs, rhs) |l, r| {
+            assert(!std.ascii.isUpper(r));
+            if (std.ascii.toLower(l) != r) return false;
+        }
+        return true;
     }
 };
 
@@ -2385,12 +2801,7 @@ pub const Instruction = packed union {
 
             pub const Group = packed struct {
                 Rt: Register.Encoded,
-                op2: u3,
-                CRm: u4,
-                CRn: u4,
-                op1: u3,
-                o0: u1,
-                decoded20: u1 = 0b1,
+                systemreg: Register.System,
                 L: L,
                 decoded22: u10 = 0b1101010100,
             };
@@ -2398,12 +2809,7 @@ pub const Instruction = packed union {
             /// C6.2.230 MSR (register)
             pub const Msr = packed struct {
                 Rt: Register.Encoded,
-                op2: u3,
-                CRm: u4,
-                CRn: u4,
-                op1: u3,
-                o0: u1,
-                decoded20: u1 = 0b1,
+                systemreg: Register.System,
                 L: L = .msr,
                 decoded22: u10 = 0b1101010100,
             };
@@ -2411,12 +2817,7 @@ pub const Instruction = packed union {
             /// C6.2.228 MRS
             pub const Mrs = packed struct {
                 Rt: Register.Encoded,
-                op2: u3,
-                CRm: u4,
-                CRn: u4,
-                op1: u3,
-                o0: u1,
-                decoded20: u1 = 0b1,
+                systemreg: Register.System,
                 L: L = .mrs,
                 decoded22: u10 = 0b1101010100,
             };
@@ -10585,30 +10986,22 @@ pub const Instruction = packed union {
         } } };
     }
     /// C6.2.228 MRS
-    pub fn mrs(t: Register, op0: u2, op1: u3, n: u4, m: u4, op2: u3) Instruction {
-        assert(t.format.integer == .doubleword);
+    pub fn mrs(t: Register, systemreg: Register.System) Instruction {
+        assert(t.format.integer == .doubleword and systemreg.op0 >= 0b10);
         return .{ .branch_exception_generating_system = .{ .system_register_move = .{
             .mrs = .{
                 .Rt = t.alias.encode(.{}),
-                .op2 = op2,
-                .CRm = m,
-                .CRn = n,
-                .op1 = op1,
-                .o0 = @intCast(op0 - 0b10),
+                .systemreg = systemreg,
             },
         } } };
     }
     /// C6.2.230 MSR (register)
-    pub fn msr(op0: u2, op1: u3, n: u4, m: u4, op2: u3, t: Register) Instruction {
-        assert(t.format.integer == .doubleword);
+    pub fn msr(systemreg: Register.System, t: Register) Instruction {
+        assert(systemreg.op0 >= 0b10 and t.format.integer == .doubleword);
         return .{ .branch_exception_generating_system = .{ .system_register_move = .{
             .msr = .{
                 .Rt = t.alias.encode(.{}),
-                .op2 = op2,
-                .CRm = m,
-                .CRn = n,
-                .op1 = op1,
-                .o0 = @intCast(op0 - 0b10),
+                .systemreg = systemreg,
             },
         } } };
     }
