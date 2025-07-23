@@ -334,10 +334,12 @@ pub fn GenericReader(
             fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
                 const a: *@This() = @alignCast(@fieldParentPtr("new_interface", r));
                 const buf = limit.slice(try w.writableSliceGreedy(1));
-                return a.derp_reader.read(buf) catch |err| {
+                const n = a.derp_reader.read(buf) catch |err| {
                     a.err = err;
                     return error.ReadFailed;
                 };
+                w.advance(n);
+                return n;
             }
         };
     };
