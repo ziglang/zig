@@ -60,7 +60,9 @@ pub fn main() !void {
     const should_open_browser = force_open_browser orelse (listen_port == 0);
 
     const address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
-    var http_server = try address.listen(.{});
+    var http_server = try address.listen(.{
+        .reuse_address = true,
+    });
     const port = http_server.listen_address.in.getPort();
     const url_with_newline = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/\n", .{port});
     std.fs.File.stdout().writeAll(url_with_newline) catch {};
@@ -189,7 +191,11 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
     var walker = try std_dir.walk(gpa);
     defer walker.deinit();
 
-    var archiver = std.tar.writer(response.writer());
+    var adapter_buffer: [500]u8 = undefined;
+    var response_writer = response.writer().adaptToNewApi();
+    response_writer.new_interface.buffer = &adapter_buffer;
+
+    var archiver: std.tar.Writer = .{ .underlying_writer = &response_writer.new_interface };
     archiver.prefix = "std";
 
     while (try walker.next()) |entry| {
@@ -204,7 +210,13 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
         }
         var file = try entry.dir.openFile(entry.basename, .{});
         defer file.close();
-        try archiver.writeFile(entry.path, file);
+        const stat = try file.stat();
+        var file_reader: std.fs.File.Reader = .{
+            .file = file,
+            .interface = std.fs.File.Reader.initInterface(&.{}),
+            .size = stat.size,
+        };
+        try archiver.writeFile(entry.path, &file_reader, stat.mtime);
     }
 
     {
