@@ -1764,13 +1764,22 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
             child.stdin = null;
         },
         .lazy_path => |lazy_path| {
-            const path = lazy_path.getPath2(b, &run.step);
-            const file = b.build_root.handle.openFile(path, .{}) catch |err| {
+            const path = lazy_path.getPath3(b, &run.step);
+            const file = path.root_dir.handle.openFile(path.subPathOrDot(), .{}) catch |err| {
                 return run.step.fail("unable to open stdin file: {s}", .{@errorName(err)});
             };
             defer file.close();
-            child.stdin.?.writeFileAll(file, .{}) catch |err| {
-                return run.step.fail("unable to write file to stdin: {s}", .{@errorName(err)});
+            // TODO https://github.com/ziglang/zig/issues/23955
+            var buffer: [1024]u8 = undefined;
+            var file_reader = file.reader(&buffer);
+            var stdin_writer = child.stdin.?.writer(&.{});
+            _ = stdin_writer.interface.sendFileAll(&file_reader, .unlimited) catch |err| switch (err) {
+                error.ReadFailed => return run.step.fail("failed to read from {f}: {t}", .{
+                    path, file_reader.err.?,
+                }),
+                error.WriteFailed => return run.step.fail("failed to write to stdin: {t}", .{
+                    stdin_writer.err.?,
+                }),
             };
             child.stdin.?.close();
             child.stdin = null;

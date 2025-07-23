@@ -310,7 +310,8 @@ pub fn main() !void {
                 build_all_path, libc_so_path, @errorName(err),
             });
         };
-        const header = try elf.Header.parse(elf_bytes[0..@sizeOf(elf.Elf64_Ehdr)]);
+        var stream: std.Io.Reader = .fixed(elf_bytes);
+        const header = try elf.Header.read(&stream);
 
         const parse: Parse = .{
             .arena = arena,

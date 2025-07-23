@@ -912,18 +912,9 @@ const WasiThreadImpl = struct {
             allocator.free(self.thread.memory);
         }
 
-        var spin: u8 = 10;
         while (true) {
             const tid = self.thread.tid.load(.seq_cst);
-            if (tid == 0) {
-                break;
-            }
-
-            if (spin > 0) {
-                spin -= 1;
-                std.atomic.spinLoopHint();
-                continue;
-            }
+            if (tid == 0) break;
 
             const result = asm (
                 \\ local.get %[ptr]
@@ -1515,18 +1506,9 @@ const LinuxThreadImpl = struct {
     fn join(self: Impl) void {
         defer posix.munmap(self.thread.mapped);
 
-        var spin: u8 = 10;
         while (true) {
             const tid = self.thread.child_tid.load(.seq_cst);
-            if (tid == 0) {
-                break;
-            }
-
-            if (spin > 0) {
-                spin -= 1;
-                std.atomic.spinLoopHint();
-                continue;
-            }
+            if (tid == 0) break;
 
             switch (linux.E.init(linux.futex_4arg(
                 &self.thread.child_tid.raw,
@@ -1617,7 +1599,6 @@ test "setName, getName" {
 }
 
 test {
-    // Doesn't use testing.refAllDecls() since that would pull in the compileError spinLoopHint.
     _ = Futex;
     _ = ResetEvent;
     _ = Mutex;

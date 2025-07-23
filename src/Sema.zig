@@ -5000,9 +5000,11 @@ fn validateUnionInit(
     }
     if (init_ref) |v| try sema.validateRuntimeValue(block, block.nodeOffset(field_ptr_data.src_node), v);
 
-    const new_tag = Air.internedToRef(tag_val.toIntern());
-    const set_tag_inst = try block.addBinOp(.set_union_tag, union_ptr, new_tag);
-    try sema.checkComptimeKnownStore(block, set_tag_inst, LazySrcLoc.unneeded); // `unneeded` since this isn't a "proper" store
+    if ((try sema.typeHasOnePossibleValue(tag_ty)) == null) {
+        const new_tag = Air.internedToRef(tag_val.toIntern());
+        const set_tag_inst = try block.addBinOp(.set_union_tag, union_ptr, new_tag);
+        try sema.checkComptimeKnownStore(block, set_tag_inst, LazySrcLoc.unneeded); // `unneeded` since this isn't a "proper" store
+    }
 }
 
 fn validateStructInit(
@@ -6560,6 +6562,11 @@ fn resolveAnalyzedBlock(
             } },
         });
     }
+
+    if (try sema.typeHasOnePossibleValue(resolved_ty)) |block_only_value| {
+        return Air.internedToRef(block_only_value.toIntern());
+    }
+
     return merges.block_inst.toRef();
 }
 
@@ -9054,6 +9061,10 @@ fn analyzeErrUnionPayload(
         !err_union_ty.errorUnionSet(zcu).errorSetIsEmpty(zcu))
     {
         try sema.addSafetyCheckUnwrapError(block, src, operand, .unwrap_errunion_err, .is_non_err);
+    }
+
+    if (try sema.typeHasOnePossibleValue(payload_ty)) |payload_only_value| {
+        return Air.internedToRef(payload_only_value.toIntern());
     }
 
     return block.addTyOp(.unwrap_errunion_payload, payload_ty, operand);
@@ -19690,8 +19701,10 @@ fn zirStructInit(
             const base_ptr = try sema.optEuBasePtrInit(block, alloc, src);
             const field_ptr = try sema.unionFieldPtr(block, field_src, base_ptr, field_name, field_src, resolved_ty, true);
             try sema.storePtr(block, src, field_ptr, init_inst);
-            const new_tag = Air.internedToRef(tag_val.toIntern());
-            _ = try block.addBinOp(.set_union_tag, base_ptr, new_tag);
+            if ((try sema.typeHasOnePossibleValue(tag_ty)) == null) {
+                const new_tag = Air.internedToRef(tag_val.toIntern());
+                _ = try block.addBinOp(.set_union_tag, base_ptr, new_tag);
+            }
             return sema.makePtrConst(block, alloc);
         }
 
@@ -28079,10 +28092,16 @@ fn unionFieldVal(
         const active_tag = try block.addTyOp(.get_union_tag, .fromInterned(union_obj.enum_tag_ty), union_byval);
         try sema.addSafetyCheckInactiveUnionField(block, src, active_tag, wanted_tag);
     }
+
     if (field_ty.zigTypeTag(zcu) == .noreturn) {
         _ = try block.addNoOp(.unreach);
         return .unreachable_value;
     }
+
+    if (try sema.typeHasOnePossibleValue(field_ty)) |field_only_value| {
+        return Air.internedToRef(field_only_value.toIntern());
+    }
+
     try field_ty.resolveLayout(pt);
     return block.addStructFieldVal(union_byval, field_index, field_ty);
 }
@@ -28214,18 +28233,22 @@ fn elemVal(
             .many, .c => {
                 const maybe_indexable_val = try sema.resolveDefinedValue(block, indexable_src, indexable);
                 const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
+                const elem_ty = indexable_ty.elemType2(zcu);
 
                 ct: {
                     const indexable_val = maybe_indexable_val orelse break :ct;
                     const index_val = maybe_index_val orelse break :ct;
                     const index: usize = @intCast(try index_val.toUnsignedIntSema(pt));
-                    const elem_ty = indexable_ty.elemType2(zcu);
                     const many_ptr_ty = try pt.manyConstPtrType(elem_ty);
                     const many_ptr_val = try pt.getCoerced(indexable_val, many_ptr_ty);
                     const elem_ptr_ty = try pt.singleConstPtrType(elem_ty);
                     const elem_ptr_val = try many_ptr_val.ptrElem(index, pt);
                     const elem_val = try sema.pointerDeref(block, indexable_src, elem_ptr_val, elem_ptr_ty) orelse break :ct;
                     return Air.internedToRef((try pt.getCoerced(elem_val, elem_ty)).toIntern());
+                }
+
+                if (try sema.typeHasOnePossibleValue(elem_ty)) |elem_only_value| {
+                    return Air.internedToRef(elem_only_value.toIntern());
                 }
 
                 try sema.checkLogicalPtrOperation(block, src, indexable_ty);
@@ -28576,6 +28599,10 @@ fn elemValSlice(
             }
             runtime_src = slice_src;
         }
+    }
+
+    if (try sema.typeHasOnePossibleValue(elem_ty)) |elem_only_value| {
+        return Air.internedToRef(elem_only_value.toIntern());
     }
 
     try sema.validateRuntimeElemAccess(block, elem_index_src, elem_ty, slice_ty, slice_src);

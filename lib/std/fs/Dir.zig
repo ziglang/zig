@@ -1,3 +1,20 @@
+const Dir = @This();
+const builtin = @import("builtin");
+const std = @import("../std.zig");
+const File = std.fs.File;
+const AtomicFile = std.fs.AtomicFile;
+const base64_encoder = fs.base64_encoder;
+const posix = std.posix;
+const mem = std.mem;
+const path = fs.path;
+const fs = std.fs;
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const linux = std.os.linux;
+const windows = std.os.windows;
+const native_os = builtin.os.tag;
+const have_flock = @TypeOf(posix.system.flock) != void;
+
 fd: Handle,
 
 pub const Handle = posix.fd_t;
@@ -1862,9 +1879,10 @@ pub fn symLinkW(
 
 /// Same as `symLink`, except tries to create the symbolic link until it
 /// succeeds or encounters an error other than `error.PathAlreadyExists`.
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, both paths should be encoded as valid UTF-8.
-/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
+///
+/// * On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// * On WASI, both paths should be encoded as valid UTF-8.
+/// * On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn atomicSymLink(
     dir: Dir,
     target_path: []const u8,
@@ -1880,9 +1898,8 @@ pub fn atomicSymLink(
 
     const dirname = path.dirname(sym_link_path) orelse ".";
 
-    var rand_buf: [AtomicFile.random_bytes_len]u8 = undefined;
-
-    const temp_path_len = dirname.len + 1 + base64_encoder.calcSize(rand_buf.len);
+    const rand_len = @sizeOf(u64) * 2;
+    const temp_path_len = dirname.len + 1 + rand_len;
     var temp_path_buf: [fs.max_path_bytes]u8 = undefined;
 
     if (temp_path_len > temp_path_buf.len) return error.NameTooLong;
@@ -1892,8 +1909,8 @@ pub fn atomicSymLink(
     const temp_path = temp_path_buf[0..temp_path_len];
 
     while (true) {
-        crypto.random.bytes(rand_buf[0..]);
-        _ = base64_encoder.encode(temp_path[dirname.len + 1 ..], rand_buf[0..]);
+        const random_integer = std.crypto.random.int(u64);
+        temp_path[dirname.len + 1 ..][0..rand_len].* = std.fmt.hex(random_integer);
 
         if (dir.symLink(target_path, temp_path, flags)) {
             return dir.rename(temp_path, sym_link_path);
@@ -2623,8 +2640,9 @@ pub fn updateFile(
     return .stale;
 }
 
-pub const CopyFileError = File.OpenError || File.StatError || File.ReadError || File.WriteError ||
-    AtomicFile.InitError || AtomicFile.FinishError;
+pub const CopyFileError = File.OpenError || File.StatError ||
+    AtomicFile.InitError || AtomicFile.FinishError ||
+    File.ReadError || File.WriteError;
 
 /// Atomically creates a new file at `dest_path` within `dest_dir` with the
 /// same contents as `source_path` within `source_dir`, overwriting any already
@@ -2655,7 +2673,7 @@ pub fn copyFile(
         break :blk st.mode;
     };
 
-    var buffer: [1000]u8 = undefined; // Used only when direct fd-to-fd is not available.
+    var buffer: [1024]u8 = undefined; // Used only when direct fd-to-fd is not available.
     var atomic_file = try dest_dir.atomicFile(dest_path, .{
         .mode = mode,
         .write_buffer = &buffer,
@@ -2666,6 +2684,7 @@ pub fn copyFile(
         error.ReadFailed => return file_reader.err.?,
         error.WriteFailed => return atomic_file.file_writer.err.?,
     };
+
     try atomic_file.finish();
 }
 
@@ -2790,21 +2809,3 @@ pub fn setPermissions(self: Dir, permissions: Permissions) SetPermissionsError!v
     const file: File = .{ .handle = self.fd };
     try file.setPermissions(permissions);
 }
-
-const Dir = @This();
-const builtin = @import("builtin");
-const std = @import("../std.zig");
-const File = std.fs.File;
-const AtomicFile = std.fs.AtomicFile;
-const base64_encoder = fs.base64_encoder;
-const crypto = std.crypto;
-const posix = std.posix;
-const mem = std.mem;
-const path = fs.path;
-const fs = std.fs;
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const linux = std.os.linux;
-const windows = std.os.windows;
-const native_os = builtin.os.tag;
-const have_flock = @TypeOf(posix.system.flock) != void;
