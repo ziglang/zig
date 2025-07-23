@@ -77,7 +77,14 @@ pub fn findZigLibDirFromSelfExe(
     /// Passed as an argument to avoid pointlessly repeating the call.
     cwd_path: []const u8,
     self_exe_path: []const u8,
-) error{ OutOfMemory, FileNotFound }!Cache.Directory {
+) !Cache.Directory {
+    if (try std.zig.EnvVar.ZIG_LIB_DIR.get(allocator)) |value| {
+        return .{
+            .handle = try fs.cwd().openDir(value, .{}),
+            .path = value,
+        };
+    }
+
     const cwd = fs.cwd();
     var cur_path: []const u8 = self_exe_path;
     while (fs.path.dirname(cur_path)) |dirname| : (cur_path = dirname) {

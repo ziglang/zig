@@ -687,12 +687,12 @@ pub const EnvVar = enum {
     }
 
     pub fn get(ev: EnvVar, arena: std.mem.Allocator) !?[]u8 {
-        if (std.process.getEnvVarOwned(arena, @tagName(ev))) |value| {
-            return value;
-        } else |err| switch (err) {
+        const value = std.process.getEnvVarOwned(arena, @tagName(ev)) catch |err| switch (err) {
             error.EnvironmentVariableNotFound => return null,
             else => |e| return e,
-        }
+        };
+        if (value.len == 0) return null;
+        return value;
     }
 
     pub fn getPosix(comptime ev: EnvVar) ?[:0]const u8 {
