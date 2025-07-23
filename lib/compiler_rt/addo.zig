@@ -1,6 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const is_test = builtin.is_test;
 const common = @import("./common.zig");
 pub const panic = @import("common.zig").panic;
 
@@ -16,7 +14,7 @@ comptime {
 // - addoXi4_generic as default
 
 inline fn addoXi4_generic(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST {
-    @setRuntimeSafety(builtin.is_test);
+    @setRuntimeSafety(common.test_safety);
     overflow.* = 0;
     const sum: ST = a +% b;
     // Hackers Delight: section Overflow Detection, subsection Signed Add/Subtract

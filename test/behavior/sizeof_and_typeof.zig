@@ -270,7 +270,6 @@ test "bitSizeOf comptime_int" {
 }
 
 test "runtime instructions inside typeof in comptime only scope" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -326,7 +325,6 @@ test "lazy abi size used in comparison" {
 }
 
 test "peer type resolution with @TypeOf doesn't trigger dependency loop check" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -437,7 +435,6 @@ test "Peer resolution of extern function calls in @TypeOf" {
 }
 
 test "Extern function calls, dereferences and field access in @TypeOf" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const Test = struct {

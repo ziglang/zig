@@ -2239,6 +2239,10 @@ pub const Discarding = struct {
 
     pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
         if (File.Handle == void) return error.Unimplemented;
+        switch (builtin.zig_backend) {
+            else => {},
+            .stage2_aarch64 => return error.Unimplemented,
+        }
         const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
         d.count += w.end;
         w.end = 0;

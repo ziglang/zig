@@ -33,6 +33,7 @@ pub var log_level = std.log.Level.warn;
 
 // Disable printing in tests for simple backends.
 pub const backend_can_print = switch (builtin.zig_backend) {
+    .stage2_aarch64,
     .stage2_powerpc,
     .stage2_riscv64,
     .stage2_spirv,

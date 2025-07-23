@@ -16522,7 +16522,7 @@ fn zirAsm(
         break :empty try sema.structInitEmpty(block, clobbers_ty, src, src);
     } else try sema.resolveInst(extra.data.clobbers); // Already coerced by AstGen.
     const clobbers_val = try sema.resolveConstDefinedValue(block, src, clobbers, .{ .simple = .clobber });
-    needed_capacity += (asm_source.len + 3) / 4;
+    needed_capacity += asm_source.len / 4 + 1;
 
     const gpa = sema.gpa;
     try sema.air_extra.ensureUnusedCapacity(gpa, needed_capacity);
@@ -16562,7 +16562,8 @@ fn zirAsm(
     {
         const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
         @memcpy(buffer[0..asm_source.len], asm_source);
-        sema.air_extra.items.len += (asm_source.len + 3) / 4;
+        buffer[asm_source.len] = 0;
+        sema.air_extra.items.len += asm_source.len / 4 + 1;
     }
     return asm_air;
 }
@@ -24846,7 +24847,7 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Ins
         },
         .@"packed" => {
             const byte_offset = std.math.divExact(u32, @abs(@as(i32, actual_parent_ptr_info.packed_offset.bit_offset) +
-                (if (zcu.typeToStruct(parent_ty)) |struct_obj| pt.structPackedFieldBitOffset(struct_obj, field_index) else 0) -
+                (if (zcu.typeToStruct(parent_ty)) |struct_obj| zcu.structPackedFieldBitOffset(struct_obj, field_index) else 0) -
                 actual_field_ptr_info.packed_offset.bit_offset), 8) catch
                 return sema.fail(block, inst_src, "pointer bit-offset mismatch", .{});
             actual_parent_ptr_info.flags.alignment = actual_field_ptr_info.flags.alignment.minStrict(if (byte_offset > 0)
@@ -24873,7 +24874,7 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Ins
                     // Logic lifted from type computation above - I'm just assuming it's correct.
                     // `catch unreachable` since error case handled above.
                     const byte_offset = std.math.divExact(u32, @abs(@as(i32, actual_parent_ptr_info.packed_offset.bit_offset) +
-                        pt.structPackedFieldBitOffset(zcu.typeToStruct(parent_ty).?, field_index) -
+                        zcu.structPackedFieldBitOffset(zcu.typeToStruct(parent_ty).?, field_index) -
                         actual_field_ptr_info.packed_offset.bit_offset), 8) catch unreachable;
                     const parent_ptr_val = try sema.ptrSubtract(block, field_ptr_src, field_ptr_val, byte_offset, actual_parent_ptr_ty);
                     break :result Air.internedToRef(parent_ptr_val.toIntern());

@@ -408,6 +408,9 @@ pub const have_ipc = switch (builtin.os.tag) {
 const noop_impl = builtin.single_threaded or switch (builtin.os.tag) {
     .wasi, .freestanding => true,
     else => false,
+} or switch (builtin.zig_backend) {
+    .stage2_aarch64 => true,
+    else => false,
 };
 
 /// Initializes a global Progress instance.
@@ -754,7 +757,7 @@ fn appendTreeSymbol(symbol: TreeSymbol, buf: []u8, start_i: usize) usize {
 }
 
 fn clearWrittenWithEscapeCodes() anyerror!void {
-    if (!global_progress.need_clear) return;
+    if (noop_impl or !global_progress.need_clear) return;
 
     global_progress.need_clear = false;
     try write(clear);

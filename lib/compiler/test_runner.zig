@@ -16,6 +16,7 @@ var stdin_buffer: [4096]u8 = undefined;
 var stdout_buffer: [4096]u8 = undefined;
 
 const crippled = switch (builtin.zig_backend) {
+    .stage2_aarch64,
     .stage2_powerpc,
     .stage2_riscv64,
     => true,
@@ -287,13 +288,14 @@ pub fn log(
 /// work-in-progress backends can handle it.
 pub fn mainSimple() anyerror!void {
     @disableInstrumentation();
-    // is the backend capable of printing to stderr?
-    const enable_print = switch (builtin.zig_backend) {
+    // is the backend capable of calling `std.fs.File.writeAll`?
+    const enable_write = switch (builtin.zig_backend) {
+        .stage2_aarch64, .stage2_riscv64 => true,
         else => false,
     };
-    // is the backend capable of using std.fmt.format to print a summary at the end?
-    const print_summary = switch (builtin.zig_backend) {
-        .stage2_riscv64 => true,
+    // is the backend capable of calling `std.Io.Writer.print`?
+    const enable_print = switch (builtin.zig_backend) {
+        .stage2_aarch64, .stage2_riscv64 => true,
         else => false,
     };
 
@@ -302,34 +304,31 @@ pub fn mainSimple() anyerror!void {
     var failed: u64 = 0;
 
     // we don't want to bring in File and Writer if the backend doesn't support it
-    const stderr = if (comptime enable_print) std.fs.File.stderr() else {};
+    const stdout = if (enable_write) std.fs.File.stdout() else {};
 
     for (builtin.test_functions) |test_fn| {
+        if (enable_write) {
+            stdout.writeAll(test_fn.name) catch {};
+            stdout.writeAll("... ") catch {};
+        }
         if (test_fn.func()) |_| {
-            if (enable_print) {
-                stderr.writeAll(test_fn.name) catch {};
-                stderr.writeAll("... ") catch {};
-                stderr.writeAll("PASS\n") catch {};
-            }
+            if (enable_write) stdout.writeAll("PASS\n") catch {};
         } else |err| {
-            if (enable_print) {
-                stderr.writeAll(test_fn.name) catch {};
-                stderr.writeAll("... ") catch {};
-            }
             if (err != error.SkipZigTest) {
-                if (enable_print) stderr.writeAll("FAIL\n") catch {};
+                if (enable_write) stdout.writeAll("FAIL\n") catch {};
                 failed += 1;
-                if (!enable_print) return err;
+                if (!enable_write) return err;
                 continue;
             }
-            if (enable_print) stderr.writeAll("SKIP\n") catch {};
+            if (enable_write) stdout.writeAll("SKIP\n") catch {};
             skipped += 1;
             continue;
         }
         passed += 1;
     }
-    if (enable_print and print_summary) {
-        stderr.deprecatedWriter().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
+    if (enable_print) {
+        var stdout_writer = stdout.writer(&.{});
+        stdout_writer.interface.print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
     }
     if (failed != 0) std.process.exit(1);
 }
