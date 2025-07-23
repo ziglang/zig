@@ -2016,6 +2016,16 @@ pub fn addCliTests(b: *std.Build) *Step {
         step.dependOn(&cleanup.step);
     }
 
+    {
+        // Test `zig init -m`.
+        const tmp_path = b.makeTempPath();
+        const init_exe = b.addSystemCommand(&.{ b.graph.zig_exe, "init", "-m" });
+        init_exe.setCwd(.{ .cwd_relative = tmp_path });
+        init_exe.setName("zig init -m");
+        init_exe.expectStdOutEqual("");
+        init_exe.expectStdErrEqual("info: successfully populated 'build.zig.zon' and 'build.zig'\n");
+    }
+
     // Test Godbolt API
     if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
         const tmp_path = b.makeTempPath();
