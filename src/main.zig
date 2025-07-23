@@ -4648,14 +4648,14 @@ const usage_init =
 fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     dev.check(.init_command);
 
-    var strip = false;
+    var template: enum { example, minimal } = .example;
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
-                if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip")) {
-                    strip = true;
+                if (mem.eql(u8, arg, "-m") or mem.eql(u8, arg, "--minimal")) {
+                    template = .minimal;
                 } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                     try fs.File.stdout().writeAll(usage_init);
                     return cleanExit();
@@ -4668,40 +4668,79 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         }
     }
 
-    var templates = findTemplates(gpa, arena, strip);
-    defer templates.deinit();
-
     const cwd_path = try introspect.getResolvedCwd(arena);
     const cwd_basename = fs.path.basename(cwd_path);
     const sanitized_root_name = try sanitizeExampleName(arena, cwd_basename);
 
-    const s = fs.path.sep_str;
-    const template_paths = [_][]const u8{
-        Package.build_zig_basename,
-        Package.Manifest.basename,
-        "src" ++ s ++ "main.zig",
-        "src" ++ s ++ "root.zig",
-    };
-    var ok_count: usize = 0;
-
     const fingerprint: Package.Fingerprint = .generate(sanitized_root_name);
 
-    for (template_paths) |template_path| {
-        if (templates.write(arena, fs.cwd(), sanitized_root_name, template_path, fingerprint)) |_| {
-            std.log.info("created {s}", .{template_path});
-            ok_count += 1;
-        } else |err| switch (err) {
-            error.PathAlreadyExists => std.log.info("preserving already existing file: {s}", .{
-                template_path,
-            }),
-            else => std.log.err("unable to write {s}: {s}\n", .{ template_path, @errorName(err) }),
-        }
-    }
+    switch (template) {
+        .example => {
+            var templates = findTemplates(gpa, arena);
+            defer templates.deinit();
 
-    if (ok_count == template_paths.len) {
-        std.log.info("see `zig build --help` for a menu of options", .{});
+            const s = fs.path.sep_str;
+            const template_paths = [_][]const u8{
+                Package.build_zig_basename,
+                Package.Manifest.basename,
+                "src" ++ s ++ "main.zig",
+                "src" ++ s ++ "root.zig",
+            };
+            var ok_count: usize = 0;
+
+            for (template_paths) |template_path| {
+                if (templates.write(arena, fs.cwd(), sanitized_root_name, template_path, fingerprint)) |_| {
+                    std.log.info("created {s}", .{template_path});
+                    ok_count += 1;
+                } else |err| switch (err) {
+                    error.PathAlreadyExists => std.log.info("preserving already existing file: {s}", .{
+                        template_path,
+                    }),
+                    else => std.log.err("unable to write {s}: {s}\n", .{ template_path, @errorName(err) }),
+                }
+            }
+
+            if (ok_count == template_paths.len) {
+                std.log.info("see `zig build --help` for a menu of options", .{});
+            }
+            return cleanExit();
+        },
+        .minimal => {
+            writeSimpleTemplateFile(Package.Manifest.basename,
+                \\.{{
+                \\    .name = .{s},
+                \\    .version = "{s}",
+                \\    .paths = .{{""}},
+                \\    .fingerprint = 0x{x},
+                \\}}
+                \\
+            , .{
+                sanitized_root_name,
+                build_options.version,
+                fingerprint.int(),
+            }) catch |err| switch (err) {
+                else => fatal("failed to create '{s}': {s}", .{ Package.Manifest.basename, @errorName(err) }),
+                error.PathAlreadyExists => fatal("refusing to overwrite '{s}'", .{Package.Manifest.basename}),
+            };
+            writeSimpleTemplateFile(Package.build_zig_basename,
+                \\const std = @import("std");
+                \\pub fn build(b: *std.Build) void {{
+                \\    _ = b; // stub
+                \\}}
+                \\
+            , .{}) catch |err| switch (err) {
+                else => fatal("failed to create '{s}': {s}", .{ Package.build_zig_basename, @errorName(err) }),
+                // `build.zig` already existing is okay: the user has just used `zig init` to set up
+                // their `build.zig.zon` *after* writing their `build.zig`. So this one isn't fatal.
+                error.PathAlreadyExists => {
+                    std.log.info("successfully populated '{s}', preserving existing '{s}'", .{ Package.Manifest.basename, Package.build_zig_basename });
+                    return cleanExit();
+                },
+            };
+            std.log.info("successfully populated '{s}' and '{s}'", .{ Package.Manifest.basename, Package.build_zig_basename });
+            return cleanExit();
+        },
     }
-    return cleanExit();
 }
 
 fn sanitizeExampleName(arena: Allocator, bytes: []const u8) error{OutOfMemory}![]const u8 {
@@ -7229,13 +7268,20 @@ fn loadManifest(
             0,
         ) catch |err| switch (err) {
             error.FileNotFound => {
-                const fingerprint: Package.Fingerprint = .generate(options.root_name);
-                var templates = findTemplates(gpa, arena, true);
-                defer templates.deinit();
-                templates.write(arena, options.dir, options.root_name, Package.Manifest.basename, fingerprint) catch |e| {
-                    fatal("unable to write {s}: {s}", .{
-                        Package.Manifest.basename, @errorName(e),
-                    });
+                writeSimpleTemplateFile(Package.Manifest.basename,
+                    \\.{{
+                    \\    .name = .{s},
+                    \\    .version = "{s}",
+                    \\    .paths = .{{""}},
+                    \\    .fingerprint = 0x{x},
+                    \\}}
+                    \\
+                , .{
+                    options.root_name,
+                    build_options.version,
+                    Package.Fingerprint.generate(options.root_name).int(),
+                }) catch |e| {
+                    fatal("unable to write {s}: {s}", .{ Package.Manifest.basename, @errorName(e) });
                 };
                 continue;
             },
@@ -7276,7 +7322,6 @@ const Templates = struct {
     zig_lib_directory: Cache.Directory,
     dir: fs.Dir,
     buffer: std.ArrayList(u8),
-    strip: bool,
 
     fn deinit(templates: *Templates) void {
         templates.zig_lib_directory.handle.close();
@@ -7305,23 +7350,9 @@ const Templates = struct {
         };
         templates.buffer.clearRetainingCapacity();
         try templates.buffer.ensureUnusedCapacity(contents.len);
-        var new_line = templates.strip;
         var i: usize = 0;
         while (i < contents.len) {
-            if (new_line) {
-                const trimmed = std.mem.trimLeft(u8, contents[i..], " ");
-                if (std.mem.startsWith(u8, trimmed, "//")) {
-                    i += std.mem.indexOfScalar(u8, contents[i..], '\n') orelse break;
-                    i += 1;
-                    continue;
-                } else {
-                    new_line = false;
-                }
-            }
-
-            if (templates.strip and contents[i] == '\n') {
-                new_line = true;
-            } else if (contents[i] == '_' or contents[i] == '.') {
+            if (contents[i] == '_' or contents[i] == '.') {
                 // Both '_' and '.' are allowed because depending on the context
                 // one prefix will be valid, while the other might not.
                 if (std.mem.startsWith(u8, contents[i + 1 ..], "NAME")) {
@@ -7350,8 +7381,16 @@ const Templates = struct {
         });
     }
 };
+fn writeSimpleTemplateFile(file_name: []const u8, comptime fmt: []const u8, args: anytype) !void {
+    const f = try fs.cwd().createFile(file_name, .{ .exclusive = true });
+    defer f.close();
+    var buf: [4096]u8 = undefined;
+    var fw = f.writer(&buf);
+    try fw.interface.print(fmt, args);
+    try fw.interface.flush();
+}
 
-fn findTemplates(gpa: Allocator, arena: Allocator, strip: bool) Templates {
+fn findTemplates(gpa: Allocator, arena: Allocator) Templates {
     const cwd_path = introspect.getResolvedCwd(arena) catch |err| {
         fatal("unable to get cwd: {s}", .{@errorName(err)});
     };
@@ -7375,7 +7414,6 @@ fn findTemplates(gpa: Allocator, arena: Allocator, strip: bool) Templates {
         .zig_lib_directory = zig_lib_directory,
         .dir = template_dir,
         .buffer = std.ArrayList(u8).init(gpa),
-        .strip = strip,
     };
 }
 
