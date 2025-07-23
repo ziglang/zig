@@ -240,7 +240,7 @@ pub fn allocRemaining(r: *Reader, gpa: Allocator, limit: Limit) LimitedAllocErro
 /// such case, the next byte that would be read will be the first one to exceed
 /// `limit`, and all preceeding bytes have been appended to `list`.
 ///
-/// Asserts `buffer` has nonzero capacity.
+/// If `limit` is not `Limit.unlimited`, asserts `buffer` has nonzero capacity.
 ///
 /// See also:
 /// * `allocRemaining`
@@ -251,7 +251,7 @@ pub fn appendRemaining(
     list: *std.ArrayListAlignedUnmanaged(u8, alignment),
     limit: Limit,
 ) LimitedAllocError!void {
-    assert(r.buffer.len != 0); // Needed to detect limit exceeded without losing data.
+    if (limit != .unlimited) assert(r.buffer.len != 0); // Needed to detect limit exceeded without losing data.
     const buffer_contents = r.buffer[r.seek..r.end];
     const copy_len = limit.minInt(buffer_contents.len);
     try list.appendSlice(gpa, r.buffer[0..copy_len]);

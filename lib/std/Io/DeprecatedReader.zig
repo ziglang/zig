@@ -373,11 +373,11 @@ pub fn discard(self: Self) anyerror!u64 {
 }
 
 /// Helper for bridging to the new `Reader` API while upgrading.
-pub fn adaptToNewApi(self: *const Self) Adapter {
+pub fn adaptToNewApi(self: *const Self, buffer: []u8) Adapter {
     return .{
         .derp_reader = self.*,
         .new_interface = .{
-            .buffer = &.{},
+            .buffer = buffer,
             .vtable = &.{ .stream = Adapter.stream },
             .seek = 0,
             .end = 0,

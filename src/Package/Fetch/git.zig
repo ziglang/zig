@@ -1281,7 +1281,7 @@ pub fn indexPack(allocator: Allocator, format: Oid.Format, pack: std.fs.File, in
     }
     @memset(fan_out_table[fan_out_index..], count);
 
-    var index_hashed_writer = std.compress.hashedWriter(index_writer, Oid.Hasher.init(format));
+    var index_hashed_writer = hashedWriter(index_writer, Oid.Hasher.init(format));
     const writer = index_hashed_writer.writer();
     try writer.writeAll(IndexHeader.signature);
     try writer.writeInt(u32, IndexHeader.supported_version, .big);
@@ -1331,7 +1331,7 @@ fn indexPackFirstPass(
 ) !Oid {
     var pack_buffered_reader = std.io.bufferedReader(pack.deprecatedReader());
     var pack_counting_reader = std.io.countingReader(pack_buffered_reader.reader());
-    var pack_hashed_reader = std.compress.hashedReader(pack_counting_reader.reader(), Oid.Hasher.init(format));
+    var pack_hashed_reader = hashedReader(pack_counting_reader.reader(), Oid.Hasher.init(format));
     const pack_reader = pack_hashed_reader.reader();
 
     const pack_header = try PackHeader.read(pack_reader);
@@ -1339,13 +1339,13 @@ fn indexPackFirstPass(
     var current_entry: u32 = 0;
     while (current_entry < pack_header.total_objects) : (current_entry += 1) {
         const entry_offset = pack_counting_reader.bytes_read;
-        var entry_crc32_reader = std.compress.hashedReader(pack_reader, std.hash.Crc32.init());
+        var entry_crc32_reader = hashedReader(pack_reader, std.hash.Crc32.init());
         const entry_header = try EntryHeader.read(format, entry_crc32_reader.reader());
         switch (entry_header) {
             .commit, .tree, .blob, .tag => |object| {
                 var entry_decompress_stream = std.compress.zlib.decompressor(entry_crc32_reader.reader());
                 var entry_counting_reader = std.io.countingReader(entry_decompress_stream.reader());
-                var entry_hashed_writer = std.compress.hashedWriter(std.io.null_writer, Oid.Hasher.init(format));
+                var entry_hashed_writer = hashedWriter(std.io.null_writer, Oid.Hasher.init(format));
                 const entry_writer = entry_hashed_writer.writer();
                 // The object header is not included in the pack data but is
                 // part of the object's ID
@@ -1432,7 +1432,7 @@ fn indexPackHashDelta(
     const base_data = try resolveDeltaChain(allocator, format, pack, base_object, delta_offsets.items, cache);
 
     var entry_hasher: Oid.Hasher = .init(format);
-    var entry_hashed_writer = std.compress.hashedWriter(std.io.null_writer, &entry_hasher);
+    var entry_hashed_writer = hashedWriter(std.io.null_writer, &entry_hasher);
     try entry_hashed_writer.writer().print("{s} {}\x00", .{ @tagName(base_object.type), base_data.len });
     entry_hasher.update(base_data);
     return entry_hasher.finalResult();
@@ -1702,4 +1702,59 @@ pub fn main() !void {
     for (diagnostics.errors.items) |err| {
         std.debug.print("Diagnostic: {}\n", .{err});
     }
+}
+
+/// Deprecated
+fn hashedReader(reader: anytype, hasher: anytype) HashedReader(@TypeOf(reader), @TypeOf(hasher)) {
+    return .{ .child_reader = reader, .hasher = hasher };
+}
+
+/// Deprecated
+fn HashedReader(ReaderType: type, HasherType: type) type {
+    return struct {
+        child_reader: ReaderType,
+        hasher: HasherType,
+
+        pub const Error = ReaderType.Error;
+        pub const Reader = std.io.GenericReader(*@This(), Error, read);
+
+        pub fn read(self: *@This(), buf: []u8) Error!usize {
+            const amt = try self.child_reader.read(buf);
+            self.hasher.update(buf[0..amt]);
+            return amt;
+        }
+
+        pub fn reader(self: *@This()) Reader {
+            return .{ .context = self };
+        }
+    };
+}
+
+/// Deprecated
+pub fn HashedWriter(WriterType: type, HasherType: type) type {
+    return struct {
+        child_writer: WriterType,
+        hasher: HasherType,
+
+        pub const Error = WriterType.Error;
+        pub const Writer = std.io.GenericWriter(*@This(), Error, write);
+
+        pub fn write(self: *@This(), buf: []const u8) Error!usize {
+            const amt = try self.child_writer.write(buf);
+            self.hasher.update(buf[0..amt]);
+            return amt;
+        }
+
+        pub fn writer(self: *@This()) Writer {
+            return .{ .context = self };
+        }
+    };
+}
+
+/// Deprecated
+pub fn hashedWriter(
+    writer: anytype,
+    hasher: anytype,
+) HashedWriter(@TypeOf(writer), @TypeOf(hasher)) {
+    return .{ .child_writer = writer, .hasher = hasher };
 }

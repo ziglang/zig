@@ -47,7 +47,7 @@ pub fn Decompress(comptime ReaderType: type) type {
 
             var check: Check = undefined;
             const hash_a = blk: {
-                var hasher = std.compress.hashedReader(source, Crc32.init());
+                var hasher = hashedReader(source, Crc32.init());
                 try readStreamFlags(hasher.reader(), &check);
                 break :blk hasher.hasher.final();
             };
@@ -80,7 +80,7 @@ pub fn Decompress(comptime ReaderType: type) type {
                 return r;
 
             const index_size = blk: {
-                var hasher = std.compress.hashedReader(self.in_reader, Crc32.init());
+                var hasher = hashedReader(self.in_reader, Crc32.init());
                 hasher.hasher.update(&[1]u8{0x00});
 
                 var counter = std.io.countingReader(hasher.reader());
@@ -115,7 +115,7 @@ pub fn Decompress(comptime ReaderType: type) type {
             const hash_a = try self.in_reader.readInt(u32, .little);
 
             const hash_b = blk: {
-                var hasher = std.compress.hashedReader(self.in_reader, Crc32.init());
+                var hasher = hashedReader(self.in_reader, Crc32.init());
                 const hashed_reader = hasher.reader();
 
                 const backward_size = (@as(u64, try hashed_reader.readInt(u32, .little)) + 1) * 4;
@@ -138,6 +138,33 @@ pub fn Decompress(comptime ReaderType: type) type {
             return 0;
         }
     };
+}
+
+pub fn HashedReader(ReaderType: type, HasherType: type) type {
+    return struct {
+        child_reader: ReaderType,
+        hasher: HasherType,
+
+        pub const Error = ReaderType.Error;
+        pub const Reader = std.io.GenericReader(*@This(), Error, read);
+
+        pub fn read(self: *@This(), buf: []u8) Error!usize {
+            const amt = try self.child_reader.read(buf);
+            self.hasher.update(buf[0..amt]);
+            return amt;
+        }
+
+        pub fn reader(self: *@This()) Reader {
+            return .{ .context = self };
+        }
+    };
+}
+
+pub fn hashedReader(
+    reader: anytype,
+    hasher: anytype,
+) HashedReader(@TypeOf(reader), @TypeOf(hasher)) {
+    return .{ .child_reader = reader, .hasher = hasher };
 }
 
 test {
