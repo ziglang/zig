@@ -851,11 +851,21 @@
     },
     // C6.2.228 MRS
     .{
-        .pattern = "MRS <Xt>, CTR_EL0",
+        .pattern = "MRS <Xt>, <systemreg>",
         .symbols = .{
             .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .systemreg = .systemreg,
         },
-        .encode = .{ .mrs, .Xt, 0b11, 0b011, 0b0000, 0b0000, 0b001 },
+        .encode = .{ .mrs, .Xt, .systemreg },
+    },
+    // C6.2.230 MSR (register)
+    .{
+        .pattern = "MSR <systemreg>, <Xt>",
+        .symbols = .{
+            .systemreg = .systemreg,
+            .Xt = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .msr, .systemreg, .Xt },
     },
     // C6.2.234 NEG
     .{

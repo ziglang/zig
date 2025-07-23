@@ -1816,7 +1816,6 @@ test "peer type resolution: C pointer and @TypeOf(null)" {
 }
 
 test "peer type resolution: three-way resolution combines error set and optional" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;

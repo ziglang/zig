@@ -215,6 +215,7 @@ fn nextToken(as: *Assemble, buf: *[token_buf_len]u8, comptime opts: struct {
 
 const SymbolSpec = union(enum) {
     reg: struct { format: aarch64.encoding.Register.Format, allow_sp: bool = false },
+    systemreg,
     imm: struct {
         type: std.builtin.Type.Int,
         multiple_of: comptime_int = 1,
@@ -227,6 +228,7 @@ const SymbolSpec = union(enum) {
     fn Storage(comptime spec: SymbolSpec) type {
         return switch (spec) {
             .reg => aarch64.encoding.Register,
+            .systemreg => aarch64.encoding.Register.System,
             .imm => |imm| @Type(.{ .int = imm.type }),
             .extend => Instruction.DataProcessingRegister.AddSubtractExtendedRegister.Option,
             .shift => Instruction.DataProcessingRegister.Shift.Op,
@@ -238,8 +240,7 @@ const SymbolSpec = union(enum) {
         const Result = Storage(spec);
         switch (spec) {
             .reg => |reg_spec| {
-                var buf: [token_buf_len]u8 = undefined;
-                const reg = Result.parse(std.ascii.lowerString(&buf, token[0..@min(token.len, buf.len)])) orelse {
+                const reg = Result.parse(token) orelse {
                     log.debug("invalid register: \"{f}\"", .{std.zig.fmtString(token)});
                     return null;
                 };
@@ -252,6 +253,14 @@ const SymbolSpec = union(enum) {
                     return null;
                 }
                 return reg;
+            },
+            .systemreg => {
+                const systemreg = Result.parse(token) orelse {
+                    log.debug("invalid system register: \"{f}\"", .{std.zig.fmtString(token)});
+                    return null;
+                };
+                assert(systemreg.op0 >= 2);
+                return systemreg;
             },
             .imm => |imm_spec| {
                 const imm = std.fmt.parseInt(Result, token, 0) catch {

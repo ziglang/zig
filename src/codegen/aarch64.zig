@@ -113,9 +113,7 @@ pub fn generate(
             },
             .stack_slot => |stack_slot| {
                 assert(stack_slot.base == .sp);
-                passed_vi.setParent(&isel, .{
-                    .stack_slot = named_stack_args.withOffset(stack_slot.offset),
-                });
+                passed_vi.changeStackSlot(&isel, named_stack_args.withOffset(stack_slot.offset));
             },
             .address, .value, .constant => unreachable,
         }
