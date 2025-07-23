@@ -1241,37 +1241,6 @@ pub fn fillAlloc(r: *Reader, allocator: Allocator, n: usize) FillAllocError!void
     return fill(r, n);
 }
 
-/// Returns a slice into the unused capacity of `buffer` with at least
-/// `min_len` bytes, extending `buffer` by resizing it with `gpa` as necessary.
-///
-/// After calling this function, typically the caller will follow up with a
-/// call to `advanceBufferEnd` to report the actual number of bytes buffered.
-pub fn writableSliceGreedyAlloc(r: *Reader, allocator: Allocator, min_len: usize) Allocator.Error![]u8 {
-    {
-        const unused = r.buffer[r.end..];
-        if (unused.len >= min_len) return unused;
-    }
-    if (r.seek > 0) rebase(r);
-    {
-        var list: ArrayList(u8) = .{
-            .items = r.buffer[0..r.end],
-            .capacity = r.buffer.len,
-        };
-        defer r.buffer = list.allocatedSlice();
-        try list.ensureUnusedCapacity(allocator, min_len);
-    }
-    const unused = r.buffer[r.end..];
-    assert(unused.len >= min_len);
-    return unused;
-}
-
-/// After writing directly into the unused capacity of `buffer`, this function
-/// updates `end` so that users of `Reader` can receive the data.
-pub fn advanceBufferEnd(r: *Reader, n: usize) void {
-    assert(n <= r.buffer.len - r.end);
-    r.end += n;
-}
-
 fn takeMultipleOf7Leb128(r: *Reader, comptime Result: type) TakeLeb128Error!Result {
     const result_info = @typeInfo(Result).int;
     comptime assert(result_info.bits % 7 == 0);

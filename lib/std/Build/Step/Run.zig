@@ -73,9 +73,12 @@ skip_foreign_checks: bool,
 /// external executor (such as qemu) but not fail if the executor is unavailable.
 failing_to_execute_foreign_is_an_error: bool,
 
+/// Deprecated in favor of `stdio_limit`.
+max_stdio_size: usize,
+
 /// If stderr or stdout exceeds this amount, the child process is killed and
 /// the step fails.
-max_stdio_size: usize,
+stdio_limit: std.Io.Limit,
 
 captured_stdout: ?*Output,
 captured_stderr: ?*Output,
@@ -186,6 +189,7 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .skip_foreign_checks = false,
         .failing_to_execute_foreign_is_an_error = true,
         .max_stdio_size = 10 * 1024 * 1024,
+        .stdio_limit = .unlimited,
         .captured_stdout = null,
         .captured_stderr = null,
         .dep_output_file = null,
@@ -1011,7 +1015,7 @@ fn populateGeneratedPaths(
     }
 }
 
-fn formatTerm(term: ?std.process.Child.Term, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatTerm(term: ?std.process.Child.Term, w: *std.Io.Writer) std.Io.Writer.Error!void {
     if (term) |t| switch (t) {
         .Exited => |code| try w.print("exited with code {d}", .{code}),
         .Signal => |sig| try w.print("terminated with signal {d}", .{sig}),
@@ -1500,7 +1504,7 @@ fn evalZigTest(
     const gpa = run.step.owner.allocator;
     const arena = run.step.owner.allocator;
 
-    var poller = std.io.poll(gpa, enum { stdout, stderr }, .{
+    var poller = std.Io.poll(gpa, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });
@@ -1524,11 +1528,6 @@ fn evalZigTest(
         break :failed false;
     };
 
-    const Header = std.zig.Server.Message.Header;
-
-    const stdout = poller.fifo(.stdout);
-    const stderr = poller.fifo(.stderr);
-
     var fail_count: u32 = 0;
     var skip_count: u32 = 0;
     var leak_count: u32 = 0;
@@ -1541,16 +1540,14 @@ fn evalZigTest(
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
 
+    const stdout = poller.reader(.stdout);
+    const stderr = poller.reader(.stderr);
     const any_write_failed = first_write_failed or poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(Header)) {
-            if (!(try poller.poll())) break :poll false;
-        }
-        const header = stdout.reader().readStruct(Header) catch unreachable;
-        while (stdout.readableLength() < header.bytes_len) {
-            if (!(try poller.poll())) break :poll false;
-        }
-        const body = stdout.readableSliceOfLen(header.bytes_len);
-
+        const Header = std.zig.Server.Message.Header;
+        while (stdout.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll false;
+        const header = stdout.takeStruct(Header, .little) catch unreachable;
+        while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll false;
+        const body = stdout.take(header.bytes_len) catch unreachable;
         switch (header.tag) {
             .zig_version => {
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
@@ -1607,9 +1604,9 @@ fn evalZigTest(
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
-                    const orig_msg = stderr.readableSlice(0);
-                    defer stderr.discard(orig_msg.len);
-                    const msg = std.mem.trim(u8, orig_msg, "\n");
+                    const stderr_contents = stderr.buffered();
+                    stderr.toss(stderr_contents.len);
+                    const msg = std.mem.trim(u8, stderr_contents, "\n");
                     const label = if (tr_hdr.flags.fail)
                         "failed"
                     else if (tr_hdr.flags.leak)
@@ -1660,8 +1657,6 @@ fn evalZigTest(
             },
             else => {}, // ignore other messages
         }
-
-        stdout.discard(body.len);
     };
 
     if (any_write_failed) {
@@ -1670,9 +1665,9 @@ fn evalZigTest(
         while (try poller.poll()) {}
     }
 
-    if (stderr.readableLength() > 0) {
-        const msg = std.mem.trim(u8, try stderr.toOwnedSlice(), "\n");
-        if (msg.len > 0) run.step.result_stderr = msg;
+    const stderr_contents = std.mem.trim(u8, stderr.buffered(), "\n");
+    if (stderr_contents.len > 0) {
+        run.step.result_stderr = try arena.dupe(u8, stderr_contents);
     }
 
     // Send EOF to stdin.
@@ -1795,28 +1790,43 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
     var stdout_bytes: ?[]const u8 = null;
     var stderr_bytes: ?[]const u8 = null;
 
+    run.stdio_limit = run.stdio_limit.min(.limited(run.max_stdio_size));
     if (child.stdout) |stdout| {
         if (child.stderr) |stderr| {
-            var poller = std.io.poll(arena, enum { stdout, stderr }, .{
+            var poller = std.Io.poll(arena, enum { stdout, stderr }, .{
                 .stdout = stdout,
                 .stderr = stderr,
             });
             defer poller.deinit();
 
             while (try poller.poll()) {
-                if (poller.fifo(.stdout).count > run.max_stdio_size)
-                    return error.StdoutStreamTooLong;
-                if (poller.fifo(.stderr).count > run.max_stdio_size)
-                    return error.StderrStreamTooLong;
+                if (run.stdio_limit.toInt()) |limit| {
+                    if (poller.reader(.stderr).buffered().len > limit)
+                        return error.StdoutStreamTooLong;
+                    if (poller.reader(.stderr).buffered().len > limit)
+                        return error.StderrStreamTooLong;
+                }
             }
 
-            stdout_bytes = try poller.fifo(.stdout).toOwnedSlice();
-            stderr_bytes = try poller.fifo(.stderr).toOwnedSlice();
+            stdout_bytes = try poller.toOwnedSlice(.stdout);
+            stderr_bytes = try poller.toOwnedSlice(.stderr);
         } else {
-            stdout_bytes = try stdout.deprecatedReader().readAllAlloc(arena, run.max_stdio_size);
+            var small_buffer: [1]u8 = undefined;
+            var stdout_reader = stdout.readerStreaming(&small_buffer);
+            stdout_bytes = stdout_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.ReadFailed => return stdout_reader.err.?,
+                error.StreamTooLong => return error.StdoutStreamTooLong,
+            };
         }
     } else if (child.stderr) |stderr| {
-        stderr_bytes = try stderr.deprecatedReader().readAllAlloc(arena, run.max_stdio_size);
+        var small_buffer: [1]u8 = undefined;
+        var stderr_reader = stderr.readerStreaming(&small_buffer);
+        stderr_bytes = stderr_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ReadFailed => return stderr_reader.err.?,
+            error.StreamTooLong => return error.StderrStreamTooLong,
+        };
     }
 
     if (stderr_bytes) |bytes| if (bytes.len > 0) {
