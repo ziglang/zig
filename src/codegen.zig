@@ -98,12 +98,12 @@ pub fn wantsLiveness(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) bool {
 /// MIR from codegen to the linker *regardless* of which backend is in use. So, we use this: a
 /// union of all MIR types. The active tag is known from the backend in use; see `AnyMir.tag`.
 pub const AnyMir = union {
-    aarch64: @import("codegen/aarch64/Mir.zig"),
-    riscv64: @import("arch/riscv64/Mir.zig"),
-    sparc64: @import("arch/sparc64/Mir.zig"),
-    x86_64: @import("arch/x86_64/Mir.zig"),
-    wasm: @import("arch/wasm/Mir.zig"),
-    c: @import("codegen/c.zig").Mir,
+    aarch64: if (dev.env.supports(.aarch64_backend)) @import("codegen/aarch64/Mir.zig") else noreturn,
+    riscv64: if (dev.env.supports(.riscv64_backend)) @import("arch/riscv64/Mir.zig") else noreturn,
+    sparc64: if (dev.env.supports(.sparc64_backend)) @import("arch/sparc64/Mir.zig") else noreturn,
+    x86_64: if (dev.env.supports(.x86_64_backend)) @import("arch/x86_64/Mir.zig") else noreturn,
+    wasm: if (dev.env.supports(.wasm_backend)) @import("arch/wasm/Mir.zig") else noreturn,
+    c: if (dev.env.supports(.c_backend)) @import("codegen/c.zig").Mir else noreturn,
 
     pub inline fn tag(comptime backend: std.builtin.CompilerBackend) []const u8 {
         return switch (backend) {
