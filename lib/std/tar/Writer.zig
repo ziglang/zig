@@ -85,30 +85,6 @@ pub fn writeLink(w: *Writer, sub_path: []const u8, link_name: []const u8, option
     try w.writeHeader(.symbolic_link, sub_path, link_name, 0, options);
 }
 
-/// Writes fs.Dir.WalkerEntry. Uses `mtime` from file system entry and
-/// default for entry mode .
-pub fn writeEntry(w: *Writer, entry: std.fs.Dir.Walker.Entry) Error!void {
-    switch (entry.kind) {
-        .directory => {
-            try w.writeDir(entry.path, .{ .mtime = try entryMtime(entry) });
-        },
-        .file => {
-            var file = try entry.dir.openFile(entry.basename, .{});
-            defer file.close();
-            const stat = try file.stat();
-            try w.writeFile(entry.path, file, stat);
-        },
-        .sym_link => {
-            var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
-            const link_name = try entry.dir.readLink(entry.basename, &link_name_buffer);
-            try w.writeLink(entry.path, link_name, .{ .mtime = try entryMtime(entry) });
-        },
-        else => {
-            return error.UnsupportedWalkerEntryKind;
-        },
-    }
-}
-
 fn writeHeader(
     w: *Writer,
     typeflag: Header.FileType,
@@ -120,7 +96,7 @@ fn writeHeader(
     var header = Header.init(typeflag);
     try w.setPath(&header, sub_path);
     try header.setSize(size);
-    try header.setMtime(if (options.mtime != 0) options.mtime else w.mtimeNow());
+    try header.setMtime(options.mtime);
     if (options.mode != 0)
         try header.setMode(options.mode);
     if (typeflag == .symbolic_link)
@@ -129,17 +105,6 @@ fn writeHeader(
             else => return err,
         };
     try header.write(w.underlying_writer);
-}
-
-fn mtimeNow(w: *Writer) u64 {
-    if (w.mtime_now == 0)
-        w.mtime_now = @intCast(std.time.timestamp());
-    return w.mtime_now;
-}
-
-fn entryMtime(entry: std.fs.Dir.Walker.Entry) !u64 {
-    const stat = try entry.dir.statFile(entry.basename);
-    return @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
 }
 
 /// Writes path in posix header, if don't fit (in name+prefix; 100+155
