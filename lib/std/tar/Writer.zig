@@ -346,8 +346,8 @@ pub const Header = extern struct {
         for (cases) |case| {
             var header = Header.init(.regular);
             try header.setPath(case.in[0], case.in[1]);
-            try testing.expectEqualStrings(case.out[0], str(&header.prefix));
-            try testing.expectEqualStrings(case.out[1], str(&header.name));
+            try testing.expectEqualStrings(case.out[0], std.mem.sliceTo(&header.prefix, 0));
+            try testing.expectEqualStrings(case.out[1], std.mem.sliceTo(&header.name, 0));
         }
 
         const error_cases = [_]struct {
@@ -369,14 +369,6 @@ pub const Header = extern struct {
                 header.setPath(case.in[0], case.in[1]),
             );
         }
-    }
-
-    // Breaks string on first null character.
-    fn str(s: []const u8) []const u8 {
-        for (s, 0..) |c, i| {
-            if (c == 0) return s[0..i];
-        }
-        return s;
     }
 };
 
