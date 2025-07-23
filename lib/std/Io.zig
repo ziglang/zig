@@ -314,11 +314,11 @@ pub fn GenericReader(
         }
 
         /// Helper for bridging to the new `Reader` API while upgrading.
-        pub fn adaptToNewApi(self: *const Self) Adapter {
+        pub fn adaptToNewApi(self: *const Self, buffer: []u8) Adapter {
             return .{
                 .derp_reader = self.*,
                 .new_interface = .{
-                    .buffer = &.{},
+                    .buffer = buffer,
                     .vtable = &.{ .stream = Adapter.stream },
                     .seek = 0,
                     .end = 0,
@@ -334,10 +334,12 @@ pub fn GenericReader(
             fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
                 const a: *@This() = @alignCast(@fieldParentPtr("new_interface", r));
                 const buf = limit.slice(try w.writableSliceGreedy(1));
-                return a.derp_reader.read(buf) catch |err| {
+                const n = a.derp_reader.read(buf) catch |err| {
                     a.err = err;
                     return error.ReadFailed;
                 };
+                w.advance(n);
+                return n;
             }
         };
     };
@@ -419,9 +421,14 @@ pub fn GenericWriter(
             new_interface: Writer,
             err: ?Error = null,
 
-            fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
+            fn drain(w: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
                 _ = splat;
                 const a: *@This() = @alignCast(@fieldParentPtr("new_interface", w));
+                const buffered = w.buffered();
+                if (buffered.len != 0) return w.consume(a.derp_writer.write(buffered) catch |err| {
+                    a.err = err;
+                    return error.WriteFailed;
+                });
                 return a.derp_writer.write(data[0]) catch |err| {
                     a.err = err;
                     return error.WriteFailed;
@@ -435,32 +442,34 @@ pub fn GenericWriter(
 pub const AnyReader = @import("Io/DeprecatedReader.zig");
 /// Deprecated in favor of `Writer`.
 pub const AnyWriter = @import("Io/DeprecatedWriter.zig");
-
+/// Deprecated in favor of `File.Reader` and `File.Writer`.
 pub const SeekableStream = @import("Io/seekable_stream.zig").SeekableStream;
-
+/// Deprecated in favor of `Writer`.
 pub const BufferedWriter = @import("Io/buffered_writer.zig").BufferedWriter;
+/// Deprecated in favor of `Writer`.
 pub const bufferedWriter = @import("Io/buffered_writer.zig").bufferedWriter;
-
+/// Deprecated in favor of `Reader`.
 pub const BufferedReader = @import("Io/buffered_reader.zig").BufferedReader;
+/// Deprecated in favor of `Reader`.
 pub const bufferedReader = @import("Io/buffered_reader.zig").bufferedReader;
+/// Deprecated in favor of `Reader`.
 pub const bufferedReaderSize = @import("Io/buffered_reader.zig").bufferedReaderSize;
-
+/// Deprecated in favor of `Reader`.
 pub const FixedBufferStream = @import("Io/fixed_buffer_stream.zig").FixedBufferStream;
+/// Deprecated in favor of `Reader`.
 pub const fixedBufferStream = @import("Io/fixed_buffer_stream.zig").fixedBufferStream;
-
-pub const CWriter = @import("Io/c_writer.zig").CWriter;
-pub const cWriter = @import("Io/c_writer.zig").cWriter;
-
+/// Deprecated in favor of `Reader.Limited`.
 pub const LimitedReader = @import("Io/limited_reader.zig").LimitedReader;
+/// Deprecated in favor of `Reader.Limited`.
 pub const limitedReader = @import("Io/limited_reader.zig").limitedReader;
-
+/// Deprecated with no replacement; inefficient pattern
 pub const CountingWriter = @import("Io/counting_writer.zig").CountingWriter;
+/// Deprecated with no replacement; inefficient pattern
 pub const countingWriter = @import("Io/counting_writer.zig").countingWriter;
+/// Deprecated with no replacement; inefficient pattern
 pub const CountingReader = @import("Io/counting_reader.zig").CountingReader;
+/// Deprecated with no replacement; inefficient pattern
 pub const countingReader = @import("Io/counting_reader.zig").countingReader;
-
-pub const MultiWriter = @import("Io/multi_writer.zig").MultiWriter;
-pub const multiWriter = @import("Io/multi_writer.zig").multiWriter;
 
 pub const BitReader = @import("Io/bit_reader.zig").BitReader;
 pub const bitReader = @import("Io/bit_reader.zig").bitReader;
@@ -468,21 +477,11 @@ pub const bitReader = @import("Io/bit_reader.zig").bitReader;
 pub const BitWriter = @import("Io/bit_writer.zig").BitWriter;
 pub const bitWriter = @import("Io/bit_writer.zig").bitWriter;
 
-pub const ChangeDetectionStream = @import("Io/change_detection_stream.zig").ChangeDetectionStream;
-pub const changeDetectionStream = @import("Io/change_detection_stream.zig").changeDetectionStream;
-
-pub const FindByteWriter = @import("Io/find_byte_writer.zig").FindByteWriter;
-pub const findByteWriter = @import("Io/find_byte_writer.zig").findByteWriter;
-
-pub const BufferedAtomicFile = @import("Io/buffered_atomic_file.zig").BufferedAtomicFile;
-
-pub const StreamSource = @import("Io/stream_source.zig").StreamSource;
-
 pub const tty = @import("Io/tty.zig");
 
-/// A Writer that doesn't write to anything.
+/// Deprecated in favor of `Writer.Discarding`.
 pub const null_writer: NullWriter = .{ .context = {} };
-
+/// Deprecated in favor of `Writer.Discarding`.
 pub const NullWriter = GenericWriter(void, error{}, dummyWrite);
 fn dummyWrite(context: void, data: []const u8) error{}!usize {
     _ = context;
@@ -898,16 +897,14 @@ test {
     _ = Reader;
     _ = Reader.Limited;
     _ = Writer;
-    _ = @import("Io/bit_reader.zig");
-    _ = @import("Io/bit_writer.zig");
-    _ = @import("Io/buffered_atomic_file.zig");
-    _ = @import("Io/buffered_reader.zig");
-    _ = @import("Io/buffered_writer.zig");
-    _ = @import("Io/c_writer.zig");
-    _ = @import("Io/counting_writer.zig");
-    _ = @import("Io/counting_reader.zig");
-    _ = @import("Io/fixed_buffer_stream.zig");
-    _ = @import("Io/seekable_stream.zig");
-    _ = @import("Io/stream_source.zig");
+    _ = BitReader;
+    _ = BitWriter;
+    _ = BufferedReader;
+    _ = BufferedWriter;
+    _ = CountingWriter;
+    _ = CountingReader;
+    _ = FixedBufferStream;
+    _ = SeekableStream;
+    _ = tty;
     _ = @import("Io/test.zig");
 }

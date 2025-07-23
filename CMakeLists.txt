@@ -390,15 +390,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Io.zig
     lib/std/Io/Reader.zig
     lib/std/Io/Writer.zig
-    lib/std/Io/buffered_atomic_file.zig
-    lib/std/Io/buffered_writer.zig
-    lib/std/Io/change_detection_stream.zig
-    lib/std/Io/counting_reader.zig
-    lib/std/Io/counting_writer.zig
-    lib/std/Io/find_byte_writer.zig
-    lib/std/Io/fixed_buffer_stream.zig
-    lib/std/Io/limited_reader.zig
-    lib/std/Io/seekable_stream.zig
     lib/std/Progress.zig
     lib/std/Random.zig
     lib/std/Target.zig

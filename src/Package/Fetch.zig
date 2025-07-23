@@ -1197,12 +1197,17 @@ fn unpackResource(
     };
 
     switch (file_type) {
-        .tar => return try unpackTarball(f, tmp_directory.handle, resource.reader()),
+        .tar => {
+            var adapter = resource.reader().adaptToNewApi();
+            return unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
+        },
         .@"tar.gz" => {
             const reader = resource.reader();
             var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
             var dcp = std.compress.gzip.decompressor(br.reader());
-            return try unpackTarball(f, tmp_directory.handle, dcp.reader());
+            var adapter_buffer: [1024]u8 = undefined;
+            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
+            return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.xz" => {
             const gpa = f.arena.child_allocator;
@@ -1215,7 +1220,9 @@ fn unpackResource(
                 ));
             };
             defer dcp.deinit();
-            return try unpackTarball(f, tmp_directory.handle, dcp.reader());
+            var adapter_buffer: [1024]u8 = undefined;
+            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
+            return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.zst" => {
             const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
@@ -1225,7 +1232,9 @@ fn unpackResource(
             var dcp = std.compress.zstd.decompressor(br.reader(), .{
                 .window_buffer = window_buffer,
             });
-            return try unpackTarball(f, tmp_directory.handle, dcp.reader());
+            var adapter_buffer: [1024]u8 = undefined;
+            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
+            return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .git_pack => return unpackGitPack(f, tmp_directory.handle, &resource.git) catch |err| switch (err) {
             error.FetchFailed => return error.FetchFailed,
@@ -1239,7 +1248,7 @@ fn unpackResource(
     }
 }
 
-fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
+fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) RunError!UnpackResult {
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
 
@@ -1250,10 +1259,10 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackRes
         .strip_components = 0,
         .mode_mode = .ignore,
         .exclude_empty_directories = true,
-    }) catch |err| return f.fail(f.location_tok, try eb.printString(
-        "unable to unpack tarball to temporary directory: {s}",
-        .{@errorName(err)},
-    ));
+    }) catch |err| return f.fail(
+        f.location_tok,
+        try eb.printString("unable to unpack tarball to temporary directory: {t}", .{err}),
+    );
 
     var res: UnpackResult = .{ .root_dir = diagnostics.root_dir };
     if (diagnostics.errors.items.len > 0) {

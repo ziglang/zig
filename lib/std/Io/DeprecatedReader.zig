@@ -393,10 +393,12 @@ pub const Adapter = struct {
     fn stream(r: *std.io.Reader, w: *std.io.Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
         const a: *@This() = @alignCast(@fieldParentPtr("new_interface", r));
         const buf = limit.slice(try w.writableSliceGreedy(1));
-        return a.derp_reader.read(buf) catch |err| {
+        const n = a.derp_reader.read(buf) catch |err| {
             a.err = err;
             return error.ReadFailed;
         };
+        w.advance(n);
+        return n;
     }
 };
 

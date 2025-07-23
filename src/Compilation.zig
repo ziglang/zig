@@ -4862,6 +4862,9 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     };
     defer tar_file.close();
 
+    var buffer: [1024]u8 = undefined;
+    var tar_file_writer = tar_file.writer(&buffer);
+
     var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, []const u8) = .empty;
     defer seen_table.deinit(comp.gpa);
 
@@ -4871,7 +4874,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     var i: usize = 0;
     while (i < seen_table.count()) : (i += 1) {
         const mod = seen_table.keys()[i];
-        try comp.docsCopyModule(mod, seen_table.values()[i], tar_file);
+        try comp.docsCopyModule(mod, seen_table.values()[i], &tar_file_writer);
 
         const deps = mod.deps.values();
         try seen_table.ensureUnusedCapacity(comp.gpa, deps.len);
@@ -4879,23 +4882,28 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     }
 }
 
-fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8, tar_file: fs.File) !void {
+fn docsCopyModule(
+    comp: *Compilation,
+    module: *Package.Module,
+    name: []const u8,
+    tar_file_writer: *fs.File.Writer,
+) !void {
     const root = module.root;
     var mod_dir = d: {
         const root_dir, const sub_path = root.openInfo(comp.dirs);
         break :d root_dir.openDir(sub_path, .{ .iterate = true });
     } catch |err| {
-        return comp.lockAndSetMiscFailure(.docs_copy, "unable to open directory '{f}': {s}", .{
-            root.fmt(comp), @errorName(err),
-        });
+        return comp.lockAndSetMiscFailure(.docs_copy, "unable to open directory '{f}': {t}", .{ root.fmt(comp), err });
     };
     defer mod_dir.close();
 
     var walker = try mod_dir.walk(comp.gpa);
     defer walker.deinit();
 
-    var archiver = std.tar.writer(tar_file.deprecatedWriter().any());
+    var archiver: std.tar.Writer = .{ .underlying_writer = &tar_file_writer.interface };
     archiver.prefix = name;
+
+    var buffer: [1024]u8 = undefined;
 
     while (try walker.next()) |entry| {
         switch (entry.kind) {
@@ -4907,14 +4915,17 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
             else => continue,
         }
         var file = mod_dir.openFile(entry.path, .{}) catch |err| {
-            return comp.lockAndSetMiscFailure(.docs_copy, "unable to open '{f}{s}': {s}", .{
-                root.fmt(comp), entry.path, @errorName(err),
+            return comp.lockAndSetMiscFailure(.docs_copy, "unable to open {f}{s}: {t}", .{
+                root.fmt(comp), entry.path, err,
             });
         };
         defer file.close();
-        archiver.writeFile(entry.path, file) catch |err| {
-            return comp.lockAndSetMiscFailure(.docs_copy, "unable to archive '{f}{s}': {s}", .{
-                root.fmt(comp), entry.path, @errorName(err),
+        const stat = try file.stat();
+        var file_reader: fs.File.Reader = .initSize(file, &buffer, stat.size);
+
+        archiver.writeFile(entry.path, &file_reader, stat.mtime) catch |err| {
+            return comp.lockAndSetMiscFailure(.docs_copy, "unable to archive {f}{s}: {t}", .{
+                root.fmt(comp), entry.path, err,
             });
         };
     }
@@ -4926,9 +4937,7 @@ fn workerDocsWasm(comp: *Compilation, parent_prog_node: std.Progress.Node) void 
 
     workerDocsWasmFallible(comp, prog_node) catch |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
-        else => comp.lockAndSetMiscFailure(.docs_wasm, "unable to build autodocs: {s}", .{
-            @errorName(err),
-        }),
+        else => comp.lockAndSetMiscFailure(.docs_wasm, "unable to build autodocs: {t}", .{err}),
     };
 }
 
