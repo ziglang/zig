@@ -678,6 +678,9 @@ const save = "\x1b7";
 const restore = "\x1b8";
 const finish_sync = "\x1b[?2026l";
 
+const progress_remove = "\x1b]9;4;0\x07";
+const progress_pulsing = "\x1b]9;4;3\x07";
+
 const TreeSymbol = enum {
     /// ├─
     tee,
@@ -760,7 +763,7 @@ fn clearWrittenWithEscapeCodes() anyerror!void {
     if (noop_impl or !global_progress.need_clear) return;
 
     global_progress.need_clear = false;
-    try write(clear);
+    try write(clear ++ progress_remove);
 }
 
 /// U+25BA or ►
@@ -1203,6 +1206,20 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) struct { []u8, usize } {
     i, const nl_n = computeNode(buf, i, 0, serialized, children, root_node_index);
 
     if (global_progress.terminal_mode == .ansi_escape_codes) {
+        {
+            // Set progress state https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC
+            const storage = &serialized.storage[@intFromEnum(root_node_index)];
+            const estimated_total = storage.estimated_total_count;
+            const completed_items = storage.completed_count;
+            if (estimated_total == 0) {
+                buf[i..][0..progress_pulsing.len].* = progress_pulsing.*;
+                i += progress_pulsing.len;
+            } else {
+                const percent = completed_items * 100 / estimated_total;
+                i += (std.fmt.bufPrint(buf[i..], "\x1b]9;4;1;{d}\x07", .{percent}) catch &.{}).len;
+            }
+        }
+
         if (nl_n > 0) {
             buf[i] = '\r';
             i += 1;
