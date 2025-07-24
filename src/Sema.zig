@@ -23592,39 +23592,17 @@ fn checkAtomicPtrOperand(
     const pt = sema.pt;
     const zcu = pt.zcu;
 
-    // This logic must be kept in sync with `std.atomic.Op.isValidAtomicType`.
-    const supports_floats = switch (atomic_op) {
-        .load, .store => true,
-        .cmpxchg => false,
-        .rmw => |rmw| switch (rmw) {
-            .Xchg, .Add, .Sub, .Min, .Max => true,
-            .And, .Nand, .Or, .Xor => false,
-        },
-    };
-    const is_valid_atomic_type =
-        elem_ty.toIntern() == .bool_type or
-        elem_ty.isAbiInt(zcu) or
-        elem_ty.isPtrAtRuntime(zcu) or
-        (elem_ty.isRuntimeFloat() and supports_floats);
-    if (!is_valid_atomic_type) {
+    if (sema.isInvalidAtomicType(atomic_op, elem_ty)) |why| {
         const msg = msg: {
             const msg = try sema.errMsg(
                 elem_ty_src,
-                "expected bool, integer,{s} enum, error set, packed struct, or pointer type; found '{f}'",
-                .{
-                    if (atomic_op == .cmpxchg) "" else " float,",
-                    elem_ty.fmt(pt),
-                },
+                "expected {f} type; found '{f}'",
+                .{ atomic_op.supportedTypes(), elem_ty.fmt(pt) },
             );
             errdefer msg.destroy(sema.gpa);
 
-            if (elem_ty.isRuntimeFloat() and atomic_op == .cmpxchg) {
-                try sema.errNote(
-                    elem_ty_src,
-                    msg,
-                    "floats are not supported for cmpxchg because float equality differs from bitwise equality",
-                    .{},
-                );
+            if (why.len != 0) {
+                try sema.errNote(elem_ty_src, msg, "{s}", .{why});
             }
 
             try sema.addDeclaredHereNote(msg, elem_ty);
@@ -23699,6 +23677,52 @@ fn checkAtomicPtrOperand(
     const casted_ptr = try sema.coerce(block, wanted_ptr_ty, ptr, ptr_src);
 
     return casted_ptr;
+}
+
+/// If the type is invalid for this atomic operation, returns an error note explaining why.
+fn isInvalidAtomicType(sema: *Sema, op: std.atomic.Op, elem_ty: Type) ?[]const u8 {
+    const zcu = sema.pt.zcu;
+    const valid_types = op.supportedTypes();
+    if (elem_ty.isRuntimeFloat()) {
+        if (!valid_types.float) {
+            switch (op) {
+                .load, .store => unreachable,
+                .rmw => return "@atomicRmw with float only allowed with .Xchg, .Add, .Sub, .Max, and .Min",
+                .cmpxchg => return "floats are not supported for cmpxchg because float equality differs from bitwise equality",
+            }
+        }
+    } else if (elem_ty.isPtrAtRuntime(zcu)) {
+        // TODO: pointers are currently supported for things like rmw add, but maybe this shouldn't be the case?
+        std.debug.assert(valid_types.pointer);
+    } else switch (elem_ty.zigTypeTag(zcu)) {
+        .bool => if (!valid_types.bool) {
+            switch (op) {
+                .load, .store, .cmpxchg => unreachable,
+                .rmw => return "@atomicRmw with bool only allowed with .Xchg",
+            }
+        },
+        .int => std.debug.assert(valid_types.integer),
+        .@"enum" => if (!valid_types.@"enum") {
+            switch (op) {
+                .load, .store, .cmpxchg => unreachable,
+                .rmw => return "@atomicRmw with enum only allowed with .Xchg",
+            }
+        },
+        .error_set => if (!valid_types.error_set) {
+            switch (op) {
+                .load, .store, .cmpxchg => unreachable,
+                .rmw => return "@atomicRmw with error set only allowed with .Xchg",
+            }
+        },
+        .@"struct" => if (elem_ty.containerLayout(zcu) != .@"packed") {
+            return ""; // No notes
+        } else {
+            std.debug.assert(valid_types.packed_struct);
+        },
+        else => return "", // No notes
+    }
+
+    return null; // All ok!
 }
 
 fn checkPtrIsNotComptimeMutable(
@@ -24549,20 +24573,6 @@ fn zirAtomicRmw(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const uncasted_ptr = try sema.resolveInst(extra.ptr);
     const op = try sema.resolveAtomicRmwOp(block, op_src, extra.operation);
     const ptr = try sema.checkAtomicPtrOperand(block, .{ .rmw = op }, src, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, false);
-
-    switch (elem_ty.zigTypeTag(zcu)) {
-        .@"enum" => if (op != .Xchg) {
-            return sema.fail(block, op_src, "@atomicRmw with enum only allowed with .Xchg", .{});
-        },
-        .bool => if (op != .Xchg) {
-            return sema.fail(block, op_src, "@atomicRmw with bool only allowed with .Xchg", .{});
-        },
-        .float => switch (op) {
-            .Xchg, .Add, .Sub, .Max, .Min => {},
-            else => return sema.fail(block, op_src, "@atomicRmw with float only allowed with .Xchg, .Add, .Sub, .Max, and .Min", .{}),
-        },
-        else => {},
-    }
     const order = try sema.resolveAtomicOrder(block, order_src, extra.ordering, .{ .simple = .atomic_order });
 
     if (order == .unordered) {

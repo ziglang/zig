@@ -493,10 +493,31 @@ pub const Op = union(enum) {
     }
     /// Check if the operation is supported on the given type, on a specified CPU.
     pub fn supportedOnCpu(op: Op, comptime T: type, cpu: std.Target.Cpu) bool {
-        if (!op.isValidAtomicType(T)) return false;
+        const valid_types = op.supportedTypes();
+        const is_valid_type = switch (@typeInfo(T)) {
+            .bool => valid_types.bool,
+            .int => valid_types.integer,
+            .float => valid_types.float,
+            .@"enum" => valid_types.@"enum",
+            .error_set => valid_types.error_set,
+            .@"struct" => |s| s.layout == .@"packed" and valid_types.packed_struct,
+
+            .optional => |opt| switch (@typeInfo(opt.child)) {
+                .pointer => |ptr| switch (ptr.size) {
+                    .slice, .c => false,
+                    .one, .many => !ptr.is_allowzero and valid_types.pointer,
+                },
+            },
+            .pointer => |ptr| switch (ptr.size) {
+                .slice => false,
+                .one, .many, .c => valid_types.pointer,
+            },
+
+            else => false,
+        };
+        if (!is_valid_type) return false;
 
         if (!std.math.isPowerOfTwo(@sizeOf(T))) return false;
-
         const required_features = op.supportedSizes(cpu.arch).get(@sizeOf(T)) orelse {
             return false;
         };
@@ -682,55 +703,58 @@ pub const Op = union(enum) {
         }
     }
 
-    /// Returns true if the type may be usable with this atomic operation.
-    /// This does not check that the type actually fits within the target's atomic size constriants.
-    /// This function must be kept in sync with the compiler implementation.
-    fn isValidAtomicType(op: Op, comptime T: type) bool {
-        const supports_floats = switch (op) {
-            .load, .store => true,
+    /// Returns a description of the kinds of type supported by this operation.
+    pub fn supportedTypes(op: Op) Types {
+        return switch (op) {
+            .load, .store => .{},
             .rmw => |rmw| switch (rmw) {
-                .Xchg, .Add, .Sub, .Min, .Max => true,
-                .And, .Nand, .Or, .Xor => false,
-            },
-            // floats are not supported for cmpxchg because float equality differs from bitwise equality
-            .cmpxchg => false,
-        };
-
-        return switch (@typeInfo(T)) {
-            .bool, .int, .@"enum", .error_set => true,
-            .float => supports_floats,
-            .@"struct" => |s| s.layout == .@"packed",
-
-            .optional => |opt| switch (@typeInfo(opt.child)) {
-                .pointer => |ptr| switch (ptr.size) {
-                    .slice, .c => false,
-                    .one, .many => !ptr.is_allowzero,
+                .Xchg => .{},
+                .Add, .Sub, .Min, .Max => .{
+                    .bool = false,
+                    .@"enum" = false,
+                    .error_set = false,
+                },
+                .And, .Nand, .Or, .Xor => .{
+                    .float = false,
+                    .bool = false,
+                    .@"enum" = false,
+                    .error_set = false,
                 },
             },
-            .pointer => |ptr| switch (ptr.size) {
-                .slice => false,
-                .one, .many, .c => true,
+            .cmpxchg => .{
+                // floats are not supported for cmpxchg because float equality differs from bitwise equality
+                .float = false,
             },
-
-            else => false,
         };
     }
+    pub const Types = packed struct {
+        bool: bool = true,
+        integer: bool = true,
+        float: bool = true,
+        @"enum": bool = true,
+        error_set: bool = true,
+        packed_struct: bool = true,
+        pointer: bool = true,
 
-    test isValidAtomicType {
-        try testing.expect(isValidAtomicType(.load, u8));
-        try testing.expect(isValidAtomicType(.load, f32));
-        try testing.expect(isValidAtomicType(.load, bool));
-        try testing.expect(isValidAtomicType(.load, enum { a, b, c }));
-        try testing.expect(isValidAtomicType(.load, packed struct { a: u8, b: u8 }));
-        try testing.expect(isValidAtomicType(.load, error{OutOfMemory}));
-        try testing.expect(isValidAtomicType(.load, u200)); // doesn't check size
+        pub fn format(types: Types, writer: *std.io.Writer) !void {
+            const bits: @typeInfo(Types).@"struct".backing_integer.? = @bitCast(types);
+            var count = @popCount(bits);
+            inline for (@typeInfo(Types).@"struct".fields) |field| {
+                if (@field(types, field.name)) {
+                    var name = field.name[0..].*;
+                    std.mem.replaceScalar(u8, &name, '_', ' ');
+                    try writer.writeAll(&name);
 
-        try testing.expect(!isValidAtomicType(.load, struct { a: u8 }));
-        try testing.expect(!isValidAtomicType(.load, union { a: u8 }));
-
-        // cmpxchg doesn't support floats
-        try testing.expect(!isValidAtomicType(.{ .cmpxchg = .weak }, f32));
-    }
+                    count -= 1;
+                    switch (count) {
+                        0 => {},
+                        1 => try writer.writeAll(", or "),
+                        else => try writer.writeAll(", "),
+                    }
+                }
+            }
+        }
+    };
 
     test supportedOnCpu {
         const x86 = std.Target.x86;
