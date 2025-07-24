@@ -518,11 +518,11 @@ pub const Op = union(enum) {
         if (!is_valid_type) return false;
 
         if (!std.math.isPowerOfTwo(@sizeOf(T))) return false;
-        const required_features = op.supportedSizes(cpu.arch).get(@sizeOf(T)) orelse {
+        const condition = op.supportedSizes(cpu.arch).get(@sizeOf(T)) orelse {
             return false;
         };
 
-        return cpu.features.isSuperSetOf(required_features);
+        return condition.check(cpu.features);
     }
 
     /// Get the set of sizes supported by this operation on the specified architecture.
@@ -531,11 +531,9 @@ pub const Op = union(enum) {
         switch (arch) {
             .avr,
             .msp430,
-            => return .upTo(2, .empty),
+            => return .upTo(2, .always),
 
             .arc,
-            .arm,
-            .armeb,
             .hexagon,
             .m68k,
             .mips,
@@ -545,9 +543,6 @@ pub const Op = union(enum) {
             .powerpc,
             .powerpcle,
             .riscv32,
-            .sparc,
-            .thumb,
-            .thumbeb,
             .xcore,
             .kalimba,
             .lanai,
@@ -556,9 +551,8 @@ pub const Op = union(enum) {
             .loongarch32,
             .xtensa,
             .propeller,
-            => return .upTo(4, .empty),
+            => return .upTo(4, .always),
 
-            .amdgcn,
             .bpfel,
             .bpfeb,
             .mips64,
@@ -567,16 +561,61 @@ pub const Op = union(enum) {
             .powerpc64,
             .powerpc64le,
             .riscv64,
-            .sparc64,
             .s390x,
             .ve,
             .spirv64,
             .loongarch64,
-            => return .upTo(8, .empty),
+            => return .upTo(8, .always),
+
+            .amdgcn => switch (op) {
+                .load, .store, .cmpxchg => {
+                    var sizes: Sizes = .none;
+                    sizes.put(4, .always);
+                    sizes.put(8, .always);
+                    return sizes;
+                },
+                // On AMDGCN, there are no instructions for atomic operations other than load and store
+                // (as of LLVM 15), and so these need to be implemented in terms of atomic CAS.
+                .rmw => return .none,
+            },
+
+            .sparc => {
+                const cas: Sizes = .upTo(4, .init(.sparc, .{ .require = &.{.hasleoncasa} }));
+                switch (op) {
+                    .cmpxchg => return cas,
+                    .load, .store => return .upTo(4, .always),
+                    .rmw => |rmw| switch (rmw) {
+                        .Xchg => return .upTo(4, .always),
+                        else => return cas, // Implemented in terms of CASA
+                    },
+                }
+            },
+
+            .sparc64 => {
+                const cas: Sizes = .upTo(8, .init(.sparc, .{ .require = &.{.hasleoncasa} }));
+                switch (op) {
+                    .cmpxchg => return cas,
+                    .load, .store => return .upTo(8, .always),
+                    .rmw => |rmw| switch (rmw) {
+                        .Xchg => return .upTo(8, .always),
+                        else => return cas, // Implemented in terms of CASXA
+                    },
+                }
+            },
+
+            .arm, .armeb, .thumb, .thumbeb => if (op == .cmpxchg) {
+                // The ARM v6m ISA has no ldrex/strex and so it's impossible to do CAS
+                // operations (unless we're targeting Linux, the kernel provides a way to
+                // perform CAS operations).
+                // XXX: The Linux code path is not implemented yet.
+                return .upTo(4, .init(.arm, .{ .prohibit = &.{.has_v6m} }));
+            } else {
+                return .upTo(4, .always);
+            },
 
             .aarch64,
             .aarch64_be,
-            => return .upTo(16, .empty),
+            => return .upTo(16, .always),
 
             .wasm32,
             .wasm64,
@@ -596,21 +635,21 @@ pub const Op = union(enum) {
                     => return .none, // Not supported on wasm
                 };
 
-                return .upTo(8, std.Target.wasm.featureSet(&.{.atomics}));
+                return .upTo(8, .init(.wasm, .{ .require = &.{.atomics} }));
             },
 
             .x86 => {
-                var sizes: Sizes = .upTo(4, .empty);
+                var sizes: Sizes = .upTo(4, .always);
                 if (op == .cmpxchg) {
-                    sizes.put(8, std.Target.x86.featureSet(&.{.cx8}));
+                    sizes.put(8, .init(.x86, .{ .require = &.{.cx8} }));
                 }
                 return sizes;
             },
 
             .x86_64 => {
-                var sizes: Sizes = .upTo(8, .empty);
+                var sizes: Sizes = .upTo(8, .always);
                 if (op == .cmpxchg) {
-                    sizes.put(16, std.Target.x86.featureSet(&.{.cx16}));
+                    sizes.put(16, .init(.x86, .{ .require = &.{.cx16} }));
                 }
                 return sizes;
             },
@@ -619,11 +658,11 @@ pub const Op = union(enum) {
 
     pub const Sizes = struct {
         /// Bitset of supported sizes. If size `2^n` is present, `supported & (1 << n)` will be non-zero.
-        /// For each set bit, the corresponding entry in `required_features` will be populated.
+        /// For each set bit, the corresponding entry in `required_features` and `prohibited_features` will be populated.
         supported: BitsetInt,
-        /// for each set bit in `supported`, the corresponding entry here indicates the required CPU features to support that size.
-        /// Otherwise, the element is `undefined`.
-        required_features: [bit_set_len]std.Target.Cpu.Feature.Set,
+        /// for each set bit in `supported`, the corresponding entry here stores a `FeatureCondition` that indicates
+        /// the requirements on CPU features in order to support that size. For unset bits, the element is `undefined`.
+        feature_conditions: [bit_set_len]FeatureCondition,
 
         const bit_set_len = std.math.log2_int(usize, max_supported_size) + 1;
         const BitsetInt = @Type(.{ .int = .{
@@ -634,11 +673,37 @@ pub const Op = union(enum) {
         pub fn isEmpty(sizes: Sizes) bool {
             return sizes.supported == 0;
         }
-        pub fn get(sizes: Sizes, size: u64) ?std.Target.Cpu.Feature.Set {
-            if (size == 0) return .empty; // 0-bit types are always atomic, because they only hold a single value
+        pub fn get(sizes: Sizes, size: u64) ?FeatureCondition {
+            if (size == 0) return .always; // 0-bit types are always atomic, because they only hold a single value
             if (!std.math.isPowerOfTwo(size)) return null;
             if (sizes.supported & size == 0) return null;
-            return sizes.required_features[std.math.log2_int(u64, size)];
+            return sizes.feature_conditions[std.math.log2_int(u64, size)];
+        }
+
+        pub fn findMax(sizes: Sizes, features: std.Target.Cpu.Feature.Set) usize {
+            var bits = sizes.supported;
+            while (bits != 0) {
+                const max = std.math.log2_int(BitsetInt, bits);
+                const mask = @as(BitsetInt, 1) << max;
+                bits &= ~mask;
+                if (sizes.feature_conditions[max].check(features)) {
+                    return mask;
+                }
+            }
+            return 0;
+        }
+
+        pub fn findMin(sizes: Sizes, features: std.Target.Cpu.Feature.Set) usize {
+            var bits = sizes.supported;
+            while (bits != 0) {
+                const min = @ctz(bits);
+                const mask = @as(BitsetInt, 1) << @intCast(min);
+                bits &= ~mask;
+                if (sizes.feature_conditions[min].check(features)) {
+                    return mask;
+                }
+            }
+            return 0;
         }
 
         /// Prints the set as a list of possible sizes.
@@ -667,24 +732,48 @@ pub const Op = union(enum) {
 
         const none: Sizes = .{
             .supported = 0,
-            .required_features = undefined,
+            .feature_conditions = undefined,
         };
-        fn upTo(max: BitsetInt, required_features: std.Target.Cpu.Feature.Set) Sizes {
+        fn upTo(max: BitsetInt, condition: FeatureCondition) Sizes {
             std.debug.assert(std.math.isPowerOfTwo(max));
             var sizes: Sizes = .{
                 .supported = (max << 1) -% 1,
-                .required_features = @splat(required_features),
+                .feature_conditions = @splat(condition),
             };
 
             // Safety
             const max_idx = std.math.log2_int(BitsetInt, max);
-            @memset(sizes.required_features[max_idx + 1 ..], undefined);
+            @memset(sizes.feature_conditions[max_idx + 1 ..], undefined);
 
             return sizes;
         }
-        fn put(sizes: *Sizes, size: BitsetInt, required_features: std.Target.Cpu.Feature.Set) void {
+        fn put(sizes: *Sizes, size: BitsetInt, condition: FeatureCondition) void {
             sizes.supported |= size;
-            sizes.required_features[std.math.log2_int(u64, size)] = required_features;
+            sizes.feature_conditions[std.math.log2_int(u64, size)] = condition;
+        }
+    };
+
+    pub const FeatureCondition = struct {
+        required: Set,
+        prohibited: Set,
+        const Set = std.Target.Cpu.Feature.Set;
+
+        pub const always: FeatureCondition = .{ .required = .empty, .prohibited = .empty };
+
+        pub fn check(self: FeatureCondition, features: Set) bool {
+            return features.isSuperSetOf(self.required) and !features.intersectsWith(self.prohibited);
+        }
+
+        fn init(comptime family: std.Target.Cpu.Arch.Family, opts: struct {
+            const Feature = @field(std.Target, @tagName(family)).Feature;
+            require: []const Feature = &.{},
+            prohibit: []const Feature = &.{},
+        }) FeatureCondition {
+            const ns = @field(std.Target, @tagName(family));
+            return .{
+                .required = ns.featureSet(opts.require),
+                .prohibited = ns.featureSet(opts.prohibit),
+            };
         }
     };
 
@@ -778,10 +867,11 @@ pub const Op = union(enum) {
         const sizes = supportedSizes(.{ .cmpxchg = .strong }, .x86);
 
         try std.testing.expect(sizes.get(4) != null);
-        try std.testing.expect(sizes.get(4).?.isEmpty());
+        try std.testing.expect(sizes.get(4).?.check(.empty));
 
         try std.testing.expect(sizes.get(8) != null);
-        try std.testing.expect(std.Target.x86.featureSetHas(sizes.get(8).?, .cx8));
+        try std.testing.expect(!sizes.get(8).?.check(.empty));
+        try std.testing.expect(sizes.get(8).?.check(std.Target.x86.featureSet(&.{.cx8})));
 
         try std.testing.expect(sizes.get(16) == null);
     }
@@ -831,7 +921,8 @@ pub const Op = union(enum) {
 
         const sizes = supportedSizes(.{ .cmpxchg = .strong }, .x86_64);
         try std.testing.expect(sizes.get(16) != null);
-        try std.testing.expect(x86.featureSetHas(sizes.get(16).?, .cx16));
+        try std.testing.expect(sizes.get(16).?.check(x86.featureSet(&.{.cx16})));
+        try std.testing.expect(!sizes.get(16).?.check(.empty));
     }
 };
 

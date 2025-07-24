@@ -23624,7 +23624,7 @@ fn checkAtomicPtrOperand(
     }
 
     const elem_size = elem_ty.abiSize(zcu);
-    const required_features = size_support.get(elem_size) orelse {
+    var feature_condition = size_support.get(elem_size) orelse {
         const msg = msg: {
             const msg = try sema.errMsg(
                 elem_ty_src,
@@ -23643,14 +23643,32 @@ fn checkAtomicPtrOperand(
         return sema.failWithOwnedErrorMsg(block, msg);
     };
 
-    var missing_features = required_features;
-    missing_features.removeFeatureSet(target.cpu.features);
-    if (!missing_features.isEmpty()) {
+    feature_condition.prohibited.intersectFeatureSet(target.cpu.features);
+    feature_condition.required.removeFeatureSet(target.cpu.features);
+    if (!feature_condition.prohibited.isEmpty()) {
+        return sema.fail(
+            block,
+            atomic_op_src,
+            "{d}-byte {f} on {s} cannot be used with the following CPU features: {f}",
+            .{
+                elem_size,
+                atomic_op,
+                @tagName(target.cpu.arch),
+                feature_condition.prohibited.fmtList(target.cpu.arch.family(), "or"),
+            },
+        );
+    }
+    if (!feature_condition.required.isEmpty()) {
         return sema.fail(
             block,
             atomic_op_src,
             "{d}-byte {f} on {s} requires the following missing CPU features: {f}",
-            .{ elem_size, atomic_op, @tagName(target.cpu.arch), missing_features.fmtList(target.cpu.arch.family(), "and") },
+            .{
+                elem_size,
+                atomic_op,
+                @tagName(target.cpu.arch),
+                feature_condition.required.fmtList(target.cpu.arch.family(), "and"),
+            },
         );
     }
 

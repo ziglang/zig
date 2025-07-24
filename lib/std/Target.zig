@@ -1245,6 +1245,11 @@ pub const Cpu = struct {
                 set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
             }
 
+            /// Removes all features that are not in the specified set.
+            pub fn intersectFeatureSet(set: *Set, other_set: Set) void {
+                set.ints = @as(@Vector(usize_count, usize), set.ints) & @as(@Vector(usize_count, usize), other_set.ints);
+            }
+
             pub fn populateDependencies(set: *Set, all_features_list: []const Cpu.Feature) void {
                 @setEvalBranchQuota(1000000);
 
@@ -1275,6 +1280,13 @@ pub const Cpu = struct {
                 const set_v: V = set.ints;
                 const other_v: V = other_set.ints;
                 return @reduce(.And, (set_v & other_v) == other_v);
+            }
+
+            pub fn intersectsWith(set: Set, other_set: Set) bool {
+                const V = @Vector(usize_count, usize);
+                const set_v: V = set.ints;
+                const other_v: V = other_set.ints;
+                return @reduce(.Or, (set_v & other_v) != @as(V, @splat(0)));
             }
 
             /// Formatter to print the feature set as a comma-separated list, ending with a conjunction
