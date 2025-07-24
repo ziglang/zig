@@ -803,15 +803,54 @@ pub fn splatBytesAll(w: *Writer, bytes: []const u8, splat: usize) Error!void {
     while (remaining_bytes > 0) {
         const leftover = remaining_bytes % bytes.len;
         const buffers: [2][]const u8 = .{ bytes[bytes.len - leftover ..], bytes };
-        remaining_bytes -= try w.writeSplat(&buffers, splat);
+        remaining_bytes -= try w.writeSplat(&buffers, remaining_bytes / bytes.len);
     }
 }
 
 test splatBytesAll {
+    const SillyStream = struct {
+        underlying_writer: *Writer,
+        writer: Writer,
+
+        fn init(buffer: []u8, underlying: *Writer) @This() {
+            return .{
+                .underlying_writer = underlying,
+                .writer = .{
+                    .vtable = &.{
+                        .drain = drain,
+                    },
+                    .buffer = buffer,
+                },
+            };
+        }
+
+        fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
+            const pt: *@This() = @fieldParentPtr("writer", w);
+
+            if (w.end > 0) {
+                const buffered_bytes = w.buffered();
+                const len = try pt.underlying_writer.write(buffered_bytes);
+                const new_end = w.end - len;
+                @memmove(buffered_bytes[0..new_end], buffered_bytes[len..]);
+                w.end = new_end;
+                const consumed = @min(data[0].len, w.buffer.len - new_end);
+                @memcpy(w.unusedCapacitySlice()[0..consumed], data[0][0..consumed]);
+                w.end += consumed;
+                return consumed;
+            }
+            return pt.underlying_writer.writeSplat(data, splat);
+        }
+    };
+
     var aw: Writer.Allocating = .init(testing.allocator);
     defer aw.deinit();
 
-    try aw.writer.splatBytesAll("hello", 3);
+    var buffer: [7]u8 = undefined;
+    var pt: SillyStream = .init(&buffer, &aw.writer);
+
+    try pt.writer.writeAll("hello");
+    try pt.writer.splatBytesAll("hello", 2);
+    try pt.writer.flush();
     try testing.expectEqualStrings("hellohellohello", aw.writer.buffered());
 }
 
