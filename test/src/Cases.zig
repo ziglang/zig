@@ -1071,7 +1071,14 @@ const TestManifest = struct {
     fn getDefaultParser(comptime T: type) ParseFn(T) {
         if (T == std.Target.Query) return struct {
             fn parse(str: []const u8) anyerror!T {
-                return std.Target.Query.parse(.{ .arch_os_abi = str });
+                if (std.mem.indexOfScalar(u8, str, ':')) |idx| {
+                    return std.Target.Query.parse(.{
+                        .arch_os_abi = str[0..idx],
+                        .cpu_features = str[idx + 1 ..],
+                    });
+                } else {
+                    return std.Target.Query.parse(.{ .arch_os_abi = str });
+                }
             }
         }.parse;
 
