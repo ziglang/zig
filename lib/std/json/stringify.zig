@@ -813,6 +813,13 @@ test "stringify basic types" {
     try testStringify("\"ItBroke\"", error.ItBroke, .{});
 }
 
+test "stringify infinity should error" {
+    var buffer: [128]u8 = undefined;
+    var w: std.io.Writer = .fixed(&buffer);
+    try std.testing.expectError(error.InvalidNumber, value(std.math.inf(f32), .{}, &w));
+    try std.testing.expectError(error.InvalidNumber, value(std.math.inf(f64), .{}, &w));
+}
+
 test "stringify string" {
     try testStringify("\"hello\"", "hello", .{});
     try testStringify("\"with\\nescapes\\r\"", "with\nescapes\r", .{});
